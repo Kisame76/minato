@@ -1,0 +1,162 @@
+// ADR-0060 e2b's test (media-codec-test): the JNI library MediaCodecApplication loads, which decodes a stream
+// through the NDK's AMediaCodec in ByteBuffer mode, with the decoder the Java side names, and logs each frame as the
+// Java side does: its time, flags and a CRC32 of its Y, U and V samples inside the crop, walked by the output
+// format's stride, slice height and color format (planar or semi-planar), so that decoders of either layout compare.
+// A line that starts with "device " goes to the device tag.
+#include <jni.h>
+#include <media/NdkMediaCodec.h>
+#include <media/NdkMediaFormat.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <zlib.h>
+
+#define NAME(name) Java_io_github_kisame76_minato_test_mediacodec_MediaCodecApplication_##name
+
+enum { kPlanar = 19, kSemiPlanar = 21, kFlexible = 0x7f420888 };
+
+struct layout {
+    int32_t width, height, stride, slice, color, left, top, right, bottom;
+};
+
+static void append(char *log, size_t size, const char *line) {
+    const size_t used = strlen(log);
+    if (used + strlen(line) + 2 < size) {
+        strcat(log, line);
+        strcat(log, "\n");
+    }
+}
+
+static int64_t now_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static void read_format(AMediaCodec *codec, struct layout *layout, char *log, size_t size) {
+    AMediaFormat *format = AMediaCodec_getOutputFormat(codec);
+    memset(layout, 0, sizeof *layout);
+    AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_WIDTH, &layout->width);
+    AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_HEIGHT, &layout->height);
+    AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_STRIDE, &layout->stride);
+    AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SLICE_HEIGHT, &layout->slice);
+    AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, &layout->color);
+    char line[300];
+    if (AMediaFormat_getRect(format, AMEDIAFORMAT_KEY_DISPLAY_CROP, &layout->left, &layout->top, &layout->right,
+                             &layout->bottom)) {
+        snprintf(line, sizeof line, "ndk: output format %d x %d, crop %d %d %d %d", layout->width, layout->height,
+                 layout->left, layout->top, layout->right, layout->bottom);
+    } else {
+        layout->right = layout->width - 1, layout->bottom = layout->height - 1;
+        snprintf(line, sizeof line, "ndk: output format %d x %d, no crop", layout->width, layout->height);
+    }
+    append(log, size, line);
+    snprintf(line, sizeof line, "device ndk: color format %#x, stride %d, slice height %d", layout->color,
+             layout->stride, layout->slice);
+    append(log, size, line);
+    if (layout->stride <= 0) layout->stride = layout->width;
+    if (layout->slice <= 0) layout->slice = layout->height;
+    AMediaFormat_delete(format);
+}
+
+// The CRC32 of one plane's samples inside the crop: rows of `stride` bytes from `plane`, a sample every `step`.
+static unsigned long plane_crc(const uint8_t *plane, int32_t stride, int32_t step, int32_t left, int32_t top,
+                               int32_t right, int32_t bottom) {
+    unsigned long crc = crc32(0L, Z_NULL, 0);
+    for (int32_t y = top; y <= bottom; y++) {
+        for (int32_t x = left; x <= right; x++) {
+            crc = crc32(crc, plane + (size_t)y * stride + (size_t)x * step, 1);
+        }
+    }
+    return crc;
+}
+
+static void frame(const struct layout *layout, const uint8_t *data, size_t size, const AMediaCodecBufferInfo *info,
+                  char *log, size_t log_size) {
+    char line[300];
+    const int32_t stride = layout->stride, slice = layout->slice;
+    const uint8_t *y = data + info->offset, *chroma = y + (size_t)stride * slice;
+    const int32_t l = layout->left, t = layout->top, r = layout->right, b = layout->bottom;
+    unsigned long cy = plane_crc(y, stride, 1, l, t, r, b), cu, cv;
+    if (layout->color == kSemiPlanar) {
+        cu = plane_crc(chroma, stride, 2, l / 2, t / 2, r / 2, b / 2);
+        cv = plane_crc(chroma + 1, stride, 2, l / 2, t / 2, r / 2, b / 2);
+    } else {  // planar, as the flexible format's buffers are in ByteBuffer mode
+        const uint8_t *v = chroma + (size_t)(stride / 2) * (slice / 2);
+        cu = plane_crc(chroma, stride / 2, 1, l / 2, t / 2, r / 2, b / 2);
+        cv = plane_crc(v, stride / 2, 1, l / 2, t / 2, r / 2, b / 2);
+    }
+    (void)size;
+    snprintf(line, sizeof line, "ndk: pts %lld, flags %u, Y %lx U %lx V %lx", (long long)info->presentationTimeUs,
+             info->flags, cy, cu, cv);
+    append(log, log_size, line);
+}
+
+JNIEXPORT jstring JNICALL NAME(decodeNative)(JNIEnv *env, jclass type, jstring decoder, jbyteArray stream,
+                                             jlongArray index) {
+    (void)type;
+    static char log[16384];
+    log[0] = 0;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, stream, NULL);
+    jlong *units = (*env)->GetLongArrayElements(env, index, NULL);
+    const jsize count = (*env)->GetArrayLength(env, index) / 4;
+    const char *name = decoder != NULL ? (*env)->GetStringUTFChars(env, decoder, NULL) : NULL;
+    AMediaCodec *codec = name != NULL ? AMediaCodec_createCodecByName(name) : NULL;
+    if (name != NULL) (*env)->ReleaseStringUTFChars(env, decoder, name);
+    if (codec == NULL) {
+        append(log, sizeof log, "ndk: no decoder");
+    } else {
+        AMediaFormat *format = AMediaFormat_new();
+        AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "video/avc");
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 320);
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 180);
+        char line[200];
+        snprintf(line, sizeof line, "ndk: configure %d, start %d", AMediaCodec_configure(codec, format, NULL, NULL, 0),
+                 AMediaCodec_start(codec));
+        append(log, sizeof log, line);
+        AMediaFormat_delete(format);
+        struct layout layout = {0};
+        jsize next = 0;
+        int frames = 0, sent_end = 0, ended = 0;
+        const int64_t deadline = now_ms() + 10000;
+        while (!ended && now_ms() < deadline) {
+            if (!sent_end) {
+                const ssize_t in = AMediaCodec_dequeueInputBuffer(codec, 10000);
+                if (in >= 0) {
+                    size_t capacity = 0;
+                    uint8_t *input = AMediaCodec_getInputBuffer(codec, (size_t)in, &capacity);
+                    if (next < count && input != NULL && (size_t)units[next * 4 + 1] <= capacity) {
+                        memcpy(input, bytes + units[next * 4], (size_t)units[next * 4 + 1]);
+                        AMediaCodec_queueInputBuffer(codec, (size_t)in, 0, (size_t)units[next * 4 + 1],
+                                                     (uint64_t)units[next * 4 + 2], 0);
+                        next++;
+                    } else {
+                        AMediaCodec_queueInputBuffer(codec, (size_t)in, 0, 0, 0,
+                                                     AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+                        sent_end = 1;
+                    }
+                }
+            }
+            AMediaCodecBufferInfo info;
+            const ssize_t out = AMediaCodec_dequeueOutputBuffer(codec, &info, 10000);
+            if (out == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
+                read_format(codec, &layout, log, sizeof log);
+            } else if (out >= 0) {
+                size_t size = 0;
+                const uint8_t *data = AMediaCodec_getOutputBuffer(codec, (size_t)out, &size);
+                if (data != NULL && info.size > 0) {
+                    frame(&layout, data, size, &info, log, sizeof log);
+                    frames++;
+                }
+                AMediaCodec_releaseOutputBuffer(codec, (size_t)out, false);
+                ended = (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
+            }
+        }
+        snprintf(line, sizeof line, "ndk: %d frames%s, stop %d, delete %d", frames, ended ? ", end of stream" : "",
+                 AMediaCodec_stop(codec), AMediaCodec_delete(codec));
+        append(log, sizeof log, line);
+    }
+    (*env)->ReleaseLongArrayElements(env, index, units, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, stream, bytes, JNI_ABORT);
+    return (*env)->NewStringUTF(env, log);
+}

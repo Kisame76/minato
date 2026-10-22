@@ -1,0 +1,157 @@
+I/media-codec-test: a decoder of video/avc: true, findDecoderForFormat: true, one that is not goldfish: true
+I/media-codec-test: baseline: output format video/raw, 320 x 180, crop 0 0 319 179
+I/media-codec-test: baseline: pts 0, flags 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
+I/media-codec-test: baseline: pts 33333, flags 0, 320 x 180, format 35, Y b83f83f0 U ffeba675 V 546b9af5
+I/media-codec-test: baseline: pts 66667, flags 0, 320 x 180, format 35, Y 2ad57f89 U dcfed1af V b77d6af3
+I/media-codec-test: baseline: pts 100000, flags 0, 320 x 180, format 35, Y a4afef6a U dc1d9e49 V 39bf1530
+I/media-codec-test: baseline: pts 133333, flags 0, 320 x 180, format 35, Y 77af3afd U e7d86d2b V 7c280245
+I/media-codec-test: baseline: pts 166667, flags 0, 320 x 180, format 35, Y a79963c0 U f8bac1db V a379ff8f
+I/media-codec-test: baseline: pts 200000, flags 0, 320 x 180, format 35, Y 46e87491 U 47859949 V ee9690bf
+I/media-codec-test: baseline: pts 233333, flags 0, 320 x 180, format 35, Y e83bfb58 U 5e94166c V b53dfa00
+I/media-codec-test: baseline: pts 266667, flags 0, 320 x 180, format 35, Y b8fd3ac7 U df8e84af V ab1e6611
+I/media-codec-test: baseline: pts 300000, flags 0, 320 x 180, format 35, Y 3be75a7b U 8fb570f6 V 55854feb
+I/media-codec-test: baseline: pts 333333, flags 0, 320 x 180, format 35, Y f1ea8b48 U 652c1019 V 4b13720e
+I/media-codec-test: baseline: pts 366667, flags 0, 320 x 180, format 35, Y 74d561dc U 79c0f8cc V c155dedf
+I/media-codec-test: baseline: pts 400000, flags 0, 320 x 180, format 35, Y 7af47f3d U 14ed1fbd V 58b3a54b
+I/media-codec-test: baseline: pts 433333, flags 0, 320 x 180, format 35, Y 324fb39d U ccc9329b V f22d00f1
+I/media-codec-test: baseline: pts 466667, flags 0, 320 x 180, format 35, Y d16ab1ef U cc987202 V 4f5c4cc3
+I/media-codec-test: baseline: pts 500000, flags 0, 320 x 180, format 35, Y 766c3e66 U 314c9fc6 V dcd801e7
+I/media-codec-test: baseline: pts 533333, flags 0, 320 x 180, format 35, Y ca4526f9 U 2aeff194 V 6f8b688c
+I/media-codec-test: baseline: pts 566667, flags 0, 320 x 180, format 35, Y ed2bba53 U fc760383 V 380c767
+I/media-codec-test: baseline: pts 600000, flags 0, 320 x 180, format 35, Y 2920e84e U 48d3f76a V 899970ea
+I/media-codec-test: baseline: pts 633333, flags 0, 320 x 180, format 35, Y 924f99ed U 703157f4 V e53c4358
+I/media-codec-test: baseline: pts 666667, flags 0, 320 x 180, format 35, Y bb6c150a U c719717b V 2339b9dd
+I/media-codec-test: baseline: pts 700000, flags 0, 320 x 180, format 35, Y 4eb9fc14 U 5a16fa22 V 2de6de9
+I/media-codec-test: baseline: pts 733333, flags 0, 320 x 180, format 35, Y 563b942 U a9b53c92 V eb69cb99
+I/media-codec-test: baseline: pts 766667, flags 0, 320 x 180, format 35, Y 381e9479 U b3364c V 830033b1
+I/media-codec-test: baseline: pts 800000, flags 0, 320 x 180, format 35, Y 8329b62a U b7ac48f1 V e7e83659
+I/media-codec-test: baseline: pts 833333, flags 0, 320 x 180, format 35, Y cdcf06ac U c5d4843c V f7931a0b
+I/media-codec-test: baseline: pts 866667, flags 0, 320 x 180, format 35, Y c6f1d855 U 2582c4a5 V c348080e
+I/media-codec-test: baseline: pts 900000, flags 0, 320 x 180, format 35, Y f82a660 U 475b722e V e887672e
+I/media-codec-test: baseline: pts 933333, flags 0, 320 x 180, format 35, Y e44d1608 U 255fdbb8 V 986f1298
+I/media-codec-test: baseline: pts 966667, flags 0, 320 x 180, format 35, Y ba77a5ea U b3af68ff V 40d4690d
+I/media-codec-test: baseline: 30 frames, end of stream
+I/media-codec-test: main: output format video/raw, 320 x 180, crop 0 0 319 179
+I/media-codec-test: main: pts 0, flags 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
+I/media-codec-test: main: pts 33333, flags 0, 320 x 180, format 35, Y 8cbf1701 U 17d03d5 V 783b5e8b
+I/media-codec-test: main: pts 66667, flags 0, 320 x 180, format 35, Y dbee9e10 U a292332f V 6d277df9
+I/media-codec-test: main: pts 100000, flags 0, 320 x 180, format 35, Y 6fbe77f0 U 8a173d31 V 44b8afcd
+I/media-codec-test: main: pts 133333, flags 0, 320 x 180, format 35, Y e13b4edc U f3f83915 V b5fd2eea
+I/media-codec-test: main: pts 166667, flags 0, 320 x 180, format 35, Y 18552316 U d23d2c28 V 5452be46
+I/media-codec-test: main: pts 200000, flags 0, 320 x 180, format 35, Y f5c3ec41 U e49e05c6 V cc22bd02
+I/media-codec-test: main: pts 233333, flags 0, 320 x 180, format 35, Y b8e23cfe U d92b981d V f2242ce
+I/media-codec-test: main: pts 266667, flags 0, 320 x 180, format 35, Y 816c46cb U 8847de04 V a76edb37
+I/media-codec-test: main: pts 300000, flags 0, 320 x 180, format 35, Y af385231 U 1280336e V ffb0a8ba
+I/media-codec-test: main: pts 333333, flags 0, 320 x 180, format 35, Y 99caf418 U 762abef5 V 41e9224c
+I/media-codec-test: main: pts 366667, flags 0, 320 x 180, format 35, Y e2580de6 U 21347fc6 V ebdf91b6
+I/media-codec-test: main: pts 400000, flags 0, 320 x 180, format 35, Y f2d40b09 U 5d527ccf V 69233de0
+I/media-codec-test: main: pts 433333, flags 0, 320 x 180, format 35, Y 38a88632 U e97b869c V 4c5035f
+I/media-codec-test: main: pts 466667, flags 0, 320 x 180, format 35, Y 8dd01f09 U bc5bde51 V ebc687f3
+I/media-codec-test: main: pts 500000, flags 0, 320 x 180, format 35, Y f71092d5 U 8e4a3ed8 V 57d81f5b
+I/media-codec-test: main: pts 533333, flags 0, 320 x 180, format 35, Y 9241034e U 6973f58e V 70aded21
+I/media-codec-test: main: pts 566667, flags 0, 320 x 180, format 35, Y 153283d9 U 83e0b883 V 2508373e
+I/media-codec-test: main: pts 600000, flags 0, 320 x 180, format 35, Y 7f3062fe U c9c82554 V d0b708ac
+I/media-codec-test: main: pts 633333, flags 0, 320 x 180, format 35, Y 340493b7 U 3e050746 V be2fef26
+I/media-codec-test: main: pts 666667, flags 0, 320 x 180, format 35, Y 6e25613d U 4b0aab5e V a30ce8a5
+I/media-codec-test: main: pts 700000, flags 0, 320 x 180, format 35, Y 89576652 U fd019f59 V 5681a2ea
+I/media-codec-test: main: pts 733333, flags 0, 320 x 180, format 35, Y 85b7fbe9 U 121981b3 V 8e4a2e9d
+I/media-codec-test: main: pts 766667, flags 0, 320 x 180, format 35, Y e5de14c3 U 26faf488 V e7bd43cd
+I/media-codec-test: main: pts 800000, flags 0, 320 x 180, format 35, Y 1448ff2 U ad41b4f6 V 51b46283
+I/media-codec-test: main: pts 833333, flags 0, 320 x 180, format 35, Y cd9549e1 U ababc916 V d3546e79
+I/media-codec-test: main: pts 866667, flags 0, 320 x 180, format 35, Y 2a4bbb1f U ba825e18 V b2ea929d
+I/media-codec-test: main: pts 900000, flags 0, 320 x 180, format 35, Y 9d5ce419 U 925b53df V 7b228afc
+I/media-codec-test: main: pts 933333, flags 0, 320 x 180, format 35, Y 1dadc26d U 87f5b199 V 88244e10
+I/media-codec-test: main: pts 966667, flags 0, 320 x 180, format 35, Y e979c167 U 7561b8c3 V 70139799
+I/media-codec-test: main: 30 frames, end of stream
+I/media-codec-test: baseline async: onOutputFormatChanged 320 x 180, crop 0 0 319 179
+I/media-codec-test: baseline async: pts 0, flags 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
+I/media-codec-test: baseline async: pts 33333, flags 0, 320 x 180, format 35, Y b83f83f0 U ffeba675 V 546b9af5
+I/media-codec-test: baseline async: pts 66667, flags 0, 320 x 180, format 35, Y 2ad57f89 U dcfed1af V b77d6af3
+I/media-codec-test: baseline async: pts 100000, flags 0, 320 x 180, format 35, Y a4afef6a U dc1d9e49 V 39bf1530
+I/media-codec-test: baseline async: pts 133333, flags 0, 320 x 180, format 35, Y 77af3afd U e7d86d2b V 7c280245
+I/media-codec-test: baseline async: pts 166667, flags 0, 320 x 180, format 35, Y a79963c0 U f8bac1db V a379ff8f
+I/media-codec-test: baseline async: pts 200000, flags 0, 320 x 180, format 35, Y 46e87491 U 47859949 V ee9690bf
+I/media-codec-test: baseline async: pts 233333, flags 0, 320 x 180, format 35, Y e83bfb58 U 5e94166c V b53dfa00
+I/media-codec-test: baseline async: pts 266667, flags 0, 320 x 180, format 35, Y b8fd3ac7 U df8e84af V ab1e6611
+I/media-codec-test: baseline async: pts 300000, flags 0, 320 x 180, format 35, Y 3be75a7b U 8fb570f6 V 55854feb
+I/media-codec-test: baseline async: pts 333333, flags 0, 320 x 180, format 35, Y f1ea8b48 U 652c1019 V 4b13720e
+I/media-codec-test: baseline async: pts 366667, flags 0, 320 x 180, format 35, Y 74d561dc U 79c0f8cc V c155dedf
+I/media-codec-test: baseline async: pts 400000, flags 0, 320 x 180, format 35, Y 7af47f3d U 14ed1fbd V 58b3a54b
+I/media-codec-test: baseline async: pts 433333, flags 0, 320 x 180, format 35, Y 324fb39d U ccc9329b V f22d00f1
+I/media-codec-test: baseline async: pts 466667, flags 0, 320 x 180, format 35, Y d16ab1ef U cc987202 V 4f5c4cc3
+I/media-codec-test: baseline async: pts 500000, flags 0, 320 x 180, format 35, Y 766c3e66 U 314c9fc6 V dcd801e7
+I/media-codec-test: baseline async: pts 533333, flags 0, 320 x 180, format 35, Y ca4526f9 U 2aeff194 V 6f8b688c
+I/media-codec-test: baseline async: pts 566667, flags 0, 320 x 180, format 35, Y ed2bba53 U fc760383 V 380c767
+I/media-codec-test: baseline async: pts 600000, flags 0, 320 x 180, format 35, Y 2920e84e U 48d3f76a V 899970ea
+I/media-codec-test: baseline async: pts 633333, flags 0, 320 x 180, format 35, Y 924f99ed U 703157f4 V e53c4358
+I/media-codec-test: baseline async: pts 666667, flags 0, 320 x 180, format 35, Y bb6c150a U c719717b V 2339b9dd
+I/media-codec-test: baseline async: pts 700000, flags 0, 320 x 180, format 35, Y 4eb9fc14 U 5a16fa22 V 2de6de9
+I/media-codec-test: baseline async: pts 733333, flags 0, 320 x 180, format 35, Y 563b942 U a9b53c92 V eb69cb99
+I/media-codec-test: baseline async: pts 766667, flags 0, 320 x 180, format 35, Y 381e9479 U b3364c V 830033b1
+I/media-codec-test: baseline async: pts 800000, flags 0, 320 x 180, format 35, Y 8329b62a U b7ac48f1 V e7e83659
+I/media-codec-test: baseline async: pts 833333, flags 0, 320 x 180, format 35, Y cdcf06ac U c5d4843c V f7931a0b
+I/media-codec-test: baseline async: pts 866667, flags 0, 320 x 180, format 35, Y c6f1d855 U 2582c4a5 V c348080e
+I/media-codec-test: baseline async: pts 900000, flags 0, 320 x 180, format 35, Y f82a660 U 475b722e V e887672e
+I/media-codec-test: baseline async: pts 933333, flags 0, 320 x 180, format 35, Y e44d1608 U 255fdbb8 V 986f1298
+I/media-codec-test: baseline async: pts 966667, flags 0, 320 x 180, format 35, Y ba77a5ea U b3af68ff V 40d4690d
+I/media-codec-test: baseline async: 31 lines, end of stream
+I/media-codec-test: baseline flushed before: output format video/raw, 320 x 180, crop 0 0 319 179
+I/media-codec-test: baseline flushed before: pts 0, flags 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
+I/media-codec-test: baseline flushed before: pts 33333, flags 0, 320 x 180, format 35, Y b83f83f0 U ffeba675 V 546b9af5
+I/media-codec-test: baseline flushed before: pts 66667, flags 0, 320 x 180, format 35, Y 2ad57f89 U dcfed1af V b77d6af3
+I/media-codec-test: baseline flushed before: pts 100000, flags 0, 320 x 180, format 35, Y a4afef6a U dc1d9e49 V 39bf1530
+I/media-codec-test: baseline flushed before: pts 133333, flags 0, 320 x 180, format 35, Y 77af3afd U e7d86d2b V 7c280245
+I/media-codec-test: baseline flushed before: 5 frames
+I/media-codec-test: baseline flushed after: pts 500000, flags 0, 320 x 180, format 35, Y 766c3e66 U 314c9fc6 V dcd801e7
+I/media-codec-test: baseline flushed after: pts 533333, flags 0, 320 x 180, format 35, Y ca4526f9 U 2aeff194 V 6f8b688c
+I/media-codec-test: baseline flushed after: pts 566667, flags 0, 320 x 180, format 35, Y ed2bba53 U fc760383 V 380c767
+I/media-codec-test: baseline flushed after: pts 600000, flags 0, 320 x 180, format 35, Y 2920e84e U 48d3f76a V 899970ea
+I/media-codec-test: baseline flushed after: pts 633333, flags 0, 320 x 180, format 35, Y 924f99ed U 703157f4 V e53c4358
+I/media-codec-test: baseline flushed after: pts 666667, flags 0, 320 x 180, format 35, Y bb6c150a U c719717b V 2339b9dd
+I/media-codec-test: baseline flushed after: pts 700000, flags 0, 320 x 180, format 35, Y 4eb9fc14 U 5a16fa22 V 2de6de9
+I/media-codec-test: baseline flushed after: pts 733333, flags 0, 320 x 180, format 35, Y 563b942 U a9b53c92 V eb69cb99
+I/media-codec-test: baseline flushed after: pts 766667, flags 0, 320 x 180, format 35, Y 381e9479 U b3364c V 830033b1
+I/media-codec-test: baseline flushed after: pts 800000, flags 0, 320 x 180, format 35, Y 8329b62a U b7ac48f1 V e7e83659
+I/media-codec-test: baseline flushed after: pts 833333, flags 0, 320 x 180, format 35, Y cdcf06ac U c5d4843c V f7931a0b
+I/media-codec-test: baseline flushed after: pts 866667, flags 0, 320 x 180, format 35, Y c6f1d855 U 2582c4a5 V c348080e
+I/media-codec-test: baseline flushed after: pts 900000, flags 0, 320 x 180, format 35, Y f82a660 U 475b722e V e887672e
+I/media-codec-test: baseline flushed after: pts 933333, flags 0, 320 x 180, format 35, Y e44d1608 U 255fdbb8 V 986f1298
+I/media-codec-test: baseline flushed after: pts 966667, flags 0, 320 x 180, format 35, Y ba77a5ea U b3af68ff V 40d4690d
+I/media-codec-test: baseline flushed after: 15 frames, end of stream
+I/media-codec-test: an unknown type: IllegalArgumentException
+I/media-codec-test: dequeueOutputBuffer before start: IllegalStateException
+I/media-codec-test: ndk: configure 0, start 0
+I/media-codec-test: ndk: output format 320 x 180, crop 0 0 319 179
+I/media-codec-test: ndk: pts 0, flags 0, Y 31e82cd2 U f0d30877 V 30951d77
+I/media-codec-test: ndk: output format 320 x 180, crop 0 0 319 179
+I/media-codec-test: ndk: pts 33333, flags 0, Y 8cbf1701 U 17d03d5 V 783b5e8b
+I/media-codec-test: ndk: pts 66667, flags 0, Y dbee9e10 U a292332f V 6d277df9
+I/media-codec-test: ndk: pts 100000, flags 0, Y 6fbe77f0 U 8a173d31 V 44b8afcd
+I/media-codec-test: ndk: pts 133333, flags 0, Y e13b4edc U f3f83915 V b5fd2eea
+I/media-codec-test: ndk: pts 166667, flags 0, Y 18552316 U d23d2c28 V 5452be46
+I/media-codec-test: ndk: pts 200000, flags 0, Y f5c3ec41 U e49e05c6 V cc22bd02
+I/media-codec-test: ndk: pts 233333, flags 0, Y b8e23cfe U d92b981d V f2242ce
+I/media-codec-test: ndk: pts 266667, flags 0, Y 816c46cb U 8847de04 V a76edb37
+I/media-codec-test: ndk: pts 300000, flags 0, Y af385231 U 1280336e V ffb0a8ba
+I/media-codec-test: ndk: pts 333333, flags 0, Y 99caf418 U 762abef5 V 41e9224c
+I/media-codec-test: ndk: pts 366667, flags 0, Y e2580de6 U 21347fc6 V ebdf91b6
+I/media-codec-test: ndk: pts 400000, flags 0, Y f2d40b09 U 5d527ccf V 69233de0
+I/media-codec-test: ndk: pts 433333, flags 0, Y 38a88632 U e97b869c V 4c5035f
+I/media-codec-test: ndk: pts 466667, flags 0, Y 8dd01f09 U bc5bde51 V ebc687f3
+I/media-codec-test: ndk: pts 500000, flags 0, Y f71092d5 U 8e4a3ed8 V 57d81f5b
+I/media-codec-test: ndk: pts 533333, flags 0, Y 9241034e U 6973f58e V 70aded21
+I/media-codec-test: ndk: pts 566667, flags 0, Y 153283d9 U 83e0b883 V 2508373e
+I/media-codec-test: ndk: pts 600000, flags 0, Y 7f3062fe U c9c82554 V d0b708ac
+I/media-codec-test: ndk: pts 633333, flags 0, Y 340493b7 U 3e050746 V be2fef26
+I/media-codec-test: ndk: pts 666667, flags 0, Y 6e25613d U 4b0aab5e V a30ce8a5
+I/media-codec-test: ndk: pts 700000, flags 0, Y 89576652 U fd019f59 V 5681a2ea
+I/media-codec-test: ndk: pts 733333, flags 0, Y 85b7fbe9 U 121981b3 V 8e4a2e9d
+I/media-codec-test: ndk: pts 766667, flags 0, Y e5de14c3 U 26faf488 V e7bd43cd
+I/media-codec-test: ndk: pts 800000, flags 0, Y 1448ff2 U ad41b4f6 V 51b46283
+I/media-codec-test: ndk: pts 833333, flags 0, Y cd9549e1 U ababc916 V d3546e79
+I/media-codec-test: ndk: pts 866667, flags 0, Y 2a4bbb1f U ba825e18 V b2ea929d
+I/media-codec-test: ndk: pts 900000, flags 0, Y 9d5ce419 U 925b53df V 7b228afc
+I/media-codec-test: ndk: pts 933333, flags 0, Y 1dadc26d U 87f5b199 V 88244e10
+I/media-codec-test: ndk: pts 966667, flags 0, Y e979c167 U 7561b8c3 V 70139799
+I/media-codec-test: ndk: 30 frames, end of stream, stop 0, delete 0
+I/media-codec-test: done
