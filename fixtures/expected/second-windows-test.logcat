@@ -1,3 +1,37 @@
+I/second-windows-test: focus: activity false, dialog 1 true
+I/second-windows-test: ready: dialog 1
+I/second-windows-test: dialog 1 ok touched inside the button: true
+I/second-windows-test: dialog 1 positive
+I/second-windows-test: dialog 1 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: focus: activity false, dialog 2 true
+I/second-windows-test: ready: dialog 2
+I/second-windows-test: dialog 2 canceled
+I/second-windows-test: dialog 2 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: focus: no change
+I/second-windows-test: ready: popup 1
+I/second-windows-test: popup 1 dismissed
+I/second-windows-test: target clicked
+I/second-windows-test: focus: no change
+I/second-windows-test: focus: activity false, popup 2 true
+I/second-windows-test: ready: popup 2
+I/second-windows-test: popup 2 touched at 200,100
+I/second-windows-test: popup 2 clicked
+I/second-windows-test: focus: no change
+I/second-windows-test: ready: popup 2 again
+I/second-windows-test: popup 2 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: focus: activity false, dialog 3 true
+I/second-windows-test: activity key up KEYCODE_A
+I/second-windows-test: dialog 3 key down KEYCODE_BACK
+I/second-windows-test: dialog 3 key up KEYCODE_BACK
+I/second-windows-test: dialog 3 canceled
+I/second-windows-test: dialog 3 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: touches part over
+I/second-windows-test: activity key down KEYCODE_A
+I/second-windows-test: activity key up KEYCODE_A
 I/second-windows-test: activity decor 1290x2796, anchor at 0,0 size 264x144
 I/second-windows-test: dialog showing true, type 2, activity's token false, dim behind true 0.6
 I/second-windows-test: dialog shown

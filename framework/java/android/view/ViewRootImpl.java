@@ -242,6 +242,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return mParentRoot;
     }
 
+    /** @hide An application window's activity group, 0 for any other window. */
+    int requestGroup() {
+        return mRequestGroup;
+    }
+
     /** @hide The window's binder, which LayoutParams.token names for its sub-windows. */
     IBinder windowToken() {
         return mAttachInfo.mWindowToken;
@@ -1417,6 +1422,15 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 }
                 mTouchesFromDown = false;
             }
+            // The session's touches go to the window that takes them (ADR-0041 gap 4 (b2)).
+            if (event instanceof MotionEvent && ((MotionEvent) event).isTouchEvent()) {
+                final ViewRootImpl target = WindowManagerGlobal.getInstance().routeTouch(ViewRootImpl.this,
+                        (MotionEvent) event);
+                if (target != ViewRootImpl.this) {
+                    finishInputEvent(event, target != null);
+                    return;
+                }
+            }
             deliverInputEvent(event, this, false);
         }
 
@@ -1529,6 +1543,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         } else {
             event.recycleIfNeededAfterDispatch();
         }
+    }
+
+    /**
+     * @hide WindowManagerGlobal's: a touch of the session's channel that this window takes, in its own pixels, through
+     * its input stages, as Android's dispatcher hands it to the window's own channel; it is recycled after.
+     */
+    void deliverRouted(InputEvent event) {
+        deliverInputEvent(event, null, false);
     }
 
     /** As AOSP's: a key's UP, or a motion event's UP, CANCEL or HOVER_EXIT, ends what came before it. */

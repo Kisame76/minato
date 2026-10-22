@@ -1245,9 +1245,8 @@ public final class ActivityThread {
                 break;
             case EVENT_WINDOW_FOCUS_CHANGED:
                 mHostFocus = event[2] != 0;
-                if (root != null) {
-                    root.windowFocusChanged(mHostFocus);
-                }
+                // The session's focus goes to its top focusable window (ADR-0041 gap 4 (b2)).
+                WindowManagerGlobal.getInstance().setSessionWindow(root, mHostFocus);
                 break;
             case EVENT_NATIVE_WINDOW_CREATED:
             case EVENT_NATIVE_WINDOW_RESIZED:
@@ -1949,10 +1948,8 @@ public final class ActivityThread {
         mHostRoot = to;
         InputChannel input = mHostInput;
         if (from != null) {
-            if (mHostFocus) {
-                from.windowFocusChanged(false);
-            }
             if (input != null) {
+                WindowManagerGlobal.getInstance().cancelRoutedTouch();
                 // A finger that is down stays the old window's: its gesture ends there with a CANCEL, and the new
                 // window gets touches from their next DOWN (step b3.5b2-1b).
                 from.cancelTouch();
@@ -1970,9 +1967,8 @@ public final class ActivityThread {
         } else if (input != null) {
             to.setInputChannel(input);
         }
-        if (mHostFocus) {
-            to.windowFocusChanged(true);
-        }
+        // The focus leaves the window before and goes to the new one's top focusable window (ADR-0041 gap 4 (b2)).
+        WindowManagerGlobal.getInstance().setSessionWindow(to, mHostFocus);
     }
 
     /**
@@ -2245,6 +2241,7 @@ public final class ActivityThread {
                 if (mHostRoot != null && decor.getParent() == mHostRoot) {
                     // The window that holds the session's: the next top gets them without it, and a share of the
                     // input channel stays open for it, as the host connects the queue once.
+                    WindowManagerGlobal.getInstance().forgetSessionWindow(mHostRoot);
                     mHostRoot = null;
                     mHostInput = mHostInput != null ? mHostInput.dup() : null;
                 }

@@ -540,7 +540,7 @@ run_app() {
     # second-windows-test (ADR-0041 gap 4 (b)): its activity runs when the window has the focus and ends with "done".
     second-windows-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SecondWindowsActivity
-      limit=90
+      limit=150
       ;;
     # f2-types-test (framework breadth F2): its activity runs when the window has the focus and ends with "done".
     f2-types-test)
@@ -752,6 +752,16 @@ run_app() {
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its
     # window once it is done brings the display back, so that the runs after it start in touch mode as before.
     { wait_for "$app" done && run input tap 645 1398; } || return 1
+  fi
+  if [[ "$app" == second-windows-test ]]; then
+    # ADR-0041 gap 4 (b2): a tap a second after each of the touches part's ready lines, at the places
+    # tools/second-windows-check.sh's lifecycle taps: the dialog's OK, outside the next dialog, the target under a
+    # popup that watches outside touches, in a focusable popup and on the target again.
+    { wait_for "$app" "ready: dialog 1" && sleep 1 && run input tap 1077 1549 &&
+      wait_for "$app" "ready: dialog 2" && sleep 1 && run input tap 645 700 &&
+      wait_for "$app" "ready: popup 1" && sleep 1 && run input tap 645 1398 &&
+      wait_for "$app" "ready: popup 2" && sleep 1 && run input tap 695 1573 &&
+      wait_for "$app" "ready: popup 2 again" && sleep 1 && run input tap 645 1398; } || return 1
   fi
   if [[ "$app" == gesture-flow-test ]]; then
     # Step b3.5b2-1b: a 3 s swipe down the window's middle from First's focus on, whose DOWN starts Second, so that the

@@ -12,27 +12,52 @@ import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.ViewTreeObserver;
 import android.widget.Button;
-import android.widget.LinearLayout;
+import android.widget.FrameLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Second windows (ADR-0041 gap 4 (b)): an AlertDialog and PopupWindows in windows of their own, with their frames and
- * callbacks, and what a bad token meets. It runs on the main thread when the launcher activity first has the window
- * focus, a step every SETTLE_MS, so that each window had its traversal. Frames are compared as sizes and as places
- * against their anchor or the screen's width; a window's place on the screen's height depends on the system bars'
- * insets, so it goes to the -device tag, which the comparison leaves out.
+ * callbacks, their touches, keys and focus, and what a bad token meets. It runs on the main thread when the launcher
+ * activity first has the window focus. Frames are compared as sizes and as places against their anchor or the screen's
+ * width; a window's place on the screen's height depends on the system bars' insets, so it goes to the -device tag,
+ * which the comparison leaves out.
+ *
+ * <p>The touches part comes first: each of its windows says "ready: ..." once shown, and the host taps it a second
+ * later, at places fixed on the display's 1290 x 2796 px (tools/second-windows-check.sh's lifecycle, and
+ * tools/android-reference.sh's taps on the gesture AVD after each ready line). Keys are injected into a window
+ * (Window.injectInputEvent), which takes them only while it has the window focus, as an app may inject into its own
+ * windows only. The windows' focus changes are kept and logged at the next step, as they come asynchronously. The
+ * frames part follows, a step every SETTLE_MS, so that each window had its traversal.
  *
  * <ul>
  *   <li>b1: the dialog shown and dismissed, a popup on the dialog's button and one below the activity's button, a
  *       popup with a line wider than config_prefDialogWidth, a dialog on the application context, a popup on a
  *       detached anchor, a sub-window on a dismissed dialog's token and a dialog of a finished activity.</li>
+ *   <li>b2: a tap on a dialog's button and its place in it, a tap outside a dialog, which cancels it and never reaches the
+ *       activity, an outside tap with a popup that watches outside touches, which dismisses it and clicks the activity's
+ *       button, a tap in a focusable popup and one outside it, which dismisses it alone, keys into the activity under a
+ *       dialog and BACK into the dialog, and each window's focus around them.</li>
  * </ul>
  */
 public class SecondWindowsActivity extends Activity {
     static final String TAG = "second-windows-test";
     private static final int SETTLE_MS = 600;
+    /** How long a touches step waits after its window's focus (or show) before it says "ready". */
+    private static final int READY_MS = 300;
+    /** The touches part's target button, fixed in px, in the display's middle (645, 1398). */
+    private static final int TARGET_WIDTH = 300;
+    private static final int TARGET_HEIGHT = 150;
+    /** The touches part's popups, fixed in px, below the target. */
+    private static final int POPUP_WIDTH = 400;
+    private static final int POPUP_HEIGHT = 200;
     /** Wider than config_prefDialogWidth (320 dp) on one line, so that a WRAP_CONTENT window wraps it there. */
     private static final String LONG = "A popup's line long enough to be wider than the preferred width of a dialog, "
             + "which a window that wraps its content is measured at first";
@@ -40,6 +65,9 @@ public class SecondWindowsActivity extends Activity {
     private boolean mStarted;
     private int mStep;
     private Button mAnchor;
+    private Button mTarget;
+    private final List<String> mFocus = new ArrayList<>();
+    private int mInput;
     private AlertDialog mDialog;
     private View mDialogDecor;
     private PopupWindow mPopup;
@@ -89,21 +117,188 @@ public class SecondWindowsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout root = new FrameLayout(this);
         mAnchor = new Button(this);
         mAnchor.setText("Anchor");
-        root.addView(mAnchor, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+        root.addView(mAnchor, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
+        mTarget = new Button(this);
+        mTarget.setText("Target");
+        mTarget.setOnClickListener(v -> log("target clicked"));
+        root.addView(mTarget, new FrameLayout.LayoutParams(TARGET_WIDTH, TARGET_HEIGHT, Gravity.CENTER));
+        root.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                log("activity touched at " + Math.round(event.getX()) + "," + Math.round(event.getY()));
+            }
+            return false;
+        });
         setContentView(root);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        log("activity key down " + KeyEvent.keyCodeToString(keyCode));
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        log("activity key up " + KeyEvent.keyCodeToString(keyCode));
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus && !mStarted) {
-            mStarted = true;
-            next();
+        if (!mStarted) {
+            if (hasFocus) {
+                mStarted = true;
+                input(++mInput);
+            }
+            return;
+        }
+        mFocus.add("activity " + hasFocus);
+    }
+
+    /** A window's focus changes, kept for the next step's line. */
+    private void watchFocus(String name, View view) {
+        view.getViewTreeObserver().addOnWindowFocusChangeListener(
+                (ViewTreeObserver.OnWindowFocusChangeListener) hasFocus -> mFocus.add(name + " " + hasFocus));
+    }
+
+    /** The focus changes since the last line, in order. */
+    private void logFocus() {
+        log("focus: " + (mFocus.isEmpty() ? "no change" : String.join(", ", mFocus)));
+        mFocus.clear();
+    }
+
+    /** Runs `then` READY_MS after `view`'s window has the focus, as the focus comes when the system gives it. */
+    private void whenFocused(View view, Runnable then) {
+        if (view.hasWindowFocus()) {
+            mHandler.postDelayed(then, READY_MS);
+        } else {
+            mHandler.postDelayed(() -> whenFocused(view, then), 50);
+        }
+    }
+
+    /** "ready: <what>" once `focused`'s window has the focus, or READY_MS after its show for null. */
+    private void ready(String what, View focused) {
+        Runnable ready = () -> {
+            logFocus();
+            log("ready: " + what);
+        };
+        if (focused != null) {
+            whenFocused(focused, ready);
+        } else {
+            mHandler.postDelayed(ready, READY_MS);
+        }
+    }
+
+    /** The next step once the activity has the focus back. */
+    private void nextInput() {
+        whenFocused(mTarget, () -> input(++mInput));
+    }
+
+    private AlertDialog inputDialog(String name) {
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Title").setMessage("Message")
+                .setPositiveButton("OK", (d, which) -> log(name + " positive"))
+                .setNegativeButton("Cancel", null).create();
+        dialog.setOnCancelListener(d -> log(name + " canceled"));
+        dialog.setOnDismissListener(d -> {
+            log(name + " dismissed");
+            nextInput();
+        });
+        dialog.show();
+        watchFocus(name, dialog.getWindow().getDecorView());
+        return dialog;
+    }
+
+    private PopupWindow inputPopup(String name, boolean focusable) {
+        View content = new View(this);
+        content.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                log(name + " touched at " + Math.round(event.getX()) + "," + Math.round(event.getY()));
+            }
+            return false;
+        });
+        content.setOnClickListener(v -> {
+            log(name + " clicked");
+            ready(name + " again", null);
+        });
+        PopupWindow popup = new PopupWindow(content, POPUP_WIDTH, POPUP_HEIGHT, focusable);
+        popup.setOutsideTouchable(!focusable);
+        popup.setOnDismissListener(() -> {
+            log(name + " dismissed");
+            nextInput();
+        });
+        popup.showAsDropDown(mTarget);
+        watchFocus(name, content);
+        return popup;
+    }
+
+    /** Injects a key's down and up into a window, as an app may inject into its own windows. */
+    private static void key(android.view.Window window, int keyCode) {
+        long now = android.os.SystemClock.uptimeMillis();
+        window.injectInputEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+        window.injectInputEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0));
+    }
+
+    /**
+     * The touches part, a step at each window's end: a dialog for a tap on its OK button (1077, 1549), one for a tap
+     * outside it (645, 700), a popup that watches outside touches for a tap on the target (645, 1398), a focusable one
+     * for a tap in it (695, 1573) and one on the target, then a dialog for keys.
+     */
+    private void input(int step) {
+        switch (step) {
+            case 1: {
+                AlertDialog dialog = inputDialog("dialog 1");
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnTouchListener((v, event) -> {
+                    // Inside the button, not where: the dialog's enter animation moves it on Android while it runs.
+                    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                        log("dialog 1 ok touched inside the button: " + (event.getX() >= 0 && event.getY() >= 0
+                                && event.getX() < v.getWidth() && event.getY() < v.getHeight()));
+                    }
+                    return false;
+                });
+                ready("dialog 1", dialog.getWindow().getDecorView());
+                break;
+            }
+            case 2:
+                logFocus();
+                ready("dialog 2", inputDialog("dialog 2").getWindow().getDecorView());
+                break;
+            case 3:
+                logFocus();
+                inputPopup("popup 1", false);
+                ready("popup 1", null);
+                break;
+            case 4:
+                logFocus();
+                ready("popup 2", inputPopup("popup 2", true).getContentView());
+                break;
+            case 5: {
+                logFocus();
+                AlertDialog dialog = inputDialog("dialog 3");
+                dialog.setOnKeyListener((d, keyCode, event) -> {
+                    log("dialog 3 key " + (event.getAction() == KeyEvent.ACTION_DOWN ? "down " : "up ")
+                            + KeyEvent.keyCodeToString(keyCode));
+                    return false;
+                });
+                whenFocused(dialog.getWindow().getDecorView(), () -> {
+                    logFocus();
+                    key(getWindow(), KeyEvent.KEYCODE_A);
+                    key(dialog.getWindow(), KeyEvent.KEYCODE_BACK);
+                });
+                break;
+            }
+            case 6:
+                logFocus();
+                key(getWindow(), KeyEvent.KEYCODE_A);
+                log("touches part over");
+                next();
+                break;
+            default:
+                break;
         }
     }
 

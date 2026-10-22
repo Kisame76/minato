@@ -9,6 +9,9 @@
  *     Android's BadTokenException from setView: an application window needs an activity that is not destroyed, a
  *     sub-window a shown window that is no sub-window itself; TYPE_APPLICATION_OVERLAY is refused as without
  *     SYSTEM_ALERT_WINDOW. A window's sub-windows go before it, as WMS's removeImmediately takes the children;
+ *   - the windows' input and focus (gap 4 (b2), decision 4): the session's touches go to the window Android 15's
+ *     InputDispatcher picks among the shown windows in decision 1's order, and the session's focus to the topmost
+ *     focusable one;
  *   - every other window (a toast, a system window) is a gap that is logged and never shown, so that its
  *     updateViewLayout and removeView still answer (ADR-0041 decision 2, step 8);
  *   - no window session: getWindowSession is null, as Minato has no system_server, and ViewRootImpl lays out
@@ -19,6 +22,7 @@
 package android.view;
 
 import android.app.ActivityThread;
+import android.graphics.Rect;
 import android.os.IBinder;
 import android.util.Log;
 import com.android.minato.services.ServiceStub;
@@ -37,6 +41,12 @@ public final class WindowManagerGlobal {
     private final ArrayList<WindowManager.LayoutParams> mParams = new ArrayList<>();
     /** The windows that were added but are a gap, never shown. */
     private final ArrayList<View> mGapViews = new ArrayList<>();
+    /** The session's window, the top activity's, and whether the session has the focus (ActivityThread's). */
+    private ViewRootImpl mSessionRoot;
+    private boolean mSessionFocus;
+    /** The window that has the focus, and the one that took the open gesture's DOWN. */
+    private ViewRootImpl mFocusedRoot;
+    private ViewRootImpl mTouchedRoot;
 
     private WindowManagerGlobal() {
     }
@@ -159,6 +169,7 @@ public final class WindowManagerGlobal {
         ViewRootImpl root = rootOfRequest(token);
         if (root != null) {
             root.setHostWindow(window, width, height);
+            updateFocus();
         }
     }
 
@@ -175,6 +186,7 @@ public final class WindowManagerGlobal {
         ViewRootImpl root = rootOfRequest(token);
         if (root != null) {
             root.setHostWindow(0, 0, 0);
+            updateFocus();
         }
     }
 
@@ -207,6 +219,7 @@ public final class WindowManagerGlobal {
             mParams.set(index, wparams);
             root.setLayoutParams(wparams, false);
         }
+        updateFocus();
     }
 
     public void removeView(View view, boolean immediate) {
@@ -272,6 +285,203 @@ public final class WindowManagerGlobal {
                 mParams.remove(index);
                 mViews.remove(index);
             }
+        }
+        if (mTouchedRoot == root) {
+            mTouchedRoot = null;
+        }
+        updateFocus();
+    }
+
+    /**
+     * @hide ActivityThread's: the session's window (the top activity's, or null) and its focus, which goes to the
+     * topmost focusable window (decision 4): a dialog takes it from its activity and gives it back at its end.
+     */
+    public void setSessionWindow(ViewRootImpl root, boolean focus) {
+        mSessionRoot = root;
+        mSessionFocus = focus;
+        updateFocus();
+    }
+
+    /**
+     * @hide ActivityThread's, as the session's window goes with its activity: no window has the focus or the gesture,
+     * and none hears of it, as Android's removed window gets no focus event.
+     */
+    public void forgetSessionWindow(ViewRootImpl root) {
+        if (mSessionRoot == root) {
+            mSessionRoot = null;
+            mFocusedRoot = null;
+            mTouchedRoot = null;
+        }
+    }
+
+    /**
+     * As Android 15's focus (DisplayContent.findFocusedWindow, InputDispatcher's focus events): the topmost shown
+     * window that is focusable while the session has the focus, none without it; the window that loses it hears of it
+     * before the one that gains it.
+     */
+    private void updateFocus() {
+        ViewRootImpl focused = null;
+        if (mSessionFocus) {
+            for (ViewRootImpl root : windowsTopFirst()) {
+                if ((root.mWindowAttributes.flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
+                    focused = root;
+                    break;
+                }
+            }
+        }
+        if (focused == mFocusedRoot) {
+            return;
+        }
+        final ViewRootImpl lost = mFocusedRoot;
+        mFocusedRoot = focused;
+        if (lost != null) {
+            lost.windowFocusChanged(false);
+        }
+        if (focused != null) {
+            focused.windowFocusChanged(true);
+        }
+    }
+
+    /**
+     * @hide The session's receiver's, for a touch on the session's channel, in the display's pixels: the window that
+     * takes it, as Android 15's InputDispatcher.findTouchedWindowTargetsLocked picks it at a gesture's DOWN, the
+     * topmost shown touchable window that holds the point or is touch-modal (focusable without
+     * FLAG_NOT_TOUCH_MODAL), the windows above it that watch outside touches getting ACTION_OUTSIDE; the gesture's
+     * other events go to the same window, none once it went. The session's window takes the event as it is; another
+     * gets a copy in its own pixels. Null drops it. Left out: split touches, as one window takes a whole gesture.
+     */
+    ViewRootImpl routeTouch(ViewRootImpl session, MotionEvent event) {
+        if (session != mSessionRoot) {
+            return session;
+        }
+        final int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            mTouchedRoot = null;
+            final ArrayList<ViewRootImpl> outside = new ArrayList<>();
+            // The session's window lies at the display's origin, so its pixels are the display's.
+            final int x = (int) event.getX();
+            final int y = (int) event.getY();
+            for (ViewRootImpl root : windowsTopFirst()) {
+                final int flags = root.mWindowAttributes.flags;
+                if ((flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0) {
+                    continue;
+                }
+                final boolean touchModal = (flags & (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)) == 0;
+                if (root.mWinFrame.contains(x, y) || touchModal) {
+                    mTouchedRoot = root;
+                    break;
+                }
+                if ((flags & WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH) != 0) {
+                    outside.add(root);
+                }
+            }
+            for (ViewRootImpl root : outside) {
+                final MotionEvent copy = copyFor(root, event);
+                copy.setAction(MotionEvent.ACTION_OUTSIDE);
+                root.deliverRouted(copy);
+            }
+        }
+        final ViewRootImpl target = mTouchedRoot;
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            mTouchedRoot = null;
+        }
+        if (target != null && target != session) {
+            target.deliverRouted(copyFor(target, event));
+        }
+        return target;
+    }
+
+    /**
+     * @hide ActivityThread's at an activity switch: a gesture that a window above the session's took ends there with a
+     * CANCEL, as the session's own window's does (step b3.5b2-1b).
+     */
+    public void cancelRoutedTouch() {
+        final ViewRootImpl touched = mTouchedRoot;
+        mTouchedRoot = null;
+        if (touched != null && touched != mSessionRoot) {
+            touched.cancelTouch();
+        }
+    }
+
+    private static MotionEvent copyFor(ViewRootImpl root, MotionEvent event) {
+        final MotionEvent copy = MotionEvent.obtain(event);
+        copy.offsetLocation(-root.mWinFrame.left, -root.mWinFrame.top);
+        return copy;
+    }
+
+    /**
+     * The shown windows, topmost first, in decision 1's order as APKSession's WindowOrder has it: the session's
+     * window, with its sub-windows, then the requested application windows by group and newer above, each with its
+     * sub-windows around it by sublayer (below it for a negative one) and newer above. A requested window is shown
+     * once the host made its window, and while its view is visible.
+     */
+    private ArrayList<ViewRootImpl> windowsTopFirst() {
+        final ArrayList<ViewRootImpl> order = new ArrayList<>();
+        if (mSessionRoot == null) {
+            return order;
+        }
+        final ArrayList<ViewRootImpl> shown = new ArrayList<>();
+        synchronized (mLock) {
+            for (ViewRootImpl root : mRoots) {
+                if (root.requestToken() != 0 && root.hasHostWindow() && root.getView() != null
+                        && root.getView().getVisibility() == View.VISIBLE) {
+                    shown.add(root);
+                }
+            }
+        }
+        place(mSessionRoot, shown, order);
+        final ArrayList<ViewRootImpl> applications = new ArrayList<>();
+        for (ViewRootImpl root : shown) {
+            if (root.parentRoot() == null) {
+                applications.add(root);
+            }
+        }
+        applications.sort((a, b) -> Integer.compare(a.requestGroup(), b.requestGroup()));
+        for (ViewRootImpl root : applications) {
+            place(root, shown, order);
+        }
+        java.util.Collections.reverse(order);
+        return order;
+    }
+
+    private static void place(ViewRootImpl window, ArrayList<ViewRootImpl> shown, ArrayList<ViewRootImpl> order) {
+        final ArrayList<ViewRootImpl> children = new ArrayList<>();
+        for (ViewRootImpl root : shown) {
+            if (root.parentRoot() == window) {
+                children.add(root);
+            }
+        }
+        children.sort((a, b) -> Integer.compare(sublayer(a), sublayer(b)));
+        for (ViewRootImpl child : children) {
+            if (sublayer(child) < 0) {
+                place(child, shown, order);
+            }
+        }
+        order.add(window);
+        for (ViewRootImpl child : children) {
+            if (sublayer(child) >= 0) {
+                place(child, shown, order);
+            }
+        }
+    }
+
+    /** A sub-window's sublayer, as WindowManagerPolicy.getSubWindowLayerFromTypeLw (WindowOrder.sublayer). */
+    private static int sublayer(ViewRootImpl root) {
+        switch (root.mWindowAttributes.type) {
+            case WindowManager.LayoutParams.TYPE_APPLICATION_MEDIA:
+                return -2;
+            case WindowManager.LayoutParams.TYPE_APPLICATION_MEDIA_OVERLAY:
+                return -1;
+            case WindowManager.LayoutParams.TYPE_APPLICATION_PANEL:
+            case WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG:
+                return 1;
+            case WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL:
+                return 2;
+            case WindowManager.LayoutParams.TYPE_APPLICATION_ABOVE_SUB_PANEL:
+                return 3;
+            default:
+                return 0;
         }
     }
 
