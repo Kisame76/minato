@@ -54,6 +54,7 @@ import android.os.Bundle;
 import android.os.PatternMatcher;
 import android.os.Process;
 import android.os.SystemProperties;
+import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.TypedValue;
@@ -78,6 +79,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.function.ToIntFunction;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -231,6 +234,132 @@ final class ManifestPackage {
             }
             pkg.splits(splits);
             return pkg;
+        }
+    }
+
+    /**
+     * The largest AndroidManifest.xml and resources.arsc an archive of another package may declare: real manifests are
+     * far below 4 MiB (a game's is a few hundred KB), the largest tables are tens of MB, and the manifest's elements
+     * each become objects, which an out-of-memory error from a crafted file would not leave to catch.
+     */
+    private static final long ARCHIVE_MAX_MANIFEST = 4L << 20;
+    private static final long ARCHIVE_MAX_TABLE = 128L << 20;
+
+    /** An archive read by readArchive: nothing is granted, and no package of one is the platform. */
+    private boolean mArchive;
+    private ApkAssets mArchiveApk;
+    private AssetManager mArchiveAssets;
+
+    /**
+     * An archive that is not installed (getPackageArchiveInfo, P5): the manifest of any APK, read as an installed
+     * app's is, and the answers of PackageInfoCommonUtils.generate for a package parsed from a file: no uid (-1), no
+     * folders, not FLAG_INSTALLED, no grants, the file itself as sourceDir and publicSourceDir. Null, as Android answers
+     * "Failure to parse package archive", for what is no readable archive with a manifest of ours: a missing file or
+     * a folder, a file that is no ZIP, one without an AndroidManifest.xml, one whose manifest or resources.arsc
+     * declares more than the limits above (the file is untrusted: the sizes are the central directory's, which the
+     * resource tables inflate to), one that changed while it was read, one whose manifest does not parse. The caller
+     * closes it (close()). The signers are not read (named limit).
+     */
+    static ManifestPackage readArchive(File file) {
+        ApkAssets apkAssets = null;
+        AssetManager assets = null;
+        try {
+            if (!file.isFile()) {
+                return null;
+            }
+            long length = file.length();
+            long modified = file.lastModified();
+            if (length == 0) {
+                return null;
+            }
+            try (ZipFile zip = new ZipFile(file)) {
+                ZipEntry manifest = zip.getEntry("AndroidManifest.xml");
+                ZipEntry table = zip.getEntry("resources.arsc");
+                if (manifest == null || manifest.getSize() < 0 || manifest.getSize() > ARCHIVE_MAX_MANIFEST
+                        || (table != null && (table.getSize() < 0 || table.getSize() > ARCHIVE_MAX_TABLE))) {
+                    return null;
+                }
+            }
+            String apk = file.getPath();
+            apkAssets = ApkAssets.loadFromPath(apk);
+            if (file.length() != length || file.lastModified() != modified) {
+                return null;
+            }
+            assets = new AssetManager();
+            assets.setApkAssets(new ApkAssets[] {apkAssets}, false);
+            Resources system = Resources.getSystem();
+            Resources res = new Resources(assets, system.getDisplayMetrics(), system.getConfiguration());
+            try (XmlResourceParser parser = assets.openXmlResourceParser(assets.findCookieForPath(apk),
+                    "AndroidManifest.xml")) {
+                String name = manifestElement(parser, apk);
+                if (!validPackageName(name)) {
+                    return null;
+                }
+                ManifestPackage pkg = new ManifestPackage(name, res);
+                pkg.mArchive = true;
+                pkg.parseManifest(parser);
+                ApplicationInfo ai = pkg.mApplication;
+                ai.sourceDir = apk;
+                ai.publicSourceDir = apk;
+                ai.uid = -1;
+                ai.setVersionCode(pkg.mPackage.getLongVersionCode());
+                pkg.mArchiveApk = apkAssets;
+                pkg.mArchiveAssets = assets;
+                apkAssets = null;
+                assets = null;
+                return pkg;
+            }
+        } catch (IOException | XmlPullParserException | RuntimeException | OutOfMemoryError
+                | StackOverflowError e) {
+            Log.w("PackageManager", "Failure to parse package archive apkFile=" + file + ": "
+                    + e.getClass().getSimpleName());
+            return null;
+        } finally {
+            if (assets != null) {
+                assets.close();
+            }
+            if (apkAssets != null) {
+                apkAssets.close();
+            }
+        }
+    }
+
+    /**
+     * PackageParser.validateName(name, requireSeparator=true, requireFilename=false) [measured: a "not a package name"
+     * archive gives null on apk-runner-35]: letters, digits and '_' with a letter at the start and after each '.', at
+     * least one '.', at most 255 characters (the name becomes a folder name and a log line).
+     */
+    private static boolean validPackageName(String name) {
+        if (name == null || name.isEmpty() || name.length() > 255) {
+            return false;
+        }
+        boolean front = true;
+        boolean separator = false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+                front = false;
+            } else if (!front && ((c >= '0' && c <= '9') || c == '_')) {
+                continue;
+            } else if (c == '.') {
+                separator = true;
+                front = true;
+            } else {
+                return false;
+            }
+        }
+        return separator;
+    }
+
+    /** Releases the file of an archive read by readArchive. */
+    void close() {
+        if (mArchiveAssets != null) {
+            mArchiveAssets.close();
+            mArchiveAssets = null;
+        }
+        if (mArchiveApk != null) {
+            mArchiveApk.close();
+            mArchiveApk = null;
         }
     }
 
@@ -802,7 +931,7 @@ final class ManifestPackage {
 
     private void parsePermission(XmlResourceParser parser) throws IOException, XmlPullParserException {
         TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestPermission);
-        boolean platform = PLATFORM.equals(packageName);
+        boolean platform = !mArchive && PLATFORM.equals(packageName);
         PermissionInfo info;
         try {
             // Only the platform names a background permission.
@@ -849,7 +978,7 @@ final class ManifestPackage {
             // Read for every package, as AOSP's parser fails on a priority that is no integer, but only the
             // platform's groups keep it [measured: package-answers-test on apk-runner-35].
             int priority = sa.getInt(R.styleable.AndroidManifestPermissionGroup_priority, 0);
-            info.priority = PLATFORM.equals(packageName) ? priority : 0;
+            info.priority = !mArchive && PLATFORM.equals(packageName) ? priority : 0;
             info.flags = sa.getInt(R.styleable.AndroidManifestPermissionGroup_permissionGroupFlags, 0);
         } finally {
             sa.recycle();
@@ -1686,7 +1815,7 @@ final class ManifestPackage {
                         requested |= PackageInfo.REQUESTED_PERMISSION_IMPLICIT;
                     }
                     // What system_server adds from the permission's state.
-                    if (granted(name)) {
+                    if (!mArchive && granted(name)) {
                         requested |= PackageInfo.REQUESTED_PERMISSION_GRANTED;
                     }
                     info.requestedPermissionsFlags[i] = requested;

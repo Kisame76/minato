@@ -1270,12 +1270,25 @@ class ApplicationPackageManager {
     }
 
     /**
-     * Android's parses the archive with AOSP's package parser, which decision 7 rejects; so PackageManager's anonymous
-     * PackageParser2.Callback, which stands on a stub (framework/stub-supertypes.txt), never loads. Ours answers null,
-     * Android's answer for an archive it cannot parse, until an app needs more.
+     * Android's parses the archive with AOSP's package parser, which decision 7 rejects; ours reads the manifest as the
+     * installed app's is read (ManifestPackage.readArchive, with its limits), and null is Android's answer for an
+     * archive it cannot parse. A null path throws NullPointerException as Android's does.
      */
+    public PackageInfo getPackageArchiveInfo(String archiveFilePath, int flags) {
+        return getPackageArchiveInfo(archiveFilePath, PackageInfoFlags.of(flags));
+    }
+
     public PackageInfo getPackageArchiveInfo(String archiveFilePath, PackageInfoFlags flags) {
-        Unwritten.log("android.app.ApplicationPackageManager.getPackageArchiveInfo(String,PackageInfoFlags)", "null");
-        return null;
+        // File's constructor throws NullPointerException() with no message; D8 turns an explicit check of ours into
+        // a getClass() that ART describes, so File does the check.
+        ManifestPackage pkg = ManifestPackage.readArchive(new File(archiveFilePath));
+        if (pkg == null) {
+            return null;
+        }
+        try {
+            return pkg.packageInfo(flags.getValue());
+        } finally {
+            pkg.close();
+        }
     }
 }

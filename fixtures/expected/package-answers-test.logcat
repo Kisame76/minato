@@ -75,4 +75,11 @@ I/package-answers-test: holding permissions: mine true
 I/package-answers-test: shared libraries: list true, names true
 I/package-answers-test: preferred: activities 0 0 0, packages []
 I/package-answers-test: changed packages: list true
+I/package-answers-test: archive: io.github.kisame76.minato.test.packageanswers 1.0 1, source true true, installed false, target 35, min 29, enabled true, components true true true true, uid -1, data null, library null, label package-answers-test false, icon true
+I/package-answers-test: archive, components: activities 6 android.app.Activity, permissions 2, requested internet true, instrumentation 2, granted false, providers 1, receivers true, services true, activity's application true
+I/package-answers-test: archive, copy: io.github.kisame76.minato.test.packageanswers, source true
+I/package-answers-test: archive, not an archive: missing null, empty null, garbage null, truncated null, folder null, no manifest null, bad manifest null
+I/package-answers-test: archive, oversized: null
+I/package-answers-test: archive, odd manifests: permission without a name null, no package null, wrong root null, bad package name true
+I/package-answers-test: archive, no path: java.lang.NullPointerException
 I/package-answers-test: done

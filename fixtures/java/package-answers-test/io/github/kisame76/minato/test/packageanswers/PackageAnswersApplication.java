@@ -18,11 +18,19 @@ import android.content.pm.SharedLibraryInfo;
 import android.content.pm.VersionedPackage;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.pm.SigningInfo;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Process;
 import android.os.UserHandle;
 import android.util.Log;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -102,6 +110,73 @@ public class PackageAnswersApplication extends Application {
             noFilters &= info.filter == null;
         }
         return names + (noFilters ? "" : " filtered");
+    }
+
+    /**
+     * A ZIP whose AndroidManifest.xml is binary XML written here: a root element with one attribute (no namespace, a
+     * string value) and one child element without attributes. No resource map, no namespace: enough for a parser to
+     * walk, and for the package parser to find what the manifest lacks.
+     */
+    private static File oddArchive(File dir, String name, String root, String attribute, String value, String child)
+            throws IOException {
+        String[] strings = {attribute, value, root, child};
+        java.io.ByteArrayOutputStream pool = new java.io.ByteArrayOutputStream();
+        int[] offsets = new int[strings.length];
+        for (int i = 0; i < strings.length; i++) {
+            offsets[i] = pool.size();
+            byte[] chars = strings[i].getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+            pool.write(strings[i].length() & 0xff);
+            pool.write(strings[i].length() >> 8);
+            pool.write(chars);
+            pool.write(0);
+            pool.write(0);
+        }
+        while (pool.size() % 4 != 0) {
+            pool.write(0);
+        }
+        int poolSize = 28 + 4 * strings.length + pool.size();
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.allocate(8 + poolSize + 56 + 36 + 24 + 24)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        b.putShort((short) 0x0003).putShort((short) 8).putInt(b.capacity());
+        b.putShort((short) 0x0001).putShort((short) 28).putInt(poolSize).putInt(strings.length).putInt(0).putInt(0)
+                .putInt(28 + 4 * strings.length).putInt(0);
+        for (int offset : offsets) {
+            b.putInt(offset);
+        }
+        b.put(pool.toByteArray());
+        // <root attribute="value">: name index 2, the attribute's name 0 and string 1.
+        b.putShort((short) 0x0102).putShort((short) 16).putInt(56).putInt(1).putInt(-1);
+        b.putInt(-1).putInt(2).putShort((short) 20).putShort((short) 20).putShort((short) 1).putShort((short) 0)
+                .putShort((short) 0).putShort((short) 0);
+        b.putInt(-1).putInt(0).putInt(1).putShort((short) 8).put((byte) 0).put((byte) 3).putInt(1);
+        // <child/>: name index 3.
+        b.putShort((short) 0x0102).putShort((short) 16).putInt(36).putInt(2).putInt(-1);
+        b.putInt(-1).putInt(3).putShort((short) 20).putShort((short) 20).putShort((short) 0).putShort((short) 0)
+                .putShort((short) 0).putShort((short) 0);
+        b.putShort((short) 0x0103).putShort((short) 16).putInt(24).putInt(3).putInt(-1).putInt(-1).putInt(3);
+        b.putShort((short) 0x0103).putShort((short) 16).putInt(24).putInt(4).putInt(-1).putInt(-1).putInt(2);
+        File file = new File(dir, name);
+        try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(file))) {
+            out.putNextEntry(new ZipEntry("AndroidManifest.xml"));
+            out.write(b.array(), 0, b.position());
+            out.closeEntry();
+        }
+        return file;
+    }
+
+    /** Whether the package info marks the permission granted. */
+    private static boolean granted(PackageInfo info, String permission) {
+        int index = Arrays.asList(info.requestedPermissions).indexOf(permission);
+        return (info.requestedPermissionsFlags[index] & PackageInfo.REQUESTED_PERMISSION_GRANTED) != 0;
+    }
+
+    private static void copyFile(File from, File to) throws IOException {
+        try (InputStream in = new java.io.FileInputStream(from); OutputStream out = new FileOutputStream(to)) {
+            byte[] buffer = new byte[65536];
+            for (int n; (n = in.read(buffer)) > 0; ) {
+                out.write(buffer, 0, n);
+            }
+        }
     }
 
     /** The authorities among the providers that the package declares. */
@@ -420,6 +495,136 @@ public class PackageAnswersApplication extends Application {
         probe("changed packages", () -> {
             ChangedPackages changed = pm.getChangedPackages(0);
             log("changed packages: " + (changed == null ? "null" : "list " + (changed.getPackageNames() != null)));
+        });
+        // P5: archives.
+        String code = getPackageCodePath();
+        probe("archive", () -> {
+            PackageInfo info = pm.getPackageArchiveInfo(code, 0);
+            ApplicationInfo app = info.applicationInfo;
+            log("archive: " + info.packageName + " " + info.versionName + " " + info.getLongVersionCode()
+                    + ", source " + code.equals(app.sourceDir) + " " + code.equals(app.publicSourceDir)
+                    + ", installed " + ((app.flags & ApplicationInfo.FLAG_INSTALLED) != 0)
+                    + ", target " + app.targetSdkVersion + ", min " + app.minSdkVersion + ", enabled " + app.enabled
+                    + ", components " + (info.activities == null) + " " + (info.permissions == null) + " "
+                    + (info.requestedPermissions == null) + " " + (info.signingInfo == null)
+                    + ", uid " + app.uid + ", data " + app.dataDir + ", library " + app.nativeLibraryDir
+                    + ", label " + app.nonLocalizedLabel + " " + (app.labelRes != 0) + ", icon " + (app.icon != 0));
+        });
+        probe("archive, components", () -> {
+            PackageInfo info = pm.getPackageArchiveInfo(code, PackageManager.GET_ACTIVITIES
+                    | PackageManager.GET_PERMISSIONS | PackageManager.GET_PROVIDERS | PackageManager.GET_META_DATA
+                    | PackageManager.GET_INSTRUMENTATION | PackageManager.GET_RECEIVERS | PackageManager.GET_SERVICES);
+            List<String> requested = Arrays.asList(info.requestedPermissions);
+            log("archive, components: activities " + info.activities.length + " " + info.activities[0].name
+                    + ", permissions " + info.permissions.length + ", requested internet "
+                    + requested.contains("android.permission.INTERNET") + ", instrumentation "
+                    + info.instrumentation.length + ", granted " + granted(info, "android.permission.INTERNET")
+                    + ", providers " + info.providers.length + ", receivers "
+                    + (info.receivers == null) + ", services " + (info.services == null)
+                    + ", activity's application " + (info.activities[0].applicationInfo.packageName.equals(pkg)));
+        });
+        File cache = getCacheDir();
+        probe("archive, copy", () -> {
+            File copy = new File(cache, "copy.apk");
+            copyFile(new File(code), copy);
+            PackageInfo info = pm.getPackageArchiveInfo(copy.getPath(), 0);
+            log("archive, copy: " + info.packageName + ", source " + copy.getPath().equals(info.applicationInfo.sourceDir));
+            copy.delete();
+        });
+        probe("archive, signing", () -> {
+            PackageInfo info = pm.getPackageArchiveInfo(code, PackageManager.GET_SIGNING_CERTIFICATES);
+            SigningInfo signing = info == null ? null : info.signingInfo;
+            Log.i(PROBE, "archive signing: " + (signing != null ? signing.getApkContentsSigners().length : -1));
+        });
+        probe("archive, not an archive", () -> {
+            File empty = new File(cache, "empty.apk");
+            new FileOutputStream(empty).close();
+            File garbage = new File(cache, "garbage.apk");
+            try (OutputStream out = new FileOutputStream(garbage)) {
+                for (int i = 0; i < 4096; i++) {
+                    out.write(i * 31);
+                }
+            }
+            File truncated = new File(cache, "truncated.apk");
+            try (InputStream in = new java.io.FileInputStream(code); OutputStream out = new FileOutputStream(truncated)) {
+                byte[] head = new byte[8192];
+                out.write(head, 0, in.read(head));
+            }
+            File noManifest = new File(cache, "no-manifest.apk");
+            try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(noManifest))) {
+                out.putNextEntry(new ZipEntry("classes.dex"));
+                out.write(new byte[64]);
+                out.closeEntry();
+            }
+            File badManifest = new File(cache, "bad-manifest.apk");
+            try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(badManifest))) {
+                out.putNextEntry(new ZipEntry("AndroidManifest.xml"));
+                for (int i = 0; i < 512; i++) {
+                    out.write(i * 7);
+                }
+                out.closeEntry();
+            }
+            log("archive, not an archive: missing " + pm.getPackageArchiveInfo(cache + "/missing.apk", 0)
+                    + ", empty " + pm.getPackageArchiveInfo(empty.getPath(), 0)
+                    + ", garbage " + pm.getPackageArchiveInfo(garbage.getPath(), 0)
+                    + ", truncated " + pm.getPackageArchiveInfo(truncated.getPath(), 0)
+                    + ", folder " + pm.getPackageArchiveInfo(cache.getPath(), 0)
+                    + ", no manifest " + pm.getPackageArchiveInfo(noManifest.getPath(), 0)
+                    + ", bad manifest " + pm.getPackageArchiveInfo(badManifest.getPath(), 0));
+            empty.delete();
+            garbage.delete();
+            truncated.delete();
+            noManifest.delete();
+            badManifest.delete();
+        });
+        probe("archive, oversized", () -> {
+            // The real manifest, and a resources.arsc that declares 300 MiB of zeros: no table, so Android parses
+            // nothing of it; ours must not inflate it either.
+            File big = new File(cache, "big.apk");
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(code);
+                    ZipOutputStream out = new ZipOutputStream(new FileOutputStream(big))) {
+                ZipEntry manifest = zip.getEntry("AndroidManifest.xml");
+                out.putNextEntry(new ZipEntry("AndroidManifest.xml"));
+                try (InputStream in = zip.getInputStream(manifest)) {
+                    byte[] buffer = new byte[8192];
+                    for (int n; (n = in.read(buffer)) > 0; ) {
+                        out.write(buffer, 0, n);
+                    }
+                }
+                out.closeEntry();
+                out.putNextEntry(new ZipEntry("resources.arsc"));
+                byte[] zeros = new byte[1 << 20];
+                for (int i = 0; i < 300; i++) {
+                    out.write(zeros);
+                }
+                out.closeEntry();
+            }
+            log("archive, oversized: " + pm.getPackageArchiveInfo(big.getPath(), 0));
+            big.delete();
+        });
+        probe("archive, odd manifests", () -> {
+            // Valid ZIPs with a binary manifest written by hand: aapt2 never makes these.
+            File noName = oddArchive(cache, "no-name.apk", "manifest", "package", "x.y", "permission");
+            File noPackage = oddArchive(cache, "no-package.apk", "manifest", "versionName", "1", "uses-sdk");
+            File wrongRoot = oddArchive(cache, "wrong-root.apk", "wrong", "package", "x.y", "permission");
+            File badName = oddArchive(cache, "bad-name.apk", "manifest", "package", "not a package name", "application");
+            log("archive, odd manifests: permission without a name " + pm.getPackageArchiveInfo(noName.getPath(), 0)
+                    + ", no package " + pm.getPackageArchiveInfo(noPackage.getPath(), 0)
+                    + ", wrong root " + pm.getPackageArchiveInfo(wrongRoot.getPath(), 0)
+                    + ", bad package name " + (pm.getPackageArchiveInfo(badName.getPath(), 0) == null));
+            noName.delete();
+            noPackage.delete();
+            wrongRoot.delete();
+            badName.delete();
+        });
+        probe("archive, no path", () -> {
+            try {
+                log("archive, no path: " + pm.getPackageArchiveInfo(null, 0));
+            } catch (NullPointerException e) {
+                // The message differs: libcore's NullPointerException() is built with ART's description here.
+                log("archive, no path: " + e.getClass().getName());
+                Log.i(PROBE, "archive, no path: " + e.getMessage());
+            }
         });
         log("done");
     }
