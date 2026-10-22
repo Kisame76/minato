@@ -815,6 +815,9 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
     auto stack = uc.stack;
     stack.flags &= ss_disable | ss_autodisarm;
     state.alternate_stack = stack;
+    // Last, once the whole frame is restored: a handler that returns into a relocated exclusive window
+    // body must re-enter the island, not the original body, which iOS runs with x18 cleared to 0 (X4h).
+    islands::reenter(context, apkrt_get_guest_x18());
     return true;
 }
 

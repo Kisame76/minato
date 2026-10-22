@@ -344,15 +344,19 @@ std::vector<std::byte> shorten_info(std::vector<std::byte> container) {
 
 TEST(a_container_of_another_version_is_refused) {
     CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-1", container_of_version(1))),
-                 "container version 1, this runtime reads versions 2 to 3");
-    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-4", container_of_version(4))),
-                 "container version 4, this runtime reads versions 2 to 3");
+                 "container version 1, this runtime reads versions 2 to 4");
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-5", container_of_version(5))),
+                 "container version 5, this runtime reads versions 2 to 4");
     // Containers converted before the runs (ADR-0008 amendment) still load: the app keeps them. Their __apk_info
-    // ends before the runs; a version 3 one that short is refused.
+    // ends before the runs; from version 3 the runs are part of it, so a short version 3 or 4 is refused for its
+    // size (writable_part would read run_count and runs past the section).
     CHECK(apkrt::loader::load(write_signed("version-2", shorten_info(container_of_version(2)))).info->version == 2);
     CHECK_THROWS(apkrt::loader::LoadError,
                  apkrt::loader::load(write_signed("version-3-short", shorten_info(container_of_version(3)))),
-                 "container version 3, this runtime reads versions 2 to 3");
+                 "container version 3, this runtime reads versions 2 to 4");
+    CHECK_THROWS(apkrt::loader::LoadError,
+                 apkrt::loader::load(write_signed("version-4-short", shorten_info(container_of_version(4)))),
+                 "container version 4, this runtime reads versions 2 to 4");
 }
 
 /// A container in four runs (ADR-0008 amendment): r-x with the program headers and the RELR table, rw- with the

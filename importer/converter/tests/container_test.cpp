@@ -417,7 +417,7 @@ TEST(the_island_table_describes_every_x18_island) {
     builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
     const auto singles = convert(builder);
     const auto image = read_info(singles.bytes).image_offset;
-    CHECK(read_info(singles.bytes).version == 3);
+    CHECK(read_info(singles.bytes).version == 4);
     const auto islands = island_table(singles);
     CHECK(islands.size() == 2);
     if (islands.size() == 2) {
@@ -444,9 +444,10 @@ TEST(the_island_table_describes_every_x18_island) {
     CHECK(window.size() == 1);
     if (window.size() == 1) {
         // stur x0; mrs, bic, ldr x0; ldxr x8, [x0]; add x8, x8, #1; stxr w9, x8, [x0]; ldur x0; b
+        // commit is the preamble length (4 words: stur, mrs, bic, ldr) for a resumable window (X4h).
         CHECK(window[0].site == read_info(loop_container.bytes).image_offset + 0x200);
         CHECK(window[0].kind == APK_ISLAND_EXCLUSIVE && window[0].words == 9 && window[0].value == 0 &&
-              window[0].base == APK_ISLAND_NO_REGISTER && window[0].commit == 6 && window[0].store == 0 &&
+              window[0].base == APK_ISLAND_NO_REGISTER && window[0].commit == 4 && window[0].store == 0 &&
               window[0].resume == 3);
     }
 
@@ -643,7 +644,7 @@ TEST(splits_an_image_into_runs_of_protection) {
     const auto container = convert(builder);
     const auto &bytes = container.bytes;
     const auto info = read_info(bytes);
-    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 3);
+    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 4);
     CHECK(info.min_vaddr == 0);
     CHECK(container.report.image_shift == 0);
     CHECK(info.image_size == 0x1c000);

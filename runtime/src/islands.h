@@ -41,15 +41,26 @@ struct Settled {
 
 /// Pure: the guest state of a thread stopped at `context.pc` inside `island` of the container whose
 /// Mach-O header is at `header`, given the two red zone words the island saved (sp - 128 and
-/// sp - 120) and its current x18. See struct apk_island for the rule.
+/// sp - 120) and its current x18. See struct apk_island for the rule. `resumable` is whether the
+/// container is APK_CONTAINER_RESUMABLE_VERSION or newer: only then does an EXCLUSIVE window use the
+/// per-word resumable map; an older container's EXCLUSIVE window is restartable, like any other island.
 Settled settle(const apk_island &island, std::uint64_t header, const GuestContext &context,
-               std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18);
+               std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18, bool resumable);
 
 /// When `context` stopped inside an x18 island, turns it and `x18` (the thread's slot 11) into the
 /// guest's state and returns true. Reads the red zone below context.sp, which the island has
 /// written, so the thread must be stopped: a signal handler on the thread itself, or the stepper.
 /// No locks, no allocation.
 bool leave(GuestContext &context, std::uint64_t &x18);
+
+/// When `context.pc` is a guest instruction inside the body of a relocated exclusive window, past its
+/// load-exclusive (ADR-0020 X4h), redirects it to the matching word of the island and puts `x18` (the
+/// thread's slot 11) into the island's value register, rebuilding the red zone the first signal frame
+/// clobbered, so a thread resuming there re-enters the island -- where x18 lives in a preserved
+/// register -- instead of the original body, which iOS has left running with x18 cleared to 0. Returns
+/// true when it redirected. Call it on the resume paths (rt_sigreturn and the fault retry), never for
+/// the handler's own view of the guest state, which stays the exact interrupted pc. No locks.
+bool reenter(GuestContext &context, std::uint64_t x18);
 
 /// A jump table island that found no landing pad for the target the guest computed (ADR-0020 X2d).
 struct JumpTableTrap {

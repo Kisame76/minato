@@ -168,13 +168,32 @@ constexpr std::uint32_t code[] = {
     0xd65f'03c0,  // 0x36c ret                           returns to the call site 0x358
     0xaa02'03e0,  // 0x370 tail: mov x0, x2
     0xd65f'03c0,  // 0x374 ret                           returns x2 to indirect()'s caller
+    // fault_window_deep(cell): x0 is a mapped address, x18 is unmapped. The load-exclusive succeeds,
+    // then a guest load from x18 faults -- a window that relocates only because X4h allows a memory
+    // access inside it; the fault must reach the handler at that load, not at the window's start.
+    0xc85f'7c08,  // 0x378 ldxr x8, [x0]
+    0xf940'0249,  // 0x37c ldr x9, [x18]                 faults: x18 unmapped, a guest load (class 2)
+    0xc80a'7c08,  // 0x380 stxr w10, x8, [x0]
+    0x35ff'ffaa,  // 0x384 cbnz w10, 0x378
+    0xd65f'03c0,  // 0x388 ret
+    // backedge(cell, rounds): does `rounds` passes, each incrementing x18, with a back-edge to its own
+    // load-exclusive (ADR-0020 X4h, finding A). x18 is written, so the island loads it in the preamble;
+    // the store-back to slot 11 runs only when the loop ends, so during the loop slot 11 is stale and a
+    // signal at the load-exclusive must take x18 from the value register, not slot 11.
+    0xc85f'7c08,  // 0x38c ldxr x8, [x0]                 the window's load-exclusive (word P)
+    0x9100'0652,  // 0x390 add x18, x18, #1
+    0xf100'0421,  // 0x394 subs x1, x1, #1
+    0x54ff'ffa1,  // 0x398 b.ne 0x38c                    back-edge to the load-exclusive while rounds != 0
+    0xc809'7c08,  // 0x39c stxr w9, x8, [x0]             one store to end the window (its result is ignored)
+    0xd65f'03c0,  // 0x3a0 ret
 };
 constexpr std::int32_t jump_table[] = {0x258 - 0x400, 0x260 - 0x400, 0x268 - 0x400, 0x270 - 0x400};
 constexpr std::uint64_t literal = 0x1122'3344'5566'7788;  // what the LDR (literal) of forms() loads
 constexpr std::uint64_t run_at = 0x200, run_end = 0x280, window_at = 0x228, loop_at = 0x280, fault_at = 0x2a4,
                         forms_at = 0x2ac, forms_end = 0x320, cmpxchg_at = 0x2ec, fault_read_at = 0x320,
                         fault_window_at = 0x32c, indirect_at = 0x340, helper_at = 0x368, tail_at = 0x370,
-                        table_at = 0x400, literal_at = 0x410, program_end = 0x418;
+                        fault_window_deep_at = 0x378, backedge_at = 0x38c, table_at = 0x400, literal_at = 0x410,
+                        program_end = 0x418;
 
 // The jump table island (rewrite.cpp, emit_jump_table): 13 words up to its BR, a trap of 3, then a
 // landing pad of 4 words for each word from the lowest target on, whose fourth word never runs.
@@ -280,23 +299,19 @@ bool runs(const apk_island &island, unsigned word) {
 
 using Covered = std::set<std::pair<const apk_island *, unsigned>>;
 
-/// The free run of an LL/SC window (stepper.h): from its load-exclusive to the word after its commit,
-/// from visit `after_visits` of the load-exclusive on.
+/// The free run of an LL/SC window (stepper.h): from its load-exclusive to the word after its
+/// store-exclusive, from visit `after_visits` of the load-exclusive on. The island body begins at the
+/// preamble (window.commit, ADR-0020 X4h) with the load-exclusive; the store-exclusive follows it.
 apkrt::testing::FreeRun free_run(const apk_island &window, unsigned after_visits) {
     CHECK(window.kind == APK_ISLAND_EXCLUSIVE);
     const auto stub = program().header + window.stub;
-    unsigned word = 0;
-    const auto is_load_exclusive = [](std::uint32_t instruction) { return (instruction & 0x3f40'0000) == 0x0840'0000; };
-    while (word < window.commit && !is_load_exclusive(*reinterpret_cast<const std::uint32_t *>(stub + 4 * word))) ++word;
-    CHECK(word < window.commit);
-    return {stub + 4 * word, stub + 4 * (window.commit + 1u), after_visits};
-}
-
-/// What a window that goes back has already written, which the trace's state at its site does not
-/// show: x8, which the load-exclusives of the program load, or the flags of the cmpxchg's cmp.
-Ignored written_before_going_back(const apk_island &window) {
-    if (program().header + window.site == program().image + cmpxchg_at) return {.flags = true};
-    return {.registers = 1u << 8};
+    const auto word_at = [&](unsigned w) { return *reinterpret_cast<const std::uint32_t *>(stub + 4 * w); };
+    const unsigned load = window.commit;  // the preamble length: the first body word, the load-exclusive
+    CHECK((word_at(load) & 0x3f40'0000) == 0x0840'0000);
+    unsigned store = load;
+    while (store < window.words && (word_at(store) & 0x3f40'0000) != 0x0800'0000) ++store;
+    CHECK(store < window.words);
+    return {stub + 4 * load, stub + 4 * (store + 1u), after_visits};
 }
 
 /// Single-steps one call of the program's function at `function_at`, run again when the trace has a
@@ -342,6 +357,44 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
         const auto word = static_cast<unsigned>((pc - (loaded.header + island->stub)) / 4);
         covered.insert({island, word});
         const auto site = loaded.header + island->site;
+        const auto location = std::source_location::current();
+        if (island->kind == APK_ISLAND_EXCLUSIVE) {
+            // A relocated window is resumable (ADR-0020 X4h): the thread returns to the exact guest
+            // instruction, site + 4 * min(word - preamble, words). The trace holds the whole guest
+            // state at the window's entry (site) and its exit (after the window); a body word in
+            // between maps to an original instruction the island replaced, which the trace never ran,
+            // so only its reconstructed pc is checked there.
+            const unsigned preamble = island->commit, body = island->resume;
+            const auto guest = word < preamble ? 0u : std::min<unsigned>(word - preamble, body);
+            const auto guest_pc = site + 4 * guest;
+            if (!left[at].first) {
+                apk::testing::fail(location, "leave() did not see an island at ", std::format("{:#x}", pc).c_str());
+            } else if (left[at].second.context.pc != guest_pc) {
+                const auto detail = std::format("site {:#x}, word {}: pc {:#x}, expected {:#x}", island->site, word,
+                                                left[at].second.context.pc, guest_pc);
+                apk::testing::fail(location, "a resumable window went to the wrong guest pc: ", detail.c_str());
+            } else if (guest == 0 || guest == body) {
+                std::size_t real = steps.size();
+                if (guest == 0) {
+                    for (auto earlier = at; earlier-- > 0 && real == steps.size();) {
+                        if (arm_thread_state64_get_pc(steps[earlier].state) == guest_pc) real = earlier;
+                    }
+                } else {
+                    for (auto later = at + 1; later < steps.size() && real == steps.size(); ++later) {
+                        if (arm_thread_state64_get_pc(steps[later].state) == guest_pc) real = later;
+                    }
+                }
+                if (real == steps.size()) {
+                    apk::testing::fail(location, "no state to compare with at ", std::format("{:#x}", guest_pc).c_str());
+                } else if (const auto different = difference(left[at].second, steps[real], Ignored{}); !different.empty()) {
+                    const auto detail = std::format("site {:#x}, word {} ({}): {}", island->site, word,
+                                                    guest == 0 ? "entry" : "exit", different);
+                    apk::testing::fail(location, "left a window to a state the guest never had: ", detail.c_str());
+                }
+            }
+            ++compared;
+            continue;
+        }
         const bool forward = island->commit != APK_ISLAND_NO_COMMIT && word > island->commit;
         std::size_t real = steps.size();
         if (forward) {
@@ -354,14 +407,11 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
                 if (arm_thread_state64_get_pc(steps[earlier].state) == site) real = earlier;
             }
         }
-        const auto ignored = !forward && island->kind == APK_ISLAND_EXCLUSIVE ? written_before_going_back(*island)
-                                                                              : Ignored{};
-        const auto location = std::source_location::current();
         if (!left[at].first) {
             apk::testing::fail(location, "leave() did not see an island at ", std::format("{:#x}", pc).c_str());
         } else if (real == steps.size()) {
             apk::testing::fail(location, "the trace has no state to compare with at ", std::format("{:#x}", pc).c_str());
-        } else if (const auto different = difference(left[at].second, steps[real], ignored); !different.empty()) {
+        } else if (const auto different = difference(left[at].second, steps[real], Ignored{}); !different.empty()) {
             const auto detail = std::format("site {:#x}, word {} ({}): {}", island->site, word,
                                             forward ? "forward" : "back", different);
             apk::testing::fail(location, "left an island to a state the guest never had: ", detail.c_str());
@@ -372,10 +422,11 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
 }
 
 // ADR-0020 X4: wherever a signal stops a thread inside an island, the state the runtime computes
-// equals the state the guest really passed through in the direction the trace shows: the state after
-// the island once the commit word has run (for a window: its store-exclusive, which may have failed),
-// else the state at the site. All registers, sp, pc, flags and x18 count; only for a window that goes
-// back, what the window has written does not (ADR-0020, X4 item 7).
+// equals the state the guest really passed through. A single instruction or an indirect branch goes
+// back to the site before its commit and on after it. A relocated window is resumable (X4h): it
+// returns to the exact guest instruction; the trace holds the whole guest state at the window's entry
+// and exit (compared exactly here), and a body word in between is checked by its pc. All registers,
+// sp, pc, flags and x18 count.
 TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     const auto &loaded = program();
     Covered covered;
@@ -453,6 +504,183 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             }
         }
     }
+}
+
+// ADR-0020 X4h: settle() maps every island word of a relocated window to the exact guest
+// instruction, the scratch registers and x18 reconstructed, from the island fields alone. A window
+// with a guest store inside, stopped just after it, resumes past the store so it is never run twice.
+TEST(a_resumable_exclusive_island_maps_every_word_to_the_guest_instruction) {
+    // A write window that reads x18 first: a 5-word body (ldxr, add reading x18, str inside the
+    // window, add writing x18, stxr), a preamble of 5 (save value, save base, mrs, bic, ldr), the x18
+    // store-back at word 12.
+    constexpr std::uint8_t preamble = 5, body = 5, value = 9, base = 10;
+    apk_island island{};
+    island.stub = 0x1000;
+    island.site = 0x400;  // the window's guest address
+    island.words = preamble + body + 3 /* mrs, bic, str */ + 2 /* restore value, base */ + 1 /* branch */;
+    island.kind = APK_ISLAND_EXCLUSIVE;
+    island.value = value;
+    island.base = base;
+    island.commit = preamble;
+    island.store = preamble + body + 2;  // 12: the str that writes x18 back to slot 11
+    island.resume = body;
+    constexpr std::uint64_t header = 0x1'0000'0000;
+    constexpr std::uint64_t worked = 0xbeef, saved_value = 0xcafe, saved_base = 0xf00d, slot11 = 0x1818,
+                            had_base = 0x9999;
+    for (unsigned k = 0; k < island.words; ++k) {
+        apkrt::GuestContext context{};
+        context.pc = header + island.stub + 4 * k;
+        context.x[value] = worked;   // the island's x18 stand-in
+        context.x[base] = had_base;  // the island's TSD base scratch
+        const auto settled = apkrt::islands::settle(island, header, context, saved_value, saved_base, slot11, true);
+        const std::uint64_t guest = k < preamble ? 0 : std::min<std::uint64_t>(k - preamble, body);
+        CHECK(settled.context.pc == header + island.site + 4 * guest);
+        CHECK(settled.context.x[value] == (k >= 1 ? saved_value : worked));
+        CHECK(settled.context.x[base] == (k >= 2 ? saved_base : had_base));
+        const bool x18_in_value = k >= preamble && k <= island.store;  // value holds x18 from the first body word
+        CHECK(settled.x18 == (x18_in_value ? worked : slot11));
+    }
+    // The inner store is body word 2 (island word preamble + 2). Stopped at the next word, the guest
+    // pc is past the store (site + 4 * 3), so resuming never runs the store a second time (ADR item 2).
+    apkrt::GuestContext after_store{};
+    after_store.pc = header + island.stub + 4 * (preamble + 3);
+    after_store.x[value] = worked;
+    const auto settled = apkrt::islands::settle(island, header, after_store, saved_value, saved_base, slot11, true);
+    CHECK(settled.context.pc == header + island.site + 4 * 3);
+}
+
+// A container older than APK_CONTAINER_RESUMABLE_VERSION has restartable, not resumable, EXCLUSIVE
+// windows: settle() reads such an island the old way (back to the site before the commit, forward to
+// site + 4 * resume after it), as it did before X4h, so an old cached container still runs correctly.
+TEST(an_older_container_reads_an_exclusive_island_the_restartable_way) {
+    constexpr std::uint8_t commit = 4, forward = 5, value = 9, base = 10;
+    apk_island island{};
+    island.stub = 0x1000;
+    island.site = 0x400;
+    island.words = 12;
+    island.kind = APK_ISLAND_EXCLUSIVE;
+    island.value = value;
+    island.base = base;
+    island.commit = commit;   // a commit point, the old meaning
+    island.store = commit + 2;
+    island.resume = forward;  // words to skip forward after the commit, the old meaning
+    constexpr std::uint64_t header = 0x1'0000'0000;
+    constexpr std::uint64_t worked = 0xbeef, saved_value = 0xcafe, saved_base = 0xf00d, slot11 = 0x1818;
+    for (unsigned k = 0; k < island.words; ++k) {
+        apkrt::GuestContext context{};
+        context.pc = header + island.stub + 4 * k;
+        context.x[value] = worked;
+        const auto settled = apkrt::islands::settle(island, header, context, saved_value, saved_base, slot11, false);
+        // Back to the site up to and including the commit; forward to site + 4 * resume after it.
+        const bool back = k <= commit;
+        CHECK(settled.context.pc == header + island.site + (back ? 0 : 4 * std::uint64_t{forward}));
+        const bool x18_in_value = !back && k <= island.store;
+        CHECK(settled.x18 == (x18_in_value ? worked : slot11));
+    }
+}
+
+// The dual path through the runtime's own entry points: a registered version-3 container's EXCLUSIVE
+// island must go through leave() the restartable way (leave derives resumable from the container
+// version), and reenter() must skip it (ADR-0020 X4h). Kills the mutants of leave() always passing
+// resumable = true and reenter() dropping its version skip.
+TEST(an_older_container_through_leave_and_reenter_stays_restartable) {
+    alignas(4096) static std::uint8_t backing[0x2000]{};
+    const auto header = reinterpret_cast<std::uint64_t>(backing);
+    static apk_container_info info{};
+    info.version = 3;  // older than APK_CONTAINER_RESUMABLE_VERSION
+    info.islands = 0x100;
+    info.island_count = 1;
+    info.stubs = 0x200;
+    info.stubs_size = 0x100;
+    info.image_offset = 0x1000;
+    info.image_size = 0x1000;
+    auto &island = *reinterpret_cast<apk_island *>(backing + info.islands);
+    island.stub = 0x200;          // header-relative, in the stub area
+    island.site = 0x1040;         // header-relative, in the image
+    island.words = 10;
+    island.kind = APK_ISLAND_EXCLUSIVE;
+    island.value = 9;
+    island.base = 10;
+    island.commit = 4;            // a commit point, the old (restartable) meaning
+    island.store = 6;
+    island.resume = 5;            // words to skip forward after the commit, the old meaning
+    apkrt::islands::add(backing, info, "older");
+
+    alignas(16) std::uint64_t stack[64];
+    apkrt::GuestContext context{};
+    context.sp = reinterpret_cast<std::uint64_t>(&stack[32]);
+    auto *red = reinterpret_cast<std::uint64_t *>(context.sp - 128);
+    red[0] = 0xcafe;
+    red[1] = 0xf00d;
+    context.pc = header + island.stub + 4 * (std::uint64_t{island.commit} + 1);  // one word past the commit
+    context.x[island.value] = 0x1234;
+    std::uint64_t x18 = 0x1818;
+    CHECK(apkrt::islands::leave(context, x18));
+    // Restartable: forward to site + 4 * resume, not the resumable per-word map (site + 4 * (word - commit)).
+    CHECK(context.pc == header + island.site + 4 * std::uint64_t{island.resume});
+
+    apkrt::GuestContext body{};
+    body.sp = reinterpret_cast<std::uint64_t>(&stack[32]);
+    body.pc = header + island.site + 4;  // a body pc; a resumable container would remap it, a v3 one must not
+    CHECK(!apkrt::islands::reenter(body, 0x1818));
+    CHECK(body.pc == header + island.site + 4);
+}
+
+// ADR-0020 X4h: reenter() turns a guest pc inside a relocated window body (past its load-exclusive)
+// into the matching island word, puts the guest x18 into the value scratch and rebuilds the red zone
+// the first frame clobbered; the window start (site + 0, the branch) and the word after the window are
+// left alone. Uses the real program's window island so the fields come from the converter.
+TEST(reenter_redirects_a_window_body_pc_into_the_island_and_restores_its_scratch) {
+    const auto &loaded = program();
+    const auto &island = loaded.island_at(window_at);  // the LL/SC window that stores x18 (writes x18)
+    CHECK(island.kind == APK_ISLAND_EXCLUSIVE && island.base != APK_ISLAND_NO_REGISTER);
+    alignas(16) std::uint64_t stack[64];
+    const auto sp = reinterpret_cast<std::uint64_t>(&stack[32]);  // the red zone at sp - 128 is &stack[16]
+    auto *red_zone = reinterpret_cast<std::uint64_t *>(sp - 128);
+    constexpr std::uint64_t guest_value = 0xaaaa, guest_base = 0xbbbb, x18 = 0x1818;
+    for (unsigned guest_word = 0; guest_word <= island.resume; ++guest_word) {
+        apkrt::GuestContext context{};
+        context.sp = sp;
+        context.pc = loaded.header + island.site + 4 * guest_word;
+        context.x[island.value] = guest_value;
+        context.x[island.base] = guest_base;
+        red_zone[0] = red_zone[1] = 0;  // as the signal frame left it
+        const bool redirected = apkrt::islands::reenter(context, x18);
+        if (guest_word == 0 || guest_word >= island.resume) {
+            CHECK(!redirected);  // site + 0 is the branch into the island; the window end is guest code
+            CHECK(context.pc == loaded.header + island.site + 4 * guest_word);
+        } else {
+            CHECK(redirected);
+            CHECK(context.pc == loaded.header + island.stub + 4 * (std::uint64_t{island.commit} + guest_word));
+            CHECK(context.x[island.value] == x18);       // the value scratch carries the guest x18
+            CHECK(red_zone[0] == guest_value);           // the red zone holds the guest scratch again
+            CHECK(red_zone[1] == guest_base);
+        }
+    }
+}
+
+// A window that only reads x18 has no second scratch register (base == APK_ISLAND_NO_REGISTER) and
+// never saves anything at sp - 120, so reenter() must leave that red-zone slot untouched: rebuilding
+// it would read context.x[255] and clobber a word the island does not own.
+TEST(reenter_leaves_the_base_slot_alone_for_a_window_that_does_not_write_x18) {
+    const auto &loaded = program();
+    const auto &island = loaded.island_at(fault_window_deep_at);  // reads x18 as an address, never writes it
+    CHECK(island.kind == APK_ISLAND_EXCLUSIVE && island.base == APK_ISLAND_NO_REGISTER);
+    CHECK(island.resume >= 2);  // at least one body word strictly inside the window
+    alignas(16) std::uint64_t stack[64];
+    const auto sp = reinterpret_cast<std::uint64_t>(&stack[32]);  // the red zone at sp - 128 is &stack[16]
+    auto *red_zone = reinterpret_cast<std::uint64_t *>(sp - 128);
+    constexpr std::uint64_t guest_value = 0xaaaa, x18 = 0x1818, sentinel = 0x5555'5555'5555'5555;
+    apkrt::GuestContext context{};
+    context.sp = sp;
+    context.pc = loaded.header + island.site + 4;  // the first word inside the window body
+    context.x[island.value] = guest_value;
+    red_zone[0] = 0;
+    red_zone[1] = sentinel;  // the island of a read-only window never writes sp - 120
+    CHECK(apkrt::islands::reenter(context, x18));
+    CHECK(context.x[island.value] == x18);
+    CHECK(red_zone[0] == guest_value);
+    CHECK(red_zone[1] == sentinel);  // untouched: base is APK_ISLAND_NO_REGISTER
 }
 
 // The indirect islands (ADR-0020 X2e): BLR x18 to a helper that returns to the call site, then a
@@ -557,6 +785,29 @@ void on_segv(int, void *info, void *ucontext) {
     pc = fault_view.resume_at != 0 ? fault_view.resume_at : pc + 4;
 }
 
+// A handler that, on the first fault (x18 unmapped), gives x18 a mapped address and retries the
+// faulting instruction (pc unchanged); a later fault, or one at address 0, means the retry ran the
+// original body with x18 = 0 (Finding B) -- it is recorded and the handler escapes to end the test.
+struct RetryView {
+    int faults = 0;
+    std::uint64_t fix_x18 = 0;  // the mapped address to put in x18 on the first fault
+    std::uint64_t escape = 0;   // where to send the thread to end the test after a bad retry
+    bool saw_zero = false;      // a fault at address 0: the retry ran with x18 = 0
+};
+RetryView retry_view;
+
+void on_segv_retry(int, void *info, void *ucontext) {
+    const auto address = static_cast<const apkrt::signals::LinuxSiginfo *>(info)->fields.address;
+    auto &pc = *reinterpret_cast<std::uint64_t *>(static_cast<char *>(ucontext) + linux_pc_offset);
+    auto *regs = reinterpret_cast<std::uint64_t *>(static_cast<char *>(ucontext) + linux_registers_offset);
+    if (++retry_view.faults > 1 || address == 0) {
+        retry_view.saw_zero = retry_view.saw_zero || address == 0;
+        pc = retry_view.escape;  // break out of the retry so the test ends
+        return;
+    }
+    regs[18] = retry_view.fix_x18;  // give x18 a mapped address and retry the faulting instruction
+}
+
 struct FaultCall {
     std::uint64_t function_at;
     std::uint64_t argument;
@@ -615,6 +866,42 @@ TEST(a_fault_inside_an_exclusive_window_shows_the_handler_its_load_exclusive) {
     CHECK(seen.registers[0] == marker);  // the window's value register has the guest's x0 again
     CHECK(seen.registers[18] == unmapped);
     CHECK(seen.result == marker && seen.x18_after == unmapped);
+}
+
+// ADR-0020 X4h: a fault on a guest load deeper in a relocated window reaches the handler at that
+// instruction, not at the window's start -- resumability delivers the signal where it happened, the
+// path ART's implicit null check needs. This window relocates only because X4h allows the load.
+TEST(a_fault_deep_in_a_relocated_window_shows_the_handler_that_instruction) {
+    static std::uint64_t cell = 0;
+    const auto image = program().image;
+    const auto seen = fault_in({fault_window_deep_at, reinterpret_cast<std::uint64_t>(&cell), unmapped},
+                               image + fault_window_deep_at + 16);  // resume at the ret, past the loop
+    CHECK(seen.pc == image + fault_window_deep_at + 4);  // the ldr x9, [x18], the window's second word
+    CHECK(seen.address == unmapped);
+    CHECK(seen.registers[18] == unmapped);
+}
+
+// ADR-0020 X4h: when a handler returns to retry an instruction inside a relocated window, the runtime
+// re-enters the island (where x18 lives in the value scratch), not the original body -- which iOS has
+// run with x18 = 0 after clearing it at signal return. So the handler's new x18 takes effect and the
+// load does not fault again at address 0. The window uses x18 as an address, the case Finding B broke.
+TEST(a_fault_retry_in_a_relocated_window_re_enters_the_island_with_the_handlers_x18) {
+    static std::uint64_t cell0 = 0, cell18 = 0x5a5a;
+    const auto image = program().image;
+    retry_view = {};
+    retry_view.fix_x18 = reinterpret_cast<std::uint64_t>(&cell18);
+    retry_view.escape = image + fault_window_deep_at + 16;  // the ret, if a bad retry needs breaking out
+    set_action(sigsegv, on_segv_retry);
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    FaultCall call{fault_window_deep_at, reinterpret_cast<std::uint64_t>(&cell0), unmapped};
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, fault_child, &call) > 0);
+    join(&tid_word);
+    set_default_action(sigsegv);
+    ::munmap(stack, stack_size);
+    CHECK(retry_view.faults == 1);  // only the initial unmapped-x18 fault; the retry re-entered the island
+    CHECK(!retry_view.saw_zero);    // the retry never ran the original body with x18 = 0 (Finding B)
 }
 
 // ADR-0020 X4f: the message names the br by its library and ELF address, and the target the guest
@@ -825,6 +1112,61 @@ TEST(signals_from_another_thread_never_stop_the_guest_inside_an_island) {
         at_sites += at_site;
     }
     CHECK(at_sites > 0);  // the signals did stop the thread inside islands
+}
+
+// ADR-0020 X4h, finding A: a relocated window with a back-edge to its own load-exclusive accumulates
+// x18 across passes while slot 11 stays stale until the loop's one store-back. A signal at the
+// load-exclusive on a pass after the first must settle x18 from the value register (and leave() write
+// that into slot 11), so the resume through the window start reloads the accumulated x18, not the stale
+// slot 11. The thread does a fixed number of passes while another bombards it with signals; x18 must
+// have moved by exactly that many.
+struct BackEdgeView {
+    std::atomic<long> tid{0};
+    std::atomic<bool> stop{false};
+    std::uint64_t cell = 0;
+    std::uint64_t rounds = 0;
+    std::uint64_t x18_after = 0;
+};
+constexpr std::uint64_t back_edge_x18_start = 500'000;
+constexpr std::uint64_t back_edge_rounds_per_call = 1000;
+
+void back_edge_child(void *argument) {
+    auto &view = *static_cast<BackEdgeView *>(argument);
+    view.tid = probe_syscall(nr_gettid, 0);
+    apkrt_set_guest_x18(back_edge_x18_start);
+    const auto backedge = reinterpret_cast<void (*)(std::uint64_t *, std::uint64_t)>(program().image + backedge_at);
+    while (!view.stop.load()) {
+        backedge(&view.cell, back_edge_rounds_per_call);
+        view.rounds += back_edge_rounds_per_call;
+    }
+    view.x18_after = apkrt_get_guest_x18();
+}
+
+TEST(a_signal_at_a_back_edge_load_exclusive_keeps_the_accumulated_x18) {
+    set_action(sigusr1, on_signal);
+    static BackEdgeView view;
+    void *stack = map_stack();
+    CHECK(stack != nullptr);
+    int tid_word = 0;
+    CHECK(probe_clone(pthread_flags, top_of(stack), &tid_word, nullptr, &tid_word, back_edge_child, &view) > 0);
+    while (view.tid.load() == 0) std::this_thread::yield();
+    std::uint64_t random = 0x2545'f491'4f6c'dd1d;
+    for (int sent = 0; sent < 2000; ++sent) {
+        CHECK(probe_syscall(nr_tgkill, static_cast<std::uint64_t>(::getpid()),
+                            static_cast<std::uint64_t>(view.tid.load()), sigusr1) == 0);
+        random ^= random << 13;
+        random ^= random >> 7;
+        random ^= random << 17;
+        const auto until = std::chrono::steady_clock::now() + std::chrono::nanoseconds(random % 10'000);
+        while (std::chrono::steady_clock::now() < until) {
+        }
+    }
+    view.stop = true;
+    join(&tid_word);
+    set_default_action(sigusr1);
+    ::munmap(stack, stack_size);
+    CHECK(view.rounds > 0);
+    CHECK(view.x18_after - back_edge_x18_start == view.rounds);  // no pass's increment was dropped (finding A)
 }
 
 }  // namespace

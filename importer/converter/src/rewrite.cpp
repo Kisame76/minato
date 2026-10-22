@@ -419,6 +419,8 @@ constexpr const char *window_unclosed = "it lies in an exclusive window that doe
 constexpr const char *window_nested =
     "it lies in an exclusive window that opens another load-exclusive before it closes";
 constexpr const char *window_stack = "it lies in an exclusive window that moves the stack pointer";
+constexpr const char *window_below_stack =
+    "it lies in an exclusive window that reaches below the stack pointer, where the island keeps its registers";
 constexpr const char *window_no_register = "it lies in an exclusive window that leaves no register free";
 constexpr const char *window_registers =
     "it lies in an exclusive window that writes x18 and leaves fewer than two registers free";
@@ -602,6 +604,10 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
             problem = window_stack;
             return std::nullopt;
         }
+        if (reaches_below_stack_pointer(word)) {  // it would overwrite the scratch the island saves there
+            problem = window_below_stack;
+            return std::nullopt;
+        }
         const auto use = a64::register_use(word);
         used |= use.reads | use.writes;
         if ((use.reads | use.writes) & x18_bit) {
@@ -611,10 +617,13 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
         region.words.push_back(word);
     }
     if (!any_x18) return std::nullopt;  // an exclusive loop without x18 needs no rewrite
-    // The island loads x18 before the window when some path reads it before writing it, or leaves
-    // it unwritten: the store after the window writes the value register back on every path. The
-    // first use alone does not tell, a branch can skip it (ADR-0020 X4).
-    region.loads_x18 = live_into_window(code, open, end, x18_bit);
+    // The island loads x18 before the window when some path reads it before writing it, or leaves it
+    // unwritten: the store after the window writes the value register back on every path (the first use
+    // alone does not tell, a branch can skip it; ADR-0020 X4). It loads x18 whenever the window writes
+    // x18 as well: settle maps the value register to x18 from the first body word (ADR-0020 X4h), so the
+    // value register must hold the guest x18 there, both before the window's own first write of it and,
+    // across a back-edge to the load-exclusive, on every later pass while slot 11 is still stale.
+    region.loads_x18 = region.writes_x18 || live_into_window(code, open, end, x18_bit);
 
     // Free registers: the value in place of x18, and when the window writes x18 the TSD base for the
     // store-back; a window that only reads x18 loads it through the value register itself. They may
@@ -758,6 +767,70 @@ const char *restart_problem(std::span<const std::byte> code, std::size_t open, s
         if (!skippable[k]) {
             defined |= use.writes;
             flags_defined = flags_defined || sets_flags(word);
+        }
+    }
+    return nullptr;
+}
+
+// --- Windows relocated as resumable islands (ADR-0020 X4h, step C classes 2 and 3) --------------
+//
+// A signal taken in a relocated window is delivered at the exact instruction it interrupted, not sent
+// back to the load-exclusive (leave() maps each island word to its guest instruction). So the window
+// need not run the same again from its start: restart_problem above no longer gates relocation, only
+// the keep-in-place windows of step B. A memory access or any other instruction in the window is
+// copied in order and resumed in place. Only what the island cannot reproduce at its own address stays
+// refused, and its x18 uses with it.
+
+constexpr const char *relocated_window_call =
+    "it lies in an exclusive window a signal can resume, but it holds a call, whose return address would point "
+    "into the island";
+constexpr const char *relocated_window_pc_relative =
+    "it lies in an exclusive window a signal can resume, but it holds a pc-relative instruction the island cannot "
+    "place for its own address";
+constexpr const char *relocated_window_redirected =
+    "it lies in an exclusive window a signal can resume, but it holds an instruction the converter redirects "
+    "elsewhere (a thread-pointer access or an svc) that the island would copy and run unredirected";
+constexpr const char *relocated_window_branch_leaves =
+    "it lies in an exclusive window a signal can resume, but a branch leaves the window, skipping the island's "
+    "tail that restores the scratch registers and stores x18 back to slot 11";
+constexpr const char *relocated_window_register_branch =
+    "it lies in an exclusive window a signal can resume, but it holds a register branch the island cannot "
+    "retarget to its relocated body";
+
+/// Why the window [open, end] cannot be relocated as a resumable island, or nullptr. A call's return
+/// address would point into the island (and its own memory accesses would break LL/SC forward progress
+/// on real hardware, so such a window is a mis-scan); a branch that leaves the window, or a register
+/// branch the island cannot retarget, would skip the island's tail, which restores the scratch registers
+/// and stores x18 back to slot 11; a pc-relative form emit_exclusive_region neither recomputes nor keeps
+/// to one word, so it would break the island's one-word-per-guest-word map; and an instruction the
+/// converter rewrites elsewhere (a guest thread-pointer read or write, an svc) the island would copy
+/// verbatim and so run against the host, not the guest. The word right after the window counts as
+/// outside it: a branch there skips the tail as well.
+const char *relocation_problem(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+    for (std::size_t j = open; j <= end; j += 4) {
+        const auto word = word_at(code, j);
+        // BL; BLR, BLRAA, BLRAB and their Z forms (restart_problem names the same shapes window_call).
+        if ((word & 0xfc00'0000) == 0x9400'0000 || (word & 0xfeff'0000) == 0xd63f'0000) return relocated_window_call;
+        // A direct branch whose target leaves [open, end], or (no displacement) a register branch -- BR,
+        // RET, the pointer-authenticated branches -- which emit_exclusive_region would send straight at
+        // guest code, past the tail. The in-window retry branches keep their target inside [open, end].
+        // is_branch also matches the exception group (top byte 0xd4: svc, brk, hlt, hvc, dcps), which are
+        // not register branches; an svc is caught by the redirected check below, so exclude 0xd4 here.
+        if (const auto displacement = branch_displacement(word)) {
+            const auto target = static_cast<std::int64_t>(j) + *displacement;
+            if (target < static_cast<std::int64_t>(open) || target > static_cast<std::int64_t>(end)) {
+                return relocated_window_branch_leaves;
+            }
+        } else if (is_branch(word) && (word & 0xff00'0000) != 0xd400'0000) {
+            return relocated_window_register_branch;
+        }
+        // pc_relative_words catches ADR, ADRP and the integer literal loads; the second test also catches
+        // the SIMD/FP literal loads (bit 26 set) and PRFM (literal), which share the load-literal form but
+        // which pc_relative_words skips -- emit_exclusive_region would keep their now-wrong imm19.
+        if (pc_relative_words(word) != 0 || (word & 0x3b00'0000) == 0x1800'0000) return relocated_window_pc_relative;
+        if ((word & register_mask) == mrs_tpidr_el0 || (word & register_mask) == msr_tpidr_el0 ||
+            (word & svc_mask) == svc) {
+            return relocated_window_redirected;
         }
     }
     return nullptr;
@@ -1058,7 +1131,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             }
             continue;
         }
-        problem = branch_enters_window(code, offset, *end) ? window_entered : restart_problem(code, offset, *end);
+        problem = branch_enters_window(code, offset, *end) ? window_entered : relocation_problem(code, offset, *end);
         if (problem) {
             refused_windows.emplace_back(offset, *end, problem);
             continue;
@@ -1431,17 +1504,11 @@ IslandLayout exclusive_region_layout(const ExclusiveRegion &region) {
                         .words = static_cast<std::uint32_t>(exclusive_region_stub_size(region) / 4),
                         .value = region.scratch};
     // As emit_exclusive_region() writes it: save the value (and the base), load x18, the window,
-    // then store x18 with mrs, bic and str. The window completes with its store-exclusive, or with
-    // the CLREX that closes a window without one.
+    // then store x18 with mrs, bic and str. A relocated window is resumable (ADR-0020 X4h), so commit
+    // holds the preamble length, not a commit point: leave() resumes the thread at the exact guest
+    // instruction, site + 4 * (word - preamble) for a body word.
     const std::size_t first = 1 + (region.writes_x18 ? 1u : 0u) + (region.loads_x18 ? 3u : 0u);
-    std::size_t closing = region.words.size() - 1;
-    for (std::size_t index = 1; index < region.words.size(); ++index) {
-        if (is_store_exclusive(region.words[index])) {
-            closing = index;
-            break;
-        }
-    }
-    layout.commit = static_cast<std::uint8_t>(first + closing);
+    layout.commit = static_cast<std::uint8_t>(first);
     if (region.writes_x18) {
         layout.base = region.base;
         layout.store = static_cast<std::uint8_t>(first + region.words.size() + 2);

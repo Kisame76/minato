@@ -24,8 +24,14 @@
 #define APK_CONTAINER_SEGMENT "__TEXT"
 #define APK_CONTAINER_SECTION "__apk_info"
 #define APK_CONTAINER_MAGIC "APKCONT"  /* 8 bytes with the terminating zero */
-#define APK_CONTAINER_VERSION 3  /* 2: the table of x18 islands (ADR-0020 X4); 3: the runs (ADR-0008 amendment) */
+/* 2: the table of x18 islands (ADR-0020 X4); 3: the runs (ADR-0008 amendment); 4: exclusive-window
+   islands are resumable (ADR-0020 X4h), so an EXCLUSIVE island's `commit` field changed meaning. */
+#define APK_CONTAINER_VERSION 4
 #define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
+/* From this version an EXCLUSIVE island is resumable (its `commit` is the preamble length); an older
+   container's EXCLUSIVE islands are restartable (`commit` a commit point), so settle() reads them the
+   old way and reenter() leaves them alone. */
+#define APK_CONTAINER_RESUMABLE_VERSION 4
 
 /// apk_container_info.flags
 enum {
@@ -95,10 +101,17 @@ enum {
 /// One x18 island (ADR-0020 X4); the table is sorted by `stub`. The island saves `value` in the red
 /// zone at sp - 128 with its word 0 and `base` at sp - 120 with its word 1. A thread stopped before
 /// word k (pc = Mach-O header + stub + 4k) returns to the guest like this: `value` gets back its
-/// guest value from sp - 128 once k >= 1, `base` from sp - 120 once k >= 2. With k <= commit, or
-/// APK_ISLAND_NO_COMMIT, the thread goes back to the site and runs the island again from its start;
-/// after the commit it goes on to site + 4 * resume, and while k <= store the island has not
-/// stored x18 yet, so the runtime stores the value register as x18 first.
+/// guest value from sp - 128 once k >= 1, `base` from sp - 120 once k >= 2. For a single instruction
+/// or an indirect branch: with k <= commit, or APK_ISLAND_NO_COMMIT, the thread goes back to the site
+/// and runs the island again from its start; after the commit it goes on to site + 4 * resume, and
+/// while k <= store the island has not stored x18 yet, so the runtime stores the value register as
+/// x18 first. From APK_CONTAINER_RESUMABLE_VERSION an APK_ISLAND_EXCLUSIVE window is resumable (ADR-0020
+/// X4h): `commit` holds the preamble length and `resume` the window's words, so the thread returns to
+/// the exact guest instruction, site + 4 * min(k - commit, resume) -- the window start for a preamble
+/// word, the word after the window for the store-back tail; x18 is the value register while
+/// commit <= k <= store (the window loads it in the preamble), else slot 11. In an older container an
+/// EXCLUSIVE window is restartable and reads
+/// like a single instruction above (commit a commit point), which settle() does for its lower version.
 struct apk_island {
     uint32_t stub;    // from the Mach-O header to the island's first word
     uint32_t site;    // from the Mach-O header to the rewritten word, which branches to the island
@@ -106,9 +119,9 @@ struct apk_island {
     uint8_t kind;
     uint8_t value;    // the register that stands in for x18
     uint8_t base;     // the second scratch register, or APK_ISLAND_NO_REGISTER
-    uint8_t commit;   // the word that completes the guest instruction or window
+    uint8_t commit;   // completes the guest instruction; for an exclusive window, the preamble length
     uint8_t store;    // the word that stores x18 to the TSD; 0 when there is none
-    uint8_t resume;   // words from the site to where the thread goes on after the commit
+    uint8_t resume;   // words from the site to the word after the commit; for a window, its own words
 };
 
 /// In __DATA, written by the loader before any guest code runs.

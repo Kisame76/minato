@@ -81,15 +81,33 @@ const apk_island *island_at(const Container &container, std::uint64_t pc) {
 }
 
 Settled settle(const apk_island &island, std::uint64_t header, const GuestContext &context,
-               std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18) {
+               std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18, bool resumable) {
     const std::uint64_t word = (context.pc - (header + island.stub)) / 4;
-    const bool back = island.commit == APK_ISLAND_NO_COMMIT || word <= island.commit;
     Settled settled{context, x18};
-    // Forward, before the island's own store: x18 is still in the value register.
-    if (!back && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
+    // x18 is in the value register until the island stores it back to slot 11; read it from the
+    // current context before the red-zone restore below gives that register its guest value again.
+    // Only a resumable EXCLUSIVE window uses the per-word map; an older container's EXCLUSIVE window is
+    // restartable and reads like any other island (the `else` below), as it did before X4h.
+    if (island.kind == APK_ISLAND_EXCLUSIVE && resumable) {
+        // A relocated window is resumable: the thread returns to the exact guest instruction it was
+        // stopped at (ADR-0020 X4h). `commit` is the preamble length, `resume` the window's words.
+        const std::uint64_t preamble = island.commit, body = island.resume;
+        // A window that writes x18 loads it into the value register in its preamble (loads_x18), so from
+        // the first body word (word == preamble, the load-exclusive) the value register holds the guest
+        // x18 -- equal to slot 11 on the first pass, and the accumulated x18 on a later pass reached by a
+        // back-edge to the load-exclusive, where slot 11 is stale until the store-back tail runs. So x18
+        // comes from the value register across the whole [preamble, store] range (ADR-0020 X4h).
+        if (word >= preamble && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
+        const std::uint64_t guest = word < preamble ? 0 : std::min<std::uint64_t>(word - preamble, body);
+        settled.context.pc = header + island.site + 4 * guest;
+    } else {
+        // Before its commit the island runs again from the site; after it the thread goes on.
+        const bool back = island.commit == APK_ISLAND_NO_COMMIT || word <= island.commit;
+        if (!back && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
+        settled.context.pc = header + island.site + (back ? 0 : 4 * std::uint64_t{island.resume});
+    }
     if (word >= 1) settled.context.x[island.value] = saved_value;
     if (island.base != APK_ISLAND_NO_REGISTER && word >= 2) settled.context.x[island.base] = saved_base;
-    settled.context.pc = header + island.site + (back ? 0 : 4 * std::uint64_t{island.resume});
     return settled;
 }
 
@@ -103,10 +121,41 @@ bool leave(GuestContext &context, std::uint64_t &x18) {
     const auto *red_zone = reinterpret_cast<const std::uint64_t *>(context.sp - 128);
     const auto saved_value = word >= 1 ? red_zone[0] : 0;
     const auto saved_base = word >= 2 && island->base != APK_ISLAND_NO_REGISTER ? red_zone[1] : 0;
-    const auto settled = settle(*island, container->header, context, saved_value, saved_base, x18);
+    const bool resumable = container->info->version >= APK_CONTAINER_RESUMABLE_VERSION;
+    const auto settled = settle(*island, container->header, context, saved_value, saved_base, x18, resumable);
     context = settled.context;
     x18 = settled.x18;
     return true;
+}
+
+bool reenter(GuestContext &context, std::uint64_t x18) {
+    if (context.pc % 4 != 0) return false;  // a window body pc is word-aligned; a misaligned one faults as on Linux
+    for (const auto *container = first.load(std::memory_order_acquire); container != nullptr;
+         container = container->next) {
+        if (container->info->version < APK_CONTAINER_RESUMABLE_VERSION) continue;  // no resumable windows here
+        const auto image = container->header + container->info->image_offset;
+        if (context.pc - image >= container->info->image_size) continue;  // not this container's guest image
+        const auto offset = context.pc - container->header;  // Mach-O-header-relative, like island.site
+        const auto *table = reinterpret_cast<const apk_island *>(container->header + container->info->islands);
+        for (std::size_t index = 0; index < container->info->island_count; ++index) {
+            const auto &island = table[index];
+            if (island.kind != APK_ISLAND_EXCLUSIVE) continue;
+            const std::uint64_t body_end = std::uint64_t{island.site} + 4 * std::uint64_t{island.resume};
+            if (offset <= island.site || offset >= body_end) continue;  // only past the load-exclusive, in the body
+            const std::uint64_t word = (offset - island.site) / 4;
+            // The island's preamble, which re-entering past it skips, saved the two scratch registers in
+            // the red zone and loaded the guest x18 into the value register. Rebuild both: the first
+            // signal frame clobbered the red zone, so restore it from the guest scratch the context still
+            // carries, then give the value register the guest x18 the body runs on (ADR-0020 X4h).
+            auto *red_zone = reinterpret_cast<std::uint64_t *>(context.sp - 128);
+            red_zone[0] = context.x[island.value];
+            if (island.base != APK_ISLAND_NO_REGISTER) red_zone[1] = context.x[island.base];
+            context.x[island.value] = x18;
+            context.pc = container->header + island.stub + 4 * (std::uint64_t{island.commit} + word);
+            return true;
+        }
+    }
+    return false;
 }
 
 std::optional<JumpTableTrap> jump_table_trap(std::uint64_t pc, std::uint64_t x18) {

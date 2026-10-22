@@ -294,8 +294,10 @@ Image load(const std::string &path) {
         throw LoadError(std::format("{}: not a container dylib (no {},{})", resolved, APK_CONTAINER_SEGMENT,
                                     APK_CONTAINER_SECTION));
     }
+    // From version 3 the runs live in __apk_info, so the whole struct must be present; version 2 ends
+    // before them and is legitimately shorter (writable_part reads run_count and runs only for >= 3).
     if (info->version < APK_CONTAINER_OLDEST_VERSION || info->version > APK_CONTAINER_VERSION ||
-        (info->version == APK_CONTAINER_VERSION && size < sizeof(apk_container_info))) {
+        (info->version >= 3 && size < sizeof(apk_container_info))) {
         throw LoadError(std::format("{}: container version {}, this runtime reads versions {} to {}", resolved,
                                     info->version, APK_CONTAINER_OLDEST_VERSION, APK_CONTAINER_VERSION));
     }

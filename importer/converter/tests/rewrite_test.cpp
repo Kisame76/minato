@@ -40,13 +40,8 @@ extern const std::uint32_t ref_x18_ll_sc[];
 extern const std::uint32_t ref_x18_ll_sc_end[];
 extern const std::uint32_t ref_x18_window_exit[];
 extern const std::uint32_t ref_x18_window_input[];
-extern const std::uint32_t ref_x18_window_flags[];
-extern const std::uint32_t ref_x18_window_memory[];
-extern const std::uint32_t ref_x18_window_syscall[];
-extern const std::uint32_t ref_x18_window_simd[];
 extern const std::uint32_t ref_x18_window_exit_next[];
 extern const std::uint32_t ref_x18_window_base[];
-extern const std::uint32_t ref_x18_window_call[];
 extern const std::uint32_t ref_x18_window_flags_read[];
 extern const std::uint32_t ref_x18_window_skipped_write[];
 extern const std::uint32_t ref_x18_window_status[];
@@ -611,7 +606,7 @@ TEST(an_exclusive_loop_with_x18_as_the_value_is_one_region) {
     const auto &region = findings.exclusive_regions[0];
     CHECK(region.address == 0x1000);
     CHECK(region.words == (std::vector<std::uint32_t>{0xc85f'7db1, 0x8b0e'0232, 0xc810'fdb2}));
-    CHECK(!region.loads_x18);  // x18 is written by the add before the stlxr reads it
+    CHECK(region.loads_x18);  // the ldxr loads x17, not x18, so the add's write leaves a gap settle must cover
     CHECK(region.writes_x18);
     CHECK(region.scratch == 0);  // x0 is free (the window uses x13, x14, x16, x17, x18)
 }
@@ -629,7 +624,7 @@ TEST(a_cmpxchg_loop_keeps_its_internal_branch_and_reads_before_the_window) {
     const auto &region = findings.exclusive_regions[0];
     CHECK(region.address == 0x2004);
     CHECK(region.words.size() == 5);  // ldaxr, cmp, b.ne, stlxr, clrex
-    CHECK(!region.loads_x18);         // the ldaxr writes x18 first
+    CHECK(region.loads_x18);          // a window that writes x18 loads it, so settle's value-register map holds (X4h)
     CHECK(region.writes_x18);
 }
 
@@ -645,40 +640,26 @@ TEST(an_exclusive_loop_using_x18_as_the_address_loads_the_scratch_first) {
     CHECK(!region.writes_x18);
 }
 
-// ADR-0020 X4: a signal inside a relocated window sends the thread back to its load-exclusive, so
-// only windows that run the same when they run again from there are relocated. The x18 uses of any
-// other window are refused, with the reason.
-TEST(an_exclusive_window_that_cannot_run_again_is_refused) {
-    constexpr std::string_view other =
-        "it holds an instruction other than data processing on general-purpose registers, a branch within "
-        "the window (not a call), a barrier or the exclusive pair";
-    struct Case {
-        const std::uint32_t *begin, *end;
-        std::string_view why;
+// ADR-0020 X4h: a signal inside a relocated window is delivered at the exact instruction, so the
+// window need not run the same from its start. A memory access (step C class 2) or any other
+// instruction (class 3) is copied in order and relocated with the window; its x18 uses island.
+TEST(a_memory_access_or_other_instruction_in_a_window_relocates) {
+    const std::uint32_t inner_store[] = {
+        0xc85f'7c28,  // ldxr x8, [x1]
+        0x9100'0512,  // add x18, x8, #1
+        0xf900'0032,  // str x18, [x1]      a guest store inside the window (class 2)
+        0xc809'7c32,  // stxr w9, x18, [x1]
     };
-    const Case cases[] = {
-        {ref_x18_window_exit, ref_x18_window_input, "a branch leaves it"},
-        {ref_x18_window_input, ref_x18_window_flags, "it writes a register it reads first"},
-        {ref_x18_window_flags, ref_x18_window_memory, "it reads the flags before it sets them"},
-        {ref_x18_window_memory, ref_x18_window_syscall, "it holds a memory access, which would run again"},
-        {ref_x18_window_syscall, ref_x18_window_simd, other},
-        {ref_x18_window_simd, ref_x18_window_exit_next, other},
-        {ref_x18_window_exit_next, ref_x18_window_base, "a branch leaves it"},
-        {ref_x18_window_base, ref_x18_window_call, "it writes a register it reads first"},
-        {ref_x18_window_call, ref_x18_window_flags_read,
-         "it holds a call, whose return address would point into the island"},
+    const std::uint32_t simd[] = {
+        0xc85f'7c28,  // ldxr x8, [x1]
+        0x9100'0512,  // add x18, x8, #1
+        0x4ee0'8400,  // add v0.2d, v0.2d, v1.2d   a non-data-processing instruction (class 3)
+        0xc809'7c32,  // stxr w9, x18, [x1]
     };
-    for (const auto &c : cases) {
-        const auto findings = scan_words(c.begin, c.end, 0x10000);
-        CHECK(findings.exclusive_regions.empty());
-        CHECK(findings.x18_unsupported.size() == 2);  // the load- and the store-exclusive on x18
-        for (const auto &use : findings.x18_unsupported) {
-            const std::string_view reason(use.reason);
-            if (!reason.starts_with("it lies in an exclusive window that cannot run again from its start: ") ||
-                !reason.ends_with(c.why)) {
-                apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
-            }
-        }
+    for (const auto *window : {inner_store, simd}) {
+        const auto findings = scan_words(window, window + 4, 0x10000);
+        CHECK(findings.x18_unsupported.empty());
+        CHECK(findings.exclusive_regions.size() == 1);
     }
 }
 
@@ -762,6 +743,12 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         0x9100'0412,  // add x18, x0, #1
         0xc802'7c32,  // stxr w2, x18, [x1]
     };
+    const std::uint32_t below_sp[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0xf81f'83e2,  // stur x2, [sp, #-8]    reaches below sp, into the island's red zone
+        0x9100'0432,  // add x18, x1, #1
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
     const std::uint32_t pair[] = {
         0xc85f'7c01,  // ldxr x1, [x0]
         0x4832'7c82,  // casp x18, x19, x2, x3, [x4]
@@ -772,6 +759,17 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         0xd73f'092a,  // blraa x9, x10
         0xc809'7e48,  // stxr w9, x8, [x18]
     };
+    const std::uint32_t pc_relative[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9000'0012,  // adrp x18, #0          a pc-relative form the island cannot place
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
+    const std::uint32_t simd_literal[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x5c00'0000,  // ldr d0, .             a SIMD literal load (bit 26 set), also pc-relative
+        0x9100'0432,  // add x18, x1, #1
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
     struct Case {
         const std::uint32_t *begin, *end;
         std::size_t uses;
@@ -779,10 +777,18 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     };
     const Case cases[] = {
         {call, call + std::size(call), 2,
-         "it lies in an exclusive window that cannot run again from its start: it holds a call, whose return address "
-         "would point into the island"},
+         "it lies in an exclusive window a signal can resume, but it holds a call, whose return address would point "
+         "into the island"},
+        {pc_relative, pc_relative + std::size(pc_relative), 2,
+         "it lies in an exclusive window a signal can resume, but it holds a pc-relative instruction the island cannot "
+         "place for its own address"},
+        {simd_literal, simd_literal + std::size(simd_literal), 2,
+         "it lies in an exclusive window a signal can resume, but it holds a pc-relative instruction the island cannot "
+         "place for its own address"},
         {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 64 words"},
         {stack, stack + std::size(stack), 2, "it lies in an exclusive window that moves the stack pointer"},
+        {below_sp, below_sp + std::size(below_sp), 2,
+         "it lies in an exclusive window that reaches below the stack pointer, where the island keeps its registers"},
         {crowded, crowded + std::size(crowded), 2, "it lies in an exclusive window that leaves no register free"},
         {written, written + std::size(written), 2,
          "it lies in an exclusive window that writes x18 and leaves fewer than two registers free"},
@@ -799,6 +805,101 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
                 apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
             }
         }
+    }
+}
+
+// A thread-pointer access or an svc in a window the converter will not relocate (it could not copy
+// such an instruction without running it against the host) still becomes its own redirect island;
+// only the window's x18 uses are refused, and they name the redirected instruction (ADR-0020 X4h).
+TEST(a_redirected_instruction_keeps_a_window_from_relocating_but_still_islands_itself) {
+    const std::uint32_t thread_pointer[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'0432,  // add x18, x1, #1
+        0xd53b'd043,  // mrs x3, tpidr_el0
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
+    const std::uint32_t syscall[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'0432,  // add x18, x1, #1
+        0xd400'0001,  // svc #0            an svc, not a register branch (both match is_branch)
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
+    const struct {
+        const std::uint32_t *begin, *end;
+        SiteKind site;
+    } cases[] = {{thread_pointer, thread_pointer + std::size(thread_pointer), SiteKind::thread_pointer_read},
+                 {syscall, syscall + std::size(syscall), SiteKind::syscall}};
+    for (const auto &c : cases) {
+        const auto findings = scan_words(c.begin, c.end, 0x10000);
+        CHECK(findings.exclusive_regions.empty());
+        CHECK(findings.sites.size() == 1);  // the redirected instruction still gets its own island
+        if (findings.sites.size() == 1) CHECK(findings.sites[0].kind == c.site);
+        CHECK(findings.x18_unsupported.size() == 2);  // the add and the stxr on x18
+        for (const auto &use : findings.x18_unsupported) {
+            if (std::string_view(use.reason) !=
+                "it lies in an exclusive window a signal can resume, but it holds an instruction the converter "
+                "redirects elsewhere (a thread-pointer access or an svc) that the island would copy and run "
+                "unredirected") {
+                apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
+            }
+        }
+    }
+}
+
+// A branch that leaves the window, or a register branch, keeps it from relocating (ADR-0020 X4h): the
+// island's one entry runs its body and then the tail that restores the scratch registers and stores x18
+// back to slot 11. A branch out of the window -- including one to the word right after it -- or a
+// register branch the island cannot retarget would skip that tail, so the window is refused outright and
+// its x18 uses are named (it cannot stay in place either, since restart_problem also refuses it).
+TEST(a_branch_that_leaves_a_window_or_a_register_branch_keeps_it_from_relocating) {
+    const std::uint32_t register_branch[] = {
+        0xc85f'7e48,  // ldxr x8, [x18]
+        0xd65f'03c0,  // ret            a register branch inside the window
+        0xc809'7e48,  // stxr w9, x8, [x18]
+    };
+    const std::string_view leaves =
+        "it lies in an exclusive window a signal can resume, but a branch leaves the window, skipping the island's "
+        "tail that restores the scratch registers and stores x18 back to slot 11";
+    struct Case {
+        const std::uint32_t *begin, *end;
+        std::size_t uses;
+        std::string_view reason;
+    };
+    const Case cases[] = {
+        {ref_x18_window_exit, ref_x18_window_input, 2, leaves},            // b.ne out of the window
+        {ref_x18_window_exit_next, ref_x18_window_base, 2, leaves},        // branch to the word right after it
+        {register_branch, register_branch + std::size(register_branch), 2,
+         "it lies in an exclusive window a signal can resume, but it holds a register branch the island cannot "
+         "retarget to its relocated body"},
+    };
+    for (const auto &c : cases) {
+        const auto findings = scan_words(c.begin, c.end, 0x10000);
+        CHECK(findings.exclusive_regions.empty());
+        CHECK(findings.x18_unsupported.size() == c.uses);
+        for (const auto &use : findings.x18_unsupported) {
+            if (std::string_view(use.reason) != c.reason) {
+                apk::testing::fail(std::source_location::current(), "unexpected reason: ", use.reason);
+            }
+        }
+    }
+}
+
+// A window that writes x18 without ever reading it first must still load x18 in its preamble (Finding D):
+// a signal after the preamble but before the write would otherwise make settle report the value
+// register's own guest value as x18, and a handler that does not return would leave slot 11 wrong.
+TEST(a_window_that_writes_x18_without_reading_it_first_still_loads_x18) {
+    const std::uint32_t code[] = {
+        0xc85f'7c28,  // ldxr x8, [x1]
+        0x9100'0512,  // add x18, x8, #1     writes x18, never reads it first
+        0xc809'7c32,  // stxr w9, x18, [x1]
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x10000);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() == 1) {
+        const auto &region = findings.exclusive_regions[0];
+        CHECK(region.writes_x18);
+        CHECK(region.loads_x18);  // even though no path reads x18 before writing it
     }
 }
 
@@ -943,23 +1044,28 @@ TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {
 
     // The load-exclusive is replaced by a branch to the stub.
     CHECK((patch & 0xfc00'0000) == 0x1400'0000);
-    // x18 is written, so the island saves both scratch registers in the red zone and stores back.
+    // The load-exclusive loads x17, not x18, so the island loads the guest x18 before the window
+    // (Finding D); x18 is written, so it also saves both scratch registers in the red zone and stores
+    // the value back.
     const auto words = stub.size() / 4;
-    CHECK(words == 1 /* save value */ + 1 /* save base */ + 3 /* window */ + 3 /* mrs, bic, str */ +
-                       2 /* restore value, base */ + 1 /* b */);
+    CHECK(words == 1 /* save value */ + 1 /* save base */ + 3 /* load x18 */ + 3 /* window */ +
+                       3 /* mrs, bic, str */ + 2 /* restore value, base */ + 1 /* b */);
     for (std::size_t index = 0; index < words; ++index) {
         const auto use = apk::a64::register_use(word(stub, index));
         CHECK(((use.reads | use.writes) & (1u << 18)) == 0);  // no word still names x18
     }
     CHECK(word(stub, 0) == 0xf818'03e0);   // stur x0, [sp, #-128]
     CHECK(word(stub, 1) == 0xf818'83e1);   // stur x1, [sp, #-120]
+    CHECK(word(stub, 2) == 0xd53b'd060);   // mrs x0, TPIDRRO_EL0 (load the guest x18)
+    CHECK(word(stub, 3) == 0x927d'f000);   // bic x0, x0, #7
+    CHECK(word(stub, 4) == 0xf940'2c00);   // ldr x0, [x0, #88]
     // The window keeps its shape, x18 renamed to x0: ldxr (no x18, unchanged), add, stlxr.
-    CHECK(word(stub, 2) == 0xc85f'7db1);   // ldxr x17, [x13]
-    CHECK(word(stub, 3) == 0x8b0e'0220);   // add x0, x17, x14
-    CHECK(word(stub, 4) == 0xc810'fda0);   // stlxr w16, x0, [x13]
-    CHECK(word(stub, 5) == 0xd53b'd061);   // mrs x1, TPIDRRO_EL0 (the TSD base)
-    CHECK(word(stub, 7) == 0xf900'2c20);   // str x0, [x1, #88]
-    CHECK(branch_target_at(stub, 10, stub_address) == address_of(ref_site) + 4 * 3);  // after the window
+    CHECK(word(stub, 5) == 0xc85f'7db1);   // ldxr x17, [x13]
+    CHECK(word(stub, 6) == 0x8b0e'0220);   // add x0, x17, x14
+    CHECK(word(stub, 7) == 0xc810'fda0);   // stlxr w16, x0, [x13]
+    CHECK(word(stub, 8) == 0xd53b'd061);   // mrs x1, TPIDRRO_EL0 (the TSD base)
+    CHECK(word(stub, 10) == 0xf900'2c20);  // str x0, [x1, #88]
+    CHECK(branch_target_at(stub, 13, stub_address) == address_of(ref_site) + 4 * 3);  // after the window
 }
 
 // A CMPBR (FEAT_CMPBR compare-and-branch, two registers and a PC-relative label) is a branch within
@@ -981,9 +1087,10 @@ TEST(a_cmpbr_in_a_relocated_window_is_kept_and_retargeted) {
     const auto &region = findings.exclusive_regions[0];
     std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
     apk::rewrite::emit_exclusive_region(region, address_of(ref_site), address_of(ref_site) - 0x100, stub);
-    // The window is copied contiguously, so the cmpbr keeps its +8 and stays byte-for-byte itself
-    // (it names no x18); index 4 = save value, save base, ldxr, add, cmpbr.
-    CHECK(word(stub, 4) == 0xf4c4'0043);
+    // The window is copied contiguously, so the cmpbr keeps its +8 and stays byte-for-byte itself (it
+    // names no x18). The ldxr loads x0, not x18, so the island loads x18 first (Finding D): index 7 =
+    // save value, save base, [mrs, bic, ldr to load x18], ldxr, add, cmpbr.
+    CHECK(word(stub, 7) == 0xf4c4'0043);
 }
 
 // --- Jump tables through x18 (ADR-0020 X2d) --------------------------------------------------------
@@ -1301,10 +1408,10 @@ void check_common_layout(const apk::rewrite::IslandLayout &layout, const std::ve
     if (layout.commit != APK_ISLAND_NO_COMMIT && layout.commit >= layout.words) failed("the commit word lies outside");
 }
 
-// What the island table records about an island must match the words its emitter wrote: the commit
-// word completes the guest instruction (the instruction itself, the last word of a PC-relative one,
-// the store-exclusive of a window or the CLREX that closes one without it), and the last word goes
-// on `resume` words past the site. A conditional branch and a jump table always go back to the site.
+// What the island table records about an island must match the words its emitter wrote: for a single
+// instruction the commit word completes it (the instruction itself, or the last word of a PC-relative
+// one), and the last word goes on `resume` words past the site; for a resumable window commit is the
+// preamble length (ADR-0020 X4h). A conditional branch and a jump table always go back to the site.
 TEST(island_layouts_match_the_emitted_islands) {
     constexpr std::uint64_t site_address = 0x10000, stub_address = 0x20000;
     const auto writes_value = [](std::uint32_t word, unsigned value) {
@@ -1374,9 +1481,6 @@ TEST(island_layouts_match_the_emitted_islands) {
         windows.push_back(std::move(region));
     }
     CHECK(windows.size() == 6);
-    const auto is_store_exclusive = [](std::uint32_t word) {
-        return (word & 0x3f80'0000) == 0x0800'0000 && ((word >> 22) & 1) == 0;
-    };
     for (const auto &region : windows) {
         std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
         apk::rewrite::emit_exclusive_region(region, region.address, stub_address, stub);
@@ -1387,12 +1491,11 @@ TEST(island_layouts_match_the_emitted_islands) {
         CHECK(layout.resume == region.words.size());
         CHECK(branch_target_at(stub, layout.words - 1, stub_address) == region.address + 4 * layout.resume);
         CHECK((layout.store != 0) == region.writes_x18 && (layout.base != APK_ISLAND_NO_REGISTER) == region.writes_x18);
-        const auto commit = word(stub, layout.commit);
-        if (std::ranges::any_of(region.words, is_store_exclusive)) {
-            CHECK(is_store_exclusive(commit));
-        } else {
-            CHECK((commit & 0xffff'f0ff) == 0xd503'305f);  // CLREX
-        }
+        // A relocated window is resumable (ADR-0020 X4h): commit is the preamble length, so the island
+        // body starts there with the window's load-exclusive.
+        const auto preamble = 1u + (region.writes_x18 ? 1u : 0u) + (region.loads_x18 ? 3u : 0u);
+        CHECK(layout.commit == preamble);
+        CHECK((word(stub, layout.commit) & 0x3f40'0000) == 0x0840'0000);  // a load-exclusive
     }
 
     // The jump table: both registers saved, nothing stored.
