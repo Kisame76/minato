@@ -10,4 +10,6 @@ public final class Flags {
             "com.android.internal.telephony.flags.carrier_enabled_satellite_flag";
     public static final String FLAG_APN_SETTING_FIELD_SUPPORT_FLAG =
             "com.android.internal.telephony.flags.apn_setting_field_support_flag";
+    public static final String FLAG_OEM_ENABLED_SATELLITE_FLAG =
+            "com.android.internal.telephony.flags.oem_enabled_satellite_flag";
 }

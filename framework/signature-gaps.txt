@@ -52,7 +52,6 @@ android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (cate
 android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: (Planung) not taken: it names FieldClassificationUserData, a generated AIDL type of the autofill service
 android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.telephony.RadioAccessSpecifier <- android.telephony.NetworkScanRequest  # gap: (App) network scans' radio specifiers not taken yet; Minato has no radio
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
 android.telephony.data.ApnSetting <- android.telephony.PreciseDataConnectionState  # gap: (App) a data connection's APN, not taken yet; Minato's phone has no SIM
 android.view.ImeBackAnimationController <- android.window.WindowOnBackInvokedDispatcher  # gap: (Planung) not taken: it needs ImeTracker, SoftInputShowHideReason and BackGestureInterpolator; Minato has no soft keyboard

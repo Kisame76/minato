@@ -57,7 +57,7 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.webkit.GeolocationPermissions \
   --class android.net.TransportInfo --class android.net.IpPrefix --class android.net.RouteInfo \
   --class android.net.DhcpInfo --class android.net.http.SslError --class android.telephony.BarringInfo \
-  --class android.telephony.CellIdentity --class android.telephony.ims.ImsReasonInfo \
+  --class android.telephony.ims.ImsReasonInfo \
   --class android.telephony.PreciseDataConnectionState --class android.telephony.TelephonyDisplayInfo \
   --class android.media.session.MediaSession --class android.hardware.lights.LightsManager \
   --class android.os.VibratorManager --class android.net.wifi.WifiInfo --class android.net.wifi.WifiConfiguration \

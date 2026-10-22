@@ -1,0 +1,37 @@
+I/f4d-cells-test: lte: CellInfoLte cell=true registered=true connection=1 time=0 identity=CellIdentityLte operator=Alpha Long/Alpha strength=CellSignalStrengthLte level=3 dbm=-95 asu=45 valid=true lte=true
+I/f4d-cells-test: lte identity: ci=123456 pci=77 tac=4711 earfcn=6300 bands=[3, 20] bandwidth=10000 mcc=262 mnc=01 plmn=26201 additional=0
+I/f4d-cells-test: lte csg: true home 77
+I/f4d-cells-test: lte strength: rssi=-60 rsrp=-95 rsrq=-10 rssnr=20 cqiTable=2 cqi=11 ta=3
+I/f4d-cells-test: gsm: CellInfoGsm cell=true registered=false connection=0 time=0 identity=CellIdentityGsm operator=G Long/G strength=CellSignalStrengthGsm level=2 dbm=-70 asu=21 valid=true gsm=true
+I/f4d-cells-test: gsm identity: lac=1000 cid=2000 arfcn=512 bsic=17 mcc=310 mnc=260
+I/f4d-cells-test: gsm strength: rssi=-70 ber=2 ta=1
+I/f4d-cells-test: wcdma: CellInfoWcdma cell=true registered=true connection=2 time=0 identity=CellIdentityWcdma operator=null/null strength=CellSignalStrengthWcdma level=2 dbm=-90 asu=30 valid=true wcdma=true
+I/f4d-cells-test: wcdma identity: lac=3000 cid=4000 psc=55 uarfcn=10562 csg=null
+I/f4d-cells-test: wcdma strength: ecNo=-8
+I/f4d-cells-test: tdscdma: CellInfoTdscdma cell=true registered=true connection=2147483647 time=0 identity=CellIdentityTdscdma operator=China/CN strength=CellSignalStrengthTdscdma level=1 dbm=-100 asu=20 valid=true tdscdma=true
+I/f4d-cells-test: tdscdma identity: lac=5000 cid=6000 cpid=33 uarfcn=10054
+I/f4d-cells-test: tdscdma strength: rscp=-100
+I/f4d-cells-test: cdma: CellInfoCdma cell=true registered=false connection=0 time=0 identity=CellIdentityCdma operator=Cdma/C strength=CellSignalStrengthCdma level=2 dbm=-80 asu=16 valid=true cdma=true
+I/f4d-cells-test: cdma identity: network=10 system=20 base=30 lon=100 lat=200
+I/f4d-cells-test: cdma strength: cdmaDbm=-75 cdmaEcio=-90 evdoDbm=-80 evdoSnr=5
+I/f4d-cells-test: nr: CellInfoNr cell=true registered=true connection=1 time=0 identity=CellIdentityNr operator=Nr Long/Nr strength=CellSignalStrengthNr level=3 dbm=-100 asu=40 valid=true nr=true
+I/f4d-cells-test: nr identity: pci=500 tac=12345 nrarfcn=632628 bands=[78] nci=123456789012
+I/f4d-cells-test: nr strength: csiRsrp=-95 csiSinr=15 ssRsrp=-100 ssSinr=10 csiCqi=[1, 2, 3]
+I/f4d-cells-test: list: gsm=1 lte=0 other=0
+I/f4d-cells-test: bad type: java.lang.RuntimeException: Bad CellInfo Parcel
+I/f4d-cells-test: newArray: 2 3
+I/f4d-cells-test: allCellInfo: SecurityException
+I/f4d-cells-test: threshold: network=3 type=3 values=[-120, -110, -100, -90] hysteresisDb=2 min=1 max=4
+I/f4d-cells-test: threshold parcel: true [-120, -110, -100, -90]
+I/f4d-cells-test: threshold empty: IllegalArgumentException
+I/f4d-cells-test: specifier: network=3 bands=[3, 20] channels=[6300]
+I/f4d-cells-test: specifier parcel: true 286740 286740
+I/f4d-cells-test: available: sub=1 priority=2 plmns=[26201, 26202] specifiers=1
+I/f4d-cells-test: neighbor: rssi=20 cid=-1 lac=-1 psc=500 type=3 5
+I/f4d-cells-test: neighbor empty: rssi=99 cid=-1
+I/f4d-cells-test: gsmCellLocation: lac=-1 cid=-1 psc=-1
+I/f4d-cells-test: gsmCellLocation set: lac=11 cid=22
+I/f4d-cells-test: uiccPort: port=0 slot=1 active=true redacted=FFFFFFFFFFFFFFFFFFFF
+I/f4d-cells-test: visualVoicemailSms: //VVM N body null
+I/f4d-cells-test: disconnectCause: 2 4 20 72
+I/f4d-cells-test: done

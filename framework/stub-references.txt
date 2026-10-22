@@ -238,6 +238,9 @@ com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stay
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: Sms.Intents.getMessagesFromIntent decodes the PDUs of a received SMS, and Minato has no SMS
 android.telephony.SubscriptionManager <- android.provider.Telephony  # gap: Sms.addMessage's default subscription id, with the telephony provider that Minato lacks
 
+# F4d: the telephony cell family's logging.
+android.telephony.PhoneNumberUtils <- com.android.telephony.Rlog  # stays: Rlog.piiHandle's phone number branches, which the telephony service's logs use; the cells log ids through Rlog.pii
+
 # Batch B2 (retest 8's resolve list): android.accounts.
 android.app.admin.DevicePolicyManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: the two activities read the managed profile's strings from the device policy resources, and Minato has no device policy; an account type is never added (no authenticator)
 android.app.admin.DevicePolicyResourcesManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: as DevicePolicyManager

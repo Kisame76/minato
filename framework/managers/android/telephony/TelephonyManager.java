@@ -44,6 +44,25 @@ class TelephonyManager {
         return CALL_STATE_IDLE;
     }
 
+    /**
+     * The phone service's answer: an app without the location permission gets a SecurityException, else the cells the
+     * radio sees, and Minato's phone has no radio data, so none [verified: f4d-cells-test on apk-runner-35 for the
+     * exception; PhoneInterfaceManager.getAllCellInfo at android-15.0.0_r1 for the permission, ACCESS_FINE_LOCATION
+     * for an app that targets Android 10 or later and ACCESS_COARSE_LOCATION below]. The empty list is unreachable
+     * until a location permission answer exists: Minato's permission policy (ADR-0045 decision 6) denies every
+     * location permission, so checkSelfPermission is never granted and the call always throws.
+     */
+    public java.util.List<android.telephony.CellInfo> getAllCellInfo() {
+        if (mContext != null) {
+            String permission = mContext.getApplicationInfo().targetSdkVersion >= 29
+                    ? "android.permission.ACCESS_FINE_LOCATION" : "android.permission.ACCESS_COARSE_LOCATION";
+            if (mContext.checkSelfPermission(permission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                throw new SecurityException("getAllCellInfo: " + mContext.getOpPackageName() + " has no " + permission);
+            }
+        }
+        return new java.util.ArrayList<android.telephony.CellInfo>();
+    }
+
     public int getCallStateForSubscription() {
         return CALL_STATE_IDLE;
     }

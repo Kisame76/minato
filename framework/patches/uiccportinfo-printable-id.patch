@@ -1,0 +1,49 @@
+Minato's patch to frameworks/base's telephony/java/android/telephony/UiccPortInfo.java at android-15.0.0_r1
+(Apache-2.0), framework breadth F4d: toString asks no SubscriptionInfo.
+
+Why: UiccPortInfo.toString prints the ICC id through SubscriptionInfo.getPrintableId, a hidden static of a class that
+Minato does not take (SubscriptionInfo reaches the SIM database and the telephony service's subscription manager). The
+patch moves that method's seven lines, as they are, into UiccPortInfo as a private static method; the id is printed as
+AOSP prints it.
+
+tools/build-framework.sh applies it to a copy in build/framework/src, never to build/sources.
+
+--- a/telephony/java/android/telephony/UiccPortInfo.java
++++ b/telephony/java/android/telephony/UiccPortInfo.java
+@@ -22,6 +22,9 @@
+ import android.os.Parcel;
+ import android.os.Parcelable;
+ 
++import com.android.internal.telephony.util.TelephonyUtils;
++import com.android.telephony.Rlog;
++
+ import java.util.Objects;
+ 
+ /**
+@@ -165,11 +168,25 @@
+         return "UiccPortInfo (isActive="
+                 + mIsActive
+                 + ", iccId="
+-                + SubscriptionInfo.getPrintableId(mIccId)
++                + getPrintableId(mIccId)
+                 + ", portIndex="
+                 + mPortIndex
+                 + ", mLogicalSlotIndex="
+                 + mLogicalSlotIndex
+                 + ")";
+     }
++
++    /** SubscriptionInfo.getPrintableId's, which keeps the end of an ICC id out of logs on a user build. */
++    @Nullable
++    private static String getPrintableId(@Nullable String id) {
++        String idToPrint = null;
++        if (id != null) {
++            if (id.length() > 9 && !TelephonyUtils.IS_DEBUGGABLE) {
++                idToPrint = id.substring(0, 9) + Rlog.pii(false, id.substring(9));
++            } else {
++                idToPrint = id;
++            }
++        }
++        return idToPrint;
++    }
+ }

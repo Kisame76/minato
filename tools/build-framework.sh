@@ -99,6 +99,7 @@ for patch in framework/patches/*.patch; do
   [[ "$target" == graphics/* ]] && original="$SOURCES/frameworks_base_graphics/$target"
   [[ "$target" == media/* ]] && original="$SOURCES/frameworks_base_types/$target"
   [[ "$target" == rs/* ]] && original="$SOURCES/frameworks_base_types/$target"
+  [[ "$target" == telephony/* ]] && original="$SOURCES/frameworks_base_types/$target"
   [[ -L "$copy" ]] || { echo "$patch: $target is not a taken file" >&2; exit 1; }
   rm "$copy"
   patch --quiet -o "$copy" "$original" "$patch"
@@ -173,7 +174,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.webkit.GeolocationPermissions \
   --class android.net.TransportInfo --class android.net.IpPrefix --class android.net.RouteInfo \
   --class android.net.DhcpInfo --class android.net.http.SslError --class android.telephony.BarringInfo \
-  --class android.telephony.CellIdentity --class android.telephony.ims.ImsReasonInfo \
+  --class android.telephony.ims.ImsReasonInfo \
   --class android.telephony.PreciseDataConnectionState --class android.telephony.TelephonyDisplayInfo \
   --class android.media.session.MediaSession --class android.hardware.lights.LightsManager \
   --class android.media.session.MediaSessionManager \

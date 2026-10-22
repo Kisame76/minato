@@ -546,6 +546,10 @@ run_app() {
     f2-types-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.F2Activity limit=90
       ;;
+    # f4d-cells-test (framework breadth F4d): its activity runs when the window has the focus and ends with "done".
+    f4d-cells-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CellsActivity limit=90
+      ;;
     # f4c-types-test (framework breadth F4c): its activity runs when the window has the focus and ends with "done".
     f4c-types-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TypesActivity limit=90

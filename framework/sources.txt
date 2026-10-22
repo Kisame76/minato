@@ -2331,6 +2331,42 @@ frameworks_base_types/telecomm/java/android/telecom/PhoneAccountSuggestion.java
 frameworks_base_types/telecomm/java/android/telecom/QueryLocationException.java
 frameworks_base_types/telecomm/java/android/telecom/StatusHints.java
 frameworks_base_types/telecomm/java/android/telecom/VideoProfile.java
+# F4d: the telephony cell family, as an SDK reads it from TelephonyManager's lists: the cells of every radio technology with
+# their identities and signal strengths, and the small data types around them
+frameworks_base_types/telephony/java/android/telephony/AccessNetworkConstants.java
+frameworks_base_types/telephony/java/android/telephony/AvailableNetworkInfo.java
+frameworks_base_types/telephony/java/android/telephony/CellConfigLte.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentity.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentityCdma.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentityGsm.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentityLte.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentityNr.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentityTdscdma.java
+frameworks_base_types/telephony/java/android/telephony/CellIdentityWcdma.java
+frameworks_base_types/telephony/java/android/telephony/CellInfo.java
+frameworks_base_types/telephony/java/android/telephony/CellInfoCdma.java
+frameworks_base_types/telephony/java/android/telephony/CellInfoGsm.java
+frameworks_base_types/telephony/java/android/telephony/CellInfoLte.java
+frameworks_base_types/telephony/java/android/telephony/CellInfoNr.java
+frameworks_base_types/telephony/java/android/telephony/CellInfoTdscdma.java
+frameworks_base_types/telephony/java/android/telephony/CellInfoWcdma.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrength.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrengthCdma.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrengthGsm.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrengthLte.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrengthNr.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrengthTdscdma.java
+frameworks_base_types/telephony/java/android/telephony/CellSignalStrengthWcdma.java
+frameworks_base_types/telephony/java/android/telephony/ClosedSubscriberGroupInfo.java
+frameworks_base_types/telephony/java/android/telephony/DisconnectCause.java
+frameworks_base_types/telephony/java/android/telephony/NeighboringCellInfo.java
+frameworks_base_types/telephony/java/android/telephony/RadioAccessSpecifier.java
+frameworks_base_types/telephony/java/android/telephony/SignalThresholdInfo.java
+frameworks_base_types/telephony/java/android/telephony/UiccPortInfo.java
+frameworks_base_types/telephony/java/android/telephony/VisualVoicemailSms.java
+frameworks_base_types/telephony/java/android/telephony/cdma/CdmaCellLocation.java
+frameworks_base_types/telephony/java/android/telephony/gsm/GsmCellLocation.java
+frameworks_base_types/telephony/java/com/android/telephony/Rlog.java
 # ADR-0041 gap 4 (b), App: a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
 # client as AOSP's WindowLayout does, with the holder of its frames.
 frameworks_base/core/java/android/view/WindowLayout.java
