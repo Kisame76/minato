@@ -187,6 +187,7 @@ enum CodeSigning {
 /// (ADR-0023). The library calls it from its actor, one file after the other, never at the same time.
 struct SignerConverter: ContainerConverting, @unchecked Sendable {
     let signer: ContainerSigner
+    var containerVersion: UInt32 { ContainerSigner.containerVersion }
 
     func convert(_ elf: URL, to container: URL) throws {
         do {
@@ -204,6 +205,9 @@ final class ContainerSigner {
     private let signer: OpaquePointer
 
     private static var identifier: String { Bundle.main.bundleIdentifier ?? "io.github.kisame76.minato" }
+
+    /// The format version of the containers this app's converter writes (APK_CONTAINER_VERSION).
+    static let containerVersion = apkconv_container_version()
 
     /// With `identity` nil the containers are signed ad hoc, which only the Simulator runs.
     init(identity: SecIdentity?) throws {

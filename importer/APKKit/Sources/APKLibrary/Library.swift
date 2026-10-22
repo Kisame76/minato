@@ -423,11 +423,13 @@ public actor Library {
         // A ready app's native code goes into the version's lib/, converted and signed when a certificate is at hand
         // (ADR-0032, decision 4): a NativeActivity app's, and a Java app's JNI libraries (ADR-0039 c5).
         var signedWith: String?
+        var containerVersion: UInt32?
         if state == .ready {
             do {
                 let installed = try installNativeCode(of: report, from: new.archives, into: versionDirectory,
                                                       signing: signing)
                 signedWith = installed.signedWith
+                containerVersion = installed.containerVersion
                 report.compatibility.issues += installed.findings
                 report.compatibility.checks = installed.checks
             } catch let refusal as RefusedLibrary {
@@ -500,6 +502,7 @@ public actor Library {
         entry.iconFile = iconFile
         entry.folder = folder
         entry.signedWith = signedWith
+        entry.containerVersion = containerVersion
         entry.updatedAt = installed == nil ? nil : Date()
         entry.obbs = plan.obbs
         entry.packs = packs

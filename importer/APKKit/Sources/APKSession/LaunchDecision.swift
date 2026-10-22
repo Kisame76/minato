@@ -40,8 +40,11 @@ public enum LaunchDecision: Equatable, Sendable {
     case explain(Reason)
 
     /// An app that cannot start says why before anything else, so it needs no certificate; a ready app, a
-    /// NativeActivity app or one with Java code (ADR-0039 c5), starts once the current signer signed its native code.
-    public init(entry: LibraryEntry, isUpdating: Bool, signer: CurrentSigner) {
+    /// NativeActivity app or one with Java code (ADR-0039 c5), starts once the current signer signed its native code
+    /// in the containers' format `containerVersion`, which the converter writes now. Code of another format, or signed
+    /// before the format was recorded, is converted again from its originals first, so that every installed app gets
+    /// the converter's current containers without the user doing anything.
+    public init(entry: LibraryEntry, isUpdating: Bool, signer: CurrentSigner, containerVersion: UInt32) {
         switch entry.state {
         case .invalid:
             self = .explain(.invalid)
@@ -53,7 +56,7 @@ public enum LaunchDecision: Equatable, Sendable {
             if isUpdating {
                 self = .explain(.updating)
             } else if let fingerprint = signer.fingerprint {
-                self = entry.signedWith == fingerprint ? .start : .signFirst
+                self = entry.signedWith == fingerprint && entry.containerVersion == containerVersion ? .start : .signFirst
             } else if signer == .pending {
                 self = .waitForSigner
             } else {

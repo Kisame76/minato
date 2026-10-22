@@ -22,7 +22,8 @@ struct LaunchRequestTests {
 
     /// An entry as the library holds it, analysed from SampleAPK.
     static func entry(package: String = "org.example.game", state: LibraryEntry.State = .ready,
-                      nativeActivity: Bool = true, signedWith: String? = "aa") throws -> LibraryEntry {
+                      nativeActivity: Bool = true, signedWith: String? = "aa",
+                      containerVersion: UInt32? = LaunchDecisionTests.current) throws -> LibraryEntry {
         let report = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(package: package, nativeActivity: nativeActivity)),
                                              preferredLanguages: ["en"])
         var entry = LibraryEntry(
@@ -30,6 +31,7 @@ struct LaunchRequestTests {
             base: PackageFile(fileName: "base.apk", splitName: nil, size: 1, sha256: "cc"), splits: [], obbs: [],
             source: SourceFile(fileName: "game.apk", size: 1, modifiedMilliseconds: 0), iconFile: nil, importedAt: Date())
         entry.signedWith = signedWith
+        entry.containerVersion = containerVersion
         entry.folder = "0123456789abcdef"
         return entry
     }

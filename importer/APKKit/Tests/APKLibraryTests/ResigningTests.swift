@@ -12,6 +12,8 @@ struct ResigningTests {
     struct RecordingConverter: ContainerConverting {
         let fingerprint: String
         var failOn: String?
+        /// Any format version: the app's converter writes APK_CONTAINER_VERSION.
+        var containerVersion: UInt32 = 3
 
         func convert(_ elf: URL, to container: URL) throws {
             if elf.lastPathComponent == failOn { throw CocoaError(.fileWriteUnknown) }
@@ -46,6 +48,39 @@ struct ResigningTests {
         #expect(try Data(contentsOf: lib.appendingPathComponent("libmain.so.dylib")) == Data("aa:libmain.so".utf8))
         #expect(await library.entries.first?.signedWith == "aa")
         #expect(try await Library(paths: sandbox.paths).entries.first?.signedWith == "aa")
+    }
+
+    /// The format version of the containers goes with the certificate, so that the next tap starts the app only while
+    /// the converter still writes that format.
+    @Test func recordsTheContainersFormatVersion() async throws {
+        let sandbox = try LibraryTests.Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.installedApp(in: sandbox, library: library, libraries: ["libmain.so"])
+        #expect(await library.entries.first?.containerVersion == nil)
+
+        let converter = RecordingConverter(fingerprint: "aa", containerVersion: RecordingConverter(fingerprint: "aa").containerVersion + 1)
+        try await library.resign(id: entry.id, fingerprint: "aa", with: converter)
+
+        #expect(await library.entries.first?.containerVersion == converter.containerVersion)
+        #expect(try await Library(paths: sandbox.paths).entries.first?.containerVersion == converter.containerVersion)
+    }
+
+    /// An app without native code records the format too, at import and at a signing, so that its next taps start it
+    /// rather than signing nothing again each time (ADR-0039 c5).
+    @Test func anAppWithoutNativeCodeRecordsTheFormatToo() async throws {
+        let sandbox = try LibraryTests.Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let converter = RecordingConverter(fingerprint: "aa")
+        let signed = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.signed"), named: "signed.apk"),
+                                                  signing: ImportSigning(converter: converter, fingerprint: "aa")).entry
+        #expect(signed.signedWith == "aa" && signed.containerVersion == converter.containerVersion)
+
+        let unsigned = try await library.importFile(sandbox.file(Self.plainApp(package: "org.example.unsigned"), named: "unsigned.apk")).entry
+        #expect(unsigned.containerVersion == nil)
+        #expect(try await library.resign(id: unsigned.id, fingerprint: "aa", with: converter) == 0)
+        #expect(await library.entries.first { $0.id == unsigned.id }?.containerVersion == converter.containerVersion)
     }
 
     @Test func aFailureKeepsTheOldRecordSoTheNextLaunchRetries() async throws {
@@ -135,6 +170,7 @@ struct ResigningTests {
         let events = Recorder()
         struct LoggingConverter: ContainerConverting {
             let events: Recorder
+            var containerVersion: UInt32 { 3 }
             func convert(_ elf: URL, to container: URL) throws {
                 events.add("convert \(elf.lastPathComponent)")
                 try Data().write(to: container)

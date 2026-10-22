@@ -34,6 +34,10 @@ apkconv_signer *apkconv_signer_create_with_key(SecKeyRef private_key, const void
 
 void apkconv_signer_free(apkconv_signer *signer);
 
+/// The format version of the containers apkconv_convert writes (APK_CONTAINER_VERSION, container_format.h): a
+/// library entry records it, and one of an older version is converted again.
+uint32_t apkconv_container_version(void);
+
 /// What converting one file cost.
 typedef struct {
     double convert_milliseconds;

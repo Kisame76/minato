@@ -12,6 +12,7 @@
 // Usage: codesign_test <scratch directory> [<NDK fixtures directory> [<container signed by codesign>]]
 #include "APKConvert/apkconv.h"
 #include "apkconv/codesign.h"
+#include "APKRuntime/container_format.h"
 #include "apkconv/container.h"
 #include "apkconv/macho.h"
 #include "apkconv/security_identity.h"
@@ -671,6 +672,11 @@ TEST(survives_broken_signatures) {
         } catch (const std::exception &) {
         }
     }
+}
+
+// The format version the app records for the containers it converts, so that it converts an older one again.
+TEST(names_the_containers_format_version) {
+    CHECK(apkconv_container_version() == APK_CONTAINER_VERSION);
 }
 
 TEST(reads_the_arm64_slice_of_a_universal_binary) {

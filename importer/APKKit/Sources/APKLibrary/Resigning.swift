@@ -5,6 +5,9 @@ import Foundation
 /// certificate (ADR-0022); tests record what they were asked to do.
 public protocol ContainerConverting: Sendable {
     func convert(_ elf: URL, to container: URL) throws
+    /// The format version of the containers it writes (APK_CONTAINER_VERSION), which the entry records with the
+    /// certificate, so that a container of an older format is converted again at the next tap.
+    var containerVersion: UInt32 { get }
 }
 
 /// What `resignAll` did.
@@ -32,7 +35,8 @@ extension Library {
     }
 
     /// Converts every library of the entry again from its ELF original, which also signs it with
-    /// the converter's certificate, then records `fingerprint` as the one that signed it. A failure
+    /// the converter's certificate, then records `fingerprint` as the one that signed it and the converter's format
+    /// version of the containers. A failure
     /// leaves the old record, so the entry is tried again next time; a library the converter refuses
     /// makes the app incompatible, as at import (ADR-0032). Returns how many were converted. An app without native
     /// code counts as signed by it too, as at import, so that its next tap starts it (ADR-0039 c5).
@@ -47,7 +51,10 @@ extension Library {
                 throw refusal
             }
         }
-        try record(id: id) { $0.signedWith = fingerprint }
+        try record(id: id) {
+            $0.signedWith = fingerprint
+            $0.containerVersion = converter.containerVersion
+        }
         return files.count
     }
 

@@ -1,5 +1,6 @@
 // The converter's C interface for the app (APKConvert/apkconv.h).
 #include "APKConvert/apkconv.h"
+#include "APKRuntime/container_format.h"
 
 #include "apkconv/codesign.h"
 #include "apkconv/container.h"
@@ -289,6 +290,10 @@ extern "C" apkconv_signer *apkconv_signer_create_with_key(SecKeyRef private_key,
 
 extern "C" void apkconv_signer_free(apkconv_signer *signer) {
     delete signer;
+}
+
+extern "C" uint32_t apkconv_container_version(void) {
+    return APK_CONTAINER_VERSION;
 }
 
 extern "C" int apkconv_convert(const apkconv_signer *signer, const char *elf_path, const char *container_path,

@@ -89,6 +89,8 @@ extension InstalledNativeCode {
 /// degraded.
 struct InstalledNativeCode {
     var signedWith: String?
+    /// The containers' format version, with `signedWith`; nil without it.
+    var containerVersion: UInt32? = nil
     var degraded: [(library: String, reason: String)]
     /// The libraries that stay and call functions only a stub of Minato's defines.
     var stubCalls: [(library: String, reason: String)] = []
@@ -267,8 +269,8 @@ extension Library {
             return InstalledNativeCode(signedWith: nil, degraded: degradedNow, stubCalls: stubsNow,
                                    notChecked: notCheckedNow, checks: checksNow)
         }
-        return InstalledNativeCode(signedWith: fingerprint, degraded: degradedNow, stubCalls: stubsNow,
-                                   notChecked: notCheckedNow, checks: checksNow)
+        return InstalledNativeCode(signedWith: fingerprint, containerVersion: signing.converter.containerVersion,
+                                   degraded: degradedNow, stubCalls: stubsNow, notChecked: notCheckedNow, checks: checksNow)
     }
 
     /// The longest library name Minato takes: lib/ holds <name>.dylib next to the library, which the converter writes
@@ -328,6 +330,7 @@ extension Library {
             entry.base = nil
             entry.splits = []
             entry.signedWith = nil
+            entry.containerVersion = nil
         }
         let version = paths.versionDirectory(for: entry)
         try? FileManager.default.removeItem(at: version.appendingPathComponent("lib"))

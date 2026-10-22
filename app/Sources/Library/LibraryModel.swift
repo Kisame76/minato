@@ -302,7 +302,7 @@ final class LibraryModel {
         defer { isLaunching = false }
         var entry = entries.first { $0.id == tapped.id } ?? tapped
         var signer = currentSigner()
-        var decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer)
+        var decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer, containerVersion: ContainerSigner.containerVersion)
         if decision == .waitForSigner {
             // A tap right after launch: the first look may still bring a signer without a tap, so the
             // setup sheet opens only if it does not. Meanwhile the app shows "Updating…".
@@ -311,7 +311,7 @@ final class LibraryModel {
             signingBeforeStart.remove(entry.id)
             entry = entries.first { $0.id == tapped.id } ?? entry
             signer = currentSigner()
-            decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer)
+            decision = LaunchDecision(entry: entry, isUpdating: isUpdating(entry), signer: signer, containerVersion: ContainerSigner.containerVersion)
         }
         #if DEBUG
         SessionCheck.event("decision \(decision) signer \(signer.fingerprint ?? "none")")

@@ -17,6 +17,8 @@ struct NativeCodeTests {
         var fingerprint = "aa"
         var refuses: String?
         var fails: String?
+        /// Any format version: the app's converter writes APK_CONTAINER_VERSION.
+        var containerVersion: UInt32 = 3
 
         func convert(_ elf: URL, to container: URL) throws {
             if elf.lastPathComponent == refuses { throw ConversionRefused(reason: "the file has text relocations") }
@@ -98,6 +100,8 @@ struct NativeCodeTests {
 
         #expect(result.entry.state == .ready)
         #expect(result.entry.signedWith == "aa")
+        // With the format version of the containers the converter wrote.
+        #expect(result.entry.containerVersion == Converter().containerVersion)
         let lib = sandbox.paths.libraryDirectory(for: result.entry)
         #expect(Self.names(in: lib) == ["libactivity-test.so", "libactivity-test.so.dylib", "libhelper.so", "libhelper.so.dylib"])
         for name in ["libactivity-test.so", "libhelper.so"] {
@@ -152,6 +156,7 @@ struct NativeCodeTests {
 
         #expect(result.entry.state == .ready)
         #expect(result.entry.signedWith == nil)
+        #expect(result.entry.containerVersion == nil)
         #expect(Self.names(in: sandbox.paths.libraryDirectory(for: result.entry)) == ["libactivity-test.so", "libhelper.so"])
         #expect(await library.resignCandidates() == [ResignCandidate(id: result.entry.id, signedWith: nil, containerCount: 2)])
     }
@@ -419,6 +424,22 @@ struct NativeCodeTests {
         #expect(result.entry == installed)
         #expect(await library.entries == [installed])
         #expect(Self.names(in: sandbox.paths.installDirectory(for: installed.id)) == [installed.folder].compactMap { $0 })
+    }
+
+    /// A refusal at a later signing forgets the containers' format with the certificate, as the code is gone.
+    @Test func aRefusalAtSigningForgetsTheContainersFormat() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await library.importFile(
+            sandbox.file(Self.madeAPK(extractNativeLibs: false), named: "activity-test.apk"), signing: Self.signing()).entry
+        #expect(entry.containerVersion == Converter().containerVersion)
+
+        await #expect(throws: ConversionRefused.self) {
+            try await library.resign(id: entry.id, fingerprint: "aa", with: Converter(refuses: "libhelper.so"))
+        }
+
+        #expect(await library.entries.first?.containerVersion == nil)
     }
 
     @Test func signingAgainGivesTheSameVerdict() async throws {

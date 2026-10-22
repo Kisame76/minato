@@ -31,6 +31,9 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// SHA-256 of the certificate the converted libraries are signed with (ADR-0023); nil while
     /// nothing is converted or signed.
     public var signedWith: String?
+    /// The format version of the converted libraries' containers (APK_CONTAINER_VERSION) when they were signed; nil
+    /// while nothing is converted, and for an entry signed before the version was recorded.
+    public var containerVersion: UInt32? = nil
     /// The installed version's folder in apps/<package>/, the first 16 hex digits of its APK's SHA-256
     /// (ADR-0034), or of a split set's digest (ADR-0048, decision 6); nil for an entry from before version folders,
     /// whose files lie in apps/<package>/.
