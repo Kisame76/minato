@@ -3,10 +3,18 @@ package io.github.kisame76.minato.test.packageanswers;
 import android.app.Application;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.ChangedPackages;
+import android.content.pm.InstrumentationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PermissionGroupInfo;
+import android.content.pm.PermissionInfo;
+import android.content.pm.ProviderInfo;
+import android.content.pm.ResolveInfo;
+import android.content.pm.SharedLibraryInfo;
 import android.content.pm.VersionedPackage;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -83,6 +91,28 @@ public class PackageAnswersApplication extends Application {
         ActivityInfo info = pm.getActivityInfo(activity, 0);
         info.icon = 0;
         return info.loadIcon(pm);
+    }
+
+    /** The activities queryIntentActivityOptions gives, in order, and whether every filter was dropped. */
+    private static String options(PackageManager pm, ComponentName caller, Intent[] specifics, Intent intent, int flags) {
+        List<String> names = new ArrayList<>();
+        boolean noFilters = true;
+        for (ResolveInfo info : pm.queryIntentActivityOptions(caller, specifics, intent, flags)) {
+            names.add(info.activityInfo.name.substring(info.activityInfo.name.lastIndexOf('.') + 1));
+            noFilters &= info.filter == null;
+        }
+        return names + (noFilters ? "" : " filtered");
+    }
+
+    /** The authorities among the providers that the package declares. */
+    private static List<String> own(List<ProviderInfo> providers, String pkg) {
+        List<String> authorities = new ArrayList<>();
+        for (ProviderInfo info : providers) {
+            if (info.packageName.equals(pkg)) {
+                authorities.add(info.authority + " in " + info.processName);
+            }
+        }
+        return authorities;
     }
 
     /** A drawable as its class and its intrinsic size in dp. */
@@ -234,6 +264,162 @@ public class PackageAnswersApplication extends Application {
                     + ", badge " + shape(pm.getUserBadgeForDensity(me, 0))
                     + ", badge, no background " + shape(pm.getUserBadgeForDensityNoBackground(me, 0))
                     + ", label " + pm.getUserBadgedLabel("label", me));
+        });
+        // P4: lists.
+        String group = pkg + ".GROUP";
+        probe("permission groups", () -> {
+            List<String> names = new ArrayList<>();
+            for (PermissionGroupInfo info : pm.getAllPermissionGroups(0)) {
+                names.add(info.name);
+            }
+            log("permission groups: own " + names.contains(group) + ", bare " + names.contains(pkg + ".BARE")
+                    + ", camera "
+                    + names.contains("android.permission-group.CAMERA") + ", location "
+                    + names.contains("android.permission-group.LOCATION"));
+            Log.i(PROBE, "permission groups " + names.size() + ": " + names);
+        });
+        probe("permission group", () -> {
+            PermissionGroupInfo info = pm.getPermissionGroupInfo(group, 0);
+            log("permission group: " + info.name + ", priority " + info.priority + ", package " + info.packageName
+                    + ", label " + info.loadLabel(pm));
+        });
+        probe("permission group, bare", () -> {
+            PermissionGroupInfo info = pm.getPermissionGroupInfo(pkg + ".BARE", 0);
+            log("permission group, bare: " + info.name + ", priority " + info.priority + ", description "
+                    + info.descriptionRes + ", flags " + info.flags + ", label " + info.loadLabel(pm)
+                    + ", icon " + info.icon);
+        });
+        probe("permissions of an undeclared group", () -> log("permissions of an undeclared group: "
+                + pm.queryPermissionsByGroup(pkg + ".UNDECLARED", 0)));
+        probe("permission groups, duplicates", () -> {
+            int twice = 0;
+            for (PermissionGroupInfo info : pm.getAllPermissionGroups(0)) {
+                twice += info.name.equals(pkg + ".TWICE") ? 1 : 0;
+            }
+            PermissionGroupInfo second = pm.getPermissionGroupInfo(pkg + ".TWICE", 0);
+            log("permission groups, duplicates: twice " + twice + " (label " + second.loadLabel(pm) + ")");
+        });
+        probe("permission group, unknown", () -> log("permission group, unknown: " + pm.getPermissionGroupInfo(ABSENT, 0)));
+        probe("permissions by group", () -> {
+            List<String> names = new ArrayList<>();
+            for (PermissionInfo info : pm.queryPermissionsByGroup(group, 0)) {
+                names.add(info.name);
+            }
+            log("permissions by group: " + names);
+        });
+        probe("permissions of the camera group", () -> {
+            List<String> names = new ArrayList<>();
+            for (PermissionInfo info : pm.queryPermissionsByGroup("android.permission-group.CAMERA", 0)) {
+                names.add(info.name);
+            }
+            log("permissions of the camera group: " + names);
+        });
+        probe("permissions without a group", () -> {
+            List<String> names = new ArrayList<>();
+            for (PermissionInfo info : pm.queryPermissionsByGroup(null, 0)) {
+                names.add(info.name);
+            }
+            log("permissions without a group: ungrouped " + names.contains(pkg + ".UNGROUPED") + ", grouped "
+                    + names.contains(pkg + ".GROUPED") + ", internet " + names.contains("android.permission.INTERNET"));
+        });
+        probe("permissions, unknown group", () -> log("permissions, unknown group: " + pm.queryPermissionsByGroup(ABSENT, 0)));
+        probe("instrumentation", () -> {
+            List<String> names = new ArrayList<>();
+            for (InstrumentationInfo info : pm.queryInstrumentation(pkg, 0)) {
+                names.add(info.name + " for " + info.targetPackage + " label " + info.loadLabel(pm));
+            }
+            List<String> others = new ArrayList<>();
+            for (InstrumentationInfo info : pm.queryInstrumentation(ABSENT, 0)) {
+                others.add(info.name + " in " + info.targetProcesses + " profiling " + info.handleProfiling
+                        + " functional " + info.functionalTest + " source " + (info.sourceDir != null)
+                        + " data " + (info.dataDir != null));
+            }
+            log("instrumentation: " + names + ", for another package " + others
+                    + ", all " + (pm.queryInstrumentation(null, 0).size() >= 2));
+        });
+        probe("instrumentation info", () -> log("instrumentation info: "
+                + pm.getInstrumentationInfo(new ComponentName(pkg, "android.test.InstrumentationTestRunner"), 0).name));
+        probe("instrumentation info, unknown", () -> log("instrumentation info, unknown: "
+                + pm.getInstrumentationInfo(new ComponentName(pkg, "Missing"), 0)));
+        probe("providers", () -> {
+            List<ProviderInfo> all = pm.queryContentProviders(null, uid, 0);
+            log("providers: all " + own(all, pkg) + ", of the process " + own(pm.queryContentProviders(pkg + ":other", uid, 0), pkg)
+                    + ", of another process " + own(pm.queryContentProviders(pkg, uid, 0), pkg)
+                    + ", of another uid " + own(pm.queryContentProviders(pkg + ":other", NO_UID, 0), pkg)
+                    + ", of any uid " + own(pm.queryContentProviders(null, NO_UID, 0), pkg));
+            Log.i(PROBE, "providers " + all.size());
+        });
+        probe("activity options", () -> {
+            Intent intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg);
+            List<String> names = new ArrayList<>();
+            for (ResolveInfo info : pm.queryIntentActivityOptions(null, null, intent, 0)) {
+                names.add(info.activityInfo.name);
+            }
+            log("activity options: " + names);
+        });
+        probe("activity options, specifics", () -> {
+            Intent intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg);
+            Intent[] specifics = {new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_INFO).setPackage(pkg),
+                    new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER).setPackage(pkg)};
+            List<String> names = new ArrayList<>();
+            for (ResolveInfo info : pm.queryIntentActivityOptions(null, specifics, intent, 0)) {
+                names.add(info.activityInfo.name);
+            }
+            List<String> withCaller = new ArrayList<>();
+            for (ResolveInfo info : pm.queryIntentActivityOptions(new ComponentName(pkg, "android.app.ListActivity"),
+                    specifics, intent, 0)) {
+                withCaller.add(info.activityInfo.name);
+            }
+            log("activity options, specifics: " + names + ", with a caller " + withCaller);
+        });
+        // The three activities share the action G; G1 and G3 have S1, G2 has S2.
+        Intent generic = new Intent(pkg + ".G");
+        Intent s1 = new Intent(pkg + ".S1");
+        Intent s2 = new Intent(pkg + ".S2");
+        ComponentName g1 = new ComponentName(pkg, "android.app.AliasActivity");
+        ComponentName g3 = new ComponentName(pkg, "android.app.ActivityGroup");
+        probe("activity options, generic", () -> log("activity options, generic: "
+                + options(pm, null, null, generic, 0) + ", with filters "
+                + options(pm, null, null, generic, PackageManager.GET_RESOLVED_FILTER)));
+        probe("activity options, one action", () -> log("activity options, one action: "
+                + options(pm, null, new Intent[] {s2}, generic, 0)));
+        probe("activity options, two actions", () -> log("activity options, two actions: "
+                + options(pm, null, new Intent[] {s2, s1}, generic, 0)));
+        probe("activity options, the same action", () -> log("activity options, the same action: "
+                + options(pm, null, new Intent[] {s1}, generic, 0)));
+        probe("activity options, a component", () -> log("activity options, a component: "
+                + options(pm, null, new Intent[] {new Intent().setComponent(g3)}, generic, 0)));
+        probe("activity options, the intent's action", () -> log("activity options, the intent's action: "
+                + options(pm, null, new Intent[] {new Intent(pkg + ".G")}, generic, 0)));
+        probe("activity options, nobody", () -> log("activity options, nobody: "
+                + options(pm, null, new Intent[] {new Intent(pkg + ".NOBODY")}, generic, 0)));
+        probe("activity options, a caller", () -> log("activity options, a caller: "
+                + options(pm, g1, new Intent[] {s2}, generic, 0) + ", twice "
+                + options(pm, g1, new Intent[] {s1, s1}, generic, 0)));
+        probe("holding permissions", () -> {
+            List<String> names = new ArrayList<>();
+            for (PackageInfo info : pm.getPackagesHoldingPermissions(new String[] {"android.permission.INTERNET"}, 0)) {
+                names.add(info.packageName);
+            }
+            log("holding permissions: mine " + names.contains(pkg));
+            Log.i(PROBE, "holding permissions " + names.size() + ": " + names);
+        });
+        probe("shared libraries", () -> {
+            List<SharedLibraryInfo> libraries = pm.getSharedLibraries(0);
+            String[] names = pm.getSystemSharedLibraryNames();
+            log("shared libraries: list " + (libraries != null) + ", names " + (names != null));
+            Log.i(PROBE, "shared libraries " + libraries.size() + ", names " + Arrays.toString(names));
+        });
+        probe("preferred", () -> {
+            List<IntentFilter> filters = new ArrayList<>();
+            List<ComponentName> components = new ArrayList<>();
+            int count = pm.getPreferredActivities(filters, components, pkg);
+            log("preferred: activities " + count + " " + filters.size() + " " + components.size()
+                    + ", packages " + pm.getPreferredPackages(0));
+        });
+        probe("changed packages", () -> {
+            ChangedPackages changed = pm.getChangedPackages(0);
+            log("changed packages: " + (changed == null ? "null" : "list " + (changed.getPackageNames() != null)));
         });
         log("done");
     }

@@ -21,7 +21,7 @@
  *
  * Not read yet, each for the step that needs it: intent filters beyond whether there are any (b3.5b2),
  * <uses-library> (sharedLibraryFiles), <layout>, <property>, <grant-uri-permission>, <path-permission>,
- * <permission-group>, <permission-tree>, splits and instrumentation.
+ * <permission-tree> and splits.
  */
 package android.app;
 
@@ -33,10 +33,12 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
 import android.content.pm.ConfigurationInfo;
 import android.content.pm.FeatureInfo;
+import android.content.pm.InstrumentationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PathPermission;
+import android.content.pm.PermissionGroupInfo;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
@@ -70,8 +72,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
@@ -111,6 +115,8 @@ final class ManifestPackage {
 
     /** The platform's permissions by name, read once on first use. */
     private static Map<String, PermissionInfo> sPlatformPermissions;
+    /** framework-res's permission groups by name, read with its permissions. */
+    private static Map<String, PermissionGroupInfo> sPlatformGroups;
     /** framework-res's protected broadcasts, read with its permissions (ADR-0045 decision 5, step d2). */
     private static Set<String> sProtectedBroadcasts;
     /** platform.xml's split permissions in its order, read once by the first manifest. */
@@ -145,6 +151,8 @@ final class ManifestPackage {
     // Each component's intent filters as the package parser keeps them (step SV1), in manifest order.
     private final Map<ComponentInfo, List<IntentFilter>> mFilters = new IdentityHashMap<>();
     private final List<PermissionInfo> mPermissions = new ArrayList<>();
+    private final List<PermissionGroupInfo> mPermissionGroups = new ArrayList<>();
+    private final List<InstrumentationInfo> mInstrumentations = new ArrayList<>();
     private final List<String> mRequestedPermissions = new ArrayList<>();
     /** Each requested permission's android:usesPermissionFlags; 0 for an implicit one. */
     private final Map<String, Integer> mUsesPermissionFlags = new HashMap<>();
@@ -459,6 +467,8 @@ final class ManifestPackage {
                     }
                     if ("permission".equals(parser.getName())) {
                         platform.parsePermission(parser);
+                    } else if ("permission-group".equals(parser.getName())) {
+                        platform.parsePermissionGroup(parser);
                     } else if ("protected-broadcast".equals(parser.getName())) {
                         // As ParsingPackageUtils.parseProtectedBroadcast: its name, intern'd, when it has one.
                         TypedArray sa = platform.resources.obtainAttributes(parser,
@@ -482,6 +492,11 @@ final class ManifestPackage {
                 permissions.put(permission.name, permission);
             }
             sPlatformPermissions = Collections.unmodifiableMap(permissions);
+            Map<String, PermissionGroupInfo> groups = new LinkedHashMap<>();
+            for (PermissionGroupInfo group : platform.mPermissionGroups) {
+                groups.put(group.name, group);
+            }
+            sPlatformGroups = Collections.unmodifiableMap(groups);
             sProtectedBroadcasts = Collections.unmodifiableSet(protectedBroadcasts);
         }
         return sPlatformPermissions;
@@ -628,6 +643,8 @@ final class ManifestPackage {
                 case "uses-permission-sdk-m":
                 case "uses-permission-sdk-23": parseUsesPermission(parser); break;
                 case "permission": parsePermission(parser); break;
+                case "permission-group": parsePermissionGroup(parser); break;
+                case "instrumentation": parseInstrumentation(parser); break;
                 case "uses-feature": parseUsesFeature(parser); break;
                 case "uses-configuration": parseUsesConfiguration(parser); break;
                 case "supports-screens": parseSupportsScreens(parser); break;
@@ -814,6 +831,50 @@ final class ManifestPackage {
         }
         info.metaData = children(parser, null, null);
         mPermissions.add(info);
+    }
+
+    /**
+     * As ParsedPermissionUtils.parsePermissionGroup: the group's description, priority and flags, with its meta-data.
+     * Not read: request, requestDetail, backgroundRequest and backgroundRequestDetail, whose attributes the generated
+     * R.styleable has no index for (the ids stay 0).
+     */
+    private void parsePermissionGroup(XmlResourceParser parser) throws IOException, XmlPullParserException {
+        TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestPermissionGroup);
+        PermissionGroupInfo info = new PermissionGroupInfo();
+        try {
+            item(info, sa, R.styleable.AndroidManifestPermissionGroup_name, R.styleable.AndroidManifestPermissionGroup_label,
+                    R.styleable.AndroidManifestPermissionGroup_icon, R.styleable.AndroidManifestPermissionGroup_logo,
+                    R.styleable.AndroidManifestPermissionGroup_banner);
+            info.descriptionRes = sa.getResourceId(R.styleable.AndroidManifestPermissionGroup_description, 0);
+            // Read for every package, as AOSP's parser fails on a priority that is no integer, but only the
+            // platform's groups keep it [measured: package-answers-test on apk-runner-35].
+            int priority = sa.getInt(R.styleable.AndroidManifestPermissionGroup_priority, 0);
+            info.priority = PLATFORM.equals(packageName) ? priority : 0;
+            info.flags = sa.getInt(R.styleable.AndroidManifestPermissionGroup_permissionGroupFlags, 0);
+        } finally {
+            sa.recycle();
+        }
+        info.metaData = children(parser, null, null);
+        mPermissionGroups.add(info);
+    }
+
+    /** As ParsedInstrumentationUtils: the target package and processes and the two flags, with its meta-data. */
+    private void parseInstrumentation(XmlResourceParser parser) throws IOException, XmlPullParserException {
+        TypedArray sa = resources.obtainAttributes(parser, R.styleable.AndroidManifestInstrumentation);
+        InstrumentationInfo info = new InstrumentationInfo();
+        try {
+            item(info, sa, R.styleable.AndroidManifestInstrumentation_name, R.styleable.AndroidManifestInstrumentation_label,
+                    R.styleable.AndroidManifestInstrumentation_icon, R.styleable.AndroidManifestInstrumentation_logo,
+                    R.styleable.AndroidManifestInstrumentation_banner);
+            info.targetPackage = sa.getNonResourceString(R.styleable.AndroidManifestInstrumentation_targetPackage);
+            info.targetProcesses = sa.getNonResourceString(R.styleable.AndroidManifestInstrumentation_targetProcesses);
+            info.handleProfiling = sa.getBoolean(R.styleable.AndroidManifestInstrumentation_handleProfiling, false);
+            info.functionalTest = sa.getBoolean(R.styleable.AndroidManifestInstrumentation_functionalTest, false);
+        } finally {
+            sa.recycle();
+        }
+        info.metaData = children(parser, null, null);
+        mInstrumentations.add(info);
     }
 
     private void parseUsesFeature(XmlResourceParser parser) {
@@ -1599,6 +1660,12 @@ final class ManifestPackage {
                     : mConfigurations.toArray(new ConfigurationInfo[0]);
             info.reqFeatures = mFeatures.isEmpty() ? null : mFeatures.toArray(new FeatureInfo[0]);
         }
+        if ((flags & PackageManager.GET_INSTRUMENTATION) != 0 && !mInstrumentations.isEmpty()) {
+            info.instrumentation = new InstrumentationInfo[mInstrumentations.size()];
+            for (int i = 0; i < info.instrumentation.length; i++) {
+                info.instrumentation[i] = instrumentationInfo(mInstrumentations.get(i), flags, app);
+            }
+        }
         if ((flags & PackageManager.GET_PERMISSIONS) != 0) {
             if (!mPermissions.isEmpty()) {
                 info.permissions = new PermissionInfo[mPermissions.size()];
@@ -1919,6 +1986,135 @@ final class ManifestPackage {
     }
 
     // Permissions.
+
+    // Permission groups, instrumentation and the lists of the package manager's stubs (P4).
+
+    /**
+     * Every group the app sees: framework-res's, then the app's own, one entry per name as PermissionManagerService
+     * keeps them: a group the platform has stays the platform's (Android refuses to install a package that redeclares
+     * one, so that is only a guard), and of a name the app declares twice the last wins [duplicates measured:
+     * package-answers-test on apk-runner-35].
+     */
+    List<PermissionGroupInfo> permissionGroups(long flags) {
+        Map<String, PermissionGroupInfo> groups = new LinkedHashMap<>();
+        synchronized (ManifestPackage.class) {
+            platformPermissions();
+            groups.putAll(sPlatformGroups);
+        }
+        for (PermissionGroupInfo group : mPermissionGroups) {
+            if (!sPlatformGroups.containsKey(group.name)) {
+                groups.put(group.name, group);
+            }
+        }
+        List<PermissionGroupInfo> list = new ArrayList<>();
+        for (PermissionGroupInfo group : groups.values()) {
+            list.add(permissionGroupInfo(group, flags));
+        }
+        return list;
+    }
+
+    /**
+     * One group by name, the platform's before the app's (a package cannot declare a group the platform has); null for
+     * one nobody declares.
+     */
+    PermissionGroupInfo permissionGroup(String name, long flags) {
+        PermissionGroupInfo template;
+        synchronized (ManifestPackage.class) {
+            platformPermissions();
+            template = sPlatformGroups.get(name);
+        }
+        for (int i = mPermissionGroups.size() - 1; template == null && i >= 0; i--) {
+            if (mPermissionGroups.get(i).name.equals(name)) {
+                template = mPermissionGroups.get(i);
+            }
+        }
+        return template != null ? permissionGroupInfo(template, flags) : null;
+    }
+
+    /** The permissions of one group, or of none for a null name: the app's own, then the platform's. */
+    List<PermissionInfo> permissionsOfGroup(String group, long flags) {
+        List<PermissionInfo> permissions = new ArrayList<>();
+        List<PermissionInfo> all = new ArrayList<>(mPermissions);
+        synchronized (ManifestPackage.class) {
+            all.addAll(platformPermissions().values());
+        }
+        for (PermissionInfo permission : all) {
+            if (Objects.equals(permission.group, group)) {
+                permissions.add(permissionInfo(permission, flags));
+            }
+        }
+        return permissions;
+    }
+
+    InstrumentationInfo instrumentation(ComponentName component, long flags) {
+        for (InstrumentationInfo info : mInstrumentations) {
+            if (packageName.equals(component.getPackageName()) && info.name.equals(component.getClassName())) {
+                return instrumentationInfo(info, flags, applicationInfo(flags));
+            }
+        }
+        return null;
+    }
+
+    /** The instrumentation that targets `targetPackage`, or all of them for a null one. */
+    List<InstrumentationInfo> instrumentations(String targetPackage, long flags) {
+        List<InstrumentationInfo> list = new ArrayList<>();
+        ApplicationInfo app = applicationInfo(flags);
+        for (InstrumentationInfo info : mInstrumentations) {
+            if (targetPackage == null || targetPackage.equals(info.targetPackage)) {
+                list.add(instrumentationInfo(info, flags, app));
+            }
+        }
+        return list;
+    }
+
+    /** The app's providers of one process of one uid, as the package manager's queryContentProviders lists them. */
+    List<ProviderInfo> providers(String processName, int uid, String metaDataKey, long flags) {
+        List<ProviderInfo> list = new ArrayList<>();
+        ApplicationInfo app = applicationInfo(flags);
+        for (ProviderInfo provider : mProviders) {
+            if (!matches(provider, flags)) {
+                continue;
+            }
+            if (processName != null && !(processName.equals(provider.processName)
+                    && android.os.UserHandle.isSameApp(app.uid, uid))) {
+                continue;
+            }
+            if (metaDataKey != null && (provider.metaData == null || !provider.metaData.containsKey(metaDataKey))) {
+                continue;
+            }
+            list.add(providerInfo(provider, flags, app));
+        }
+        return list;
+    }
+
+    private static PermissionGroupInfo permissionGroupInfo(PermissionGroupInfo template, long flags) {
+        PermissionGroupInfo info = new PermissionGroupInfo(template);
+        if ((flags & PackageManager.GET_META_DATA) == 0) {
+            info.metaData = null;
+        }
+        return info;
+    }
+
+    private static InstrumentationInfo instrumentationInfo(InstrumentationInfo template, long flags,
+            ApplicationInfo app) {
+        InstrumentationInfo info = new InstrumentationInfo(template);
+        info.sourceDir = app.sourceDir;
+        info.publicSourceDir = app.publicSourceDir;
+        info.splitNames = app.splitNames;
+        info.splitSourceDirs = app.splitSourceDirs;
+        info.splitPublicSourceDirs = app.splitPublicSourceDirs;
+        info.dataDir = app.dataDir;
+        info.deviceProtectedDataDir = app.deviceProtectedDataDir;
+        info.credentialProtectedDataDir = app.credentialProtectedDataDir;
+        info.primaryCpuAbi = app.primaryCpuAbi;
+        info.secondaryCpuAbi = app.secondaryCpuAbi;
+        info.nativeLibraryDir = app.nativeLibraryDir;
+        info.secondaryNativeLibraryDir = app.secondaryNativeLibraryDir;
+        if ((flags & PackageManager.GET_META_DATA) == 0) {
+            info.metaData = null;
+        }
+        return info;
+    }
 
     /** getPermissionInfo's answer: the app's own permission or the platform's, or null for one nobody declares. */
     PermissionInfo permissionInfo(String name, long flags) {

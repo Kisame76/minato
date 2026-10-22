@@ -47,4 +47,32 @@ I/package-answers-test: drawable: GradientDrawable 48x48, with info GradientDraw
 I/package-answers-test: drawable, system: BitmapDrawable 32x32
 I/package-answers-test: loaded icon: application GradientDrawable 48x48, logo GradientDrawable 24x24, activity GradientDrawable 32x32, activity logo GradientDrawable 24x24
 I/package-answers-test: badges: icon same true, density same true, density, no rect true, badge null, badge, no background null, label label
+I/package-answers-test: permission groups: own true, bare true, camera true, location true
+I/package-answers-test: permission group: io.github.kisame76.minato.test.packageanswers.GROUP, priority 0, package io.github.kisame76.minato.test.packageanswers, label hello
+I/package-answers-test: permission group, bare: io.github.kisame76.minato.test.packageanswers.BARE, priority 0, description 0, flags 0, label io.github.kisame76.minato.test.packageanswers.BARE, icon 0
+I/package-answers-test: permissions of an undeclared group: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.packageanswers.UNDECLARED
+I/package-answers-test: permission groups, duplicates: twice 1 (label io.github.kisame76.minato.test.packageanswers.TWICE)
+I/package-answers-test: permission group, unknown: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: permissions by group: [io.github.kisame76.minato.test.packageanswers.GROUPED]
+I/package-answers-test: permissions of the camera group: []
+I/package-answers-test: permissions without a group: ungrouped true, grouped false, internet true
+I/package-answers-test: permissions, unknown group: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: instrumentation: [android.test.InstrumentationTestRunner for io.github.kisame76.minato.test.packageanswers label hello], for another package [android.test.BareRunner in * profiling true functional true source true data true], all true
+I/package-answers-test: instrumentation info: android.test.InstrumentationTestRunner
+I/package-answers-test: instrumentation info, unknown: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.packageanswers/Missing}
+I/package-answers-test: providers: all [io.github.kisame76.minato.test.packageanswers.provider in io.github.kisame76.minato.test.packageanswers:other], of the process [io.github.kisame76.minato.test.packageanswers.provider in io.github.kisame76.minato.test.packageanswers:other], of another process [], of another uid [], of any uid [io.github.kisame76.minato.test.packageanswers.provider in io.github.kisame76.minato.test.packageanswers:other]
+I/package-answers-test: activity options: [android.app.Activity]
+I/package-answers-test: activity options, specifics: [android.app.ListActivity, android.app.ExpandableListActivity, android.app.Activity], with a caller [android.app.ExpandableListActivity, android.app.Activity]
+I/package-answers-test: activity options, generic: [AliasActivity, TabActivity], with filters [AliasActivity, TabActivity] filtered
+I/package-answers-test: activity options, one action: [TabActivity, AliasActivity]
+I/package-answers-test: activity options, two actions: [TabActivity, ResolverActivity]
+I/package-answers-test: activity options, the same action: [ResolverActivity, TabActivity]
+I/package-answers-test: activity options, a component: [ActivityGroup, AliasActivity, TabActivity]
+I/package-answers-test: activity options, the intent's action: [ResolverActivity, AliasActivity, TabActivity]
+I/package-answers-test: activity options, nobody: [AliasActivity, TabActivity]
+I/package-answers-test: activity options, a caller: [TabActivity], twice [ResolverActivity, ResolverActivity, TabActivity]
+I/package-answers-test: holding permissions: mine true
+I/package-answers-test: shared libraries: list true, names true
+I/package-answers-test: preferred: activities 0 0 0, packages []
+I/package-answers-test: changed packages: list true
 I/package-answers-test: done

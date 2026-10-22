@@ -2,13 +2,30 @@
 <!-- The test of the package manager's answers for the app's own package (package-answers-test; the package manager stub
      plan, P1 on): the Resources getResourcesForApplication and getResourcesForActivity give, with and without a
      configuration, and what an unknown package or activity meets; P2: the app's identity, its launch intents, uid,
-     gids and the installed packages it sees; P3: its icons, logos and banners. The launcher activity is the framework's own
+     gids and the installed packages it sees; P3: its icons, logos and banners; P4: its permission group, instrumentation and provider. The launcher activity is the framework's own
      android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.packageanswers" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
   <!-- P2: a permission with a gid, inet. -->
   <uses-permission android:name="android.permission.INTERNET"/>
+  <!-- P4: a permission group with a permission, a permission without a group, and an instrumentation. -->
+  <permission-group android:name="io.github.kisame76.minato.test.packageanswers.GROUP" android:priority="7"
+      android:label="@string/greeting"/>
+  <permission android:name="io.github.kisame76.minato.test.packageanswers.GROUPED"
+      android:permissionGroup="io.github.kisame76.minato.test.packageanswers.GROUP" android:protectionLevel="normal"/>
+  <permission android:name="io.github.kisame76.minato.test.packageanswers.UNGROUPED" android:protectionLevel="normal"/>
+  <!-- P4, odd but valid: a group with nothing but its name and an
+       instrumentation with no label that targets another package and all processes. -->
+  <permission-group android:name="io.github.kisame76.minato.test.packageanswers.BARE"/>
+  <instrumentation android:name="android.test.BareRunner" android:targetPackage="io.github.kisame76.minato.test.absent"
+      android:targetProcesses="*" android:handleProfiling="true" android:functionalTest="true"/>
+  <!-- P4, duplicates: a group twice (the first with a label). Android refuses a package that redeclares a
+       platform group (INSTALL_FAILED_DUPLICATE_PERMISSION_GROUP), so that case has no test. -->
+  <permission-group android:name="io.github.kisame76.minato.test.packageanswers.TWICE" android:label="@string/greeting"/>
+  <permission-group android:name="io.github.kisame76.minato.test.packageanswers.TWICE"/>
+  <instrumentation android:name="android.test.InstrumentationTestRunner"
+      android:targetPackage="io.github.kisame76.minato.test.packageanswers" android:label="@string/greeting"/>
   <application android:label="package-answers-test" android:icon="@drawable/app_icon"
       android:logo="@drawable/app_logo" android:banner="@drawable/app_banner"
       android:name="io.github.kisame76.minato.test.packageanswers.PackageAnswersApplication">
@@ -16,6 +33,32 @@
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <!-- P4: a provider of the app's own, which queryContentProviders lists. -->
+    <provider android:name="android.content.ContentProvider" android:authorities="io.github.kisame76.minato.test.packageanswers.provider"
+        android:exported="false" android:process=":other"/>
+    <!-- P4: three activities that share the action G, for queryIntentActivityOptions: G1 and G3 also have the action S1,
+         G2 the action S2. -->
+    <activity android:name="android.app.AliasActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.packageanswers.G"/>
+        <action android:name="io.github.kisame76.minato.test.packageanswers.S1"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="android.app.TabActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.packageanswers.G"/>
+        <action android:name="io.github.kisame76.minato.test.packageanswers.S2"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="android.app.ActivityGroup" android:exported="true">
+      <intent-filter>
+        <action android:name="io.github.kisame76.minato.test.packageanswers.G"/>
+        <action android:name="io.github.kisame76.minato.test.packageanswers.S1"/>
+        <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>
     </activity>
     <!-- P2: an INFO activity, which getLaunchIntentForPackage prefers to the launcher, and a TV launcher. -->

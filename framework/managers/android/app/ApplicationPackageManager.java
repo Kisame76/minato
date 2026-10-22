@@ -5,18 +5,23 @@
 import android.app.Application;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.ChangedPackages;
 import android.content.pm.FeatureInfo;
+import android.content.pm.InstrumentationInfo;
 import android.content.pm.LocalPackageInstaller;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PermissionGroupInfo;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.content.pm.SharedLibraryInfo;
 import android.content.pm.SigningDetails;
 import android.content.pm.VersionedPackage;
 import android.content.res.AssetManager;
@@ -36,6 +41,7 @@ import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1037,6 +1043,230 @@ class ApplicationPackageManager {
 
     public CharSequence getUserBadgedLabel(CharSequence label, UserHandle user) {
         return label;
+    }
+
+    // The lists of the package manager's stubs (P4), as AOSP's answer for one installed package and a platform without
+    // other apps: an empty list where Android has a list, never null. The app's own permission groups, instrumentation
+    // and providers come from its manifest and framework-res's groups from the platform's; the shared libraries
+    // platform.xml names, the changed packages and the preferred activities have no entries here.
+
+    public List<PermissionGroupInfo> getAllPermissionGroups(int flags) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        return pkg != null ? pkg.permissionGroups(flags) : new ArrayList<>();
+    }
+
+    public PermissionGroupInfo getPermissionGroupInfo(String groupName, int flags) throws NameNotFoundException {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        PermissionGroupInfo group = pkg != null ? pkg.permissionGroup(groupName, flags) : null;
+        if (group == null) {
+            throw new NameNotFoundException(groupName);
+        }
+        return group;
+    }
+
+    public List<PermissionInfo> queryPermissionsByGroup(String groupName, int flags) throws NameNotFoundException {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg == null || (groupName != null && pkg.permissionGroup(groupName, flags) == null)) {
+            throw new NameNotFoundException(groupName);
+        }
+        return pkg.permissionsOfGroup(groupName, flags);
+    }
+
+    public InstrumentationInfo getInstrumentationInfo(ComponentName className, int flags)
+            throws NameNotFoundException {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        InstrumentationInfo info = pkg != null ? pkg.instrumentation(className, flags) : null;
+        if (info == null) {
+            throw new NameNotFoundException(className.toString());
+        }
+        return info;
+    }
+
+    public List<InstrumentationInfo> queryInstrumentation(String targetPackage, int flags) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        return pkg != null ? pkg.instrumentations(targetPackage, flags) : new ArrayList<>();
+    }
+
+    public List<ProviderInfo> queryContentProviders(String processName, int uid, int flags) {
+        return queryContentProviders(processName, uid, ComponentInfoFlags.of(flags), null);
+    }
+
+    public List<ProviderInfo> queryContentProviders(String processName, int uid, ComponentInfoFlags flags) {
+        return queryContentProviders(processName, uid, flags, null);
+    }
+
+    public List<ProviderInfo> queryContentProviders(String processName, int uid, int flags, String metaDataKey) {
+        return queryContentProviders(processName, uid, ComponentInfoFlags.of(flags), metaDataKey);
+    }
+
+    public List<ProviderInfo> queryContentProviders(String processName, int uid, ComponentInfoFlags flags,
+            String metaDataKey) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        return pkg != null ? pkg.providers(processName, uid, metaDataKey, flags.getValue()) : new ArrayList<>();
+    }
+
+    public List<ResolveInfo> queryIntentActivityOptions(ComponentName caller, Intent[] specifics, Intent intent,
+            int flags) {
+        return queryIntentActivityOptions(caller, specifics == null ? null : java.util.Arrays.asList(specifics), intent,
+                ResolveInfoFlags.of(flags));
+    }
+
+    /**
+     * As ResolveIntentHelper.queryIntentActivityOptionsInternal: each specific intent gives one activity (its
+     * component's, else what resolveActivity gives, the chooser for several), put first in the order of the specifics;
+     * from the intent's own results, queried with GET_RESOLVED_FILTER, go the specific's component and every entry whose
+     * filter matches the specific's action, unless that is the intent's own action; then the entries whose actions an
+     * earlier entry has (again but for the intent's action); and the caller, once. The filters are dropped unless the
+     * call asked for them.
+     */
+    public List<ResolveInfo> queryIntentActivityOptions(ComponentName caller, List<Intent> specifics, Intent intent,
+            ResolveInfoFlags flags) {
+        long queryFlags = flags.getValue();
+        String resultsAction = intent.getAction();
+        List<ResolveInfo> results = new ArrayList<>(
+                query(ManifestPackage.QUERY_ACTIVITIES, intent, queryFlags | PackageManager.GET_RESOLVED_FILTER));
+        int specificsPos = 0;
+        for (int i = 0; specifics != null && i < specifics.size(); i++) {
+            Intent specific = specifics.get(i);
+            if (specific == null) {
+                continue;
+            }
+            String action = specific.getAction();
+            if (resultsAction != null && resultsAction.equals(action)) {
+                action = null;
+            }
+            ResolveInfo info = null;
+            ActivityInfo activity;
+            ComponentName component = specific.getComponent();
+            if (component == null) {
+                info = resolveActivity(specific, ResolveInfoFlags.of(queryFlags));
+                if (info == null) {
+                    continue;
+                }
+                activity = info.activityInfo;
+                component = new ComponentName(activity.applicationInfo.packageName, activity.name);
+            } else {
+                try {
+                    activity = getActivityInfo(component, ComponentInfoFlags.of(queryFlags));
+                } catch (NameNotFoundException e) {
+                    continue;
+                }
+            }
+            for (int j = specificsPos; j < results.size(); j++) {
+                ResolveInfo candidate = results.get(j);
+                if ((candidate.activityInfo.name.equals(component.getClassName())
+                        && candidate.activityInfo.applicationInfo.packageName.equals(component.getPackageName()))
+                        || (action != null && candidate.filter != null && candidate.filter.matchAction(action))) {
+                    results.remove(j);
+                    if (info == null) {
+                        info = candidate;
+                    }
+                    j--;
+                }
+            }
+            if (info == null) {
+                info = new ResolveInfo();
+                info.activityInfo = activity;
+            }
+            results.add(specificsPos, info);
+            info.specificIndex = i;
+            specificsPos++;
+        }
+        for (int i = specificsPos; i < results.size() - 1; i++) {
+            IntentFilter filter = results.get(i).filter;
+            if (filter == null) {
+                continue;
+            }
+            java.util.Iterator<String> actions = filter.actionsIterator();
+            while (actions != null && actions.hasNext()) {
+                String action = actions.next();
+                if (resultsAction != null && resultsAction.equals(action)) {
+                    continue;
+                }
+                for (int j = i + 1; j < results.size(); j++) {
+                    ResolveInfo later = results.get(j);
+                    if (later.filter != null && later.filter.hasAction(action)) {
+                        results.remove(j);
+                        j--;
+                    }
+                }
+            }
+        }
+        if (caller != null) {
+            for (int i = 0; i < results.size(); i++) {
+                ActivityInfo activity = results.get(i).activityInfo;
+                if (caller.getPackageName().equals(activity.applicationInfo.packageName)
+                        && caller.getClassName().equals(activity.name)) {
+                    results.remove(i);
+                    break;
+                }
+            }
+        }
+        if ((queryFlags & PackageManager.GET_RESOLVED_FILTER) == 0) {
+            for (ResolveInfo info : results) {
+                info.filter = null;
+            }
+        }
+        return results;
+    }
+
+    public List<PackageInfo> getPackagesHoldingPermissions(String[] permissions, int flags) {
+        return getPackagesHoldingPermissions(permissions, PackageInfoFlags.of(flags));
+    }
+
+    /** The app, when it holds one of the permissions; no other package here asks for any. */
+    public List<PackageInfo> getPackagesHoldingPermissions(String[] permissions, PackageInfoFlags flags) {
+        List<PackageInfo> packages = new ArrayList<>();
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (pkg != null) {
+            for (String permission : permissions) {
+                if (pkg.granted(permission)) {
+                    packages.add(pkg.packageInfo(flags.getValue()));
+                    break;
+                }
+            }
+        }
+        return packages;
+    }
+
+    public String[] getSystemSharedLibraryNames() {
+        return new String[0];
+    }
+
+    public List<SharedLibraryInfo> getSharedLibraries(int flags) {
+        return new ArrayList<>();
+    }
+
+    public List<SharedLibraryInfo> getSharedLibraries(PackageInfoFlags flags) {
+        return new ArrayList<>();
+    }
+
+    public List<SharedLibraryInfo> getSharedLibrariesAsUser(int flags, int userId) {
+        return new ArrayList<>();
+    }
+
+    public List<SharedLibraryInfo> getSharedLibrariesAsUser(PackageInfoFlags flags, int userId) {
+        return new ArrayList<>();
+    }
+
+    /** AOSP's is a no-op that logs and answers an empty list. */
+    public List<PackageInfo> getPreferredPackages(int flags) {
+        Log.w("ApplicationPackageManager", "getPreferredPackages() is a no-op");
+        return Collections.emptyList();
+    }
+
+    public int getPreferredActivities(List<IntentFilter> outFilters, List<ComponentName> outActivities,
+            String packageName) {
+        return 0;
+    }
+
+    /** The app was installed at sequence number 1: everything since 0 is that, and nothing since 1. */
+    public ChangedPackages getChangedPackages(int sequenceNumber) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        if (sequenceNumber >= 1 || pkg == null) {
+            return null;
+        }
+        return new ChangedPackages(1, Collections.singletonList(pkg.packageName));
     }
 
     /**
