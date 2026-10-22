@@ -137,6 +137,9 @@ add_executable(el0-check suite/el0-check.c)
 # camera-media-test: libcamera2ndk.so and libmediandk.so as Godot's library links them (ADR-0042 b, gap 15).
 add_executable(camera-media-test suite/camera-media-test.c)
 target_link_libraries(camera-media-test PRIVATE dl)
+# media-keys-test: libmediandk.so's key strings (ADR-0060 e2b).
+add_executable(media-keys-test suite/media-keys-test.c)
+target_link_libraries(media-keys-test PRIVATE dl)
 # env-test: prints the environment it starts with; runtime.app_environment runs it through apk-run
 # (runtime/tests/environment_run.py).
 add_executable(env-test suite/env-test.c)

@@ -97,6 +97,8 @@ el0-check system measures
 # No camera and no media codecs, the stubs that let Godot's library load (ADR-0042 b, gap 15); Android's emulator
 # has cameras.
 camera-media-test system runtime-only
+# libmediandk.so's AMEDIAFORMAT_KEY_* and AMEDIACODEC_KEY_* strings, Android 15's values (ADR-0060 e2b).
+media-keys-test system
 # ALooper and AConfiguration of libandroid.so (ADR-0028, decision 9).
 looper-test system
 configuration-test system

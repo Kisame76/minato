@@ -125,11 +125,9 @@ LIBRARIES = {
         "stubbed": [],
         "private": [],
     },
-    # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp); no codec, extractor, muxer or DRM
-    # (gap 15): every other function answers an error. Its key strings
-    # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*) are data, whose values only AOSP's NdkMediaFormat.cpp and
-    # NdkMediaCodec.cpp have, which are not fetched: they stay absent until AMediaFormat is written, and an app
-    # that imports one fails at the link, as it did without the library.
+    # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp) and the key strings
+    # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*, data with Android 15's values, runtime/android/media_keys.cpp,
+    # ADR-0060 e2b); no codec, extractor, muxer or DRM yet (gap 15): every other function answers an error.
     "libmediandk": {"version": None,
                     "implemented": ["AImageReader_new", "AImageReader_newWithUsage", "AImageReader_newWithDataSpace",
                                     "AImageReader_delete", "AImageReader_getWindow", "AImageReader_getWidth",
@@ -140,9 +138,9 @@ LIBRARIES = {
                                     "AImage_delete", "AImage_deleteAsync", "AImage_getWidth", "AImage_getHeight",
                                     "AImage_getFormat", "AImage_getCropRect", "AImage_getTimestamp",
                                     "AImage_getDataSpace", "AImage_getNumberOfPlanes", "AImage_getPlanePixelStride",
-                                    "AImage_getPlaneRowStride", "AImage_getPlaneData", "AImage_getHardwareBuffer"],
-                    "stubbed": [], "private": [],
-                    "absent": ["AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*"]},
+                                    "AImage_getPlaneRowStride", "AImage_getPlaneData", "AImage_getHardwareBuffer",
+                                    "AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*"],
+                    "stubbed": [], "private": []},
 }
 
 # The kinds of the functions the NDK's headers do not declare.
