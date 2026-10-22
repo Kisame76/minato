@@ -2,14 +2,15 @@
 <!-- The test of the package manager's answers for the app's own package (package-answers-test; the package manager stub
      plan, P1 on): the Resources getResourcesForApplication and getResourcesForActivity give, with and without a
      configuration, and what an unknown package or activity meets; P2: the app's identity, its launch intents, uid,
-     gids and the installed packages it sees. The launcher activity is the framework's own
+     gids and the installed packages it sees; P3: its icons, logos and banners. The launcher activity is the framework's own
      android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.packageanswers" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
   <!-- P2: a permission with a gid, inet. -->
   <uses-permission android:name="android.permission.INTERNET"/>
-  <application android:label="package-answers-test"
+  <application android:label="package-answers-test" android:icon="@drawable/app_icon"
+      android:logo="@drawable/app_logo" android:banner="@drawable/app_banner"
       android:name="io.github.kisame76.minato.test.packageanswers.PackageAnswersApplication">
     <activity android:name="android.app.Activity" android:exported="true">
       <intent-filter>
@@ -18,13 +19,15 @@
       </intent-filter>
     </activity>
     <!-- P2: an INFO activity, which getLaunchIntentForPackage prefers to the launcher, and a TV launcher. -->
-    <activity android:name="android.app.ListActivity" android:exported="true">
+    <activity android:name="android.app.ListActivity" android:exported="true" android:icon="@drawable/list_icon">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.INFO"/>
       </intent-filter>
     </activity>
-    <activity android:name="android.app.ExpandableListActivity" android:exported="true">
+    <!-- P3: an icon that is no drawable, which falls back to the application's. -->
+    <activity android:name="android.app.ExpandableListActivity" android:exported="true"
+        android:icon="@string/greeting">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>

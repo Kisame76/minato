@@ -2,6 +2,7 @@
 // writes the class from PackageManager's abstract methods, and the members here replace the generated ones. It
 // answers from the app's manifest as ActivityThread read it, the platform's permissions and the import's signers,
 // without IPackageManager.
+import android.app.Application;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
@@ -10,6 +11,7 @@ import android.content.pm.FeatureInfo;
 import android.content.pm.LocalPackageInstaller;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
+import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PermissionInfo;
 import android.content.pm.ProviderInfo;
@@ -21,6 +23,8 @@ import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Process;
@@ -883,6 +887,146 @@ class ApplicationPackageManager {
                     + packageName, e);
             return null;
         }
+    }
+
+    // Drawables (the package manager stub plan, P3), as AOSP's: the icon, logo and banner of an application or an
+    // activity come from its package's Resources, the application's for an activity without its own, and the default
+    // icon for an item without one. The one user is the owner, who has no badge, so a badge call returns its input,
+    // as AOSP's does for a user without a profile. AOSP's cache of drawable constant states, and the icon of an
+    // archived package and of another user's (UserIcons), which this package manager has none of, are left out.
+
+    private static final int DEFAULT_FLAGS = PackageManager.GET_SHARED_LIBRARY_FILES;
+
+    public Drawable getDrawable(String packageName, int resId, ApplicationInfo appInfo) {
+        if (appInfo == null) {
+            try {
+                appInfo = getApplicationInfo(packageName, DEFAULT_FLAGS);
+            } catch (NameNotFoundException e) {
+                return null;
+            }
+        }
+        if (resId != 0) {
+            try {
+                return getResourcesForApplication(appInfo).getDrawable(resId, null);
+            } catch (NameNotFoundException e) {
+                Log.w("PackageManager", "Failure retrieving resources for " + appInfo.packageName);
+            } catch (Resources.NotFoundException e) {
+                Log.w("PackageManager", "Failure retrieving resources for " + appInfo.packageName + ": "
+                        + e.getMessage());
+            } catch (Exception e) {
+                Log.w("PackageManager", "Failure retrieving icon 0x" + Integer.toHexString(resId) + " in package "
+                        + packageName, e);
+            }
+        }
+        return null;
+    }
+
+    public Drawable getActivityIcon(ComponentName activityName) throws NameNotFoundException {
+        return getActivityInfo(activityName, DEFAULT_FLAGS).loadIcon(this);
+    }
+
+    public Drawable getActivityIcon(Intent intent) throws NameNotFoundException {
+        return activityOf(intent).loadIcon(this);
+    }
+
+    public Drawable getActivityBanner(ComponentName activityName) throws NameNotFoundException {
+        return getActivityInfo(activityName, DEFAULT_FLAGS).loadBanner(this);
+    }
+
+    public Drawable getActivityBanner(Intent intent) throws NameNotFoundException {
+        return activityOf(intent).loadBanner(this);
+    }
+
+    public Drawable getActivityLogo(ComponentName activityName) throws NameNotFoundException {
+        return getActivityInfo(activityName, DEFAULT_FLAGS).loadLogo(this);
+    }
+
+    public Drawable getActivityLogo(Intent intent) throws NameNotFoundException {
+        return activityOf(intent).loadLogo(this);
+    }
+
+    /** The intent's component, or what it resolves to for a default category; NameNotFoundException(its URI). */
+    private ActivityInfo activityOf(Intent intent) throws NameNotFoundException {
+        if (intent.getComponent() != null) {
+            return getActivityInfo(intent.getComponent(), DEFAULT_FLAGS);
+        }
+        ResolveInfo info = resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY);
+        if (info != null) {
+            return info.activityInfo;
+        }
+        throw new NameNotFoundException(intent.toUri(0));
+    }
+
+    public Drawable getApplicationIcon(ApplicationInfo info) {
+        return info.loadIcon(this);
+    }
+
+    public Drawable getApplicationIcon(String packageName) throws NameNotFoundException {
+        return getApplicationIcon(getApplicationInfo(packageName, DEFAULT_FLAGS));
+    }
+
+    public Drawable getApplicationBanner(ApplicationInfo info) {
+        return info.loadBanner(this);
+    }
+
+    public Drawable getApplicationBanner(String packageName) throws NameNotFoundException {
+        return getApplicationBanner(getApplicationInfo(packageName, DEFAULT_FLAGS));
+    }
+
+    public Drawable getApplicationLogo(ApplicationInfo info) {
+        return info.loadLogo(this);
+    }
+
+    public Drawable getApplicationLogo(String packageName) throws NameNotFoundException {
+        return getApplicationLogo(getApplicationInfo(packageName, DEFAULT_FLAGS));
+    }
+
+    /** The application context's theme gives the icon, as AOSP's mContext does; the system's before there is one. */
+    public Drawable getDefaultActivityIcon() {
+        Application app = mThread.getApplication();
+        if (app != null) {
+            return app.getDrawable(com.android.internal.R.drawable.sym_def_app_icon);
+        }
+        return Resources.getSystem().getDrawable(com.android.internal.R.drawable.sym_def_app_icon, null);
+    }
+
+    public Drawable loadItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
+        return getUserBadgedIcon(loadUnbadgedItemIcon(itemInfo, appInfo), Process.myUserHandle());
+    }
+
+    public Drawable loadUnbadgedItemIcon(PackageItemInfo itemInfo, ApplicationInfo appInfo) {
+        Drawable dr = null;
+        if (itemInfo.packageName != null) {
+            dr = getDrawable(itemInfo.packageName, itemInfo.icon, appInfo);
+        }
+        if (dr == null && itemInfo != appInfo && appInfo != null) {
+            dr = loadUnbadgedItemIcon(appInfo, appInfo);
+        }
+        if (dr == null) {
+            dr = itemInfo.loadDefaultIcon(this);
+        }
+        return dr;
+    }
+
+    public Drawable getUserBadgedIcon(Drawable icon, UserHandle user) {
+        return icon;
+    }
+
+    public Drawable getUserBadgedDrawableForDensity(Drawable drawable, UserHandle user, Rect badgeLocation,
+            int badgeDensity) {
+        return drawable;
+    }
+
+    public Drawable getUserBadgeForDensity(UserHandle user, int density) {
+        return null;
+    }
+
+    public Drawable getUserBadgeForDensityNoBackground(UserHandle user, int density) {
+        return null;
+    }
+
+    public CharSequence getUserBadgedLabel(CharSequence label, UserHandle user) {
+        return label;
     }
 
     /**

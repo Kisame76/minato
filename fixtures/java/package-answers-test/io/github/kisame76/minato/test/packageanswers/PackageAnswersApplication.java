@@ -2,13 +2,18 @@ package io.github.kisame76.minato.test.packageanswers;
 
 import android.app.Application;
 import android.content.ComponentName;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.VersionedPackage;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.os.Process;
+import android.os.UserHandle;
 import android.util.Log;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +34,10 @@ import java.util.Locale;
  *       sees go to the tag package-answers-test-device, which the test does not compare: they depend on the device.
  *       getCarLaunchIntentForPackage and getNamesForUids are hidden API, which Android 15 does not let an app
  *       call.</li>
+ *   <li>P3: the drawables: the icon, logo and banner of the application and of an activity by name and by Intent
+ *       (the activity's own icon, the application's for an activity without), getDrawable, the default icon, and
+ *       the badge calls for the one user (no badge). A drawable is logged as its class and its size in dp, not its
+ *       pixels.</li>
  * </ul>
  * Public API only. tools/android-reference.sh takes the log from Android 15, and tools/package-answers-check.sh
  * compares Minato's with it.
@@ -67,6 +76,23 @@ public class PackageAnswersApplication extends Application {
                 + ", same orientation " + (r.getConfiguration().orientation == own.getConfiguration().orientation)
                 + ", context's " + (r == own) + ", context's assets " + (r.getAssets() == own.getAssets())
                 + ", system ok " + r.getString(android.R.string.ok));
+    }
+
+    /** The icon of an activity whose icon is 0 and whose application's is not: the application's. */
+    private Drawable missingIcon(PackageManager pm, ComponentName activity) throws Exception {
+        ActivityInfo info = pm.getActivityInfo(activity, 0);
+        info.icon = 0;
+        return info.loadIcon(pm);
+    }
+
+    /** A drawable as its class and its intrinsic size in dp. */
+    private String shape(Drawable d) {
+        if (d == null) {
+            return "null";
+        }
+        float density = getResources().getDisplayMetrics().density;
+        return d.getClass().getSimpleName() + " " + Math.round(d.getIntrinsicWidth() / density) + "x"
+                + Math.round(d.getIntrinsicHeight() / density);
     }
 
     @Override
@@ -154,6 +180,60 @@ public class PackageAnswersApplication extends Application {
             log("installed applications: mine " + names.contains(pkg) + ", android " + names.contains("android"));
             Collections.sort(names);
             Log.i(PROBE, "installed applications " + names.size() + ": " + names);
+        });
+        // P3: drawables.
+        ComponentName main = new ComponentName(this, "android.app.Activity");
+        ComponentName list = new ComponentName(this, "android.app.ListActivity");
+        Intent mainIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg);
+        Intent unresolved = new Intent("io.github.kisame76.minato.test.NOBODY").setPackage(pkg);
+        probe("application", () -> log("application: icon " + shape(pm.getApplicationIcon(pkg)) + ", logo "
+                + shape(pm.getApplicationLogo(pkg)) + ", banner " + shape(pm.getApplicationBanner(pkg))));
+        probe("application by info", () -> log("application by info: icon " + shape(pm.getApplicationIcon(getApplicationInfo()))
+                + ", logo " + shape(pm.getApplicationLogo(getApplicationInfo())) + ", banner "
+                + shape(pm.getApplicationBanner(getApplicationInfo()))));
+        probe("application, unknown", () -> log("application, unknown: " + shape(pm.getApplicationIcon(ABSENT))));
+        probe("application logo, unknown", () -> log("application logo, unknown: " + shape(pm.getApplicationLogo(ABSENT))));
+        probe("application banner, unknown",
+                () -> log("application banner, unknown: " + shape(pm.getApplicationBanner(ABSENT))));
+        probe("activity", () -> log("activity: icon " + shape(pm.getActivityIcon(main)) + ", logo "
+                + shape(pm.getActivityLogo(main)) + ", banner " + shape(pm.getActivityBanner(main))));
+        probe("activity with an icon", () -> log("activity with an icon: icon " + shape(pm.getActivityIcon(list))
+                + ", logo " + shape(pm.getActivityLogo(list)) + ", banner " + shape(pm.getActivityBanner(list))));
+        probe("activity with a broken icon", () -> log("activity with a broken icon: "
+                + shape(pm.getActivityIcon(new ComponentName(this, "android.app.ExpandableListActivity")))));
+        probe("icon that fails to load", () -> {
+            ActivityInfo broken = pm.getActivityInfo(main, 0);
+            broken.icon = getResources().getIdentifier("greeting", "string", pkg);
+            log("icon that fails to load: " + shape(broken.loadIcon(pm)) + ", icon 0 " + shape(missingIcon(pm, main)));
+        });
+        probe("activity by intent", () -> log("activity by intent: icon " + shape(pm.getActivityIcon(mainIntent))
+                + ", logo " + shape(pm.getActivityLogo(mainIntent)) + ", banner " + shape(pm.getActivityBanner(mainIntent))));
+        probe("activity by component intent", () -> log("activity by component intent: "
+                + shape(pm.getActivityIcon(new Intent().setComponent(list)))));
+        probe("activity, unresolved", () -> log("activity, unresolved: " + shape(pm.getActivityIcon(unresolved))));
+        probe("activity logo, unresolved", () -> log("activity logo, unresolved: " + shape(pm.getActivityLogo(unresolved))));
+        probe("activity banner, unresolved",
+                () -> log("activity banner, unresolved: " + shape(pm.getActivityBanner(unresolved))));
+        probe("activity, unknown", () -> log("activity, unknown: "
+                + shape(pm.getActivityIcon(new ComponentName(this, pkg + ".Missing")))));
+        probe("default icon", () -> log("default icon: " + shape(pm.getDefaultActivityIcon())));
+        int icon = getApplicationInfo().icon;
+        probe("drawable", () -> log("drawable: " + shape(pm.getDrawable(pkg, icon, null)) + ", with info "
+                + shape(pm.getDrawable(pkg, icon, getApplicationInfo())) + ", no resource " + shape(pm.getDrawable(pkg, 0, null))
+                + ", unknown package " + shape(pm.getDrawable(ABSENT, icon, null))));
+        probe("drawable, system", () -> log("drawable, system: " + shape(pm.getDrawable("android", android.R.drawable.ic_menu_add, null))));
+        probe("loaded icon", () -> log("loaded icon: application " + shape(getApplicationInfo().loadIcon(pm)) + ", logo "
+                + shape(getApplicationInfo().loadLogo(pm)) + ", activity " + shape(pm.getActivityInfo(list, 0).loadIcon(pm))
+                + ", activity logo " + shape(pm.getActivityInfo(main, 0).loadLogo(pm))));
+        UserHandle me = Process.myUserHandle();
+        probe("badges", () -> {
+            Drawable d = pm.getApplicationIcon(pkg);
+            log("badges: icon same " + (pm.getUserBadgedIcon(d, me) == d) + ", density same "
+                    + (pm.getUserBadgedDrawableForDensity(d, me, new Rect(0, 0, 10, 10), 0) == d) + ", density, no rect "
+                    + (pm.getUserBadgedDrawableForDensity(d, me, null, 0) == d)
+                    + ", badge " + shape(pm.getUserBadgeForDensity(me, 0))
+                    + ", badge, no background " + shape(pm.getUserBadgeForDensityNoBackground(me, 0))
+                    + ", label " + pm.getUserBadgedLabel("label", me));
         });
         log("done");
     }

@@ -27,4 +27,24 @@ I/package-answers-test: android's package: android, shared user android.uid.syst
 I/package-answers-test: android's resources: ok OK, system's false, system's assets false
 I/package-answers-test: installed packages: mine true, android true
 I/package-answers-test: installed applications: mine true, android true
+I/package-answers-test: application: icon GradientDrawable 48x48, logo GradientDrawable 24x24, banner GradientDrawable 320x180
+I/package-answers-test: application by info: icon GradientDrawable 48x48, logo GradientDrawable 24x24, banner GradientDrawable 320x180
+I/package-answers-test: application, unknown: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: application logo, unknown: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: application banner, unknown: android.content.pm.PackageManager$NameNotFoundException: io.github.kisame76.minato.test.absent
+I/package-answers-test: activity: icon GradientDrawable 48x48, logo GradientDrawable 24x24, banner GradientDrawable 320x180
+I/package-answers-test: activity with an icon: icon GradientDrawable 32x32, logo GradientDrawable 24x24, banner GradientDrawable 320x180
+I/package-answers-test: activity with a broken icon: GradientDrawable 48x48
+I/package-answers-test: icon that fails to load: GradientDrawable 48x48, icon 0 GradientDrawable 48x48
+I/package-answers-test: activity by intent: android.content.pm.PackageManager$NameNotFoundException: #Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=io.github.kisame76.minato.test.packageanswers;end
+I/package-answers-test: activity by component intent: GradientDrawable 32x32
+I/package-answers-test: activity, unresolved: android.content.pm.PackageManager$NameNotFoundException: #Intent;action=io.github.kisame76.minato.test.NOBODY;package=io.github.kisame76.minato.test.packageanswers;end
+I/package-answers-test: activity logo, unresolved: android.content.pm.PackageManager$NameNotFoundException: #Intent;action=io.github.kisame76.minato.test.NOBODY;package=io.github.kisame76.minato.test.packageanswers;end
+I/package-answers-test: activity banner, unresolved: android.content.pm.PackageManager$NameNotFoundException: #Intent;action=io.github.kisame76.minato.test.NOBODY;package=io.github.kisame76.minato.test.packageanswers;end
+I/package-answers-test: activity, unknown: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{io.github.kisame76.minato.test.packageanswers/io.github.kisame76.minato.test.packageanswers.Missing}
+I/package-answers-test: default icon: AdaptiveIconDrawable 72x72
+I/package-answers-test: drawable: GradientDrawable 48x48, with info GradientDrawable 48x48, no resource null, unknown package null
+I/package-answers-test: drawable, system: BitmapDrawable 32x32
+I/package-answers-test: loaded icon: application GradientDrawable 48x48, logo GradientDrawable 24x24, activity GradientDrawable 32x32, activity logo GradientDrawable 24x24
+I/package-answers-test: badges: icon same true, density same true, density, no rect true, badge null, badge, no background null, label label
 I/package-answers-test: done
