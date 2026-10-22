@@ -354,6 +354,63 @@ int apkrt_hardware_buffer_acquire_handle(uint64_t id, uint64_t *handle, void **c
 /// through its own table, after the unlocks of the locks still open. An ID without one is ignored.
 void apkrt_hardware_buffer_release_handle(uint64_t id);
 
+// MARK: - Video decoders (ADR-0060 e2b3)
+
+/// The runtime's limits on what reaches the host's decoders (guest_interface.h's video_decoder): a frame's width and
+/// height, a CREATE's codec data, a QUEUE's access unit, and the decoders of a process at once.
+#define APKRT_VIDEO_DECODER_MAX_DIMENSION 8192u
+#define APKRT_VIDEO_DECODER_MAX_CODEC_DATA (UINT64_C(1) << 16)
+#define APKRT_VIDEO_DECODER_MAX_UNIT (UINT64_C(1) << 24)
+#define APKRT_VIDEO_DECODER_MAX_DECODERS 32u
+
+/// What a decoder is made for: an enum apkrt_video_decoder_type, the stream's size (each 1 to
+/// APKRT_VIDEO_DECODER_MAX_DIMENSION), and its codec data (csd-0 and csd-1 in Annex B), in host memory for the call.
+struct apkrt_video_decoder_description {
+    uint32_t type, width, height;
+    const void *codec_data;
+    size_t codec_data_size;
+};
+
+/// A decoded frame as the host holds it: NV12 at `data`, `slice_height` rows of `stride` bytes of Y, then
+/// (slice_height + 1) / 2 rows of interleaved Cb and Cr, `size` bytes, valid until the frame's pop or the decoder's
+/// flush or destroy; the coded size, the crop (inclusive), the time and flags (APKRT_VIDEO_DECODER_END_OF_STREAM with
+/// size 0 after the last frame).
+struct apkrt_video_frame {
+    const void *data;
+    uint64_t size;
+    uint32_t width, height, stride, slice_height;
+    uint16_t crop_left, crop_top, crop_right, crop_bottom;
+    int64_t time_us;
+    uint32_t flags;
+};
+
+/// For graphics/host: the guest's video decoders (ADR-0060 e2b3). The runtime has checked what reaches them (the
+/// type, the sizes within the limits above, the guest's bytes copied into host memory) and keeps the IDs; the decoders
+/// see a handle of theirs, never 0. The runtime calls a decoder's functions one at a time, under a lock of that decoder
+/// alone, on the calling guest thread; they may block on the host's decoder, never on the guest:
+/// - create: 0 with the handle; -EINVAL for a stream they do not take, -ENOMEM;
+/// - queue: an access unit in Annex B (size 0 with APKRT_VIDEO_DECODER_END_OF_STREAM: no more), its time and flags:
+///   0, or -EAGAIN while the decoder takes no more input until frames are popped;
+/// - peek: 0 with the oldest decoded frame in presentation order, which stays; -EAGAIN while there is none;
+/// - pop: the frame peek gave goes;
+/// - flush: every input and frame goes; the next input begins at a key frame;
+/// - destroy: last, once no call on the decoder runs.
+/// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A decoder stays with the functions that made
+/// it, so the context must live as long as the process.
+struct apkrt_video_decoders {
+    int (*create)(void *context, const struct apkrt_video_decoder_description *description, uint64_t *handle);
+    int (*queue)(void *context, uint64_t handle, const void *data, size_t size, int64_t time_us, uint32_t flags);
+    int (*peek)(void *context, uint64_t handle, struct apkrt_video_frame *frame);
+    void (*pop)(void *context, uint64_t handle);
+    int (*flush)(void *context, uint64_t handle);
+    void (*destroy)(void *context, uint64_t handle);
+    void *context;
+};
+
+/// For graphics/host: sets the video decoders' functions, which the runtime copies, or takes them away with NULL.
+/// Returns 0, or -1 when a function is NULL.
+int apkrt_set_video_decoders(const struct apkrt_video_decoders *decoders);
+
 // MARK: - The frame clock and touches (ADR-0036, decisions 1 to 3)
 //
 // For the app: the ticks of its display link and the motion events of its view go to the guest's vsync and

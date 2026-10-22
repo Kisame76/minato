@@ -110,6 +110,16 @@ struct apkrt_hardware_buffers;
 /* For tests: the functions minato_graphics_set_hardware_buffers gives the runtime. */
 const struct apkrt_hardware_buffers *minato_graphics_hardware_buffers(void);
 
+/* ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m), VideoToolbox's, which decode the guest's H.264 and
+   HEVC into NV12 frames: gives them to the runtime (apkrt_set_video_decoders). minato_graphics_set_providers calls
+   it. Returns 0, or -1 when the runtime refused them. */
+int minato_graphics_set_video_decoders(void);
+
+struct apkrt_video_decoders;
+
+/* For tests: the functions minato_graphics_set_video_decoders gives the runtime. */
+const struct apkrt_video_decoders *minato_graphics_video_decoders(void);
+
 /* For b)'s EGL images, e1)'s Vulkan imports and tests: the IOSurfaceRef of one of their handles, retained for the
    caller, who releases it, or NULL for a handle they do not have. */
 void *minato_graphics_hardware_buffer_surface(uint64_t handle);

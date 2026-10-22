@@ -1868,8 +1868,8 @@ frameworks_base_types/rs/java/android/renderscript/Type.java
 
 # android.media's data classes that AudioTrack's, MediaExtractor's and MediaCodecList's members name (the Unity test APK gap
 # sort, Formate's category 3m): audio presentations, the metadata map, DRM init data and the media metrics' session
-# ID, as AOSP has them. VolumeShaper, MediaCodecInfo and MediaCodec come from tools/managergen; MediaFormat is
-# AOSP's with Minato's patch (framework/patches).
+# ID, as AOSP has them. VolumeShaper comes from tools/managergen; MediaFormat is AOSP's with Minato's patch
+# (framework/patches).
 frameworks_base_types/media/java/android/media/AudioPresentation.java
 frameworks_base_types/media/java/android/media/AudioMetadataReadMap.java
 frameworks_base_types/media/java/android/media/AudioMetadataMap.java
@@ -1877,6 +1877,13 @@ frameworks_base_types/media/java/android/media/AudioMetadata.java
 frameworks_base_types/media/java/android/media/MediaFormat.java
 frameworks_base_types/media/java/android/media/DrmInitData.java
 frameworks_base_types/media/java/android/media/metrics/LogSessionId.java
+
+# MediaCodec, MediaCodecInfo and MediaCodecList (ADR-0060 e2b3), AOSP's over natives of ours
+# (framework/native/android_runtime/android_media_MediaCodec.cpp) on libmediandk's AMediaCodec.
+frameworks_base_types/media/java/android/media/MediaCodec.java
+frameworks_base_types/media/java/android/media/MediaCodecInfo.java
+frameworks_base_types/media/java/android/media/MediaCodecList.java
+frameworks_base_types/media/java/android/media/Utils.java
 
 # Batch B3b-2 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
 frameworks_base/core/java/android/app/IInstrumentationWatcher.aidl

@@ -1,0 +1,17 @@
+Minato's patch to frameworks/base's media/java/android/media/MediaCodecList.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0060 e2b3: the static initializer loads no libmedia_jni.
+
+Why: as MediaCodec's (mediacodec-without-media-jni.patch): its natives are libandroid_runtime's
+(framework/native/android_runtime/android_media_MediaCodecList.cpp), registered when the process starts.
+
+--- a/media/java/android/media/MediaCodecList.java
++++ b/media/java/android/media/MediaCodecList.java
+@@ -186,7 +186,7 @@
+     }
+ 
+     static {
+-        System.loadLibrary("media_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_MediaCodecList.cpp), registered at the start.
+         native_init();
+ 
+         // mediaserver is not yet alive here

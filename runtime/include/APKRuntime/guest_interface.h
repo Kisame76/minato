@@ -386,6 +386,56 @@ struct apkrt_hardware_buffer {
 /// buffers'. The number follows the loader's namespace calls (loader_syscalls.h, 4122 to 4126).
 #define APKRT_NR_HARDWARE_BUFFER 4127
 
+// MARK: - Video decoders (ADR-0060 e2b3)
+//
+// libmediandk's AMediaCodec and the framework's MediaCodec decode video through the host's decoders
+// (apkrt_set_video_decoders in apkrt.h, VideoToolbox in graphics/host): the runtime keeps the process's decoders by
+// IDs of its own, copies the guest's input to the host and the host's decoded frames to the guest, checking every size
+// and address on the way.
+
+/// What video_decoder does, its x0; x1 the address of a struct apkrt_video_decoder, or the ID for FLUSH and DESTROY.
+enum apkrt_video_decoder_op {
+    APKRT_VIDEO_DECODER_CREATE = 1,  // type, width, height and the codec data (data, size) in; id out
+    APKRT_VIDEO_DECODER_QUEUE,       // id, an access unit (data, size), time_us and flags in
+    APKRT_VIDEO_DECODER_DEQUEUE,     // id and a buffer (data, size: its capacity) in; the oldest decoded frame out
+    APKRT_VIDEO_DECODER_FLUSH,       // the ID: every frame queued or decoded is dropped
+    APKRT_VIDEO_DECODER_DESTROY,     // the ID: the decoder goes, after the calls on it still running
+};
+
+/// A decoder's stream: the codec's elementary stream, in Annex B with start codes as MediaCodec takes it.
+enum apkrt_video_decoder_type {
+    APKRT_VIDEO_DECODER_AVC = 1,   // video/avc, H.264
+    APKRT_VIDEO_DECODER_HEVC = 2,  // video/hevc, H.265
+};
+
+/// flags: QUEUE's last input (size may be 0), and DEQUEUE's answer after the last frame (size 0).
+#define APKRT_VIDEO_DECODER_END_OF_STREAM 1u
+
+/// One call's arguments and answers (64 bytes). An operation leaves the fields it does not name alone.
+/// DEQUEUE writes a frame as NV12: `slice_height` rows of `stride` bytes of Y, then (slice_height + 1) / 2 rows of
+/// `stride` bytes of interleaved Cb and Cr, `size` bytes in all; width and height are the coded size, the crop's
+/// rectangle (inclusive) the picture's.
+struct apkrt_video_decoder {
+    uint64_t id;            // the runtime's, never 0 and never reused
+    uint32_t type, flags;   // an enum apkrt_video_decoder_type (CREATE); APKRT_VIDEO_DECODER_* flags
+    uint32_t width, height; // CREATE: the stream's size; DEQUEUE: the frame's coded size
+    uint64_t data;          // the guest's bytes: CREATE's codec data, QUEUE's access unit, DEQUEUE's buffer
+    uint64_t size;          // their size; DEQUEUE: the buffer's capacity in, the frame's bytes out
+    int64_t time_us;        // QUEUE's time, DEQUEUE's frame's
+    uint32_t stride, slice_height;                           // DEQUEUE: the frame's rows
+    uint16_t crop_left, crop_top, crop_right, crop_bottom;   // DEQUEUE
+};
+
+/// video_decoder (ADR-0060 e2b3): x0 an enum apkrt_video_decoder_op, x1 its argument. Returns 0; -ENOSYS without the
+/// host's decoders; -EFAULT for a struct or bytes the guest cannot read or write; -EINVAL for an unknown op or type,
+/// a width or height of 0 or above APKRT_VIDEO_DECODER_MAX_DIMENSION, codec data above
+/// APKRT_VIDEO_DECODER_MAX_CODEC_DATA or an access unit above APKRT_VIDEO_DECODER_MAX_UNIT (apkrt.h); -EBADF for an ID
+/// that is not there, or no more;
+/// -EBUSY for a CREATE past APKRT_VIDEO_DECODER_MAX_DECODERS; DEQUEUE -EAGAIN while no frame is decoded, and
+/// -ENOSPC with the frame's size and rows out (the frame stays) for a buffer too small; else the host's answer. The
+/// number follows hardware_buffer's.
+#define APKRT_NR_VIDEO_DECODER 4128
+
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //
 // The host posts the ticks of its frame clock and its motion events (apkrt_vsync_post and apkrt_input_post in

@@ -266,7 +266,7 @@ add_custom_command(OUTPUT "${mediandk_map}" "${mediandk_stubs}"
   COMMAND ${stubgen} libmediandk ${stubgen_tools} --map "${mediandk_map}" --stubs "${mediandk_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libmediandk.so" VERBATIM)
 apk_bionic_unit(apk_mediandk SOURCES "${android_sources}/image_reader.cpp" "${android_sources}/media_keys.cpp"
-  "${mediandk_stubs}"
+  "${android_sources}/media_format.cpp" "${android_sources}/media_codec.cpp" "${mediandk_stubs}"
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libnativewindow
   VERSION_SCRIPTS "${mediandk_map}")

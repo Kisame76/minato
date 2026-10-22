@@ -125,9 +125,10 @@ LIBRARIES = {
         "stubbed": [],
         "private": [],
     },
-    # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp) and the key strings
+    # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp), the key strings
     # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*, data with Android 15's values, runtime/android/media_keys.cpp,
-    # ADR-0060 e2b); no codec, extractor, muxer or DRM yet (gap 15): every other function answers an error.
+    # ADR-0060 e2b), AMediaFormat (media_format.cpp) and AMediaCodec's decoders (media_codec.cpp, e2b3); no
+    # surfaces, crypto, extractor, muxer or DRM yet (gap 15): every other function answers an error.
     "libmediandk": {"version": None,
                     "implemented": ["AImageReader_new", "AImageReader_newWithUsage", "AImageReader_newWithDataSpace",
                                     "AImageReader_delete", "AImageReader_getWindow", "AImageReader_getWidth",
@@ -139,8 +140,22 @@ LIBRARIES = {
                                     "AImage_getFormat", "AImage_getCropRect", "AImage_getTimestamp",
                                     "AImage_getDataSpace", "AImage_getNumberOfPlanes", "AImage_getPlanePixelStride",
                                     "AImage_getPlaneRowStride", "AImage_getPlaneData", "AImage_getHardwareBuffer",
-                                    "AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*"],
-                    "stubbed": [], "private": []},
+                                    "AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*", "AMediaFormat_*",
+                                    "AMediaCodec_configure", "AMediaCodec_createCodecByName",
+                                    "AMediaCodec_createDecoderByType", "AMediaCodec_createEncoderByType",
+                                    "AMediaCodec_delete", "AMediaCodec_dequeueInputBuffer",
+                                    "AMediaCodec_dequeueOutputBuffer", "AMediaCodec_flush",
+                                    "AMediaCodec_getBufferFormat",
+                                    "AMediaCodec_getInputBuffer", "AMediaCodec_getInputFormat", "AMediaCodec_getName",
+                                    "AMediaCodec_getOutputBuffer", "AMediaCodec_getOutputFormat",
+                                    "AMediaCodec_queueInputBuffer", "AMediaCodec_releaseName",
+                                    "AMediaCodec_releaseOutputBuffer", "AMediaCodec_releaseOutputBufferAtTime",
+                                    "AMediaCodec_setAsyncNotifyCallback", "AMediaCodec_setOutputSurface",
+                                    "AMediaCodec_setParameters", "AMediaCodec_signalEndOfInputStream",
+                                    "AMediaCodec_start", "AMediaCodec_stop"],
+                    "stubbed": [],
+                    "private": ["minato_AMediaFormat_count", "minato_AMediaFormat_entry", "minato_media_codec_count",
+                                "minato_media_codec_at"]},
 }
 
 # The kinds of the functions the NDK's headers do not declare.
@@ -199,17 +214,13 @@ VALUES = {
     "android_tag_socket": "-ENOSYS", "android_tag_socket_with_uid": "-ENOSYS", "android_untag_socket": "-ENOSYS",
     # Cameras: none exists (ADR-0042 b, gap 15); their status results come from STATUS_VALUES
     "ACameraMetadata_isLogicalMultiCamera": "0",
-    # Media: nothing can be made (gap 15), so no value is found, nothing is supported, and nothing is counted
+    # Media beyond the decoders (gap 15): no crypto, extractor or muxer, so nothing is supported or counted
     "AMediaCodecActionCode_isRecoverable": "0", "AMediaCodecActionCode_isTransient": "0",
     "AMediaCrypto_isCryptoSchemeSupported": "0", "AMediaCrypto_requiresSecureDecoderComponent": "0",
-    "AMediaDrm_isCryptoSchemeSupported": "0", "AMediaExtractor_advance": "0", "AMediaFormat_getBuffer": "0",
-    "AMediaFormat_getDouble": "0", "AMediaFormat_getFloat": "0", "AMediaFormat_getInt32": "0",
-    "AMediaFormat_getInt64": "0", "AMediaFormat_getRect": "0", "AMediaFormat_getSize": "0",
-    "AMediaFormat_getString": "0",
+    "AMediaDrm_isCryptoSchemeSupported": "0", "AMediaExtractor_advance": "0",
     "AMediaCodecCryptoInfo_getMode": "0",  # AMEDIACODECRYPTOINFO_MODE_CLEAR
     "AMediaCodecCryptoInfo_getNumSubSamples": "0", "AMediaExtractor_getTrackCount": "0", "AMediaMuxer_getTrackCount": "0",
     "AMediaExtractor_getSampleFlags": "0",
-    "AMediaCodec_dequeueInputBuffer": "-1", "AMediaCodec_dequeueOutputBuffer": "-1",  # AMEDIACODEC_INFO_TRY_AGAIN_LATER
     "AMediaExtractor_getSampleTrackIndex": "-1", "AMediaExtractor_getSampleSize": "-1",  # no sample
     "AMediaExtractor_readSampleData": "-1", "AMediaExtractor_getSampleTime": "-1", "AMediaExtractor_getCachedDuration": "-1",
     "AMediaMuxer_addTrack": "-10002",  # AMEDIA_ERROR_UNSUPPORTED

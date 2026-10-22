@@ -32,7 +32,9 @@ import java.util.zip.CRC32;
  *   The test decodes with the first one that is not the emulator's goldfish decoder, which hands frames out in decode
  *   order, as no device's decoder does (AOSP's c2.android.avc.decoder hands them out in presentation order, with the
  *   same samples);
- * - baseline and main decoded synchronously, main with B-frames, whose frames come out in presentation order;
+ * - baseline and main decoded synchronously, main with B-frames, whose frames come out in presentation order; main
+ *   again with as many units queued as the codec takes before any frame is taken (how many is the codec's, not
+ *   logged), so that a codec whose decoder is behind keeps every unit;
  * - baseline decoded asynchronously (setCallback on a HandlerThread), as ExoPlayer decodes on API 31 and later;
  * - a flush after 5 of the first 15 units' frames (AOSP's decoder holds the others until more input comes), then
  *   the stream again from its second key frame;
@@ -54,6 +56,9 @@ public class MediaCodecApplication extends Application {
     /** The decoder of video/avc the test uses (list()'s). */
     private static String sDecoder;
 
+    /** The last output format logged, by its name, size and crop. */
+    private static String sLastFormat;
+
     /** A stream and its access units: offsets, sizes, times and key flags. */
     private static final class Stream {
         byte[] bytes;
@@ -64,11 +69,13 @@ public class MediaCodecApplication extends Application {
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
         try {
+            flags();
             list();
             Stream baseline = load(base, "baseline");
             Stream main = load(base, "main");
             decode("baseline", baseline);
             decode("main", main);
+            decodeAhead("main ahead", main);
             decodeAsync("baseline async", baseline);
             flushed("baseline flushed", baseline);
             refusals();
@@ -116,6 +123,21 @@ public class MediaCodecApplication extends Application {
         return all;
     }
 
+    /** The media codec feature flags MediaCodec asks at run time, by reflection, to the device tag. */
+    private static void flags() {
+        StringBuilder line = new StringBuilder("flags:");
+        for (String name : new String[] {"dynamicColorAspects", "hlgEditing", "inProcessSwAudioCodec",
+                "nullOutputSurface", "nullOutputSurfaceSupport", "regionOfInterest", "setCallbackStall"}) {
+            try {
+                Object value = Class.forName("android.media.codec.Flags").getMethod(name).invoke(null);
+                line.append(' ').append(name).append('=').append(value);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                line.append(' ').append(name).append(": ").append(e.getClass().getSimpleName());
+            }
+        }
+        Log.i(TAG + "-device", line.toString());
+    }
+
     private static void list() {
         MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
         int decoders = 0;
@@ -143,8 +165,15 @@ public class MediaCodecApplication extends Application {
         return MediaFormat.createVideoFormat(AVC, 320, 180);
     }
 
-    /** The output format's crop and size, as every decoder gives them; the rest to the device tag. */
+    /**
+     * The output format's crop and size, as every decoder gives them, when they differ from the last one's (a decoder
+     * may announce the same format again); the rest to the device tag.
+     */
     private static void logFormat(String name, MediaFormat format) {
+        String key = name + ": " + format.getInteger(MediaFormat.KEY_WIDTH) + " x "
+                + format.getInteger(MediaFormat.KEY_HEIGHT) + crop(format);
+        if (key.equals(sLastFormat)) return;
+        sLastFormat = key;
         Log.i(TAG, name + ": output format " + format.getString(MediaFormat.KEY_MIME) + ", "
                 + format.getInteger(MediaFormat.KEY_WIDTH) + " x " + format.getInteger(MediaFormat.KEY_HEIGHT)
                 + crop(format));
@@ -236,6 +265,22 @@ public class MediaCodecApplication extends Application {
         codec.configure(format(), null, null, 0);
         codec.start();
         run(name, codec, stream, 0, stream.units.size(), true, 0);
+        codec.stop();
+        codec.release();
+    }
+
+    private static void decodeAhead(String name, Stream stream) throws IOException {
+        MediaCodec codec = MediaCodec.createByCodecName(sDecoder);
+        codec.configure(format(), null, null, 0);
+        codec.start();
+        int queued = 0;
+        long deadline = System.currentTimeMillis() + 5000;
+        while (queued < stream.units.size() && System.currentTimeMillis() < deadline) {
+            int in = codec.dequeueInputBuffer(queued == 0 ? 100000 : 50000);
+            if (in < 0) break;  // the codec takes no more until frames are taken
+            queue(codec, in, stream, queued++);
+        }
+        run(name, codec, stream, queued, stream.units.size(), true, 0);
         codec.stop();
         codec.release();
     }

@@ -63,6 +63,38 @@ I/media-codec-test: main: pts 900000, flags 0, 320 x 180, format 35, Y 9d5ce419 
 I/media-codec-test: main: pts 933333, flags 0, 320 x 180, format 35, Y 1dadc26d U 87f5b199 V 88244e10
 I/media-codec-test: main: pts 966667, flags 0, 320 x 180, format 35, Y e979c167 U 7561b8c3 V 70139799
 I/media-codec-test: main: 30 frames, end of stream
+I/media-codec-test: main ahead: output format video/raw, 320 x 180, crop 0 0 319 179
+I/media-codec-test: main ahead: pts 0, flags 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
+I/media-codec-test: main ahead: pts 33333, flags 0, 320 x 180, format 35, Y 8cbf1701 U 17d03d5 V 783b5e8b
+I/media-codec-test: main ahead: pts 66667, flags 0, 320 x 180, format 35, Y dbee9e10 U a292332f V 6d277df9
+I/media-codec-test: main ahead: pts 100000, flags 0, 320 x 180, format 35, Y 6fbe77f0 U 8a173d31 V 44b8afcd
+I/media-codec-test: main ahead: pts 133333, flags 0, 320 x 180, format 35, Y e13b4edc U f3f83915 V b5fd2eea
+I/media-codec-test: main ahead: pts 166667, flags 0, 320 x 180, format 35, Y 18552316 U d23d2c28 V 5452be46
+I/media-codec-test: main ahead: pts 200000, flags 0, 320 x 180, format 35, Y f5c3ec41 U e49e05c6 V cc22bd02
+I/media-codec-test: main ahead: pts 233333, flags 0, 320 x 180, format 35, Y b8e23cfe U d92b981d V f2242ce
+I/media-codec-test: main ahead: pts 266667, flags 0, 320 x 180, format 35, Y 816c46cb U 8847de04 V a76edb37
+I/media-codec-test: main ahead: pts 300000, flags 0, 320 x 180, format 35, Y af385231 U 1280336e V ffb0a8ba
+I/media-codec-test: main ahead: pts 333333, flags 0, 320 x 180, format 35, Y 99caf418 U 762abef5 V 41e9224c
+I/media-codec-test: main ahead: pts 366667, flags 0, 320 x 180, format 35, Y e2580de6 U 21347fc6 V ebdf91b6
+I/media-codec-test: main ahead: pts 400000, flags 0, 320 x 180, format 35, Y f2d40b09 U 5d527ccf V 69233de0
+I/media-codec-test: main ahead: pts 433333, flags 0, 320 x 180, format 35, Y 38a88632 U e97b869c V 4c5035f
+I/media-codec-test: main ahead: pts 466667, flags 0, 320 x 180, format 35, Y 8dd01f09 U bc5bde51 V ebc687f3
+I/media-codec-test: main ahead: pts 500000, flags 0, 320 x 180, format 35, Y f71092d5 U 8e4a3ed8 V 57d81f5b
+I/media-codec-test: main ahead: pts 533333, flags 0, 320 x 180, format 35, Y 9241034e U 6973f58e V 70aded21
+I/media-codec-test: main ahead: pts 566667, flags 0, 320 x 180, format 35, Y 153283d9 U 83e0b883 V 2508373e
+I/media-codec-test: main ahead: pts 600000, flags 0, 320 x 180, format 35, Y 7f3062fe U c9c82554 V d0b708ac
+I/media-codec-test: main ahead: pts 633333, flags 0, 320 x 180, format 35, Y 340493b7 U 3e050746 V be2fef26
+I/media-codec-test: main ahead: pts 666667, flags 0, 320 x 180, format 35, Y 6e25613d U 4b0aab5e V a30ce8a5
+I/media-codec-test: main ahead: pts 700000, flags 0, 320 x 180, format 35, Y 89576652 U fd019f59 V 5681a2ea
+I/media-codec-test: main ahead: pts 733333, flags 0, 320 x 180, format 35, Y 85b7fbe9 U 121981b3 V 8e4a2e9d
+I/media-codec-test: main ahead: pts 766667, flags 0, 320 x 180, format 35, Y e5de14c3 U 26faf488 V e7bd43cd
+I/media-codec-test: main ahead: pts 800000, flags 0, 320 x 180, format 35, Y 1448ff2 U ad41b4f6 V 51b46283
+I/media-codec-test: main ahead: pts 833333, flags 0, 320 x 180, format 35, Y cd9549e1 U ababc916 V d3546e79
+I/media-codec-test: main ahead: pts 866667, flags 0, 320 x 180, format 35, Y 2a4bbb1f U ba825e18 V b2ea929d
+I/media-codec-test: main ahead: pts 900000, flags 0, 320 x 180, format 35, Y 9d5ce419 U 925b53df V 7b228afc
+I/media-codec-test: main ahead: pts 933333, flags 0, 320 x 180, format 35, Y 1dadc26d U 87f5b199 V 88244e10
+I/media-codec-test: main ahead: pts 966667, flags 0, 320 x 180, format 35, Y e979c167 U 7561b8c3 V 70139799
+I/media-codec-test: main ahead: 30 frames, end of stream
 I/media-codec-test: baseline async: onOutputFormatChanged 320 x 180, crop 0 0 319 179
 I/media-codec-test: baseline async: pts 0, flags 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
 I/media-codec-test: baseline async: pts 33333, flags 0, 320 x 180, format 35, Y b83f83f0 U ffeba675 V 546b9af5
@@ -123,7 +155,6 @@ I/media-codec-test: dequeueOutputBuffer before start: IllegalStateException
 I/media-codec-test: ndk: configure 0, start 0
 I/media-codec-test: ndk: output format 320 x 180, crop 0 0 319 179
 I/media-codec-test: ndk: pts 0, flags 0, Y 31e82cd2 U f0d30877 V 30951d77
-I/media-codec-test: ndk: output format 320 x 180, crop 0 0 319 179
 I/media-codec-test: ndk: pts 33333, flags 0, Y 8cbf1701 U 17d03d5 V 783b5e8b
 I/media-codec-test: ndk: pts 66667, flags 0, Y dbee9e10 U a292332f V 6d277df9
 I/media-codec-test: ndk: pts 100000, flags 0, Y 6fbe77f0 U 8a173d31 V 44b8afcd

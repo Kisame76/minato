@@ -206,6 +206,22 @@ if(TARGET minato_graphics_host)
   set_source_files_properties(hardware_buffers_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.hardware_buffers COMMAND graphics-hardware-buffers-test)
   set_tests_properties(graphics.hardware_buffers PROPERTIES TIMEOUT 60)
+  # ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m) on media-codec-test's streams, each frame against
+  # Android 15's (fixtures/expected/media-codec-test.logcat).
+  add_executable(graphics-video-decoder-test video_decoder_test.m)
+  target_link_libraries(graphics-video-decoder-test PRIVATE minato_graphics_host apkrt apk_defaults z
+    "-framework Foundation")
+  set_source_files_properties(video_decoder_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  add_test(NAME graphics.video_decoder COMMAND graphics-video-decoder-test
+    "${PROJECT_SOURCE_DIR}/fixtures/apps/media-codec-test/assets"
+    "${PROJECT_SOURCE_DIR}/fixtures/expected/media-codec-test.logcat")
+  set_tests_properties(graphics.video_decoder PROPERTIES TIMEOUT 120)
+  # The reorder depth from a stream's SPS (graphics/host/video_parameters.c), against hostile bytes.
+  add_executable(graphics-video-parameters-test video_parameters_test.c ../host/video_parameters.c)
+  target_include_directories(graphics-video-parameters-test PRIVATE ../host)
+  target_link_libraries(graphics-video-parameters-test PRIVATE apk_defaults)
+  add_test(NAME graphics.video_parameters COMMAND graphics-video-parameters-test)
+  set_tests_properties(graphics.video_parameters PROPERTIES TIMEOUT 120)
   add_library(fake-driver MODULE fake_driver.c)
   target_link_libraries(fake-driver PRIVATE apk_defaults)
   # Test 6's MoltenVK stand-in, with MoltenVK's Vulkan headers.

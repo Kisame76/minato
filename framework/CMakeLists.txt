@@ -338,6 +338,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_media_ImageReader.cpp
             native/android_runtime/android_media_PublicFormatUtils.cpp
             native/android_runtime/android_media_ImageWriter.cpp
+            native/android_runtime/android_media_MediaCodec.cpp
             native/android_runtime/android_hardware_camera2_utils_SurfaceUtils.cpp
             "${SOURCES}/frameworks_native_graphics/libs/ui/PublicFormat.cpp"
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
@@ -365,7 +366,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
-                      GLESv2 GLESv3 nativewindow input sqlite aaudio)
+                      GLESv2 GLESv3 nativewindow input sqlite aaudio mediandk)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

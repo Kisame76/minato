@@ -2,7 +2,9 @@
 // through the NDK's AMediaCodec in ByteBuffer mode, with the decoder the Java side names, and logs each frame as the
 // Java side does: its time, flags and a CRC32 of its Y, U and V samples inside the crop, walked by the output
 // format's stride, slice height and color format (planar or semi-planar), so that decoders of either layout compare.
-// A line that starts with "device " goes to the device tag.
+// An output format is logged when its size or crop differs from the last one's: a decoder may announce the same
+// format again (AOSP's c2.android.avc.decoder does after the first frame, as its timing has it). A line that starts
+// with "device " goes to the device tag.
 #include <jni.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
@@ -35,6 +37,7 @@ static int64_t now_ms(void) {
 
 static void read_format(AMediaCodec *codec, struct layout *layout, char *log, size_t size) {
     AMediaFormat *format = AMediaCodec_getOutputFormat(codec);
+    const struct layout last = *layout;
     memset(layout, 0, sizeof *layout);
     AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_WIDTH, &layout->width);
     AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_HEIGHT, &layout->height);
@@ -42,18 +45,21 @@ static void read_format(AMediaCodec *codec, struct layout *layout, char *log, si
     AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SLICE_HEIGHT, &layout->slice);
     AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, &layout->color);
     char line[300];
-    if (AMediaFormat_getRect(format, AMEDIAFORMAT_KEY_DISPLAY_CROP, &layout->left, &layout->top, &layout->right,
-                             &layout->bottom)) {
+    const int cropped = AMediaFormat_getRect(format, AMEDIAFORMAT_KEY_DISPLAY_CROP, &layout->left, &layout->top,
+                                             &layout->right, &layout->bottom);
+    if (!cropped) layout->right = layout->width - 1, layout->bottom = layout->height - 1;
+    const int same = last.width == layout->width && last.height == layout->height && last.left == layout->left &&
+                     last.top == layout->top && last.right == layout->right && last.bottom == layout->bottom;
+    if (cropped) {
         snprintf(line, sizeof line, "ndk: output format %d x %d, crop %d %d %d %d", layout->width, layout->height,
                  layout->left, layout->top, layout->right, layout->bottom);
     } else {
-        layout->right = layout->width - 1, layout->bottom = layout->height - 1;
         snprintf(line, sizeof line, "ndk: output format %d x %d, no crop", layout->width, layout->height);
     }
-    append(log, size, line);
+    if (!same) append(log, size, line);
     snprintf(line, sizeof line, "device ndk: color format %#x, stride %d, slice height %d", layout->color,
              layout->stride, layout->slice);
-    append(log, size, line);
+    if (!same) append(log, size, line);
     if (layout->stride <= 0) layout->stride = layout->width;
     if (layout->slice <= 0) layout->slice = layout->height;
     AMediaFormat_delete(format);

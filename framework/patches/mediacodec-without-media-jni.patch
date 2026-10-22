@@ -1,0 +1,39 @@
+Minato's patch to frameworks/base's media/java/android/media/MediaCodec.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0060 e2b3: the static initializer loads no libmedia_jni, and a tunneled session's audio sync is the invalid one.
+
+Why: Android's MediaCodec natives live in libmedia_jni, which Minato does not build; they are libandroid_runtime's
+(framework/native/android_runtime/android_media_MediaCodec.cpp), registered when the process starts, so the load would
+throw UnsatisfiedLinkError out of <clinit>. native_init stays. The audio session's hardware sync for tunneled playback
+(setParameters' and configure's KEY_AUDIO_SESSION_ID) is AudioSystem's, a compile-only stub here: Minato's audio has
+no hardware sync, so it is AUDIO_HW_SYNC_INVALID (0), what Android's AudioSystem answers for a session without one
+[inferred: AudioSystem.java's AUDIO_HW_SYNC_INVALID].
+
+--- a/media/java/android/media/MediaCodec.java
++++ b/media/java/android/media/MediaCodec.java
+@@ -2395,7 +2395,7 @@
+                         throw new IllegalArgumentException("Wrong Session ID Parameter!");
+                     }
+                     keys[i] = "audio-hw-sync";
+-                    values[i] = AudioSystem.getAudioHwSyncForSession(sessionId);
++                    values[i] = 0 /* Minato: AudioSystem.AUDIO_HW_SYNC_INVALID, no hardware sync */;
+                 } else {
+                     keys[i] = entry.getKey();
+                     values[i] = entry.getValue();
+@@ -5214,7 +5214,7 @@
+                     throw new IllegalArgumentException("Wrong Session ID Parameter!");
+                 }
+                 keys[i] = "audio-hw-sync";
+-                values[i] = AudioSystem.getAudioHwSyncForSession(sessionId);
++                values[i] = 0 /* Minato: AudioSystem.AUDIO_HW_SYNC_INVALID, no hardware sync */;
+             } else {
+                 keys[i] = key;
+                 Object value = params.get(key);
+@@ -5756,7 +5756,7 @@
+     private native final void native_finalize();
+ 
+     static {
+-        System.loadLibrary("media_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_MediaCodec.cpp), registered at the start.
+         native_init();
+     }
+ 
