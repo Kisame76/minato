@@ -39,3 +39,16 @@ send: 0
 receive: 0
 received: the same ID 1, 16 x 16
 the received one after the sent one's release: the pattern back 1
+isSupported Y8Cb8Cr8_420: CPU 1, CPU and GPU sampled 1, GPU sampled 1, CPU and framebuffer 1, CPU and video encode 1
+isSupported YCbCr_P010: CPU 1, CPU and GPU sampled 1, GPU sampled 1, CPU and framebuffer 1, CPU and video encode 1
+Y8Cb8Cr8_420 63 x 47: isSupported 1, allocate 0
+Y8Cb8Cr8_420 of 2 layers: isSupported 0, allocate -22
+Y8Cb8Cr8_420 mipmapped: isSupported 0, allocate -22
+Y8Cb8Cr8_420 64 x 48: allocate 0
+describe: 64 x 48 x 1, format 0x23, stride at least the width 1
+lock: 0
+lockAndGetInfo: 0
+lockPlanes: 0, 3 planes, Y's pixel stride 1, Y's rows at least the width 1; Cb's and Cr's: the same pixel stride 1, 1 or 2 1, the same row stride 1, rows at least half the width 1, interleaved at 2 1, after Y 1
+Y8Cb8Cr8_420: the planes' pattern back 1
+YCbCr_P010 64 x 48: allocate 0
+lockPlanes: 0, 3 planes, pixel strides 2 4 4, Y's rows at least the width 1, the same chroma rows 1, Cb and Cr 2 apart 1

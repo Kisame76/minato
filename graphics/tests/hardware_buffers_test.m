@@ -2,7 +2,9 @@
    the guest's AHardwareBuffers, through the functions minato_graphics_set_hardware_buffers gives the runtime, without
    the runtime: the descriptions they support, the stride of their aligned rows, a pattern written under one lock and
    read back under another for each format of a), read-only and nested locks by IOSurface's seed, layers and BLOBs,
-   the size cap, the free, and many threads at once. Exits 1 after the cases when one failed. */
+   the size cap, the free, and many threads at once; Y8Cb8Cr8_420 and YCbCr_P010 as biplanar surfaces (ADR-0060
+   e2a). Exits 1 after the cases when one failed. */
+#import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurfaceRef.h>
 #import <Metal/Metal.h>
@@ -171,7 +173,7 @@ static void eachFormatOfAIsSupportedForTheCPUAndTheGPU(void) {
 
 static void otherFormatsAndUsagesAreNot(void) {
     const char *const test = "other formats and usages are not supported";
-    const uint32_t formats[] = {RGB8, D16, D24S8, S8, YUV420, P010, R16_UINT, BGR10A2, 0x99, 0};
+    const uint32_t formats[] = {RGB8, D16, D24S8, S8, R16_UINT, BGR10A2, 0x99, 0};
     struct apkrt_hardware_buffer_description refused[32];
     size_t count = 0;
     for (size_t index = 0; index < sizeof formats / sizeof *formats; index++) {
@@ -645,6 +647,97 @@ static void manyThreadsAtOnce(void) {
     release(shared);
 }
 
+/// A YUV format: its code and name, a sample's bytes, its surface's pixel format, and the Metal formats of its planes.
+struct yuv {
+    const char *name;
+    uint32_t code, bytes, tag;
+    MTLPixelFormat luma, chroma;
+};
+static const struct yuv YUVS[] = {
+    {"Y8Cb8Cr8_420", YUV420, 1, '420v', MTLPixelFormatR8Unorm, MTLPixelFormatRG8Unorm},
+    {"YCbCr_P010", P010, 2, 'x420', MTLPixelFormatR16Unorm, MTLPixelFormatRG16Unorm},
+};
+
+/// Y8Cb8Cr8_420 and YCbCr_P010 are each one biplanar surface, Y and interleaved CbCr, the second right below the
+/// first with the same rows, which the guest's lockPlanes counts on; Metal wraps each plane, and CoreVideo the whole
+/// surface, for the decoders' copies (ADR-0060 decision 3).
+static void yuvIsOneBiplanarSurfaceWithTheChromaBelowTheLuma(void) {
+    const char *const test = "YUV is one biplanar surface with the chroma below the luma";
+    for (size_t kind = 0; kind < sizeof YUVS / sizeof *YUVS; kind++) {
+        const struct yuv *yuv = &YUVS[kind];
+        const uint64_t usages[] = {CPU, GPU_SAMPLED_IMAGE, CPU | GPU_SAMPLED_IMAGE | GPU_FRAMEBUFFER,
+                                   CPU | VIDEO_ENCODE};
+        for (size_t index = 0; index < sizeof usages / sizeof *usages; index++) {
+            if (supported(desc(64, 48, 1, yuv->code, usages[index])) != 1) {
+                fail(test, [NSString stringWithFormat:@"%s, usage %#llx not supported", yuv->name,
+                                                      (unsigned long long)usages[index]]);
+            }
+        }
+        if (supported(desc(64, 48, 2, yuv->code, CPU)) != 0) {
+            fail(test, [NSString stringWithFormat:@"%s of 2 layers supported", yuv->name]);
+        }
+        const uint32_t sizes[][2] = {{64, 48}, {1290, 6}, {63, 47}};
+        for (size_t index = 0; index < sizeof sizes / sizeof *sizes; index++) {
+            const uint32_t width = sizes[index][0], height = sizes[index][1];
+            uint64_t handle = 0;
+            uint32_t stride = 0;
+            const int made = allocate(desc(width, height, 1, yuv->code, CPU | GPU_SAMPLED_IMAGE), &handle, &stride);
+            if (made != 0 || handle == 0) {
+                fail(test, [NSString stringWithFormat:@"%s %u x %u: allocate %d", yuv->name, width, height, made]);
+                continue;
+            }
+            const size_t alignment = MAX([device minimumLinearTextureAlignmentForPixelFormat:yuv->luma],
+                                         [device minimumLinearTextureAlignmentForPixelFormat:yuv->chroma]);
+            const struct lock locked = lock(handle, CPU_READ_OFTEN);
+            IOSurfaceRef surface = (IOSurfaceRef)minato_graphics_hardware_buffer_surface(handle);
+            const size_t row = locked.bytes_per_row, half_width = (width + 1) / 2, half_height = (height + 1) / 2;
+            if (locked.result != 0 || surface == NULL || locked.bytes_per_pixel != yuv->bytes ||
+                row != (size_t)stride * yuv->bytes || stride < width || row % alignment != 0) {
+                fail(test, [NSString stringWithFormat:@"%s %u x %u: lock %d, %u bytes a pixel, %zu a row, stride %u",
+                                                      yuv->name, width, height, locked.result, locked.bytes_per_pixel,
+                                                      row, stride]);
+            } else if (IOSurfaceGetPixelFormat(surface) != yuv->tag || IOSurfaceGetPlaneCount(surface) != 2 ||
+                       IOSurfaceGetBaseAddressOfPlane(surface, 0) != locked.address ||
+                       IOSurfaceGetBytesPerRowOfPlane(surface, 0) != row ||
+                       IOSurfaceGetWidthOfPlane(surface, 0) != width ||
+                       IOSurfaceGetHeightOfPlane(surface, 0) != height ||
+                       IOSurfaceGetBaseAddressOfPlane(surface, 1) != locked.address + row * height ||
+                       IOSurfaceGetBytesPerRowOfPlane(surface, 1) != row ||
+                       IOSurfaceGetWidthOfPlane(surface, 1) != half_width ||
+                       IOSurfaceGetHeightOfPlane(surface, 1) != half_height ||
+                       IOSurfaceGetBytesPerElementOfPlane(surface, 1) != 2 * yuv->bytes) {
+                fail(test, [NSString stringWithFormat:@"%s %u x %u: not the planes the guest counts on", yuv->name,
+                                                      width, height]);
+            } else {
+                MTLTextureDescriptor *luma = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:yuv->luma
+                                                                                                width:width
+                                                                                               height:height
+                                                                                            mipmapped:NO];
+                MTLTextureDescriptor *chroma = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:yuv->chroma
+                                                                                                  width:half_width
+                                                                                                 height:half_height
+                                                                                              mipmapped:NO];
+                luma.usage = chroma.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+                CVPixelBufferRef wrapped = NULL;
+                const CVReturn wrap = CVPixelBufferCreateWithIOSurface(NULL, surface, NULL, &wrapped);
+                if ([device newTextureWithDescriptor:luma iosurface:surface plane:0] == nil ||
+                    [device newTextureWithDescriptor:chroma iosurface:surface plane:1] == nil ||
+                    wrap != kCVReturnSuccess || CVPixelBufferGetPixelFormatType(wrapped) != yuv->tag) {
+                    fail(test, [NSString stringWithFormat:@"%s %u x %u: Metal or CoreVideo cannot wrap it (%d)",
+                                                          yuv->name, width, height, wrap]);
+                }
+                if (wrapped != NULL) {
+                    CVPixelBufferRelease(wrapped);
+                }
+            }
+            if (locked.result == 0) {
+                unlock(handle);
+            }
+            release(handle);
+        }
+    }
+}
+
 int main(void) {
     @autoreleasepool {
         device = MTLCreateSystemDefaultDevice();
@@ -667,8 +760,9 @@ int main(void) {
         locksRacingTheFreeNeverTouchAFreedSurface();
         unknownHandlesAreRefused();
         manyThreadsAtOnce();
+        yuvIsOneBiplanarSurfaceWithTheChromaBelowTheLuma();
         const int failed = atomic_load(&failures);
-        printf("graphics.hardware_buffers: 14 cases, %d failures\n", failed);
+        printf("graphics.hardware_buffers: 15 cases, %d failures\n", failed);
         return failed == 0 ? 0 : 1;
     }
 }

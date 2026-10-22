@@ -91,6 +91,7 @@ struct minato_BufferQueue {
     int32_t acquired_count;
     uint64_t usage;          // of the buffers
     int32_t default_format;  // setDefaultFormat's, else 0
+    int32_t default_data_space;  // setDefaultDataSpace's, else 0
     bool connected;          // an ImageWriter's producer (minato_ANativeWindow_connect)
     int32_t unconnected_slot_count;  // the slot count before the connect, again after the disconnect
     pthread_mutex_t callback_lock;  // held around each call of `released`, so that a disconnect waits for it
@@ -460,6 +461,13 @@ void minato_BufferQueue_setDefaultFormat(minato_BufferQueue* queue, int32_t form
     pthread_mutex_unlock(&queue->lock);
 }
 
+void minato_BufferQueue_setDefaultDataSpace(minato_BufferQueue* queue, int32_t dataSpace) {
+    if (queue == nullptr) return;
+    pthread_mutex_lock(&queue->lock);
+    queue->default_data_space = dataSpace;
+    pthread_mutex_unlock(&queue->lock);
+}
+
 void minato_BufferQueue_discardFreeBuffers(minato_BufferQueue* queue) {
     if (queue == nullptr) return;
     AHardwareBuffer* discarded[kMaxSlots];
@@ -739,8 +747,14 @@ int32_t ANativeWindow_getBuffersDataSpace(ANativeWindow* window) {
     return data_space;
 }
 
+// A queue's default (setDefaultDataSpace), else UNKNOWN.
 int32_t ANativeWindow_getBuffersDefaultDataSpace(ANativeWindow* window) {
-    return is_window(window) ? ADATASPACE_UNKNOWN : -EINVAL;
+    if (!is_window(window)) return -EINVAL;
+    if (window->queue == nullptr) return ADATASPACE_UNKNOWN;
+    pthread_mutex_lock(&window->queue->lock);
+    const int32_t data_space = window->queue->default_data_space;
+    pthread_mutex_unlock(&window->queue->lock);
+    return data_space;
 }
 
 void ANativeWindow_tryAllocateBuffers(ANativeWindow*) {}

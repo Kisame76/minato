@@ -4,7 +4,8 @@
 // - nativeInit connects to the queue window behind the Surface (minato_ANativeWindow_connect, the tag's connect as
 //   NATIVE_WINDOW_API_CAMERA): its frames are kept, none dropped, the queue has maxImages slots for the writer next to
 //   its consumer's, and a second writer on the same Surface fails with "Failed to connect to native window". The
-//   size is the Surface's unless the app gave one, the format and data space the Surface's or the app's; mWriterFormat
+//   size is the Surface's unless the app gave one, the format the Surface's and the data space its consumer's
+//   default (ANativeWindow_getBuffersDefaultDataSpace), or the app's; mWriterFormat
 //   is the public format of the Surface's. A writer on a window of the host (a SurfaceView's) is not connectable: the
 //   tag's error, a named limit.
 // - nativeDequeueInputImage dequeues a slot, waiting while every slot is busy, as the tag's; an abandoned queue throws
@@ -16,7 +17,8 @@
 // - nativeAttachAndQueueImage queues an image a reader detached: its buffer goes into a free slot (waiting for one) and
 //   leaves the queue again at the consumer's release.
 // - onImageReleased: each consumer release of the writer's frames calls the static postEventFromNative.
-// - An image's planes are its buffer locked for the CPU, one plane for the RGB formats and none for PRIVATE.
+// - An image's planes are its buffer locked for the CPU, one plane for the RGB formats, three for YUV_420_888
+//   (lockPlanes' Y, Cb and Cr, ADR-0060 e2a) and none for PRIVATE.
 // nativeAttachAndQueueGraphicBuffer (a HardwareBuffer image of no reader) logs Unwritten's line and throws. A fence
 // the app sets on an image is closed at its queue or cancel, not waited for: Minato has no sync files. The writer's
 // close gives the window its consumer's size, format and data space back, as libgui's disconnect.
@@ -112,6 +114,7 @@ struct Frame {
     int32_t slot = -1;
     AHardwareBuffer *buffer = nullptr;
     void *locked = nullptr;
+    AHardwareBuffer_Planes planes{};  // a YUV buffer's, while locked
 };
 
 Writer *writer_of(jlong context) {
@@ -233,7 +236,7 @@ jlong ImageWriter_init(JNIEnv *env, jobject thiz, jobject weakThiz, jobject surf
     int32_t format = hardwareBufferFormat;
     if (useSurfaceImageFormatInfo) {
         format = ANativeWindow_getFormat(window);
-        dataSpace = ANativeWindow_getBuffersDataSpace(window);
+        dataSpace = ANativeWindow_getBuffersDefaultDataSpace(window);  // the consumer's, as the tag's
     }
     if (width > 0 && height > 0) {
         ANativeWindow_setBuffersGeometry(window, width, height, format);
@@ -364,7 +367,39 @@ jint ImageWriter_attachAndQueueGraphicBuffer(JNIEnv *env, jobject, jlong, jobjec
     return -1;
 }
 
-// The planes of the image's buffer, locked for the CPU at the first call: one for an RGB format, none for PRIVATE.
+// Y8Cb8Cr8_420's three planes (ADR-0060 e2a), locked for the CPU by lockPlanes at the first call, which the frame
+// keeps until its unlock: Y, then Cb and Cr, each with its strides and a buffer from its first sample to its last.
+bool yuv_planes(JNIEnv *env, jobject thiz, Frame *frame, const AHardwareBuffer_Desc &description, uint64_t lockUsage,
+                jobjectArray planes) {
+    if (frame->locked == nullptr) {
+        AHardwareBuffer_Planes locked{};
+        if (AHardwareBuffer_lockPlanes(frame->buffer, lockUsage, -1, nullptr, &locked) != 0) return false;
+        if (locked.planeCount != 3) {
+            AHardwareBuffer_unlock(frame->buffer, nullptr);
+            return false;
+        }
+        frame->planes = locked;
+        frame->locked = locked.planes[0].data;
+    }
+    for (uint32_t index = 0; index < 3; index++) {
+        const AHardwareBuffer_Plane &plane = frame->planes.planes[index];
+        const jlong width = index == 0 ? description.width : (description.width + 1) / 2;
+        const jlong height = index == 0 ? description.height : (description.height + 1) / 2;
+        const jlong size = static_cast<jlong>(plane.rowStride) * (height - 1) +
+                           static_cast<jlong>(plane.pixelStride) * (width - 1) + 1;
+        jobject bytes = env->NewDirectByteBuffer(plane.data, size);
+        if (bytes == nullptr) return false;
+        jobject object = env->NewObject(gFields.planeClass, gFields.planeConstructor, thiz,
+                                        static_cast<jint>(plane.rowStride), static_cast<jint>(plane.pixelStride),
+                                        bytes);
+        if (object == nullptr) return false;
+        env->SetObjectArrayElement(planes, static_cast<jsize>(index), object);
+    }
+    return true;
+}
+
+// The planes of the image's buffer, locked for the CPU at the first call: one for an RGB format, three for
+// YUV_420_888, none for PRIVATE.
 jobjectArray Image_createSurfacePlanes(JNIEnv *env, jobject thiz, jint numPlanes, jint writerFormat) {
     const int32_t halFormat = mapPublicFormatToHalFormat(static_cast<PublicFormat>(writerFormat));
     if (halFormat == kHalPrivate && numPlanes > 0) {
@@ -385,6 +420,17 @@ jobjectArray Image_createSurfacePlanes(JNIEnv *env, jobject thiz, jint numPlanes
         return nullptr;
     }
     const AHardwareBuffer_Desc description = describe(frame->buffer);
+    if (description.format == AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420 && numPlanes == 3) {
+        const uint64_t lockUsage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN | AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN;
+        if (!yuv_planes(env, thiz, frame, description, lockUsage, planes)) {
+            if (!env->ExceptionCheck()) {
+                jniThrowExceptionFmt(env, "java/lang/RuntimeException", "lock buffer failed for format 0x%x",
+                                     description.format);
+            }
+            return nullptr;
+        }
+        return planes;
+    }
     int32_t pixelStride;
     switch (description.format) {
         case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:

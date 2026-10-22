@@ -83,6 +83,9 @@ int minato_BufferQueue_setConsumer(struct minato_BufferQueue *queue, int32_t max
    ANativeWindow_getFormat); RGBA_8888 until set. And the release of the buffers of every free slot, which the next
    dequeue of each makes again (discardFreeBuffers). */
 void minato_BufferQueue_setDefaultFormat(struct minato_BufferQueue *queue, int32_t format);
+/* The producer's ANativeWindow_getBuffersDefaultDataSpace (BufferQueue's setDefaultBufferDataSpace): an
+   ImageReader's, as its format has one (ADR-0060 e2a); 0 until set. */
+void minato_BufferQueue_setDefaultDataSpace(struct minato_BufferQueue *queue, int32_t dataSpace);
 void minato_BufferQueue_discardFreeBuffers(struct minato_BufferQueue *queue);
 /* An ImageReader's acquired frame leaves the queue (detachBuffer, the graphics breadth's G3b): its slot is free and
    without a buffer, whose slot reference the queue releases; the consumer keeps its own. 0, or -EINVAL for a slot

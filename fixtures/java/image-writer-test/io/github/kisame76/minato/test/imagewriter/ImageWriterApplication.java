@@ -31,7 +31,10 @@ import java.util.concurrent.atomic.AtomicReference;
  *   returns after the reader's close (each wait bounded by a timeout, so the test never hangs);
  * - a reader's image queued into a writer on a second reader (detach and attach);
  * - a writer on a SurfaceTexture: onFrameAvailable;
- * - a PRIVATE writer: its format, and dequeueInputImage's refusal.
+ * - a PRIVATE writer: its format, and dequeueInputImage's refusal;
+ * - a writer on a YUV_420_888 reader (ADR-0060 e2a): the dequeued and the acquired image's three planes, a pattern
+ *   written through them and read back, and Surface.lockCanvas on the reader's surface. Strides and the order of Cb
+ *   and Cr are the allocator's, so only what Android promises is logged; the strides go to the device tag.
  * Each wait is bounded; the log ends with "done".
  */
 public class ImageWriterApplication extends Application {
@@ -54,6 +57,7 @@ public class ImageWriterApplication extends Application {
             attach();
             surfaceTexture();
             opaque();
+            yuv();
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             Log.i(TAG + "-device", Log.getStackTraceString(t));
@@ -399,5 +403,93 @@ public class ImageWriterApplication extends Application {
         Log.i(TAG, "PRIVATE dequeue: " + dequeued);
         writer.close();
         reader.close();
+    }
+
+    /** What Android promises of a YUV_420_888 image's planes; their strides to the device tag. */
+    private static String yuvPlanes(Image image) {
+        Image.Plane[] planes = image.getPlanes();
+        if (planes.length != 3) {
+            return planes.length + " planes";
+        }
+        Image.Plane y = planes[0], cb = planes[1], cr = planes[2];
+        Log.i(TAG + "-device", "strides: Y " + y.getPixelStride() + " " + y.getRowStride() + ", Cb "
+                + cb.getPixelStride() + " " + cb.getRowStride() + ", Cr " + cr.getPixelStride() + " "
+                + cr.getRowStride());
+        int width = image.getWidth(), height = image.getHeight();
+        boolean chroma = cb.getPixelStride() == cr.getPixelStride()
+                && (cb.getPixelStride() == 1 || cb.getPixelStride() == 2) && cb.getRowStride() == cr.getRowStride()
+                && cb.getRowStride() >= width / 2 * cb.getPixelStride();
+        boolean sizes = y.getBuffer().remaining() >= (height - 1) * y.getRowStride() + width
+                && cb.getBuffer().remaining() >= (height / 2 - 1) * cb.getRowStride()
+                        + (width / 2 - 1) * cb.getPixelStride() + 1
+                && cr.getBuffer().remaining() >= (height / 2 - 1) * cr.getRowStride()
+                        + (width / 2 - 1) * cr.getPixelStride() + 1;
+        return "3 planes, Y's pixel stride " + y.getPixelStride() + ", Y's rows at least the width "
+                + (y.getRowStride() >= width) + ", Cb and Cr alike " + chroma + ", buffers that hold their samples "
+                + sizes;
+    }
+
+    /** Writes (or, with check, compares) a pattern through a YUV_420_888 image's planes; whether all came back. */
+    private static boolean yuvPattern(Image image, boolean check) {
+        Image.Plane[] planes = image.getPlanes();
+        boolean same = true;
+        for (int p = 0; p < 3; p++) {
+            int rows = p == 0 ? image.getHeight() : image.getHeight() / 2;
+            int columns = p == 0 ? image.getWidth() : image.getWidth() / 2;
+            ByteBuffer buffer = planes[p].getBuffer();
+            for (int row = 0; row < rows; row++) {
+                for (int column = 0; column < columns; column++) {
+                    int at = row * planes[p].getRowStride() + column * planes[p].getPixelStride();
+                    byte value = (byte) (p * 61 + row * 7 + column * 13);
+                    if (!check) {
+                        buffer.put(at, value);
+                    } else if (buffer.get(at) != value) {
+                        same = false;
+                    }
+                }
+            }
+        }
+        return same;
+    }
+
+    private void yuv() throws Exception {
+        ImageReader reader = reader(64, 48, ImageFormat.YUV_420_888, 2);
+        ImageWriter writer = ImageWriter.newInstance(reader.getSurface(), 1);
+        Log.i(TAG, "YUV writer: " + describe(writer));
+        mFrames.drainPermits();
+        try {
+            Image image = take(writer);
+            Log.i(TAG, "YUV dequeue: format " + image.getFormat() + ", " + image.getWidth() + " x "
+                    + image.getHeight() + ", " + yuvPlanes(image));
+            yuvPattern(image, false);
+            image.setTimestamp(4242);
+            writer.queueInputImage(image);
+            Log.i(TAG, "YUV onImageAvailable: " + await(mFrames, 1));
+            Image got = reader.acquireNextImage();
+            if (got == null) {
+                Log.i(TAG, "YUV acquire: null");
+            } else {
+                Log.i(TAG, "YUV acquire: format " + got.getFormat() + ", " + got.getWidth() + " x "
+                        + got.getHeight() + ", timestamp " + got.getTimestamp() + ", " + yuvPlanes(got)
+                        + ", the pattern back " + yuvPattern(got, true));
+                got.close();
+            }
+        } catch (RuntimeException e) {
+            Log.i(TAG, "YUV: " + e.getClass().getSimpleName() + " " + e.getMessage());
+        }
+        writer.close();
+        reader.close();
+        ImageReader canvasReader = reader(64, 48, ImageFormat.YUV_420_888, 2);
+        Surface surface = canvasReader.getSurface();
+        String locked;
+        try {
+            Canvas canvas = surface.lockCanvas(null);
+            locked = "a canvas of " + canvas.getWidth() + " x " + canvas.getHeight();
+            surface.unlockCanvasAndPost(canvas);
+        } catch (RuntimeException e) {
+            locked = e.getClass().getSimpleName() + " " + e.getMessage();
+        }
+        Log.i(TAG, "lockCanvas on a YUV reader's surface: " + locked);
+        canvasReader.close();
     }
 }

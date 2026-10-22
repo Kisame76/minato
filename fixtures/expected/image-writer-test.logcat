@@ -19,4 +19,9 @@ I/image-writer-test: writer on a SurfaceTexture: 8 x 4, format 1
 I/image-writer-test: onFrameAvailable: 1
 I/image-writer-test: PRIVATE writer: maxImages 1, 16 x 16, format 34, hardware buffer format 34, data space 0, usage 48
 I/image-writer-test: PRIVATE dequeue: RuntimeException dequeue buffer failed
+I/image-writer-test: YUV writer: maxImages 1, 64 x 48, format 35, hardware buffer format 35, data space 146931712, usage 48
+I/image-writer-test: YUV dequeue: format 35, 64 x 48, 3 planes, Y's pixel stride 1, Y's rows at least the width true, Cb and Cr alike true, buffers that hold their samples true
+I/image-writer-test: YUV onImageAvailable: 1
+I/image-writer-test: YUV acquire: format 35, 64 x 48, timestamp 4242, 3 planes, Y's pixel stride 1, Y's rows at least the width true, Cb and Cr alike true, buffers that hold their samples true, the pattern back true
+I/image-writer-test: lockCanvas on a YUV reader's surface: a canvas of 64 x 48
 I/image-writer-test: done

@@ -17,7 +17,8 @@
 //   size from the origin, as the tag's. A failed acquire leaves NULL; a NULL fence of the Async variants is fine.
 // Departures: maxImages below 1 or past the queue's 62 answers AMEDIA_ERROR_INVALID_PARAMETER, where Android's
 // BufferItemConsumer aborts the process (the tag ignores validateParameters' answer); a buffer-removed listener is
-// kept but never called, as the queue frees no buffer a producer would hear of. YUV formats: G3a's named limit.
+// kept but never called, as the queue frees no buffer a producer would hear of. YUV formats: a YUV reader's
+// producers get YUV buffers (ADR-0060 e2a), but an AImage gives no planes of them yet (ADR-0060 e2c's).
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
 #include <dlfcn.h>

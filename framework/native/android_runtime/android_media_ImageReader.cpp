@@ -8,17 +8,19 @@
 // - nativeImageSetup acquires the oldest frame: ACQUIRE_MAX_IMAGES while maxImages are held, ACQUIRE_NO_BUFS without
 //   one; a buffer of another format than the reader's (not PRIVATE) is released and refused with
 //   UnsupportedOperationException, as the tag's. The image keeps its frame in mNativeBuffer until its release.
-// - An image's planes are its buffer locked for the CPU, one plane for the RGB formats and none for PRIVATE, as
-//   ImageUtils counts them; getHardwareBuffer gives the frame's AHardwareBuffer; there is no fence (-1).
+// - An image's planes are its buffer locked for the CPU, one plane for the RGB formats, three for YUV_420_888
+//   (lockPlanes' Y, Cb and Cr, ADR-0060 e2a) and none for PRIVATE, as ImageUtils counts them; getHardwareBuffer
+//   gives the frame's AHardwareBuffer; there is no fence (-1).
 // - A frame whose crop does not start at the origin is refused with UnsupportedOperationException, as the tag's, and
 //   stays acquired, its pool item lost, until the reader's close; an image's width and height are its crop's, as the
 //   tag's getBufferWidth, and its data space the producer's, else the reader's.
 // - nativeDetachImage takes the image's buffer out of the queue (minato_BufferQueue_detach, G3b), for an
 //   ImageWriter's queueInputImage, which attaches it; the image keeps its buffer until its close. The static plane
 //   natives for detached images log Unwritten's line and throw UnsupportedOperationException.
-// YUV formats: our AHardwareBuffer has none yet, so a producer of a YUV reader cannot dequeue (a named limit, the
-// open item of ADR-0058 e2). Further limits while no producer of ours makes them matter: a BLOB reader takes no
-// RGBA_8888 buffer (the tag's JPEG workaround) and its plane is the buffer's width in bytes, not the JPEG blob's size.
+// - The reader's data space is its queue's default (minato_BufferQueue_setDefaultDataSpace), which a producer reads,
+//   as BufferQueue's default buffer data space (JFIF for YUV_420_888); a frame without one gets the reader's.
+// Limits while no producer of ours makes them matter: a BLOB reader takes no RGBA_8888 buffer (the tag's JPEG
+// workaround) and its plane is the buffer's width in bytes, not the JPEG blob's size.
 #define LOG_TAG "ImageReader_JNI"
 
 #include <android/hardware_buffer.h>
@@ -66,6 +68,7 @@ struct Queue {
     decltype(&minato_BufferQueue_create) create = nullptr;
     decltype(&minato_BufferQueue_setDefaultSize) setDefaultSize = nullptr;
     decltype(&minato_BufferQueue_setDefaultFormat) setDefaultFormat = nullptr;
+    decltype(&minato_BufferQueue_setDefaultDataSpace) setDefaultDataSpace = nullptr;
     decltype(&minato_BufferQueue_setConsumer) setConsumer = nullptr;
     decltype(&minato_BufferQueue_acquire) acquire = nullptr;
     decltype(&minato_BufferQueue_releaseSlot) releaseSlot = nullptr;
@@ -82,6 +85,7 @@ const Queue &queue_functions() {
             FIND(create, minato_BufferQueue_create);
             FIND(setDefaultSize, minato_BufferQueue_setDefaultSize);
             FIND(setDefaultFormat, minato_BufferQueue_setDefaultFormat);
+            FIND(setDefaultDataSpace, minato_BufferQueue_setDefaultDataSpace);
             FIND(setConsumer, minato_BufferQueue_setConsumer);
             FIND(acquire, minato_BufferQueue_acquire);
             FIND(releaseSlot, minato_BufferQueue_releaseSlot);
@@ -98,6 +102,7 @@ const Queue &queue_functions() {
 bool queue_found() {
     const Queue &queue = queue_functions();
     return queue.create != nullptr && queue.setDefaultSize != nullptr && queue.setDefaultFormat != nullptr &&
+           queue.setDefaultDataSpace != nullptr &&
            queue.setConsumer != nullptr && queue.acquire != nullptr && queue.releaseSlot != nullptr &&
            queue.discardFreeBuffers != nullptr && queue.detach != nullptr && queue.release != nullptr;
 }
@@ -126,6 +131,7 @@ struct Frame {
     AHardwareBuffer *buffer = nullptr;
     int32_t cropWidth = 0, cropHeight = 0;  // 0 without a crop
     void *locked = nullptr;
+    AHardwareBuffer_Planes planes{};  // a YUV buffer's, while locked
 };
 
 JNIEnv *env_of(JavaVM *vm, bool *attached) {
@@ -227,6 +233,7 @@ void ImageReader_init(JNIEnv *env, jobject thiz, jobject weakThiz, jint width, j
     queue.setDefaultSize(reader->queue, width, height);
     // IMPLEMENTATION_DEFINED for PRIVATE, which the queue makes as RGBA_8888.
     queue.setDefaultFormat(reader->queue, hardwareBufferFormat);
+    queue.setDefaultDataSpace(reader->queue, dataSpace);
     env->SetLongField(thiz, gFields.nativeContext, reinterpret_cast<jlong>(reader));
 }
 
@@ -369,7 +376,39 @@ void ImageReader_unlockGraphicBuffer(JNIEnv *env, jclass, jobject) {
     minato_unwritten(env, "android.media.ImageReader.nativeUnlockGraphicBuffer");
 }
 
-// The planes of the image's buffer, locked for the CPU at the first call: one for an RGB format, none for PRIVATE.
+// Y8Cb8Cr8_420's three planes (ADR-0060 e2a), locked for the CPU by lockPlanes at the first call, which the frame
+// keeps until its unlock: Y, then Cb and Cr, each with its strides and a buffer from its first sample to its last.
+bool yuv_planes(JNIEnv *env, jobject thiz, Frame *frame, const AHardwareBuffer_Desc &description, uint64_t lockUsage,
+                jobjectArray planes) {
+    if (frame->locked == nullptr) {
+        AHardwareBuffer_Planes locked{};
+        if (AHardwareBuffer_lockPlanes(frame->buffer, lockUsage, -1, nullptr, &locked) != 0) return false;
+        if (locked.planeCount != 3) {
+            AHardwareBuffer_unlock(frame->buffer, nullptr);
+            return false;
+        }
+        frame->planes = locked;
+        frame->locked = locked.planes[0].data;
+    }
+    for (uint32_t index = 0; index < 3; index++) {
+        const AHardwareBuffer_Plane &plane = frame->planes.planes[index];
+        const jlong width = index == 0 ? description.width : (description.width + 1) / 2;
+        const jlong height = index == 0 ? description.height : (description.height + 1) / 2;
+        const jlong size = static_cast<jlong>(plane.rowStride) * (height - 1) +
+                           static_cast<jlong>(plane.pixelStride) * (width - 1) + 1;
+        jobject bytes = env->NewDirectByteBuffer(plane.data, size);
+        if (bytes == nullptr) return false;
+        jobject object = env->NewObject(gFields.planeClass, gFields.planeConstructor, thiz,
+                                        static_cast<jint>(plane.rowStride), static_cast<jint>(plane.pixelStride),
+                                        bytes);
+        if (object == nullptr) return false;
+        env->SetObjectArrayElement(planes, static_cast<jsize>(index), object);
+    }
+    return true;
+}
+
+// The planes of the image's buffer, locked for the CPU at the first call: one for an RGB format, three for
+// YUV_420_888, none for PRIVATE.
 jobjectArray Image_createSurfacePlanes(JNIEnv *env, jobject thiz, jint numPlanes, jint, jlong readerUsage) {
     jobjectArray planes = env->NewObjectArray(numPlanes, gFields.planeClass, nullptr);
     if (planes == nullptr || numPlanes == 0) return planes;
@@ -379,6 +418,16 @@ jobjectArray Image_createSurfacePlanes(JNIEnv *env, jobject thiz, jint numPlanes
         return nullptr;
     }
     const AHardwareBuffer_Desc description = describe(frame);
+    if (description.format == AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420 && numPlanes == 3) {
+        const uint64_t writes = static_cast<uint64_t>(readerUsage) & AHARDWAREBUFFER_USAGE_CPU_WRITE_MASK;
+        if (!yuv_planes(env, thiz, frame, description, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN | writes, planes)) {
+            if (!env->ExceptionCheck()) {
+                jniThrowException(env, "java/lang/IllegalStateException", "Failed to lock buffer");
+            }
+            return nullptr;
+        }
+        return planes;
+    }
     int32_t pixelStride;
     switch (description.format) {
         case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:

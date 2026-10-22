@@ -9,7 +9,9 @@
 // - A lock waits for and closes its fence, as Android does; an unlock answers no fence (-1), and 0 without a lock,
 //   as the emulator's gralloc does. A second lock while locked nests, as IOSurface's do, where the emulator's
 //   gralloc answers -38.
-// - lockPlanes gives one plane: the host makes no YUV format in a) (isSupported 0, allocate 7).
+// - lockPlanes gives one plane, and for Y8Cb8Cr8_420 and YCbCr_P010 three (ADR-0060 e2a): Y at the lock's address
+//   and rows, then Cb and Cr interleaved (NV12 and P010, pixel stride twice a sample's bytes) with the same rows
+//   right below Y's height, as graphics/host lays them out.
 // - The send and the receive pass the ID over the socket, which works within the one process there is: the send
 //   takes a reference for the receiver, as Android's file descriptor in flight keeps the buffer, and the receive
 //   takes it over. A buffer sent and never received lives until the process ends.
@@ -203,10 +205,19 @@ int AHardwareBuffer_lockPlanes(AHardwareBuffer* buffer, uint64_t usage, int32_t 
     const int result = lock(buffer, usage, fence, rect, &locked);
     if (result != 0) return result;
     *outPlanes = AHardwareBuffer_Planes{};
-    outPlanes->planeCount = 1;
-    outPlanes->planes[0].data = reinterpret_cast<void*>(static_cast<uintptr_t>(locked.address));
+    uint8_t* const address = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(locked.address));
+    outPlanes->planes[0].data = address;
     outPlanes->planes[0].pixelStride = locked.bytes_per_pixel;
     outPlanes->planes[0].rowStride = locked.bytes_per_stride;
+    if (!is_yuv(locked.format)) {
+        outPlanes->planeCount = 1;
+        return 0;
+    }
+    uint8_t* const chroma = address + static_cast<size_t>(locked.bytes_per_stride) * locked.height;
+    const uint32_t sample = locked.bytes_per_pixel;
+    outPlanes->planeCount = 3;
+    outPlanes->planes[1] = {chroma, 2 * sample, locked.bytes_per_stride};
+    outPlanes->planes[2] = {chroma + sample, 2 * sample, locked.bytes_per_stride};
     return 0;
 }
 

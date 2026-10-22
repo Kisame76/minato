@@ -3,13 +3,16 @@
    - isSupported and allocate for a)'s formats and for descriptions Android refuses;
    - describe, getId, acquire and release; a pattern written under one lock and read back under another for each
      format, lockAndGetInfo, lockPlanes, a lock with a rectangle, and the locks Android refuses;
-   - a BLOB, and the send and the receive over a socket pair.
+   - a BLOB, and the send and the receive over a socket pair;
+   - the YUV formats (ADR-0060 e2a): isSupported for their usages and shapes, the locks, and lockPlanes' three planes
+     with a pattern through them.
    No value of the emulator's gralloc alone is printed: a stride as "at least the width", an address as "the same".
    Left out, as the emulator's gralloc answers them for itself: R8 and more than one layer, which it does not make
    (graphics.hardware_buffers has them), and a buffer of 1 GiB, at which the emulator crashed; and a lock without an
    out, at which Android crashes. A second lock while locked is gralloc's too: the emulator's answers -38, where
    IOSurface nests (graphics.hardware_buffers). */
 #include <android/hardware_buffer.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -238,6 +241,130 @@ static void socket_pair(void) {
     close(pair[1]);
 }
 
+/* The planes' pattern: Y's samples, then Cb's and Cr's, written under one lockPlanes and read back under another,
+   at the planes' strides: 1 when every sample came back. */
+static int planes_round_trip(AHardwareBuffer *buffer, uint32_t width, uint32_t height) {
+    for (int pass = 0; pass < 2; pass++) {
+        AHardwareBuffer_Planes planes;
+        memset(&planes, 0, sizeof planes);
+        const uint64_t usage = pass == 0 ? AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN : AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN;
+        if (AHardwareBuffer_lockPlanes(buffer, usage, -1, NULL, &planes) != 0 || planes.planeCount != 3) return 0;
+        int same = 1;
+        for (uint32_t plane = 0; plane < 3; plane++) {
+            const uint32_t rows = plane == 0 ? height : height / 2, columns = plane == 0 ? width : width / 2;
+            uint8_t *data = planes.planes[plane].data;
+            const size_t row_stride = planes.planes[plane].rowStride, pixel_stride = planes.planes[plane].pixelStride;
+            for (uint32_t row = 0; row < rows; row++) {
+                for (uint32_t column = 0; column < columns; column++) {
+                    uint8_t *sample = data + row * row_stride + column * pixel_stride;
+                    if (pass == 0) {
+                        *sample = pattern(plane + 1, row, column);
+                    } else if (*sample != pattern(plane + 1, row, column)) {
+                        same = 0;
+                    }
+                }
+            }
+        }
+        if (AHardwareBuffer_unlock(buffer, NULL) != 0 || !same) return 0;
+    }
+    return 1;
+}
+
+/* ADR-0060 e2a: the YUV formats. A plane's strides and the order of Cb and Cr are gralloc's, so only what Android
+   promises is printed: three planes, Y's pixel stride 1, Cb's and Cr's alike, 1 or 2, and interleaved at 2. */
+static void yuv(void) {
+    const struct format yuvs[] = {
+        {"Y8Cb8Cr8_420", AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420, 1},
+        {"YCbCr_P010", AHARDWAREBUFFER_FORMAT_YCbCr_P010, 2},
+    };
+    for (size_t index = 0; index < sizeof yuvs / sizeof *yuvs; index++) {
+        AHardwareBuffer_Desc cpu = desc(64, 48, 1, yuvs[index].code, CPU),
+                             sampled = desc(64, 48, 1, yuvs[index].code, CPU | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE),
+                             gpu = desc(64, 48, 1, yuvs[index].code, AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE),
+                             target = desc(64, 48, 1, yuvs[index].code, CPU | AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER),
+                             encode = desc(64, 48, 1, yuvs[index].code, CPU | AHARDWAREBUFFER_USAGE_VIDEO_ENCODE);
+        printf("isSupported %s: CPU %d, CPU and GPU sampled %d, GPU sampled %d, CPU and framebuffer %d, "
+               "CPU and video encode %d\n",
+               yuvs[index].name, AHardwareBuffer_isSupported(&cpu), AHardwareBuffer_isSupported(&sampled),
+               AHardwareBuffer_isSupported(&gpu), AHardwareBuffer_isSupported(&target),
+               AHardwareBuffer_isSupported(&encode));
+    }
+    struct {
+        const char *what;
+        AHardwareBuffer_Desc description;
+    } shapes[] = {
+        {"Y8Cb8Cr8_420 63 x 47", desc(63, 47, 1, AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420, CPU)},
+        {"Y8Cb8Cr8_420 of 2 layers", desc(64, 48, 2, AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420, CPU)},
+        {"Y8Cb8Cr8_420 mipmapped",
+         desc(64, 48, 1, AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420, CPU | AHARDWAREBUFFER_USAGE_GPU_MIPMAP_COMPLETE)},
+    };
+    for (size_t index = 0; index < sizeof shapes / sizeof *shapes; index++) {
+        AHardwareBuffer *buffer = NULL;
+        const int made = AHardwareBuffer_allocate(&shapes[index].description, &buffer);
+        printf("%s: isSupported %d, allocate %d\n", shapes[index].what,
+               AHardwareBuffer_isSupported(&shapes[index].description), made);
+        if (made == 0) AHardwareBuffer_release(buffer);
+    }
+
+    AHardwareBuffer_Desc asked = desc(64, 48, 1, AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420, CPU);
+    AHardwareBuffer *buffer = NULL;
+    printf("Y8Cb8Cr8_420 64 x 48: allocate %d\n", AHardwareBuffer_allocate(&asked, &buffer));
+    if (buffer == NULL) return;
+    AHardwareBuffer_Desc got;
+    AHardwareBuffer_describe(buffer, &got);
+    printf("describe: %u x %u x %u, format %#x, stride at least the width %d\n", got.width, got.height, got.layers,
+           got.format, got.stride >= got.width);
+    void *address = NULL;
+    const int locked = AHardwareBuffer_lock(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, NULL, &address);
+    printf("lock: %d\n", locked);
+    if (locked == 0) AHardwareBuffer_unlock(buffer, NULL);
+    void *info_address = NULL;
+    int32_t bytes_per_pixel = 0, bytes_per_stride = 0;
+    const int info = AHardwareBuffer_lockAndGetInfo(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, NULL,
+                                                    &info_address, &bytes_per_pixel, &bytes_per_stride);
+    printf("lockAndGetInfo: %d\n", info);
+    if (info == 0) AHardwareBuffer_unlock(buffer, NULL);
+    AHardwareBuffer_Planes planes;
+    memset(&planes, 0, sizeof planes);
+    const int planar = AHardwareBuffer_lockPlanes(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, NULL, &planes);
+    printf("lockPlanes: %d, %u planes", planar, planes.planeCount);
+    if (planar == 0 && planes.planeCount == 3) {
+        const AHardwareBuffer_Plane *y = &planes.planes[0], *cb = &planes.planes[1], *cr = &planes.planes[2];
+        const ptrdiff_t apart = (const uint8_t *)cr->data - (const uint8_t *)cb->data;
+        printf(", Y's pixel stride %u, Y's rows at least the width %d; Cb's and Cr's: the same pixel stride %d, 1 or 2 "
+               "%d, the same row stride %d, rows at least half the width %d, interleaved at 2 %d, after Y %d",
+               y->pixelStride, y->rowStride >= 64, cb->pixelStride == cr->pixelStride,
+               cb->pixelStride == 1 || cb->pixelStride == 2, cb->rowStride == cr->rowStride,
+               cb->rowStride >= 32 * cb->pixelStride, cb->pixelStride != 2 || apart == 1 || apart == -1,
+               (const uint8_t *)cb->data >= (const uint8_t *)y->data + (size_t)y->rowStride * 48 &&
+                   (const uint8_t *)cr->data >= (const uint8_t *)y->data + (size_t)y->rowStride * 48);
+    }
+    printf("\n");
+    if (planar == 0) AHardwareBuffer_unlock(buffer, NULL);
+    printf("Y8Cb8Cr8_420: the planes' pattern back %d\n", planes_round_trip(buffer, 64, 48));
+    AHardwareBuffer_release(buffer);
+
+    // P010: 16 bits a sample, the 10 bits at the top, Cb and Cr interleaved (hardware_buffer.h).
+    AHardwareBuffer_Desc ten = desc(64, 48, 1, AHARDWAREBUFFER_FORMAT_YCbCr_P010, CPU);
+    AHardwareBuffer *deep = NULL;
+    printf("YCbCr_P010 64 x 48: allocate %d\n", AHardwareBuffer_allocate(&ten, &deep));
+    if (deep == NULL) return;
+    memset(&planes, 0, sizeof planes);
+    const int deep_planar = AHardwareBuffer_lockPlanes(deep, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, NULL, &planes);
+    printf("lockPlanes: %d, %u planes", deep_planar, planes.planeCount);
+    if (deep_planar == 0 && planes.planeCount == 3) {
+        const AHardwareBuffer_Plane *y = &planes.planes[0], *cb = &planes.planes[1], *cr = &planes.planes[2];
+        const ptrdiff_t apart = (const uint8_t *)cr->data - (const uint8_t *)cb->data;
+        printf(", pixel strides %u %u %u, Y's rows at least the width %d, the same chroma rows %d, Cb and Cr 2 apart "
+               "%d",
+               y->pixelStride, cb->pixelStride, cr->pixelStride, y->rowStride >= 128, cb->rowStride == cr->rowStride,
+               apart == 2 || apart == -2);
+    }
+    printf("\n");
+    if (deep_planar == 0) AHardwareBuffer_unlock(deep, NULL);
+    AHardwareBuffer_release(deep);
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     supported_and_refused();
@@ -245,5 +372,6 @@ int main(void) {
     formats();
     blob();
     socket_pair();
+    yuv();
     return 0;
 }

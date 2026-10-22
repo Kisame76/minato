@@ -4,15 +4,21 @@
    images and e1)'s Vulkan imports wrap. Their functions run as host code on the guest's thread inside its syscall.
    - Formats, with their bytes per pixel: R8G8B8A8 and R8G8B8X8 4, R5G6B5 2, R16G16B16A16_FLOAT 8, R10G10B10A2 4, R8
      1, and BLOB, its width in bytes. The format is only a tag here: b)'s Metal pixel format decides the order of the
-     channels and RGBX's alpha. R8G8B8, YUV, depth and stencil formats are not supported in a).
-   - Usages: the CPU's read and write bits, GPU_SAMPLED_IMAGE, GPU_FRAMEBUFFER and COMPOSER_OVERLAY, and no other bit
+     channels and RGBX's alpha. R8G8B8, depth and stencil formats are not supported.
+   - YUV (ADR-0060 e2a): Y8Cb8Cr8_420 is one '420v' surface of two planes, Y and interleaved CbCr (NV12), each
+     wrapped by Metal (R8 and RG8) and the whole by CoreVideo, for the decoders' copies; YCbCr_P010 the same with 2
+     bytes a sample, 'x420' (R16 and RG16). The chroma plane lies right below the luma, (height + 1) / 2 rows of
+     (width + 1) / 2 pairs, with the luma's rows, which the guest's lockPlanes counts on: a lock answers the luma's
+     address, a sample's bytes and its rows. Only one layer; VIDEO_ENCODE is taken for them, as Android 15 takes it.
+   - Usages: the CPU's read and write bits, GPU_SAMPLED_IMAGE, GPU_FRAMEBUFFER and COMPOSER_OVERLAY (and VIDEO_ENCODE
+     for YUV), and no other bit
      (protected content, video encode, sensor data, GPU data buffers, cube maps, mipmaps, the front buffer, vendor
      bits). A BLOB is one row and one layer without the GPU's image bits. More than one layer goes without them in
      a), since b) wraps a surface as one 2D texture.
    - Rows: IOSurface's alignment of width x bytes per pixel (IOSurfaceAlignProperty), rounded up to Metal's minimum
-     linear texture alignment for the format, so that b) can wrap the surface; the stride is a row's pixels, and the
-     layers lie one below the other. A BLOB's bytes lie in one range, in rows of at most IOSurface's largest row; its
-     stride and its bytes per row are its width.
+     linear texture alignment for the format (for YUV, R8's and RG8's), so that b) can wrap the surface; the stride
+     is a row's pixels, and the layers lie one below the other. A BLOB's bytes lie in one range, in rows of at most
+     IOSurface's largest row; its stride and its bytes per row are its width.
    - A size above APKRT_HARDWARE_BUFFER_MAX_BYTES as the rows align it, each product checked, answers -ENOMEM, as a
      surface that IOSurface does not make does.
    - Locks nest. The first takes IOSurface's lock read-only unless it asks to write, a write inside read-only locks
@@ -40,13 +46,16 @@ enum {
     format_rgb565 = 4,
     format_rgba16f = 0x16,
     format_blob = 0x21,
+    format_yuv420 = 0x23,
+    format_p010 = 0x36,
     format_rgb10a2 = 0x2b,
     format_r8 = 0x38,
 };
 static const uint64_t usage_cpu_read = 0xf, usage_cpu_write = UINT64_C(0xf) << 4,
                       usage_gpu_images = (UINT64_C(1) << 8) | (UINT64_C(1) << 9),  // sampled image, framebuffer
                       usage_composer_overlay = UINT64_C(1) << 11;
-static const uint64_t usage_served = usage_cpu_read | usage_cpu_write | usage_gpu_images | usage_composer_overlay;
+static const uint64_t usage_served = usage_cpu_read | usage_cpu_write | usage_gpu_images | usage_composer_overlay,
+                      usage_video_encode = UINT64_C(1) << 16;
 
 /* A format of a)'s: its bytes per pixel, the Metal format b) wraps it as, whose linear alignment its rows keep, and the
    tag its surface carries, CoreVideo's code, which nothing reads for the order of the channels. */
@@ -65,6 +74,8 @@ static const struct format formats[] = {
     {format_rgb10a2, 4, MTLPixelFormatRGB10A2Unorm, 'l10r'},
     {format_r8, 1, MTLPixelFormatR8Unorm, 'L008'},
     {format_blob, 1, MTLPixelFormatInvalid, 0},
+    {format_yuv420, 1, MTLPixelFormatR8Unorm, '420v'},
+    {format_p010, 2, MTLPixelFormatR16Unorm, 'x420'},
 };
 
 @interface MinatoHardwareBuffer : NSObject {
@@ -99,6 +110,15 @@ static pthread_mutex_t state_lock = PTHREAD_MUTEX_INITIALIZER;
 static NSMutableDictionary<NSNumber *, MinatoHardwareBuffer *> *buffers;
 static uint64_t last_handle;  // handles count up from 1 and are never used again
 
+static BOOL is_yuv(const struct format *format) {
+    return format->code == format_yuv420 || format->code == format_p010;
+}
+
+/* The Metal format of a YUV format's chroma plane, Cb and Cr in one element. */
+static MTLPixelFormat chroma_format(const struct format *format) {
+    return format->code == format_p010 ? MTLPixelFormatRG16Unorm : MTLPixelFormatRG8Unorm;
+}
+
 static const struct format *find_format(uint32_t code) {
     for (size_t index = 0; index < sizeof formats / sizeof *formats; index++) {
         if (formats[index].code == code) {
@@ -111,12 +131,16 @@ static const struct format *find_format(uint32_t code) {
 /* The format of a description they can make, or NULL. */
 static const struct format *served(const struct apkrt_hardware_buffer_description *description) {
     const struct format *format = find_format(description->format);
+    const uint64_t usages = format != NULL && is_yuv(format) ? usage_served | usage_video_encode : usage_served;
     if (format == NULL || description->width == 0 || description->height == 0 || description->layers == 0 ||
-        (description->usage & ~usage_served) != 0) {
+        (description->usage & ~usages) != 0) {
         return NULL;
     }
     const BOOL images = (description->usage & usage_gpu_images) != 0;
     if (format->code == format_blob && (description->height != 1 || description->layers != 1 || images)) {
+        return NULL;
+    }
+    if (is_yuv(format) && description->layers != 1) {
         return NULL;
     }
     return (description->layers > 1 && images) ? NULL : format;
@@ -140,6 +164,7 @@ static size_t metal_alignment(MTLPixelFormat pixel_format) {
    what describe and a lock answer. */
 struct layout {
     size_t width, height, element, row;
+    size_t chroma_rows;  // YUV's, below the luma's height rows; 0 for other formats
     uint32_t stride, bytes_per_row;
 };
 
@@ -166,7 +191,10 @@ static int lay_out(const struct apkrt_hardware_buffer_description *description, 
     } else {
         size_t bytes = 0, rows = 0, row = 0;
         // Both are powers of two: the larger keeps whole pixels in a row.
-        const size_t metal = metal_alignment(format->metal);
+        size_t metal = metal_alignment(format->metal);
+        if (is_yuv(format) && metal_alignment(chroma_format(format)) > metal) {
+            metal = metal_alignment(chroma_format(format));
+        }
         const size_t alignment = metal > format->bytes ? metal : format->bytes;
         if (__builtin_mul_overflow((size_t)description->width, (size_t)format->bytes, &bytes) ||
             __builtin_mul_overflow((size_t)description->height, (size_t)description->layers, &rows)) {
@@ -177,11 +205,14 @@ static int lay_out(const struct apkrt_hardware_buffer_description *description, 
             return -linux_enomem;
         }
         row = row / alignment * alignment;
-        if (row / format->bytes > UINT32_MAX || row > UINT32_MAX || __builtin_mul_overflow(row, rows, &total)) {
+        const size_t chroma_rows = is_yuv(format) ? ((size_t)description->height + 1) / 2 : 0;
+        if (row / format->bytes > UINT32_MAX || row > UINT32_MAX ||
+            __builtin_mul_overflow(row, rows + chroma_rows, &total)) {
             return -linux_enomem;
         }
         layout->width = description->width;
         layout->height = rows;
+        layout->chroma_rows = chroma_rows;
         layout->element = format->bytes;
         layout->row = row;
         layout->stride = (uint32_t)(row / format->bytes);
@@ -203,7 +234,7 @@ static int allocate(void *context, const struct apkrt_hardware_buffer_descriptio
         return -linux_einval;
     }
     @autoreleasepool {
-        struct layout layout;
+        struct layout layout = {0};
         const int laid_out = lay_out(description, format, &layout);
         if (laid_out != 0) {
             return laid_out;
@@ -217,13 +248,45 @@ static int allocate(void *context, const struct apkrt_hardware_buffer_descriptio
         if (format->tag != 0) {
             properties[(id)kIOSurfacePixelFormat] = @(format->tag);
         }
+        const size_t luma = layout.row * layout.height, chroma = layout.row * layout.chroma_rows;
+        if (layout.chroma_rows != 0) {
+            [properties removeObjectsForKeys:@[ (id)kIOSurfaceBytesPerElement, (id)kIOSurfaceBytesPerRow ]];
+            properties[(id)kIOSurfaceAllocSize] = @(luma + chroma);
+            properties[(id)kIOSurfacePlaneInfo] = @[
+                @{
+                    (id)kIOSurfacePlaneWidth: @(layout.width),
+                    (id)kIOSurfacePlaneHeight: @(layout.height),
+                    (id)kIOSurfacePlaneBytesPerElement: @(format->bytes),
+                    (id)kIOSurfacePlaneBytesPerRow: @(layout.row),
+                    (id)kIOSurfacePlaneOffset: @0,
+                    (id)kIOSurfacePlaneSize: @(luma),
+                },
+                @{
+                    (id)kIOSurfacePlaneWidth: @((layout.width + 1) / 2),
+                    (id)kIOSurfacePlaneHeight: @(layout.chroma_rows),
+                    (id)kIOSurfacePlaneBytesPerElement: @(2 * format->bytes),
+                    (id)kIOSurfacePlaneBytesPerRow: @(layout.row),
+                    (id)kIOSurfacePlaneOffset: @(luma),
+                    (id)kIOSurfacePlaneSize: @(chroma),
+                },
+            ];
+        }
         IOSurfaceRef surface = IOSurfaceCreate((__bridge CFDictionaryRef)properties);
         if (surface == NULL) {
             return -linux_enomem;
         }
-        // The geometry must be the one asked for: a BLOB's range, the stride and the guest's rows depend on it.
-        if (IOSurfaceGetBytesPerRow(surface) != layout.row || IOSurfaceGetHeight(surface) != layout.height ||
-            IOSurfaceGetAllocSize(surface) < layout.row * layout.height) {
+        // The geometry must be the one asked for: a BLOB's range, the stride and the guest's rows depend on it, and
+        // for YUV the chroma's place below the luma.
+        const BOOL planes_as_asked =
+            layout.chroma_rows == 0
+                ? IOSurfaceGetBytesPerRow(surface) == layout.row && IOSurfaceGetHeight(surface) == layout.height
+                : IOSurfaceGetPlaneCount(surface) == 2 && IOSurfaceGetBytesPerRowOfPlane(surface, 0) == layout.row &&
+                      IOSurfaceGetBytesPerRowOfPlane(surface, 1) == layout.row &&
+                      (uint8_t *)IOSurfaceGetBaseAddressOfPlane(surface, 0) ==
+                          (uint8_t *)IOSurfaceGetBaseAddress(surface) &&
+                      (uint8_t *)IOSurfaceGetBaseAddressOfPlane(surface, 1) ==
+                          (uint8_t *)IOSurfaceGetBaseAddress(surface) + luma;
+        if (!planes_as_asked || IOSurfaceGetAllocSize(surface) < luma + chroma) {
             CFRelease(surface);
             return -linux_enomem;
         }

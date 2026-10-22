@@ -202,7 +202,7 @@ if(TARGET minato_graphics_host)
   # through their functions without the runtime.
   add_executable(graphics-hardware-buffers-test hardware_buffers_test.m)
   target_link_libraries(graphics-hardware-buffers-test PRIVATE minato_graphics_host apkrt apk_defaults
-    "-framework Foundation" "-framework IOSurface" "-framework Metal")
+    "-framework CoreVideo" "-framework Foundation" "-framework IOSurface" "-framework Metal")
   set_source_files_properties(hardware_buffers_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.hardware_buffers COMMAND graphics-hardware-buffers-test)
   set_tests_properties(graphics.hardware_buffers PROPERTIES TIMEOUT 60)
