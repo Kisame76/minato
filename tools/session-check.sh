@@ -122,6 +122,7 @@ if [[ "${1:-}" == "--device" ]]; then
     echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
     exit 1
   fi
+  python3 tools/require-cable.py "$DEVICE_ID" || exit 1 # only by cable, never over the network
 else
   read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${1:-}") || true
   if [[ -z "${SIM_UDID:-}" ]]; then

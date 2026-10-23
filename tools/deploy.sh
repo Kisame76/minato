@@ -28,6 +28,7 @@ if [[ "$DEV_MODE" == "disabled" ]]; then
   echo "Developer Mode is off. iPhone: Settings > Privacy & Security > Developer Mode, then restart." >&2
   exit 1
 fi
+python3 tools/require-cable.py "$DEVICE_ID" || exit 1 # only by cable, never over the network
 
 read -r -a EXTRA_SETTINGS <<< "${BUILD_SETTINGS:-}"
 read -r -a APP_ARGS <<< "${LAUNCH_ARGS:-}"

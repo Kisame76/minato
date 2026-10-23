@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks when tools/deploy.sh hands the signing certificate over, without a device or a build: a copy of
-# the script runs in a scratch tree whose build scripts, find-device.py, xcodebuild, xcrun and
+# the script runs in a scratch tree whose build scripts, find-device.py, require-cable.py, xcodebuild, xcrun and
 # hand-over-certificate.sh are fakes. Only the Debug build answers the hand-over
 # (app/Sources/Signing/CertificateHandover.swift), so a Release install must not start it, which would
 # wait out devicectl's 120 s for an answer that never comes; a Debug install still starts it.
@@ -21,6 +21,7 @@ make_tree() {
   done
   printf '#!/bin/sh\necho "$*" >>"%s/hand-over.log"\n' "$tree" >"$tree/tools/hand-over-certificate.sh"
   printf 'print("FAKE-DEVICE FAKE-UDID enabled wired")\n' >"$tree/tools/find-device.py"
+  : >"$tree/tools/require-cable.py" # by cable, as tools/require-cable-check.sh checks it
   printf '#!/bin/sh\nexit 0\n' >"$tree/fake/xcodebuild"
   printf '#!/bin/sh\necho "$*" >>"%s/xcrun.log"\n' "$tree" >"$tree/fake/xcrun"
   chmod +x "$tree/tools/"*.sh "$tree/fake/"*

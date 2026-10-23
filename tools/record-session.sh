@@ -54,6 +54,8 @@ if [[ "$DRY_RUN" == 1 ]]; then
   echo "launch arguments: ${LAUNCH[*]}"
   exit 0
 fi
+# The iPhone only by cable, never over the network, checked before the builds.
+[[ "$SIMULATOR" == 1 ]] || python3 tools/require-cable.py "$WANTED_DEVICE" || exit 1
 RESULTS=build/record-session
 [[ "$SIMULATOR" == 0 ]] || RESULTS=build/record-session-simulator
 mkdir -p "$RESULTS"

@@ -85,6 +85,7 @@ if [[ "$ON_DEVICE" == yes ]]; then
     echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
     exit 1
   fi
+  python3 tools/require-cable.py "$DEVICE_ID" || exit 1 # only by cable, never over the network
 else
   read -r SIM_UDID _ < <(python3 tools/find-simulator.py "${1:-}") || true
   if [[ -z "${SIM_UDID:-}" ]]; then
@@ -92,6 +93,13 @@ else
     exit 1
   fi
 fi
+# Each devicectl call on the iPhone checks first that it is still connected by cable and stops the run when it is
+# not; the message goes to the script's stderr, kept as 3, also where the call's output goes to /dev/null.
+exec 3>&2
+on_device() {
+  python3 tools/require-cable.py "$DEVICE_ID" 2>&3 || exit 1
+  xcrun devicectl device "$@"
+}
 
 # The test apps, "<app> <package>", and where each one's last line appears.
 APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.github.kisame76.minato.test.context"
@@ -192,7 +200,7 @@ if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${APP:-}" ]]; then
     # Over the installed Minato: never with --remove-existing-content, which would empty its container.
     started=$(now)
-    xcrun devicectl device install app --device "$DEVICE_ID" -q "$APP" >/dev/null
+    on_device install app --device "$DEVICE_ID" -q "$APP" >/dev/null
     echo "note  installed over Minato in $(seconds "$started" "$(now)") s"
     # As tools/deploy.sh does after an install; only when the app does not have the certificate yet.
     tools/hand-over-certificate.sh "$DEVICE_ID" 2>&1 | sed 's/^/note  /' \
@@ -223,22 +231,22 @@ AWAY=com.apple.Preferences
 devicectl_copy() {
   local direction=$1
   shift
-  xcrun devicectl device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
+  on_device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
     --domain-identifier "$BUNDLE_ID" -q "$@" >/dev/null 2>&1
 }
 # Starts app $1, Minato when none, or brings it to the front when it runs.
 launch() {
   if [[ "$ON_DEVICE" == yes ]]; then
-    xcrun devicectl device process launch --device "$DEVICE_ID" -q "${1:-$BUNDLE_ID}" >/dev/null
+    on_device process launch --device "$DEVICE_ID" -q "${1:-$BUNDLE_ID}" >/dev/null
   else
     xcrun simctl launch "$SIM_UDID" "${1:-$BUNDLE_ID}" >/dev/null
   fi
 }
 terminate() {
   if [[ "$ON_DEVICE" == yes ]]; then
-    xcrun devicectl device info processes --device "$DEVICE_ID" -q -j "$WORK/processes.json" >/dev/null 2>&1 || return 0
+    on_device info processes --device "$DEVICE_ID" -q -j "$WORK/processes.json" >/dev/null 2>&1 || return 0
     for pid in $(python3 -c 'import json,sys; print(" ".join(str(p["processIdentifier"]) for p in json.load(open(sys.argv[1]))["result"]["runningProcesses"] if p.get("executable", "").endswith("/Minato.app/Minato")))' "$WORK/processes.json"); do
-      xcrun devicectl device process terminate --device "$DEVICE_ID" -q --kill --pid "$pid" >/dev/null 2>&1 || true
+      on_device process terminate --device "$DEVICE_ID" -q --kill --pid "$pid" >/dev/null 2>&1 || true
     done
   else
     xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
@@ -285,7 +293,7 @@ screenshot() {
   [[ -n "${LOGS:-}" ]] || return 0
   mkdir -p "$LOGS"
   if [[ "$ON_DEVICE" == yes ]]; then
-    xcrun devicectl device capture screenshot --device "$DEVICE_ID" -q --destination "$LOGS/$1.png" >/dev/null 2>&1 || true
+    on_device capture screenshot --device "$DEVICE_ID" -q --destination "$LOGS/$1.png" >/dev/null 2>&1 || true
   else
     xcrun simctl io "$SIM_UDID" screenshot "$LOGS/$1.png" >/dev/null 2>&1 || true
   fi

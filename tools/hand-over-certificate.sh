@@ -32,6 +32,7 @@ if [[ -z "${DEVICE_ID:-}" ]]; then
   echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
   exit 1
 fi
+python3 tools/require-cable.py "$DEVICE_ID" || exit 1 # only by cable, never over the network
 if [[ ! -f "$APP/Minato" ]]; then
   echo "No device build of the app at $APP; tools/deploy.sh builds and installs it." >&2
   exit 1

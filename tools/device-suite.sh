@@ -70,6 +70,8 @@ if [[ -z "$ART" && ( "$SAMPLE" == 1 || "$DEBUG" == 1 || -n "$ART_DIR" ) ]] ||
     "and ART's tests have containers signed on the Mac only." >&2
   exit 2
 fi
+# The iPhone only by cable, never over the network, checked before the builds.
+[[ "$SIMULATOR" == 1 ]] || python3 tools/require-cable.py "$WANTED_DEVICE" || exit 1
 RESULTS=build/device-suite
 [[ "$SIMULATOR" == 0 ]] || RESULTS=build/simulator-suite
 [[ "$WITHOUT_INCREASED_MEMORY" == 0 ]] || RESULTS=build/device-suite-without-increased-memory
