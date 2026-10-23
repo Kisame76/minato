@@ -56,6 +56,18 @@ int apkrt_mount(const char *guest_path, const char *host_path, char *error, size
 /// The guest's working directory at start, an absolute guest path; "/" unless set.
 int apkrt_set_working_directory(const char *guest_path, char *error, size_t error_size);
 
+/// Mounts the host directory `host_dir` under the guest path `guest_path` (absolute) while the guest runs, for
+/// a folder the user grants at run time (ADR-0057). Unlike apkrt_mount this is live and revocable: it returns a
+/// mount id > 0 that apkrt_unmount removes, follows no symlink at host_dir's last component, and is refused
+/// unless guest_path lies strictly below an existing mount (the app's storage) and over no mount nor the root.
+/// Returns a negative errno on failure: -EINVAL (guest_path not absolute, the root, or too long), -EEXIST
+/// (equals or lies above a mount), -EACCES (not under a mount), -ELOOP/-ENOTDIR/-ENOENT (host_dir).
+int apkrt_mount_live(const char *guest_path, const char *host_dir);
+
+/// Removes the live mount `id` from apkrt_mount_live so the guest no longer reaches it; the host does this when
+/// the user revokes the grant (a mount also ends when the process ends). Returns 0, or -EINVAL for an unknown id.
+int apkrt_unmount(int id);
+
 // MARK: - Programs (ADR-0019, ADR-0021)
 
 /// The signed library containers in the host directory `host_path` (<file name>.dylib, as

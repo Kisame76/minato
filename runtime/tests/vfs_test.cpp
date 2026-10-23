@@ -9,9 +9,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -19,6 +22,13 @@ using apkrt::vfs::absolute;
 using apkrt::vfs::guest_path;
 using apkrt::vfs::host_path;
 using apkrt::vfs::normalize;
+
+// A fresh empty host directory for the live-mount tests; the test removes it.
+std::string temp_dir() {
+    char path[] = "/tmp/vfs_live_XXXXXX";
+    const char *made = ::mkdtemp(path);
+    return made != nullptr ? std::string(made) : std::string();
+}
 
 TEST(normalize_resolves_dots_and_repeated_slashes) {
     CHECK(normalize("/") == "/");
@@ -195,6 +205,90 @@ TEST(the_working_directory_starts_at_the_root) {
     CHECK(apkrt::vfs::working_directory() == "/storage/emulated/0/Download");
     apkrt::vfs::reset();
     CHECK(apkrt::vfs::working_directory() == "/");
+}
+
+// ADR-0057 live mounts: a user-granted host folder mounted into the running guest. It appears below an
+// existing mount (the app's storage), wins as the deepest mount, and vanishes on unmount.
+TEST(a_live_mount_appears_below_a_mount_and_unmount_removes_it) {
+    apkrt::vfs::reset();
+    apkrt::vfs::mount("/data/data/pkg", "/host/data");  // the app's storage
+    const std::string dir = temp_dir();
+    CHECK(!dir.empty());
+    const int id = apkrt::vfs::mount_live("/data/data/pkg/grant", dir);
+    CHECK(id > 0);
+    CHECK(host_path("/data/data/pkg/grant") == dir);                 // deepest wins: the live mount
+    CHECK(host_path("/data/data/pkg/grant/file") == dir + "/file");
+    CHECK(host_path("/data/data/pkg/other") == "/host/data/other");  // outside the live mount
+    CHECK(apkrt::vfs::unmount(id) == 0);
+    CHECK(host_path("/data/data/pkg/grant") == "/host/data/grant");  // back to the parent mount
+    CHECK(apkrt::vfs::unmount(id) == -EINVAL);                       // gone: a second unmount fails
+    apkrt::vfs::reset();
+    ::rmdir(dir.c_str());
+}
+
+// Structural rules: never the root, never at or above an existing mount, and only below one (the app's
+// storage), so a live mount can neither shadow a mount nor reach outside the app's own paths.
+TEST(a_live_mount_is_refused_over_the_root_over_a_mount_or_outside_every_mount) {
+    apkrt::vfs::reset();
+    apkrt::vfs::mount("/data/data/pkg", "/host/data");
+    const std::string dir = temp_dir();
+    CHECK(!dir.empty());
+    CHECK(apkrt::vfs::mount_live("/", dir) == -EINVAL);               // the root
+    CHECK(apkrt::vfs::mount_live("/data/data/pkg", dir) == -EEXIST);  // equals a mount
+    CHECK(apkrt::vfs::mount_live("/data/data", dir) == -EEXIST);      // above a mount
+    CHECK(apkrt::vfs::mount_live("/nowhere/here", dir) == -EACCES);   // under no mount
+    apkrt::vfs::reset();
+    ::rmdir(dir.c_str());
+}
+
+// No symlink is followed at the host folder's last component, and the host path must be a directory, so a
+// swapped-in symlink or a file cannot redirect the mount out of the user's chosen folder.
+TEST(a_live_mount_follows_no_symlink_and_needs_a_directory) {
+    apkrt::vfs::reset();
+    apkrt::vfs::mount("/data/data/pkg", "/host/data");
+    const std::string dir = temp_dir();
+    CHECK(!dir.empty());
+    const std::string link = dir + ".link";
+    CHECK(::symlink(dir.c_str(), link.c_str()) == 0);  // a symlink to the directory
+    // O_NOFOLLOW refuses the symlink even though its target is a directory (without it the open would
+    // follow it and succeed). Darwin reports ENOTDIR for the unfollowed symlink, Linux ELOOP.
+    const int linked = apkrt::vfs::mount_live("/data/data/pkg/g", link);
+    CHECK(linked == -ENOTDIR || linked == -ELOOP);
+    const std::string file = dir + "/f";
+    const int fd = ::open(file.c_str(), O_CREAT | O_WRONLY, 0600);
+    CHECK(fd >= 0);
+    if (fd >= 0) ::close(fd);
+    CHECK(apkrt::vfs::mount_live("/data/data/pkg/g", file) == -ENOTDIR);             // not a directory
+    CHECK(apkrt::vfs::mount_live("/data/data/pkg/g", dir + "/missing") == -ENOENT);  // not there
+    ::unlink(file.c_str());
+    ::unlink(link.c_str());
+    ::rmdir(dir.c_str());
+}
+
+// Live mount and unmount run while guest threads resolve paths: all go through the table's mutex, so this
+// is race-free (run under TSan for the data-race proof; the functional invariants hold here too).
+TEST(live_mount_and_unmount_do_not_race_with_path_lookups) {
+    apkrt::vfs::reset();
+    apkrt::vfs::mount("/data/data/pkg", "/host/data");
+    const std::string dir = temp_dir();
+    CHECK(!dir.empty());
+    std::atomic<bool> stop{false};
+    std::thread reader([&] {
+        while (!stop.load(std::memory_order_relaxed)) {
+            (void)host_path("/data/data/pkg/grant/x");
+            (void)apkrt::vfs::locate("/data/data/pkg/grant/x");
+            (void)apkrt::vfs::mount_point("/data/data/pkg/grant/x");
+        }
+    });
+    for (int round = 0; round < 500; ++round) {
+        const int id = apkrt::vfs::mount_live("/data/data/pkg/grant", dir);
+        CHECK(id > 0);
+        if (id > 0) CHECK(apkrt::vfs::unmount(id) == 0);
+    }
+    stop.store(true, std::memory_order_relaxed);
+    reader.join();
+    apkrt::vfs::reset();
+    ::rmdir(dir.c_str());
 }
 
 }  // namespace

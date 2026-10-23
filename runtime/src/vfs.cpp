@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -17,6 +18,7 @@ struct Mount {
     std::string guest;  // absolute, normal
     std::string host;
     int folder = -1;    // the host folder once opened (ADR-0052); AT_FDCWD for a mounted file, which needs none
+    int id = 0;         // 0 for a start-time or device mount; > 0 for a live mount, which unmount() removes
 };
 
 /// Opens a mount's host folder once it is there. A mounted file is reached by its host path instead, without its
@@ -75,6 +77,9 @@ const Link *link_at(std::string_view guest) {
 std::mutex mutex;
 std::vector<Mount> mounts = devices();  // guarded by mutex
 std::string cwd = "/";                  // guarded by mutex
+int next_live_id = 1;                   // guarded by mutex; the next live mount's id, never reused
+std::vector<int> retired_folders;       // guarded by mutex; unmounted live folders kept open until reset (tests),
+                                        // else reclaimed at process exit (no reset caller in production)
 
 /// Whether `path` is `prefix` or lies below it; both absolute and normal.
 bool covers(std::string_view prefix, std::string_view path) {
@@ -183,8 +188,53 @@ void mount(std::string_view guest, std::string_view host) {
 void reset() {
     const std::lock_guard lock(mutex);
     for (auto &mount : mounts) close_folder(mount);
+    for (const int folder : retired_folders) ::close(folder);
+    retired_folders.clear();
     mounts = devices();
     cwd = "/";
+}
+
+int mount_live(std::string_view guest, std::string_view host) {
+    const auto normal = absolute(guest, "/");  // follow the runtime's links, as Linux's mount does for its target
+    if (normal == "/") return -EINVAL;         // never over the root
+    // Open the folder now, following no symlink at its last component (ADR-0057): the guest then reaches only
+    // what truly lies below it, since locate() opens every path under this fd with RESOLVE_BENEATH.
+    const std::string host_dir(host);  // named, so nothing frees (and may clobber errno) before the open's errno
+    const int folder = ::open(host_dir.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (folder < 0) return -errno;             // -ENOTDIR for a symlink (Darwin) or a non-directory, -ENOENT ...
+    const std::lock_guard lock(mutex);
+    bool under_a_mount = false;
+    for (const auto &existing : mounts) {
+        if (covers(normal, existing.guest)) {  // normal equals or lies above a mount: never over one
+            ::close(folder);
+            return -EEXIST;
+        }
+        if (covers(existing.guest, normal)) under_a_mount = true;  // normal lies strictly below this mount
+    }
+    if (!under_a_mount) {  // not under the app's storage (nor anything else mounted)
+        ::close(folder);
+        return -EACCES;
+    }
+    const int id = next_live_id++;
+    mounts.push_back({normal, host_dir});
+    mounts.back().folder = folder;
+    mounts.back().id = id;
+    return id;
+}
+
+int unmount(int id) {
+    if (id <= 0) return -EINVAL;  // 0 is a start-time or device mount, never removed this way
+    const std::lock_guard lock(mutex);
+    for (auto it = mounts.begin(); it != mounts.end(); ++it) {
+        if (it->id == id) {
+            // Keep the folder open (retired, closed at reset): a guest thread may still hold it from a
+            // locate() just before this unmount, and closing it now could let its fd number be reused.
+            if (it->folder >= 0) retired_folders.push_back(it->folder);
+            mounts.erase(it);
+            return 0;
+        }
+    }
+    return -EINVAL;
 }
 
 std::optional<std::string> host_path(std::string_view guest) {

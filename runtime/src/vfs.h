@@ -33,6 +33,20 @@ void mount(std::string_view guest, std::string_view host);
 /// /dev/urandom, backed by the host's), and the root as the working directory.
 void reset();
 
+/// A live mount of the host directory `host` under the guest path `guest` while the guest runs (ADR-0057):
+/// unlike mount() it opens `host` now, following no symlink at its last component, and keeps that folder, so
+/// the guest reaches only what lies truly below it (locate's RESOLVE_BENEATH). It gets an id > 0 for
+/// unmount(). Refused with a negative errno: -EINVAL for a non-absolute path or the root, -EEXIST when `guest`
+/// equals or lies above an existing mount, -EACCES when it does not lie below an existing mounted folder (the
+/// app's storage), or the open's errno (-ELOOP for a symlink, -ENOTDIR, -ENOENT, ...). Thread-safe against the
+/// path lookups and the other mount calls.
+int mount_live(std::string_view guest, std::string_view host);
+
+/// Removes the live mount with `id` (from mount_live) from the guest's view: 0, or -EINVAL for an unknown id.
+/// Its folder stays open until reset(), so an fd a guest thread took from a locate() just before cannot be
+/// reused under it.
+int unmount(int id);
+
 /// The host path of a guest path in normal form, or nullopt when no mount covers it.
 std::optional<std::string> host_path(std::string_view guest);
 

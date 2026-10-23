@@ -56,3 +56,14 @@ int apkrt_add_library_directory(const char *guest_directory, const char *host_pa
     apkrt::dl::add_library_directory(guest_directory, resolved);
     return 0;
 }
+
+int apkrt_mount_live(const char *guest_path, const char *host_dir) {
+    if (guest_path == nullptr || guest_path[0] != '/') return -EINVAL;
+    if (std::strlen(guest_path) >= apkrt::vfs::path_max) return -ENAMETOOLONG;
+    if (host_dir == nullptr || host_dir[0] != '/') return -EINVAL;  // an absolute host directory
+    return apkrt::vfs::mount_live(guest_path, host_dir);
+}
+
+int apkrt_unmount(int id) {
+    return apkrt::vfs::unmount(id);
+}
