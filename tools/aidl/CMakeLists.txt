@@ -12,11 +12,34 @@ if(NOT EXISTS "${AIDL}/aidl_language_y.yy")
   message(FATAL_ERROR "No ${AIDL}: run tools/fetch-sources.py --set framework")
 endif()
 
-# aidl's grammar is GLR with `%define parse.error`, which needs Bison 3; macOS has 2.3 in /usr/bin.
-find_program(BISON_EXECUTABLE bison PATHS /opt/homebrew/opt/bison/bin NO_DEFAULT_PATH)
+# aidl's grammar is GLR with `%define parse.error`, which needs Bison 3; macOS ships 2.3 in /usr/bin.
+# Find it without assuming this Mac: an explicit -DBISON_EXECUTABLE or the BISON environment variable wins;
+# otherwise Homebrew's bison (its own prefix from `brew --prefix`, or the Apple Silicon and Intel defaults)
+# comes before the PATH, so the search does not settle on macOS's 2.3. find_package(BISON 3.0) then refuses
+# anything older with a clear message.
+if(NOT BISON_EXECUTABLE AND DEFINED ENV{BISON})
+  set(BISON_EXECUTABLE "$ENV{BISON}" CACHE FILEPATH "GNU Bison 3 for aidl's parser" FORCE)
+endif()
+if(NOT BISON_EXECUTABLE)
+  set(_bison_hints /opt/homebrew/opt/bison/bin /usr/local/opt/bison/bin)
+  find_program(_brew brew)
+  if(_brew)
+    execute_process(COMMAND "${_brew}" --prefix bison
+                    OUTPUT_VARIABLE _brew_bison OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET RESULT_VARIABLE _brew_rc)
+    if(_brew_rc EQUAL 0 AND IS_DIRECTORY "${_brew_bison}/bin")
+      list(PREPEND _bison_hints "${_brew_bison}/bin")
+    endif()
+  endif()
+  find_program(BISON_EXECUTABLE bison HINTS ${_bison_hints})
+endif()
 find_package(BISON 3.0)
 if(NOT BISON_FOUND)
-  message(FATAL_ERROR "aidl needs Bison 3 (macOS has 2.3): HOMEBREW_NO_AUTO_UPDATE=1 brew install bison")
+  message(FATAL_ERROR
+    "aidl's parser needs GNU Bison 3 (macOS ships 2.3 in /usr/bin), but found "
+    "'${BISON_EXECUTABLE}' version '${BISON_VERSION}'. Install a newer Bison "
+    "(HOMEBREW_NO_AUTO_UPDATE=1 brew install bison) or point to it with "
+    "-DBISON_EXECUTABLE=/path/to/bison or the BISON environment variable.")
 endif()
 find_package(FLEX REQUIRED)
 
