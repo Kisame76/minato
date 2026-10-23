@@ -209,7 +209,8 @@ android.media.RingtoneManager <- android.preference.RingtonePreference  # gap: R
 android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
 android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
-android.media.MediaRecorder <- android.media.AudioAttributes  # gap: AudioAttributes.toString of a capture's attributes (a capture preset), as MediaRecorder is compile-only
+android.media.MediaRecorder <- android.media.AudioAttributes, android.media.AudioRecordingConfiguration  # gap: AudioAttributes.toString of a capture's attributes (a capture preset) and AudioRecordingConfiguration.toLogFriendlyString's source name, as MediaRecorder is compile-only
+android.media.audiofx.AudioEffect$Descriptor <- android.media.AudioRecordingConfiguration  # stays: the effects of a recording; Minato has none (the patch makes the arrays Objects), so a Descriptor is named only in loops over an empty array
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
 
 # Gap 9 (App): the job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).

@@ -1,8 +1,8 @@
 Minato's patch to frameworks/base's media/java/android/media/Utils.java at android-15.0.0_r1 (Apache-2.0),
 ADR-0060 e2b3, which MediaCodecInfo's ranges need: an audio device's address is never a Bluetooth one to anonymize.
 
-Why: anonymizeBluetoothAddress asks AudioSystem.isBluetoothDevice, a native of the audio system, which is a
-compile-only stub here (framework/stubs/types/android/media/AudioSystem.java). Minato has no Bluetooth audio devices,
+Why: anonymizeBluetoothAddress asks AudioSystem.isBluetoothDevice, a native of the audio system, which
+framework/java/android/media/AudioSystem.java (the plain Java of AOSP's AudioSystem) leaves out. Minato has no Bluetooth audio devices,
 so the address stays as it is, as Android leaves the address of a device that is not Bluetooth.
 
 --- a/media/java/android/media/Utils.java

@@ -1,0 +1,107 @@
+Minato's patch to frameworks/base's media/java/android/media/AudioRecordingConfiguration.java at android-15.0.0_r1
+(Apache-2.0), the F4g slice of ADR-0064: the effects of a recording are Objects, none ever.
+
+Why: the effects are AudioEffect.Descriptors, and AudioEffect is a compile-only stub here (its natives and the audio
+effect framework are not Minato's), so any array of them (`new AudioEffect.Descriptor[n]`, even of length 0) throws
+NoClassDefFoundError when it runs, and no configuration could be made, read from a parcel or listed. Minato has no audio
+effects, so the arrays are always empty: they are Object arrays, the getters answer empty lists, and a Descriptor is only
+named where an effect would be (the casts in the loops, which do not run for an empty array). A parcel that carries an
+effect fails as before with NoClassDefFoundError.
+
+--- a/media/java/android/media/AudioRecordingConfiguration.java
++++ b/media/java/android/media/AudioRecordingConfiguration.java
+@@ -73,9 +73,9 @@
+ 
+     private final int mDeviceSource;
+ 
+-    private final AudioEffect.Descriptor[] mClientEffects;
++    private final Object[] mClientEffects;  // Minato: AudioEffect.Descriptors, none ever (see the patch's header)
+ 
+-    private final AudioEffect.Descriptor[] mDeviceEffects;
++    private final Object[] mDeviceEffects;
+ 
+     /**
+      * @hide
+@@ -84,7 +84,7 @@
+     public AudioRecordingConfiguration(int uid, int session, int source, AudioFormat clientFormat,
+             AudioFormat devFormat, int patchHandle, String packageName, int clientPortId,
+             boolean clientSilenced, int deviceSource,
+-            AudioEffect.Descriptor[] clientEffects, AudioEffect.Descriptor[] deviceEffects) {
++            Object[] clientEffects, Object[] deviceEffects) {
+         mClientUid = uid;
+         mClientSessionId = session;
+         mClientSource = source;
+@@ -109,8 +109,8 @@
+         this(uid, session, source, clientFormat,
+                    devFormat, patchHandle, packageName, 0 /*clientPortId*/,
+                    false /*clientSilenced*/, MediaRecorder.AudioSource.DEFAULT /*deviceSource*/,
+-                   new AudioEffect.Descriptor[0] /*clientEffects*/,
+-                   new AudioEffect.Descriptor[0] /*deviceEffects*/);
++                   new Object[0] /*clientEffects*/,
++                   new Object[0] /*deviceEffects*/);
+     }
+ 
+     /**
+@@ -127,12 +127,12 @@
+      */
+     public static String toLogFriendlyString(AudioRecordingConfiguration arc) {
+         String clientEffects = new String();
+-        for (AudioEffect.Descriptor desc : arc.mClientEffects) {
+-            clientEffects += "'" + desc.name + "' ";
++        for (Object desc : arc.mClientEffects) {
++            clientEffects += "'" + ((AudioEffect.Descriptor) desc).name + "' ";
+         }
+         String deviceEffects = new String();
+-        for (AudioEffect.Descriptor desc : arc.mDeviceEffects) {
+-            deviceEffects += "'" + desc.name + "' ";
++        for (Object desc : arc.mDeviceEffects) {
++            deviceEffects += "'" + ((AudioEffect.Descriptor) desc).name + "' ";
+         }
+ 
+         return new String("session:" + arc.mClientSessionId
+@@ -308,7 +308,7 @@
+      * @return List of {@link AudioEffect.Descriptor} containing all effects enabled for the client.
+      */
+     public @NonNull List<AudioEffect.Descriptor> getClientEffects() {
+-        return new ArrayList<AudioEffect.Descriptor>(Arrays.asList(mClientEffects));
++        return new ArrayList<AudioEffect.Descriptor>();  // Minato: no audio effects
+     }
+ 
+     /**
+@@ -319,7 +319,7 @@
+      * if another capture is active.
+      */
+     public @NonNull List<AudioEffect.Descriptor> getEffects() {
+-        return new ArrayList<AudioEffect.Descriptor>(Arrays.asList(mDeviceEffects));
++        return new ArrayList<AudioEffect.Descriptor>();  // Minato: no audio effects
+     }
+ 
+     public static final @android.annotation.NonNull Parcelable.Creator<AudioRecordingConfiguration> CREATOR
+@@ -361,11 +361,11 @@
+         dest.writeInt(mDeviceSource);
+         dest.writeInt(mClientEffects.length);
+         for (int i = 0; i < mClientEffects.length; i++) {
+-            mClientEffects[i].writeToParcel(dest);
++            ((AudioEffect.Descriptor) mClientEffects[i]).writeToParcel(dest);
+         }
+         dest.writeInt(mDeviceEffects.length);
+         for (int i = 0; i < mDeviceEffects.length; i++) {
+-            mDeviceEffects[i].writeToParcel(dest);
++            ((AudioEffect.Descriptor) mDeviceEffects[i]).writeToParcel(dest);
+         }
+     }
+ 
+@@ -380,11 +380,11 @@
+         mClientPortId = in.readInt();
+         mClientSilenced = in.readBoolean();
+         mDeviceSource = in.readInt();
+-        mClientEffects = new AudioEffect.Descriptor[in.readInt()];
++        mClientEffects = new Object[in.readInt()];
+         for (int i = 0; i < mClientEffects.length; i++) {
+             mClientEffects[i] = new AudioEffect.Descriptor(in);
+         }
+-        mDeviceEffects = new AudioEffect.Descriptor[in.readInt()];
++        mDeviceEffects = new Object[in.readInt()];
+         for (int i = 0; i < mDeviceEffects.length; i++) {
+             mDeviceEffects[i] = new AudioEffect.Descriptor(in);
+         }

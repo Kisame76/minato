@@ -732,4 +732,15 @@ class AudioTrack {
     private static native int nativeUnderruns(long track);
     private static native int nativeBufferFrames(long track);
     private static native void nativeSetVolume(long track, float left, float right);
+
+    /** @hide Encapsulated audio is not offered, but AudioDevicePort and the encoding checks name its types. */
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
+    public @interface EncapsulationMode {}
+
+    /** @hide */
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
+    public @interface EncapsulationMetadataType {}
+
+    /** @hide The mode of a handle from the Tuner API (a system API in AOSP). */
+    public static final int ENCAPSULATION_MODE_HANDLE = 2;
 }

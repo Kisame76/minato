@@ -564,6 +564,11 @@ run_app() {
     f2-types-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.F2Activity limit=90
       ;;
+    # f4g-audio-patch-test (framework breadth F4g): its activity runs when the window has the focus and ends with "done".
+    f4g-audio-patch-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AudioPatchActivity
+      limit=90
+      ;;
     # f4f-media-route-test (framework breadth F4f): its activity runs when the window has the focus and ends with "done".
     f4f-media-route-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RouteActivity limit=90

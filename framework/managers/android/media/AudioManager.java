@@ -6,6 +6,11 @@
 // and burst are AAudio's usual ones until step c reads the session's (a named difference): an engine that sizes its
 // buffers from them must get numbers, never null. Interruptions, focus losses and the route come with step c.
 import android.content.Context;
+import android.os.Handler;
+import android.util.Log;
+
+import java.util.ArrayList;
+import java.util.List;
 
 class AudioManager {
     private static final int[] DEFAULT_STREAM_VOLUME = {4, 7, 5, 5, 6, 5, 7, 7, 5, 5, 5, 5};
@@ -62,12 +67,86 @@ class AudioManager {
      * difference: Android lists the built-in microphone).
      */
     public AudioDeviceInfo[] getDevices(int flags) {
+        return devices(flags);
+    }
+
+    private static AudioDeviceInfo[] devices(int flags) {
         if ((flags & GET_DEVICES_OUTPUTS) == 0) {
             return new AudioDeviceInfo[0];
         }
         return new AudioDeviceInfo[] {new AudioDeviceInfo(BUILTIN_SPEAKER_ID, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
                 true)};
     }
+
+    /** @hide AudioSystem's status for success, as AOSP's AudioManager repeats it. */
+    public static final int SUCCESS = AudioSystem.SUCCESS;
+
+    /** @hide Whether a native device type is an input, as AOSP's. */
+    public static boolean isInputDevice(int device) {
+        return AudioSystem.isInputDevice(device);
+    }
+
+    /**
+     * @hide The connections between audio ports. Minato has no audio server and so no patches (a named difference:
+     * Android lists the patches of the phone's audio paths); the call succeeds with an empty list, as on a phone
+     * with none.
+     */
+    public static int listAudioPatches(ArrayList<AudioPatch> patches) {
+        patches.clear();
+        return SUCCESS;
+    }
+
+    /** @hide As AOSP's: the device whose port has this ID among those the flags select, else null. */
+    public static AudioDeviceInfo getDeviceForPortId(int portId, int flags) {
+        if (portId == 0) {
+            return null;
+        }
+        for (AudioDeviceInfo device : devices(flags)) {
+            if (device.getId() == portId) {
+                return device;
+            }
+        }
+        return null;
+    }
+
+    private final List<AudioRecordingCallback> recordingCallbacks = new ArrayList<>();
+
+    /**
+     * Callbacks are kept, as AOSP keeps its list; none is called until the microphone exists (ADR-0064), since
+     * nothing records before. A callback registered twice is logged and kept once, as AOSP does.
+     */
+    public void registerAudioRecordingCallback(AudioRecordingCallback cb, Handler handler) {
+        if (cb == null) {
+            throw new IllegalArgumentException("Illegal null AudioRecordingCallback argument");
+        }
+        synchronized (recordingCallbacks) {
+            if (recordingCallbacks.contains(cb)) {
+                Log.w(TAG, "attempt to call registerAudioRecordingCallback() on a previously"
+                        + "registered callback");
+            } else {
+                recordingCallbacks.add(cb);
+            }
+        }
+    }
+
+    public void unregisterAudioRecordingCallback(AudioRecordingCallback cb) {
+        if (cb == null) {
+            throw new IllegalArgumentException("Illegal null AudioRecordingCallback argument");
+        }
+        synchronized (recordingCallbacks) {
+            if (!recordingCallbacks.remove(cb)) {
+                Log.w(TAG, "attempt to call unregisterAudioRecordingCallback() on a callback"
+                        + " already unregistered or never registered");
+            }
+        }
+    }
+
+    /** No recording is active: the list is empty, as AOSP's says an empty list means. */
+    public List<AudioRecordingConfiguration> getActiveRecordingConfigurations() {
+        return new ArrayList<>();
+    }
+
+    private static final String TAG = "AudioManager";
 
     /** The speaker's port ID, as the audio server numbers its ports from 1. */
     private static final int BUILTIN_SPEAKER_ID = 2;

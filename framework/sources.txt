@@ -2415,3 +2415,17 @@ frameworks_base/core/java/android/app/GrantedUriPermission.aidl
 # where Android's SystemUI draws it.
 frameworks_base/core/java/android/widget/Toast.java
 frameworks_base/core/java/android/widget/ToastPresenter.java
+frameworks_base_types/media/java/android/media/AudioRecordingConfiguration.java
+frameworks_base_types/media/java/android/media/AudioRecordingMonitor.java
+frameworks_base_types/media/java/android/media/AudioRecordingMonitorClient.java
+frameworks_base_types/media/java/android/media/MicrophoneInfo.java
+frameworks_base_types/media/java/android/media/AudioPatch.java
+frameworks_base_types/media/java/android/media/AudioPortConfig.java
+frameworks_base_types/media/java/android/media/AudioPort.java
+frameworks_base_types/media/java/android/media/AudioDevicePort.java
+frameworks_base_types/media/java/android/media/AudioMixPort.java
+frameworks_base_types/media/java/android/media/AudioGain.java
+frameworks_base_types/media/java/android/media/AudioGainConfig.java
+frameworks_base_types/media/java/android/media/AudioMixPortConfig.java
+frameworks_base_types/media/java/android/media/AudioDevicePortConfig.java
+frameworks_base_types/media/java/android/media/AudioHandle.java

@@ -1,0 +1,10 @@
+I/f4g-audio-patch-test: classes: AudioPatch AudioPortConfig AudioPort AudioDevicePort AudioMixPort AudioGain AudioGainConfig AudioMixPortConfig AudioDevicePortConfig AudioHandle MicrophoneInfo AudioRecordingConfiguration AudioRecordingMonitor(interface) AudioRecordingMonitorClient(interface)
+I/f4g-audio-patch-test: encapsulation: none=0 elementary=1
+I/f4g-audio-patch-test: recordings: non-null=true active=0
+I/f4g-audio-patch-test: callbacks: registered twice, unregistered twice
+I/f4g-audio-patch-test: callbacks: null Illegal null AudioRecordingCallback argument
+I/f4g-audio-patch-test: callbacks: null Illegal null AudioRecordingCallback argument
+I/f4g-audio-patch-test: configuration: session=7 source=1 silenced=false client=44100/2/16 device=48000/4/12 audioDevice=null
+I/f4g-audio-patch-test: configuration parcel: equal=true samehash=true describe=0
+I/f4g-audio-patch-test: configuration array: 3
+I/f4g-audio-patch-test: done
