@@ -592,6 +592,61 @@ struct apkrt_video_decoder {
 /// format the host does not draw into. Else the host's answer. The number follows hardware_buffer's.
 #define APKRT_NR_VIDEO_DECODER 4128
 
+// MARK: - Sensors (ADR-0061)
+//
+// One syscall carries every sensor operation, as the video decoder's does: x0 the op, x1 the argument. The guest opens
+// a queue (a read-only pipe whose descriptor it polls on its looper), enables sensor types on it and reads whole
+// ASensorEvent records straight from the descriptor; the host (App's CoreMotion) feeds the hub, which fans each sample
+// out to every queue that has the type enabled. Closing the descriptor (ASensorManager_destroyEventQueue, or any close)
+// stops the queue's sensors. The runtime checks every argument before the hub acts.
+#define APKRT_NR_SENSOR 4129
+
+#define APKRT_SENSOR_LIST    0  // x1 the address of an apkrt_sensor_list the runtime fills; the count, or -errno
+#define APKRT_SENSOR_OPEN    1  // x1 0; returns a new queue's read descriptor (close-on-exec, non-blocking), or -errno
+#define APKRT_SENSOR_ENABLE  2  // x1 the address of an apkrt_sensor_request; begins/re-rates request.type; 0 or -errno
+#define APKRT_SENSOR_DISABLE 3  // x1 the address of an apkrt_sensor_request (period ignored); 0 or -errno
+#define APKRT_SENSOR_RATE    4  // x1 the address of an apkrt_sensor_request; re-rates an enabled type; 0 or -errno
+#define APKRT_SENSOR_FLUSH   5  // x1 a queue's descriptor; a flush-complete event per enabled sensor; 0 or -errno
+
+/// The sensors the runtime can offer (7 always on a modern iPhone, plus the 2 uncalibrated): the length of
+/// apkrt_sensor_list.sensors.
+#define APKRT_SENSOR_MAX 9
+/// The bytes of a string in apkrt_sensor_info, the NUL included.
+#define APKRT_SENSOR_NAME_MAX 64
+
+/// One offered sensor as APKRT_SENSOR_LIST gives it; ASensor_* and android.hardware.Sensor read from these. The handle
+/// is `type`. The strings are NUL-terminated within their arrays.
+struct apkrt_sensor_info {
+    int32_t type;            // Android ASENSOR_TYPE_ number, and the sensor's handle
+    int32_t value_count;     // floats a sample carries (3 to 6)
+    int32_t version;
+    int32_t min_delay_us;
+    int32_t max_delay_us;
+    int32_t reporting_mode;  // an AREPORTING_MODE_ value
+    int32_t flags;           // Android's Sensor flags word
+    float max_range;
+    float resolution;
+    float power_ma;
+    char name[APKRT_SENSOR_NAME_MAX];
+    char vendor[APKRT_SENSOR_NAME_MAX];
+    char string_type[APKRT_SENSOR_NAME_MAX];
+    char required_permission[APKRT_SENSOR_NAME_MAX];
+};
+
+/// APKRT_SENSOR_LIST's buffer: the runtime writes `count` (how many it offers) and that many entries of `sensors`.
+struct apkrt_sensor_list {
+    uint32_t count;
+    uint32_t reserved;
+    struct apkrt_sensor_info sensors[APKRT_SENSOR_MAX];
+};
+
+/// The argument of APKRT_SENSOR_ENABLE, APKRT_SENSOR_DISABLE and APKRT_SENSOR_RATE.
+struct apkrt_sensor_request {
+    int32_t queue;      // a queue's descriptor, from APKRT_SENSOR_OPEN
+    int32_t type;       // an Android ASENSOR_TYPE_ number
+    int64_t period_ns;  // the requested sampling period (ENABLE and RATE); ignored by DISABLE
+};
+
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //
 // The host posts the ticks of its frame clock and its motion events (apkrt_vsync_post and apkrt_input_post in

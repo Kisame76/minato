@@ -608,6 +608,38 @@ int apkrt_set_opengles_version(uint32_t version);
 /// once a start was tried, from which on the process keeps what it has.
 int apkrt_set_internet(int granted);
 
+// MARK: - Sensors (ADR-0061)
+
+/// The host's CoreMotion side. The hub calls start and stop on the thread that enabled or disabled the sensor: a guest
+/// thread (which may be on a small signal stack), or a runtime sweep closing the queue's descriptor while it holds an
+/// internal lock. So start and stop must be quick and only record what to do — begin the CoreMotion work and make the
+/// apkrt_sensor_push calls on the host's own thread, and never block in start or stop.
+struct apkrt_sensor_host {
+    void *context;
+    /// Begin, or re-rate, updates for `type` (an Android ASENSOR_TYPE_ number the host reported available) at
+    /// `period_ns` (the guest's request, already clamped by the hub to [min_delay, max_delay]). 0, or a negative
+    /// errno; a failure makes the hub report no event for the type until a later enable.
+    int (*start)(void *context, int32_t type, int64_t period_ns);
+    /// Stop updates for `type`. No apkrt_sensor_push for it after stop returns.
+    void (*stop)(void *context, int32_t type);
+};
+
+/// Registers the host and the sensors CoreMotion can feed (a subset of the types the hub offers, by Android
+/// ASENSOR_TYPE_ number). The hub's sensor list becomes `available` intersected with the offered set; a type not
+/// listed answers as absent (no default sensor, enable -EINVAL). The hub copies the struct and the array, so neither
+/// need outlive the call. Call once, before the guest runs; a NULL `host` or an `available_count` of 0 leaves the hub
+/// with no sensor, as without a host.
+void apkrt_sensor_set_host(const struct apkrt_sensor_host *host, const int32_t *available, size_t available_count);
+
+/// The host pushes one sample for `type` (an available type whose updates it started). `values` holds `count` floats in
+/// Android's order and units (count is the type's value count); `host_time_seconds` is CoreMotion's timestamp (seconds
+/// since boot, no sleep), which the hub shifts onto the guest's CLOCK_BOOTTIME / elapsedRealtimeNanos base; `accuracy`
+/// is a SENSOR_STATUS_ value (0 to 3). The hub drops the sample unless `count` equals the type's value count and the
+/// type is available and started, and drops it when no queue has the type enabled; the floats pass through unchanged,
+/// NaN and infinities included, as an Android HAL's would. Thread-safe; the guest's reads of its queue are wait-free
+/// against it (they read the pipe directly), while apkrt_sensor_push itself briefly takes the hub's lock.
+void apkrt_sensor_push(int32_t type, const float *values, size_t count, double host_time_seconds, int32_t accuracy);
+
 #ifdef __cplusplus
 }
 #endif

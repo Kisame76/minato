@@ -65,13 +65,16 @@ LIBRARIES = {
             "AHardwareBuffer_isSupported", "AHardwareBuffer_lock", "AHardwareBuffer_lockAndGetInfo",
             "AHardwareBuffer_lockPlanes", "AHardwareBuffer_recvHandleFromUnixSocket", "AHardwareBuffer_release",
             "AHardwareBuffer_sendHandleToUnixSocket", "AHardwareBuffer_unlock",
-            # a manager without sensors and its event queues (sensor_manager.c, the Unity test APK probe)
+            # the sensor manager and its event queues on the hub (sensor_manager.c, ADR-0061), the sensor properties
+            # read from the cached record (handle = type)
             "ASensorManager_getInstance", "ASensorManager_getInstanceForPackage", "ASensorManager_getSensorList",
             "ASensorManager_getDynamicSensorList", "ASensorManager_getDefaultSensor",
             "ASensorManager_getDefaultSensorEx", "ASensorManager_createEventQueue",
             "ASensorManager_destroyEventQueue", "ASensorEventQueue_registerSensor", "ASensorEventQueue_enableSensor",
             "ASensorEventQueue_disableSensor", "ASensorEventQueue_setEventRate", "ASensorEventQueue_hasEvents",
-            "ASensorEventQueue_getEvents",
+            "ASensorEventQueue_getEvents", "ASensor_getType", "ASensor_getHandle", "ASensor_getName",
+            "ASensor_getVendor", "ASensor_getStringType", "ASensor_getMinDelay", "ASensor_getResolution",
+            "ASensor_getReportingMode",
             # a Java SurfaceTexture's consumer through libandroid_runtime (surface_texture.cpp, ADR-0058 c))
             "ASurfaceTexture_*",
         ],
@@ -79,7 +82,8 @@ LIBRARIES = {
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
                     "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava"],
         "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete",
-                    "minato_AConfiguration_fromSession"],
+                    "minato_AConfiguration_fromSession", "minato_ASensor_getInfo", "minato_ASensorManager_createQueue",
+                    "minato_ASensorEventQueue_getFd", "minato_ASensorEventQueue_flush"],
     },
     "libnativewindow": {
         "version": "LIBNATIVEWINDOW",
@@ -211,10 +215,8 @@ VALUES = {
     "ASensorEventQueue_requestAdditionalInfoEvents": "-EINVAL", "ASensorManager_configureDirectReport": "-EINVAL",
     "ASensorManager_createHardwareBufferDirectChannel": "-EINVAL",
     "ASensorManager_createSharedMemoryDirectChannel": "-EINVAL",
-    "ASensor_getFifoMaxEventCount": "0", "ASensor_getFifoReservedEventCount": "0", "ASensor_getHandle": "0",
-    "ASensor_getHighestDirectReportRateLevel": "0", "ASensor_getMinDelay": "0",
-    "ASensor_getReportingMode": "-1",  # AREPORTING_MODE_INVALID
-    "ASensor_getType": "-1",  # ASENSOR_TYPE_INVALID
+    "ASensor_getFifoMaxEventCount": "0", "ASensor_getFifoReservedEventCount": "0",
+    "ASensor_getHighestDirectReportRateLevel": "0",
     "ASensor_isDirectChannelTypeSupported": "0", "ASensor_isWakeUpSensor": "0",
     # Surface transactions: none exists
     "ASurfaceTransactionStats_getAcquireTime": "-1", "ASurfaceTransactionStats_getLatchTime": "0",

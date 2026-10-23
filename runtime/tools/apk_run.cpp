@@ -5,7 +5,7 @@
 //           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]] [--lifecycle <step>[,<step>]...]
 //           [--pick-file <host file>]... [--pick-download <host directory>] [--pick-data <host directory>]
 //           [--pick-state <host directory>] [--export-dir <host directory>]
-//           [--pick-photo <host file>]...
+//           [--pick-photo <host file>]... [--sensor-script <host file>]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
@@ -710,6 +710,107 @@ bool split(const std::string &value, std::string &left, std::string &right, bool
 
 }  // namespace
 
+// --- --sensor-script: a fake sensor host that replays a script, for the Java end-to-end test (ADR-0061). ---
+struct SensorSample {
+    int at_ms;
+    std::int32_t type;
+    std::vector<float> values;
+};
+
+int sensor_feed_start(void *, std::int32_t, std::int64_t) { return 0; }  // CoreMotion is replaced by the script
+void sensor_feed_stop(void *, std::int32_t) {}
+
+// The value count of each offered sensor (guest_interface.h's table), for the `rate` shorthand.
+int sensor_value_count(std::int32_t type) {
+    switch (type) {
+        case 1:
+        case 2:
+        case 4:
+        case 9:
+        case 10:
+            return 3;  // accelerometer, magnetic, gyroscope, gravity, linear acceleration
+        case 15:
+            return 4;  // game rotation vector
+        case 11:
+            return 5;  // rotation vector
+        case 14:
+        case 16:
+            return 6;  // magnetic/gyroscope uncalibrated
+        default:
+            return 0;
+    }
+}
+
+void run_sensor_feed(std::vector<SensorSample> samples) {
+    std::sort(samples.begin(), samples.end(),
+              [](const SensorSample &a, const SensorSample &b) { return a.at_ms < b.at_ms; });
+    const auto start = std::chrono::steady_clock::now();
+    for (const SensorSample &sample : samples) {
+        std::this_thread::sleep_until(start + std::chrono::milliseconds(sample.at_ms));
+        const double host_time = static_cast<double>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9;
+        apkrt_sensor_push(sample.type, sample.values.data(), sample.values.size(), host_time, 3);  // ACCURACY_HIGH
+    }
+}
+
+// A --sensor-script line is "<at_ms> <type> <v0> <v1>..." (one sample) or "rate <type> <hz> <seconds>" (samples at
+// 1000/hz ms apart, each value a small ramp); '#' comments and blank lines are skipped. Installs a fake host for the
+// types the script names and replays the samples on a detached thread, so a Java SensorEventListener test sees them.
+void start_sensor_feed(const std::string &path) {
+    std::ifstream file(path);
+    if (!file) {
+        std::fprintf(stderr, "apk-run: cannot open sensor script %s\n", path.c_str());
+        return;
+    }
+    std::vector<SensorSample> samples;
+    std::vector<std::int32_t> types;
+    const auto note_type = [&](std::int32_t type) {
+        if (std::find(types.begin(), types.end(), type) == types.end()) types.push_back(type);
+    };
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream in(line);
+        std::string first;
+        if (!(in >> first) || first[0] == '#') continue;
+        if (first == "rate") {
+            std::int32_t type = 0;
+            double hz = 0;
+            double seconds = 0;
+            if (!(in >> type >> hz >> seconds) || hz <= 0 || seconds < 0) continue;
+            const int count = sensor_value_count(type);
+            if (count == 0) continue;
+            const int total = static_cast<int>(hz * seconds);
+            for (int i = 0; i < total; ++i) {
+                SensorSample sample;
+                sample.at_ms = static_cast<int>(std::lround(i * 1000.0 / hz));
+                sample.type = type;
+                for (int k = 0; k < count; ++k) {
+                    sample.values.push_back(static_cast<float>(i) * 0.01f + static_cast<float>(k));
+                }
+                note_type(type);
+                samples.push_back(std::move(sample));
+            }
+            continue;
+        }
+        SensorSample sample;
+        try {
+            sample.at_ms = std::stoi(first);
+        } catch (const std::exception &) {
+            continue;
+        }
+        if (!(in >> sample.type)) continue;
+        float value = 0;
+        while (in >> value) sample.values.push_back(value);
+        if (sample.values.empty()) continue;
+        note_type(sample.type);
+        samples.push_back(std::move(sample));
+    }
+    if (samples.empty()) return;
+    const std::vector<std::int32_t> available = types;
+    const apkrt_sensor_host host = {nullptr, sensor_feed_start, sensor_feed_stop};
+    apkrt_sensor_set_host(&host, available.data(), available.size());
+    std::thread(run_sensor_feed, std::move(samples)).detach();
+}
+
 int main(int argc, char **argv) {
     char error[1024] = "";
     // What an Android shell sets for a program rather than the Mac's environment, and --env's entries.
@@ -724,6 +825,7 @@ int main(int argc, char **argv) {
     apkrt_session session{};
     bool configured = false;
     std::vector<std::string> lifecycle;
+    std::string sensor_script;
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
@@ -771,6 +873,8 @@ int main(int argc, char **argv) {
             pick_config.download = value;
         } else if (option == "--export-dir") {
             export_directory = value;
+        } else if (option == "--sensor-script") {
+            sensor_script = value;
         } else if (option == "--pick-state") {
             pick_config.state = value;
         } else if (option == "--measures") {
@@ -830,6 +934,7 @@ int main(int argc, char **argv) {
         }
     }
     apkrt_set_audio_host(&headless_audio::host);
+    if (!sensor_script.empty()) start_sensor_feed(sensor_script);
     watch_clones();
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
     std::fprintf(stderr, "apk-run: %s\n", error);
