@@ -597,6 +597,23 @@ struct SessionBridgeTests {
 
     /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
     /// return.
+    /// ADR-0062: an open request's answer goes to the guest as long as the session runs; the bridge says whether the
+    /// runtime was told of the background, when nothing may be shown.
+    @Test func anOpenAnswerIsPostedWhileTheSessionRuns() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        #expect(!bridge.isInBackground)
+        bridge.openAnswered(id: 7, .shown, host: host)
+        #expect(host.take() == [.post(.openResult(id: 7, outcome: .shown))])
+        bridge.handle(.inactive, host: host)
+        bridge.finished(try #require(bridge.handle(.background, host: host).wait), result: 1, host: host)
+        #expect(bridge.isInBackground)
+        _ = host.take()
+        bridge.openAnswered(id: 8, .background, host: host)
+        #expect(host.take() == [.post(.openResult(id: 8, outcome: .background))])
+    }
+
     @Test func aSurfaceMadeInTheBackgroundOpensWithTheReturn() throws {
         let host = FakeHost()
         var bridge = Self.running(host)

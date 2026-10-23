@@ -38,6 +38,8 @@ public enum SessionEvent: Sendable, Equatable {
     case surfaceCreated(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case surfaceResized(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case surfaceDestroyed(token: UInt64, window: UInt64)
+    /// The answer to an open request (ADR-0062), APKRT_EVENT_OPEN_RESULT.
+    case openResult(id: UInt64, outcome: OpenOutcome)
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -55,6 +57,11 @@ public enum SessionRequest: Sendable, Equatable {
     /// (ADR-0030 V5): opaque from NativeActivity's RGB_565 on, so the first report is false. The host's layer
     /// follows it.
     case windowOpaque(Bool)
+    /// The guest asks the host to open a URL, write a mail or a message, or share (ADR-0062): the request's ID and the
+    /// runtime's checked text.
+    case open(id: UInt64, text: String)
+    /// The guest no longer wants open request `id`.
+    case openCancel(id: UInt64)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {
@@ -134,8 +141,8 @@ public struct SessionBridge: Sendable {
     public private(set) var inputChannel: UInt64?
     /// The content's rectangle the guest was told last: the whole window, as for an edge-to-edge app.
     private var contentRect: PixelSize?
-    /// Whether the runtime was told of the background.
-    private var isInBackground = false
+    /// Whether the runtime was told of the background, when nothing may be shown for the guest (ADR-0062).
+    public private(set) var isInBackground = false
     /// The wait that answers the lifecycle's `awaits`; an answer to an earlier one changes nothing.
     private var current: Wait?
 
@@ -201,6 +208,13 @@ public struct SessionBridge: Sendable {
     @discardableResult
     public mutating func surfaceRequested(_ request: SurfaceRequest, host: SessionHost) -> Handled {
         if !isBroken, !lifecycle.hasEnded { answer(request, host: host) }
+        return Handled()
+    }
+
+    /// The answer to open request `id` (ADR-0062), posted unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func openAnswered(id: UInt64, _ outcome: OpenOutcome, host: SessionHost) -> Handled {
+        if !isBroken, !lifecycle.hasEnded { _ = posted(.openResult(id: id, outcome: outcome), host: host) }
         return Handled()
     }
 

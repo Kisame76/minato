@@ -29,6 +29,10 @@ final class GameSession {
     @ObservationIgnored private(set) var windowPixels = CGSize.zero
     /// The view's layer, whose opacity follows the window's (ADR-0030 V5).
     @ObservationIgnored private weak var layer: CAMetalLayer?
+    /// What the guest asks to open (ADR-0062), over game mode.
+    @ObservationIgnored private lazy var opens = OpenPresenter(
+        dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data")
+    ) { [weak self] id, outcome in self?.openAnswered(id, outcome) }
     /// The orientation iOS was asked to hold the window in.
     @ObservationIgnored private var heldOrientation: SessionOrientation?
 
@@ -522,7 +526,19 @@ final class GameSession {
             log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
             startFailure = reason
             SessionEndReport.startFailed(reason)
+        case .open(let id, let text):
+            opens.requested(id: id, text: text, inBackground: bridge.isInBackground)
+        case .openCancel(let id):
+            opens.cancelled(id: id)
         }
+    }
+
+    /// The answer to an open request (ADR-0062), which the guest's framework activity finishes with.
+    private func openAnswered(_ id: UInt64, _ outcome: OpenOutcome) {
+        log.info("\(self.entry.id, privacy: .public): open \(id) \(String(describing: outcome), privacy: .public)")
+        let wasBroken = bridge.isBroken
+        let handled = bridge.openAnswered(id: id, outcome, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
     }
 
     /// A SurfaceView's request (ADR-0043 c4), on the main thread, in the order the runtime took them.

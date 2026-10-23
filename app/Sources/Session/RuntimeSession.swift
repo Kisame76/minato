@@ -125,6 +125,7 @@ final class RuntimeSessionHost: SessionHost {
         case .surfaceResized(let token, let window, let width, let height):
             (APKRT_EVENT_SURFACE_RESIZED, token, window, pair(width, height))
         case .surfaceDestroyed(let token, let window): (APKRT_EVENT_SURFACE_DESTROYED, token, window, 0)
+        case .openResult(let id, let outcome): (APKRT_EVENT_OPEN_RESULT, id, outcome.resultCode, outcome.reason)
         }
     }
 
@@ -258,6 +259,9 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_START_FAILED.rawValue: .startFailed(text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_FRAME_RATE.rawValue: .frameRate(bits: argument)
         case APKRT_REQUEST_WINDOW_OPAQUE.rawValue: .windowOpaque(argument != 0)
+        // Without a text (the runtime always gives one) the request is still answered, as refused.
+        case APKRT_REQUEST_OPEN.rawValue: .open(id: argument, text: text.map { String(cString: $0) } ?? "")
+        case APKRT_REQUEST_OPEN_CANCEL.rawValue: .openCancel(id: argument)
         default: nil
         }
     }
