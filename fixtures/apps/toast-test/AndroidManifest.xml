@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of toasts (toast-test; ADR-0041 gap 4 (b4)): text toasts and their callbacks, durations and queue, a
+     cancel, the package's limit, a toast with a view of its own, and what a toast window without the system's token and
+     a toast on a thread without a looper meet. Its launcher activity runs the test when its window first has the
+     focus. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.toast" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.toast.ToastActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

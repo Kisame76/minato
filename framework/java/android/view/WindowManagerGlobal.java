@@ -22,6 +22,7 @@
 package android.view;
 
 import android.app.ActivityThread;
+import android.app.NotificationService;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.util.Log;
@@ -81,6 +82,7 @@ public final class WindowManagerGlobal {
     }
 
     /** As AOSP's addView for an activity's window; any other window is a logged gap. */
+    @SuppressWarnings("deprecation") // TYPE_TOAST, which Toast's windows still have.
     public void addView(View view, ViewGroup.LayoutParams params, Display display, Window parentWindow, int userId) {
         if (view == null) {
             throw new IllegalArgumentException("view must not be null");
@@ -105,9 +107,10 @@ public final class WindowManagerGlobal {
                     && type <= WindowManager.LayoutParams.LAST_APPLICATION_WINDOW;
             final boolean subWindow = type >= WindowManager.LayoutParams.FIRST_SUB_WINDOW
                     && type <= WindowManager.LayoutParams.LAST_SUB_WINDOW;
-            if (!application && !subWindow && type != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
+            if (!application && !subWindow && type != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                    && type != WindowManager.LayoutParams.TYPE_TOAST) {
                 Log.w(TAG, "Not shown: a window of type " + type + " (" + wparams.getTitle()
-                        + "), as Minato shows only activities, dialogs and popups yet (ADR-0041 gap 4 (b))");
+                        + "), as Minato shows only activities, dialogs, popups and toasts yet (ADR-0041 gap 4 (b))");
                 view.setLayoutParams(wparams);
                 mGapViews.add(view);
                 return;
@@ -134,13 +137,24 @@ public final class WindowManagerGlobal {
      * BadTokenException [verified: second-windows-test on apk-runner-35]: TYPE_APPLICATION_OVERLAY is refused as
      * without SYSTEM_ALERT_WINDOW (ADD_PERMISSION_DENIED); an application window's token must be an activity's that
      * is not destroyed (ADD_BAD_APP_TOKEN); a sub-window's must be a shown window's that is no sub-window itself
-     * (ADD_BAD_SUBWINDOW_TOKEN). The window then is a requested one, an application window in its activity's group,
-     * taken away while its activity is not visible (gap 4 (b3)).
+     * (ADD_BAD_SUBWINDOW_TOKEN); a toast's must be a window token of the notification service's, as WMS's addWindow
+     * refuses an app's own toast window from target O on (ADD_BAD_APP_TOKEN, gap 4 (b4)). The window then is a
+     * requested one, an application window in its activity's group, taken away while its activity is not visible (gap
+     * 4 (b3)), a toast above every group.
      */
+    @SuppressWarnings("deprecation") // TYPE_TOAST, which Toast's windows still have.
     private void checkToken(ViewRootImpl root, WindowManager.LayoutParams wparams, boolean application) {
         if (wparams.type == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
             throw new WindowManager.BadTokenException("Unable to add window " + root.windowToken()
                     + " -- permission denied for window type " + wparams.type);
+        }
+        if (wparams.type == WindowManager.LayoutParams.TYPE_TOAST) {
+            if (!NotificationService.isToastWindowToken(wparams.token)) {
+                throw new WindowManager.BadTokenException("Unable to add window -- token " + wparams.token
+                        + " is not valid; is your activity running?");
+            }
+            root.setRequested(null, 0);
+            return;
         }
         if (application) {
             ActivityThread thread = ActivityThread.currentActivityThread();

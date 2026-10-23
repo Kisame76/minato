@@ -1,0 +1,28 @@
+I/toast-test: text toast: view none, gravity 0x51, y offset 144, duration 0
+I/toast-test: text 1 shown
+I/toast-test: text 1 hidden, short
+I/toast-test: text 2 shown
+I/toast-test: text 2 hidden, long
+I/toast-test: queue a shown
+I/toast-test: queue a hidden
+I/toast-test: queue b shown
+I/toast-test: queue b hidden
+I/toast-test: cancel shown
+I/toast-test: cancel hidden, at once
+I/toast-test: limit 1 shown
+I/toast-test: limit 1 hidden
+I/toast-test: limit 2 shown
+I/toast-test: limit 2 hidden
+I/toast-test: limit 3 shown
+I/toast-test: limit 3 hidden
+I/toast-test: limit 4 shown
+I/toast-test: limit 4 hidden
+I/toast-test: limit 5 shown
+I/toast-test: limit 5 hidden
+I/toast-test: limit: the sixth shown false
+I/toast-test: custom shown
+I/toast-test: custom view: attached true, type 2005, not focusable true, not touchable true, size 195x105, centered true
+I/toast-test: custom hidden, short
+I/toast-test: own toast window: android.view.WindowManager$BadTokenException: Unable to add window -- token null is not valid; is your activity running?
+I/toast-test: toast on a thread without a looper: java.lang.NullPointerException: Can't toast on a thread that has not called Looper.prepare()
+I/toast-test: done

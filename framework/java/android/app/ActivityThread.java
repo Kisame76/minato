@@ -2353,6 +2353,14 @@ public final class ActivityThread {
     }
 
     /**
+     * @hide NotificationService's toasts (ADR-0041 gap 4 (b4)): whether the app is in the foreground, as
+     * ActivityTaskManager's hasResumedActivity answers for its toasts: the session resumed with an activity on top.
+     */
+    public boolean isAppForeground() {
+        return mSessionResumed && topLiveRecord() != null;
+    }
+
+    /**
      * @hide WindowManagerGlobal's, at an application window's add (ADR-0041 gap 4 (b)): whether `token` is an
      * activity's that is not destroyed, as WMS finds its ActivityRecord; an unknown or destroyed one gives Android's
      * ADD_BAD_APP_TOKEN.

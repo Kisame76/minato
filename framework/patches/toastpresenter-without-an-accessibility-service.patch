@@ -1,0 +1,73 @@
+Minato's patch to frameworks/base's core/java/android/widget/ToastPresenter.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0041 gap 4 (b4): the presenter takes no IAccessibilityManager and asks the process's AccessibilityManager.
+
+Why: framework.jar has no IAccessibilityManager, as Minato runs no accessibility service (ADR-0041), and our
+AccessibilityManager is the generated one of ADR-0045 decision 3, which answers that accessibility is off and has no
+constructor over a service and no removeClient. The presenter sends its event only while accessibility is on, which it
+never is, so a toast shows as on Android without one.
+
+--- a/core/java/android/widget/ToastPresenter.java
++++ b/core/java/android/widget/ToastPresenter.java
+@@ -35,7 +35,6 @@
+ import android.view.WindowManager;
+ import android.view.accessibility.AccessibilityEvent;
+ import android.view.accessibility.AccessibilityManager;
+-import android.view.accessibility.IAccessibilityManager;
+ 
+ import com.android.internal.R;
+ import com.android.internal.annotations.VisibleForTesting;
+@@ -91,7 +90,6 @@
+ 
+     private final WeakReference<Context> mContext;
+     private final Resources mResources;
+-    private final IAccessibilityManager mAccessibilityManagerService;
+     private final INotificationManager mNotificationManager;
+     private final String mPackageName;
+     private final String mContextPackageName;
+@@ -99,7 +97,7 @@
+     @Nullable private View mView;
+     @Nullable private IBinder mToken;
+ 
+-    public ToastPresenter(Context context, IAccessibilityManager accessibilityManager,
++    public ToastPresenter(Context context, Object accessibilityManager,
+             INotificationManager notificationManager, String packageName) {
+         mContext = new WeakReference<>(context);
+         mResources = context.getResources();
+@@ -107,7 +105,6 @@
+         mPackageName = packageName;
+         mContextPackageName = context.getPackageName();
+         mParams = createLayoutParams();
+-        mAccessibilityManagerService = accessibilityManager;
+     }
+ 
+     public String getPackageName() {
+@@ -314,17 +311,9 @@
+             return;
+         }
+ 
+-        // We obtain AccessibilityManager manually via its constructor instead of using method
+-        // AccessibilityManager.getInstance() for 2 reasons:
+-        //   1. We want to be able to inject IAccessibilityManager in tests to verify behavior.
+-        //   2. getInstance() caches the instance for the process even if we pass a different
+-        //      context to it. This is problematic for multi-user because callers can pass a context
+-        //      created via Context.createContextAsUser().
+-        final AccessibilityManager accessibilityManager = new AccessibilityManager(context,
+-                    mAccessibilityManagerService, context.getUserId());
++        final AccessibilityManager accessibilityManager = AccessibilityManager.getInstance(context);
+ 
+         if (!accessibilityManager.isEnabled()) {
+-            accessibilityManager.removeClient();
+             return;
+         }
+         AccessibilityEvent event = AccessibilityEvent.obtain(
+@@ -333,10 +322,6 @@
+         event.setPackageName(packageName);
+         view.dispatchPopulateAccessibilityEvent(event);
+         accessibilityManager.sendAccessibilityEvent(event);
+-        // Every new instance of A11yManager registers an IA11yManagerClient object with the
+-        // backing service. This client isn't removed until the calling process is destroyed,
+-        // causing a leak here. We explicitly remove the client.
+-        accessibilityManager.removeClient();
+     }
+ 
+     private void addToastView() {

@@ -10,28 +10,43 @@
  *     channel created again takes the new name and description, a group when it had none, and a lower importance while
  *     the user changed nothing, and comes back when it was deleted; a new one gets what an app cannot set reset. A
  *     deleted channel stays as deleted, gone from every answer; a deleted group takes its channels along.
- * They live as long as the process, where Android keeps them in its policy file across starts. Every other call is
- * AIDL's Default answer, as for the power service. Not under com.android.minato, whose classes
+ * They live as long as the process, where Android keeps them in its policy file across starts. Toasts (ADR-0041 gap 4
+ * (b4)) go through the queue ToastQueue keeps as NotificationManagerService does, on the main thread: a text toast is
+ * drawn by ToastPresenter in the app's process, where Android's SystemUI draws it, and a toast with a view of its own
+ * by the app's Toast.TN; each shows in a requested window of type TYPE_TOAST with a window token of the service's,
+ * which WindowManagerGlobal takes. Every other call is AIDL's Default answer, as for the power service. Not under com.android.minato, whose classes
  * tools/framework-host-check.sh compiles on the host without android.*.
  */
 package android.app;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
+import android.content.res.Resources;
 import android.os.Binder;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Process;
+import android.os.RemoteException;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import android.util.ArrayMap;
+import android.util.Log;
+import android.view.View;
+import android.widget.ToastPresenter;
 
 import com.android.internal.util.Preconditions;
+import com.android.minato.app.ToastQueue;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @SuppressWarnings("rawtypes") // INotificationManager's lists, which AIDL names raw.
 public final class NotificationService extends INotificationManager.Default {
@@ -43,6 +58,16 @@ public final class NotificationService extends INotificationManager.Default {
     /** The app's channels, deleted ones among them, and its groups, by ID; under the service's lock. */
     private final ArrayMap<String, NotificationChannel> mChannels = new ArrayMap<>();
     private final ArrayMap<String, NotificationChannelGroup> mGroups = new ArrayMap<>();
+
+    /** NotificationManagerService's tag. */
+    private static final String TAG = "NotificationService";
+    /** The window tokens of the toasts that show, which a window of TYPE_TOAST must name (gap 4 (b4)). */
+    private static final Set<IBinder> sToastWindows = Collections.synchronizedSet(new HashSet<>());
+    /** The toast queue and what each queued toast shows, by the app's token; under mToastLock. */
+    private final Object mToastLock = new Object();
+    private final ArrayMap<IBinder, ToastContent> mToastContents = new ArrayMap<>();
+    private final Handler mMain = new Handler(Looper.getMainLooper());
+    private final ToastQueue mToasts = new ToastQueue(new ToastHost());
 
     private NotificationService() {
         mBinder.attachInterface(this, INotificationManager.Stub.DESCRIPTOR);
@@ -306,6 +331,164 @@ public final class NotificationService extends INotificationManager.Default {
         NotificationChannelGroup copy = group.clone();
         copy.setChannels(new ArrayList<>());
         return copy;
+    }
+
+    /** A queued toast's text and callback, or the app's TN, and once it shows its window token. */
+    private static final class ToastContent {
+        final CharSequence text;
+        final ITransientNotificationCallback textCallback;
+        final ITransientNotification view;
+        IBinder windowToken;
+        ToastPresenter presenter;
+
+        ToastContent(CharSequence text, ITransientNotificationCallback textCallback, ITransientNotification view) {
+            this.text = text;
+            this.textCallback = textCallback;
+            this.view = view;
+        }
+    }
+
+    /**
+     * @hide WindowManagerGlobal's, at a window of TYPE_TOAST: whether `token` is a toast's window token that the
+     * service gave, as WMS's addWindow finds the notification service's toast token.
+     */
+    public static boolean isToastWindowToken(IBinder token) {
+        return token != null && sToastWindows.contains(token);
+    }
+
+    @Override
+    public boolean enqueueTextToast(String pkg, IBinder token, CharSequence text, int duration, boolean isUiContext,
+            int displayId, ITransientNotificationCallback callback) {
+        return enqueueToast(pkg, token, text, callback, null, duration);
+    }
+
+    @Override
+    public boolean enqueueToast(String pkg, IBinder token, ITransientNotification callback, int duration,
+            boolean isUiContext, int displayId) {
+        return enqueueToast(pkg, token, null, null, callback, duration);
+    }
+
+    /** NotificationManagerService's enqueueToast, for the one display: the toast is queued, true, or refused. */
+    private boolean enqueueToast(String pkg, IBinder token, CharSequence text,
+            ITransientNotificationCallback textCallback, ITransientNotification view, int duration) {
+        if (pkg == null || (text == null && view == null) || (text != null && view != null) || token == null) {
+            Log.e(TAG, "Not enqueuing toast. pkg=" + pkg + " text=" + text + " callback=" + view + " token="
+                    + token);
+            return false;
+        }
+        checkSameApp(pkg);
+        synchronized (mToastLock) {
+            final boolean known = mToastContents.containsKey(token);
+            if (!known) {
+                mToastContents.put(token, new ToastContent(text, textCallback, view));
+            }
+            final boolean queued = mToasts.enqueue(pkg, token, text != null, duration);
+            if (!queued && !known) {
+                mToastContents.remove(token);
+            }
+            return queued;
+        }
+    }
+
+    @Override
+    public void cancelToast(String pkg, IBinder token) {
+        if (pkg == null || token == null) {
+            Log.e(TAG, "Not cancelling notification. pkg=" + pkg + " token=" + token);
+            return;
+        }
+        synchronized (mToastLock) {
+            mToasts.cancel(pkg, token);
+        }
+    }
+
+    @Override
+    public void finishToken(String pkg, IBinder token) {
+        // The window token goes with the toast's hide (ToastHost.hide).
+    }
+
+    /** What the toast queue asks: the toast's show and hide, its duration's end and the app's foreground. */
+    private final class ToastHost implements ToastQueue.Host {
+        @Override
+        public boolean show(ToastQueue.Toast toast) {
+            final ToastContent content = mToastContents.get((IBinder) toast.token);
+            final Context context = ActivityThread.currentApplication();
+            if (content == null || context == null) {
+                return false;
+            }
+            content.windowToken = new Binder();
+            sToastWindows.add(content.windowToken);
+            if (content.view != null) {
+                try {
+                    content.view.show(content.windowToken);
+                    return true;
+                } catch (RemoteException e) {
+                    sToastWindows.remove(content.windowToken);
+                    return false;
+                }
+            }
+            // As SystemUI's ToastUI shows a text toast: its view at the default gravity and offset.
+            final IBinder token = (IBinder) toast.token;
+            final IBinder windowToken = content.windowToken;
+            final int duration = toast.duration();
+            mMain.post(() -> {
+                final Resources res = context.getResources();
+                content.presenter = new ToastPresenter(context, null, NotificationService.this, toast.pkg);
+                final View view = ToastPresenter.getTextToastView(context, content.text);
+                content.presenter.show(view, token, windowToken, duration,
+                        res.getInteger(com.android.internal.R.integer.config_toastDefaultGravity), 0,
+                        res.getDimensionPixelSize(com.android.internal.R.dimen.toast_y_offset), 0, 0,
+                        content.textCallback);
+            });
+            return true;
+        }
+
+        @Override
+        public void hide(ToastQueue.Toast toast) {
+            final ToastContent content = mToastContents.remove((IBinder) toast.token);
+            if (content == null || content.windowToken == null) {
+                return;
+            }
+            sToastWindows.remove(content.windowToken);
+            if (content.view != null) {
+                try {
+                    content.view.hide();
+                } catch (RemoteException e) {
+                    Log.w(TAG, "Object died trying to hide custom toast " + toast.token + " in package "
+                            + toast.pkg);
+                }
+                return;
+            }
+            mMain.post(() -> {
+                if (content.presenter != null && content.presenter.getView() != null) {
+                    content.presenter.hide(content.textCallback);
+                }
+            });
+        }
+
+        @Override
+        public void schedule(ToastQueue.Toast toast, long delay) {
+            mMain.postDelayed(() -> {
+                synchronized (mToastLock) {
+                    mToasts.durationReached(toast);
+                }
+            }, toast, delay);
+        }
+
+        @Override
+        public void unschedule(ToastQueue.Toast toast) {
+            mMain.removeCallbacksAndMessages(toast);
+        }
+
+        @Override
+        public boolean foreground() {
+            final ActivityThread thread = ActivityThread.currentActivityThread();
+            return thread != null && thread.isAppForeground();
+        }
+
+        @Override
+        public void log(String line) {
+            Log.w(TAG, line);
+        }
     }
 
     /** NotificationManagerService's checkCallerIsSystemOrSameApp, for the one app of the process. */

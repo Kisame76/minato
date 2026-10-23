@@ -1,0 +1,27 @@
+Minato's patch to frameworks/base's core/java/android/widget/Toast.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0041 gap 4 (b4): Toast's TN hands its presenter no IAccessibilityManager.
+
+Why: framework.jar has no IAccessibilityManager, as Minato runs no accessibility service (ADR-0041), and our
+ToastPresenter asks the process's AccessibilityManager instead (toastpresenter-without-an-accessibility-service.patch).
+
+--- a/core/java/android/widget/Toast.java
++++ b/core/java/android/widget/Toast.java
+@@ -44,7 +44,6 @@
+ import android.util.Log;
+ import android.view.View;
+ import android.view.WindowManager;
+-import android.view.accessibility.IAccessibilityManager;
+ import android.widget.flags.Flags;
+ 
+ import com.android.internal.annotations.GuardedBy;
+@@ -672,9 +671,7 @@
+          */
+         TN(Context context, String packageName, Binder token, List<Callback> callbacks,
+                 @Nullable Looper looper) {
+-            IAccessibilityManager accessibilityManager = IAccessibilityManager.Stub.asInterface(
+-                    ServiceManager.getService(Context.ACCESSIBILITY_SERVICE));
+-            mPresenter = new ToastPresenter(context, accessibilityManager, getService(),
++            mPresenter = new ToastPresenter(context, null, getService(),
+                     packageName);
+             mParams = mPresenter.getLayoutParams();
+             mPackageName = packageName;

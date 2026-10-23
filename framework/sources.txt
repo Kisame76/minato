@@ -2406,3 +2406,8 @@ frameworks_base/core/java/android/window/ClientWindowFrames.java
 frameworks_base/core/java/android/app/UriGrantsManager.java
 frameworks_base/core/java/android/app/GrantedUriPermission.java
 frameworks_base/core/java/android/app/GrantedUriPermission.aidl
+# ADR-0041 gap 4 (b4), App: Toast and ToastPresenter, which show a toast in a requested window of type TYPE_TOAST
+# (2005) with the window token the local notification service gives it; a text toast is drawn in the app's process,
+# where Android's SystemUI draws it.
+frameworks_base/core/java/android/widget/Toast.java
+frameworks_base/core/java/android/widget/ToastPresenter.java
