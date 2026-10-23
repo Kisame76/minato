@@ -160,7 +160,8 @@ LIBRARIES = {
                                 "minato_media_codec_at"]},
     # The libraries an app may name in NEEDED although Minato has nothing behind them (gap 14): libsync, libamidi,
     # libbinder_ndk, libneuralnetworks and libOpenMAXAL load, and every function answers its API's error, as on a phone
-    # without the service behind it. The ones that write through an argument are written by hand (unavailable.c).
+    # without the service behind it. The ones that write through an argument are written by hand
+    # (neuralnetworks.c and openmaxal.c).
     # "default" is the value of an integer stub that VALUES and STATUS_VALUES do not name.
     "libsync": {"version": "LIBSYNC", "implemented": [], "stubbed": [], "private": [], "default": _ERRNO},
     "libamidi": {"version": "LIBAMIDI", "implemented": [], "stubbed": [], "private": [],
