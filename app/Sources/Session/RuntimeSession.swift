@@ -59,6 +59,8 @@ final class RuntimeSessionHost: SessionHost {
 
     func setBackground(_ on: Bool) {
         apkrt_set_background(on ? 1 : 0)
+        // No sensor updates in the background (ADR-0061 decision 3).
+        MotionHost.shared.setBackground(on)
     }
 
     func waitScheduled(seconds: Double) -> Bool {
@@ -151,6 +153,8 @@ final class RuntimeSessionHost: SessionHost {
         where apkrt_add_library_directory(path.guest, path.host, &error, error.count) != 0 {
             return Self.text(error)
         }
+        // The sensors CoreMotion feeds, before the guest runs (ADR-0061 step 3).
+        MotionHost.shared.register()
         var session = apkrt_session()
         session.context = Unmanaged.passUnretained(self).toOpaque()
         session.end = Self.endHandler
