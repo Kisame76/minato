@@ -201,7 +201,9 @@ int mount_live(std::string_view guest, std::string_view host) {
     // what truly lies below it, since locate() opens every path under this fd with RESOLVE_BENEATH.
     const std::string host_dir(host);  // named, so nothing frees (and may clobber errno) before the open's errno
     const int folder = ::open(host_dir.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (folder < 0) return -errno;             // -ENOTDIR for a symlink (Darwin) or a non-directory, -ENOENT ...
+    // On a symlink the open fails without following it: ENOTDIR here on Darwin, because O_DIRECTORY rejects the
+    // unfollowed link where O_NOFOLLOW alone would give ELOOP; also -ENOTDIR for a non-directory, -ENOENT when absent.
+    if (folder < 0) return -errno;
     const std::lock_guard lock(mutex);
     bool under_a_mount = false;
     for (const auto &existing : mounts) {
