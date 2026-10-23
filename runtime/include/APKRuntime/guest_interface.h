@@ -156,7 +156,41 @@ enum apkrt_event_type {
     APKRT_EVENT_PICK_RESULT,              // the answer to APKRT_REQUEST_PICK (ADR-0057 step a): a0 the request's ID;
                                           // a1 the result code (Activity.RESULT_CANCELED 0, RESULT_OK -1, as a 32-bit
                                           // int in the low bits); a2 the number of picks, whose details the host wrote
-                                          // to the manifest before it posted this
+                                          // to the manifest before it posted this. The picks of a document request
+                                          // (kinds 1 and 2, ADR-0057 step b): the host clones each file into the
+                                          // folder the guest sees as /storage/emulated/0/Download, under a name no
+                                          // file there has, and writes the manifest, the file ".minato/picks/<ID in
+                                          // decimal>" below the app's data folder (ApplicationInfo.dataDir): UTF-8,
+                                          // the clones' names, one per line, each line ended by "\n"; a name is 1 to
+                                          // 255 bytes, without "/", NUL, control, separator or formatting characters,
+                                          // not "." or "..", each once, and as many lines as a2 (1 to 1000). The host
+                                          // writes it to a file of another name and renames it, before it posts this,
+                                          // and never reads it back; the guest reads it, deletes it, and takes the
+                                          // answer as a cancel when it is not so. HOW THE HOST WRITES: the app can
+                                          // write its data folder and Download too, and leave links, planted files and
+                                          // loops there. The host takes the data folder from its own records, opens it
+                                          // and Download once, then works only from directory descriptors: folders
+                                          // below them with openat(O_DIRECTORY|O_NOFOLLOW) and mkdirat, files created
+                                          // with O_CREAT|O_EXCL|O_NOFOLLOW (or a failing fclonefileat); a name is busy
+                                          // only when that fails with EEXIST, never by stat or exists; the manifest
+                                          // goes to "<ID>.partial" (on EEXIST that name is unlinked with unlinkat and
+                                          // made again, or named at random) and is renamed with renameat on the same
+                                          // descriptor; an existing file is never opened for writing; a link where a
+                                          // folder should be makes the answer a cancel. apk-run's tools/pick_host.h is
+                                          // the reference, tests/pick_host_test.cpp plays the attacks. The clone's
+                                          // name is made plain by the host: the user's file name with every byte that
+                                          // is no UTF-8 and every control, separator, bidirectional, zero-width or
+                                          // other formatting character and "/" replaced by "_", cut to 255 bytes
+                                          // between code points keeping the extension, "" "." ".." as "Untitled";
+                                          // a numbered "<name> (<n>).<ext>" when the name is busy.
+                                          // The picks of a photo request (kind 5, step c): the clones go to the
+                                          // folder ".minato/photos" below the data folder (as many as the request's
+                                          // maximum at most), and each manifest line is the clone's name, then the
+                                          // width, height, duration in milliseconds, time taken in milliseconds
+                                          // since 1970 and orientation (0, 90, 180 or 270), tab-separated, decimal
+                                          // without leading zeros; the name's extension (jpg, jpeg, png, gif, webp,
+                                          // bmp, mp4, webm, 3gp) says the MIME type. The host makes JPEG and MP4 of
+                                          // what the user picked, as iOS has no HEIF decoder in the guest
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the

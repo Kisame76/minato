@@ -585,6 +585,27 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PickerActivity
       limit=120
       ;;
+    # documents-test (ADR-0057 step b): its activity opens a document and then two for a result and ends with "done"; the
+    # script has known.txt and data.bin in Download and picks them in DocumentsUI by the texts on its screen
+    # (tools/ui-pick.py).
+    documents-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DocumentsActivity
+      limit=120
+      ;;
+    # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with
+    # "done"; the script has red.jpg and blue.jpg in Pictures and in MediaStore, and taps the thumbnails by their
+    # descriptions (tools/ui-pick.py), the first is red.jpg.
+    photos-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PhotosActivity
+      limit=120
+      ;;
+    # saves-test (ADR-0057 step d): its activity saves note.txt with CREATE_DOCUMENT, opens the folder treetest with
+    # OPEN_DOCUMENT_TREE, works with the provider's calls and ends with "done"; the script has treetest (a.txt, b.txt)
+    # in Download and taps DocumentsUI by the texts on its screen (tools/ui-pick.py).
+    saves-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SavesActivity
+      limit=120
+      ;;
     # alert-test (the Unity test APK probe's blocker 14): its activity runs when the window has the focus and ends with "done".
     alert-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AlertActivity limit=90
@@ -734,6 +755,25 @@ run_app() {
     device push "fixtures/apps/$app/main.1.$package.obb" "/sdcard/Android/obb/$package/" >/dev/null
     device push "fixtures/apps/$app/patch.1.$package.obb" "/sdcard/Android/obb/$package/" >/dev/null
   fi
+  if [[ "$app" == saves-test ]]; then
+    # ADR-0057 step d: the folder the user opens, with two files, in Download; note.txt is not there yet.
+    run rm -rf /sdcard/Download/treetest /sdcard/Download/note.txt /sdcard/Download/renamed.txt
+    device push "fixtures/apps/$app/files/treetest" /sdcard/Download/ >/dev/null
+  fi
+  if [[ "$app" == photos-test ]]; then
+    # ADR-0057 step c: the two photos the picker shows, in Pictures and indexed by MediaStore as the scanner does.
+    local photo
+    for photo in red blue; do
+      device push "fixtures/apps/$app/files/$photo.jpg" /sdcard/Pictures/ >/dev/null
+      run content call --uri content://media/external/file --method scan_file --arg "/sdcard/Pictures/$photo.jpg" \
+        >/dev/null
+    done
+  fi
+  if [[ "$app" == documents-test ]]; then
+    # ADR-0057 step b: the two files the pickers pick, in Download, where a user or a browser puts them.
+    device push "fixtures/apps/$app/files/known.txt" /sdcard/Download/ >/dev/null
+    device push "fixtures/apps/$app/files/data.bin" /sdcard/Download/ >/dev/null
+  fi
   if [[ "$app" == services-test ]]; then
     # Gap 1's batch 2: the notification service keeps an uninstalled app's channels in its policy file when the
     # emulator stops before it writes the removal, and gives them back at the next install, which gets the same uid;
@@ -764,6 +804,45 @@ run_app() {
     for picked in OPEN_DOCUMENT GET_CONTENT CREATE_DOCUMENT OPEN_DOCUMENT_TREE PICK_IMAGES; do
       wait_for "$app" "start $picked" && sleep 4 && run input keyevent KEYCODE_BACK || return 1
     done
+  fi
+  if [[ "$app" == documents-test ]]; then
+    # ADR-0057 step b: into the internal storage's Download folder, where a tap picks known.txt; the second picker
+    # allows several, so a long press selects known.txt, a tap data.bin, and Select takes both; the third, GET_CONTENT,
+    # picks known.txt again. The files leave Download again.
+    local pick="python3 tools/ui-pick.py $ADB $serial" picks=ok
+    # Word splitting is wanted: $pick is a command.
+    # shellcheck disable=SC2086
+    { wait_for "$app" "start single" && $pick download && $pick tap known.txt &&
+      wait_for "$app" "start multiple" && sleep 3 && $pick download && $pick hold known.txt && $pick tap data.bin &&
+      $pick tap Select && wait_for "$app" "start get-content" && sleep 3 && $pick download && $pick tap known.txt &&
+      wait_for "$app" done 60; } || picks=failed
+    run rm -f /sdcard/Download/known.txt /sdcard/Download/data.bin
+    [[ "$picks" == ok ]] || return 1
+  fi
+  if [[ "$app" == saves-test ]]; then
+    # ADR-0057 step d: the save dialog of DocumentsUI in Download takes the title as it is (its button reads SAVE);
+    # the folder picker in Download opens treetest, USE THIS FOLDER, and the dialog that follows (ALLOW). What the app
+    # made leaves Download again.
+    local pick="python3 tools/ui-pick.py $ADB $serial" picks=ok
+    # Word splitting is wanted: $pick is a command.
+    # shellcheck disable=SC2086
+    { wait_for "$app" "start create" && $pick download && $pick tap SAVE 20 &&
+      wait_for "$app" "start tree" && sleep 3 && $pick download && $pick tap treetest 20 &&
+      $pick tap "USE THIS FOLDER" 20 && $pick tap ALLOW 20 && wait_for "$app" done 60; } || picks=failed
+    run rm -rf /sdcard/Download/treetest /sdcard/Download/note.txt /sdcard/Download/renamed.txt
+    [[ "$picks" == ok ]] || return 1
+  fi
+  if [[ "$app" == photos-test ]]; then
+    # ADR-0057 step c: the first thumbnail picks red.jpg; the second picker allows two: both thumbnails, then "Add".
+    # The photos leave Pictures again, which MediaStore notices.
+    local pick="python3 tools/ui-pick.py $ADB $serial" picks=ok
+    # Word splitting is wanted: $pick is a command.
+    # shellcheck disable=SC2086
+    { wait_for "$app" "start single" && $pick tap "~Photo taken on" 20 0 &&
+      wait_for "$app" "start two" && sleep 3 && $pick tap "~Photo taken on" 20 0 && $pick tap "~Photo taken on" 20 1 &&
+      $pick tap "~Add" 20 && wait_for "$app" done 60; } || picks=failed
+    run rm -f /sdcard/Pictures/red.jpg /sdcard/Pictures/blue.jpg
+    [[ "$picks" == ok ]] || return 1
   fi
   if [[ "$app" == key-test ]]; then
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its

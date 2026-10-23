@@ -1,0 +1,58 @@
+I/documents-test: ungranted query: java.lang.SecurityException
+I/documents-test: ungranted open: java.lang.SecurityException
+I/documents-test: ungranted persist: java.lang.SecurityException
+I/documents-test: ungranted persisted: 0
+I/documents-test: ungranted check: -1
+I/documents-test: start single
+I/documents-test: result single: code=-1 data=set
+I/documents-test: flags: 67
+I/documents-test: data: uri clip: null
+I/documents-test: uri: content://com.android.externalstorage.documents /document/primary:Download/known.txt
+I/documents-test: row: document_id=primary:Download/known.txt, mime_type=text/plain, _display_name=known.txt, last_modified=<set>, flags=326, _size=6
+I/documents-test: openable: known.txt 6
+I/documents-test: type: text/plain
+I/documents-test: read: 6 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+I/documents-test: fd: 6
+I/documents-test: write fd: opened
+I/documents-test: check read: 0 write: 0
+I/documents-test: persisted: /document/primary:Download/known.txt read=true write=false time=<set>
+I/documents-test: released: 0
+I/documents-test: start multiple
+I/documents-test: result multiple: code=-1 data=set
+I/documents-test: flags: 67
+I/documents-test: data: null clip: 2
+I/documents-test: uri: content://com.android.externalstorage.documents /document/primary:Download/known.txt
+I/documents-test: row: document_id=primary:Download/known.txt, mime_type=text/plain, _display_name=known.txt, last_modified=<set>, flags=326, _size=6
+I/documents-test: openable: known.txt 6
+I/documents-test: type: text/plain
+I/documents-test: read: 6 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+I/documents-test: fd: 6
+I/documents-test: write fd: opened
+I/documents-test: check read: 0 write: 0
+I/documents-test: persisted: /document/primary:Download/known.txt read=true write=false time=<set>
+I/documents-test: released: 0
+I/documents-test: uri: content://com.android.externalstorage.documents /document/primary:Download/data.bin
+I/documents-test: row: document_id=primary:Download/data.bin, mime_type=application/octet-stream, _display_name=data.bin, last_modified=<set>, flags=326, _size=4
+I/documents-test: openable: data.bin 4
+I/documents-test: type: application/octet-stream
+I/documents-test: read: 4 9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a
+I/documents-test: fd: 4
+I/documents-test: write fd: opened
+I/documents-test: check read: 0 write: 0
+I/documents-test: persisted: /document/primary:Download/data.bin read=true write=false time=<set>
+I/documents-test: released: 0
+I/documents-test: start get-content
+I/documents-test: result get-content: code=-1 data=set
+I/documents-test: flags: 1
+I/documents-test: data: uri clip: null
+I/documents-test: uri: content://com.android.externalstorage.documents /document/primary:Download/known.txt
+I/documents-test: row: document_id=primary:Download/known.txt, mime_type=text/plain, _display_name=known.txt, last_modified=<set>, flags=326, _size=6
+I/documents-test: openable: known.txt 6
+I/documents-test: type: text/plain
+I/documents-test: read: 6 5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03
+I/documents-test: fd: 6
+I/documents-test: write fd: opened
+I/documents-test: check read: 0 write: 0
+I/documents-test: persisted: /document/primary:Download/known.txt read=true write=false time=<set>
+I/documents-test: released: 0
+I/documents-test: done

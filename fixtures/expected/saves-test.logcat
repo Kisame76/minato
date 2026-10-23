@@ -1,0 +1,46 @@
+I/saves-test: start create
+I/saves-test: result create: code=-1 data=set
+I/saves-test: flags: 67 clip: null
+I/saves-test: uri: content://com.android.externalstorage.documents /document/primary:Download/note.txt
+I/saves-test: row: document_id=primary:Download/note.txt, mime_type=text/plain, _display_name=note.txt, last_modified=<set>, flags=326, _size=0
+I/saves-test: document: true primary:Download/note.txt
+I/saves-test: write: ok
+I/saves-test: read: saved text\n
+I/saves-test: row after: document_id=primary:Download/note.txt, mime_type=text/plain, _display_name=note.txt, last_modified=<set>, flags=326, _size=11
+I/saves-test: renamed: content://com.android.externalstorage.documents /document/primary:Download/renamed.txt
+I/saves-test: renamed read: java.lang.SecurityException
+I/saves-test: rename: java.lang.SecurityException
+I/saves-test: start tree
+I/saves-test: result tree: code=-1 data=set
+I/saves-test: flags: 195 clip: null
+I/saves-test: tree: content://com.android.externalstorage.documents /tree/primary:Download/treetest
+I/saves-test: root: content://com.android.externalstorage.documents /tree/primary:Download/treetest/document/primary:Download/treetest
+I/saves-test: root row: document_id=primary:Download/treetest, mime_type=vnd.android.document/directory, _display_name=treetest, last_modified=<set>, flags=16716, _size=4096
+I/saves-test: children: 2
+I/saves-test:   document_id=primary:Download/treetest/a.txt, mime_type=text/plain, _display_name=a.txt, last_modified=<set>, flags=326, _size=6
+I/saves-test:   document_id=primary:Download/treetest/b.txt, mime_type=text/plain, _display_name=b.txt, last_modified=<set>, flags=326, _size=5
+I/saves-test: created: content://com.android.externalstorage.documents /tree/primary:Download/treetest/document/primary:Download/treetest/c.txt
+I/saves-test: write: ok
+I/saves-test: created read: gamma\n
+I/saves-test: children after create: 3
+I/saves-test:   document_id=primary:Download/treetest/a.txt, mime_type=text/plain, _display_name=a.txt, last_modified=<set>, flags=326, _size=6
+I/saves-test:   document_id=primary:Download/treetest/b.txt, mime_type=text/plain, _display_name=b.txt, last_modified=<set>, flags=326, _size=5
+I/saves-test:   document_id=primary:Download/treetest/c.txt, mime_type=text/plain, _display_name=c.txt, last_modified=<set>, flags=326, _size=6
+I/saves-test: renamed: content://com.android.externalstorage.documents /tree/primary:Download/treetest/document/primary:Download/treetest/d.txt
+I/saves-test: deleted: true
+I/saves-test: children after delete: 2
+I/saves-test:   document_id=primary:Download/treetest/a.txt, mime_type=text/plain, _display_name=a.txt, last_modified=<set>, flags=326, _size=6
+I/saves-test:   document_id=primary:Download/treetest/b.txt, mime_type=text/plain, _display_name=b.txt, last_modified=<set>, flags=326, _size=5
+I/saves-test: odd created: content://com.android.externalstorage.documents /tree/primary:Download/treetest/document/primary:Download/treetest/.._odd_x.txt
+I/saves-test: odd renamed: content://com.android.externalstorage.documents /tree/primary:Download/treetest/document/primary:Download/treetest/(invalid)
+I/saves-test: odd renamed again: content://com.android.externalstorage.documents /tree/primary:Download/treetest/document/primary:Download/treetest/a_b_c_.txt
+I/saves-test: odd deleted: true
+I/saves-test: children after odd: 2
+I/saves-test:   document_id=primary:Download/treetest/a.txt, mime_type=text/plain, _display_name=a.txt, last_modified=<set>, flags=326, _size=6
+I/saves-test:   document_id=primary:Download/treetest/b.txt, mime_type=text/plain, _display_name=b.txt, last_modified=<set>, flags=326, _size=5
+I/saves-test: a read: alpha\n
+I/saves-test: child of root: true
+I/saves-test: a in tree: true
+I/saves-test: persist: ok 1
+I/saves-test: released: 0
+I/saves-test: done

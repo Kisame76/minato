@@ -46,6 +46,18 @@ android_id, as the host gives it (ADR-0045, gap 13a).
 With --obb <file>, once or more, the file lies in the app's OBB folder before the start, as a user or the library puts
 one there (ADR-0049 test 8).
 
+With --pick <file>, once or more, the file is what the user picks when the app asks for a document (ADR-0057 step b):
+the session's host clones it into the app's Download folder, /storage/emulated/0/Download, answers the picker's
+request with the clone and writes the manifest of the clones' names into the app's data folder, as a host does
+(apk-run --pick-file); a request that allows one pick gets the first file, one that allows several all of them.
+
+With --pick-photo <file>, once or more, the same for the photo picker (ADR-0057 step c): the host clones up to the
+request's maximum of the files into the folder .minato/photos of the app's data folder and writes the manifest.
+
+With --pick-save, the session's host answers an ACTION_CREATE_DOCUMENT request as a user who saves into the app's
+Download folder: it creates the file there under the request's title, made unique (ADR-0057 step d). With --pick-tree
+<folder>, it answers an ACTION_OPEN_DOCUMENT_TREE request with that folder, copied into Download before the start.
+
 With --packs <file>, once or more, the file lies read-only in the folder local_testing of the app's external files
 folder before the start, as the library lays out an app's kept pack slices there, and ActivityThread gets
 --local-testing-dir local_testing (ADR-0050 test 2).
@@ -62,6 +74,8 @@ starts' lines count as one log (step c1's context-test).
 
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
+                       [--pick <file>]... [--pick-photo <file>]...
+                       [--pick-save] [--pick-tree <folder>]
                        [--status <n>] [--once <line>]... [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
@@ -92,18 +106,31 @@ def main():
     in_order = []
     obbs = []
     packs = []
+    picks = []
+    photos = []
+    saves = False
+    tree = None
     splits = []
     status = 0
     once = []
     environment = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
-                       ["--in-order"], ["--obb"], ["--packs"], ["--status"], ["--once"], ["--env"], ["--split"]):
+                       ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
+                       ["--pick-tree"], ["--status"], ["--once"], ["--env"], ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
             android_id, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--obb":
             obbs, args = obbs + [args[1]], args[2:]
+        elif args[0] == "--pick-save":
+            saves, args = True, args[1:]
+        elif len(args) > 1 and args[0] == "--pick-tree":
+            tree, args = args[1], args[2:]
+        elif len(args) > 1 and args[0] == "--pick-photo":
+            photos, args = photos + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--pick":
+            picks, args = picks + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--packs":
             packs, args = packs + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--split":
@@ -156,7 +183,8 @@ def main():
                        framework_jar, apk, package, application, mounts=mounts, configuration=configuration,
                        signers=signers, again=again,
                        last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
-                       android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits)
+                       android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits,
+                       picks=picks, photos=photos, saves=saves, tree=tree)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

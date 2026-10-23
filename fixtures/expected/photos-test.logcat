@@ -1,0 +1,39 @@
+I/photos-test: ungranted query: java.lang.SecurityException
+I/photos-test: ungranted open: java.lang.SecurityException
+I/photos-test: ungranted check: -1
+I/photos-test: start single
+I/photos-test: result single: code=-1 data=set
+I/photos-test: flags: 65
+I/photos-test: data: uri clip: 1
+I/photos-test: uri: content://media/picker/0/com.android.providers.media.photopicker/media/<id>
+I/photos-test: row: duration=0, orientation=0, height=48, _display_name=<id>.jpg, datetaken=<set>, mime_type=image/jpeg, _data=<path>, _size=1144, width=64
+I/photos-test: type: image/jpeg
+I/photos-test: read: 1144 4e3a1ea91767879b9f9a4068e57e003d05a27c0cc51e90c7f83b46db6553efaf
+I/photos-test: fd: 1144
+I/photos-test: write fd: java.lang.SecurityException
+I/photos-test: check read: 0 write: -1
+I/photos-test: persist: ok 1
+I/photos-test: released: 0
+I/photos-test: start two
+I/photos-test: result two: code=-1 data=set
+I/photos-test: flags: 65
+I/photos-test: data: null clip: 2
+I/photos-test: uri: content://media/picker/0/com.android.providers.media.photopicker/media/<id>
+I/photos-test: row: duration=0, orientation=0, height=48, _display_name=<id>.jpg, datetaken=<set>, mime_type=image/jpeg, _data=<path>, _size=1144, width=64
+I/photos-test: type: image/jpeg
+I/photos-test: read: 1144 4e3a1ea91767879b9f9a4068e57e003d05a27c0cc51e90c7f83b46db6553efaf
+I/photos-test: fd: 1144
+I/photos-test: write fd: java.lang.SecurityException
+I/photos-test: check read: 0 write: -1
+I/photos-test: persist: ok 1
+I/photos-test: released: 0
+I/photos-test: uri: content://media/picker/0/com.android.providers.media.photopicker/media/<id>
+I/photos-test: row: duration=0, orientation=0, height=64, _display_name=<id>.jpg, datetaken=<set>, mime_type=image/jpeg, _data=<path>, _size=1203, width=48
+I/photos-test: type: image/jpeg
+I/photos-test: read: 1203 a9c9ac00163a12aab97d871f96cc8f0db66496a652ce8b0d0c1375b948e0140d
+I/photos-test: fd: 1203
+I/photos-test: write fd: java.lang.SecurityException
+I/photos-test: check read: 0 write: -1
+I/photos-test: persist: ok 1
+I/photos-test: released: 0
+I/photos-test: done

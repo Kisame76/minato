@@ -1,0 +1,14 @@
+# Minato's own expectation (nothing on Android deletes a picked file): the first start keeps known.txt and not data.bin,
+# the second start, over the same folders, finds the kept grant and neither the other grant nor its clone.
+first start, pick 0: 1
+kept: known.txt
+first start, pick 1: 2
+not kept: data.bin
+download: [data.bin, known.txt]
+done
+second start
+persisted: 1
+persisted: known.txt read=true write=false
+read: hello\n
+download: [known.txt]
+done

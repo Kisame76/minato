@@ -20,6 +20,7 @@ import android.app.LocalActivityManagerService;
 import android.app.LocalActivityTaskManager;
 import android.app.LocalAlarmManager;
 import android.app.LocalJobScheduler;
+import android.app.LocalUriGrants;
 import android.app.NotificationService;
 import android.content.ContentResolver;
 import android.accounts.LocalAccountManager;
@@ -68,6 +69,7 @@ public final class ServiceManager {
         sMakers.put(Context.ALARM_SERVICE, LocalAlarmManager::newBinder);
         sMakers.put(Context.CLIPBOARD_SERVICE, LocalClipboard::newBinder);
         sMakers.put(Context.ACCOUNT_SERVICE, LocalAccountManager::newBinder);
+        sMakers.put(Context.URI_GRANTS_SERVICE, LocalUriGrants::newBinder);
     }
 
     private ServiceManager() {

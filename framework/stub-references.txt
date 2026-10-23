@@ -144,7 +144,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 # ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
-android.app.UriGrantsManager <- android.content.ContentResolver  # gap: persisted URI permissions, as for IUriGrantsManager
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.location.ILocationManager <- android.provider.Settings  # gap: Settings.Secure.isLocationProviderEnabled (deprecated), which asks the location service; decision 4's has no provider
 android.location.ILocationManager$Stub <- android.provider.Settings  # gap: as for ILocationManager

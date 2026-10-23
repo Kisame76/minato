@@ -3,6 +3,9 @@
 //   apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...
 //           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]
 //           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]] [--lifecycle <step>[,<step>]...]
+//           [--pick-file <host file>]... [--pick-download <host directory>] [--pick-data <host directory>]
+//           [--pick-photo <host file>]...
+//           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64. Both split at
@@ -17,7 +20,15 @@
 // at least as high as wide and landscape else, without night mode, at 120 Hz, in en-US unless a locale is given.
 // The session's frame clock then posts a vsync tick every period of that rate (ADR-0041 a)), as the app's does
 // (ADR-0036). The program's end ends the process with its status, as without a session; requests go nowhere, but for
-// FINISH with --lifecycle and the guest's pick requests (ADR-0057 step a), which get a cancel.
+// FINISH with --lifecycle and the guest's pick requests (ADR-0057), which get a cancel unless --pick-file says what the
+// user picks: then an ACTION_OPEN_DOCUMENT or ACTION_GET_CONTENT request gets the first file, or all of them when it
+// allows several, cloned (copied here) into --pick-download, the folder the guest sees as /storage/emulated/0/Download,
+// under a name no file there has, with the manifest of the clones' names in the guest's <data folder>/.minato/picks,
+// --pick-data's folder being the data folder, as the host of APKRT_EVENT_PICK_RESULT (guest_interface.h) does, through
+// descriptors and never through a link the app made (tools/pick_host.h). --pick-photo says the same for the photo
+// picker (kind 5): up to its maximum of the files, cloned into the data folder's .minato/photos. --pick-create Download answers an ACTION_CREATE_DOCUMENT request by creating the file
+// in --pick-download under the title, --pick-tree an ACTION_OPEN_DOCUMENT_TREE request with that folder (ADR-0057
+// step d).
 // Without --configuration there is no frame clock, by design (vsync-lag-test posts its own ticks): a Java app's first
 // traversal posts ViewRootImpl's sync barrier, which only a frame removes, so its main Looper then dispatches no post
 // from another thread and no delayed post. A check that needs the main Looper passes a configuration.
@@ -73,6 +84,7 @@
 #include "frame_clock.h"
 #include "headless_audio.h"
 #include "headless_host.h"
+#include "pick_host.h"
 
 #include <fcntl.h>
 #include <time.h>
@@ -87,6 +99,9 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -109,7 +124,11 @@ int usage() {
                  "usage: apk-run [--mount <guest path>=<host path>]... [--libraries <guest directory>=<host directory>]...\n"
                  "               [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]\n"
                  "               [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]\n"
-                 "               [--lifecycle <step>[,<step>]...] [--measures <file>] <container.dylib> [argument...]\n"
+                 "               [--lifecycle <step>[,<step>]...] [--pick-file <host file>]...\n"
+                 "               [--pick-download <host directory>] [--pick-data <host directory>]\n"
+                 "               [--pick-photo <host file>]...\n"
+                 "               [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]\n"
+                 "               [--measures <file>] <container.dylib> [argument...]\n"
                  "--mount and --libraries split at the last '=', --env at the first.\n");
     return 2;
 }
@@ -215,15 +234,52 @@ struct {
     bool finish = false;
 } finishing;
 
-/// A pick request (ADR-0057 step a) is answered like a user who dismisses the picker: RESULT_CANCELED with no pick, a
-/// moment after the request, on a thread of its own, as a host's picker answers when its view goes away. Step b has
-/// the host answer with the user's picks. The runtime lets four requests wait at most, so the threads are few; one
-/// that cannot start leaves the request unanswered, which the guest's activity survives.
-void answer_pick(std::uint64_t id) {
+/// What the user picks (--pick-file and the others) and where the host puts the clones and the manifest; the host's
+/// work is tools/pick_host.h's, which writes nothing through a link the app made (ADR-0057).
+pick_host::Config pick_config;
+
+pick_host::Host &pick_host_of_run() {
+    static pick_host::Host host(pick_config);
+    return host;
+}
+
+/// A pick request is answered like a user who dismisses the picker: RESULT_CANCELED with no pick, a moment after the
+/// request, on a thread of its own, as a host's picker answers when its view goes away. With --pick-file a document
+/// request (kind 1 or 2) is answered with the user's picks instead. The runtime lets four requests wait at most, so
+/// the threads are few; one that cannot start leaves the request unanswered, which the guest's activity survives.
+void answer_pick(std::uint64_t id, const std::string &text) {
+    const bool documents = !pick_config.files.empty() && (text.starts_with("1\t") || text.starts_with("2\t"));
+    const bool photos = !pick_config.photos.empty() && text.starts_with("5\t");
+    const bool several = text.size() > 3 && text[2] == '1';
+    const bool save = pick_config.create && text.starts_with("3\t");
+    const bool folder = !pick_config.tree.empty() && text.starts_with("4\t");
+    // A save's title is the fifth field: "3\t<flags>\t<max>\t<types>\t<title>".
+    std::string title;
+    if (save) {
+        std::size_t at = 0;
+        for (int tabs = 0; tabs < 4 && at != std::string::npos; ++tabs) at = text.find('\t', at + 1);
+        title = at == std::string::npos ? "" : text.substr(at + 1);
+        if (title.empty()) title = "Untitled";
+    }
+    // The photo picker's maximum is the third field: "5\t<flags>\t<max>\t...".
+    std::uint64_t maximum = 1;
+    if (photos) {
+        const auto first = text.find('\t', 2);
+        if (first != std::string::npos) {
+            maximum = std::max<std::uint64_t>(1, std::strtoull(text.c_str() + first + 1, nullptr, 10));
+        }
+    }
     try {
-        std::thread([id] {
+        std::thread([id, documents, photos, several, maximum, save, folder, title] {
             std::this_thread::sleep_for(std::chrono::milliseconds(300));
-            apkrt_session_post(APKRT_EVENT_PICK_RESULT, id, 0, 0);
+            std::uint64_t count = 0;
+            if ((documents && pick_host_of_run().documents(id, several, count)) ||
+                (photos && pick_host_of_run().photos(id, maximum, count)) ||
+                ((save || folder) && pick_host_of_run().location(id, save ? title : "", count))) {
+                apkrt_session_post(APKRT_EVENT_PICK_RESULT, id, 0xFFFFFFFFu, count);
+            } else {
+                apkrt_session_post(APKRT_EVENT_PICK_RESULT, id, 0, 0);
+            }
         }).detach();
     } catch (const std::system_error &) {
         std::fprintf(stderr, "apk-run: no thread for the answer to pick %llu\n", static_cast<unsigned long long>(id));
@@ -249,7 +305,7 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
     if (type == APKRT_REQUEST_PICK) {
         std::fprintf(stderr, "apk-run: pick %llu: %s\n", static_cast<unsigned long long>(argument),
                      one_line(text != nullptr ? text : "").c_str());
-        answer_pick(argument);
+        answer_pick(argument, text != nullptr ? text : "");
         return;
     }
     if (type == APKRT_REQUEST_PICK_CANCEL) {
@@ -584,6 +640,19 @@ int main(int argc, char **argv) {
             configured = true;
         } else if (option == "--lifecycle") {
             if (!parse_lifecycle(value, lifecycle)) return usage();
+        } else if (option == "--pick-file") {
+            pick_config.files.push_back(value);
+        } else if (option == "--pick-create") {
+            pick_config.create = (value == "Download");
+            if (!pick_config.create) return usage();
+        } else if (option == "--pick-tree") {
+            pick_config.tree = value;
+        } else if (option == "--pick-photo") {
+            pick_config.photos.push_back(value);
+        } else if (option == "--pick-data") {
+            pick_config.data = value;
+        } else if (option == "--pick-download") {
+            pick_config.download = value;
         } else if (option == "--measures") {
             const int measures = ::open(value.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
             if (measures < 0) {

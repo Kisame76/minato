@@ -318,7 +318,7 @@ def tzdata_module(tzdata, folder):
 
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
-          lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=()):
+          lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=(), picks=(), photos=(), saves=None, tree=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -337,6 +337,12 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     overlays made from that build of framework-res, as SystemUI and idmap2 keep them there on Android 15 (ADR-0043
     f)): every app's Resources take them, as its overlay paths. libsqlite.so beside app_process goes to /system/lib64
     too, for libandroid_runtime's database natives (the compatibility plan's gap 7).
+    `picks` are the files the user picks when the app asks for a document (ADR-0057 step b): apk-run clones them into
+    the app's Download folder, which is mounted at /storage/emulated/0/Download then, and writes the manifest below
+    the data folder's .minato/picks (--pick-file, --pick-download, --pick-data). `photos` are the photos the user
+    picks in the photo picker (ADR-0057 step c), cloned into the data folder's .minato/photos (--pick-photo). `saves` (True) answers an ACTION_CREATE_DOCUMENT request by creating the file in the app's
+    Download folder, and `tree` (a folder) an ACTION_OPEN_DOCUMENT_TREE request with that folder, copied into Download
+    before the start (ADR-0057 step d; --pick-create, --pick-tree).
     `environment` are apk-run's --env entries (<name>=<value>) on top of the app's environment, as GuestStart's
     extra entries (the gap scanner's MINATO_GAPSCAN).
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
@@ -382,6 +388,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     # The app's external data and OBB folders at the paths Android 15's realpath gives them, where /sdcard leads.
     external = {f"/storage/emulated/0/Android/data/{package}": "external-data",
                 f"/storage/emulated/0/Android/obb/{package}": "external-obb"}
+    if picks or saves or tree:
+        external["/storage/emulated/0/Download"] = "external-download"
     if not again or not os.path.isdir(run):
         shutil.rmtree(run, ignore_errors=True)
         for folder in ("data/dalvik-cache/arm64", "data/data", app.lstrip("/"), f"{data}/cache".lstrip("/"),
@@ -392,6 +400,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                        "apex/com.android.conscrypt/lib64", "apex/com.android.conscrypt/cacerts", "framework",
                        *sorted(set(external.values()))):
             os.makedirs(os.path.join(run, folder))
+        if tree:
+            shutil.copytree(tree, os.path.join(run, "external-download", os.path.basename(tree)))
         for obb in obbs:
             shutil.copy(obb, os.path.join(run, "external-obb", os.path.basename(obb)))
         if packs:
@@ -446,6 +456,20 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--mount", f"/data/resource-cache={cache}"]
     if configuration is not None:
         command += ["--configuration", configuration, "--lifecycle", lifecycle or "start"]
+    if picks or photos or saves or tree:
+        command += ["--pick-data", os.path.join(run, data.lstrip("/"))]
+    if picks:
+        for pick in picks:
+            command += ["--pick-file", pick]
+    if picks or saves or tree:
+        command += ["--pick-download", os.path.join(run, "external-download")]
+    if saves:
+        command += ["--pick-create", "Download"]
+    if tree:
+        command += ["--pick-tree", "Download/" + os.path.basename(tree)]
+    if photos:
+        for photo in photos:
+            command += ["--pick-photo", photo]
     command += ["--libraries", f"/system/lib64={system_lib64}",
                 "--libraries", f"{ART_ROOT}/lib64={art_lib64}",
                 "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}"]

@@ -2401,3 +2401,8 @@ frameworks_base_types/telephony/java/com/android/telephony/Rlog.java
 # client as AOSP's WindowLayout does, with the holder of its frames.
 frameworks_base/core/java/android/view/WindowLayout.java
 frameworks_base/core/java/android/window/ClientWindowFrames.java
+# ADR-0057 step b, Formate: UriGrantsManager, which ContentResolver's takePersistableUriPermission and
+# getPersistedUriPermissions ask for the service "uri_grants" (LocalUriGrants), with the parcelable of its grants.
+frameworks_base/core/java/android/app/UriGrantsManager.java
+frameworks_base/core/java/android/app/GrantedUriPermission.java
+frameworks_base/core/java/android/app/GrantedUriPermission.aidl

@@ -1110,19 +1110,20 @@ class ContextImpl {
         enforce(permission, checkCallingOrSelfPermission(permission), true, Process.myUid(), message);
     }
 
-    // URI permissions: no grants exist without system_server, so only root and system hold one. Android also lets
-    // the app reach its own providers' URIs; that comes with the providers in step c2.
+    // URI permissions: root and system hold every one; the app holds the grants of the system picker (ADR-0057 step b)
+    // and the ones it kept. Android also lets the app reach its own providers' URIs; that comes with the providers in
+    // step c2.
 
     public int checkUriPermission(Uri uri, int pid, int uid, int modeFlags) {
-        return uriPermission(uid);
+        return uriPermission(uri, uid, modeFlags);
     }
 
     public int checkUriPermission(Uri uri, int pid, int uid, int modeFlags, IBinder callerToken) {
-        return uriPermission(uid);
+        return uriPermission(uri, uid, modeFlags);
     }
 
     public int[] checkUriPermissions(List<Uri> uris, int pid, int uid, int modeFlags) {
-        return uriPermissions(uris.size(), uid);
+        return uriPermissions(uris, uid, modeFlags);
     }
 
     public int checkCallingUriPermission(Uri uri, int modeFlags) {
@@ -1134,20 +1135,20 @@ class ContextImpl {
     }
 
     public int checkCallingOrSelfUriPermission(Uri uri, int modeFlags) {
-        return uriPermission(Process.myUid());
+        return uriPermission(uri, Process.myUid(), modeFlags);
     }
 
     public int[] checkCallingOrSelfUriPermissions(List<Uri> uris, int modeFlags) {
-        return uriPermissions(uris.size(), Process.myUid());
+        return uriPermissions(uris, Process.myUid(), modeFlags);
     }
 
     public int checkUriPermission(Uri uri, String readPermission, String writePermission, int pid, int uid,
             int modeFlags) {
-        return uriPermission(uid);
+        return uriPermission(uri, uid, modeFlags);
     }
 
     public void enforceUriPermission(Uri uri, int pid, int uid, int modeFlags, String message) {
-        enforceUri(uriPermission(uid), modeFlags, uid, uri, message);
+        enforceUri(uriPermission(uri, uid, modeFlags), modeFlags, uid, uri, message);
     }
 
     public void enforceCallingUriPermission(Uri uri, int modeFlags, String message) {
@@ -1155,12 +1156,12 @@ class ContextImpl {
     }
 
     public void enforceCallingOrSelfUriPermission(Uri uri, int modeFlags, String message) {
-        enforceUri(uriPermission(Process.myUid()), modeFlags, Process.myUid(), uri, message);
+        enforceUri(uriPermission(uri, Process.myUid(), modeFlags), modeFlags, Process.myUid(), uri, message);
     }
 
     public void enforceUriPermission(Uri uri, String readPermission, String writePermission, int pid, int uid,
             int modeFlags, String message) {
-        enforceUri(uriPermission(uid), modeFlags, uid, uri, message);
+        enforceUri(uriPermission(uri, uid, modeFlags), modeFlags, uid, uri, message);
     }
 
     // Starts from a context that is not an activity's, as the tag's ContextImpl makes them (ADR-0039 step b3.5b2-1):
@@ -1208,6 +1209,27 @@ class ContextImpl {
         int appId = uid % 100000;
         return uid >= 0 && (appId == Process.ROOT_UID || appId == Process.SYSTEM_UID)
                 ? PackageManager.PERMISSION_GRANTED : PackageManager.PERMISSION_DENIED;
+    }
+
+    /**
+     * As UriGrantsManagerService answers for `uid`: root and system hold every grant; the app (its own uid) holds the
+     * ones the system picker made for it (ADR-0057 step b) and the ones it kept, with the modes asked for.
+     */
+    private static int uriPermission(Uri uri, int uid, int modeFlags) {
+        if (uriPermission(uid) == PackageManager.PERMISSION_GRANTED) {
+            return PackageManager.PERMISSION_GRANTED;
+        }
+        return uri != null && uid == Process.myUid()
+                && com.android.internal.minato.picker.UriGrants.allows(uri, modeFlags)
+                ? PackageManager.PERMISSION_GRANTED : PackageManager.PERMISSION_DENIED;
+    }
+
+    private static int[] uriPermissions(List<Uri> uris, int uid, int modeFlags) {
+        int[] result = new int[uris.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = uriPermission(uris.get(i), uid, modeFlags);
+        }
+        return result;
     }
 
     private static int[] uriPermissions(int count, int uid) {

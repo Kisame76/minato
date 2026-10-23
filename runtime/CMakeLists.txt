@@ -117,6 +117,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(frame_clock_test PRIVATE apk_defaults apk_testing)
   add_test(NAME runtime.frame_clock COMMAND frame_clock_test)
 
+  # apk-run's host of the system pickers (tools/pick_host.h, ADR-0057): nothing is written through the app's links.
+  add_executable(pick_host_test tests/pick_host_test.cpp)
+  target_include_directories(pick_host_test PRIVATE tools)
+  target_link_libraries(pick_host_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.pick_host COMMAND pick_host_test)
+
   # apk-run's headless host (tools/headless_host.h): the session's surfaces and the windows' buffers, recorded.
   add_executable(headless_host_test tests/headless_host_test.cpp)
   target_include_directories(headless_host_test PRIVATE tools)

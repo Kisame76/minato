@@ -108,11 +108,14 @@ import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.view.WindowSurface;
 import android.widget.WidgetFlags;
+import com.android.externalstorage.ExternalStorageProvider;
+import com.android.providers.media.MediaProvider;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.minato.GapScan;
 import com.android.minato.app.ActivityWindows;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.internal.minato.picker.SystemPickerActivity;
+import com.android.internal.minato.picker.UriGrants;
 import com.android.internal.os.SafeZipPathValidatorCallback;
 import dalvik.system.AppSpecializationHooks;
 import dalvik.system.RuntimeHooks;
@@ -167,6 +170,8 @@ public final class ActivityThread {
     private String mAndroidId;
     /** The local settings provider, made at its first acquire; under mLocalProvidersByAuthority's lock. */
     private SettingsProvider mSettingsProvider;
+    private ExternalStorageProvider mExternalStorageProvider;
+    private MediaProvider mMediaProvider;
 
     /**
      * The activities by their token, as AOSP's ActivityThread keeps them, which Application.getAutofillClient walks:
@@ -534,6 +539,9 @@ public final class ActivityThread {
             NetworkSecurityConfigProvider.install(ContextImpl.createAppContext(thread, packageInfo));
             Application app = packageInfo.makeApplication(application);
             thread.mInitialApplication = app;
+            // ADR-0057: the kept URI grants of the earlier starts are read, and the clones of picks that no kept grant
+            // names are removed, once and before any pick can make a clone of this start.
+            UriGrants.startUp();
             // As handleBindApplication: AOSP's Instrumentation for the process, and the activity client controller,
             // which Android's first launch transaction hands over; Minato's is the process's own (step c2c3).
             thread.mInstrumentation = new Instrumentation();
@@ -622,6 +630,33 @@ public final class ActivityThread {
                     mSettingsProvider = SettingsProvider.create(application != null ? application : c, mAndroidId);
                 }
                 provider = mSettingsProvider;
+            }
+            if (provider == null && ExternalStorageProvider.AUTHORITY.equals(auth)) {
+                // ADR-0057 step b: the documents provider of the primary storage, which the system picker's results
+                // name; made at its first acquire, on the caller's application context.
+                if (mExternalStorageProvider == null) {
+                    Context application = c.getApplicationContext();
+                    Context context = application != null ? application : c;
+                    mExternalStorageProvider = new ExternalStorageProvider();
+                    mExternalStorageProvider.attachInfo(context, ExternalStorageProvider.providerInfo(context));
+                }
+                provider = mExternalStorageProvider;
+            }
+            if (provider == null && "media".equals(auth)) {
+                // ADR-0057 step c: the media provider, which serves the photo picker's URIs for now.
+                if (mMediaProvider == null) {
+                    Context application = c.getApplicationContext();
+                    Context context = application != null ? application : c;
+                    mMediaProvider = new MediaProvider();
+                    android.content.pm.ProviderInfo info = new android.content.pm.ProviderInfo();
+                    info.name = MediaProvider.class.getName();
+                    info.authority = "media";
+                    info.packageName = "com.android.providers.media.module";
+                    info.exported = true;
+                    info.applicationInfo = context.getApplicationInfo();
+                    mMediaProvider.attachInfo(context, info);
+                }
+                provider = mMediaProvider;
             }
         }
         if (provider == null) {

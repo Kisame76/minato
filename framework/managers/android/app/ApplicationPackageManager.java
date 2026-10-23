@@ -37,6 +37,7 @@ import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
+import com.android.externalstorage.ExternalStorageProvider;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
 import java.io.File;
@@ -544,6 +545,13 @@ class ApplicationPackageManager {
         if (picker != PickerIntents.NONE) {
             found = new ArrayList<>(found);
             found.add(PickerIntents.resolveInfo(picker));
+        }
+        // The documents provider of the primary storage, which Android lists for DocumentsProvider.PROVIDER_INTERFACE
+        // (DocumentsContract.isDocumentUri asks for it, as DocumentsProvider.PROVIDER_INTERFACE); ADR-0057 step b.
+        if (kind == ManifestPackage.QUERY_PROVIDERS && app != null
+                && "android.content.action.DOCUMENTS_PROVIDER".equals(intent.getAction())) {
+            found = new ArrayList<>(found);
+            found.add(ExternalStorageProvider.resolveInfo(app));
         }
         return found;
     }
