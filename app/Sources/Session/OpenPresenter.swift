@@ -84,7 +84,15 @@ final class OpenPresenter: NSObject {
         guard UIApplication.shared.applicationState != .background else { return ended(token, .background) }
         switch action {
         case .systemOpen(let url):
-            UIApplication.shared.open(url) { [weak self] opened in self?.ended(token, opened ? .shown : .noHandler) }
+            let away = Away()
+            UIApplication.shared.open(url) { [weak self] opened in
+                guard opened else {
+                    away.stop()
+                    self?.ended(token, .noHandler)
+                    return
+                }
+                self?.awaitReturn(token, away, since: .now)
+            }
         case .browser(let url):
             // SFSafariViewController raises for any other URL; OpenRequest only makes these.
             guard url.scheme == "http" || url.scheme == "https", url.host() != nil else { return ended(token, .refused) }
@@ -111,15 +119,34 @@ final class OpenPresenter: NSObject {
         }
     }
 
-    /// Presents `controller` for presentation `token` over the top controller; a present that UIKit drops, or one
-    /// without a scene in front, ends as no handler.
-    private func show(_ controller: UIViewController, _ token: UInt64) {
+    /// Presents `controller` for presentation `token` over the top controller, once that has no controller of its own
+    /// on the way out, as UIKit drops a present over one; without a scene in front, or after 2 s of waiting, it ends as
+    /// no handler.
+    private func show(_ controller: UIViewController, _ token: UInt64, attempt: Int = 0) {
         guard shown?.token == token else { return }
         guard let top = Self.topController() else { return ended(token, .noHandler) }
+        if top.presentedViewController != nil {
+            guard attempt < 40 else { return ended(token, .noHandler) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.show(controller, token, attempt: attempt + 1)
+            }
+            return
+        }
         shown?.controller = controller
         top.present(controller, animated: true)
-        DispatchQueue.main.async { [weak self] in
-            if controller.presentingViewController == nil, !controller.isBeingPresented { self?.ended(token, .noHandler) }
+    }
+
+    /// iOS opened the URL in another app or in its own alert (tel): the answer comes once the user is back in Minato,
+    /// as Android gives the result when the other app's activity ends; when Minato did not leave within 1 s, at once.
+    private func awaitReturn(_ token: UInt64, _ away: Away, since start: ContinuousClock.Instant) {
+        guard shown?.token == token else { return away.stop() }
+        let back = away.resigned ? UIApplication.shared.applicationState == .active : .now - start > .seconds(1)
+        guard !back else {
+            away.stop()
+            return ended(token, .shown)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            if let self { self.awaitReturn(token, away, since: start) } else { away.stop() }
         }
     }
 
@@ -221,6 +248,25 @@ extension OpenPresenter: @MainActor MFMessageComposeViewControllerDelegate {
         controller.dismiss(animated: true) { [weak self] in
             if let token { self?.ended(token, result == .sent ? .shown : .cancelled) }
         }
+    }
+}
+
+/// Whether Minato left the foreground since an open of iOS began: another app came to the front, or iOS's alert.
+@MainActor
+private final class Away {
+    private(set) var resigned = false
+    private var observer: (any NSObjectProtocol)?
+
+    init() {
+        observer = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification,
+                                                          object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resigned = true }
+        }
+    }
+
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 }
 
