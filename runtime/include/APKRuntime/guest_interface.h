@@ -199,6 +199,20 @@ enum apkrt_event_type {
                                           // still a regular file of that name in the same folder (the same document
                                           // as on Android); a clone the app removed or replaced by a folder or link
                                           // is made anew. A name is therefore new unless it is the same document.
+                                          // WRITE-BACK (kinds 1 and 2, ADR-0057's addendum of 2026-10-23): what the
+                                          // app writes into a clone reaches the user's file. The host keeps a record
+                                          // per clone in ITS OWN data (the original's security-scoped bookmark, the
+                                          // original's and the clone's size, time and SHA-256 at the clone), and one
+                                          // second after the last close of a descriptor the app wrote through, at the
+                                          // session's background and at its end, compares the clone with the record:
+                                          // unchanged, nothing is done; changed, and the original still has the
+                                          // recorded content (read under NSFileCoordinator), the clone replaces it
+                                          // (temp file and rename); else nothing is written, the app's version goes to
+                                          // the host's own folder and the user decides. The clone is read with
+                                          // O_NOFOLLOW from the Download descriptor, a link or folder there is a
+                                          // conflict, and the guest's cleaning of unkept clones is harmless because the
+                                          // host holds the app's version. tools/pick_host.h's WriteBack is the
+                                          // reference and tests/pick_host_test.cpp plays the cases.
                                           // The picks of a save or a folder request (kinds 3 and 4, step d): a2 is 1
                                           // and the manifest is ONE line, a path relative to /storage/emulated/0 with
                                           // plain names between single "/", no "." or ".." component, at most 1024

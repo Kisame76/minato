@@ -9,14 +9,20 @@
 // in guest_interface.h; tests/pick_host_test.cpp plays the attacks.
 #pragma once
 
+#include <CommonCrypto/CommonDigest.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,6 +37,9 @@ struct Config {
     /// A save goes to Download; a folder the user opens, relative to /storage/emulated/0 ("" for none).
     bool create = false;
     std::string tree;
+    /// The host's own folder for what it must not lose (write-back records and the app's version in a conflict): never
+    /// below the data folder or Download, which the app can write. "" keeps records in memory only.
+    std::string state;
 };
 
 /// A closed-on-exit directory descriptor.
@@ -187,9 +196,412 @@ inline void picture_size(const std::string &content, std::uint32_t &width, std::
     }
 }
 
+// ---- Writing an edited clone back to its original (ADR-0057, the addendum accepted 2026-10-23) --------------------
+// What Android does at once (the app writes the original through its grant), the host does for a clone: one second
+// after the last close of a descriptor the app wrote through, at the session going to the background, and at its end.
+// The original is reached through `Original`: on the Mac a path (PathOriginal), on the iPhone a security-scoped
+// bookmark and NSFileCoordinator (App). Nothing is written over an original that is not what the clone was made
+// from: that is a conflict, the app's version is kept in the host's own folder, and the user decides (resolve).
+
+/// A file's state as the write-back compares it: whether it is there, its size, modification time and SHA-256.
+struct Version {
+    bool exists = false;
+    std::uint64_t size = 0;
+    std::int64_t mtime_ns = 0;
+    std::string digest;
+    /// The same content; a changed time alone is no change.
+    bool same_content(const Version &other) const {
+        return exists == other.exists && size == other.size && digest == other.digest;
+    }
+};
+
+inline std::string sha256_hex(const std::string &content) {
+    unsigned char sum[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(content.data(), static_cast<CC_LONG>(content.size()), sum);
+    static const char digits[] = "0123456789abcdef";
+    std::string hex;
+    for (const unsigned char byte : sum) {
+        hex += digits[byte >> 4];
+        hex += digits[byte & 15];
+    }
+    return hex;
+}
+
+inline std::int64_t mtime_ns_of(const struct stat &info) {
+    return static_cast<std::int64_t>(info.st_mtimespec.tv_sec) * 1000000000 + info.st_mtimespec.tv_nsec;
+}
+
+inline Version version_of(const std::string &content, const struct stat &info) {
+    Version version;
+    version.exists = true;
+    version.size = content.size();
+    version.mtime_ns = mtime_ns_of(info);
+    version.digest = sha256_hex(content);
+    return version;
+}
+
+/// Reads a regular file below `dir` without following a link at its name.
+inline bool read_regular_at(const Dir &dir, const std::string &name, std::string &content, Version &version,
+                            int *error = nullptr) {
+    const int fd = ::openat(dir.fd(), name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) {
+        if (error != nullptr) *error = errno;
+        return false;
+    }
+    struct stat info {};
+    bool ok = ::fstat(fd, &info) == 0 && S_ISREG(info.st_mode);
+    if (!ok && error != nullptr) *error = EINVAL;
+    content.clear();
+    char buffer[65536];
+    while (ok) {
+        const ssize_t got = ::read(fd, buffer, sizeof buffer);
+        if (got < 0 && errno == EINTR) continue;
+        if (got < 0) ok = false;
+        if (got <= 0) break;
+        content.append(buffer, static_cast<std::size_t>(got));
+    }
+    ::close(fd);
+    if (ok) version = version_of(content, info);
+    return ok;
+}
+
+/// The user's file a clone was made from, reached the way the host can reach it.
+class Original {
+public:
+    enum Result { WRITTEN, CHANGED, FAILED };
+    virtual ~Original() = default;
+    /// What the host stores to find the file again (a path here, bookmark data on the iPhone); no tab or newline.
+    virtual std::string token() const = 0;
+    /// The content now; false when the file is gone, a link, no regular file or cannot be reached.
+    virtual bool read(std::string &content, Version &version) = 0;
+    /// Replaces the content with `content` if the file still has `expected`'s content, all or nothing: WRITTEN, CHANGED
+    /// (it differs, is gone or is a link: nothing was written) or FAILED (it could not be tried).
+    virtual Result replace_if(const Version &expected, const std::string &content, Version &after) = 0;
+};
+
+/// An original by path (apk-run on the Mac): never read or written through a link at its name.
+class PathOriginal : public Original {
+public:
+    explicit PathOriginal(std::string path) : path_(std::move(path)) {}
+    std::string token() const override { return path_; }
+    bool read(std::string &content, Version &version) override {
+        const std::size_t slash = path_.rfind('/');
+        const Dir dir = open_base(slash == std::string::npos ? "." : slash == 0 ? "/" : path_.substr(0, slash));
+        return dir.ok() &&
+               read_regular_at(dir, path_.substr(slash == std::string::npos ? 0 : slash + 1), content, version);
+    }
+    Result replace_if(const Version &expected, const std::string &content, Version &after) override {
+        std::string old;
+        Version now;
+        if (!read(old, now) || !now.same_content(expected)) return CHANGED;
+        const std::size_t slash = path_.rfind('/');
+        const Dir dir = open_base(slash == std::string::npos ? "." : slash == 0 ? "/" : path_.substr(0, slash));
+        const std::string name = path_.substr(slash == std::string::npos ? 0 : slash + 1);
+        const std::string partial = "." + name + ".minato-partial";
+        ::unlinkat(dir.fd(), partial.c_str(), 0);
+        const int fd = ::openat(dir.fd(), partial.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+        if (fd < 0) return FAILED;
+        const bool written = write_all(fd, content.data(), content.size()) && ::fsync(fd) == 0;
+        ::close(fd);
+        if (!written || ::renameat(dir.fd(), partial.c_str(), dir.fd(), name.c_str()) != 0) {
+            ::unlinkat(dir.fd(), partial.c_str(), 0);
+            return FAILED;
+        }
+        std::string back;
+        return read(back, after) ? WRITTEN : FAILED;
+    }
+
+private:
+    std::string path_;
+};
+
+/// The records of the clones the host made from the user's files, and what becomes of an edit.
+class WriteBack {
+public:
+    enum State { CLEAN, DIRTY, CONFLICT, DISCARDED };
+    /// The wait after the last close, as the addendum says: an app that closes and opens again writes once.
+    static constexpr std::int64_t delay_ms = 1000;
+    using Factory = std::function<std::unique_ptr<Original>(const std::string &token)>;
+
+    WriteBack(std::string download, std::string state) : download_(std::move(download)), state_(std::move(state)) {}
+
+    /// Starts watching `clone` (a name in Download), made from `original`, which had `original_now`; `clone_now` is the
+    /// clone as it was made.
+    void track(const std::string &clone, std::unique_ptr<Original> original, const Version &original_now,
+               const Version &clone_now) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        Record record;
+        record.original = std::move(original);
+        record.original_base = original_now;
+        record.clone_base = clone_now;
+        records_[clone] = std::move(record);
+        save();
+    }
+    bool tracked(const std::string &clone) const {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        return records_.count(clone) != 0;
+    }
+
+    /// The app closed a descriptor it wrote through.
+    void closed(const std::string &clone, std::int64_t now_ms) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        const auto found = records_.find(clone);
+        if (found == records_.end()) return;
+        Record &record = found->second;
+        if (record.state == CONFLICT) return;
+        if (record.state == DISCARDED) {
+            std::string content;
+            Version version;
+            if (record.original->read(content, version)) record.original_base = version;
+        }
+        record.state = DIRTY;
+        record.due_ms = now_ms + delay_ms;
+        save();
+    }
+
+    /// Finds the clones that changed without a close being reported (a write through a mapping, a rename over the
+    /// clone); they are written back one second later, as after a close.
+    void scan(std::int64_t now_ms) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        bool changed = false;
+        const Dir download = open_base(download_);
+        for (auto &entry : records_) {
+            Record &record = entry.second;
+            if (record.state != CLEAN) continue;
+            struct stat info {};
+            if (download.ok() && ::fstatat(download.fd(), entry.first.c_str(), &info, AT_SYMLINK_NOFOLLOW) == 0 &&
+                (!S_ISREG(info.st_mode) || static_cast<std::uint64_t>(info.st_size) != record.clone_base.size ||
+                 mtime_ns_of(info) != record.clone_base.mtime_ns)) {
+                record.state = DIRTY;
+                record.due_ms = now_ms + delay_ms;
+                changed = true;
+            }
+        }
+        if (changed) save();
+    }
+
+    /// Writes back what is due at `now_ms`, or everything dirty when `force` (the session goes to the background).
+    void flush(std::int64_t now_ms, bool force) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        for (auto &entry : records_) {
+            if (entry.second.state == DIRTY && (force || entry.second.due_ms <= now_ms)) {
+                write_back(entry.first, entry.second, now_ms);
+                save();
+            }
+        }
+    }
+
+    /// The session ends: what a mapping changed is found, everything is written, the records are stored.
+    void end_session(std::int64_t now_ms) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        scan(now_ms);
+        flush(now_ms, true);
+        save();
+    }
+
+    /// Whether the guest may delete the clone: it is written back, or never changed, or the user let it go.
+    bool removable(const std::string &clone) const {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        const auto found = records_.find(clone);
+        return found == records_.end() || found->second.state == CLEAN || found->second.state == DISCARDED;
+    }
+
+    std::vector<std::string> conflicts() const {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        std::vector<std::string> names;
+        for (const auto &entry : records_) {
+            if (entry.second.state == CONFLICT) names.push_back(entry.first);
+        }
+        return names;
+    }
+
+    /// The user's decision for a conflict: `replace` writes the app's version over what the original is now, else the
+    /// app's version is let go. False when there is no such conflict or the write did not happen.
+    bool resolve(const std::string &clone, bool replace) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        const auto found = records_.find(clone);
+        if (found == records_.end() || found->second.state != CONFLICT) return false;
+        Record &record = found->second;
+        if (replace) {
+            std::string content;
+            Version copy;
+            const Dir state = open_base(state_);
+            if (record.copy.empty() || !state.ok() || !read_regular_at(state, record.copy, content, copy)) return false;
+            std::string old;
+            Version now;
+            Version after;
+            if (!record.original->read(old, now) ||
+                record.original->replace_if(now, content, after) != Original::WRITTEN) {
+                return false;
+            }
+            record.original_base = after;
+            record.clone_base = copy;
+            record.state = CLEAN;
+        } else {
+            record.state = DISCARDED;
+        }
+        drop_copy(record);
+        save();
+        return true;
+    }
+
+    /// Stores the records in the host's own folder (not a folder the app can write).
+    bool save() const {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (state_.empty()) return true;
+        const Dir state = open_base(state_);
+        if (!state.ok()) return false;
+        std::string text;
+        for (const auto &entry : records_) {
+            const Record &r = entry.second;
+            const std::string token = r.original->token();
+            if (token.find_first_of("\t\n") != std::string::npos) continue;
+            text += entry.first + "\t" + static_cast<char>('0' + r.state) + "\t" + token + "\t" +
+                    fields(r.original_base) + "\t" + fields(r.clone_base) + "\t" + r.copy + "\t" +
+                    std::to_string(r.due_ms) + "\n";
+        }
+        const std::string partial = "records.partial";
+        ::unlinkat(state.fd(), partial.c_str(), 0);
+        const int fd =
+            ::openat(state.fd(), partial.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+        if (fd < 0) return false;
+        const bool written = write_all(fd, text.data(), text.size()) && ::fsync(fd) == 0;
+        ::close(fd);
+        if (!written || ::renameat(state.fd(), partial.c_str(), state.fd(), "records") != 0) {
+            ::unlinkat(state.fd(), partial.c_str(), 0);
+            return false;
+        }
+        return true;
+    }
+
+    /// Reads the records stored by save(), each original made by `factory`; false when there are none.
+    bool load(const Factory &factory) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (state_.empty()) return false;
+        const Dir state = open_base(state_);
+        std::string text;
+        Version ignored;
+        if (!state.ok() || !read_regular_at(state, "records", text, ignored)) return false;
+        for (std::size_t start = 0; start < text.size();) {
+            std::size_t end = text.find('\n', start);
+            if (end == std::string::npos) end = text.size();
+            std::vector<std::string> field;
+            const std::string line = text.substr(start, end - start);
+            start = end + 1;
+            for (std::size_t from = 0;; ) {
+                const std::size_t tab = line.find('\t', from);
+                field.push_back(line.substr(from, tab == std::string::npos ? std::string::npos : tab - from));
+                if (tab == std::string::npos) break;
+                from = tab + 1;
+            }
+            if (field.size() != 7 || field[0].empty() || field[0].find('/') != std::string::npos ||
+                field[1].size() != 1 || field[1][0] < '0' || field[1][0] > '3' ||
+                field[5].find('/') != std::string::npos) {
+                continue;
+            }
+            Record record;
+            record.original = factory(field[2]);
+            if (!record.original || !parse_fields(field[3], record.original_base) ||
+                !parse_fields(field[4], record.clone_base)) {
+                continue;
+            }
+            record.state = static_cast<State>(field[1][0] - '0');
+            record.copy = field[5];
+            record.due_ms = std::atoll(field[6].c_str());
+            records_[field[0]] = std::move(record);
+        }
+        return true;
+    }
+
+private:
+    struct Record {
+        std::unique_ptr<Original> original;
+        Version original_base, clone_base;
+        State state = CLEAN;
+        std::int64_t due_ms = 0;
+        std::string copy;
+    };
+
+    static std::string fields(const Version &v) {
+        return std::string(v.exists ? "1" : "0") + "," + std::to_string(v.size) + "," +
+               std::to_string(v.mtime_ns) + "," + v.digest;
+    }
+    static bool parse_fields(const std::string &text, Version &v) {
+        const std::size_t a = text.find(','), b = a == std::string::npos ? a : text.find(',', a + 1),
+                          c = b == std::string::npos ? b : text.find(',', b + 1);
+        if (c == std::string::npos || (text[0] != '0' && text[0] != '1')) return false;
+        v.exists = text[0] == '1';
+        v.size = std::strtoull(text.substr(a + 1, b - a - 1).c_str(), nullptr, 10);
+        v.mtime_ns = std::atoll(text.substr(b + 1, c - b - 1).c_str());
+        v.digest = text.substr(c + 1);
+        return v.digest.size() == 64 || v.digest.empty();
+    }
+
+    void drop_copy(Record &record) {
+        if (!record.copy.empty()) {
+            const Dir state = open_base(state_);
+            if (state.ok()) ::unlinkat(state.fd(), record.copy.c_str(), 0);
+        }
+        record.copy.clear();
+    }
+
+    /// Keeps the app's version in the host's folder: the guest's cleaning may delete the clone in Download.
+    void keep_copy(Record &record, const std::string &content) {
+        if (state_.empty()) return;
+        const Dir state = open_base(state_);
+        if (!state.ok()) return;
+        std::string chosen;
+        const int fd = create_new(state, "copy-" + std::to_string(++sequence_), chosen);
+        if (fd < 0) return;
+        const bool written = write_all(fd, content.data(), content.size()) && ::fsync(fd) == 0;
+        ::close(fd);
+        if (written) record.copy = chosen; else ::unlinkat(state.fd(), chosen.c_str(), 0);
+    }
+
+    void write_back(const std::string &clone, Record &record, std::int64_t now_ms) {
+        const Dir download = open_base(download_);
+        std::string content;
+        Version version;
+        int error = 0;
+        if (!download.ok() || !read_regular_at(download, clone, content, version, &error)) {
+            record.state = error == ENOENT ? DISCARDED : CONFLICT;
+            return;
+        }
+        if (version.same_content(record.clone_base)) {
+            record.clone_base = version;
+            record.state = CLEAN;
+            return;
+        }
+        Version after;
+        switch (record.original->replace_if(record.original_base, content, after)) {
+            case Original::WRITTEN:
+                record.original_base = after;
+                record.clone_base = version;
+                record.state = CLEAN;
+                break;
+            case Original::CHANGED:
+                keep_copy(record, content);
+                record.state = CONFLICT;
+                break;
+            case Original::FAILED:
+                record.due_ms = now_ms + delay_ms;
+                break;
+        }
+    }
+
+    mutable std::recursive_mutex mutex_;
+    std::string download_, state_;
+    std::map<std::string, Record> records_;
+    unsigned sequence_ = 0;
+};
+
 class Host {
 public:
-    explicit Host(Config config) : config_(std::move(config)) {}
+    explicit Host(Config config)
+        : config_(std::move(config)), write_back_(config_.download, config_.state) {}
+
+    /// The records of the clones made from the user's files (kinds 1 and 2).
+    WriteBack &write_back() { return write_back_; }
 
     /// ACTION_OPEN_DOCUMENT or GET_CONTENT: the first file, or all of them when `several`, cloned into Download.
     bool documents(std::uint64_t id, bool several, std::uint64_t &count) {
@@ -220,6 +632,7 @@ public:
 
 private:
     Config config_;
+    WriteBack write_back_;
     /// The clone's name of each file picked so far (per folder); the answers run one after the other in a session.
     std::map<std::string, std::string> clones_;
 
@@ -243,11 +656,18 @@ private:
                 const int fd = create_new(folder, plain_name(slash == std::string::npos ? file : file.substr(slash + 1)),
                                           name);
                 if (fd < 0) return false;
-                const bool written = write_all(fd, content.data(), content.size());
+                const bool written = write_all(fd, content.data(), content.size()) && ::fsync(fd) == 0;
+                struct stat made {};
+                const bool stated = written && ::fstat(fd, &made) == 0;
                 ::close(fd);
-                if (!written) {
+                if (!stated) {
                     name.clear();
                     return false;
+                }
+                struct stat source {};
+                if (!photo && ::stat(file.c_str(), &source) == 0) {
+                    write_back_.track(name, std::make_unique<PathOriginal>(file), version_of(content, source),
+                                      version_of(content, made));
                 }
             }
             manifest += (photo ? photo_line(file, name) : name) + "\n";

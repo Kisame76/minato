@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -226,6 +227,182 @@ TEST(a_users_file_name_becomes_a_name_the_guest_accepts) {
     CHECK((cut.size() - 4) % 4 == 0);                                       // cut between code points
     const std::string numbered = ph::numbered(std::string(255, 'y') + "", 3);
     CHECK(numbered.size() <= 255 && numbered.substr(numbered.size() - 4) == " (3)");
+}
+
+// ---- Writing an edited clone back to its original (ADR-0057, the addendum accepted 2026-10-23) --------------------
+
+/// An original that counts what the host does to it: the Mac's stand-in for the iOS host's bookmark and coordination.
+class CountingOriginal : public ph::PathOriginal {
+public:
+    using ph::PathOriginal::PathOriginal;
+    int writes = 0;
+    bool fail = false;
+    Result replace_if(const ph::Version &expected, const std::string &content, ph::Version &after) override {
+        if (fail) return FAILED;
+        const Result result = ph::PathOriginal::replace_if(expected, content, after);
+        if (result == WRITTEN) ++writes;
+        return result;
+    }
+};
+
+struct Tracked {
+    Layout layout;
+    std::string state = layout.root + "/host-state";
+    ph::WriteBack write_back{layout.download, state};
+    CountingOriginal *original = nullptr;
+    Tracked() {
+        make_dir(state);
+        write_file(layout.download + "/known.txt", "hello\n");
+        auto owned = std::make_unique<CountingOriginal>(layout.source + "/known.txt");
+        original = owned.get();
+        ph::Version at_clone;
+        CHECK(original->read(cloned_text, at_clone));
+        write_back.track("known.txt", std::move(owned), at_clone, at_clone);
+    }
+    std::string cloned_text;
+    std::string known() const { return read_text(layout.source + "/known.txt"); }
+};
+
+TEST(an_edited_clone_reaches_its_original_one_second_after_the_last_close) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 10000);
+    t.write_back.flush(10500, false);
+    CHECK(t.known() == "hello\n" && !t.write_back.removable("known.txt"));
+    t.write_back.closed("known.txt", 10800);                                 // the app closes again: the clock restarts
+    t.write_back.flush(11200, false);
+    CHECK(t.known() == "hello\n");
+    t.write_back.flush(11800, false);
+    CHECK(t.known() == "edited\n" && t.original->writes == 1 && t.write_back.removable("known.txt"));
+    t.write_back.flush(20000, true);
+    CHECK(t.original->writes == 1);                                          // nothing left to write
+}
+
+TEST(a_close_without_a_change_leaves_the_original_untouched) {
+    Tracked t;
+    struct stat before {};
+    ::stat((t.layout.source + "/known.txt").c_str(), &before);
+    t.write_back.closed("known.txt", 0);
+    t.write_back.flush(5000, false);
+    struct stat after {};
+    ::stat((t.layout.source + "/known.txt").c_str(), &after);
+    CHECK(t.original->writes == 0 && before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec);
+    CHECK(t.write_back.removable("known.txt"));
+}
+
+TEST(a_write_through_a_mapping_is_found_at_the_end_of_the_session) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "mapped!\n");                // no close was reported
+    t.write_back.flush(5000, false);
+    CHECK(t.known() == "hello\n");
+    t.write_back.end_session(6000);
+    CHECK(t.known() == "mapped!\n" && t.write_back.removable("known.txt"));
+}
+
+TEST(an_original_that_changed_meanwhile_is_not_overwritten_and_the_app_version_is_kept) {
+    Tracked t;
+    write_file(t.layout.source + "/known.txt", "somebody else\n");
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    t.write_back.flush(5000, false);
+    CHECK(t.known() == "somebody else\n" && t.original->writes == 0);
+    CHECK(!t.write_back.removable("known.txt"));
+    CHECK(t.write_back.conflicts() == std::vector<std::string>{"known.txt"});
+    ::unlink((t.layout.download + "/known.txt").c_str());                    // the guest's cleaning deletes the clone
+    CHECK(!names(t.state).empty());                                          // the host holds the app's version
+    CHECK(t.write_back.resolve("known.txt", true));
+    CHECK(t.known() == "edited\n" && t.write_back.removable("known.txt") && t.write_back.conflicts().empty());
+    CHECK(names(t.state) == std::vector<std::string>{"records"} || names(t.state).empty());
+}
+
+TEST(a_conflict_the_user_discards_keeps_the_original_and_frees_the_clone) {
+    Tracked t;
+    write_file(t.layout.source + "/known.txt", "somebody else\n");
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    t.write_back.flush(5000, false);
+    CHECK(t.write_back.resolve("known.txt", false));
+    CHECK(t.known() == "somebody else\n" && t.write_back.removable("known.txt"));
+    CHECK(names(t.state) == std::vector<std::string>{"records"} || names(t.state).empty());
+}
+
+TEST(an_original_that_is_gone_or_became_a_link_is_a_conflict_and_nothing_is_written_through) {
+    Tracked t;
+    write_file(t.layout.outside + "/target", "outside\n");
+    ::unlink((t.layout.source + "/known.txt").c_str());
+    ::symlink((t.layout.outside + "/target").c_str(), (t.layout.source + "/known.txt").c_str());
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    t.write_back.flush(5000, false);
+    CHECK(read_text(t.layout.outside + "/target") == "outside\n" && t.original->writes == 0);
+    CHECK(t.write_back.conflicts() == std::vector<std::string>{"known.txt"});
+    ::unlink((t.layout.source + "/known.txt").c_str());
+    Tracked gone;
+    ::unlink((gone.layout.source + "/known.txt").c_str());
+    write_file(gone.layout.download + "/known.txt", "edited\n");
+    gone.write_back.closed("known.txt", 0);
+    gone.write_back.flush(5000, false);
+    CHECK(!exists_nofollow(gone.layout.source + "/known.txt") && !gone.write_back.removable("known.txt"));
+}
+
+TEST(a_clone_the_app_replaced_by_a_link_is_never_read_through) {
+    Tracked t;
+    write_file(t.layout.outside + "/secret", "secret\n");
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    ::symlink((t.layout.outside + "/secret").c_str(), (t.layout.download + "/known.txt").c_str());
+    t.write_back.closed("known.txt", 0);
+    t.write_back.end_session(5000);
+    CHECK(t.known() == "hello\n" && t.original->writes == 0 && !t.write_back.removable("known.txt"));
+}
+
+TEST(an_app_that_saves_by_writing_a_temporary_file_and_renaming_it_over_the_clone_is_found) {
+    Tracked t;
+    write_file(t.layout.download + "/known.tmp", "renamed over\n");
+    CHECK(::rename((t.layout.download + "/known.tmp").c_str(), (t.layout.download + "/known.txt").c_str()) == 0);
+    t.write_back.end_session(5000);                                          // no close of the clone's identity came
+    CHECK(t.known() == "renamed over\n" && t.write_back.removable("known.txt"));
+}
+
+TEST(a_write_that_fails_is_tried_again_and_the_clone_stays) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.original->fail = true;
+    t.write_back.closed("known.txt", 0);
+    t.write_back.flush(5000, false);
+    CHECK(t.known() == "hello\n" && !t.write_back.removable("known.txt") && t.write_back.conflicts().empty());
+    t.original->fail = false;
+    t.write_back.flush(6000, false);
+    CHECK(t.known() == "edited\n" && t.write_back.removable("known.txt"));
+}
+
+TEST(records_survive_the_hosts_restart_and_are_not_taken_from_the_apps_folders) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);                                     // the host is killed before any flush
+    ph::WriteBack again(t.layout.download, t.state);
+    CHECK(again.load([&](const std::string &token) { return std::make_unique<CountingOriginal>(token); }));
+    again.end_session(5000);
+    CHECK(t.known() == "edited\n" && again.removable("known.txt"));
+    // A records file planted in the app's folders is not read.
+    write_file(t.layout.download + "/records", "known.txt\tD\t" + t.layout.outside + "/x\n");
+    ph::WriteBack other(t.layout.download, t.layout.root + "/empty-state");
+    CHECK(!other.load([&](const std::string &token) { return std::make_unique<CountingOriginal>(token); }) ||
+          !other.tracked("known.txt"));
+}
+
+TEST(the_host_tracks_the_clones_it_makes_and_writes_them_back_at_the_session_end) {
+    Layout layout;
+    ph::Config config = layout.config();
+    config.state = layout.root + "/host-state";
+    make_dir(config.state);
+    ph::Host host(config);
+    std::uint64_t count = 0;
+    CHECK(host.documents(1, false, count) && host.write_back().tracked("known.txt"));
+    write_file(layout.download + "/known.txt", "edited\n");
+    host.write_back().closed("known.txt", 0);
+    host.write_back().end_session(100);
+    CHECK(read_text(layout.source + "/known.txt") == "edited\n");
+    CHECK(host.documents(2, false, count) && read_text(layout.download + "/known.txt") == "edited\n");  // same clone
 }
 
 }  // namespace

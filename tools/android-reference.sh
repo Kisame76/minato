@@ -610,6 +610,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DocumentsActivity
       limit=120
       ;;
+    # documents-edit-test (ADR-0057, write-back): its activity opens known.txt, replaces its content through the URI and
+    # reads it back, and ends with "done"; the script then reads the file in Download, which holds the new text.
+    documents-edit-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EditActivity
+      limit=90
+      ;;
     # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with
     # "done"; the script has red.jpg and blue.jpg in Pictures and in MediaStore, and taps the thumbnails by their
     # descriptions (tools/ui-pick.py), the first is red.jpg.
@@ -793,6 +799,10 @@ run_app() {
         >/dev/null
     done
   fi
+  if [[ "$app" == documents-edit-test ]]; then
+    # ADR-0057, write-back: known.txt in Download, picked and edited by the app.
+    device push "fixtures/apps/$app/files/known.txt" /sdcard/Download/ >/dev/null
+  fi
   if [[ "$app" == documents-test ]]; then
     # ADR-0057 step b: the two files the pickers pick, in Download, where a user or a browser puts them.
     device push "fixtures/apps/$app/files/known.txt" /sdcard/Download/ >/dev/null
@@ -841,6 +851,19 @@ run_app() {
       $pick tap Select && wait_for "$app" "start get-content" && sleep 3 && $pick download && $pick tap known.txt &&
       wait_for "$app" done 60; } || picks=failed
     run rm -f /sdcard/Download/known.txt /sdcard/Download/data.bin
+    [[ "$picks" == ok ]] || return 1
+  fi
+  if [[ "$app" == documents-edit-test ]]; then
+    # ADR-0057, write-back: the one picker is DocumentsUI's, in Download; the file must hold the app's text afterwards.
+    local pick="python3 tools/ui-pick.py $ADB $serial" picks=ok
+    # Word splitting is wanted: $pick is a command.
+    # shellcheck disable=SC2086
+    { wait_for "$app" "start" && $pick download && $pick tap known.txt && wait_for "$app" done 60; } || picks=failed
+    local after
+    after=$(run cat /sdcard/Download/known.txt | tr -d '\r')
+    echo "known.txt after the run: $after"
+    [[ "$after" == "edited by app" ]] || picks=failed
+    run rm -f /sdcard/Download/known.txt
     [[ "$picks" == ok ]] || return 1
   fi
   if [[ "$app" == saves-test ]]; then

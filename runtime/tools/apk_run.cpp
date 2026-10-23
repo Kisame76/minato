@@ -4,6 +4,7 @@
 //           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]
 //           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]] [--lifecycle <step>[,<step>]...]
 //           [--pick-file <host file>]... [--pick-download <host directory>] [--pick-data <host directory>]
+//           [--pick-state <host directory>]
 //           [--pick-photo <host file>]...
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
@@ -127,6 +128,7 @@ int usage() {
                  "               [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]\n"
                  "               [--lifecycle <step>[,<step>]...] [--pick-file <host file>]...\n"
                  "               [--pick-download <host directory>] [--pick-data <host directory>]\n"
+                 "               [--pick-state <host directory>]\n"
                  "               [--pick-photo <host file>]...\n"
                  "               [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]\n"
                  "               [--measures <file>] <container.dylib> [argument...]\n"
@@ -242,6 +244,35 @@ pick_host::Config pick_config;
 pick_host::Host &pick_host_of_run() {
     static pick_host::Host host(pick_config);
     return host;
+}
+
+std::int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+}
+
+/// The program ended: the edits the app made to the clones of the user's files reach the files (ADR-0057, write-back),
+/// as a host does at the end of a session.
+void write_back_at_end() {
+    if (pick_config.files.empty() || pick_config.download.empty()) return;
+    pick_host_of_run().write_back().end_session(now_ms());
+}
+
+/// Until the runtime tells the host that the guest closed a file it wrote (a pending request to Runtime), a thread looks
+/// at the clones every 100 ms, as the host's flush points do: a clone that changed is written back a second later.
+void watch_clones() {
+    if (pick_config.files.empty() || pick_config.download.empty()) return;
+    // Records of an earlier run over the same folders (--pick-state): what was not written back then is now.
+    pick_host_of_run().write_back().load(
+            [](const std::string &token) { return std::make_unique<pick_host::PathOriginal>(token); });
+    pick_host_of_run().write_back().flush(now_ms(), true);
+    std::thread([] {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            pick_host_of_run().write_back().scan(now_ms());
+            pick_host_of_run().write_back().flush(now_ms(), false);
+        }
+    }).detach();
 }
 
 /// A pick request is answered like a user who dismisses the picker: RESULT_CANCELED with no pick, a moment after the
@@ -694,6 +725,8 @@ int main(int argc, char **argv) {
             pick_config.data = value;
         } else if (option == "--pick-download") {
             pick_config.download = value;
+        } else if (option == "--pick-state") {
+            pick_config.state = value;
         } else if (option == "--measures") {
             const int measures = ::open(value.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
             if (measures < 0) {
@@ -724,7 +757,10 @@ int main(int argc, char **argv) {
 
     if (configured) {
         // The end handler runs on the guest's thread instead of the process's end: it ends the process as that would.
-        session.end = [](void *, int status) { ::_exit(status); };
+        session.end = [](void *, int status) {
+            write_back_at_end();
+            ::_exit(status);
+        };
         if (!lifecycle.empty()) {
             session.request = on_request;
             session.surface = on_surface;
@@ -748,6 +784,7 @@ int main(int argc, char **argv) {
         }
     }
     apkrt_set_audio_host(&headless_audio::host);
+    watch_clones();
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
     std::fprintf(stderr, "apk-run: %s\n", error);
     if (configured) {

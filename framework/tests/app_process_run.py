@@ -461,6 +461,11 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     if picks:
         for pick in picks:
             command += ["--pick-file", pick]
+    if picks:
+        # The host's own folder for the records of the write-back, outside everything the app can reach (ADR-0057).
+        state = os.path.join(run, "host-state")
+        os.makedirs(state, exist_ok=True)
+        command += ["--pick-state", state]
     if picks or saves or tree:
         command += ["--pick-download", os.path.join(run, "external-download")]
     if saves:
