@@ -438,6 +438,56 @@ TEST(a_file_that_is_not_the_clone_any_more_is_never_written_back_even_after_a_re
     CHECK(again.conflicts() == std::vector<std::string>{"known.txt"});        // its version is kept for the user
 }
 
+TEST(a_file_picked_again_after_its_conflict_was_discarded_gets_the_users_file_not_the_rejected_clone) {
+    Layout layout;
+    ph::Host host(layout.config());
+    std::uint64_t count = 0;
+    CHECK(host.documents(1, false, count) && layout.manifest(1) == "known.txt\n");
+    write_file(layout.download + "/known.txt", "app edit\n");
+    host.write_back().closed("known.txt", 0);
+    write_file(layout.source + "/known.txt", "user's newer file\n");
+    host.write_back().flush(5000, false);
+    CHECK(host.write_back().resolve("known.txt", false));                    // the user lets the app's version go
+    CHECK(host.documents(2, false, count) && layout.manifest(2) == "known (1).txt\n");
+    CHECK(read_text(layout.download + "/known (1).txt") == "user's newer file\n");
+}
+
+TEST(a_new_clone_never_takes_a_name_that_a_record_still_holds) {
+    Layout layout;
+    make_dir(layout.root + "/host-state");
+    ph::Config config = layout.config();
+    config.state = layout.root + "/host-state";
+    ph::Host host(config);
+    std::uint64_t count = 0;
+    CHECK(host.documents(1, false, count));
+    write_file(layout.download + "/known.txt", "app edit\n");
+    host.write_back().closed("known.txt", 0);
+    write_file(layout.source + "/known.txt", "user's newer file\n");
+    host.write_back().flush(5000, false);                                    // a conflict, with the app's version kept
+    ::unlink((layout.download + "/known.txt").c_str());                      // the guest's cleaning deletes the clone
+    CHECK(host.documents(2, false, count) && layout.manifest(2) == "known (1).txt\n");
+    CHECK(host.write_back().conflicts() == std::vector<std::string>{"known.txt"});   // the new clone is not one
+    CHECK(host.write_back().resolve("known.txt", true));                     // the kept copy is still there
+    CHECK(read_text(layout.source + "/known.txt") == "app edit\n");
+}
+
+TEST(a_write_that_keeps_failing_becomes_a_conflict_after_backing_off) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.original->fail = true;
+    t.write_back.closed("known.txt", 0);
+    const std::int64_t at[] = {5000, 6000, 8000, 12000, 20000};              // 1, 2, 4, 8 and 16 s after each failure
+    for (std::int64_t now : at) {
+        t.write_back.flush(now - 1, false);                                  // not yet due
+        CHECK(t.write_back.conflicts().empty());
+        t.write_back.flush(now, false);
+        CHECK(t.write_back.conflicts().empty() && !t.write_back.removable("known.txt"));
+    }
+    t.write_back.flush(36000, false);                                        // the sixth failure
+    CHECK(t.write_back.conflicts() == std::vector<std::string>{"known.txt"});
+    CHECK(t.known() == "hello\n" && t.original->writes == 0 && !names(t.state).empty());
+}
+
 TEST(a_clone_the_app_replaced_by_a_link_is_never_read_through) {
     Tracked t;
     write_file(t.layout.outside + "/secret", "secret\n");

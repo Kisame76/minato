@@ -224,8 +224,14 @@ enum apkrt_event_type {
                                           // and birth time as made), across restarts too, and a file of the clone's
                                           // name with another identity is not the clone: it is never written back,
                                           // its version is kept and the user decides (so a save that renames a file
-                                          // over the clone is a conflict, not a silent write). tools/pick_host.h's
-                                          // WriteBack is the reference and tests/pick_host_test.cpp plays the cases.
+                                          // over the clone is a conflict, not a silent write). A clone with no
+                                          // record is not reused by a pick again (it may hold a version the user
+                                          // rejected), and a name that a record with the app's work holds (DIRTY or
+                                          // CONFLICT) is not given to a new clone even when the guest deleted that
+                                          // clone, so its kept copy is never orphaned. A write that fails is tried
+                                          // again after 1, 2, 4, 8 and 16 s; the sixth failure is a conflict with the
+                                          // app's version kept. tools/pick_host.h's WriteBack is the reference and
+                                          // tests/pick_host_test.cpp plays the cases.
                                           // The picks of a save or a folder request (kinds 3 and 4, step d): a2 is 1
                                           // and the manifest is ONE line, a path relative to /storage/emulated/0 with
                                           // plain names between single "/", no "." or ".." component, at most 1024

@@ -138,9 +138,11 @@ inline std::string numbered(const std::string &name, int n) {
 
 /// Creates a file that did not exist in `dir`: the first free of the name's numbered forms, made with O_EXCL; the
 /// file's descriptor, and in `chosen` its name; -1 when it cannot be made (not for a busy name).
-inline int create_new(const Dir &dir, const std::string &name, std::string &chosen) {
+inline int create_new(const Dir &dir, const std::string &name, std::string &chosen,
+                      const std::function<bool(const std::string &)> &busy = {}) {
     for (int n = 0; n < 10000; ++n) {
         chosen = numbered(name, n);
+        if (busy && busy(chosen)) continue;  // a name that something of the host's still holds
         const int fd = ::openat(dir.fd(), chosen.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
         if (fd >= 0 || errno != EEXIST) return fd;
     }
@@ -339,6 +341,7 @@ public:
     enum State { CLEAN, DIRTY, CONFLICT };
     /// The wait after the last close, as the addendum says: an app that closes and opens again writes once.
     static constexpr std::int64_t delay_ms = 1000;
+    static constexpr int max_failures = 6;
     /// Called, with no lock held, with the name of each clone whose record the host let go (the host stops watching
     /// it).
     std::function<void(const std::string &)> on_forget;
@@ -373,15 +376,31 @@ public:
         const std::lock_guard<std::recursive_mutex> lock(mutex_);
         return records_.count(clone) != 0;
     }
+    /// Whether a record holds `clone` with the app's work in it (DIRTY or CONFLICT): the name is not given again, even
+    /// when the guest deleted the clone, since the record's kept copy and its original are still the user's to decide.
+    bool holds(const std::string &clone) const {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        const auto found = records_.find(clone);
+        return found != records_.end() && found->second.state != CLEAN;
+    }
+    /// Lets the record of an untouched clone go (its file is gone and the name is taken by another).
+    void forget_clean(const std::string &clone) {
+        announce([&] {
+            const auto found = records_.find(clone);
+            if (found != records_.end() && found->second.state == CLEAN) forget(clone);
+        });
+    }
+
     /// Whether a file picked again may get `clone` again. Android's document is live, so a clone the app has not
     /// touched (CLEAN) is only reused while the original still has the content it was made from; the user changed
-    /// it elsewhere otherwise, and the pick gets a new clone. A clone with the app's edits (DIRTY, CONFLICT,
-    /// CONFLICT) stays: the write-back decides what becomes of the original. An original that cannot be read leaves
-    /// the clone as it is.
+    /// it elsewhere otherwise, and the pick gets a new clone. A clone with the app's edits (DIRTY, CONFLICT) stays: the
+    /// write-back decides what becomes of the original. An original that cannot be read leaves the clone as it is. A
+    /// clone with no record (the user let its conflict go, so it holds a rejected version) is not reused.
     bool reusable(const std::string &clone) {
         const std::lock_guard<std::recursive_mutex> lock(mutex_);
         const auto found = records_.find(clone);
-        if (found == records_.end() || found->second.state != CLEAN) return true;
+        if (found == records_.end()) return false;  // a clone without a record is one the host let go of
+        if (found->second.state != CLEAN) return true;
         std::string content;
         Version now;
         return !found->second.original->read(content, now) || now.same_content(found->second.original_base);
@@ -612,6 +631,7 @@ private:
         Version original_base, clone_base;
         State state = CLEAN;
         std::int64_t due_ms = 0;
+        int failures = 0;  // of the write in a row; not stored
         std::string copy;
     };
 
@@ -697,7 +717,13 @@ private:
                 record.state = CONFLICT;
                 break;
             case Original::FAILED:
-                record.due_ms = now_ms + delay_ms;
+                // Tried again after 1, 2, 4, 8 and 16 s; the sixth failure asks the user instead.
+                if (++record.failures >= max_failures) {
+                    keep_copy(record, content);
+                    record.state = CONFLICT;
+                } else {
+                    record.due_ms = now_ms + (delay_ms << (record.failures - 1));
+                }
                 break;
         }
     }
@@ -882,7 +908,9 @@ private:
                 if (!read_file(file, content)) return false;
                 const std::size_t slash = file.rfind('/');
                 const std::string base = slash == std::string::npos ? file : file.substr(slash + 1);
-                const int fd = create_new(folder, plain_name(base), name);
+                // A name that a record still holds (a conflict whose clone the guest deleted) is not taken again.
+                const int fd = create_new(folder, plain_name(base), name,
+                                          [&](const std::string &taken) { return !photo && write_back_.holds(taken); });
                 if (fd < 0) return false;
                 const bool written = write_all(fd, content.data(), content.size()) && ::fsync(fd) == 0;
                 struct stat made {};
@@ -892,6 +920,7 @@ private:
                     name.clear();
                     return false;
                 }
+                if (!photo) write_back_.forget_clean(name);  // an untouched clone of that name is gone: its record too
                 // The name is this document's now: an older entry that names it (its clone was deleted, and this
                 // file took the free name) would hand back the wrong file.
                 for (auto other = clones_.begin(); other != clones_.end();) {
