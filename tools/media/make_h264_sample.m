@@ -7,30 +7,34 @@
    Each is written as Annex B (<name>.h264: every access unit in decode order, the parameter sets before each key
    frame, 4-byte start codes) and an index (<name>.idx: one line per access unit, "<offset> <size> <pts in us>
    <1 for a key frame, else 0>"), which media-codec-test reads to queue one access unit per input buffer.
-   Usage: make-h264-sample <output directory> */
+   With --bench (ADR-0060 e2c's iPhone measurement, media-bench-test): hd at 1920 x 1080 and uhd at 3840 x 2160, Main
+   with reordering, 60 frames at 30 per second, the same picture, key frames every 15, at 8 and 20 Mbit/s.
+   Usage: make-h264-sample [--bench] <output directory> */
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 #import <VideoToolbox/VideoToolbox.h>
 
-static const int kWidth = 320, kHeight = 180, kFrames = 30, kRate = 30;
+static const int kRate = 30;
+/* The stream's size and length: the test streams' by default, a bench stream's with --bench. */
+static int stream_width = 320, stream_height = 180, stream_frames = 30;
 
 /* The frame's pixels, BGRA: a gradient, a white 32 x 32 block at (8 x frame, 40), and a 48 x 48 block at (240, 100)
    whose color steps with the frame. */
 static CVPixelBufferRef frame_pixels(int frame) {
     NSDictionary *attributes = @{(id)kCVPixelBufferIOSurfacePropertiesKey: @{}};
     CVPixelBufferRef pixels = NULL;
-    if (CVPixelBufferCreate(NULL, kWidth, kHeight, kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)attributes,
-                            &pixels) != kCVReturnSuccess) {
+    if (CVPixelBufferCreate(NULL, stream_width, stream_height, kCVPixelFormatType_32BGRA,
+                            (__bridge CFDictionaryRef)attributes, &pixels) != kCVReturnSuccess) {
         return NULL;
     }
     CVPixelBufferLockBaseAddress(pixels, 0);
     uint8_t *base = CVPixelBufferGetBaseAddress(pixels);
     const size_t row = CVPixelBufferGetBytesPerRow(pixels);
-    for (int y = 0; y < kHeight; y++) {
-        for (int x = 0; x < kWidth; x++) {
+    for (int y = 0; y < stream_height; y++) {
+        for (int x = 0; x < stream_width; x++) {
             uint8_t *pixel = base + (size_t)y * row + (size_t)x * 4;
-            int r = x * 255 / kWidth, g = y * 255 / kHeight, b = 128;
+            int r = x * 255 / stream_width, g = y * 255 / stream_height, b = 128;
             if (x >= 8 * frame && x < 8 * frame + 32 && y >= 40 && y < 72) {
                 r = g = b = 255;
             } else if (x >= 240 && x < 288 && y >= 100 && y < 148) {
@@ -105,13 +109,13 @@ static void encoded(void *context, void *frame, OSStatus status, VTEncodeInfoFla
                                (long long)(CMTimeGetSeconds(pts) * 1000000.0 + 0.5), key ? 1 : 0];
 }
 
-static int make(NSString *directory, NSString *name, CFStringRef profile, BOOL reorder) {
+static int make(NSString *directory, NSString *name, CFStringRef profile, BOOL reorder, int bit_rate) {
     Stream *stream = [Stream new];
     stream.bytes = [NSMutableData data];
     stream.index = [NSMutableString string];
     VTCompressionSessionRef session = NULL;
-    OSStatus status = VTCompressionSessionCreate(NULL, kWidth, kHeight, kCMVideoCodecType_H264, NULL, NULL, NULL,
-                                                 encoded, (__bridge void *)stream, &session);
+    OSStatus status = VTCompressionSessionCreate(NULL, stream_width, stream_height, kCMVideoCodecType_H264, NULL, NULL,
+                                                 NULL, encoded, (__bridge void *)stream, &session);
     if (status != noErr) {
         fprintf(stderr, "make-h264-sample: no H.264 encoder (%d)\n", (int)status);
         return 1;
@@ -121,9 +125,9 @@ static int make(NSString *directory, NSString *name, CFStringRef profile, BOOL r
                                                                                           : kCFBooleanFalse);
     VTSessionSetProperty(session, kVTCompressionPropertyKey_RealTime, kCFBooleanFalse);
     VTSessionSetProperty(session, kVTCompressionPropertyKey_MaxKeyFrameInterval, (__bridge CFTypeRef) @15);
-    VTSessionSetProperty(session, kVTCompressionPropertyKey_AverageBitRate, (__bridge CFTypeRef) @400000);
+    VTSessionSetProperty(session, kVTCompressionPropertyKey_AverageBitRate, (__bridge CFTypeRef) @(bit_rate));
     VTSessionSetProperty(session, kVTCompressionPropertyKey_ExpectedFrameRate, (__bridge CFTypeRef) @(kRate));
-    for (int frame = 0; frame < kFrames && stream.status == noErr; frame++) {
+    for (int frame = 0; frame < stream_frames && stream.status == noErr; frame++) {
         CVPixelBufferRef pixels = frame_pixels(frame);
         if (pixels == NULL) {
             stream.status = -4;
@@ -159,12 +163,20 @@ static int make(NSString *directory, NSString *name, CFStringRef profile, BOOL r
 
 int main(int argc, char **argv) {
     @autoreleasepool {
-        if (argc != 2) {
-            fprintf(stderr, "Usage: make-h264-sample <output directory>\n");
+        const BOOL bench = argc == 3 && strcmp(argv[1], "--bench") == 0;
+        if (argc != 2 && !bench) {
+            fprintf(stderr, "Usage: make-h264-sample [--bench] <output directory>\n");
             return 2;
         }
-        NSString *directory = @(argv[1]);
-        return make(directory, @"baseline", kVTProfileLevel_H264_Baseline_AutoLevel, NO) ||
-               make(directory, @"main", kVTProfileLevel_H264_Main_AutoLevel, YES);
+        NSString *directory = @(argv[argc - 1]);
+        if (!bench) {
+            return make(directory, @"baseline", kVTProfileLevel_H264_Baseline_AutoLevel, NO, 400000) ||
+                   make(directory, @"main", kVTProfileLevel_H264_Main_AutoLevel, YES, 400000);
+        }
+        stream_frames = 60;
+        stream_width = 1920, stream_height = 1080;
+        if (make(directory, @"hd", kVTProfileLevel_H264_Main_AutoLevel, YES, 8000000)) return 1;
+        stream_width = 3840, stream_height = 2160;
+        return make(directory, @"uhd", kVTProfileLevel_H264_Main_AutoLevel, YES, 20000000);
     }
 }

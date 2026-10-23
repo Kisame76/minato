@@ -50,7 +50,8 @@
 # media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
 # vk-ahb-test (ADR-0058 e1), decision 7) runs on the iPhone only, a NativeActivity app of tools/build-fixtures.sh whose
 # Vulkan needs MoltenVK, which the Simulator lacks: VK_ANDROID_external_memory_android_hardware_buffer's import and
-# export on the iPhone's IOSurfaces.
+# export on the iPhone's IOSurfaces. media-codec-test and media-window-test (ADR-0060 e2c) run on the iPhone only too,
+# against Android 15's lines, and media-bench-test, Minato's measurement at 1080p and 4K (its lines shown, Home twice).
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -138,6 +139,10 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ -z "$GODOT_TEST" || "$ON_DEVICE" == no ]] || APPS+=("godot-bench-vulkan io.github.kisame76.minato.godotbench.vulkan")
 [[ -z "$GODOT_TEST" ]] || APPS+=("godot-bench-gles io.github.kisame76.minato.godotbench.gles")
 [[ "$ON_DEVICE" == no ]] || APPS+=("vk-ahb-test io.github.kisame76.minato.test.vkahb")
+# ADR-0060 e2c's decoder apps on the iPhone only, on its hardware VideoToolbox (the Mac has checks of their own).
+[[ "$ON_DEVICE" == no ]] || APPS+=("media-codec-test io.github.kisame76.minato.test.mediacodec")
+[[ "$ON_DEVICE" == no ]] || APPS+=("media-bench-test io.github.kisame76.minato.test.mediabench")
+[[ "$ON_DEVICE" == no ]] || APPS+=("media-window-test io.github.kisame76.minato.test.mediawindow")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -524,6 +529,38 @@ run_lifecycle() {
   end_start java-test "$round"
 }
 
+# media-bench-test's start (ADR-0060 e2c): its measurement lines, and twice Home a few seconds into a background run
+# and the return 8 s later, while it decodes 4K into an RGBA and then a YUV reader; its lines are shown, as they are
+# Minato's measurement, which has no Android reference.
+run_media_bench() {
+  local package=io.github.kisame76.minato.test.mediabench kind
+  if begin_start media-bench-test "$package" 1; then
+    for kind in rgba yuv; do
+      if ! await_line guest-log "^I/media-bench-test: background $kind: decoding$" 300; then
+        failed_line "no background $kind run" "media-bench-test-1"
+        break
+      fi
+      sleep 4
+      launch "$AWAY"
+      sleep 8
+      launch
+      ok "  Home and the return during the background $kind run"
+    done
+    if await_line guest-log "^I/media-bench-test: done$" 120; then
+      ok "  done, $(seconds "$TAP" "$SEEN") s after the tap"
+      sleep 2
+    else
+      failed_line "no done" "media-bench-test-1"
+    fi
+  fi
+  end_start media-bench-test 1
+  grep -E "^I/media-bench-test: " "$WORK/media-bench-test-1.log" | sed 's/^/note  /'
+  if grep -q -E "^I/media-bench-test: (failed|.*no codec)" "$WORK/media-bench-test-1.log" ||
+     grep -q -E "^I/media-bench-test: background .*images in the last 3 s no" "$WORK/media-bench-test-1.log"; then
+    failures=$((failures + 1))
+  fi
+}
+
 # Import the apps; the Simulator signs a ready app's code ad hoc at its first tap.
 terminate
 rm -rf "$CHECK"
@@ -697,6 +734,9 @@ run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
 # On the iPhone only, as its APPS entry (the Simulator has no MoltenVK).
 [[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
+[[ "$ON_DEVICE" == no ]] || run_one media-codec-test io.github.kisame76.minato.test.mediacodec
+[[ "$ON_DEVICE" == no ]] || ! wanted media-bench-test || run_media_bench
+[[ "$ON_DEVICE" == no ]] || run_one media-window-test io.github.kisame76.minato.test.mediawindow
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.
