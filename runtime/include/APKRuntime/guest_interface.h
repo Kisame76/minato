@@ -198,7 +198,12 @@ enum apkrt_event_type {
                                           // picks again gets the clone of the earlier pick back, as long as that is
                                           // still a regular file of that name in the same folder (the same document
                                           // as on Android); a clone the app removed or replaced by a folder or link
-                                          // is made anew. A name is therefore new unless it is the same document.
+                                          // is made anew, and so is one the app has not written to when the user's file
+                                          // has changed since (Android's document is live; a clone with the app's
+                                          // edits stays, the write-back decides). A host that remembers a clone by
+                                          // the file it came from forgets every other file's entry for that name when
+                                          // a file takes it, since a freed name goes to whichever file asks first.
+                                          // A name is therefore new unless it is the same document.
                                           // WRITE-BACK (kinds 1 and 2, ADR-0057's addendum of 2026-10-23): what the
                                           // app writes into a clone reaches the user's file. The host keeps a record
                                           // per clone in ITS OWN data (the original's security-scoped bookmark, the

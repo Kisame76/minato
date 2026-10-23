@@ -344,6 +344,19 @@ public:
         const std::lock_guard<std::recursive_mutex> lock(mutex_);
         return records_.count(clone) != 0;
     }
+    /// Whether a file picked again may get `clone` again. Android's document is live, so a clone the app has not
+    /// touched (CLEAN) is only reused while the original still has the content it was made from; the user changed
+    /// it elsewhere otherwise, and the pick gets a new clone. A clone with the app's edits (DIRTY, CONFLICT,
+    /// DISCARDED) stays: the write-back decides what becomes of the original. An original that cannot be read leaves
+    /// the clone as it is.
+    bool reusable(const std::string &clone) {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        const auto found = records_.find(clone);
+        if (found == records_.end() || found->second.state != CLEAN) return true;
+        std::string content;
+        Version now;
+        return !found->second.original->read(content, now) || now.same_content(found->second.original_base);
+    }
 
     /// The app closed a descriptor it wrote through.
     void closed(const std::string &clone, std::int64_t now_ms) {
@@ -711,6 +724,8 @@ public:
 
     /// The records of the clones made from the user's files (kinds 1 and 2).
     WriteBack &write_back() { return write_back_; }
+    /// The files the next answers pick (apk-run's model takes them from its command line once; a test changes them).
+    void set_files(std::vector<std::string> files) { config_.files = std::move(files); }
 
     /// Called with the name of each clone this host makes from a user's file (not for one picked again): the place to
     /// ask the runtime to watch it (apkrt_watch_writes), so that write_back().closed() hears the app's last close.
@@ -763,13 +778,13 @@ private:
             std::string &name = clones_[(photo ? "p:" : "d:") + file];
             struct stat info {};
             if (name.empty() || ::fstatat(folder.fd(), name.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0 ||
-                !S_ISREG(info.st_mode)) {
+                !S_ISREG(info.st_mode) || (!photo && !write_back_.reusable(name))) {
                 name.clear();
                 std::string content;
                 if (!read_file(file, content)) return false;
                 const std::size_t slash = file.rfind('/');
-                const int fd = create_new(folder, plain_name(slash == std::string::npos ? file : file.substr(slash + 1)),
-                                          name);
+                const std::string base = slash == std::string::npos ? file : file.substr(slash + 1);
+                const int fd = create_new(folder, plain_name(base), name);
                 if (fd < 0) return false;
                 const bool written = write_all(fd, content.data(), content.size()) && ::fsync(fd) == 0;
                 struct stat made {};
@@ -778,6 +793,12 @@ private:
                 if (!stated) {
                     name.clear();
                     return false;
+                }
+                // The name is this document's now: an older entry that names it (its clone was deleted, and this
+                // file took the free name) would hand back the wrong file.
+                for (auto other = clones_.begin(); other != clones_.end();) {
+                    const bool stale = &other->second != &name && other->second == name;
+                    other = stale ? clones_.erase(other) : std::next(other);
                 }
                 struct stat source {};
                 if (!photo && ::stat(file.c_str(), &source) == 0) {

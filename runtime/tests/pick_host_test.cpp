@@ -170,6 +170,43 @@ TEST(a_file_picked_again_is_one_document_unless_the_app_replaced_its_clone) {
     CHECK(!exists_nofollow(layout.outside + "/x"));
 }
 
+TEST(a_name_freed_by_the_app_never_hands_back_another_document) {
+    Layout layout;
+    make_dir(layout.root + "/one");
+    make_dir(layout.root + "/two");
+    write_file(layout.root + "/one/photo.txt", "from one\n");
+    write_file(layout.root + "/two/photo.txt", "from two\n");
+    ph::Host host(layout.config());
+    std::uint64_t count = 0;
+    host.set_files({layout.root + "/one/photo.txt"});
+    CHECK(host.documents(1, false, count) && layout.manifest(1) == "photo.txt\n");
+    ::unlink((layout.download + "/photo.txt").c_str());                          // the app deletes its clone
+    host.set_files({layout.root + "/two/photo.txt"});
+    CHECK(host.documents(2, false, count) && layout.manifest(2) == "photo.txt\n");   // the other document takes the name
+    host.set_files({layout.root + "/one/photo.txt"});
+    CHECK(host.documents(3, false, count) && layout.manifest(3) == "photo (1).txt\n");
+    CHECK(read_text(layout.download + "/photo.txt") == "from two\n");
+    CHECK(read_text(layout.download + "/photo (1).txt") == "from one\n");
+}
+
+TEST(a_file_picked_again_after_the_user_changed_it_gets_a_new_clone_unless_the_app_has_edits) {
+    Layout layout;
+    ph::Host host(layout.config());
+    std::uint64_t count = 0;
+    CHECK(host.documents(1, false, count) && layout.manifest(1) == "known.txt\n");
+    write_file(layout.source + "/known.txt", "changed elsewhere\n");                  // the user edits the original
+    CHECK(host.documents(2, false, count) && layout.manifest(2) == "known (1).txt\n");
+    CHECK(read_text(layout.download + "/known (1).txt") == "changed elsewhere\n");
+    CHECK(read_text(layout.download + "/known.txt") == "hello\n");                    // the old clone stays as it was
+    CHECK(host.documents(3, false, count) && layout.manifest(3) == "known (1).txt\n");  // now the same again
+    // An app with unsent edits keeps its clone: the write-back decides what becomes of the original.
+    write_file(layout.download + "/known (1).txt", "app edit\n");
+    host.write_back().closed("known (1).txt", 1000);
+    write_file(layout.source + "/known.txt", "changed again\n");
+    CHECK(host.documents(4, false, count) && layout.manifest(4) == "known (1).txt\n");
+    CHECK(read_text(layout.download + "/known (1).txt") == "app edit\n");
+}
+
 TEST(photos_are_cloned_below_the_data_folder_with_their_numbers) {
     Layout layout;
     write_file(layout.source + "/p.png", std::string("\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x40\0\0\0\x30", 24));
