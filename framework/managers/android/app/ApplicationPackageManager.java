@@ -38,6 +38,7 @@ import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
 import com.android.externalstorage.ExternalStorageProvider;
+import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
 import java.io.File;
@@ -545,6 +546,12 @@ class ApplicationPackageManager {
         if (picker != PickerIntents.NONE) {
             found = new ArrayList<>(found);
             found.add(PickerIntents.resolveInfo(picker));
+        }
+        // The links, mail, calls, texts, maps and shares of ADR-0062 resolve to the phone's app that iOS stands in for.
+        if (kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty() && picker == PickerIntents.NONE
+                && OpenIntents.kindOf(intent) != 0) {
+            found = new ArrayList<>(found);
+            found.add(OpenIntents.resolveInfo(intent));
         }
         // The documents provider of the primary storage, which Android lists for DocumentsProvider.PROVIDER_INTERFACE
         // (DocumentsContract.isDocumentUri asks for it, as DocumentsProvider.PROVIDER_INTERFACE); ADR-0057 step b.

@@ -1,0 +1,25 @@
+I/open-test: view http: resolve true, query true
+I/open-test: view https: resolve true, query true
+I/open-test: view tel: resolve true, query true
+I/open-test: dial tel: resolve true, query true
+I/open-test: view sms: resolve true, query true
+I/open-test: sendto smsto: resolve true, query true
+I/open-test: send text: resolve true, query true
+I/open-test: chooser of send text: resolve true, query true
+I/open-test: send multiple: resolve true, query true
+I/open-test: view market://details?id=com.example: resolve false, query false
+I/open-test: view market://details?id=com.example: start ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=market://details/... flg=0x10000000 }
+I/open-test: view file:///sdcard/a.txt: resolve false, query false
+I/open-test: view javascript:alert(1): resolve false, query false
+I/open-test: view javascript:alert(1): start ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=javascript: flg=0x10000000 }
+I/open-test: view intent://x#Intent;scheme=http;end: resolve false, query false
+I/open-test: view intent://x#Intent;scheme=http;end: start ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=intent://x/... flg=0x10000000 }
+I/open-test: view ftp://example.com/: resolve false, query false
+I/open-test: view ftp://example.com/: start ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=ftp://example.com/... flg=0x10000000 }
+I/open-test: view data:text/plain,x: resolve false, query false
+I/open-test: view data:text/plain,x: start ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=data: flg=0x10000000 }
+I/open-test: view http of a package that is not there: resolve false, query false
+I/open-test: view http of a package that is not there: start ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=http://example.com/... flg=0x10000000 pkg=com.example.nowhere }
+I/open-test: view http of a component that is not there: resolve false, query false
+I/open-test: send without a type: resolve false, query false
+I/open-test: done

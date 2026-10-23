@@ -1,0 +1,21 @@
+I/open-start-test: start view https
+I/open-start-test: result view https -1
+I/open-start-test: start view tel
+I/open-start-test: result view tel -1
+I/open-start-test: start view geo
+I/open-start-test: result view geo -1
+I/open-start-test: start sendto mailto
+I/open-start-test: result sendto mailto -1
+I/open-start-test: start sendto smsto
+I/open-start-test: result sendto smsto -1
+I/open-start-test: start chooser of send text
+I/open-start-test: result chooser of send text -1
+I/open-start-test: start send a file
+I/open-start-test: result send a file -1
+I/open-start-test: start view market
+I/open-start-test: start view market threw android.content.ActivityNotFoundException
+I/open-start-test: result view market 0
+I/open-start-test: start send multiple
+I/open-start-test: result send multiple -1
+I/open-start-test: share folders left: 0
+I/open-start-test: done

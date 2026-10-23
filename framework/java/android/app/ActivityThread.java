@@ -113,6 +113,8 @@ import com.android.providers.media.MediaProvider;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.minato.GapScan;
 import com.android.minato.app.ActivityWindows;
+import com.android.internal.minato.open.OpenIntents;
+import com.android.internal.minato.open.SystemOpenActivity;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.internal.minato.picker.SystemPickerActivity;
 import com.android.internal.minato.picker.UriGrants;
@@ -1170,6 +1172,7 @@ public final class ActivityThread {
     private static final int EVENT_WINDOW_RESIZED = 22;
     private static final int EVENT_WINDOW_DESTROYED = 23;
     private static final int EVENT_PICK_RESULT = 24;
+    private static final int EVENT_OPEN_RESULT = 25;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
@@ -1395,6 +1398,9 @@ public final class ActivityThread {
             case EVENT_PICK_RESULT:
                 SystemPickerActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
+            case EVENT_OPEN_RESULT:
+                SystemOpenActivity.onResult(event[2], (int) event[3], (int) event[4]);
+                break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
                 break;
@@ -1450,11 +1456,14 @@ public final class ActivityThread {
         ComponentName component = intent.getComponent();
         // The five picker intents of ADR-0057 go to the system picker, which the app's manifest does not handle.
         final int pickerKind = component == null ? PickerIntents.kindOf(intent) : PickerIntents.NONE;
+        // The links, mail, calls, texts, maps and shares of ADR-0062 go to the activity that asks iOS for them.
+        final boolean open = component == null && pickerKind == PickerIntents.NONE && OpenIntents.kindOf(intent) != 0;
         ActivityInfo info = pickerKind != PickerIntents.NONE
                 ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
+                : open ? OpenIntents.activityInfo(mPackage.applicationInfo(0))
                 : component != null
                 ? mPackage.activityInfo(component, PackageManager.GET_SHARED_LIBRARY_FILES, false) : null;
-        final int result = component == null && pickerKind == PickerIntents.NONE
+        final int result = component == null && pickerKind == PickerIntents.NONE && !open
                 ? ActivityManager.START_INTENT_NOT_RESOLVED
                 : info == null ? ActivityManager.START_CLASS_NOT_FOUND : ActivityManager.START_SUCCESS;
         if (info != null) {
@@ -1463,7 +1472,7 @@ public final class ActivityThread {
             return result;
         }
         final Intent started = new Intent(intent);
-        if (pickerKind != PickerIntents.NONE) {
+        if (pickerKind != PickerIntents.NONE || open) {
             started.setComponent(new ComponentName(info.packageName, info.name));
         }
         sMainThreadHandler.post(() -> addTransaction(
@@ -2406,6 +2415,30 @@ public final class ActivityThread {
         return nativeSessionRequestPickCancel(id);
     }
 
+    /**
+     * @hide SystemOpenActivity's (ADR-0062): the open request `id` with its text for the host, which answers with
+     * OPEN_RESULT; 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestOpen(long id, String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestOpen(id, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * @hide SystemOpenActivity's (ADR-0062): the request `id` is not wanted any more, its activity being gone; the host
+     * drops what it shows. 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int cancelOpen(long id) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestOpenCancel(id);
+    }
+
     public static void requestWindowFormat(int format) {
         final ActivityThread thread = sCurrentActivityThread;
         if (thread == null || thread.mSessionEvents == null) {
@@ -2586,6 +2619,12 @@ public final class ActivityThread {
 
     /** APKRT_REQUEST_PICK_CANCEL (ADR-0057 step a). */
     private static native int nativeSessionRequestPickCancel(long id);
+
+    /** APKRT_REQUEST_OPEN with its text, as UTF-8, and ID (ADR-0062). */
+    private static native int nativeSessionRequestOpen(long id, byte[] text);
+
+    /** APKRT_REQUEST_OPEN_CANCEL (ADR-0062). */
+    private static native int nativeSessionRequestOpenCancel(long id);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,

@@ -248,6 +248,28 @@ jint SessionRequestPickCancel(JNIEnv *, jclass, jlong id) {
     return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, static_cast<uint64_t>(id), 0) < 0 ? -errno : 0;
 }
 
+// APKRT_REQUEST_OPEN (ADR-0062): the text of an open request (UTF-8 bytes, as the pick's) by address and its ID; 0, or
+// the negative errno.
+jint SessionRequestOpen(JNIEnv *env, jclass, jlong id, jbyteArray text) {
+    if (text == nullptr) return -EINVAL;
+    const jsize length = env->GetArrayLength(text);
+    std::vector<char> bytes(static_cast<size_t>(length) + 1, '\0');
+    env->GetByteArrayRegion(text, 0, length, reinterpret_cast<jbyte *>(bytes.data()));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -EFAULT;
+    }
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, reinterpret_cast<uintptr_t>(bytes.data()),
+                   static_cast<uint64_t>(id)) < 0
+                   ? -errno
+                   : 0;
+}
+
+// APKRT_REQUEST_OPEN_CANCEL: the request `id` is not wanted any more; 0, or the negative errno.
+jint SessionRequestOpenCancel(JNIEnv *, jclass, jlong id) {
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, static_cast<uint64_t>(id), 0) < 0 ? -errno : 0;
+}
+
 // input_connect of the session's input channel `id` (ADR-0045 step 7b2), as an InputChannel named `name`; null
 // when the runtime refuses the ID, or with the exception pending when the name cannot be read, which is read
 // first, as AOSP's natives read theirs before they open a channel.
@@ -275,6 +297,8 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRequestWindow", "(IIJJIIIIIIIIII)I", reinterpret_cast<void *>(SessionRequestWindow)},
         {"nativeSessionRequestPick", "(J[B)I", reinterpret_cast<void *>(SessionRequestPick)},
         {"nativeSessionRequestPickCancel", "(J)I", reinterpret_cast<void *>(SessionRequestPickCancel)},
+        {"nativeSessionRequestOpen", "(J[B)I", reinterpret_cast<void *>(SessionRequestOpen)},
+        {"nativeSessionRequestOpenCancel", "(J)I", reinterpret_cast<void *>(SessionRequestOpenCancel)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},
         {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},
