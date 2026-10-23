@@ -18,7 +18,8 @@ struct GuestStartTests {
             package: package, library: library, function: function,
             apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", deviceData: "/v/data/p/data_de", external: "/v/data/p/external",
-            obb: "/v/data/p/obb", guestSystem: "/b/Minato.app/Guest", environment: environment)
+            obb: "/v/data/p/obb", download: "/v/data/p/download", guestSystem: "/b/Minato.app/Guest",
+            environment: environment)
     }
 
     /// ADR-0039, decision 6: Android 15's code path, /data/app/~~<a>/<package>-<b>.
@@ -49,6 +50,7 @@ struct GuestStartTests {
             .init(guest: "/data/user_de/0/\(Self.package)", host: "/v/data/p/data_de"),
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
+            .init(guest: "/storage/emulated/0/Download", host: "/v/data/p/download"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
         ])
     }
@@ -90,7 +92,8 @@ struct GuestStartTests {
         GuestStart(
             javaApp: package, apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, signers: signers,
             appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", deviceData: "/v/data/p/data_de",
-            external: "/v/data/p/external", obb: "/v/data/p/obb", guestData: "/c/guest/p/data",
+            external: "/v/data/p/external", obb: "/v/data/p/obb", download: "/v/data/p/download",
+            guestData: "/c/guest/p/data",
             guestSystem: "/b/Minato.app/Guest", localTesting: localTesting, splits: splits, environment: environment)
     }
 
@@ -125,6 +128,7 @@ struct GuestStartTests {
             .init(guest: "/data/user_de/0/\(Self.package)", host: "/v/data/p/data_de"),
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
+            .init(guest: "/storage/emulated/0/Download", host: "/v/data/p/download"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
             .init(guest: "/apex", host: "/b/Minato.app/Guest/apex"),
         ])
@@ -165,7 +169,8 @@ struct GuestStartTests {
             package: Self.package, library: "activity-test", function: nil,
             apk: "/v/apps/p/1/base.apk", apkSHA256: Self.sha256, appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", deviceData: "/v/data/p/data_de", external: "/v/data/p/external",
-            obb: "/v/data/p/obb", guestSystem: "/b/Minato.app/Guest", splits: Self.splits)
+            obb: "/v/data/p/obb", download: "/v/data/p/download", guestSystem: "/b/Minato.app/Guest",
+            splits: Self.splits)
         #expect(start?.mounts.prefix(3) == [
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),
             .init(guest: "\(app)/split_feature.apk", host: "/v/apps/p/1/split_feature.apk"),

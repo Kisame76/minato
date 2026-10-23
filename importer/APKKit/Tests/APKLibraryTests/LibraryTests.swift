@@ -156,7 +156,7 @@ struct LibraryTests {
         // installd's createAppData makes cache and code_cache in the app's credential and device protected data at the
         // install (ADR-0039 d6).
         for folder in ["data", "data/cache", "data/code_cache", "data_de", "data_de/cache", "data_de/code_cache",
-                       "external", "obb"] {
+                       "external", "obb", "download"] {
             #expect(sandbox.exists(sandbox.paths.dataDirectory(for: "org.example.game").appendingPathComponent(folder)))
         }
         #expect(await library.entries.map(\.id) == ["org.example.game"])
@@ -174,10 +174,41 @@ struct LibraryTests {
 
         try sandbox.paths.prepareData(for: "org.example.game")
 
-        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb"] {
+        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb", "download"] {
             #expect(sandbox.exists(data.appendingPathComponent(folder)))
         }
+        // The clones of the user's files are the user's, not the app's: left out of backups, as Android leaves out its
+        // shared storage (ADR-0057 step b).
+        let download = data.appendingPathComponent("download").path
+        #expect(getxattr(download, "com.apple.metadata:com_apple_backup_excludeItem", nil, 0, 0, XATTR_NOFOLLOW) >= 0)
         #expect(try Data(contentsOf: save) == Data("kept".utf8))
+    }
+
+    /// The Download folder is the root of the guest's Download mount, as the OBB folder of its OBB mounts: a link in
+    /// its place goes as a link, never followed, and anything else that is no folder stops the start and stays (the
+    /// lead's reviewer).
+    @Test func aLinkOrAFileWhereTheDownloadFolderBelongs() throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let data = sandbox.paths.dataDirectory(for: "org.example.game")
+        let download = data.appendingPathComponent("download")
+        let outside = sandbox.root.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: download, withDestinationURL: outside)
+
+        try sandbox.paths.prepareData(for: "org.example.game")
+
+        var status = stat()
+        #expect(lstat(download.path, &status) == 0 && status.st_mode & S_IFMT == S_IFDIR)
+        #expect(getxattr(outside.path, "com.apple.metadata:com_apple_backup_excludeItem", nil, 0, 0, XATTR_NOFOLLOW) < 0)
+
+        try FileManager.default.removeItem(at: download)
+        try Data("a file".utf8).write(to: download)
+        #expect(throws: LibraryError.downloadFolderIsNoFolder("org.example.game")) {
+            try sandbox.paths.prepareData(for: "org.example.game")
+        }
+        #expect(try Data(contentsOf: download) == Data("a file".utf8))
     }
 
     static func permissions(_ url: URL) throws -> Int {

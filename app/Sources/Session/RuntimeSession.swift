@@ -134,6 +134,9 @@ final class RuntimeSessionHost: SessionHost {
             (APKRT_EVENT_SURFACE_RESIZED, token, window, pair(width, height))
         case .surfaceDestroyed(let token, let window): (APKRT_EVENT_SURFACE_DESTROYED, token, window, 0)
         case .openResult(let id, let outcome): (APKRT_EVENT_OPEN_RESULT, id, outcome.resultCode, outcome.reason)
+        // The result code as a 32-bit int in the low bits (guest_interface.h).
+        case .pickResult(let id, let code, let count):
+            (APKRT_EVENT_PICK_RESULT, id, UInt64(UInt32(bitPattern: code)), count)
         }
     }
 
@@ -272,6 +275,8 @@ final class RuntimeSessionHost: SessionHost {
         // Without a text (the runtime always gives one) the request is still answered, as refused.
         case APKRT_REQUEST_OPEN.rawValue: .open(id: argument, text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_OPEN_CANCEL.rawValue: .openCancel(id: argument)
+        case APKRT_REQUEST_PICK.rawValue: .pick(id: argument, text: text.map { String(cString: $0) } ?? "")
+        case APKRT_REQUEST_PICK_CANCEL.rawValue: .pickCancel(id: argument)
         default: nil
         }
     }

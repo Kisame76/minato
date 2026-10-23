@@ -37,19 +37,20 @@ public struct GuestStart: Sendable, Equatable {
 
     /// `library` and `function` are the manifest's `android.app.lib_name` and `android.app.func_name`, the
     /// latter nil in a report from before the import read it. The host paths: the installed version's
-    /// base.apk and lib/ (its containers), the app's data, device protected data, external and OBB folders, and the
-    /// guest system in the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/. `apkSHA256` is
-    /// base.apk's digest in hex, which names the code path; nil when it is no SHA-256. `environment` follows
+    /// base.apk and lib/ (its containers), the app's data, device protected data, external, OBB and Download folders,
+    /// and the guest system in the app's bundle (tools/embed-guest-system.sh), with system/, lib64/ and bin/.
+    /// `apkSHA256` is base.apk's digest in hex, which names the code path; nil when it is no SHA-256. `environment` follows
     /// LD_LIBRARY_PATH: a benchmark run's entries (-benchmarkGuestEnvironment, ADR-0030 V5). `splits` are the host
     /// paths of an installed set's split APKs, `split_<name>.apk` in the version's folder (ADR-0048 decision 9): each
     /// lies beside base.apk at the code path under the same name, and activity-host gets one `--split` for each.
     public init?(package: String, library: String, function: String?, apk: String, apkSHA256: String,
                  appLibraries: String, data: String, deviceData: String, external: String, obb: String,
-                 guestSystem: String, splits: [String] = [], environment extra: [String] = []) {
+                 download: String, guestSystem: String, splits: [String] = [], environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "\(app)/base.apk", host: apk)] + Self.splitMounts(splits, app: app)
-            + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb)
+            + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb,
+                             download: download)
             + [Path(guest: "/system", host: "\(guestSystem)/system")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
@@ -73,7 +74,7 @@ public struct GuestStart: Sendable, Equatable {
     /// local_testing_dir (ADR-0050 decision 2). `splits` as for the NativeActivity start: ActivityThread gets one
     /// `--split` for each, after `--apk`.
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
-                 data: String, deviceData: String, external: String, obb: String, guestData: String,
+                 data: String, deviceData: String, external: String, obb: String, download: String, guestData: String,
                  guestSystem: String, localTesting: Bool = false, splits: [String] = [],
                  environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
@@ -83,7 +84,8 @@ public struct GuestStart: Sendable, Equatable {
                   Path(guest: "\(app)/base.apk", host: apk)]
             + Self.splitMounts(splits, app: app)
             + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
-            + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb)
+            + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb,
+                             download: download)
             + [Path(guest: "/system", host: "\(guestSystem)/system"), Path(guest: "/apex", host: "\(guestSystem)/apex")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
@@ -114,14 +116,16 @@ public struct GuestStart: Sendable, Equatable {
     /// /storage/emulated/0 (decision 14 as changed by ADR-0050 c1's d4): the runtime's links lead /data/user/0 and
     /// /sdcard there, as Android 15's zygote and its storage links do. Its device protected data is
     /// /data/user_de/0/<package>, where Android 15 keeps it with no link, which createDeviceProtectedStorageContext's
-    /// files and preferences name.
+    /// files and preferences name. Download is the app's own folder, where the host clones the files the user picks
+    /// (ADR-0057 step b), as the harness's.
     private static func dataMounts(package: String, data: String, deviceData: String, external: String,
-                                   obb: String) -> [Path] {
+                                   obb: String, download: String) -> [Path] {
         [
             Path(guest: "/data/data/\(package)", host: data),
             Path(guest: "/data/user_de/0/\(package)", host: deviceData),
             Path(guest: "/storage/emulated/0/Android/data/\(package)", host: external),
             Path(guest: "/storage/emulated/0/Android/obb/\(package)", host: obb),
+            Path(guest: "/storage/emulated/0/Download", host: download),
         ]
     }
 

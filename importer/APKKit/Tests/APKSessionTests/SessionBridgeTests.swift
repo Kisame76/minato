@@ -595,8 +595,6 @@ struct SessionBridgeTests {
         ])
     }
 
-    /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
-    /// return.
     /// ADR-0062: an open request's answer goes to the guest as long as the session runs; the bridge says whether the
     /// runtime was told of the background, when nothing may be shown.
     @Test func anOpenAnswerIsPostedWhileTheSessionRuns() throws {
@@ -614,6 +612,26 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.openResult(id: 8, outcome: .background))])
     }
 
+    /// ADR-0057 step b: a pick's answer goes to the guest as long as the session runs, and not after its end.
+    @Test func aPickAnswerIsPostedWhileTheSessionRuns() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        bridge.pickAnswered(id: 3, picked: 2, host: host)
+        #expect(host.take() == [.post(.pickResult(id: 3, code: -1, count: 2))])
+        bridge.pickAnswered(id: 4, picked: nil, host: host)
+        #expect(host.take() == [.post(.pickResult(id: 4, code: 0, count: 0))])
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        _ = bridge.finished(second, result: 0, host: host)
+        #expect(bridge.lifecycle.hasEnded)
+        _ = host.take()
+        bridge.pickAnswered(id: 5, picked: 1, host: host)
+        #expect(host.take() == [])
+    }
+
+    /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
+    /// return.
     @Test func aSurfaceMadeInTheBackgroundOpensWithTheReturn() throws {
         let host = FakeHost()
         var bridge = Self.running(host)

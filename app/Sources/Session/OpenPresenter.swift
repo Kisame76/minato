@@ -25,6 +25,7 @@ final class OpenPresenter: NSObject {
     /// The share's copies of the request shown, removed when it ends.
     private var shareFolder: URL?
     private let answer: (UInt64, OpenOutcome) -> Void
+    private lazy var steps = SheetSteps<OpenQueue.Step>(owner: self) { [unowned self] in perform($0) }
 
     static let sharePrefix = "share-"
 
@@ -37,50 +38,54 @@ final class OpenPresenter: NSObject {
 
     /// The guest's request `id` with the runtime's checked text.
     func requested(id: UInt64, text: String, inBackground: Bool) {
-        run(queue.requested(id: id, text: text, inBackground: inBackground,
-                            canSendMail: MFMailComposeViewController.canSendMail(),
-                            canSendText: MFMessageComposeViewController.canSendText())[...])
+        steps.run(queue.requested(id: id, text: text, inBackground: inBackground,
+                                  canSendMail: MFMailComposeViewController.canSendMail(),
+                                  canSendText: MFMessageComposeViewController.canSendText()))
     }
 
     /// The guest no longer wants request `id`.
     func cancelled(id: UInt64) {
-        run(queue.cancelled(id: id)[...])
+        steps.run(queue.cancelled(id: id))
     }
 
     /// The presentation `token` ended with `outcome`; nothing for one that is no longer shown.
     private func ended(_ token: UInt64, _ outcome: OpenOutcome) {
         guard let shown, shown.token == token else { return }
         self.shown = nil
+        SheetTurns.shared.give(self)
         removeShareFolder()
-        run(queue.ended(id: shown.id, outcome)[...])
+        steps.run(queue.ended(id: shown.id, outcome))
     }
 
-    /// Runs `steps` in order; a dismissal runs the steps after it once its controller is gone, so that the next one
-    /// is not presented over a controller on its way out, which UIKit would drop without a word.
-    private func run(_ steps: ArraySlice<OpenQueue.Step>) {
-        var rest = steps
-        while let step = rest.popFirst() {
-            switch step {
-            case .answer(let id, let outcome):
-                answer(id, outcome)
-            case .dismiss(let id):
-                guard let shown, shown.id == id else { continue }
-                self.shown = nil
-                removeShareFolder()
-                if let presenting = shown.controller?.presentingViewController {
-                    presenting.dismiss(animated: true) { [weak self] in self?.run(rest) }
-                    return
-                }
-            case .present(let id, let action):
-                present(id, action)
-            }
+    /// One step; a dismissal gives the turn and runs the steps after it once its controller is gone (SheetSteps), so
+    /// that nothing is presented over a controller on its way out, which UIKit would drop or take along.
+    private func perform(_ step: OpenQueue.Step) -> SheetSteps<OpenQueue.Step>.Outcome {
+        switch step {
+        case .answer(let id, let outcome):
+            answer(id, outcome)
+        case .dismiss(let id):
+            guard let shown, shown.id == id else { return .next }
+            self.shown = nil
+            removeShareFolder()
+            return .gone(shown.controller.map(Self.dismissal))
+        case .present(let id, let action):
+            present(id, action)
         }
+        return .next
     }
 
     private func present(_ id: UInt64, _ action: OpenAction) {
         tokens += 1
         let token = tokens
         shown = Shown(id: id, token: token)
+        // One sheet over game mode at a time, the pickers' too (ADR-0057): a dismissal through the controller below
+        // would take the other's away as well.
+        SheetTurns.shared.take(self) { [weak self] in self?.begin(id, action, token) }
+    }
+
+    private func begin(_ id: UInt64, _ action: OpenAction, _ token: UInt64) {
+        // A presentation that ended has given its turn; the turn now is a newer one's, or another owner's.
+        guard shown?.token == token else { return }
         guard UIApplication.shared.applicationState != .background else { return ended(token, .background) }
         switch action {
         case .systemOpen(let url):
@@ -207,8 +212,17 @@ final class OpenPresenter: NSObject {
         }
     }
 
-    /// The controller on top of the foreground scene's key window, below one on its way out.
-    private static func topController() -> UIViewController? {
+    /// The way out of `controller`, a sheet of ours: the controller below takes it away, and it is gone once nothing
+    /// presents it; at once when nothing does (a picker that went by itself).
+    static func dismissal<Step>(_ controller: UIViewController) -> SheetSteps<Step>.Dismissal {
+        SheetSteps<Step>.Dismissal(start: { [weak controller] done in
+            guard let presenting = controller?.presentingViewController else { return done() }
+            presenting.dismiss(animated: true, completion: done)
+        }, isGone: { [weak controller] in controller?.presentingViewController == nil })
+    }
+
+    /// The controller on top of the foreground scene's key window, below one on its way out; the pickers' too.
+    static func topController() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
         var top = scene?.keyWindow?.rootViewController

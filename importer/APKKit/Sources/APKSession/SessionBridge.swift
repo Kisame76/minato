@@ -40,6 +40,9 @@ public enum SessionEvent: Sendable, Equatable {
     case surfaceDestroyed(token: UInt64, window: UInt64)
     /// The answer to an open request (ADR-0062), APKRT_EVENT_OPEN_RESULT.
     case openResult(id: UInt64, outcome: OpenOutcome)
+    /// The answer to a pick request (ADR-0057), APKRT_EVENT_PICK_RESULT: Activity's result code (RESULT_OK -1,
+    /// RESULT_CANCELED 0) and the number of picks the manifest names.
+    case pickResult(id: UInt64, code: Int32, count: UInt64)
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -62,6 +65,11 @@ public enum SessionRequest: Sendable, Equatable {
     case open(id: UInt64, text: String)
     /// The guest no longer wants open request `id`.
     case openCancel(id: UInt64)
+    /// The guest asks the user for files, a place to save, a folder or photos (ADR-0057): the request's ID and the
+    /// runtime's checked text (PickRequest).
+    case pick(id: UInt64, text: String)
+    /// The guest no longer wants pick request `id`.
+    case pickCancel(id: UInt64)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {
@@ -215,6 +223,15 @@ public struct SessionBridge: Sendable {
     @discardableResult
     public mutating func openAnswered(id: UInt64, _ outcome: OpenOutcome, host: SessionHost) -> Handled {
         if !isBroken, !lifecycle.hasEnded { _ = posted(.openResult(id: id, outcome: outcome), host: host) }
+        return Handled()
+    }
+
+    /// The answer to pick request `id` (ADR-0057): `picked` files named in the manifest, RESULT_OK, or nil for
+    /// RESULT_CANCELED; posted unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func pickAnswered(id: UInt64, picked: Int?, host: SessionHost) -> Handled {
+        let event = SessionEvent.pickResult(id: id, code: picked == nil ? 0 : -1, count: UInt64(picked ?? 0))
+        if !isBroken, !lifecycle.hasEnded { _ = posted(event, host: host) }
         return Handled()
     }
 

@@ -33,6 +33,13 @@ final class GameSession {
     @ObservationIgnored private lazy var opens = OpenPresenter(
         dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data")
     ) { [weak self] id, outcome in self?.openAnswered(id, outcome) }
+    /// What the guest asks the user to pick (ADR-0057), over game mode.
+    @ObservationIgnored private lazy var picks: PickPresenter = {
+        let data = (try? LibraryPaths.standard())?.dataDirectory(for: entry.id)
+        return PickPresenter(dataFolder: data?.appending(path: "data"), download: data?.appending(path: "download")) {
+            [weak self] id, picked in self?.pickAnswered(id, picked)
+        }
+    }()
     /// The orientation iOS was asked to hold the window in.
     @ObservationIgnored private var heldOrientation: SessionOrientation?
 
@@ -287,6 +294,7 @@ final class GameSession {
                 appLibraries: paths.libraryDirectory(for: entry).path,
                 data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
+                download: data.appending(path: "download").path,
                 guestSystem: bundle.appending(path: "Guest").path, splits: splits, environment: environment)
         case .art:
             // An unsigned APK has no signers.json.
@@ -297,6 +305,7 @@ final class GameSession {
                 appLibraries: paths.libraryDirectory(for: entry).path,
                 data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
+                download: data.appending(path: "download").path,
                 guestData: paths.guestDataDirectory(for: entry.id).path,
                 guestSystem: bundle.appending(path: "Guest").path,
                 // The kept pack slices and the feature modules' splits, which prepareJavaStart lays out in
@@ -540,7 +549,20 @@ final class GameSession {
             opens.requested(id: id, text: text, inBackground: bridge.isInBackground)
         case .openCancel(let id):
             opens.cancelled(id: id)
+        case .pick(let id, let text):
+            picks.requested(id: id, text: text)
+        case .pickCancel(let id):
+            picks.cancelled(id: id)
         }
+    }
+
+    /// The answer to a pick request (ADR-0057): the number of files the manifest names, nil for a cancel.
+    private func pickAnswered(_ id: UInt64, _ picked: Int?) {
+        let outcome = picked.map { "\($0) picked" } ?? "cancelled"
+        log.info("\(self.entry.id, privacy: .public): pick \(id) \(outcome, privacy: .public)")
+        let wasBroken = bridge.isBroken
+        let handled = bridge.pickAnswered(id: id, picked: picked, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
     }
 
     /// The answer to an open request (ADR-0062), which the guest's framework activity finishes with.

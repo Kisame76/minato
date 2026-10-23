@@ -55,41 +55,49 @@ public struct LibraryPaths: Sendable {
         versionDirectory(for: entry).appendingPathComponent("lib", isDirectory: true)
     }
 
-    /// Stands in for /data/data/<package>, /data/user_de/0/<package>, /sdcard/Android/data/<package> and
-    /// /sdcard/Android/obb/<package>: data, data_de, external and obb.
+    /// Stands in for /data/data/<package>, /data/user_de/0/<package>, /sdcard/Android/data/<package>,
+    /// /sdcard/Android/obb/<package> and the app's /sdcard/Download (ADR-0057 step b): data, data_de, external, obb and
+    /// download.
     public func dataDirectory(for package: String) -> URL {
         applicationSupport.appendingPathComponent("data", isDirectory: true).appendingPathComponent(package, isDirectory: true)
     }
 
-    /// Makes the app's data, device protected data, external and OBB folders, with the two that installd's
+    /// Makes the app's data, device protected data, external, OBB and Download folders, with the two that installd's
     /// createAppData makes at an install in /data/user/0/<package> and in /data/user_de/0/<package>: cache and
     /// code_cache (ADR-0039, decision 6). What is there stays, so an app installed before gets the ones it lacks at its
     /// next start; the app's files, shared_prefs and the rest come when Context first asks for them, as on Android. The
     /// OBB folder is excluded from backups each time, also an app's from before, as a store gives its files again (the
     /// M5 plan's decision 9, ADR-0049 c2).
     ///
-    /// The OBB folder is the root of the guest's OBB mounts, so no guest can put anything in its place. Should a link
-    /// stand there all the same, it goes as a link, never followed, and anything else that is no folder stops the
-    /// import and stays as it is (the lead's reviewer). It is read with lstat, never through a URL, which keeps the
-    /// resource values it read once.
+    /// The OBB folder is the root of the guest's OBB mounts, and the Download folder of its Download mount, so no
+    /// guest can put anything in their place. Should a link stand there all the same, it goes as a link, never
+    /// followed, and anything else that is no folder stops the import or the start and stays as it is (the lead's
+    /// reviewers). They are read with lstat, never through a URL, which keeps the resource values it read once.
     public func prepareData(for package: String) throws {
         let data = dataDirectory(for: package)
         var obb = data.appendingPathComponent("obb", isDirectory: true)
-        var status = stat()
-        if lstat(obb.path, &status) == 0 {
+        for (name, error) in [("obb", LibraryError.obbFolderIsNoFolder(package)),
+                              ("download", LibraryError.downloadFolderIsNoFolder(package))] {
+            let folder = data.appendingPathComponent(name, isDirectory: true)
+            var status = stat()
+            guard lstat(folder.path, &status) == 0 else { continue }
             switch status.st_mode & S_IFMT {
             case S_IFDIR: break
-            case S_IFLNK: try FileManager.default.removeItem(at: obb)
-            default: throw LibraryError.obbFolderIsNoFolder(package)
+            case S_IFLNK: try FileManager.default.removeItem(at: folder)
+            default: throw error
             }
         }
-        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb"] {
+        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb",
+                       "download"] {
             try FileManager.default.createDirectory(at: data.appendingPathComponent(folder, isDirectory: true),
                                                     withIntermediateDirectories: true)
         }
         var excluded = URLResourceValues()
         excluded.isExcludedFromBackup = true
         try obb.setResourceValues(excluded)
+        // The clones of the files the user picks (ADR-0057 step b) are the user's; Android backs up no shared storage.
+        var download = data.appendingPathComponent("download", isDirectory: true)
+        try download.setResourceValues(excluded)
     }
 
     /// A Java app's guest /data (ADR-0039 c5): Caches/guest/<package>/data, with ART's dalvik-cache (the lead's
