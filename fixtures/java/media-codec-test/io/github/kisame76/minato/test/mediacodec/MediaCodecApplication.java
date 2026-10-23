@@ -4,22 +4,35 @@ import android.app.Application;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
+import android.graphics.SurfaceTexture;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
+import android.opengl.EGL14;
+import android.opengl.EGLConfig;
+import android.opengl.EGLContext;
+import android.opengl.EGLDisplay;
+import android.opengl.EGLSurface;
+import android.opengl.GLES20;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
+import android.view.Surface;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32;
@@ -43,7 +56,13 @@ import java.util.zip.CRC32;
  * - the refusals: an unknown type, and dequeueOutputBuffer before start, each by its exception's class;
  * - main through the NDK's AMediaCodec in the app's JNI library, its output buffers walked by the output format;
  * - ADR-0060 e2c: baseline rendered into an ImageReader's Surface in YUV_420_888, and main into an AImageReader's
- *   window through AMediaCodec, each image's time and samples logged as the buffers' are.
+ *   window through AMediaCodec, each image's time and samples logged as the buffers' are;
+ * - ADR-0060 e2c2: baseline rendered into a SurfaceTexture's Surface, each frame drawn through samplerExternalOES
+ *   with the texture's matrix into a pbuffer of its size and read back: its time is logged, and, as its colours are
+ *   the device's conversion, only which of four matrices (BT.601 and BT.709, video and full range) of the
+ *   frame's own samples (ByteBuffer mode) comes closest and whether its mean difference stays within 3; the
+ *   differences and the matrix, which has the buffer's padding (the emulator's are 384 wide), go to the device tag. (An RGBA ImageReader is no reference: Android's codec queues YV12 into it, and
+ *   acquireNextImage throws.)
  * Each wait is bounded; it logs with the tag media-codec-test and ends with "done".
  */
 public class MediaCodecApplication extends Application {
@@ -59,6 +78,12 @@ public class MediaCodecApplication extends Application {
 
     /** The same through an AImageReader's window in YUV_420_888, each frame rendered and its image logged. */
     private static native String decodeToReaderNative(String decoder, byte[] stream, long[] index);
+
+    /** A reader of one image whose first the test holds while the codec renders the rest. */
+    private static native String holdNative(String decoder, byte[] stream, long[] index);
+
+    /** A reader in RGB_565, a format no decoder draws. */
+    private static native String rgb565Native(String decoder, byte[] stream, long[] index);
 
     /** The decoder of video/avc the test uses (list()'s). */
     private static String sDecoder;
@@ -88,7 +113,10 @@ public class MediaCodecApplication extends Application {
             refusals();
             logNative(decodeNative(sDecoder, main.bytes, flatten(main)));
             decodeToReader("baseline reader", baseline);
+            decodeToTexture("baseline texture", baseline);
             logNative(decodeToReaderNative(sDecoder, main.bytes, flatten(main)));
+            logNative(holdNative(sDecoder, baseline.bytes, flatten(baseline)));
+            logNative(rgb565Native(sDecoder, baseline.bytes, flatten(baseline)));
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
             Log.i(TAG + "-device", Log.getStackTraceString(t));
@@ -331,6 +359,245 @@ public class MediaCodecApplication extends Application {
         codec.stop();
         codec.release();
         reader.close();
+    }
+
+    /** The stream's frames in ByteBuffer mode by their time: Y (320 x 180), then U and V (160 x 90 each). */
+    private static Map<Long, byte[]> samplesByTime(Stream stream) throws IOException {
+        Map<Long, byte[]> frames = new HashMap<>();
+        MediaCodec codec = MediaCodec.createByCodecName(sDecoder);
+        codec.configure(format(), null, null, 0);
+        codec.start();
+        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        int next = 0;
+        boolean sentEnd = false;
+        long deadline = System.currentTimeMillis() + 10000;
+        while (System.currentTimeMillis() < deadline) {
+            if (!sentEnd) {
+                int in = codec.dequeueInputBuffer(10000);
+                if (in >= 0) {
+                    if (next < stream.units.size()) {
+                        queue(codec, in, stream, next++);
+                    } else {
+                        codec.queueInputBuffer(in, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                        sentEnd = true;
+                    }
+                }
+            }
+            int out = codec.dequeueOutputBuffer(info, 10000);
+            if (out < 0) continue;
+            Image image = info.size > 0 ? codec.getOutputImage(out) : null;
+            if (image != null) {
+                byte[] samples = new byte[320 * 180 + 2 * 160 * 90];
+                Image.Plane[] planes = image.getPlanes();
+                for (int p = 0, at = 0; p < 3; p++) {
+                    int w = p == 0 ? 320 : 160, h = p == 0 ? 180 : 90;
+                    ByteBuffer buffer = planes[p].getBuffer();
+                    for (int y = 0; y < h; y++) {
+                        for (int x = 0; x < w; x++) {
+                            samples[at++] = buffer.get(y * planes[p].getRowStride() + x * planes[p].getPixelStride());
+                        }
+                    }
+                }
+                image.close();
+                frames.put(info.presentationTimeUs, samples);
+            }
+            codec.releaseOutputBuffer(out, false);
+            if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) break;
+        }
+        codec.stop();
+        codec.release();
+        return frames;
+    }
+
+    private static final String[] MATRICES = {"BT.601 video", "BT.709 video", "BT.601 full", "BT.709 full"};
+
+    /**
+     * The mean absolute difference of a read-back frame (rows bottom up, as glReadPixels gives them, of an upright
+     * image) from the samples converted by each of MATRICES.
+     */
+    private static double[] differences(ByteBuffer rgba, byte[] samples) {
+        double[] sums = new double[MATRICES.length];
+        long count = 0;
+        for (int y = 0; y < 180; y++) {
+            for (int x = 0; x < 320; x++) {
+                int luma = samples[y * 320 + x] & 0xff;
+                int cb = (samples[320 * 180 + (y / 2) * 160 + x / 2] & 0xff) - 128;
+                int cr = (samples[320 * 180 + 160 * 90 + (y / 2) * 160 + x / 2] & 0xff) - 128;
+                int at = ((179 - y) * 320 + x) * 4;
+                int[] got = {rgba.get(at) & 0xff, rgba.get(at + 1) & 0xff, rgba.get(at + 2) & 0xff};
+                for (int m = 0; m < MATRICES.length; m++) {
+                    boolean video = m < 2, bt709 = m % 2 == 1;
+                    double yy = video ? (luma - 16) * 255.0 / 219 : luma;
+                    double scale = video ? 255.0 / 224 : 1.0;
+                    double u = cb * scale, v = cr * scale;
+                    double kr = bt709 ? 0.2126 : 0.299, kb = bt709 ? 0.0722 : 0.114, kg = 1 - kr - kb;
+                    double r = yy + 2 * (1 - kr) * v;
+                    double b = yy + 2 * (1 - kb) * u;
+                    double g = (yy - kr * r - kb * b) / kg;
+                    double[] want = {r, g, b};
+                    for (int c = 0; c < 3; c++) {
+                        sums[m] += Math.abs(Math.max(0, Math.min(255, want[c])) - got[c]);
+                    }
+                }
+                count += 3;
+            }
+        }
+        for (int m = 0; m < sums.length; m++) sums[m] /= count;
+        return sums;
+    }
+
+    private static final String TEXTURE_VERTEX = "attribute vec2 position;\n"
+            + "uniform mat4 transform;\n"
+            + "varying vec2 coordinate;\n"
+            + "void main() {\n"
+            + "  coordinate = (transform * vec4(position * 0.5 + 0.5, 0.0, 1.0)).xy;\n"
+            + "  gl_Position = vec4(position, 0.0, 1.0);\n"
+            + "}\n";
+    private static final String TEXTURE_FRAGMENT = "#extension GL_OES_EGL_image_external : require\n"
+            + "precision mediump float;\n"
+            + "uniform samplerExternalOES image;\n"
+            + "varying vec2 coordinate;\n"
+            + "void main() { gl_FragColor = texture2D(image, coordinate); }\n";
+
+    private static int shader(int type, String source) {
+        int shader = GLES20.glCreateShader(type);
+        GLES20.glShaderSource(shader, source);
+        GLES20.glCompileShader(shader);
+        return shader;
+    }
+
+    /**
+     * Decodes the stream into a SurfaceTexture's Surface (its default buffer size the stream's): each frame rendered,
+     * then on the texture's GL thread taken by updateTexImage, drawn with its matrix into a pbuffer of its size and
+     * read back, and logged with its time, its matrix, the closest of MATRICES and whether that one's mean difference
+     * stays within 3 (the conversions round, and the device's chroma filter is its own).
+     */
+    private static void decodeToTexture(String name, Stream stream) throws Exception {
+        Map<Long, byte[]> samples = samplesByTime(stream);
+        HandlerThread thread = new HandlerThread("media-codec-test gl");
+        thread.start();
+        Handler gl = new Handler(thread.getLooper());
+        Object[] made = new Object[4];  // display, pbuffer, context, texture
+        int[] program = new int[1];
+        float[] matrix = new float[16];
+        long[] last = {-1};
+        CountDownLatch setUp = new CountDownLatch(1);
+        java.util.concurrent.Semaphore frames = new java.util.concurrent.Semaphore(0);
+        gl.post(() -> {
+            EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+            int[] version = new int[2];
+            EGL14.eglInitialize(display, version, 0, version, 1);
+            int[] spec = {EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE,
+                    EGL14.EGL_PBUFFER_BIT, EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_ALPHA_SIZE, 8, EGL14.EGL_NONE};
+            EGLConfig[] configs = new EGLConfig[1];
+            EGL14.eglChooseConfig(display, spec, 0, configs, 0, 1, new int[1], 0);
+            EGLSurface pbuffer = EGL14.eglCreatePbufferSurface(display, configs[0],
+                    new int[] {EGL14.EGL_WIDTH, 320, EGL14.EGL_HEIGHT, 180, EGL14.EGL_NONE}, 0);
+            EGLContext context = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
+                    new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE}, 0);
+            boolean current = EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context);
+            Log.i(TAG + "-device", name + ": pbuffer " + (pbuffer != EGL14.EGL_NO_SURFACE) + ", context "
+                    + (context != EGL14.EGL_NO_CONTEXT) + ", current " + current + ", error 0x"
+                    + Integer.toHexString(EGL14.eglGetError()));
+            program[0] = GLES20.glCreateProgram();
+            GLES20.glAttachShader(program[0], shader(GLES20.GL_VERTEX_SHADER, TEXTURE_VERTEX));
+            GLES20.glAttachShader(program[0], shader(GLES20.GL_FRAGMENT_SHADER, TEXTURE_FRAGMENT));
+            GLES20.glBindAttribLocation(program[0], 0, "position");
+            GLES20.glLinkProgram(program[0]);
+            int[] names = new int[1];
+            GLES20.glGenTextures(1, names, 0);
+            SurfaceTexture texture = new SurfaceTexture(names[0]);
+            texture.setDefaultBufferSize(320, 180);
+            texture.setOnFrameAvailableListener(available -> {
+                available.updateTexImage();
+                long time = available.getTimestamp() / 1000;
+                if (time == last[0]) return;  // a call without a new frame, which Android makes at times
+                last[0] = time;
+                available.getTransformMatrix(matrix);
+                FloatBuffer quad = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+                quad.put(new float[] {-1, -1, 1, -1, -1, 1, 1, 1}).position(0);
+                GLES20.glViewport(0, 0, 320, 180);
+                GLES20.glClearColor(0, 0, 0, 0);
+                GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                GLES20.glUseProgram(program[0]);
+                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program[0], "transform"), 1, false, matrix, 0);
+                GLES20.glUniform1i(GLES20.glGetUniformLocation(program[0], "image"), 0);
+                GLES20.glVertexAttribPointer(0, 2, GLES20.GL_FLOAT, false, 0, quad);
+                GLES20.glEnableVertexAttribArray(0);
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                ByteBuffer rgba = ByteBuffer.allocateDirect(320 * 180 * 4);
+                GLES20.glReadPixels(0, 0, 320, 180, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, rgba);
+                byte[] frame = samples.get(time);
+                if (frame == null) {
+                    Log.i(TAG, name + ": pts " + time + ", no such frame");
+                } else {
+                    double[] mean = differences(rgba, frame);
+                    int best = 0;
+                    for (int m = 1; m < mean.length; m++) if (mean[m] < mean[best]) best = m;
+                    Log.i(TAG, name + ": pts " + time + ", closest " + MATRICES[best] + ", within 3 "
+                            + (mean[best] <= 3));
+                    Log.i(TAG + "-device", name + ": pts " + time + ", matrix " + Arrays.toString(matrix)
+                            + ", mean differences "
+                            + String.format("%.2f %.2f %.2f %.2f", mean[0], mean[1], mean[2], mean[3])
+                            + ", error 0x" + Integer.toHexString(GLES20.glGetError()));
+                }
+                frames.release();
+            }, gl);
+            made[0] = display;
+            made[1] = pbuffer;
+            made[2] = context;
+            made[3] = texture;
+            setUp.countDown();
+        });
+        setUp.await(10, TimeUnit.SECONDS);
+        SurfaceTexture texture = (SurfaceTexture) made[3];
+        Surface surface = new Surface(texture);
+        MediaCodec codec = MediaCodec.createByCodecName(sDecoder);
+        codec.configure(format(), surface, null, 0);
+        codec.start();
+        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        int next = 0, rendered = 0;
+        boolean ended = false, sentEnd = false;
+        long deadline = System.currentTimeMillis() + 20000;
+        while (!ended && System.currentTimeMillis() < deadline) {
+            if (!sentEnd) {
+                int in = codec.dequeueInputBuffer(10000);
+                if (in >= 0) {
+                    if (next < stream.units.size()) {
+                        queue(codec, in, stream, next++);
+                    } else {
+                        codec.queueInputBuffer(in, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                        sentEnd = true;
+                    }
+                }
+            }
+            int out = codec.dequeueOutputBuffer(info, 10000);
+            if (out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                logFormat(name, codec.getOutputFormat());
+            } else if (out >= 0) {
+                ended = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                boolean render = !ended || info.size > 0;
+                codec.releaseOutputBuffer(out, render);
+                // One frame at a time: the next waits until this one is drawn and read back.
+                if (render && frames.tryAcquire(2, TimeUnit.SECONDS)) rendered++;
+            }
+        }
+        Log.i(TAG, name + ": " + rendered + " frames" + (ended ? ", end of stream" : ""));
+        codec.stop();
+        codec.release();
+        surface.release();
+        CountDownLatch down = new CountDownLatch(1);
+        gl.post(() -> {
+            texture.release();
+            EGL14.eglMakeCurrent((EGLDisplay) made[0], EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_CONTEXT);
+            EGL14.eglDestroySurface((EGLDisplay) made[0], (EGLSurface) made[1]);
+            EGL14.eglDestroyContext((EGLDisplay) made[0], (EGLContext) made[2]);
+            down.countDown();
+        });
+        down.await(5, TimeUnit.SECONDS);
+        thread.quitSafely();
     }
 
     private static void decode(String name, Stream stream) throws IOException {

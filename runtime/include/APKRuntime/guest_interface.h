@@ -417,7 +417,7 @@ enum apkrt_video_decoder_type {
 /// CREATE's flag: a decoder for a surface (ADR-0060 e2c), whose frames stay the host's. Its DEQUEUE writes no bytes:
 /// it gives a frame's sizes, crop, time and flags with its token in `data` (never 0), size, stride and slice height 0,
 /// and the frame waits for the RENDER or DISCARD of its token; at most APKRT_VIDEO_DECODER_MAX_WAITING (apkrt.h) wait
-/// at once, and DEQUEUE answers -EAGAIN past them. A flush or a destroy ends every token.
+/// at once, and DEQUEUE answers -EAGAIN past them. A flush that succeeds or a destroy ends every token.
 #define APKRT_VIDEO_DECODER_SURFACE 2u
 
 /// One call's arguments and answers (64 bytes). An operation leaves the fields it does not name alone.

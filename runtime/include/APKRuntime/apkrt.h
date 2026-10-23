@@ -411,7 +411,7 @@ struct apkrt_video_target {
 ///   0, or -EAGAIN while the decoder takes no more input until frames are popped;
 /// - peek: 0 with the oldest decoded frame in presentation order, which stays; -EAGAIN while there is none;
 /// - pop: the frame peek gave goes; a surface decoder's waits under its token instead;
-/// - flush: every input and frame goes, the waiting ones too; the next input begins at a key frame;
+/// - flush: every input and frame goes, the waiting ones too, also when it fails; the next input begins at a key frame;
 /// - destroy: last, once no call on the decoder runs;
 /// - render (a surface decoder's): the waiting frame of the token drawn into the target, scaled to its size, after
 ///   which it goes: 0; -EINVAL for a token that does not wait or a target they do not draw into;

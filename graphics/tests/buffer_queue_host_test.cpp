@@ -11,6 +11,8 @@
 // - the queue abandoned while a dequeue and while an attach wait for a free slot: both wake with -ENODEV, the
 //   attach's buffer reference given back;
 // - detach and attach racing the consumers' releases of two queues on three threads;
+// - a decoder's claim of the window as its producer (ADR-0060 e2c2): a CPU lock, a writer's connect and a second
+//   claim refused while it lasts, and a claim refused while a writer is connected or a lock is held;
 // - libmediandk's AImageReader (runtime/android/image_reader.cpp, G3c) on the same queue: a delete with images still
 //   held, which then answer AMEDIA_ERROR_INVALID_OBJECT until their own delete; a delete racing a listener call that
 //   runs, whose context is freed right after; a delete from inside the listener; a producer racing the delete;
@@ -637,6 +639,36 @@ void reader_delete_racing_producer() {
     printf("reader delete racing a producer: fine\n");
 }
 
+void decoder_claim() {
+    Queue queue = make_queue(2);
+    CHECK(minato_ANativeWindow_isClaimed(queue.window) == 0);
+    CHECK(minato_ANativeWindow_claim(queue.window) == 0);
+    CHECK(minato_ANativeWindow_isClaimed(queue.window) == 1);
+    CHECK(minato_ANativeWindow_claim(queue.window) == -EBUSY);
+    ANativeWindow_Buffer locked{};
+    CHECK(ANativeWindow_lock(queue.window, &locked, nullptr) == -EINVAL);  // libgui's "already connected"
+    Listener listener;
+    CHECK(minato_ANativeWindow_connect(queue.window, 1, released, &listener) == -EBUSY);
+    CHECK(produce(queue.window, 1) == 0);  // the decoder's own frames
+    minato_BufferQueue_frame got{};
+    CHECK(minato_BufferQueue_acquire(queue.consumer, &got) == 0 && got.timestamp == 1);
+    minato_BufferQueue_releaseSlot(queue.consumer, got.slot);
+    minato_ANativeWindow_unclaim(queue.window);
+    CHECK(minato_ANativeWindow_isClaimed(queue.window) == 0);
+
+    CHECK(ANativeWindow_lock(queue.window, &locked, nullptr) == 0);
+    CHECK(minato_ANativeWindow_claim(queue.window) == -EBUSY);  // the CPU's lock is a producer's
+    CHECK(ANativeWindow_unlockAndPost(queue.window) == 0);
+    CHECK(minato_ANativeWindow_connect(queue.window, 1, released, &listener) == 0);
+    CHECK(minato_ANativeWindow_claim(queue.window) == -EBUSY);
+    minato_ANativeWindow_disconnect(queue.window);
+    CHECK(minato_ANativeWindow_claim(queue.window) == 0);
+    minato_ANativeWindow_unclaim(queue.window);
+    let_go(queue);
+    CHECK(live_buffers == 0);
+    printf("decoder claim: fine\n");
+}
+
 }  // namespace
 
 int main() {
@@ -652,6 +684,7 @@ int main() {
     reader_delete_inside_listener();
     reader_listeners_and_answers();
     reader_delete_racing_producer();
+    decoder_claim();
     printf("done\n");
     return 0;
 }

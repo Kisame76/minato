@@ -16,7 +16,10 @@
      surface, named limits).
    - A surface's record lives while a swap uses it, so an eglDestroySurface or eglTerminate on another thread frees it
      only after the swap; records are found by display and surface.
-   - Named limit: the pbuffer keeps its size when the window's changes (the slot then gets it scaled). */
+   - A window a decoder claims (minato_ANativeWindow_claim) gets no surface, as Android's eglCreateWindowSurface
+     answers a window another producer is connected to.
+   - Named limit: the pbuffer keeps its size when the window's changes (the slot then gets it scaled); a decoder may
+     claim a window that has a surface already, which Android refuses. */
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
 #include <dlfcn.h>
@@ -56,6 +59,7 @@ static int (*is_queue)(struct ANativeWindow *);
 static int (*dequeue)(struct ANativeWindow *, struct AHardwareBuffer **, int32_t *);
 static int (*queue)(struct ANativeWindow *, int32_t, int64_t);
 static int (*cancel)(struct ANativeWindow *, int32_t);
+static int (*is_claimed)(struct ANativeWindow *);
 static int (*window_info)(struct ANativeWindow *, struct minato_window_info *);
 static pthread_once_t found = PTHREAD_ONCE_INIT;
 
@@ -67,6 +71,7 @@ static void find(void) {
             library, "minato_ANativeWindow_dequeue");
         queue = (int (*)(struct ANativeWindow *, int32_t, int64_t))dlsym(library, "minato_ANativeWindow_queue");
         cancel = (int (*)(struct ANativeWindow *, int32_t))dlsym(library, "minato_ANativeWindow_cancel");
+        is_claimed = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_isClaimed");
         window_info = (int (*)(struct ANativeWindow *, struct minato_window_info *))dlsym(
             library, "minato_ANativeWindow_getInfo");
     }
@@ -141,11 +146,15 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 int minato_queue_window(struct ANativeWindow *window) {
     pthread_once(&found, find);
-    return is_queue != NULL && dequeue != NULL && queue != NULL && cancel != NULL && window_info != NULL &&
-           is_queue(window);
+    return is_queue != NULL && dequeue != NULL && queue != NULL && cancel != NULL && is_claimed != NULL &&
+           window_info != NULL && is_queue(window);
 }
 
 EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANativeWindow *window) {
+    if (is_claimed(window)) {
+        minato_bad_native_window(display, config);  /* a decoder's: Android's connect fails, "already connected" */
+        return EGL_NO_SURFACE;
+    }
     struct minato_window_info info;
     if (window_info(window, &info) != 0) {
         minato_bad_native_window(display, config);

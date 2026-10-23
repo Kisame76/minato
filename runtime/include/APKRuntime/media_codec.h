@@ -43,6 +43,14 @@ struct minato_media_codec_info {
 size_t minato_media_codec_count(void);
 const struct minato_media_codec_info *minato_media_codec_at(size_t index);
 
+/* A frame's time in nanoseconds from its microseconds, as a surface's queue and MediaCodec's images take it, clamped
+   to int64_t's range where a guest's time would overflow (ADR-0060 e2c2). */
+static inline int64_t minato_media_time_ns(int64_t us) {
+    if (us > INT64_MAX / 1000) return INT64_MAX;
+    if (us < INT64_MIN / 1000) return INT64_MIN;
+    return us * 1000;
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -257,7 +257,7 @@ int main(void) {
     set_default_size(consumer, 2, 2);
     printf("connect: %d, again: %d\n", connect_producer(window, 1, released, NULL),
            connect_producer(window, 1, released, NULL));
-    struct minato_BufferQueue_settings settings = {5, 0, 7, 0, 0, 1, 2};
+    struct minato_BufferQueue_settings settings = {5, 0, 7, 0, 0, 1, 2, 0};
     write_frame(window, 0xff0000ff, &settings);
     settings.timestamp = 6;
     write_frame(window, 0xff00ff00, &settings);

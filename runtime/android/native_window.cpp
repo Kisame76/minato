@@ -93,6 +93,7 @@ struct minato_BufferQueue {
     int32_t default_format;  // setDefaultFormat's, else 0
     int32_t default_data_space;  // setDefaultDataSpace's, else 0
     bool connected;          // an ImageWriter's producer (minato_ANativeWindow_connect)
+    bool claimed;            // a decoder's (minato_ANativeWindow_claim)
     int32_t unconnected_slot_count;  // the slot count before the connect, again after the disconnect
     pthread_mutex_t callback_lock;  // held around each call of `released`, so that a disconnect waits for it
     minato_BufferQueue_released released;
@@ -606,7 +607,7 @@ int minato_ANativeWindow_connect(ANativeWindow* window, int32_t maxDequeued, min
     int result = 0;
     if (queue->abandoned) {
         result = -ENODEV;
-    } else if (queue->connected) {
+    } else if (queue->connected || queue->claimed) {
         result = -EBUSY;
     } else if (wanted > kMaxSlots) {
         result = -EINVAL;
@@ -635,6 +636,40 @@ void minato_ANativeWindow_disconnect(ANativeWindow* window) {
     }
     pthread_mutex_unlock(&queue->lock);
     pthread_mutex_unlock(&queue->callback_lock);
+}
+
+int minato_ANativeWindow_claim(ANativeWindow* window) {
+    if (!is_window(window) || window->queue == nullptr) return -EINVAL;
+    minato_BufferQueue* queue = window->queue;
+    // The window's lock first, as a lock takes them: a lock and a claim never both go ahead.
+    pthread_mutex_lock(&window->lock);
+    pthread_mutex_lock(&queue->lock);
+    int result = 0;
+    if (queue->abandoned) {
+        result = -ENODEV;
+    } else if (queue->claimed || queue->connected || window->locked) {
+        result = -EBUSY;
+    } else {
+        queue->claimed = true;
+    }
+    pthread_mutex_unlock(&queue->lock);
+    pthread_mutex_unlock(&window->lock);
+    return result;
+}
+
+void minato_ANativeWindow_unclaim(ANativeWindow* window) {
+    if (!is_window(window) || window->queue == nullptr) return;
+    pthread_mutex_lock(&window->queue->lock);
+    window->queue->claimed = false;
+    pthread_mutex_unlock(&window->queue->lock);
+}
+
+int minato_ANativeWindow_isClaimed(ANativeWindow* window) {
+    if (!is_window(window) || window->queue == nullptr) return 0;
+    pthread_mutex_lock(&window->queue->lock);
+    const bool claimed = window->queue->claimed;
+    pthread_mutex_unlock(&window->queue->lock);
+    return claimed ? 1 : 0;
 }
 
 ANativeWindow* minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t height) {
@@ -771,6 +806,13 @@ static int32_t queue_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffer
     if (window->locked) {
         pthread_mutex_unlock(&window->lock);
         return kInvalidOperation;
+    }
+    pthread_mutex_lock(&window->queue->lock);
+    const bool claimed = window->queue->claimed;
+    pthread_mutex_unlock(&window->queue->lock);
+    if (claimed) {
+        pthread_mutex_unlock(&window->lock);
+        return -EINVAL;  // a decoder's: libgui's connect of the CPU fails, "already connected"
     }
     window->locked = true;
     pthread_mutex_unlock(&window->lock);

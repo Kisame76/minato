@@ -14,6 +14,7 @@
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurface.h>
 
+#include <math.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -534,6 +535,83 @@ static int target_buffer(uint32_t format, uint32_t width, uint32_t height, struc
     return *surface != NULL ? 0 : -1;
 }
 
+/* The mean absolute difference of an RGBA buffer of 320 x 180 from the YUV 420 one's samples converted by BT.601 or
+   BT.709 in video range (kr, kb). */
+static double rgba_difference(IOSurfaceRef rgba, IOSurfaceRef yuv, double kr, double kb) {
+    IOSurfaceLock(rgba, kIOSurfaceLockReadOnly, NULL);
+    IOSurfaceLock(yuv, kIOSurfaceLockReadOnly, NULL);
+    const uint8_t *pixels = IOSurfaceGetBaseAddress(rgba), *y = IOSurfaceGetBaseAddressOfPlane(yuv, 0);
+    const uint8_t *chroma = IOSurfaceGetBaseAddressOfPlane(yuv, 1);
+    const size_t row = IOSurfaceGetBytesPerRow(rgba), y_row = IOSurfaceGetBytesPerRowOfPlane(yuv, 0);
+    const size_t c_row = IOSurfaceGetBytesPerRowOfPlane(yuv, 1);
+    const double kg = 1 - kr - kb;
+    double sum = 0;
+    for (size_t line = 0; line < 180; line++) {
+        for (size_t column = 0; column < 320; column++) {
+            const double luma = (y[line * y_row + column] - 16) * 255.0 / 219;
+            const double cb = (chroma[(line / 2) * c_row + (column / 2) * 2] - 128) * 255.0 / 224;
+            const double cr = (chroma[(line / 2) * c_row + (column / 2) * 2 + 1] - 128) * 255.0 / 224;
+            const double r = luma + 2 * (1 - kr) * cr, b = luma + 2 * (1 - kb) * cb, g = (luma - kr * r - kb * b) / kg;
+            const double want[3] = {r, g, b};
+            for (int c = 0; c < 3; c++) {
+                const double clamped = want[c] < 0 ? 0 : want[c] > 255 ? 255 : want[c];
+                sum += fabs(clamped - pixels[line * row + column * 4 + (size_t)c]);
+            }
+        }
+    }
+    IOSurfaceUnlock(yuv, kIOSurfaceLockReadOnly, NULL);
+    IOSurfaceUnlock(rgba, kIOSurfaceLockReadOnly, NULL);
+    return sum / (320.0 * 180 * 3);
+}
+
+/* ADR-0060 e2c2: each of Baseline's frames into a YUV buffer and, from a second decoder, into an RGBA one (a
+   SurfaceTexture's slot): the RGBA one is the YUV one's samples through BT.601 in video range (the stream has no
+   matrix of its own and 180 rows) within a mean of 3, clearly closer than BT.709's, alpha 255. */
+static void rgbaFramesAreBt601VideoOfTheYuvOnes(struct stream stream, const struct apkrt_video_target *yuv_target,
+                                                IOSurfaceRef yuv, const struct apkrt_video_target *rgba_target,
+                                                IOSurfaceRef rgba) {
+    const char *test = "RGBA frames are BT.601 video of the YUV ones";
+    const uint64_t to_yuv = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    const uint64_t to_rgba = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    const uint8_t *bytes = stream.bytes.bytes;
+    int compared = 0;
+    for (NSUInteger index = 0; index < stream.units.count; index++) {
+        NSArray<NSNumber *> *unit = stream.units[index];
+        struct apkrt_video_frame frames[2];
+        BOOL rendered = YES;
+        for (int which = 0; which < 2; which++) {
+            const uint64_t handle = which == 0 ? to_yuv : to_rgba;
+            table->queue(table->context, handle, bytes + unit[0].longLongValue, (size_t)unit[1].longLongValue,
+                         unit[2].longLongValue, 0);
+            for (int tries = 0; table->peek(table->context, handle, &frames[which]) != 0 && tries < 2000; tries++) {
+                usleep(1000);
+            }
+            table->pop(table->context, handle);
+            const int answer = table->render(table->context, handle, frames[which].token,
+                                             which == 0 ? yuv_target : rgba_target);
+            if (answer != 0) {
+                fail(test, [NSString stringWithFormat:@"unit %lu: render %d into %s", (unsigned long)index, answer,
+                                                      which == 0 ? "YUV" : "RGBA"]);
+                rendered = NO;
+            }
+        }
+        if (!rendered || frames[0].time_us != frames[1].time_us) continue;
+        const double bt601 = rgba_difference(rgba, yuv, 0.299, 0.114);
+        const double bt709 = rgba_difference(rgba, yuv, 0.2126, 0.0722);
+        IOSurfaceLock(rgba, kIOSurfaceLockReadOnly, NULL);
+        const uint8_t alpha = ((const uint8_t *)IOSurfaceGetBaseAddress(rgba))[3];
+        IOSurfaceUnlock(rgba, kIOSurfaceLockReadOnly, NULL);
+        if (bt601 > 3 || bt709 < bt601 + 2 || alpha != 255) {
+            fail(test, [NSString stringWithFormat:@"pts %lld: BT.601 %.2f, BT.709 %.2f, alpha %u",
+                                                  (long long)frames[0].time_us, bt601, bt709, alpha]);
+        }
+        compared++;
+    }
+    if (compared != (int)stream.units.count) fail(test, [NSString stringWithFormat:@"%d frames compared", compared]);
+    table->destroy(table->context, to_yuv);
+    table->destroy(table->context, to_rgba);
+}
+
 /* A YUV 420 buffer's line as frame_line has a frame's: its CRC32s inside 320 x 180 at `time_us`. */
 static NSString *surface_line(IOSurfaceRef surface, int64_t time_us) {
     IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL);
@@ -555,8 +633,8 @@ static NSString *surface_line(IOSurfaceRef surface, int64_t time_us) {
 
 /* ADR-0060 e2c: Baseline's stream through a surface decoder, each frame rendered into a YUV 420 buffer of the
    guest's kind (an ImageReader's slot): the buffer's samples are Android's frame's; tokens it does not have, a
-   target of another table and an RGBA target are refused, a discarded token ends, at most eight frames wait, and a
-   flush ends a waiting one. */
+   target of another table and one whose IOSurface is not the '420v' its description says are refused, a discarded
+   token ends, at most eight frames wait, and a flush ends a waiting one. */
 static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets, NSString *log) {
     const char *test = "a surface decoder draws into a YUV buffer as Android decodes";
     const struct stream stream = load(assets, @"baseline");
@@ -624,13 +702,21 @@ static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets,
     if (table->render(table->context, other, token + 1000, &target) != -linux_einval) fail(test, @"a token not there");
     if (table->render(table->context, other, token, &foreign) != -linux_einval) fail(test, @"another table's buffer");
     table->pop(table->context, other);
+    // A buffer whose description says YUV 420 but whose IOSurface is an RGBA one.
+    const uint64_t lying_handle = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    table->queue(table->context, lying_handle, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
+    for (int tries = 0; table->peek(table->context, lying_handle, &frame) != 0 && tries < 2000; tries++) usleep(1000);
+    table->pop(table->context, lying_handle);
+    struct apkrt_video_target lying = rgba;
+    lying.description.format = 0x23;
+    if (table->render(table->context, lying_handle, frame.token, &lying) != -linux_einval) {
+        fail(test, @"an RGBA surface described as YUV 420");
+    }
+    table->destroy(table->context, lying_handle);
     const uint64_t rgba_handle = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
     table->queue(table->context, rgba_handle, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
     for (int tries = 0; table->peek(table->context, rgba_handle, &frame) != 0 && tries < 2000; tries++) usleep(1000);
     table->pop(table->context, rgba_handle);
-    if (table->render(table->context, rgba_handle, frame.token, &rgba) != -linux_einval) {
-        fail(test, @"an RGBA target (e2c2)");
-    }
     table->discard(table->context, rgba_handle, frame.token);
     if (table->render(table->context, rgba_handle, frame.token, &target) != -linux_einval) {
         fail(test, @"a token rendered after its end");
@@ -667,6 +753,7 @@ static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets,
     }
     table->destroy(table->context, other);
     table->destroy(table->context, rgba_handle);
+    rgbaFramesAreBt601VideoOfTheYuvOnes(stream, &target, surface, &rgba, rgba_surface);
     table->destroy(table->context, handle);
     CFRelease(surface);
     CFRelease(rgba_surface);

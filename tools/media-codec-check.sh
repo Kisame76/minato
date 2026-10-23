@@ -5,14 +5,19 @@
 # Android 15's log (fixtures/expected/media-codec-test.logcat, from tools/android-reference.sh --app
 # media-codec-test): H.264 decoded in ByteBuffer mode from Minato's own streams, synchronously, asynchronously and
 # across a flush, each frame by its time, flags and its samples' CRC32s, the refusals, and the NDK's AMediaCodec
-# through the app's JNI library. The decoder runs on graphics/host's VideoToolbox through graphics-run.
-# Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
+# through the app's JNI library; ADR-0060 e2c: frames rendered into ImageReader's, AImageReader's and a
+# SurfaceTexture's surfaces. The decoder runs on graphics/host's VideoToolbox through graphics-run.
+# Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-framework-res.sh and
+# tools/build-angle.sh first.
 # Usage: tools/media-codec-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
+# The SurfaceTexture run (ADR-0060 e2c2) draws through EGL: ANGLE's.
+ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
+if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 
 NATIVE=build/native/macos-grafik
 cmake --preset macos -B "$NATIVE" >/dev/null
@@ -21,7 +26,7 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh media-codec-test >/dev/null
 app=media-codec-test
-python3 framework/tests/java_app_run.py "$app" io.github.kisame76.minato.test.mediacodec \
+MINATO_ANGLE="$ANGLE" python3 framework/tests/java_app_run.py "$app" io.github.kisame76.minato.test.mediacodec \
   io.github.kisame76.minato.test.mediacodec.MediaCodecApplication build/art build/bionic/lib \
   build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/graphics/tests/graphics-run" "build/$app-check" \

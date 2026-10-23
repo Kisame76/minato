@@ -548,7 +548,7 @@ jobject MediaCodec_getImage(JNIEnv *env, jobject thiz, jboolean input, jint inde
     env->DeleteLocalRef(env->CallObjectMethod(info, gFields.bufferOrder, order));
     jobject buffer = direct_buffer(env, data, frame);
     // MediaImage's time is in nanoseconds, the buffer's in microseconds, as the tag's getImage converts it.
-    const jlong timestamp = index < 8 ? codec_of(env, thiz)->times[index] * 1000 : 0;
+    const jlong timestamp = index < 8 ? minato_media_time_ns(codec_of(env, thiz)->times[index]) : 0;
     jobject crop = env->NewObject(gFields.rectClass, gFields.rectConstructor, left, top, right + 1, bottom + 1);
     jobject image = env->NewObject(gFields.mediaImageClass, gFields.mediaImageConstructor, buffer, info, JNI_TRUE,
                                    timestamp, 0, 0, crop);

@@ -105,7 +105,8 @@ LIBRARIES = {
                     "minato_BufferQueue_setDefaultFormat", "minato_BufferQueue_setDefaultDataSpace",
                     "minato_BufferQueue_discardFreeBuffers",
                     "minato_BufferQueue_detach", "minato_ANativeWindow_connect", "minato_ANativeWindow_disconnect",
-                    "minato_ANativeWindow_queueWith", "minato_ANativeWindow_attachAndQueue"],
+                    "minato_ANativeWindow_queueWith", "minato_ANativeWindow_attachAndQueue",
+                    "minato_ANativeWindow_claim", "minato_ANativeWindow_unclaim", "minato_ANativeWindow_isClaimed"],
     },
     # zlib from the NDK's libz.a, whole (decision 12): only the version script.
     "libz": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},

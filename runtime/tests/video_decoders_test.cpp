@@ -6,6 +6,7 @@
 // their own test, the guest's codec the fixture media-codec-test against Android 15.
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
+#include "APKRuntime/media_codec.h"
 #include "syscall_frame.h"
 #include "syscalls.h"
 
@@ -103,7 +104,7 @@ struct Fake {
     std::map<std::uint64_t, Decoder> decoders;
     std::uint64_t next = 500;
     int creates = 0, destroys = 0, overlaps = 0;
-    int refuse_create = 0, queue_answer = 0, peek_answer = 0, render_answer = 0;  // when not 0
+    int refuse_create = 0, queue_answer = 0, peek_answer = 0, render_answer = 0, flush_answer = 0;  // when not 0
     bool fail_after_create = false;  // the runtime's allocations fail once the host's decoder is made
     // A queue waits here while `hold_queue`, until released, so that a destroy can race it.
     bool hold_queue = false, queue_entered = false;
@@ -112,7 +113,7 @@ struct Fake {
     void reset() {
         const std::lock_guard hold(mutex);
         decoders.clear();
-        creates = destroys = overlaps = refuse_create = queue_answer = peek_answer = render_answer = 0;
+        creates = destroys = overlaps = refuse_create = queue_answer = peek_answer = render_answer = flush_answer = 0;
         fail_after_create = false;
         hold_queue = queue_entered = false;
     }
@@ -216,6 +217,7 @@ int fake_flush(void *context, std::uint64_t handle) {
     const std::lock_guard hold(self.mutex);
     Fake::Decoder &decoder = self.decoders.at(handle);
     decoder.flushes++;
+    if (self.flush_answer != 0) return self.flush_answer;
     decoder.frames.clear();
     decoder.frame_bytes.clear();
     return 0;
@@ -1004,6 +1006,39 @@ TEST(a_flush_ends_every_token) {
         CHECK(fake.decoders.at(handle).rendered.empty());
     }
     release_guest_buffer(target);
+    CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
+}
+
+TEST(media_times_saturate) {
+    // libmediandk's and the framework's frame times (media_codec.h): microseconds to nanoseconds, clamped where a
+    // guest's time would overflow.
+    CHECK(minato_media_time_ns(0) == 0 && minato_media_time_ns(33333) == 33333000);
+    CHECK(minato_media_time_ns(-5) == -5000);
+    CHECK(minato_media_time_ns(INT64_MAX / 1000) == INT64_MAX / 1000 * 1000);
+    CHECK(minato_media_time_ns(INT64_MAX / 1000 + 1) == INT64_MAX);
+    CHECK(minato_media_time_ns(INT64_MAX) == INT64_MAX);
+    CHECK(minato_media_time_ns(INT64_MIN / 1000) == INT64_MIN / 1000 * 1000);
+    CHECK(minato_media_time_ns(INT64_MIN / 1000 - 1) == INT64_MIN);
+    CHECK(minato_media_time_ns(INT64_MIN) == INT64_MIN);
+}
+
+TEST(a_failed_flush_keeps_the_tokens) {
+    // The guest keeps its output buffers when its flush fails, so their tokens still reach the host's discard.
+    use_fake();
+    std::uint64_t handle = 0;
+    const std::uint64_t id = create(&handle, avc, surface);
+    fake.add_surface_frame(handle, 320, 180, 0, 8);
+    apkrt_video_decoder decoder{};
+    decoder.id = id;
+    CHECK(call(APKRT_VIDEO_DECODER_DEQUEUE, decoder) == 0 && decoder.data == 8);
+    fake.flush_answer = -eio;
+    CHECK(call(APKRT_VIDEO_DECODER_FLUSH, id) == -eio);
+    fake.flush_answer = 0;
+    CHECK(call(APKRT_VIDEO_DECODER_DISCARD, decoder) == 0);
+    {
+        const std::lock_guard hold(fake.mutex);
+        CHECK(fake.decoders.at(handle).discarded == std::vector<std::uint64_t>{8});
+    }
     CHECK(call(APKRT_VIDEO_DECODER_DESTROY, id) == 0);
 }
 

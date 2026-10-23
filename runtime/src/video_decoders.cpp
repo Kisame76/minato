@@ -274,8 +274,10 @@ long flush(std::uint64_t id) {
     if (decoder == nullptr) return -linux_errno::ebadf;
     const std::lock_guard hold(decoder->mutex);
     if (decoder->gone) return -linux_errno::ebadf;
-    decoder->waiting.clear();
-    return host_answer(decoder->table.flush(decoder->table.context, decoder->handle));
+    const long flushed = host_answer(decoder->table.flush(decoder->table.context, decoder->handle));
+    // A failed flush leaves the guest its output buffers, whose tokens still render or discard.
+    if (flushed == 0) decoder->waiting.clear();
+    return flushed;
 }
 
 /// The surface decoder of a RENDER or DISCARD, its lock held by `hold`, and the waiting token taken: 0, or the answer.

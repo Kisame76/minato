@@ -20,10 +20,14 @@
 //   bytes (getOutputBuffer NULL, as Android's) and the frame's NV12 size as its BufferInfo size; the output format's
 //   color format is COLOR_FormatSurface. releaseOutputBuffer with render dequeues a slot of the window, has the host
 //   draw the frame into its buffer and queues it at the frame's time (or releaseOutputBufferAtTime's), else the frame
-//   goes undrawn; setOutputSurface changes the window to another queue's. Named limit: a host window (SurfaceView's,
-//   the activity's) has no slots yet: configure answers AMEDIA_ERROR_UNSUPPORTED (e2c3).
+//   goes undrawn; setOutputSurface changes the window to another queue's. The codec claims the window as its producer
+//   from configure to its end (minato_ANativeWindow_claim, as Android's codec connects to its surface): a CPU lock, a
+//   writer, an EGL window surface or another codec on it is refused meanwhile, so that no other producer holds the
+//   slots its render dequeues under the codec's lock. Named limit: a host window (SurfaceView's, the activity's) has
+//   no slots yet: configure answers AMEDIA_ERROR_UNSUPPORTED (e2c3).
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
 #include <android/hardware_buffer.h>
+#include <android/log.h>
 #include <android/native_window.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
@@ -52,6 +56,8 @@ struct WindowFunctions {
     decltype(&minato_ANativeWindow_dequeue) dequeue = nullptr;
     decltype(&minato_ANativeWindow_queueWith) queue = nullptr;
     decltype(&minato_ANativeWindow_cancel) cancel = nullptr;
+    decltype(&minato_ANativeWindow_claim) claim = nullptr;
+    decltype(&minato_ANativeWindow_unclaim) unclaim = nullptr;
 };
 
 WindowFunctions found_window_functions;
@@ -65,6 +71,8 @@ void find_window_functions() {
         FIND(dequeue, minato_ANativeWindow_dequeue);
         FIND(queue, minato_ANativeWindow_queueWith);
         FIND(cancel, minato_ANativeWindow_cancel);
+        FIND(claim, minato_ANativeWindow_claim);
+        FIND(unclaim, minato_ANativeWindow_unclaim);
 #undef FIND
     }
 }
@@ -73,7 +81,8 @@ void find_window_functions() {
 const WindowFunctions *window_functions() {
     pthread_once(&window_functions_once, find_window_functions);
     const WindowFunctions &found = found_window_functions;
-    return found.is_queue != nullptr && found.dequeue != nullptr && found.queue != nullptr && found.cancel != nullptr
+    return found.is_queue != nullptr && found.dequeue != nullptr && found.queue != nullptr && found.cancel != nullptr &&
+                   found.claim != nullptr && found.unclaim != nullptr
                ? &found
                : nullptr;
 }
@@ -158,6 +167,7 @@ struct AMediaCodec {
     AMediaFormat *input_format, *output_format;
     uint64_t decoder;  // the runtime's ID while started
     ANativeWindow *window;  // the surface, a queue's, with a reference of the codec's; NULL for ByteBuffer output
+    bool told_format;       // a buffer the host cannot draw into logged, once per codec
     Bytes inputs[kInputs];
     bool input_dequeued[kInputs];
     Unit waiting[kInputs];  // queued units the host has not taken yet, from waiting_head
@@ -337,9 +347,12 @@ void end_decoder(AMediaCodec *codec) {
     codec->error = AMEDIA_OK;
 }
 
-/// Ends the surface, with the codec's lock held.
+/// Ends the surface and the codec's claim of it, with the codec's lock held.
 void end_window(AMediaCodec *codec) {
-    if (codec->window != nullptr) ANativeWindow_release(codec->window);
+    if (codec->window != nullptr) {
+        window_functions()->unclaim(codec->window);
+        ANativeWindow_release(codec->window);
+    }
     codec->window = nullptr;
 }
 
@@ -360,12 +373,22 @@ void release_frame(AMediaCodec *codec, uint64_t token, bool render, int64_t time
     }
     if (AHardwareBuffer_getId(buffer, &buffer_id) != 0) buffer_id = 0;
     call.size = buffer_id;
-    if (buffer_id != 0 && video_call(APKRT_VIDEO_DECODER_RENDER, reinterpret_cast<uintptr_t>(&call)) == 0) {
+    const long rendered = buffer_id != 0 ? video_call(APKRT_VIDEO_DECODER_RENDER, reinterpret_cast<uintptr_t>(&call))
+                                         : -EINVAL;
+    if (rendered == 0) {
         minato_BufferQueue_settings settings{};
         settings.timestamp = timestamp_ns;
         settings.exact_time = 1;  // a frame at time 0 keeps it, as Android's codec queues its time
         functions->queue(codec->window, slot, &settings);
     } else {
+        if (rendered == -EINVAL && buffer_id != 0 && !codec->told_format) {
+            // Android configures such a surface too and its consumer never gets an image (an RGB_565 reader).
+            AHardwareBuffer_Desc description{};
+            AHardwareBuffer_describe(buffer, &description);
+            __android_log_print(ANDROID_LOG_WARN, "AMediaCodec", "no frame drawn into a buffer of format %u",
+                                description.format);
+            codec->told_format = true;
+        }
         if (buffer_id == 0) video_call(APKRT_VIDEO_DECODER_DISCARD, reinterpret_cast<uintptr_t>(&call));
         functions->cancel(codec->window, slot);
     }
@@ -380,7 +403,7 @@ media_status_t release_output(AMediaCodec *codec, size_t index, bool render, int
     if (codec->state != AMediaCodec::kStarted || output.state != Output::kHeld) return AMEDIA_ERROR_INVALID_OPERATION;
     if (output.token != 0) {
         release_frame(codec, output.token, render,
-                      timestamp_ns >= 0 ? timestamp_ns : output.info.presentationTimeUs * 1000);
+                      timestamp_ns >= 0 ? timestamp_ns : minato_media_time_ns(output.info.presentationTimeUs));
         output.token = 0;
     }
     output.state = Output::kFree;
@@ -564,6 +587,7 @@ media_status_t AMediaCodec_configure(AMediaCodec *codec, const AMediaFormat *for
     codec->width = width, codec->height = height;
     end_window(codec);
     if (surface != nullptr) {
+        if (window_functions()->claim(surface) != 0) return AMEDIA_ERROR_UNKNOWN;  // another producer's
         ANativeWindow_acquire(surface);
         codec->window = surface;
     }
@@ -731,6 +755,8 @@ media_status_t AMediaCodec_setOutputSurface(AMediaCodec *codec, ANativeWindow *s
     Lock hold(&codec->mutex);
     if (codec->window == nullptr || codec->state == AMediaCodec::kMade) return AMEDIA_ERROR_INVALID_OPERATION;
     if (!is_queue_window(surface)) return AMEDIA_ERROR_UNSUPPORTED;  // a host window's with e2c3
+    if (surface == codec->window) return AMEDIA_OK;
+    if (window_functions()->claim(surface) != 0) return AMEDIA_ERROR_UNKNOWN;  // another producer's
     ANativeWindow_acquire(surface);
     end_window(codec);
     codec->window = surface;

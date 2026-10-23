@@ -217,6 +217,38 @@ I/media-codec-test: baseline reader: pts 900000, 320 x 180, format 35, Y f82a660
 I/media-codec-test: baseline reader: pts 933333, 320 x 180, format 35, Y e44d1608 U 255fdbb8 V 986f1298
 I/media-codec-test: baseline reader: pts 966667, 320 x 180, format 35, Y ba77a5ea U b3af68ff V 40d4690d
 I/media-codec-test: baseline reader: 30 frames, end of stream
+I/media-codec-test: baseline texture: output format video/raw, 320 x 180, crop 0 0 319 179
+I/media-codec-test: baseline texture: pts 0, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 33333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 66667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 100000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 133333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 166667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 200000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 233333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 266667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 300000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 333333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 366667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 400000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 433333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 466667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 500000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 533333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 566667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 600000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 633333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 666667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 700000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 733333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 766667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 800000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 833333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 866667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 900000, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 933333, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: pts 966667, closest BT.601 video, within 3 true
+I/media-codec-test: baseline texture: 30 frames, end of stream
 I/media-codec-test: ndk reader: new 0, window 0
 I/media-codec-test: ndk reader: configure 0, start 0
 I/media-codec-test: ndk reader: pts 0, 320 x 180, format 35, Y 31e82cd2 U f0d30877 V 30951d77
@@ -250,4 +282,20 @@ I/media-codec-test: ndk reader: pts 900000, 320 x 180, format 35, Y 9d5ce419 U 9
 I/media-codec-test: ndk reader: pts 933333, 320 x 180, format 35, Y 1dadc26d U 87f5b199 V 88244e10
 I/media-codec-test: ndk reader: pts 966667, 320 x 180, format 35, Y e979c167 U 7561b8c3 V 70139799
 I/media-codec-test: ndk reader: 30 frames, end of stream, stop 0, delete 0
+I/media-codec-test: ndk hold: new 0, window 0
+I/media-codec-test: ndk hold: configure 0, start 0
+I/media-codec-test: ndk hold: a lock while the codec draws -22
+I/media-codec-test: ndk hold: a second codec: configure -10000, start -10005
+I/media-codec-test: ndk hold: a window surface while the codec draws none
+I/media-codec-test: ndk hold: 30 rendered, end of stream, every release within 100 ms yes, first held yes
+I/media-codec-test: ndk hold: a second image while held -30002
+I/media-codec-test: ndk hold: after the hold pts 966667
+I/media-codec-test: ndk hold: then -30001, stop 0, delete 0
+I/media-codec-test: ndk hold: a lock after the codec 0
+I/media-codec-test: ndk rgb565: new 0, window 0
+I/media-codec-test: ndk rgb565: configure 0, start 0
+I/media-codec-test: ndk rgb565: release 0, image no, format 0
+I/media-codec-test: ndk rgb565: release 0, image no, format 0
+I/media-codec-test: ndk rgb565: release 0, image no, format 0
+I/media-codec-test: ndk rgb565: 3 rendered, 0 images, last -30001, stop 0, delete 0
 I/media-codec-test: done

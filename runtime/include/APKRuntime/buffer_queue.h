@@ -120,6 +120,15 @@ int minato_ANativeWindow_queueWith(struct ANativeWindow *window, int32_t slot,
 int minato_ANativeWindow_attachAndQueue(struct ANativeWindow *window, struct AHardwareBuffer *buffer,
                                         const struct minato_BufferQueue_settings *settings);
 
+/* A decoder's claim of the window as its producer (ADR-0060 e2c2, libgui's connect as NATIVE_WINDOW_API_MEDIA): while
+   it lasts, a CPU lock answers -EINVAL, a writer's connect -EBUSY and libEGL makes no window surface on it, as
+   libgui answers a second producer, so that the decoder's dequeue never waits for one. 0, -EBUSY claimed already, with
+   a writer connected or while a lock is held, -ENODEV abandoned, -EINVAL for any other window. The unclaim ends it;
+   isClaimed answers whether one lasts (1) or not (0). */
+int minato_ANativeWindow_claim(struct ANativeWindow *window);
+void minato_ANativeWindow_unclaim(struct ANativeWindow *window);
+int minato_ANativeWindow_isClaimed(struct ANativeWindow *window);
+
 #ifdef __cplusplus
 }
 #endif

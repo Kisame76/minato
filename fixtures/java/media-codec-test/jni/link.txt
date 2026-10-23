@@ -1,2 +1,4 @@
+EGL
 mediandk
+nativewindow
 z
