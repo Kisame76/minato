@@ -162,7 +162,9 @@ static void eachFormatOfAIsSupportedForTheCPUAndTheGPU(void) {
         }
     }
     const struct apkrt_hardware_buffer_description more[] = {
-        desc(4096, 1, 1, BLOB, CPU), desc(1, 1, 1, BLOB, CPU_READ_RARELY), desc(64, 48, 4, RGBA8, CPU)};
+        desc(4096, 1, 1, BLOB, CPU), desc(1, 1, 1, BLOB, CPU_READ_RARELY), desc(64, 48, 4, RGBA8, CPU),
+        desc(16384, 1, 1, RGBA8, CPU | GPU_SAMPLED_IMAGE), desc(1, 16384, 1, RGBA8, CPU | GPU_SAMPLED_IMAGE),
+        desc(100000, 1, 1, BLOB, CPU)};
     for (size_t index = 0; index < sizeof more / sizeof *more; index++) {
         if (supported(more[index]) != 1) {
             fail(test, [NSString stringWithFormat:@"format %#x, %u x %u x %u: not supported", more[index].format,
@@ -197,6 +199,12 @@ static void otherFormatsAndUsagesAreNot(void) {
     refused[count++] = desc(4096, 2, 1, BLOB, CPU);
     refused[count++] = desc(4096, 1, 2, BLOB, CPU);
     refused[count++] = desc(64, 48, 2, RGBA8, CPU | GPU_SAMPLED_IMAGE);
+    // Past a Metal texture's 16384 on a side (ADR-0060 e2c2 hardening): the emulator's gralloc makes them, a device's
+    // GPU does not sample them, and Metal ends the process at a texture of one.
+    refused[count++] = desc(16385, 1, 1, RGBA8, CPU);
+    refused[count++] = desc(1, 16385, 1, RGBA8, CPU | GPU_SAMPLED_IMAGE);
+    refused[count++] = desc(16385, 1, 1, RGBX8, GPU_FRAMEBUFFER);
+    refused[count++] = desc(16386, 2, 1, YUV420, CPU);
     for (size_t index = 0; index < count; index++) {
         uint64_t handle = 0;
         uint32_t stride = 0;
@@ -461,11 +469,11 @@ static void aBlobIsItsWidthInBytesInOneRange(void) {
 
 static void sizesAboveTheCapAreRefused(void) {
     const char *const test = "sizes above the cap are refused";
-    // 16383 pixels of 4 bytes are 65532 bytes, which align to 65536: 16385 rows stay within the cap unaligned and go
-    // above it aligned, which the host checks itself.
+    // 16383 pixels of 4 bytes are 65532 bytes, which align to 65536: 16385 rows (5 layers of 3277) stay within the
+    // cap unaligned and go above it aligned, which the host checks itself. Every side is within 16384.
     const struct apkrt_hardware_buffer_description large[] = {
-        desc(16383, 16385, 1, RGBA8, CPU),          desc(16384, 16385, 1, RGBA8, CPU),
-        desc(65536, 65536, 4, RGBA16F, CPU),        desc(UINT32_MAX, UINT32_MAX, UINT32_MAX, RGBA16F, CPU),
+        desc(16383, 3277, 5, RGBA8, CPU),           desc(16384, 3277, 5, RGBA8, CPU),
+        desc(16384, 16384, 2, RGBA16F, CPU),        desc(16384, 16384, UINT32_MAX, RGBA16F, CPU),
         desc(UINT32_MAX, 1, 1, BLOB, CPU),          desc(16384, 16384, 5, R8, CPU),
     };
     for (size_t index = 0; index < sizeof large / sizeof *large; index++) {

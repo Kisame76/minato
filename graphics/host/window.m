@@ -269,7 +269,9 @@ static int locked(void *context, uint64_t window_id, struct apkrt_window_buffer 
     MTLPixelFormat pixel_format;
     int32_t bytes;
     uint32_t surface_format;
-    if (request->width <= 0 || request->height <= 0 ||
+    // Past 16384 a side, a Metal texture's largest, Metal would end the process at the buffer's texture (ADR-0060 e2c2
+    // hardening); a device's gralloc refuses such a buffer too.
+    if (request->width <= 0 || request->height <= 0 || request->width > 16384 || request->height > 16384 ||
         !texture_format(request->format, &pixel_format, &bytes, &surface_format)) {
         return -linux_einval;
     }

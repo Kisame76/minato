@@ -124,7 +124,8 @@ static IOSurfaceRef surface_of(uint64_t buffer, struct apkrt_hardware_buffer_des
 static id<MTLTexture> texture_of(IOSurfaceRef surface, const struct apkrt_hardware_buffer_description *description,
                                  unsigned *internal_format) {
     const MTLPixelFormat format = pixel_format(description->format);
-    if (format == MTLPixelFormatInvalid) {
+    // Past 16384 a side Metal ends the process; hardware_buffer.m makes no such image buffer (ADR-0060 e2c2).
+    if (format == MTLPixelFormatInvalid || description->width > 16384 || description->height > 16384) {
         return nil;
     }
     MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format

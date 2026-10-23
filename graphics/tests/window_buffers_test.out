@@ -11,3 +11,5 @@ lock 5 RGBX_8888: 0, 64x48 stride 64 format 2
 post 5: 0, drawable CRC-32 7a851ea7
 lock 6 RGB_565: 0, 32x24 stride 64 format 4
 post 6: 0, drawable CRC-32 0142d913
+lock 16385 x 1: -22
+lock 1 x 16385: -22

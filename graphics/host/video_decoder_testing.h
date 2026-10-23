@@ -13,4 +13,10 @@ typedef OSStatus (*minato_video_decode_function)(VTDecompressionSessionRef sessi
 #ifdef MINATO_VIDEO_DECODER_TESTING
 /* Every later decode goes to `decode`, or to VideoToolbox's VTDecompressionSessionDecodeFrame again for NULL. */
 void minato_video_decoder_set_decode_for_testing(minato_video_decode_function decode);
+/* The Metal pass of render (ADR-0060 e2c2) from `image`, an NV12 image, into `target`, an 'RGBA' IOSurface, so that a
+   test hands it surfaces no hardware buffer of graphics/host's is: 0, or the errno render answers. */
+int minato_video_decoder_convert_for_testing(CVPixelBufferRef image, IOSurfaceRef target);
+/* The decoders' provider of "scheduled" (apkrt_add_scheduled_provider): 1 once no render is in flight, 0 at
+   `deadline` (CLOCK_UPTIME_RAW's nanoseconds) first. */
+int minato_video_decoder_scheduled_for_testing(uint64_t deadline);
 #endif

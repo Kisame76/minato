@@ -8,11 +8,12 @@
    active SPS, and a new session after the old one's frames. graphics.video_decoder_asan runs the cases with the
    decoders' own sources under AddressSanitizer and VideoToolbox's decode call replaced (MINATO_VIDEO_DECODER_TESTING),
    for three more: units whose call back never comes with a session iOS ended, units VideoToolbox holds with the end
-   of the stream after them, and exceptions.
+   of the stream after them, exceptions, and surfaces the Metal pass cannot wrap.
    Usage: graphics-video-decoder-test <assets directory> <media-codec-test.logcat>. Exits 1 after the cases when one
    failed. */
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurface.h>
+#import <Metal/Metal.h>
 
 #include <math.h>
 #include <stdatomic.h>
@@ -521,6 +522,49 @@ static void anExceptionInTheHostAnswersAnErrno(NSString *assets, NSString *log) 
     table->destroy(table->context, handle);
 }
 
+/* An 'RGBA' IOSurface of `width` x `height` with rows of `row` bytes. */
+static IOSurfaceRef rgba_surface(size_t width, size_t height, size_t row) {
+    return IOSurfaceCreate((__bridge CFDictionaryRef) @{
+        (id)kIOSurfaceWidth: @(width),
+        (id)kIOSurfaceHeight: @(height),
+        (id)kIOSurfaceBytesPerElement: @4,
+        (id)kIOSurfaceBytesPerRow: @(row),
+        (id)kIOSurfacePixelFormat: @((uint32_t)'RGBA'),
+    });
+}
+
+/* ADR-0060 e2c2 hardening: the Metal pass refuses, with -EIO, surfaces Metal would end the process at (a side past
+   16384, rows not of the device's linear texture alignment), and draws into one it can wrap. */
+static void theMetalPassRefusesSurfacesMetalCannotWrap(void) {
+    const char *test = "the Metal pass refuses surfaces Metal cannot wrap";
+    CVPixelBufferRef image = NULL;
+    NSDictionary *attributes = @{(id)kCVPixelBufferIOSurfacePropertiesKey: @{}};
+    if (CVPixelBufferCreate(NULL, 64, 48, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                            (__bridge CFDictionaryRef)attributes, &image) != kCVReturnSuccess) {
+        fail(test, @"no image");
+        return;
+    }
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    const size_t alignment = [device minimumLinearTextureAlignmentForPixelFormat:MTLPixelFormatRGBA8Unorm];
+    const size_t aligned = (64 * 4 + alignment - 1) / alignment * alignment;
+    IOSurfaceRef surfaces[] = {rgba_surface(64, 48, aligned),
+                               rgba_surface(16385, 1, (16385 * 4 + alignment - 1) / alignment * alignment),
+                               rgba_surface(1, 16385, alignment > 4 ? alignment : 4),
+                               alignment > 4 ? rgba_surface(64, 48, aligned + 4) : NULL};
+    const char *const names[] = {"an aligned surface", "16385 x 1", "1 x 16385", "rows past the alignment"};
+    const int wanted[] = {0, -linux_eio, -linux_eio, -linux_eio};
+    for (int index = 0; index < 4; index++) {
+        if (surfaces[index] == NULL) {
+            if (index < 3) fail(test, [NSString stringWithFormat:@"%s: no surface", names[index]]);
+            continue;
+        }
+        const int answer = minato_video_decoder_convert_for_testing(image, surfaces[index]);
+        if (answer != wanted[index]) fail(test, [NSString stringWithFormat:@"%s: %d", names[index], answer]);
+        CFRelease(surfaces[index]);
+    }
+    CVPixelBufferRelease(image);
+}
+
 #endif  // MINATO_VIDEO_DECODER_TESTING
 
 /* A hardware buffer of graphics/host's own of the format (AHardwareBuffer's), as the guest's queue makes one, as a
@@ -634,7 +678,7 @@ static NSString *surface_line(IOSurfaceRef surface, int64_t time_us) {
 /* ADR-0060 e2c: Baseline's stream through a surface decoder, each frame rendered into a YUV 420 buffer of the
    guest's kind (an ImageReader's slot): the buffer's samples are Android's frame's; tokens it does not have, a
    target of another table and one whose IOSurface is not the '420v' its description says are refused, a discarded
-   token ends, at most eight frames wait, and a flush ends a waiting one. */
+   token ends, at most eight frames wait, a flush ends a waiting one, and a render in the background draws nothing. */
 static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets, NSString *log) {
     const char *test = "a surface decoder draws into a YUV buffer as Android decodes";
     const struct stream stream = load(assets, @"baseline");
@@ -753,6 +797,40 @@ static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets,
     }
     table->destroy(table->context, other);
     table->destroy(table->context, rgba_handle);
+    // In the background (ADR-0032, decision 6) a render draws nothing, neither by the Metal pass nor by
+    // VTPixelTransferSession, and its token ends; back in the foreground the next one draws.
+    const struct apkrt_video_target *const targets[] = {&rgba, &target, &rgba};
+    for (int index = 0; index < 3; index++) {
+        const uint64_t one = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+        table->queue(table->context, one, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
+        int peeked = -1;
+        for (int tries = 0; (peeked = table->peek(table->context, one, &frame)) != 0 && tries < 2000; tries++) {
+            usleep(1000);
+        }
+        if (peeked != 0) {
+            fail(test, @"no frame for a render in the background");
+            table->destroy(table->context, one);
+            continue;
+        }
+        table->pop(table->context, one);
+        apkrt_set_background(index < 2);
+        const int rendered = table->render(table->context, one, frame.token, targets[index]);
+        apkrt_set_background(0);
+        if (rendered != (index < 2 ? -linux_eio : 0)) {
+            fail(test, [NSString stringWithFormat:@"a render %s the background: %d", index < 2 ? "in" : "after",
+                                                  rendered]);
+        }
+        if (index < 2 && table->render(table->context, one, frame.token, targets[index]) != -linux_einval) {
+            fail(test, @"a token left after a render in the background");
+        }
+        table->destroy(table->context, one);
+    }
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    // No render left counted in flight, refused ones included: the scheduled provider answers yes at once.
+    if (minato_video_decoder_scheduled_for_testing(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 50000000) != 1) {
+        fail(test, @"renders still in flight for the scheduled provider");
+    }
+#endif
     rgbaFramesAreBt601VideoOfTheYuvOnes(stream, &target, surface, &rgba, rgba_surface);
     table->destroy(table->context, handle);
     CFRelease(surface);
@@ -823,7 +901,8 @@ int main(int argc, char **argv) {
         lostUnitsAndAnEndedSessionLeaveTheDecoderWorking(assets, log);
         unitsVideoToolboxHoldsAndTheEndAreTaken(assets, log);
         anExceptionInTheHostAnswersAnErrno(assets, log);
-        cases += 3;
+        theMetalPassRefusesSurfacesMetalCannotWrap();
+        cases += 4;
 #endif
         printf("graphics.video_decoder: %d cases, %d failures\n", cases, failures);
         return failures == 0 ? 0 : 1;

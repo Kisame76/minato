@@ -20,7 +20,8 @@
      is a row's pixels, and the layers lie one below the other. A BLOB's bytes lie in one range, in rows of at most
      IOSurface's largest row; its stride and its bytes per row are its width.
    - A size above APKRT_HARDWARE_BUFFER_MAX_BYTES as the rows align it, each product checked, answers -ENOMEM, as a
-     surface that IOSurface does not make does.
+     surface that IOSurface does not make does. A side past 16384, a Metal texture's largest, is not supported (but a
+     BLOB's width): the emulator's gralloc makes such a buffer, a device's GPU does not sample it (ADR-0060 e2c2).
    - Locks nest. The first takes IOSurface's lock read-only unless it asks to write, a write inside read-only locks
      adds a read-write one, and the last unlock lets go of both, so IOSurface's seed moves only for a write.
    - A free refuses every later lock. A buffer freed while locked, which the runtime's contract rules out, keeps its
@@ -128,6 +129,10 @@ static const struct format *find_format(uint32_t code) {
     return NULL;
 }
 
+/* A Metal texture's largest side on Apple's GPUs: Metal ends the process at a texture of a surface past it, which b)'s
+   EGL images and the decoders' passes make, so that no image buffer is larger (a BLOB is its width in bytes). */
+static const uint32_t max_side = 16384;
+
 /* The format of a description they can make, or NULL. */
 static const struct format *served(const struct apkrt_hardware_buffer_description *description) {
     const struct format *format = find_format(description->format);
@@ -141,6 +146,9 @@ static const struct format *served(const struct apkrt_hardware_buffer_descriptio
         return NULL;
     }
     if (is_yuv(format) && description->layers != 1) {
+        return NULL;
+    }
+    if (format->code != format_blob && (description->width > max_side || description->height > max_side)) {
         return NULL;
     }
     return (description->layers > 1 && images) ? NULL : format;

@@ -6,6 +6,7 @@
      copy-back), and the four locks take the three buffers in turn.
    - RGBX_8888, its pixels' alpha 0: the drawable's alpha is 255.
    - RGB_565 at 32 x 24 (setBuffersGeometry): pure colors in four quadrants, which convert without rounding.
+   - A geometry of 16385 on a side: the lock answers -EINVAL (Metal's largest texture side is 16384).
    For each post it prints the CRC-32 its drawable must have, of its BGRA bytes row by row as the hook reads them,
    which the hook's line (stderr) must show. */
 #include <android/native_window.h>
@@ -163,6 +164,16 @@ int main(void) {
     } else {
         printf("\n");
     }
+    // A side past 16384, a Metal texture's largest (ADR-0060 e2c2 hardening): refused, where Metal would end the
+    // process at the buffer's texture.
+    ANativeWindow_setBuffersGeometry(window, 16385, 1, WINDOW_FORMAT_RGBA_8888);
+    result = ANativeWindow_lock(window, &buffer, NULL);
+    printf("lock 16385 x 1: %d\n", result);
+    if (result == 0) ANativeWindow_unlockAndPost(window);
+    ANativeWindow_setBuffersGeometry(window, 1, 16385, WINDOW_FORMAT_RGBA_8888);
+    result = ANativeWindow_lock(window, &buffer, NULL);
+    printf("lock 1 x 16385: %d\n", result);
+    if (result == 0) ANativeWindow_unlockAndPost(window);
     ANativeWindow_release(window);
     // Metal presents a drawable from its command buffer's scheduled handler, where the hook reads it back: a moment
     // for the last one before the process ends.

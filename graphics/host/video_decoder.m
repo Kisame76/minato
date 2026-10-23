@@ -27,7 +27,10 @@
      TextureView's, an RGBA reader's; RGBX and PRIVATE are 'RGBA' too): the image's planes as R8 and RG8 textures,
      chroma filtered linearly, through the matrix of its attachments (BT.601, BT.709 or BT.2020; without one BT.601
      below 720 rows and BT.709 from there, as Android takes an unspecified stream) and its range (video for '420v',
-     full for '420f'), alpha 1. The pass ends before render returns, as Minato's queues have no fences.
+     full for '420f'), alpha 1. The pass ends before render returns, as Minato's queues have no fences. In the
+     background render answers -EIO without the GPU, and a provider of "scheduled" waits for the renders that began
+     before it (ADR-0032, decision 6); a surface Metal cannot wrap (a side past 16384, rows off its alignment) answers
+     -EINVAL or -EIO, never Metal's abort.
    - Each unit in VideoToolbox has a token of its own, which its call back or its refusal ends once. A flush or a
      destroy ends every token, so that no frame of its earlier input comes after it, waits for VideoToolbox's frames in
      flight and ends the session; a flush's next input makes a new one, as the next unit does after VideoToolbox ended
@@ -46,7 +49,10 @@
 
 #include <pthread.h>
 #include <simd/simd.h>
+#include <stdatomic.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
@@ -434,6 +440,7 @@ static BOOL ensure_session(MinatoVideoDecoder *decoder) {
             @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange), @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
         ],
         (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+        (id)kCVPixelBufferMetalCompatibilityKey: @YES,  // rows Metal wraps, for the RGBA pass
     };
     const VTDecompressionOutputCallbackRecord callback = {decoded, (__bridge void *)decoder};
     VTDecompressionSessionRef session = NULL;
@@ -716,29 +723,49 @@ static NSString *const conversion_source =
      "    out.write(float4(clamp(conversion.matrix * (ycbcr - conversion.offset), 0.0, 1.0), 1.0), at);\n"
      "}\n";
 
+/* A Metal texture's largest side on Apple's GPUs (hardware_buffer.m makes no image buffer past it). */
+static const size_t max_texture_side = 16384;
+
 static id<MTLDevice> metal_device;
 static id<MTLCommandQueue> metal_queue;
 static id<MTLComputePipelineState> conversion_pipeline;
+static pthread_mutex_t metal_lock = PTHREAD_MUTEX_INITIALIZER;
+static _Atomic BOOL metal_made;
 
-/* The device, its queue and the pass's pipeline, once; NO without them. */
+/* The device, its queue and the pass's pipeline, made at the first call that gets them all, under a lock: without a
+   device yet it is tried again at the next render, a pipeline that does not compile on the device is not (it would
+   compile at every frame); NO without them. */
 static BOOL metal_ready(void) {
-    static dispatch_once_t once;
-    static BOOL ready;
-    dispatch_once(&once, ^{
-        metal_device = MTLCreateSystemDefaultDevice();
-        metal_queue = [metal_device newCommandQueue];
-        NSError *error = nil;
-        id<MTLLibrary> library = [metal_device newLibraryWithSource:conversion_source options:nil error:&error];
-        id<MTLFunction> kernel = [library newFunctionWithName:@"minato_nv12_to_rgba"];
-        conversion_pipeline = kernel != nil ? [metal_device newComputePipelineStateWithFunction:kernel error:&error]
-                                            : nil;
-        ready = metal_queue != nil && conversion_pipeline != nil;
-        if (!ready) {
-            fprintf(stderr, "minato graphics: no video frames into RGBA buffers: %s\n",
-                    error != nil ? error.localizedDescription.UTF8String : "no Metal device");
+    if (metal_made) return YES;
+    pthread_mutex_lock(&metal_lock);
+    @try {
+        static BOOL told, pipeline_failed;
+        if (!metal_made && !pipeline_failed) {
+            id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+            id<MTLCommandQueue> queue = [device newCommandQueue];
+            NSError *error = nil;
+            id<MTLLibrary> library = [device newLibraryWithSource:conversion_source options:nil error:&error];
+            id<MTLFunction> kernel = [library newFunctionWithName:@"minato_nv12_to_rgba"];
+            id<MTLComputePipelineState> pipeline =
+                kernel != nil ? [device newComputePipelineStateWithFunction:kernel error:&error] : nil;
+            if (queue != nil && pipeline != nil) {
+                metal_device = device;
+                metal_queue = queue;
+                conversion_pipeline = pipeline;
+                metal_made = YES;
+            } else if (device != nil) {
+                pipeline_failed = YES;
+            }
+            if (!metal_made && !told) {
+                told = YES;
+                fprintf(stderr, "minato graphics: no video frames into RGBA buffers yet: %s\n",
+                        error != nil ? error.localizedDescription.UTF8String : "no Metal device");
+            }
         }
-    });
-    return ready;
+    } @finally {
+        pthread_mutex_unlock(&metal_lock);
+    }
+    return metal_made;
 }
 
 /* The image's conversion: its matrix by its attachment (or by its height without one) and its range by its format. */
@@ -765,11 +792,15 @@ static struct conversion conversion_of(CVPixelBufferRef image) {
 
 /* A texture of the IOSurface's plane, or nil. */
 static id<MTLTexture> plane_texture(IOSurfaceRef surface, size_t plane, MTLPixelFormat format, MTLTextureUsage usage) {
+    // Metal ends the process at a texture of a surface past its largest side or with rows off its alignment.
+    const size_t alignment = [metal_device minimumLinearTextureAlignmentForPixelFormat:format];
+    const size_t width = IOSurfaceGetWidthOfPlane(surface, plane), height = IOSurfaceGetHeightOfPlane(surface, plane);
+    if (width == 0 || height == 0 || width > max_texture_side || height > max_texture_side || alignment == 0 ||
+        IOSurfaceGetBytesPerRowOfPlane(surface, plane) % alignment != 0) {
+        return nil;
+    }
     MTLTextureDescriptor *descriptor =
-        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format
-                                                           width:IOSurfaceGetWidthOfPlane(surface, plane)
-                                                          height:IOSurfaceGetHeightOfPlane(surface, plane)
-                                                       mipmapped:NO];
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format width:width height:height mipmapped:NO];
     descriptor.usage = usage;
     descriptor.storageMode = MTLStorageModeShared;
     return [metal_device newTextureWithDescriptor:descriptor iosurface:surface plane:plane];
@@ -803,6 +834,65 @@ static int convert_into(CVPixelBufferRef image, IOSurfaceRef surface) {
     return commands.status == MTLCommandBufferStatusCompleted ? 0 : -linux_eio;
 }
 
+/* Renders using the GPU now (the Metal pass, VTPixelTransferSession), each counted before it looks at the background,
+   so that the scheduled provider below waits for any that began before the process went into the background
+   (ADR-0032, decision 6; ADR-0030's count-then-flag, decision 13). */
+static atomic_uint renders_in_flight;
+
+/* A provider of "scheduled" (apkrt_add_scheduled_provider): each render ends its GPU work before it returns, so a
+   render that has ended has every command of its scheduled. */
+static int renders_scheduled(void *context, uint64_t deadline) {
+    (void)context;
+    while (atomic_load(&renders_in_flight) != 0) {
+        if (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= deadline) return 0;
+        usleep(100);
+    }
+    return 1;
+}
+
+/* The image drawn into the target's surface on the GPU, never in the background: 0, -EIO, or -EINVAL. */
+static int draw_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv);
+
+/* The image drawn into the target's surface: 0, -EINVAL for a surface it cannot draw into, or -EIO (also in the
+   background, where iOS allows no GPU work). */
+static int render_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv) {
+    if (IOSurfaceGetWidth(surface) > max_texture_side || IOSurfaceGetHeight(surface) > max_texture_side) {
+        return -linux_einval;  // hardware_buffer.m makes none, and Metal would end the process at one
+    }
+    atomic_fetch_add(&renders_in_flight, 1);
+    @try {
+        return apkrt_is_background() ? -linux_eio : draw_into(decoder, image, surface, yuv);
+    } @finally {
+        atomic_fetch_sub(&renders_in_flight, 1);
+    }
+}
+
+static int draw_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv) {
+    if (!yuv) return IOSurfaceGetPixelFormat(surface) == 'RGBA' ? convert_into(image, surface) : -linux_einval;
+    if (IOSurfaceGetPixelFormat(surface) != '420v' || IOSurfaceGetPlaneCount(surface) != 2) {
+        return -linux_einval;  // the description's YUV 420 is graphics/host's NV12 in video range
+    }
+    if (decoder->transfer == NULL) VTPixelTransferSessionCreate(NULL, &decoder->transfer);
+    CVPixelBufferRef into = NULL;
+    if (decoder->transfer == NULL ||
+        CVPixelBufferCreateWithIOSurface(NULL, surface, NULL, &into) != kCVReturnSuccess) {
+        return -linux_eio;
+    }
+    const OSStatus status = VTPixelTransferSessionTransferImage(decoder->transfer, image, into);
+    CVPixelBufferRelease(into);
+    return status == noErr ? 0 : -linux_eio;
+}
+
+#ifdef MINATO_VIDEO_DECODER_TESTING
+int minato_video_decoder_convert_for_testing(CVPixelBufferRef image, IOSurfaceRef target) {
+    return convert_into(image, target);
+}
+
+int minato_video_decoder_scheduled_for_testing(uint64_t deadline) {
+    return renders_scheduled(NULL, deadline);
+}
+#endif
+
 static int render(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target) {
     (void)context;
     @try {
@@ -819,25 +909,11 @@ static int render(void *context, uint64_t handle, uint64_t token, const struct a
             }
             IOSurfaceRef surface = (IOSurfaceRef)minato_graphics_hardware_buffer_surface(target->handle);
             if (surface == NULL) return -linux_einval;
-            int result = -linux_eio;
-            if (!yuv) {
-                result = IOSurfaceGetPixelFormat(surface) == 'RGBA' ? convert_into(frame->image, surface)
-                                                                    : -linux_einval;
-            } else if (IOSurfaceGetPixelFormat(surface) != '420v' || IOSurfaceGetPlaneCount(surface) != 2) {
-                result = -linux_einval;  // the description's YUV 420 is graphics/host's NV12 in video range
-            } else {
-                CVPixelBufferRef into = NULL;
-                if (decoder->transfer == NULL) VTPixelTransferSessionCreate(NULL, &decoder->transfer);
-                if (decoder->transfer != NULL &&
-                    CVPixelBufferCreateWithIOSurface(NULL, surface, NULL, &into) == kCVReturnSuccess) {
-                    result = VTPixelTransferSessionTransferImage(decoder->transfer, frame->image, into) == noErr
-                                 ? 0
-                                 : -linux_eio;
-                    CVPixelBufferRelease(into);
-                }
+            @try {
+                return render_into(decoder, frame->image, surface, yuv);
+            } @finally {
+                CFRelease(surface);  // also when something on the way throws
             }
-            CFRelease(surface);
-            return result;
         }
     } @catch (id thrown) {
         return exception_errno(thrown);
@@ -863,5 +939,8 @@ const struct apkrt_video_decoders *minato_graphics_video_decoders(void) {
 }
 
 int minato_graphics_set_video_decoders(void) {
-    return apkrt_set_video_decoders(&functions) == 0 ? 0 : -1;
+    // The provider first: no decoder renders without the background's accounting.
+    return apkrt_add_scheduled_provider(renders_scheduled, NULL) == 0 && apkrt_set_video_decoders(&functions) == 0
+               ? 0
+               : -1;
 }
