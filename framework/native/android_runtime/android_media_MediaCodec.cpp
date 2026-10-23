@@ -401,6 +401,12 @@ void MediaCodec_configure(JNIEnv *env, jobject thiz, jobjectArray keys, jobjectA
     const media_status_t status = AMediaCodec_configure(codec, format, window, nullptr, static_cast<uint32_t>(flags));
     AMediaFormat_delete(format);
     if (window != nullptr) ANativeWindow_release(window);  // the codec holds its own
+    if (status == AMEDIA_ERROR_UNKNOWN && window != nullptr) {
+        // The surface has another producer (a codec, an EGL window surface, a Vulkan surface): Android's connect
+        // fails with BAD_VALUE, which its natives throw as IllegalArgumentException [verified: media-window-test].
+        jniThrowException(env, "java/lang/IllegalArgumentException", "configure failed: the surface is connected");
+        return;
+    }
     throw_status(env, status, "configure");
 }
 

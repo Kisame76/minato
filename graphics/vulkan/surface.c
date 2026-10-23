@@ -3,8 +3,10 @@
    as Android 15's loader does where MoltenVK allows it: every queue supports it; its current extent is the
    window's buffer geometry once set, else the window's size in pixels (ADR-0028), never MoltenVK's drawable
    size; 3 to 4 images, the identity transform, alpha INHERIT; Android's formats, then B8G8R8A8 (first with
-   MINATO_VULKAN_BGRA8_FIRST=1), and FIFO. A window a decoder draws into (minato_ANativeWindow_claim, ADR-0060 e2c3)
-   gets no surface: VK_ERROR_NATIVE_WINDOW_IN_USE_KHR, as Android 15's. */
+   MINATO_VULKAN_BGRA8_FIRST=1), and FIFO. A surface is its host window's producer from its making to its destroy
+   (minato_ANativeWindow_connectProducer, ADR-0060 e2c3), as Android's loader connects at CreateAndroidSurfaceKHR: a
+   window a decoder draws into gets none (VK_ERROR_NATIVE_WINDOW_IN_USE_KHR, as Android 15's), and a decoder's claim of
+   a window with one is refused. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <pthread.h>
@@ -18,7 +20,8 @@ MINATO_HOST(vkDestroySurfaceKHR);
 
 /* libnativewindow's private functions (ADR-0028, decision 7), which its NDK stub lacks: found once. */
 static int (*get_info)(struct ANativeWindow *, struct minato_window_info *);
-static int (*is_claimed)(struct ANativeWindow *);
+static int (*connect_producer)(struct ANativeWindow *);
+static void (*disconnect_producer)(struct ANativeWindow *);
 static pthread_once_t found = PTHREAD_ONCE_INIT;
 
 static void find_info(void) {
@@ -26,13 +29,19 @@ static void find_info(void) {
     if (library != NULL) {
         get_info = (int (*)(struct ANativeWindow *, struct minato_window_info *))dlsym(library,
                                                                                     "minato_ANativeWindow_getInfo");
-        is_claimed = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_isClaimed");
+        connect_producer = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_connectProducer");
+        disconnect_producer =
+            (void (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_disconnectProducer");
     }
 }
 
 static int window_info(struct ANativeWindow *window, struct minato_window_info *info) {
     pthread_once(&found, find_info);
     return get_info != NULL && get_info(window, info) == 0 ? 0 : -1;
+}
+
+static void disconnect(struct ANativeWindow *window) {
+    if (disconnect_producer != NULL) disconnect_producer(window);
 }
 
 VkResult vkCreateAndroidSurfaceKHR(VkInstance instance, const VkAndroidSurfaceCreateInfoKHR *info,
@@ -42,12 +51,13 @@ VkResult vkCreateAndroidSurfaceKHR(VkInstance instance, const VkAndroidSurfaceCr
     if (window_info(info->window, &window) != 0) {
         return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;  /* as Android's answer when it cannot connect to it */
     }
-    if (is_claimed != NULL && is_claimed(info->window)) {
+    if (connect_producer != NULL && connect_producer(info->window) != 0) {
         /* a decoder's (ADR-0060 e2c3) [verified: Android 15, media-window-test] */
         return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
     }
     struct minato_surface *made = calloc(1, sizeof *made);
     if (made == NULL) {
+        disconnect(info->window);
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     /* graphics/host turns the window's ID into its layer and makes MoltenVK's surface on it. */
@@ -57,6 +67,7 @@ VkResult vkCreateAndroidSurfaceKHR(VkInstance instance, const VkAndroidSurfaceCr
     const VkResult result = minato_host_vkCreateAndroidSurfaceKHR(instance, &ours, NULL, &made->metal);
     if (result != VK_SUCCESS) {
         free(made);
+        disconnect(info->window);
         return result;
     }
     ANativeWindow_acquire(info->window);
@@ -71,6 +82,7 @@ void vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface, const VkAllo
     struct minato_surface *ours = minato_surface(surface);
     if (ours != NULL) {
         minato_host_vkDestroySurfaceKHR(instance, ours->metal, NULL);
+        disconnect(ours->window);
         ANativeWindow_release(ours->window);
         free(ours);
     }

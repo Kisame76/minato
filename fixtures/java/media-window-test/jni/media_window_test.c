@@ -1,7 +1,8 @@
 // ADR-0060 e2c3's test (media-window-test): the JNI library WindowActivity loads. A Vulkan swapchain on a window a
 // codec draws into, and the window through the NDK's AMediaCodec: AMediaCodec_setOnFrameRenderedCallback's frames
 // (whether some came, each for a released frame's time, in order), what a CPU lock of the window and a second codec's
-// configure answer while the codec draws, and AMediaCodec_setOutputSurface to an AImageReader's window and back.
+// configure answer while the codec draws, AMediaCodec_setOutputSurface to an AImageReader's window and back, and a
+// codec's configure on the window while a Vulkan surface made before it is on it.
 // A line that starts with "device " goes to the device tag.
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <android/native_window.h>
@@ -271,6 +272,49 @@ JNIEXPORT jstring JNICALL NAME(swapchainNative)(JNIEnv *env, jclass type, jobjec
     swapchain(window, log, sizeof log);
     ANativeWindow_release(window);
     log[strcspn(log, "\n")] = '\0';
+    return (*env)->NewStringUTF(env, log);
+}
+
+// What a new codec's configure on the window answers (a media_status_t), the codec deleted after it.
+static int configure_answer(const char *decoder, ANativeWindow *window) {
+    media_status_t status = AMEDIA_ERROR_UNKNOWN;
+    AMediaCodec *codec = configured(decoder, window, &status);
+    if (codec == NULL) return -1;
+    AMediaCodec_delete(codec);
+    return status;
+}
+
+JNIEXPORT jstring JNICALL NAME(beforeNative)(JNIEnv *env, jclass type, jstring decoder, jobject surface) {
+    (void)type;
+    char log[512] = {0};
+    const char *chosen = decoder != NULL ? (*env)->GetStringUTFChars(env, decoder, NULL) : NULL;
+    ANativeWindow *window = ANativeWindow_fromSurface(env, surface);
+    const char *const extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
+    const VkApplicationInfo application = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                                           .apiVersion = VK_API_VERSION_1_1};
+    const VkInstanceCreateInfo instance_info = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                                                .pApplicationInfo = &application,
+                                                .enabledExtensionCount = 2,
+                                                .ppEnabledExtensionNames = extensions};
+    VkInstance instance = VK_NULL_HANDLE;
+    if (chosen == NULL || window == NULL || vkCreateInstance(&instance_info, NULL, &instance) != VK_SUCCESS) {
+        append(log, sizeof log, "before: no decoder, window or Vulkan instance");
+    } else {
+        const VkAndroidSurfaceCreateInfoKHR surface_info = {
+            .sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, .window = window};
+        VkSurfaceKHR made = VK_NULL_HANDLE;
+        const VkResult result = vkCreateAndroidSurfaceKHR(instance, &surface_info, NULL, &made);
+        const int with = configure_answer(chosen, window);
+        if (made != VK_NULL_HANDLE) vkDestroySurfaceKHR(instance, made, NULL);
+        const int after = configure_answer(chosen, window);
+        char line[200];
+        snprintf(line, sizeof line, "before: a Vulkan surface %d, a codec's configure with it %d, after its destroy %d",
+                 result, with, after);
+        append(log, sizeof log, line);
+        vkDestroyInstance(instance, NULL);
+    }
+    if (window != NULL) ANativeWindow_release(window);
+    if (chosen != NULL) (*env)->ReleaseStringUTFChars(env, decoder, chosen);
     return (*env)->NewStringUTF(env, log);
 }
 

@@ -125,12 +125,18 @@ int minato_ANativeWindow_attachAndQueue(struct ANativeWindow *window, struct AHa
    libgui answers a second producer, so that the decoder's dequeue never waits for one. 0, -EBUSY claimed already, with
    a writer connected or while a lock is held, -ENODEV abandoned, -EINVAL for any other window. A host window (a
    SurfaceView's, the activity's: e2c3) is claimed as well, without a queue: its CPU lock answers -EINVAL, and libEGL
-   and libvulkan make no surface on it. Only after the claim: an EGL window surface or a Vulkan surface made before
-   it does not keep it from a claim (Android refuses that too, "already connected"; a step of its own). The unclaim
-   ends it; isClaimed answers whether one lasts (1) or not (0). */
+   and libvulkan make no surface on it; an EGL window surface or a Vulkan surface on it before refuses the claim
+   (connectProducer below). The unclaim ends it; isClaimed answers whether one lasts (1) or not (0). */
 int minato_ANativeWindow_claim(struct ANativeWindow *window);
 void minato_ANativeWindow_unclaim(struct ANativeWindow *window);
 int minato_ANativeWindow_isClaimed(struct ANativeWindow *window);
+/* A producer of a host window (ADR-0060 e2c3, libgui's connect as NATIVE_WINDOW_API_EGL): libEGL's window surface
+   and libvulkan's surface connect when they are made and disconnect when they go, as Android's do, so that a
+   decoder's claim answers -EBUSY while one is there and a producer -EBUSY while a decoder claims it. 0, -EBUSY claimed,
+   -EINVAL for any other window; a queue window keeps nothing (its producers connect as writers) and answers -EBUSY
+   only while claimed. Each connect that answered 0 has one disconnect, which does nothing for a queue window. */
+int minato_ANativeWindow_connectProducer(struct ANativeWindow *window);
+void minato_ANativeWindow_disconnectProducer(struct ANativeWindow *window);
 
 #ifdef __cplusplus
 }

@@ -669,6 +669,41 @@ void decoder_claim() {
     printf("decoder claim: fine\n");
 }
 
+// guest_interface.h's, which this test does not include: a host window of the ID.
+extern "C" ANativeWindow *minato_ANativeWindow_create(uint64_t id, int32_t width, int32_t height);
+
+// ADR-0060 e2c3's producers: an EGL window surface or a Vulkan surface on a host window is a producer of it, made
+// before a decoder's claim, which it refuses then, as libgui refuses a codec's connect ("already connected").
+void host_window_producers() {
+    ANativeWindow *window = minato_ANativeWindow_create(7, 320, 180);
+    CHECK(window != nullptr);
+    CHECK(minato_ANativeWindow_connectProducer(window) == 0);  // an EGL window surface
+    CHECK(minato_ANativeWindow_connectProducer(window) == 0);  // and a Vulkan surface
+    CHECK(minato_ANativeWindow_claim(window) == -EBUSY);
+    minato_ANativeWindow_disconnectProducer(window);
+    CHECK(minato_ANativeWindow_claim(window) == -EBUSY);  // one is left
+    minato_ANativeWindow_disconnectProducer(window);
+    minato_ANativeWindow_disconnectProducer(window);  // one too many keeps none
+    CHECK(minato_ANativeWindow_claim(window) == 0);
+    CHECK(minato_ANativeWindow_connectProducer(window) == -EBUSY);  // a decoder's
+    minato_ANativeWindow_unclaim(window);
+    CHECK(minato_ANativeWindow_connectProducer(window) == 0);
+    CHECK(minato_ANativeWindow_claim(window) == -EBUSY);  // the count never went below none
+    minato_ANativeWindow_disconnectProducer(window);
+    ANativeWindow_release(window);
+    // A queue window's producers connect as writers: here only a decoder's claim refuses one, and nothing is kept.
+    Queue queue = make_queue(2);
+    CHECK(minato_ANativeWindow_connectProducer(queue.window) == 0);
+    minato_ANativeWindow_disconnectProducer(queue.window);
+    CHECK(minato_ANativeWindow_claim(queue.window) == 0);
+    CHECK(minato_ANativeWindow_connectProducer(queue.window) == -EBUSY);
+    minato_ANativeWindow_unclaim(queue.window);
+    let_go(queue);
+    CHECK(minato_ANativeWindow_connectProducer(nullptr) == -EINVAL);
+    minato_ANativeWindow_disconnectProducer(nullptr);
+    printf("host window producers: fine\n");
+}
+
 }  // namespace
 
 int main() {
@@ -685,6 +720,7 @@ int main() {
     reader_listeners_and_answers();
     reader_delete_racing_producer();
     decoder_claim();
+    host_window_producers();
     printf("done\n");
     return 0;
 }

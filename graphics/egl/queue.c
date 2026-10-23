@@ -60,6 +60,8 @@ static int (*dequeue)(struct ANativeWindow *, struct AHardwareBuffer **, int32_t
 static int (*queue)(struct ANativeWindow *, int32_t, int64_t);
 static int (*cancel)(struct ANativeWindow *, int32_t);
 static int (*is_claimed)(struct ANativeWindow *);
+static int (*connect_producer)(struct ANativeWindow *);
+static void (*disconnect_producer)(struct ANativeWindow *);
 static int (*window_info)(struct ANativeWindow *, struct minato_window_info *);
 static pthread_once_t found = PTHREAD_ONCE_INIT;
 
@@ -72,6 +74,9 @@ static void find(void) {
         queue = (int (*)(struct ANativeWindow *, int32_t, int64_t))dlsym(library, "minato_ANativeWindow_queue");
         cancel = (int (*)(struct ANativeWindow *, int32_t))dlsym(library, "minato_ANativeWindow_cancel");
         is_claimed = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_isClaimed");
+        connect_producer = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_connectProducer");
+        disconnect_producer =
+            (void (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_disconnectProducer");
         window_info = (int (*)(struct ANativeWindow *, struct minato_window_info *))dlsym(
             library, "minato_ANativeWindow_getInfo");
     }
@@ -144,9 +149,14 @@ struct queue_surface {
 static struct queue_surface *surfaces;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
-int minato_window_claimed(struct ANativeWindow *window) {
+int minato_window_connect(struct ANativeWindow *window) {
     pthread_once(&found, find);
-    return is_claimed != NULL && is_claimed(window);
+    return connect_producer != NULL ? connect_producer(window) : 0;
+}
+
+void minato_window_disconnect(struct ANativeWindow *window) {
+    pthread_once(&found, find);
+    if (disconnect_producer != NULL) disconnect_producer(window);
 }
 
 int minato_queue_window(struct ANativeWindow *window) {

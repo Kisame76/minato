@@ -52,6 +52,8 @@ import java.util.zip.CRC32;
  *   then VISIBLE again and setOutputSurface to the new surface, and three renders after it;
  * - "ndk": the same window through AMediaCodec (the JNI part): AMediaCodec_setOnFrameRenderedCallback, a CPU lock and
  *   a second codec while it draws, setOutputSurface to an AImageReader's window and back;
+ * - "before": a codec's configure on the window while an EGL window surface or (the JNI part) a Vulkan surface is on
+ *   it, made before the codec, and after their destroy;
  * - "after": the holder's lockCanvas once no codec draws into the window.
  */
 public class WindowActivity extends Activity {
@@ -69,6 +71,9 @@ public class WindowActivity extends Activity {
 
     /** The window through AMediaCodec: its lines, those that start with "device " for the device tag. */
     private static native String ndkNative(String decoder, byte[] stream, long[] index, Surface surface);
+
+    /** What a codec's configure on the window answers while a Vulkan surface is on it, and after its destroy. */
+    private static native String beforeNative(String decoder, Surface surface);
 
     private SurfaceView mView;
     private volatile CountDownLatch mCreated = new CountDownLatch(1);
@@ -123,6 +128,7 @@ public class WindowActivity extends Activity {
             part("producers", () -> producers("producers", surface));
             part("gone", () -> gone("gone"));
             part("ndk", () -> logNative(ndkNative(mDecoder, mBytes, flatten(), mView.getHolder().getSurface())));
+            part("before", () -> before("before", mView.getHolder().getSurface()));
             part("after", () -> after("after"));
         } catch (Throwable t) {
             Log.i(TAG, "failed: " + t);
@@ -472,6 +478,40 @@ public class WindowActivity extends Activity {
         }
         codec.stop();
         codec.release();
+    }
+
+    /** What a codec's configure answers on a window an EGL window surface was made on first, and after its destroy. */
+    private void before(String name, Surface surface) throws IOException {
+        EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        int[] version = new int[2];
+        EGL14.eglInitialize(display, version, 0, version, 1);
+        int[] spec = {EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE,
+                EGL14.EGL_WINDOW_BIT, EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                EGL14.EGL_NONE};
+        EGLConfig[] configs = new EGLConfig[1];
+        int[] count = new int[1];
+        EGL14.eglChooseConfig(display, spec, 0, configs, 0, 1, count, 0);
+        EGLSurface window = count[0] > 0
+                ? EGL14.eglCreateWindowSurface(display, configs[0], surface, new int[] {EGL14.EGL_NONE}, 0)
+                : EGL14.EGL_NO_SURFACE;
+        Log.i(TAG, name + ": an EGL window surface: " + (window != EGL14.EGL_NO_SURFACE ? "made" : "none"));
+        Log.i(TAG, name + ": a codec's configure with it: " + configured(surface));
+        if (window != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, window);
+        Log.i(TAG, name + ": a codec's configure after its destroy: " + configured(surface));
+        logNative(beforeNative(mDecoder, surface));
+    }
+
+    /** What a new codec's configure on `surface` answers: "ok" or the exception's class; the codec released. */
+    private String configured(Surface surface) throws IOException {
+        MediaCodec codec = MediaCodec.createByCodecName(mDecoder);
+        try {
+            codec.configure(MediaFormat.createVideoFormat(AVC, 320, 180), surface, null, 0);
+            return "ok";
+        } catch (RuntimeException e) {
+            return e.getClass().getName();
+        } finally {
+            codec.release();
+        }
     }
 
     /** What renders into a destroyed surface answer, and setOutputSurface to the new one. */

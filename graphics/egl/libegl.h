@@ -34,8 +34,10 @@ MINATO_HIDDEN void minato_release_windows(EGLDisplay display);
    and eglTerminate's parts; and eglPresentationTimeANDROID's, 1 when `surface` is one of them. */
 struct ANativeWindow;
 MINATO_HIDDEN int minato_queue_window(struct ANativeWindow *window);
-/* Whether a decoder claims the window, a queue's or a host window (minato_ANativeWindow_claim, ADR-0060 e2c3). */
-MINATO_HIDDEN int minato_window_claimed(struct ANativeWindow *window);
+/* A window surface on a host window as its producer (minato_ANativeWindow_connectProducer, ADR-0060 e2c3): 0, or
+   -EBUSY while a decoder claims it; each 0 has one disconnect, when the surface goes. */
+MINATO_HIDDEN int minato_window_connect(struct ANativeWindow *window);
+MINATO_HIDDEN void minato_window_disconnect(struct ANativeWindow *window);
 MINATO_HIDDEN EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANativeWindow *window);
 MINATO_HIDDEN int minato_queue_swap(EGLDisplay display, EGLSurface surface, EGLBoolean *result);
 MINATO_HIDDEN void minato_queue_destroyed(EGLDisplay display, EGLSurface surface);

@@ -9,9 +9,10 @@
      outside ANGLE: open, ANGLE's swap; closed, glFlush commits the frame in flight, then the thread waits,
      holding none of ANGLE's locks, and a signal's handler runs meanwhile; gone, EGL_FALSE with
      EGL_BAD_NATIVE_WINDOW at once, without GPU work.
-   A SurfaceTexture's queue window gets a surface of queue.c's instead (ADR-0058 c)). A host window a decoder draws
-   into gets none, as a queue window it claims (EGL_BAD_NATIVE_WINDOW where Android answers EGL_BAD_ALLOC,
-   ADR-0060 e2c3). */
+   A SurfaceTexture's queue window gets a surface of queue.c's instead (ADR-0058 c)). A window surface is its host
+   window's producer from its making to its destroy (ADR-0060 e2c3), as Android's connects: a host window a decoder
+   draws into gets none (EGL_BAD_NATIVE_WINDOW where Android answers EGL_BAD_ALLOC), and a decoder's claim of a
+   window with one is refused. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -111,8 +112,10 @@ static struct window_surface *prepared(EGLDisplay display, EGLConfig config, str
     return record;
 }
 
+/* The surface ANGLE made, or none: then the record goes and the window's producer disconnects. */
 static EGLSurface kept(struct window_surface *record, EGLSurface surface) {
     if (surface == EGL_NO_SURFACE) {
+        minato_window_disconnect(record->window);
         free(record);
         return surface;
     }
@@ -130,7 +133,7 @@ EGLSurface eglCreateWindowSurface(EGLDisplay display, EGLConfig config, EGLNativ
     if (minato_queue_window(window)) {
         return minato_queue_surface(display, config, window);
     }
-    if (minato_window_claimed(window)) {
+    if (minato_window_connect(window) != 0) {
         minato_bad_native_window(display, config);  /* a decoder's: Android's connect fails, "already connected" */
         return EGL_NO_SURFACE;
     }
@@ -138,6 +141,7 @@ EGLSurface eglCreateWindowSurface(EGLDisplay display, EGLConfig config, EGLNativ
     EGLint *ours = record != NULL ? fixed_attributes(attributes, record->width, record->height) : NULL;
     if (ours == NULL) {
         free(record);
+        minato_window_disconnect(window);
         minato_bad_native_window(display, config);
         return EGL_NO_SURFACE;
     }
@@ -152,7 +156,7 @@ EGLSurface eglCreatePlatformWindowSurface(EGLDisplay display, EGLConfig config, 
     if (minato_queue_window(window)) {
         return minato_queue_surface(display, config, window);
     }
-    if (minato_window_claimed(window)) {
+    if (minato_window_connect(window) != 0) {
         minato_bad_native_window(display, config);  /* a decoder's: Android's connect fails, "already connected" */
         return EGL_NO_SURFACE;
     }
@@ -160,6 +164,7 @@ EGLSurface eglCreatePlatformWindowSurface(EGLDisplay display, EGLConfig config, 
     EGLAttrib *ours = record != NULL ? fixed_attribs(attributes, record->width, record->height) : NULL;
     if (ours == NULL) {
         free(record);
+        minato_window_disconnect(window);
         minato_bad_native_window(display, config);
         return EGL_NO_SURFACE;
     }
@@ -186,6 +191,7 @@ static void release(EGLDisplay display, EGLSurface surface) {
     pthread_mutex_unlock(&lock);
     while (gone != NULL) {
         struct window_surface *next = gone->next;
+        minato_window_disconnect(gone->window);
         ANativeWindow_release(gone->window);
         free(gone);
         gone = next;

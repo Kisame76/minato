@@ -23,14 +23,15 @@
 //   goes undrawn; setOutputSurface changes the window to another queue's. The codec claims the window as its producer
 //   from configure to its end (minato_ANativeWindow_claim, as Android's codec connects to its surface): a CPU lock, a
 //   writer, an EGL window surface or another codec on it is refused after the claim, so that no other producer holds
-//   the slots its render dequeues under the codec's lock. Not yet refused: a claim of a window an EGL window surface
-//   or a Vulkan surface was made on before (Android's connect fails there; a step of its own).
+//   the slots its render dequeues under the codec's lock.
 // - A host window (a SurfaceView's, the activity's; ADR-0060 e2c3) has no slots: the host draws a rendered frame into
 //   the window's layer itself (RENDER_WINDOW), presented at once or at releaseOutputBufferAtTime's time, stretched or
 //   cropped by setVideoScalingMode's mode. The codec claims it as a queue window, so that a CPU lock, an EGL window
-//   surface, a Vulkan surface and another codec are refused on it after the claim (as above, not before it). The
-//   host does not hold one producer per window: the claim is the guest's. Once the window is gone (the SurfaceView's
-//   surface destroyed), the codec releases itself, as Android 15's does [verified: media-window-test]: every call
+//   surface, a Vulkan surface and another codec are refused on it after the claim, and an EGL window surface or a
+//   Vulkan surface made before refuses the claim (AMEDIA_ERROR_UNKNOWN, as Android's connect fails there [verified:
+//   media-window-test]). The host does not hold one producer per window: the claim is the guest's. Once the window
+//   is gone (the SurfaceView's surface destroyed), the codec releases itself, as Android 15's does [verified:
+//   media-window-test]: every call
 //   that sets or runs it answers AMEDIA_ERROR_INVALID_OPERATION, its thread joined at the delete.
 // - Frames rendered (AMediaCodec_setOnFrameRenderedCallback, MediaCodec's OnFrameRenderedListener): each frame drawn
 //   into any surface, reported after its render with its time and the buffer's timestamp, the frame's time in

@@ -27,5 +27,9 @@ I/media-window-test: ndk: while the codec draws, a CPU lock -22, a second codec'
 I/media-window-test: ndk: setOutputSurface to the reader 0
 I/media-window-test: ndk: setOutputSurface to the window 0
 I/media-window-test: ndk: 30 frames rendered, the reader's images some 1, callbacks: some 1, each a rendered frame's 1, in order 1, its time the frame's 1
+I/media-window-test: before: an EGL window surface: made
+I/media-window-test: before: a codec's configure with it: java.lang.IllegalArgumentException
+I/media-window-test: before: a codec's configure after its destroy: ok
+I/media-window-test: before: a Vulkan surface 0, a codec's configure with it -10000, after its destroy 0
 I/media-window-test: after: the holder's lockCanvas: a canvas
 I/media-window-test: done

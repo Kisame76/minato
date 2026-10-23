@@ -49,6 +49,7 @@ struct ANativeWindow {
     int32_t data_space;
     bool locked;  // from ANativeWindow_lock to the end of ANativeWindow_unlockAndPost
     bool claimed;  // a host window's decoder (minato_ANativeWindow_claim, ADR-0060 e2c3); a queue's is its queue's
+    int32_t producers;  // a host window's EGL window surfaces and Vulkan surfaces (connectProducer), under `lock`
     minato_BufferQueue* queue;  // a queue window's, else nullptr
     int32_t locked_slot;        // a queue window's slot from ANativeWindow_lock to its post
     int32_t transform;          // a queue window's ANativeWindow_setBuffersTransform, for its frames
@@ -643,7 +644,7 @@ int minato_ANativeWindow_claim(ANativeWindow* window) {
     if (!is_window(window)) return -EINVAL;
     if (window->queue == nullptr) {  // a host window: its own flag, under the lock a CPU lock takes
         pthread_mutex_lock(&window->lock);
-        const int result = window->claimed || window->locked ? -EBUSY : 0;
+        const int result = window->claimed || window->locked || window->producers > 0 ? -EBUSY : 0;
         if (result == 0) window->claimed = true;
         pthread_mutex_unlock(&window->lock);
         return result;
@@ -676,6 +677,29 @@ void minato_ANativeWindow_unclaim(ANativeWindow* window) {
     pthread_mutex_lock(&window->queue->lock);
     window->queue->claimed = false;
     pthread_mutex_unlock(&window->queue->lock);
+}
+
+int minato_ANativeWindow_connectProducer(ANativeWindow* window) {
+    if (!is_window(window)) return -EINVAL;
+    if (window->queue == nullptr) {
+        pthread_mutex_lock(&window->lock);
+        const int result = window->claimed ? -EBUSY : 0;
+        if (result == 0) window->producers++;
+        pthread_mutex_unlock(&window->lock);
+        return result;
+    }
+    // A queue window's producers connect as writers; here only a decoder's claim refuses one, and nothing is kept.
+    pthread_mutex_lock(&window->queue->lock);
+    const bool claimed = window->queue->claimed;
+    pthread_mutex_unlock(&window->queue->lock);
+    return claimed ? -EBUSY : 0;
+}
+
+void minato_ANativeWindow_disconnectProducer(ANativeWindow* window) {
+    if (!is_window(window) || window->queue != nullptr) return;
+    pthread_mutex_lock(&window->lock);
+    if (window->producers > 0) window->producers--;
+    pthread_mutex_unlock(&window->lock);
 }
 
 int minato_ANativeWindow_isClaimed(ANativeWindow* window) {
