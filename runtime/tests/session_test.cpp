@@ -10,6 +10,7 @@
 #include "signals.h"
 #include "syscall_frame.h"
 #include "threads.h"
+#include "permissions.h"
 
 #include "APKRuntime/apkrt.h"
 #include "check.h"
@@ -618,6 +619,92 @@ TEST(a_pick_request_reaches_the_handler_with_its_id_and_text) {
     CHECK(call(APKRT_NR_SESSION_ANSWER, serial) == 0);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(pick), 77) == 0);  // the ID is free again
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 77) == 0);
+    take_requests();
+}
+
+TEST(a_permission_request_reaches_the_handler_with_its_id_and_text) {
+    take_requests();
+    static const char ask[] = "1\t1";  // location, fine wanted
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), 42) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1);
+    if (seen.size() != 1) return;
+    CHECK(seen[0].type == APKRT_REQUEST_PERMISSION && seen[0].argument == 42 && seen[0].had_text && seen[0].text == ask);
+    CHECK(seen[0].thread == ::pthread_self() && seen[0].runtime_signal_blocked);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, 42) == 0);  // free the waiting request
+    take_requests();
+}
+
+// The runtime checks the "<group>\t<detail>" text whole before the host sees it (as for a pick), so a malformed
+// group, detail or shape is refused and never reaches the handler.
+TEST(a_malformed_permission_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    const auto ask = [](const char *text, std::uint64_t id = 9) {
+        const long result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(text), id);
+        if (result == 0) CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, id) == 0);
+        return result;
+    };
+    CHECK(ask("1\t1") == 0);          // location, fine: accepted
+    CHECK(ask("1\t2") == 0);          // location, coarse: accepted
+    CHECK(ask("2\t0") == 0);          // microphone: accepted
+    take_requests();                  // the accepted requests and their cancels reached the host; drop them
+    CHECK(ask("1\t0") == -einval);    // location needs a precision
+    CHECK(ask("1\t3") == -einval);    // no such detail
+    CHECK(ask("2\t1") == -einval);    // microphone takes no precision
+    CHECK(ask("3\t0") == -einval);    // no such group
+    CHECK(ask("1") == -einval);       // no detail field
+    CHECK(ask("1\t1\t1") == -einval); // a third field
+    CHECK(ask("11\t1") == -einval);   // a two-digit group
+    CHECK(ask("1 1") == -einval);     // not tab-separated
+    CHECK(ask("") == -einval);        // empty
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address("1\t1"), 0) == -einval);  // ID 0
+    CHECK(take_requests().empty());   // nothing malformed reached the host
+}
+
+TEST(permission_requests_are_unique_and_limited) {
+    take_requests();
+    static const char ask[] = "1\t1";
+    for (std::uint64_t id = 1; id <= 4; ++id) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), id) == 0);
+    }
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), 2) == -eexist);  // an ID that waits
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), 5) == -ebusy);   // the fifth waiting
+    for (std::uint64_t id = 1; id <= 4; ++id) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, id) == 0);
+    }
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), 5) == 0);  // the table is free again
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, 5) == 0);
+    take_requests();
+}
+
+TEST(a_permission_cancel_reaches_the_host_only_while_it_waits) {
+    take_requests();
+    static const char ask[] = "2\t0";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), 8) == 0);
+    take_requests();
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, 8) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1 && seen[0].type == APKRT_REQUEST_PERMISSION_CANCEL && seen[0].argument == 8 &&
+          !seen[0].had_text);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, 8) == -enoent);  // no longer waiting
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, 0) == -einval);  // ID 0
+    CHECK(take_requests().empty());
+}
+
+TEST(a_permission_answer_records_the_grant_and_frees_the_id) {
+    take_requests();
+    apkrt::permissions::reset();
+    static const char ask[] = "1\t1";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address(ask), 55) == 0);
+    take_requests();
+    // The host answers through apkrt_permission_answer: it records the grant (so the location syscalls can gate on
+    // it) and frees the waiting ID. The posted APKRT_EVENT_PERMISSION_RESULT rides apkrt_session_post, tested above.
+    apkrt_permission_answer(55, APKRT_PERMISSION_LOCATION, APKRT_PERMISSION_GRANTED_COARSE);
+    CHECK(apkrt::permissions::outcome(APKRT_PERMISSION_LOCATION) == APKRT_PERMISSION_GRANTED_COARSE);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, 55) == -enoent);  // the answer freed the ID
+    // An unsolicited update (foreground re-read): ID 0, no waiting request, records the new outcome.
+    apkrt_permission_answer(0, APKRT_PERMISSION_LOCATION, APKRT_PERMISSION_DENIED);
+    CHECK(apkrt::permissions::outcome(APKRT_PERMISSION_LOCATION) == APKRT_PERMISSION_DENIED);
     take_requests();
 }
 

@@ -235,6 +235,13 @@ int apkrt_session_begin(const struct apkrt_session *session);
 /// never sees an event without the ones before it. Posts never block.
 uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2);
 
+/// Answers a permission request and records the host's decision in the runtime (ADR-0063 location, ADR-0064
+/// microphone). The host calls this instead of posting the result event itself: it stores the grant for `group`
+/// (an APKRT_PERMISSION_* group) so the location syscalls can gate on it, then posts APKRT_EVENT_PERMISSION_RESULT
+/// with `request_id` (the APKRT_REQUEST_PERMISSION it answers, or 0 for an unsolicited update after a foreground
+/// re-read of the iOS authorisation) and `outcome` (0 denied, 1 granted/fine, 2 granted coarse for location).
+void apkrt_permission_answer(uint32_t request_id, int32_t group, int32_t outcome);
+
 /// Waits until activity-host has answered the event `serial`, that is, its callback returned, at most
 /// `seconds` (none below 0 or for NaN; at most 10^9, so INFINITY waits for good). Answers come in the
 /// pipe's order, so the answer to a later event counts as well. Returns 1 once answered, 0 when the time is

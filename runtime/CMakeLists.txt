@@ -73,6 +73,12 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.sensor_transport COMMAND sensor_transport_test)
   set_tests_properties(runtime.sensor_transport PROPERTIES TIMEOUT 60)
 
+  # The permission grant store (ADR-0063, ADR-0064): the host's answers per group, read by the location syscalls.
+  add_executable(permissions_test tests/permissions_test.cpp)
+  target_include_directories(permissions_test PRIVATE src)
+  target_link_libraries(permissions_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.permissions COMMAND permissions_test)
+
   # The guest's /dev/socket/dnsproxyd (ADR-0054 step b): the replies in DnsProxyListener's bytes.
   add_executable(dns_proxy_test tests/dns_proxy_test.cpp)
   target_include_directories(dns_proxy_test PRIVATE src)

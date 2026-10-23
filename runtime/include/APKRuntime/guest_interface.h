@@ -262,6 +262,12 @@ enum apkrt_event_type {
                                           // it removes its copies when the sheet ends and never writes into the
                                           // share folder, which the guest removes after the answer. The guest uses
                                           // each ID once and ignores an answer to an ID it no longer waits for
+    APKRT_EVENT_PERMISSION_RESULT,        // the answer to APKRT_REQUEST_PERMISSION (ADR-0063/0064), posted by
+                                          // apkrt_permission_answer: a0 the request's ID, or 0 for an unsolicited
+                                          // update (the host's foreground re-read of the iOS authorisation); a1 the
+                                          // group (APKRT_PERMISSION_*); a2 the outcome 0 denied, 1 granted (fine for
+                                          // location), 2 granted coarse (location only). checkSelfPermission answers
+                                          // the stored outcome, DENIED before the first
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -372,7 +378,34 @@ enum apkrt_request_type {
                                    // host adds the copy to Photos when iOS allows (add-only access after its one
                                    // prompt) and otherwise does nothing. The kind is advisory: the host does not
                                    // trust the file to be a picture
+    APKRT_REQUEST_PERMISSION,      // guest only (ADR-0063/0064): a0 the address of NUL text "<group>\t<detail>", a1 the
+                                   // request's ID (not 0, not one that waits). The host gets the ID as `argument` and
+                                   // the text as `text`: group 1 location, 2 microphone (APKRT_PERMISSION_* below);
+                                   // detail 1 fine wanted, 2 coarse only (location), 0 (microphone). The runtime
+                                   // refuses -EINVAL any other text, an unknown group or bad detail, an ID of 0;
+                                   // -EEXIST an ID that waits, -EBUSY when 4 wait. One at a time to the host handler,
+                                   // as PICK and OPEN. The host shows its pre-prompt sheet then iOS's prompt and
+                                   // answers once with apkrt_permission_answer, which records the grant and posts
+                                   // APKRT_EVENT_PERMISSION_RESULT, ending the request
+    APKRT_REQUEST_PERMISSION_CANCEL,  // guest only: a0 the ID of a permission request that waits and the guest no
+                                   // longer wants; the host gets the ID and drops its sheet, no answer. -EINVAL for ID
+                                   // 0, -ENOENT for an ID that does not wait
 };
+
+// MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)
+//
+// A dangerous permission group the guest asks for with APKRT_REQUEST_PERMISSION; the host answers with
+// apkrt_permission_answer (apkrt.h), which records the grant in the runtime and posts APKRT_EVENT_PERMISSION_RESULT.
+#define APKRT_PERMISSION_LOCATION   1
+#define APKRT_PERMISSION_MICROPHONE 2
+// APKRT_REQUEST_PERMISSION's detail (the text's second field); for location, the precision the app asked.
+#define APKRT_PERMISSION_DETAIL_NONE   0  // microphone, and any group without a precision
+#define APKRT_PERMISSION_DETAIL_FINE   1  // location: ACCESS_FINE_LOCATION wanted
+#define APKRT_PERMISSION_DETAIL_COARSE 2  // location: only ACCESS_COARSE_LOCATION
+// APKRT_EVENT_PERMISSION_RESULT's outcome (a2), and the runtime's stored grant.
+#define APKRT_PERMISSION_DENIED         0
+#define APKRT_PERMISSION_GRANTED        1  // location: fine; microphone: granted
+#define APKRT_PERMISSION_GRANTED_COARSE 2  // location only
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.
 enum apkrt_surface_op {

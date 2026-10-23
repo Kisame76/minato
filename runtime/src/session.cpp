@@ -2,6 +2,7 @@
 
 #include "descriptors.h"
 #include "guest_context.h"
+#include "permissions.h"
 #include "syscalls.h"
 #include "windows.h"
 
@@ -661,6 +662,65 @@ long open_request_cancel(std::uint64_t id) {
     return 0;
 }
 
+// APKRT_REQUEST_PERMISSION / _CANCEL (ADR-0063 location, ADR-0064 microphone): a tiny request in the PICK/OPEN
+// family. The text is "<group>\t<detail>", both single decimals, so the runtime reads it like a pick and checks it
+// whole before the host sees it; apkrt_permission_answer answers it and records the grant.
+constexpr std::size_t permission_text_limit = 8;  // "<g>\t<d>" and the NUL, with room to spare
+constexpr std::size_t permission_live_limit = 4;  // requests that wait for their answer at once
+std::recursive_mutex permission_handler_lock;
+std::mutex permission_lock;
+WaitingIds<permission_live_limit> live_permissions;
+
+/// Forgets permission request `id`; whether it was waiting.
+bool permission_done(std::uint64_t id) {
+    const std::lock_guard<std::mutex> hold(permission_lock);
+    return live_permissions.remove(id);
+}
+
+/// Whether `text` is "<group>\t<detail>" with a known group and a detail the group allows: location (1) takes fine
+/// (1) or coarse (2), microphone (2) takes none (0).
+bool valid_permission(std::string_view text) {
+    if (text.size() != 3 || text[1] != '\t') return false;  // one group digit, a tab, one detail digit
+    switch (text[0]) {
+        case '1': return text[2] == '1' || text[2] == '2';  // location: fine or coarse
+        case '2': return text[2] == '0';                    // microphone: none
+        default: return false;
+    }
+}
+
+/// APKRT_REQUEST_PERMISSION: the text at `address` read through a checked copy, checked whole, and handed to the
+/// host's request handler with the ID. 0, or -EFAULT without text or when it cannot be read, -EINVAL for an ID of 0,
+/// a text of permission_text_limit bytes or more, or one that valid_permission refuses, -EEXIST for an ID that waits,
+/// -EBUSY when permission_live_limit requests wait.
+long permission(std::uint64_t address, std::uint64_t id) {
+    if (address == 0) return -linux_errno::efault;
+    if (id == 0) return -linux_errno::einval;
+    char text[permission_text_limit];
+    const long length = copy_guest_text(text, address, permission_text_limit);
+    if (length < 0) return length;                                                        // -EFAULT: a byte unreadable
+    if (length >= static_cast<long>(permission_text_limit)) return -linux_errno::einval;  // no NUL within the limit
+    if (!valid_permission(std::string_view(text, static_cast<std::size_t>(length)))) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(permission_handler_lock);
+    {
+        const std::lock_guard<std::mutex> hold(permission_lock);
+        if (live_permissions.contains(id)) return -linux_errno::eexist;
+        if (live_permissions.full()) return -linux_errno::ebusy;
+        live_permissions.add(id);
+    }
+    report(APKRT_REQUEST_PERMISSION, id, text);
+    return 0;
+}
+
+/// APKRT_REQUEST_PERMISSION_CANCEL: the guest no longer waits for request `id`; the host gets it only when it still
+/// waits. 0, or -EINVAL for an ID of 0, -ENOENT for one that does not wait.
+long permission_cancel(std::uint64_t id) {
+    if (id == 0) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(permission_handler_lock);
+    if (!permission_done(id)) return -linux_errno::enoent;
+    report(APKRT_REQUEST_PERMISSION_CANCEL, id, nullptr);
+    return 0;
+}
+
 /// APKRT_REQUEST_WINDOW: the request at `address` checked, its buffer's size and opacity set, a place's type, parent,
 /// group and format the make's, and handed to the host's window handler. 0, or the negative errno (guest_interface.h).
 long window(std::uint64_t address) {
@@ -866,6 +926,10 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return open_request_cancel(a0);
         case APKRT_REQUEST_EXPORT_MEDIA:
             return export_media(a0, a1);
+        case APKRT_REQUEST_PERMISSION:
+            return permission(a0, a1);
+        case APKRT_REQUEST_PERMISSION_CANCEL:
+            return permission_cancel(a0);
         default:
             return -linux_errno::einval;
     }
@@ -898,12 +962,19 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     return 0;
 }
 
+extern "C" void apkrt_permission_answer(uint32_t request_id, int32_t group, int32_t outcome) {
+    apkrt::permissions::set(group, outcome);
+    apkrt_session_post(APKRT_EVENT_PERMISSION_RESULT, request_id, static_cast<uint64_t>(static_cast<uint32_t>(group)),
+                       static_cast<uint64_t>(static_cast<uint32_t>(outcome)));
+}
+
 extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2) {
     using namespace apkrt::session;
     if (!begun.load(std::memory_order_acquire)) return 0;
     // The answer to a pick request frees its ID, also when the post fails: the request is over.
     if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
     if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);
+    if (type == APKRT_EVENT_PERMISSION_RESULT) permission_done(a0);
     const std::lock_guard<std::mutex> hold(lock);
     if (broken || ended) return 0;
     const apkrt_event record{type, posted + 1, {a0, a1, a2}};
