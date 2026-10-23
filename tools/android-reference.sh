@@ -198,12 +198,13 @@ fi
 # and launch-mode-test (step b3.5b2-2b), whose steps wait for their windows' focus as activity-flow-test's.
 # texture-view-test (ADR-0058 d)) runs there too: its two TextureViews' bounds in the window are Minato's there, and so
 # does second-windows-test (ADR-0041 gap 4 (b)), whose dialogs' and popups' sizes in px are Minato's at that density,
-# and toast-test (gap 4 (b4)), whose toast's size and place are.
+# and toast-test (gap 4 (b4)), whose toast's size and place are, and windows-return-test (gap 4 (b5a)), whose dialog's
+# size is.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
-  "$app" == second-windows-test || "$app" == toast-test ]]; then
+  "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -543,6 +544,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SecondWindowsActivity
       limit=150
       ;;
+    # windows-return-test (ADR-0041 gap 4 (b5a)): HOME and the return drive it (below), and it ends with "done".
+    windows-return-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ReturnActivity
+      limit=120
+      ;;
     # toast-test (ADR-0041 gap 4 (b4)): its activity runs when the window has the focus and ends with "done".
     toast-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToastActivity
@@ -877,6 +883,17 @@ run_app() {
     sleep 1
     run input keyevent KEYCODE_HOME
     wait_for "$app" APP_CMD_SAVE_STATE || return 1
+    sleep 1
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
+  if [[ "$app" == windows-return-test ]]; then
+    # ADR-0041 gap 4 (b5a): HOME a second after the translucent activity's "ready", and the return a second after the
+    # launcher activity's stop, as apk-run's background and foreground follow the start in
+    # tools/windows-return-check.sh.
+    wait_for "$app" "I/$app: ready" || return 1
+    sleep 1
+    run input keyevent KEYCODE_HOME
+    wait_for "$app" "activity onStop" || return 1
     sleep 1
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   fi

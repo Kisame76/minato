@@ -206,16 +206,32 @@ public final class WindowManagerGlobal {
     }
 
     /**
-     * @hide ActivityThread's, at WINDOW_DESTROYED: the host took the window away; its surface goes. False as at the
-     * creation.
+     * @hide ActivityThread's, at WINDOW_DESTROYED: the host took the window away at the background or the end; its
+     * surface goes and its token is removed, and it is asked for again at the session's return (decision 6, gap 4
+     * (b5a)). False as at the creation.
      */
     public boolean dispatchWindowDestroyed(long token) {
         ViewRootImpl root = rootOfRequest(token);
         if (root != null) {
-            root.setHostWindow(0, 0, 0);
+            root.hostTookWindow();
             updateFocus();
         }
         return root != null;
+    }
+
+    /**
+     * @hide ActivityThread's, at the session's RESUME after the background (decision 6, gap 4 (b5a)): the requested
+     * windows the host took away are asked for again, each sub-window once its parent has its window, as the guest's
+     * ViewRootImpls relayout at the start.
+     */
+    public void dispatchSessionReturn() {
+        final ArrayList<ViewRootImpl> roots;
+        synchronized (mLock) {
+            roots = new ArrayList<>(mRoots);
+        }
+        for (ViewRootImpl root : roots) {
+            root.hostGivesBack();
+        }
     }
 
     /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (gap 4 (b3)). */
@@ -444,7 +460,7 @@ public final class WindowManagerGlobal {
     private void updateFocus() {
         ViewRootImpl focused = null;
         if (mSessionFocus) {
-            for (ViewRootImpl root : windowsTopFirst()) {
+            for (ViewRootImpl root : windowsTopFirst(true)) {
                 if ((root.mWindowAttributes.flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
                     focused = root;
                     break;
@@ -483,7 +499,7 @@ public final class WindowManagerGlobal {
             // The session's window lies at the display's origin, so its pixels are the display's.
             final int x = (int) event.getX();
             final int y = (int) event.getY();
-            for (ViewRootImpl root : windowsTopFirst()) {
+            for (ViewRootImpl root : windowsTopFirst(false)) {
                 final int flags = root.mWindowAttributes.flags;
                 if ((flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0) {
                     continue;
@@ -539,9 +555,10 @@ public final class WindowManagerGlobal {
      * The shown windows, topmost first, in decision 1's order as APKSession's WindowOrder has it: the session's
      * window, with its sub-windows, then the requested application windows by group and newer above, each with its
      * sub-windows around it by sublayer (below it for a negative one) and newer above. A requested window is shown
-     * once the host made its window, and while its view is visible.
+     * once the host made its window, and while its view is visible; for the `focus`, one that waits for its window too
+     * (gap 4 (b5a)).
      */
-    private ArrayList<ViewRootImpl> windowsTopFirst() {
+    private ArrayList<ViewRootImpl> windowsTopFirst(boolean focus) {
         final ArrayList<ViewRootImpl> order = new ArrayList<>();
         if (mSessionRoot == null) {
             return order;
@@ -549,7 +566,8 @@ public final class WindowManagerGlobal {
         final ArrayList<ViewRootImpl> shown = new ArrayList<>();
         synchronized (mLock) {
             for (ViewRootImpl root : mRoots) {
-                if (root.requestToken() != 0 && root.hasHostWindow() && root.getView() != null
+                if (root.requestToken() != 0 && (root.hasHostWindow() || (focus && root.isRequestPending()))
+                        && root.getView() != null
                         && root.getView().getVisibility() == View.VISIBLE) {
                     shown.add(root);
                 }

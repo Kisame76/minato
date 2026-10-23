@@ -1,0 +1,25 @@
+I/windows-return-test: activity onStart
+I/windows-return-test: activity onResume
+I/windows-return-test: activity onPause
+I/windows-return-test: translucent onStart
+I/windows-return-test: translucent onResume
+I/windows-return-test: focus: activity false, dialog true, dialog false, translucent true
+I/windows-return-test: before HOME: dialog showing true, attached true, size 1225x585; popup showing true, attached true
+I/windows-return-test: ready
+I/windows-return-test: translucent onPause
+I/windows-return-test: translucent onStop
+I/windows-return-test: activity onStop
+I/windows-return-test: activity onRestart
+I/windows-return-test: activity onStart
+I/windows-return-test: translucent onRestart
+I/windows-return-test: translucent onStart
+I/windows-return-test: translucent onResume
+I/windows-return-test: focus: translucent false, translucent true
+I/windows-return-test: after the return: dialog showing true, attached true, size 1225x585; popup showing true, attached true
+I/windows-return-test: translucent surface: created, canvas true, changed 300x300, destroyed, created, canvas true, changed 300x300
+I/windows-return-test: translucent onPause
+I/windows-return-test: activity onResume
+I/windows-return-test: translucent onStop
+I/windows-return-test: translucent destroyed
+I/windows-return-test: focus: dialog true
+I/windows-return-test: done

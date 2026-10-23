@@ -204,6 +204,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * activity shows again. A sub-window waits for its parent's window instead.
      */
     private boolean mWithdrawn;
+    /**
+     * Whether the host took the window away at the background (WINDOW_DESTROYED, decision 6): no MAKE until the
+     * session's return (gap 4 (b5a)).
+     */
+    private boolean mHostTook;
     /** The window's frame in the session's pixels: the whole display for an activity's window. */
     final Rect mWinFrame = new Rect();
     private final WindowLayout mWindowLayout = new WindowLayout();
@@ -311,6 +316,35 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         requestLayout();
     }
 
+    /**
+     * @hide WindowManagerGlobal's, at WINDOW_DESTROYED (gap 4 (b5a), decision 6): the host took the window away at the
+     * background or the end; it loses its surface, its SurfaceViews' sub-windows first, and the guest removes the token,
+     * as guest_interface.h asks. The window is asked for again at the session's return (hostGivesBack).
+     */
+    void hostTookWindow() {
+        final boolean withdrawn = mWithdrawn;
+        withdrawRequest();
+        mWithdrawn = withdrawn;
+        mHostTook = true;
+    }
+
+    /** @hide WindowManagerGlobal's, at the session's return (decision 6): the next traversal asks for the window. */
+    void hostGivesBack() {
+        if (mHostTook) {
+            mHostTook = false;
+            requestLayout();
+        }
+    }
+
+    /**
+     * @hide WindowManagerGlobal's focus (gap 4 (b5a)): the requested window is added, neither withdrawn nor taken by the
+     * host, and its window has not come yet, as at the return, where the windows come back one by one. It has its
+     * place for the focus meanwhile, as WMS decides the focus by the windows' order, not by their surfaces.
+     */
+    boolean isRequestPending() {
+        return mRequestToken != 0 && mAdded && !mRemoved && !mWithdrawn && !mHostTook && mHostWindow == 0;
+    }
+
     /** @hide Whether a sub-window of this one may ask for its window: this one has its own. */
     boolean hasWindowForChildren() {
         return mRequestToken != 0 ? mRequestMade : mHostWindow != 0;
@@ -318,7 +352,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     /** @hide WindowManagerGlobal's: the parent got its window, so a sub-window that waited asks for its own. */
     void parentReady() {
-        if (mRequestToken != 0 && !mRequestMade && !mWithdrawn && mAdded && !mRemoved) {
+        if (mRequestToken != 0 && !mRequestMade && !mWithdrawn && !mHostTook && mAdded && !mRemoved) {
             requestLayout();
         }
     }
@@ -614,7 +648,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      */
     private void requestHostWindow() {
         // A withdrawn window waits for its activity, a sub-window for its parent's window (gap 4 (b3)).
-        if (mWithdrawn || (mParentRoot != null && !mParentRoot.hasWindowForChildren())) {
+        if (mWithdrawn || mHostTook || (mParentRoot != null && !mParentRoot.hasWindowForChildren())) {
             return;
         }
         final WindowManager.LayoutParams lp = mWindowAttributes;

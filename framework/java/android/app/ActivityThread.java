@@ -1267,11 +1267,23 @@ public final class ActivityThread {
                 if (r != null && r.state == ON_CREATE) {
                     handleStartActivity(r);
                 } else if (r != null && r.state == ON_STOP) {
+                    // At the return every activity the pass shows starts again, bottom up, as the task's
+                    // ensureActivitiesVisible makes them visible: one below a translucent top before the top
+                    // (ADR-0041 gap 4 (b5a)).
+                    for (ActivityClientRecord shown : new ArrayList<>(mTask)) {
+                        if (shown != r && shown.state == ON_STOP && !finishing(shown)
+                                && shown.windows.mode() != ActivityWindows.HIDDEN) {
+                            performRestartActivity(shown);
+                            updateVisibility(shown, true);
+                        }
+                    }
                     performRestartActivity(r);
                 }
                 break;
             case EVENT_RESUME:
                 mSessionResumed = true;
+                // The requested windows the host took away at the background come back (ADR-0041 gap 4 (b5a)).
+                WindowManagerGlobal.getInstance().dispatchSessionReturn();
                 if (r != null && r.state == ON_START) {
                     deliverPending(r);
                     handleResumeActivity(r);
