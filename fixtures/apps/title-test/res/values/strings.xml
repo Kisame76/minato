@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">title-test</string>
+  <string name="floating_label">Floating title</string>
+  <string name="classic_label">Classic title</string>
+  <string name="action_bar_label">Action bar title</string>
+</resources>

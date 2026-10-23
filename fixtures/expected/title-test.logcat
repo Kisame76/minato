@@ -1,0 +1,9 @@
+I/title-test: titled dialog: decor 498x201, title none, content at 48
+I/title-test: titled dialog after setTitle: decor 498x201, title none, content at 48
+I/title-test: untitled dialog: decor 595x201, title none, content at 48
+I/title-test: no-title dialog: decor 773x201, title none, content at 48
+I/title-test: floating activity: decor 960x336, title shown "Floating title", height 135, content at 183
+I/title-test: floating activity after setTitle: decor 960x336, title shown "Floating changed", height 135, content at 183
+I/title-test: classic activity: decor 1290x2796, title shown "Classic title", height 68
+I/title-test: action bar activity: decor 1290x2796, title none
+I/title-test: done

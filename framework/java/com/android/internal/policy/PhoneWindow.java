@@ -1,11 +1,14 @@
 /*
  * Our PhoneWindow, under AOSP's name (ADR-0041 decision 2, ADR-0039 step c2c3), which Activity.attach makes for every
  * activity. As AOSP's it installs the decor at the first setContentView or getDecorView: a DecorView with the layout
- * the theme's window style asks for, screen_simple (or screen_simple_overlay_action_mode), whose FrameLayout is
- * android.R.id.content; then it hands content changes to the activity, keeps the window's flags, title, background
- * and soft input mode, and saves and restores the content's view state. Its differences from AOSP's (4,288 lines):
- *   - no title bar and no action bar: a theme with either still gets screen_simple, so getActionBar() is null and
- *     the content has the title's height more (a listed gap); options-menu panels open nothing;
+ * the theme's window style asks for, whose FrameLayout is android.R.id.content: without FEATURE_NO_TITLE a floating
+ * window's dialogTitleDecorLayout and any other's screen_title, with the title in android.R.id.title, else
+ * screen_simple (or screen_simple_overlay_action_mode); then it hands content changes to the activity, keeps the
+ * window's flags, title, background and soft input mode, and saves and restores the content's view state. Its
+ * differences from AOSP's (4,288 lines):
+ *   - no action bar: a theme with one (windowActionBar) gets screen_simple, so getActionBar() is null and the content
+ *     has the action bar's height more (a listed gap); no title icons, progress or custom title (FEATURE_LEFT_ICON,
+ *     FEATURE_PROGRESS, FEATURE_CUSTOM_TITLE); options-menu panels open nothing;
  *   - edge-to-edge is enforced from target SDK 35 unless the theme opts out (windowOptOutEdgeToEdgeEnforcement), as
  *     Android 15 does through the compat change ENFORCE_EDGE_TO_EDGE, which only a developer override changes;
  *     Minato's in-process compat checks answer every change as enabled until the app's disabled changes are
@@ -46,6 +49,7 @@ import android.view.Window;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.window.OnBackInvokedDispatcher;
+import android.widget.TextView;
 import android.window.ProxyOnBackInvokedDispatcher;
 import com.android.internal.R;
 import java.util.List;
@@ -77,6 +81,8 @@ public class PhoneWindow extends Window {
     private boolean mContentParentExplicitlySet;
     private CharSequence mTitle;
     private int mTitleColor;
+    /** The title bar's text, android.R.id.title of the decor's layout, null without a title bar. */
+    private TextView mTitleView;
     private boolean mIsFloating;
     /** As AOSP's: the theme's minimum and fixed sizes of a floating window, which DecorView.onMeasure applies. */
     final TypedValue mMinWidthMajor = new TypedValue();
@@ -212,12 +218,33 @@ public class PhoneWindow extends Window {
         if (getContainer() == null && mBackgroundDrawable == null && mBackgroundResource == 0) {
             mBackgroundResource = a.getResourceId(R.styleable.Window_windowBackground, 0);
         }
-        int layoutResource = (getLocalFeatures() & (1 << FEATURE_ACTION_MODE_OVERLAY)) != 0
-                ? R.layout.screen_simple_overlay_action_mode : R.layout.screen_simple;
+        // As AOSP's: a title bar unless FEATURE_NO_TITLE, the dialog's for a floating window; a theme with an action
+        // bar keeps screen_simple, our gap.
+        final int features = getLocalFeatures();
+        final int layoutResource;
+        if ((features & (1 << FEATURE_NO_TITLE)) == 0 && mIsFloating) {
+            TypedValue res = new TypedValue();
+            getContext().getTheme().resolveAttribute(R.attr.dialogTitleDecorLayout, res, true);
+            layoutResource = res.resourceId;
+        } else if ((features & (1 << FEATURE_NO_TITLE)) == 0
+                && !a.getBoolean(R.styleable.Window_windowActionBar, false)) {
+            layoutResource = R.layout.screen_title;
+        } else if ((features & (1 << FEATURE_ACTION_MODE_OVERLAY)) != 0) {
+            layoutResource = R.layout.screen_simple_overlay_action_mode;
+        } else {
+            layoutResource = R.layout.screen_simple;
+        }
         decor.onResourcesLoaded(mLayoutInflater, layoutResource);
         ViewGroup contentParent = (ViewGroup) findViewById(ID_ANDROID_CONTENT);
         if (contentParent == null) {
             throw new RuntimeException("Window couldn't find content container view");
+        }
+        mTitleView = (TextView) findViewById(R.id.title);
+        if (mTitleView != null) {
+            mTitleView.setText(mTitle);
+            if (mTitleColor != 0) {
+                mTitleView.setTextColor(mTitleColor);
+            }
         }
         if (getContainer() == null) {
             decor.setWindowBackground(mBackgroundResource != 0
@@ -396,6 +423,9 @@ public class PhoneWindow extends Window {
     @Override
     public void setTitle(CharSequence title) {
         mTitle = title;
+        if (mTitleView != null) {
+            mTitleView.setText(title);
+        }
         WindowManager.LayoutParams params = getAttributes();
         if (!TextUtils.equals(title, params.accessibilityTitle)) {
             params.accessibilityTitle = TextUtils.stringOrSpannedString(title);
@@ -411,6 +441,9 @@ public class PhoneWindow extends Window {
     @Deprecated
     public void setTitleColor(int textColor) {
         mTitleColor = textColor;
+        if (mTitleView != null) {
+            mTitleView.setTextColor(textColor);
+        }
     }
 
     /** As AOSP's: here, so that DecorView, in this package, sets the window's default format (ADR-0043 c3). */

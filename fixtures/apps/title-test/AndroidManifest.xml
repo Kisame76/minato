@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of window titles (title-test): a dialog's title, set and not set, a dialog without one, a dialog-themed
+     activity's title from its label and from setTitle, an activity on a theme with a title bar and no action bar, and
+     one on a theme with an action bar.
+     Its launcher activity runs the test when its window first has the focus. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.title" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.title.TitleActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.title.FloatingTitleActivity" android:exported="false"
+        android:label="@string/floating_label" android:theme="@android:style/Theme.Material.Light.Dialog"/>
+    <activity android:name="io.github.kisame76.minato.test.title.ClassicTitleActivity" android:exported="false"
+        android:label="@string/classic_label" android:theme="@android:style/Theme.Light"/>
+    <activity android:name="io.github.kisame76.minato.test.title.ActionBarTitleActivity" android:exported="false"
+        android:label="@string/action_bar_label" android:theme="@android:style/Theme.Material.Light"/>
+  </application>
+</manifest>
