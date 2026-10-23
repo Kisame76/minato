@@ -236,7 +236,8 @@ def main():
             if library in stubgen.LIBRARIES:
                 version = stubgen.LIBRARIES[library]["version"]
                 ndk_names = stubgen.stub_names(nm, sysroot, library)
-                stubs = {f"{stub}@@{version}" if version else stub
+                chain = isinstance(version, list)  # libbinder_ndk: each name has the version of the NDK's stub
+                stubs = {f"{stub}@@{ndk_names[stub] if chain else version}" if version else stub
                          for stub in stubgen.stubbed_names(library, ndk_names)} & exported
             marked = {line[:-1] for line in lines if line.endswith("!")}
             problems += [f"{name}: {symbol} is a stub, not marked" for symbol in sorted(stubs - marked)]

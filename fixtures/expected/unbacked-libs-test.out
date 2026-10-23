@@ -1,0 +1,9 @@
+sync_merge from: libsync.so
+AMidiDevice_release from: libamidi.so
+AIBinder_new from: libbinder_ndk.so
+ANeuralNetworks_getDeviceCount from: libneuralnetworks.so
+xaCreateEngine from: libOpenMAXAL.so
+XA_IID_ENGINE from: libOpenMAXAL.so
+ANeuralNetworks_getDeviceCount: status 0, count written
+xaQueryNumSupportedEngineInterfaces: status 0, count written
+XA_IID_ENGINE and XA_IID_PLAY: differ

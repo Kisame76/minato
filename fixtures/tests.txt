@@ -77,6 +77,10 @@ ifaddrs-test system
 route-test system
 # Android's libstdc++.so, the NDK's "system" C++ runtime: new, delete and the guards of a static (gap 14).
 stdcxx-test system
+# libsync, libamidi, libbinder_ndk, libneuralnetworks and libOpenMAXAL, which Minato has nothing behind (gap 14).
+# Runtime-only: on Android 15 the program prints the same lines (two runs of apk-runner-35), but libbinder_ndk and
+# NNAPI log seven lines when they load, which Minato's libraries do not.
+unbacked-libs-test system runtime-only
 # The CA certificates of the trust store, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 cacerts-test system
 # sendfile from a file to a file, a socket and a pipe, its offsets and its errors.

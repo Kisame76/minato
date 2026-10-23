@@ -186,6 +186,9 @@ add_executable(stdcxx-test suite/stdcxx-test.cpp)
 target_compile_options(stdcxx-test PRIVATE -std=gnu++20 -fno-exceptions -fno-rtti)
 target_link_options(stdcxx-test PRIVATE -nostdlib++)
 target_link_libraries(stdcxx-test PRIVATE stdc++ dl)
+# unbacked-libs-test: the NDK libraries with nothing behind them in Minato, which an app may name in NEEDED (gap 14).
+add_executable(unbacked-libs-test suite/unbacked-libs-test.c)
+target_link_libraries(unbacked-libs-test PRIVATE sync amidi binder_ndk neuralnetworks OpenMAXAL)
 # cacerts-test: the trust store's CA certificates, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
 add_executable(cacerts-test suite/cacerts-test.c)
 # sendfile-test: sendfile(2) to a file, a socket and a pipe, its offsets and its errors in the kernel's order.

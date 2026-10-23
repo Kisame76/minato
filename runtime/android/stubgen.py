@@ -31,6 +31,7 @@ import sys
 import tempfile
 
 API = 35
+_ERRNO = "(errno = ENOSYS, -1)"  # -1 with errno set, where the API says so
 TRIPLE = "aarch64-linux-android"
 
 # Per library: the version of its public names (None: none, as the NDK's stub has none), the names
@@ -157,6 +158,22 @@ LIBRARIES = {
                     "stubbed": [],
                     "private": ["minato_AMediaFormat_count", "minato_AMediaFormat_entry", "minato_media_codec_count",
                                 "minato_media_codec_at"]},
+    # The libraries an app may name in NEEDED although Minato has nothing behind them (gap 14): libsync, libamidi,
+    # libbinder_ndk, libneuralnetworks and libOpenMAXAL load, and every function answers its API's error, as on a phone
+    # without the service behind it. The ones that write through an argument are written by hand (unavailable.c).
+    # "default" is the value of an integer stub that VALUES and STATUS_VALUES do not name.
+    "libsync": {"version": "LIBSYNC", "implemented": [], "stubbed": [], "private": [], "default": _ERRNO},
+    "libamidi": {"version": "LIBAMIDI", "implemented": [], "stubbed": [], "private": [],
+                 "default": "-10002"},  # AMEDIA_ERROR_UNSUPPORTED
+    "libbinder_ndk": {"version": ["LIBBINDER_NDK", "LIBBINDER_NDK30", "LIBBINDER_NDK31", "LIBBINDER_NDK33",
+                                  "LIBBINDER_NDK35"],
+                      "implemented": [], "stubbed": [], "private": [], "default": "0"},
+    # No device (neuralnetworks.c answers the device count 0), so that a runtime that probes the library, as TensorFlow
+    # Lite does, finds none and runs on the CPU; every other function ANEURALNETWORKS_OP_FAILED.
+    "libneuralnetworks": {"version": "LIBNEURALNETWORKS", "implemented": ["ANeuralNetworks_getDeviceCount"],
+                          "stubbed": [], "private": [], "default": "5"},
+    # The interface IDs and an engine that cannot be made (openmaxal.c).
+    "libOpenMAXAL": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},
 }
 
 # The kinds of the functions the NDK's headers do not declare.
@@ -168,7 +185,6 @@ KINDS = {
     "ANativeWindow_writeToParcel": "int",
 }
 
-_ERRNO = "(errno = ENOSYS, -1)"  # -1 with errno set, where the API says so
 VALUES = {
     # Resource matching: no match, never better
     "AConfiguration_isBetterThan": "0", "AConfiguration_match": "0",
@@ -225,6 +241,8 @@ VALUES = {
     "AMediaExtractor_getSampleTrackIndex": "-1", "AMediaExtractor_getSampleSize": "-1",  # no sample
     "AMediaExtractor_readSampleData": "-1", "AMediaExtractor_getSampleTime": "-1", "AMediaExtractor_getCachedDuration": "-1",
     "AMediaMuxer_addTrack": "-10002",  # AMEDIA_ERROR_UNSUPPORTED
+    # No NNAPI feature level
+    "ANeuralNetworks_getRuntimeFeatureLevel": "0",
 }
 
 HEADERS = [
@@ -239,6 +257,9 @@ HEADERS = [
     "camera/NdkCaptureRequest", "media/NdkImage", "media/NdkImageReader", "media/NdkMediaCodec",
     "media/NdkMediaCrypto", "media/NdkMediaDataSource", "media/NdkMediaDrm", "media/NdkMediaExtractor",
     "media/NdkMediaFormat", "media/NdkMediaMuxer",
+    # The libraries with nothing behind them (gap 14).
+    "binder_ibinder", "binder_ibinder_jni", "binder_parcel", "binder_parcel_jni", "binder_status",
+    "persistable_bundle", "sync", "NeuralNetworks", "amidi/AMidi", "OMXAL/OpenMAXAL",
 ]
 
 # The value of every stub whose result is its API's status type and that VALUES does not name: the error that fits
@@ -246,6 +267,7 @@ HEADERS = [
 STATUS_VALUES = {
     "camera_status_t": "-10001",  # ACAMERA_ERROR_INVALID_PARAMETER: no camera ID is valid, no camera object exists
     "media_status_t": "-10002",  # AMEDIA_ERROR_UNSUPPORTED
+    "binder_status_t": "-ENOSYS",  # STATUS_INVALID_OPERATION
 }
 
 INTEGERS = {"char", "signed char", "unsigned char", "short", "unsigned short", "int", "unsigned int", "long",
@@ -373,7 +395,7 @@ def check_tables(library, names, kinds, statuses):
         if not any(fnmatch.fnmatchcase(name, pattern) for name in names):
             problems.append(f"{library}: {pattern} matches no name of the NDK's stub")
     for name, kind in kinds.items():
-        if kind == "int" and name not in VALUES and name not in statuses:
+        if kind == "int" and name not in VALUES and name not in statuses and "default" not in table:
             problems.append(f"{library}: the stub {name} returns an integer and has no value in VALUES")
         if kind in ("void", "pointer") and name in VALUES and VALUES[name] != "NULL":
             problems.append(f"{library}: the stub {name} returns {kind}, VALUES cannot give it {VALUES[name]}")
@@ -402,7 +424,8 @@ def write_stubs(path, library, kinds, statuses):
     ]
     for name in sorted(kinds):
         kind = kinds[name]
-        value = VALUES.get(name, STATUS_VALUES[statuses[name]] if name in statuses else DEFAULTS.get(kind))
+        value = VALUES.get(name, STATUS_VALUES[statuses[name]] if name in statuses
+                           else LIBRARIES[library].get("default") if kind == "int" else DEFAULTS.get(kind))
         body = f"static char logged; log_once(&logged, \"{name}\");"
         if kind != "void":
             body += f" return {value};"
@@ -414,6 +437,19 @@ def write_stubs(path, library, kinds, statuses):
 def write_map(path, library, names):
     table = LIBRARIES[library]
     version = table["version"]
+    if isinstance(version, list):  # a chain of versions, oldest first: each node inherits the one before
+        lines = [f"# Generated by runtime/android/stubgen.py from the NDK's {library}.so: do not edit."]
+        for index, node in enumerate(version):
+            lines += [f"{node} {{", "  global:"]
+            lines += [f"    {name};" for name in sorted(names) if names[name] == node]
+            lines += ["  local:", "    *;"] if index == len(version) - 1 else []
+            lines += [f"}}{' ' + version[index - 1] if index else ''};"]
+        if table["private"]:
+            lines += ["APKRT_PRIVATE {", "  global:"] + [f"    {name};" for name in table["private"]]
+            lines += [f"}} {version[-1]};"]
+        with open(path, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+        return
     lines = [f"# Generated by runtime/android/stubgen.py from the NDK's {library}.so: do not edit.",
              f"{version} {{" if version else "{", "  global:"]
     lines += [f"    {name};" for name in sorted(names)]
@@ -431,8 +467,9 @@ def generate(arguments):
     names, problems = present_names(arguments.nm, arguments.sysroot, arguments.library)
     if problems:
         fail("\n".join(problems))
-    wrong = [f"{name}@{version}" for name, version in names.items() if version != LIBRARIES[arguments.library]["version"]
-             and version is not None]
+    allowed = LIBRARIES[arguments.library]["version"]
+    allowed = allowed if isinstance(allowed, list) else [allowed]
+    wrong = [f"{name}@{version}" for name, version in names.items() if version not in allowed and version is not None]
     if wrong:
         fail(f"{arguments.library}: versions stubgen.py does not expect: {', '.join(wrong)}")
     stubbed = stubbed_names(arguments.library, names)
@@ -478,7 +515,9 @@ def check(arguments):
         if not os.path.exists(built):
             missing.append(f"{library}.so")
             continue
-        expected = {f"{name}@@{table['version']}" if table["version"] else name for name in names}
+        chain = isinstance(table["version"], list)  # a chain: each name has the version of the NDK's stub
+        expected = {f"{name}@@{names[name] if chain else table['version']}" if table["version"] else name
+                    for name in names}
         expected |= {f"{name}@@APKRT_PRIVATE" if table["version"] else name for name in table["private"]}
         exported = defined_symbols(nm, built)
         for symbol in sorted(expected - exported):

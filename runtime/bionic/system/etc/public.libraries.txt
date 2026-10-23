@@ -5,8 +5,10 @@
 # links 4 of them anyway (libvulkan opens MoltenVK in about 2 ms on the Mac), and dalvikvm about 6 ms. libjnigraphics
 # came with ADR-0041 a5, marked nopreload, which libnativeloader's format has: a preload would load hwui's set at
 # every VM start, dalvikvm's too, which Android's zygote does once; an app that needs it loads it at its own start.
+libamidi.so
 libandroid.so
 libaaudio.so
+libbinder_ndk.so
 libc.so
 libcamera2ndk.so
 libdl.so
@@ -23,7 +25,10 @@ libmediandk.so
 libm.so
 libnativehelper.so
 libnativewindow.so
+libneuralnetworks.so
+libOpenMAXAL.so
 libOpenSLES.so
 libstdc++.so
+libsync.so
 libvulkan.so
 libz.so

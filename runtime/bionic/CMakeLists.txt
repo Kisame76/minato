@@ -166,6 +166,7 @@ file(COPY "${ndk_sysroot_include}/camera" DESTINATION "${CMAKE_BINARY_DIR}/ndk_a
 foreach(header IN ITEMS NdkImage NdkImageReader NdkMediaCodec NdkMediaCrypto NdkMediaError NdkMediaFormat)
   file(COPY "${ndk_sysroot_include}/media/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/media")
 endforeach()
+file(COPY "${ndk_sysroot_include}/OMXAL" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
 foreach(header IN ITEMS OpenSLES OpenSLES_Android OpenSLES_AndroidConfiguration OpenSLES_AndroidMetadata
     OpenSLES_Platform)
   file(COPY "${ndk_sysroot_include}/SLES/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/SLES")
@@ -270,6 +271,37 @@ apk_bionic_unit(apk_mediandk SOURCES "${android_sources}/image_reader.cpp" "${an
   INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libnativewindow
   VERSION_SCRIPTS "${mediandk_map}")
+
+# libsync.so, libamidi.so, libbinder_ndk.so, libneuralnetworks.so and libOpenMAXAL.so (the compatibility plan's gap 14):
+# nothing stands behind them in Minato (no sync files, MIDI devices, Binder, NNAPI driver or OpenMAX AL engine), so that
+# an app that names one in NEEDED loads, and every function answers its API's error, as it does on a phone without
+# the service. The generated stubs log their name once; neuralnetworks.c (the device count 0) and openmaxal.c (the
+# interface IDs and an engine that cannot be made) write through their arguments and are by hand.
+foreach(library IN ITEMS libsync libamidi libbinder_ndk)
+  set(${library}_map "${android_generated}/${library}.map")
+  set(${library}_stubs "${android_generated}/${library}_stubs.c")
+  add_custom_command(OUTPUT "${${library}_map}" "${${library}_stubs}"
+    COMMAND ${stubgen} ${library} ${stubgen_tools} --map "${${library}_map}" --stubs "${${library}_stubs}"
+    DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/${library}.so" VERBATIM)
+  apk_bionic_unit(apk_${library} SOURCES "${${library}_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+  apk_bionic_library(${library} UNITS apk_${library} NEEDED libc liblog VERSION_SCRIPTS "${${library}_map}")
+endforeach()
+set(neuralnetworks_map "${android_generated}/libneuralnetworks.map")
+set(neuralnetworks_stubs "${android_generated}/libneuralnetworks_stubs.c")
+add_custom_command(OUTPUT "${neuralnetworks_map}" "${neuralnetworks_stubs}"
+  COMMAND ${stubgen} libneuralnetworks ${stubgen_tools} --map "${neuralnetworks_map}" --stubs "${neuralnetworks_stubs}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libneuralnetworks.so" VERBATIM)
+apk_bionic_unit(apk_neuralnetworks SOURCES "${android_sources}/neuralnetworks.c" "${neuralnetworks_stubs}"
+  INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libneuralnetworks UNITS apk_neuralnetworks NEEDED libc liblog
+  VERSION_SCRIPTS "${neuralnetworks_map}")
+set(openmaxal_map "${android_generated}/libOpenMAXAL.map")
+add_custom_command(OUTPUT "${openmaxal_map}"
+  COMMAND ${stubgen} libOpenMAXAL ${stubgen_tools} --map "${openmaxal_map}"
+  DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libOpenMAXAL.so" VERBATIM)
+apk_bionic_unit(apk_openmaxal SOURCES "${android_sources}/openmaxal.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libOpenMAXAL UNITS apk_openmaxal NEEDED libc VERSION_SCRIPTS "${openmaxal_map}")
 
 # activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 # process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with
