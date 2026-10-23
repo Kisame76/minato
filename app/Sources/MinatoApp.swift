@@ -32,6 +32,8 @@ struct MinatoApp: App {
         }
         #endif
         mode = Self.chooseMode()
+        // Copies an earlier session left for Photos (ADR-0057 step e), before this one makes any.
+        PhotoExports.removeEarlierCopies()
         // Before the first window, so that the library never turns.
         AppDelegate.orientations = UIInterfaceOrientationMask(mode.orientations)
         // Game mode creates no signing coordinator, scans no imports and shows no sheet.

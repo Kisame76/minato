@@ -85,7 +85,8 @@ final class MediaExportsTests {
     }
 
     @Test func aFolderAFIFOOrAHardLinkIsRefused() throws {
-        try FileManager.default.createDirectory(at: data.appending(path: "folder.png"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: data.appending(path: "folder.png"),
+                                                withIntermediateDirectories: true)
         #expect(exports().take("1\tfolder.png") == nil)
         #expect(mkfifo(data.appending(path: "pipe.png").path, 0o600) == 0)
         #expect(exports().take("1\tpipe.png") == nil)  // returns, as the open does not block
@@ -234,6 +235,24 @@ final class MediaExportsTests {
         #expect(open() - before < 100)  // not 4000
     }
 
+    @Test func aRefusedTakeOfAFileClosesIt() throws {
+        try put("a.png", "too big")
+        let exports = exports(fileLimit: 1)
+        func open() -> Int { (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count) ?? 0 }
+        let before = open()
+        for _ in 0..<1000 { #expect(exports.take("1\ta.png") == nil) }
+        #expect(open() - before < 100)  // not 1000
+    }
+
+    @Test func aGrownCloneThatCannotBeCutIsCopiedInstead() throws {
+        try put("a.png", "12345")
+        let job = try #require(exports().take("1\ta.png"))
+        try put("a.png", "123456789")
+        let copy = try #require(job.copy(into: copies, cutting: { _, _ in -1 }))
+        #expect(try String(contentsOf: copy, encoding: .utf8) == "12345")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: copy.deletingLastPathComponent().path) == ["a.png"])
+    }
+
     @Test func theNameShownHidesInvisibleCharacters() throws {
         func shown(_ name: String) throws -> String {
             try put(name, "a")
@@ -244,5 +263,11 @@ final class MediaExportsTests {
         #expect(try shown("a\u{061C}b\u{E0041}.jpg") == "ab.jpg")
         #expect(try shown("\u{200B}.png") == "Export.png")
         #expect(try shown("\u{FEFF}") == "Export")
+        #expect(try shown("a\u{1}b.png") == "ab.png")  // control
+        #expect(try shown("a\u{E000}b.png") == "ab.png")  // private use
+        // APFS refuses a name with an unassigned code point, so this one is a job of its own.
+        let unassigned = MediaExportJob(source: -1, kind: .image, name: "a\u{0378}b.png", size: 0, taken: Taken())
+        #expect(unassigned.shownName == "ab.png")
+        #expect(try shown("a\u{2028}b\u{2029}c.png") == "abc.png")  // line and paragraph separators
     }
 }

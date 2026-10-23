@@ -1,6 +1,9 @@
 import Darwin
 import Foundation
 import Synchronization
+import os
+
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "photos")
 
 /// The images and videos an app finished in MediaStore, for Photos (ADR-0057 step e, APKRT_REQUEST_EXPORT_MEDIA). The
 /// request handler runs on the guest's thread under the runtime's pick lock, so it only takes the file: walked from
@@ -50,8 +53,12 @@ public final class MediaExports: Sendable {
         let names = bytes[2...].split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
             .map { String(decoding: $0, as: UTF8.self) }
         guard names.count <= 16, names.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
-              let folder = dataFolder, taken.reserve()
+              let folder = dataFolder
         else { return nil }
+        guard taken.reserve() else {
+            log.error("export: \(Self.takenLimit) files wait for their copies already, one more is dropped")
+            return nil
+        }
         guard let (source, size) = open(names, below: folder) else {
             taken.release()
             return nil
@@ -150,11 +157,19 @@ public final class MediaExportJob: Sendable {
     /// Copies the file taken into a new folder of its own below `folder` (the host's), under its name: the copy's
     /// URL, or nil, and then nothing stays. The copy is the file's content now, cut to its size when it was taken;
     /// one that shrank meanwhile is not copied. A clone first, which costs neither time nor room, else a copy
-    /// (`cloning` false: the copy alone). Ends the job: its descriptor is closed.
-    public func copy(into folder: URL, cloning: Bool = true) -> URL? {
-        defer { end() }
-        let source = descriptor
+    /// (`cloning` false: the copy alone; `cut` stands in for ftruncate in a test). Ends the job: its descriptor is
+    /// taken out at once and closed, so that a second copy finds none.
+    public func copy(into folder: URL, cloning: Bool = true,
+                     cutting cut: (Int32, off_t) -> Int32 = { ftruncate($0, $1) }) -> URL? {
+        let source = self.source.withLock { source in
+            defer { source = -1 }
+            return source
+        }
         guard source >= 0 else { return nil }
+        defer {
+            close(source)
+            taken.release()
+        }
         let parent = Darwin.open(folder.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard parent >= 0 else { return nil }
         defer { close(parent) }
@@ -166,7 +181,7 @@ public final class MediaExportJob: Sendable {
             return nil
         }
         defer { close(target) }
-        guard cloning && clone(source, into: target) || write(source, into: target) else {
+        guard cloning && clone(source, into: target, cut: cut) || write(source, into: target) else {
             unlinkat(target, name, 0)
             unlinkat(parent, own, AT_REMOVEDIR)
             return nil
@@ -186,7 +201,7 @@ public final class MediaExportJob: Sendable {
 
     /// The clone, cut to the size taken; false, and no clone, when there is none or it is too short. A clone keeps
     /// the source's mode, which the app may have made read-only.
-    private func clone(_ source: Int32, into target: Int32) -> Bool {
+    private func clone(_ source: Int32, into target: Int32, cut: (Int32, off_t) -> Int32) -> Bool {
         guard fclonefileat(source, target, name, UInt32(CLONE_NOFOLLOW)) == 0 else { return false }
         var status = stat()
         guard fstatat(target, name, &status, AT_SYMLINK_NOFOLLOW) == 0, Int64(status.st_size) >= size else {
@@ -196,10 +211,10 @@ public final class MediaExportJob: Sendable {
         if Int64(status.st_size) == size { return true }
         let made = fchmodat(target, name, 0o600, AT_SYMLINK_NOFOLLOW) == 0
             ? openat(target, name, O_WRONLY | O_NOFOLLOW | O_CLOEXEC) : -1
-        let cut = made >= 0 && ftruncate(made, off_t(size)) == 0
+        let cutDone = made >= 0 && cut(made, off_t(size)) == 0
         if made >= 0 { close(made) }
-        if !cut { unlinkat(target, name, 0) }
-        return cut
+        if !cutDone { unlinkat(target, name, 0) }
+        return cutDone
     }
 
     /// The copy read from the descriptor's start, exactly `size` bytes.

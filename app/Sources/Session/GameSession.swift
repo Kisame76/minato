@@ -366,7 +366,7 @@ final class GameSession {
 
     /// Back to the library, once the exports to Photos under way are done or 5 s have passed (ADR-0057 step e).
     private func restart() {
-        Task { [photos = runtime?.photos] in
+        Task { [weak self, photos = runtime?.photos] in
             await photos?.settle(within: 5)
             Restart.now { [weak self] in self?.restartFailed = true }
         }

@@ -20,7 +20,7 @@ final class RuntimeSessionHost: SessionHost {
     /// What the app finished in MediaStore, for Photos (ADR-0057 step e): the request handler takes the file at once.
     private let exports: MediaExports
     /// Where they go, which the session waits for before the process ends.
-    let photos = PhotoExports()
+    let photos = PhotoExports.queue()
     #if BENCHMARK
     /// The presents of the session's removed windows, whose own count is 0 once they are gone: a recorded
     /// session compares the guest's presents with the layer's drawables (ADR-0041 d).
