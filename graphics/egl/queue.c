@@ -144,6 +144,11 @@ struct queue_surface {
 static struct queue_surface *surfaces;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
+int minato_window_claimed(struct ANativeWindow *window) {
+    pthread_once(&found, find);
+    return is_claimed != NULL && is_claimed(window);
+}
+
 int minato_queue_window(struct ANativeWindow *window) {
     pthread_once(&found, find);
     return is_queue != NULL && dequeue != NULL && queue != NULL && cancel != NULL && is_claimed != NULL &&

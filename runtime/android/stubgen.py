@@ -156,12 +156,14 @@ LIBRARIES = {
                                     "AMediaCodec_getOutputBuffer", "AMediaCodec_getOutputFormat",
                                     "AMediaCodec_queueInputBuffer", "AMediaCodec_releaseName",
                                     "AMediaCodec_releaseOutputBuffer", "AMediaCodec_releaseOutputBufferAtTime",
-                                    "AMediaCodec_setAsyncNotifyCallback", "AMediaCodec_setOutputSurface",
+                                    "AMediaCodec_setAsyncNotifyCallback", "AMediaCodec_setOnFrameRenderedCallback",
+                                    "AMediaCodec_setOutputSurface",
                                     "AMediaCodec_setParameters", "AMediaCodec_signalEndOfInputStream",
                                     "AMediaCodec_start", "AMediaCodec_stop"],
                     "stubbed": [],
                     "private": ["minato_AMediaFormat_count", "minato_AMediaFormat_entry", "minato_media_codec_count",
-                                "minato_media_codec_at"]},
+                                "minato_media_codec_at", "minato_AMediaCodec_isReleased",
+                                "minato_AMediaCodec_setVideoScalingMode"]},
     # The libraries an app may name in NEEDED although Minato has nothing behind them (gap 14): libsync, libamidi,
     # libbinder_ndk, libneuralnetworks and libOpenMAXAL load, and every function answers its API's error, as on a phone
     # without the service behind it. The ones that write through an argument are written by hand

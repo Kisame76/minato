@@ -13,6 +13,11 @@
 //   null (the decoders' input is a byte stream).
 // - setCallback: the core's asynchronous mode, its thread's calls posted to Java with postEventFromNative
 //   (EVENT_CALLBACK and CB_*), as the tag's AMessage handler posts them.
+// - OnFrameRenderedListener (ADR-0060 e2c3): the core's frame rendered callback, each frame posted as
+//   EVENT_FRAME_RENDERED with the tag's map ("0-media-time-us", "0-system-nano"); setVideoScalingMode's mode reaches
+//   the core for a host window's frames. A codec that released itself, its window gone, answers every call with
+//   IllegalStateException "Invalid to call at Released state; only valid in executing state", Android 15's
+//   [verified: media-window-test].
 // - MediaCodecList lists libmediandk's codecs (minato_media_codec_at) with capabilities that VideoToolbox decodes on
 //   Apple's chips: H.264's Baseline, Constrained Baseline, Main, High and Constrained High to level 5.2, HEVC's Main
 //   and Main 10 to level 5.1, up to 4096 x 4096, with adaptive playback; hardware-accelerated and vendor.
@@ -44,7 +49,7 @@ extern "C" ANativeWindow *minato_ANativeWindow_fromSurface(JNIEnv *env, jobject 
 namespace android {
 namespace {
 
-constexpr int kEventCallback = 1;
+constexpr int kEventCallback = 1, kEventFrameRendered = 3;
 constexpr int kInputAvailable = 1, kOutputAvailable = 2, kError = 3, kOutputFormatChange = 4;
 constexpr int kTypeYuv = 1;
 
@@ -71,6 +76,8 @@ struct Private {
     decltype(&minato_AMediaFormat_entry) entry = nullptr;
     decltype(&minato_media_codec_count) codecs = nullptr;
     decltype(&minato_media_codec_at) codecAt = nullptr;
+    decltype(&minato_AMediaCodec_isReleased) isReleased = nullptr;
+    decltype(&minato_AMediaCodec_setVideoScalingMode) setScaling = nullptr;
 };
 
 const Private &private_functions() {
@@ -81,6 +88,10 @@ const Private &private_functions() {
             found.entry = reinterpret_cast<decltype(found.entry)>(dlsym(library, "minato_AMediaFormat_entry"));
             found.codecs = reinterpret_cast<decltype(found.codecs)>(dlsym(library, "minato_media_codec_count"));
             found.codecAt = reinterpret_cast<decltype(found.codecAt)>(dlsym(library, "minato_media_codec_at"));
+            found.isReleased =
+                reinterpret_cast<decltype(found.isReleased)>(dlsym(library, "minato_AMediaCodec_isReleased"));
+            found.setScaling = reinterpret_cast<decltype(found.setScaling)>(
+                dlsym(library, "minato_AMediaCodec_setVideoScalingMode"));
         }
         return found;
     }();
@@ -101,11 +112,17 @@ Codec *codec_of(JNIEnv *env, jobject thiz) {
     return reinterpret_cast<Codec *>(env->GetLongField(thiz, gFields.context));
 }
 
-/// The codec, or NULL with IllegalStateException for a released one.
+/// The codec, or NULL with IllegalStateException for a released one, by the app or by itself.
 AMediaCodec *live(JNIEnv *env, jobject thiz) {
     Codec *codec = codec_of(env, thiz);
     if (codec == nullptr || codec->codec == nullptr) {
         jniThrowException(env, "java/lang/IllegalStateException", nullptr);
+        return nullptr;
+    }
+    const Private &functions = private_functions();
+    if (functions.isReleased != nullptr && functions.isReleased(codec->codec) != 0) {
+        jniThrowException(env, "java/lang/IllegalStateException",
+                          "Invalid to call at Released state; only valid in executing state");
         return nullptr;
     }
     return codec->codec;
@@ -592,11 +609,65 @@ jobject MediaCodec_getOwnCodecInfo(JNIEnv *, jobject) {
     return nullptr;  // MediaCodec then asks MediaCodecList.getInfoFor, as the tag's falls back to
 }
 
-void MediaCodec_setVideoScalingMode(JNIEnv *env, jobject thiz, jint) {
-    live(env, thiz);  // a frame always fills the surface's buffer (VIDEO_SCALING_MODE_SCALE_TO_FIT)
+void MediaCodec_setVideoScalingMode(JNIEnv *env, jobject thiz, jint mode) {
+    AMediaCodec *codec = live(env, thiz);
+    if (codec == nullptr) return;
+    if (mode != 1 && mode != 2) {  // VIDEO_SCALING_MODE_SCALE_TO_FIT, SCALE_TO_FIT_WITH_CROPPING
+        jniThrowExceptionFmt(env, "java/lang/IllegalArgumentException", "Unrecognized mode: %d", mode);
+        return;
+    }
+    const Private &functions = private_functions();
+    if (functions.setScaling != nullptr) {
+        throw_status(env, static_cast<media_status_t>(functions.setScaling(codec, mode)), "setVideoScalingMode");
+    }
 }
 
-void MediaCodec_enableOnFrameRenderedListener(JNIEnv *, jobject, jboolean) {
+// A frame the core rendered, posted to the Java MediaCodec as EVENT_FRAME_RENDERED with the tag's map, on the
+// thread that released it, attached to the VM for it. It reads the Codec after the core let its lock go, as the
+// asynchronous callbacks did before e2c3: a release of the MediaCodec on another thread meanwhile is the app's race.
+void on_rendered(AMediaCodec *, void *userdata, int64_t media_time_us, int64_t system_nano) {
+    auto *codec = static_cast<Codec *>(userdata);
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (codec->vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        if (codec->vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return;
+        attached = true;
+    }
+    jobject target = env->NewLocalRef(codec->weak);
+    jobject map = target != nullptr ? env->NewObject(gFields.hashMapClass, gFields.hashMapConstructor) : nullptr;
+    bool filled = map != nullptr;
+    if (map != nullptr) {
+        const std::pair<const char *, int64_t> entries[] = {{"0-media-time-us", media_time_us},
+                                                            {"0-system-nano", system_nano}};
+        for (const auto &[key, value] : entries) {  // each call checked: without memory the frame goes unreported
+            jstring name = env->NewStringUTF(key);
+            jobject boxed_value = name != nullptr ? env->CallStaticObjectMethod(gFields.longClass, gFields.longValueOf,
+                                                                                static_cast<jlong>(value))
+                                                  : nullptr;
+            jobject old = boxed_value != nullptr && !env->ExceptionCheck()
+                              ? env->CallObjectMethod(map, gFields.mapPut, name, boxed_value)
+                              : nullptr;
+            filled = filled && boxed_value != nullptr && !env->ExceptionCheck();
+            if (old != nullptr) env->DeleteLocalRef(old);
+            if (boxed_value != nullptr) env->DeleteLocalRef(boxed_value);
+            if (name != nullptr) env->DeleteLocalRef(name);
+            if (!filled) break;
+        }
+        if (filled) env->CallVoidMethod(target, gFields.postEvent, kEventFrameRendered, 0, 0, map);
+        env->DeleteLocalRef(map);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (target != nullptr) env->DeleteLocalRef(target);
+    if (attached) codec->vm->DetachCurrentThread();
+}
+
+void MediaCodec_enableOnFrameRenderedListener(JNIEnv *env, jobject thiz, jboolean enable) {
+    AMediaCodec *codec = live(env, thiz);
+    if (codec == nullptr) return;
+    throw_status(env,
+                 AMediaCodec_setOnFrameRenderedCallback(codec, enable ? on_rendered : nullptr,
+                                                        enable ? codec_of(env, thiz) : nullptr),
+                 "enableOnFrameRenderedListener");
 }
 
 void MediaCodec_setSurface(JNIEnv *env, jobject thiz, jobject surface) {

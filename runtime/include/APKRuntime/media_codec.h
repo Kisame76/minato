@@ -12,6 +12,7 @@
 extern "C" {
 #endif
 
+struct AMediaCodec;
 struct AMediaFormat;
 
 /* The kind of an AMediaFormat entry, which picks its getter (AMediaFormat_getInt32 and the others). */
@@ -42,6 +43,16 @@ struct minato_media_codec_info {
 /* The number of Minato's codecs, and codec `index`'s info; NULL past the last. */
 size_t minato_media_codec_count(void);
 const struct minato_media_codec_info *minato_media_codec_at(size_t index);
+
+/* Whether the codec released itself, its host window gone (ADR-0060 e2c3): 1, or 0. Every call that sets or runs
+   it answers AMEDIA_ERROR_INVALID_OPERATION then (getName and the formats still answer), which MediaCodec's natives
+   throw as Android's IllegalStateException of the Released state. */
+int minato_AMediaCodec_isReleased(struct AMediaCodec *codec);
+/* MediaCodec.setVideoScalingMode's mode (VIDEO_SCALING_MODE_SCALE_TO_FIT 1, SCALE_TO_FIT_WITH_CROPPING 2) for the
+   frames rendered into a host window: AMEDIA_OK (0); AMEDIA_ERROR_INVALID_PARAMETER for another mode, which
+   MediaCodec's natives throw as Android's IllegalArgumentException; AMEDIA_ERROR_INVALID_OPERATION for a codec
+   released by itself. */
+int minato_AMediaCodec_setVideoScalingMode(struct AMediaCodec *codec, int mode);
 
 /* A frame's time in nanoseconds from its microseconds, as a surface's queue and MediaCodec's images take it, clamped
    to int64_t's range where a guest's time would overflow (ADR-0060 e2c2). */

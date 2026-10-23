@@ -226,7 +226,7 @@ if(TARGET minato_graphics_host)
   add_executable(graphics-video-decoder-test video_decoder_test.m)
   target_include_directories(graphics-video-decoder-test PRIVATE ../host)
   target_link_libraries(graphics-video-decoder-test PRIVATE minato_graphics_host apkrt apk_defaults z
-    "-framework Foundation")
+    "-framework Foundation" "-framework Metal" "-framework QuartzCore")
   set_source_files_properties(video_decoder_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.video_decoder COMMAND graphics-video-decoder-test
     "${PROJECT_SOURCE_DIR}/fixtures/apps/media-codec-test/assets"
@@ -236,17 +236,19 @@ if(TARGET minato_graphics_host)
   # guest stacks): the NAL units' split, the units' copy with their lengths, the parameter sets' list, the images' copy;
   # with VideoToolbox's decode call replaceable (graphics/host/video_decoder_testing.h), which only this build has.
   add_executable(graphics-video-decoder-asan-test video_decoder_test.m ../host/video_decoder.m
-    ../host/video_parameters.c ../host/hardware_buffer.m)
+    ../host/video_parameters.c ../host/hardware_buffer.m ../host/layer.m ../host/present_time.c)
   target_include_directories(graphics-video-decoder-asan-test PRIVATE ../host ../host/include)
   target_compile_definitions(graphics-video-decoder-asan-test PRIVATE MINATO_VIDEO_DECODER_TESTING)
   target_link_libraries(graphics-video-decoder-asan-test PRIVATE apkrt apk_defaults z "-framework Foundation"
-    "-framework CoreMedia" "-framework CoreVideo" "-framework VideoToolbox" "-framework IOSurface" "-framework Metal")
+    "-framework CoreMedia" "-framework CoreVideo" "-framework VideoToolbox" "-framework IOSurface" "-framework Metal"
+    "-framework QuartzCore")
   if(NOT APK_SANITIZE)
     target_compile_options(graphics-video-decoder-asan-test PRIVATE -fsanitize=address -fno-omit-frame-pointer)
     target_link_options(graphics-video-decoder-asan-test PRIVATE -fsanitize=address)
   endif()
   set_source_files_properties(../host/video_decoder.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-fobjc-arc-exceptions")
-  set_source_files_properties(../host/hardware_buffer.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc")
+  set_source_files_properties(../host/hardware_buffer.m ../host/layer.m PROPERTIES COMPILE_OPTIONS
+    "-fmodules;-fobjc-arc")
   add_test(NAME graphics.video_decoder_asan COMMAND graphics-video-decoder-asan-test
     "${PROJECT_SOURCE_DIR}/fixtures/apps/media-codec-test/assets"
     "${PROJECT_SOURCE_DIR}/fixtures/expected/media-codec-test.logcat")

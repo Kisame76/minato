@@ -560,6 +560,8 @@ enum apkrt_video_decoder_op {
     APKRT_VIDEO_DECODER_DESTROY,     // the ID: the decoder goes, after the calls on it still running
     APKRT_VIDEO_DECODER_RENDER,      // id, a frame's token (data) and a hardware buffer's ID (size): the frame drawn
     APKRT_VIDEO_DECODER_DISCARD,     // id and a frame's token (data): the frame goes undrawn
+    APKRT_VIDEO_DECODER_RENDER_WINDOW,  // id, a frame's token (data), a host window's ID (size), the present time
+                                        // (time_us, 0 for at once) and the scaling (flags): the frame drawn (e2c3)
 };
 
 /// A decoder's stream: the codec's elementary stream, in Annex B with start codes as MediaCodec takes it.
@@ -576,6 +578,10 @@ enum apkrt_video_decoder_type {
 /// and the frame waits for the RENDER or DISCARD of its token; at most APKRT_VIDEO_DECODER_MAX_WAITING (apkrt.h) wait
 /// at once, and DEQUEUE answers -EAGAIN past them. A flush that succeeds or a destroy ends every token.
 #define APKRT_VIDEO_DECODER_SURFACE 2u
+
+/// RENDER_WINDOW's flag: the frame fills the window, cropped (MediaCodec's
+/// VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING); without it the frame is stretched to the window (SCALE_TO_FIT).
+#define APKRT_VIDEO_DECODER_CROP 4u
 
 /// One call's arguments and answers (64 bytes). An operation leaves the fields it does not name alone.
 /// DEQUEUE writes a frame as NV12: `slice_height` rows of `stride` bytes of Y, then (slice_height + 1) / 2 rows of
@@ -602,7 +608,12 @@ struct apkrt_video_decoder {
 /// token `data` into the guest's hardware buffer of ID `size` (AHardwareBuffer_getId's), scaled to the buffer's size,
 /// and DISCARD drops it; either ends the token, whatever its answer but -EBADF and -EFAULT; -EINVAL for a decoder not
 /// made for a surface, a token that does not wait, or a buffer that is not there, has more than one layer, or has a
-/// format the host does not draw into. Else the host's answer. The number follows hardware_buffer's.
+/// format the host does not draw into. RENDER_WINDOW draws it into the host window of ID `size` (libnativewindow's
+/// window of a SurfaceView or of the activity), presented at `time_us` of the guest's CLOCK_MONOTONIC (0, or more
+/// than a second ahead: at once), and ends the token as RENDER does; -EINVAL as RENDER, for a time_us below 0 or past
+/// INT64_MAX / 1000, for flags other than APKRT_VIDEO_DECODER_CROP and for a window without a Metal layer, -ENODEV
+/// for a window of ID 0, not there or removed (ADR-0060 e2c3). Else the host's answer. The number follows
+/// hardware_buffer's.
 #define APKRT_NR_VIDEO_DECODER 4128
 
 // MARK: - Sensors (ADR-0061)

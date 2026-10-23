@@ -22,9 +22,20 @@
 //   draw the frame into its buffer and queues it at the frame's time (or releaseOutputBufferAtTime's), else the frame
 //   goes undrawn; setOutputSurface changes the window to another queue's. The codec claims the window as its producer
 //   from configure to its end (minato_ANativeWindow_claim, as Android's codec connects to its surface): a CPU lock, a
-//   writer, an EGL window surface or another codec on it is refused meanwhile, so that no other producer holds the
-//   slots its render dequeues under the codec's lock. Named limit: a host window (SurfaceView's, the activity's) has
-//   no slots yet: configure answers AMEDIA_ERROR_UNSUPPORTED (e2c3).
+//   writer, an EGL window surface or another codec on it is refused after the claim, so that no other producer holds
+//   the slots its render dequeues under the codec's lock. Not yet refused: a claim of a window an EGL window surface
+//   or a Vulkan surface was made on before (Android's connect fails there; a step of its own).
+// - A host window (a SurfaceView's, the activity's; ADR-0060 e2c3) has no slots: the host draws a rendered frame into
+//   the window's layer itself (RENDER_WINDOW), presented at once or at releaseOutputBufferAtTime's time, stretched or
+//   cropped by setVideoScalingMode's mode. The codec claims it as a queue window, so that a CPU lock, an EGL window
+//   surface, a Vulkan surface and another codec are refused on it after the claim (as above, not before it). The
+//   host does not hold one producer per window: the claim is the guest's. Once the window is gone (the SurfaceView's
+//   surface destroyed), the codec releases itself, as Android 15's does [verified: media-window-test]: every call
+//   that sets or runs it answers AMEDIA_ERROR_INVALID_OPERATION, its thread joined at the delete.
+// - Frames rendered (AMediaCodec_setOnFrameRenderedCallback, MediaCodec's OnFrameRenderedListener): each frame drawn
+//   into any surface, reported after its render with its time and the buffer's timestamp, the frame's time in
+//   nanoseconds or releaseOutputBufferAtTime's, as Android 15 reports them [verified: media-window-test]; on the
+//   thread that released it, outside the codec's lock.
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
 #include <android/hardware_buffer.h>
 #include <android/log.h>
@@ -58,6 +69,7 @@ struct WindowFunctions {
     decltype(&minato_ANativeWindow_cancel) cancel = nullptr;
     decltype(&minato_ANativeWindow_claim) claim = nullptr;
     decltype(&minato_ANativeWindow_unclaim) unclaim = nullptr;
+    decltype(&minato_ANativeWindow_getInfo) info = nullptr;
 };
 
 WindowFunctions found_window_functions;
@@ -73,6 +85,7 @@ void find_window_functions() {
         FIND(cancel, minato_ANativeWindow_cancel);
         FIND(claim, minato_ANativeWindow_claim);
         FIND(unclaim, minato_ANativeWindow_unclaim);
+        FIND(info, minato_ANativeWindow_getInfo);
 #undef FIND
     }
 }
@@ -82,15 +95,23 @@ const WindowFunctions *window_functions() {
     pthread_once(&window_functions_once, find_window_functions);
     const WindowFunctions &found = found_window_functions;
     return found.is_queue != nullptr && found.dequeue != nullptr && found.queue != nullptr && found.cancel != nullptr &&
-                   found.claim != nullptr && found.unclaim != nullptr
+                   found.claim != nullptr && found.unclaim != nullptr && found.info != nullptr
                ? &found
                : nullptr;
 }
 
-/// Whether `window` is a queue's, which a surface decoder draws into.
-bool is_queue_window(ANativeWindow *window) {
+/// Whether a surface decoder draws into `window`: a queue's, with `host` 0, or a host window, with `host` its ID.
+bool is_surface(ANativeWindow *window, uint64_t *host) {
     const WindowFunctions *functions = window_functions();
-    return functions != nullptr && functions->is_queue(window) != 0;
+    if (functions == nullptr) return false;
+    if (functions->is_queue(window) != 0) {
+        *host = 0;
+        return true;
+    }
+    minato_window_info info{};
+    if (functions->info(window, &info) != 0 || info.id == 0) return false;
+    *host = info.id;
+    return true;
 }
 
 const minato_media_codec_info kCodecs[] = {
@@ -160,13 +181,17 @@ struct Lock {
 struct AMediaCodec {
     const minato_media_codec_info *info;
     pthread_mutex_t mutex;
-    enum { kMade, kConfigured, kStarted } state;
+    enum { kMade, kConfigured, kStarted, kReleased } state;  // kReleased: by itself, its window gone (e2c3)
     uint32_t type;
     int32_t width, height;
     Bytes codec_data;
     AMediaFormat *input_format, *output_format;
     uint64_t decoder;  // the runtime's ID while started
-    ANativeWindow *window;  // the surface, a queue's, with a reference of the codec's; NULL for ByteBuffer output
+    ANativeWindow *window;  // the surface, with a reference of the codec's; NULL for ByteBuffer output
+    uint64_t host_window;   // the window's ID when it is a host window (e2c3), else 0
+    uint32_t scaling;       // RENDER_WINDOW's flags, by setVideoScalingMode
+    AMediaCodecOnFrameRendered rendered;  // AMediaCodec_setOnFrameRenderedCallback's, and its userdata
+    void *rendered_userdata;
     bool told_format;       // a buffer the host cannot draw into logged, once per codec
     Bytes inputs[kInputs];
     bool input_dequeued[kInputs];
@@ -183,6 +208,8 @@ struct AMediaCodec {
     AMediaCodecOnAsyncNotifyCallback callbacks;
     void *userdata;
     bool asynchronous, thread_running, stopping;
+    bool thread_joinable;  // a thread made and neither joined nor detached yet
+    unsigned generation;   // start's count, which a thread stopped and started again from its callback is not of
     pthread_t thread;
 };
 
@@ -326,18 +353,28 @@ void drop_buffers(AMediaCodec *codec) {
     codec->ended = false;
 }
 
-/// Ends the asynchronous thread, with the codec's lock held, which it lets go while it waits.
-void stop_thread(AMediaCodec *codec) {
-    if (!codec->thread_running) return;
-    codec->stopping = true;
-    codec->thread_running = false;
+/// Joins an asynchronous thread that was stopped, with the codec's lock held, which it lets go while it waits; on
+/// the thread itself (a delete from its own callback, which Android does not allow either) it detaches it.
+void join_thread(AMediaCodec *codec) {
+    if (!codec->thread_joinable) return;
+    codec->thread_joinable = false;
     if (pthread_equal(codec->thread, pthread_self())) {
-        pthread_detach(codec->thread);  // stopped from its own callback
+        pthread_detach(codec->thread);
         return;
     }
     pthread_mutex_unlock(&codec->mutex);
     pthread_join(codec->thread, nullptr);
     pthread_mutex_lock(&codec->mutex);
+}
+
+/// Ends the asynchronous thread, with the codec's lock held. Stopped from its own callback (a stop of the app's) the
+/// thread stays joinable, as after the codec released itself (e2c3), and the next start or the delete joins it, so
+/// that a delete on another thread never frees the codec while the thread still returns into it.
+void stop_thread(AMediaCodec *codec) {
+    if (!codec->thread_running) return;
+    codec->stopping = true;
+    codec->thread_running = false;
+    if (!pthread_equal(codec->thread, pthread_self())) join_thread(codec);
 }
 
 void end_decoder(AMediaCodec *codec) {
@@ -354,22 +391,35 @@ void end_window(AMediaCodec *codec) {
         ANativeWindow_release(codec->window);
     }
     codec->window = nullptr;
+    codec->host_window = 0;
 }
+
+/// What release_frame did with a frame.
+enum class Released { kDropped, kRendered, kWindowGone };
 
 /// A surface decoder's frame of `token` drawn into a slot of the window and queued at `timestamp_ns`, or with
 /// `render` false dropped, with the codec's lock held. A slot the host cannot draw into goes back free, and the
-/// frame with it.
-void release_frame(AMediaCodec *codec, uint64_t token, bool render, int64_t timestamp_ns) {
+/// frame with it. Into a host window the host draws and presents it itself, at `timestamp_ns` when `at_time`.
+Released release_frame(AMediaCodec *codec, uint64_t token, bool render, int64_t timestamp_ns, bool at_time) {
     apkrt_video_decoder call{};
     call.id = codec->decoder;
     call.data = token;
+    if (render && codec->host_window != 0) {
+        call.size = codec->host_window;
+        call.time_us = at_time && timestamp_ns > 0 ? timestamp_ns / 1000 : 0;
+        call.flags = codec->scaling;
+        const long rendered = video_call(APKRT_VIDEO_DECODER_RENDER_WINDOW, reinterpret_cast<uintptr_t>(&call));
+        return rendered == 0         ? Released::kRendered
+               : rendered == -ENODEV ? Released::kWindowGone
+                                     : Released::kDropped;  // the background's -EIO among them: no frame shows
+    }
     const WindowFunctions *functions = window_functions();
     AHardwareBuffer *buffer = nullptr;
     int32_t slot = -1;
     uint64_t buffer_id = 0;
     if (!render || functions == nullptr || functions->dequeue(codec->window, &buffer, &slot) != 0) {
         video_call(APKRT_VIDEO_DECODER_DISCARD, reinterpret_cast<uintptr_t>(&call));
-        return;
+        return Released::kDropped;
     }
     if (AHardwareBuffer_getId(buffer, &buffer_id) != 0) buffer_id = 0;
     call.size = buffer_id;
@@ -380,7 +430,9 @@ void release_frame(AMediaCodec *codec, uint64_t token, bool render, int64_t time
         settings.timestamp = timestamp_ns;
         settings.exact_time = 1;  // a frame at time 0 keeps it, as Android's codec queues its time
         functions->queue(codec->window, slot, &settings);
-    } else {
+        return Released::kRendered;
+    }
+    {
         if (rendered == -EINVAL && buffer_id != 0 && !codec->told_format) {
             // Android configures such a surface too and its consumer never gets an image (an RGB_565 reader).
             AHardwareBuffer_Desc description{};
@@ -392,22 +444,51 @@ void release_frame(AMediaCodec *codec, uint64_t token, bool render, int64_t time
         if (buffer_id == 0) video_call(APKRT_VIDEO_DECODER_DISCARD, reinterpret_cast<uintptr_t>(&call));
         functions->cancel(codec->window, slot);
     }
+    return Released::kDropped;
+}
+
+/// The codec released by itself, its window gone, with the codec's lock held: no decoder, no surface, no more calls.
+/// Its thread is told to stop and never joined here, as the caller is the app's thread of a releaseOutputBuffer, which
+/// may hold a lock of the app's that the thread's callback waits for; the delete joins it.
+void release_itself(AMediaCodec *codec) {
+    codec->stopping = true;
+    codec->thread_running = false;
+    end_decoder(codec);
+    end_window(codec);
+    codec->state = AMediaCodec::kReleased;
 }
 
 /// releaseOutputBuffer and releaseOutputBufferAtTime: the buffer free again, its frame drawn first when `render`, at
-/// `timestamp_ns` (below 0: the frame's time).
+/// `timestamp_ns` (below 0: the frame's time, presented at once); the frame rendered callback after it.
 media_status_t release_output(AMediaCodec *codec, size_t index, bool render, int64_t timestamp_ns) {
     if (codec == nullptr || index >= kOutputs) return AMEDIA_ERROR_INVALID_PARAMETER;
-    Lock hold(&codec->mutex);
-    Output &output = codec->outputs[index];
-    if (codec->state != AMediaCodec::kStarted || output.state != Output::kHeld) return AMEDIA_ERROR_INVALID_OPERATION;
-    if (output.token != 0) {
-        release_frame(codec, output.token, render,
-                      timestamp_ns >= 0 ? timestamp_ns : minato_media_time_ns(output.info.presentationTimeUs));
-        output.token = 0;
+    AMediaCodecOnFrameRendered callback = nullptr;
+    void *userdata = nullptr;
+    int64_t time_us = 0, rendered_ns = 0;
+    {
+        Lock hold(&codec->mutex);
+        Output &output = codec->outputs[index];
+        if (codec->state != AMediaCodec::kStarted || output.state != Output::kHeld) {
+            return AMEDIA_ERROR_INVALID_OPERATION;
+        }
+        if (output.token != 0) {
+            time_us = output.info.presentationTimeUs;
+            rendered_ns = timestamp_ns >= 0 ? timestamp_ns : minato_media_time_ns(time_us);
+            const Released released = release_frame(codec, output.token, render, rendered_ns, timestamp_ns >= 0);
+            output.token = 0;
+            if (released == Released::kWindowGone) {
+                release_itself(codec);
+                return AMEDIA_ERROR_INVALID_OPERATION;
+            }
+            if (released == Released::kRendered) {
+                callback = codec->rendered;
+                userdata = codec->rendered_userdata;
+            }
+        }
+        output.state = Output::kFree;
+        pump(codec);
     }
-    output.state = Output::kFree;
-    pump(codec);
+    if (callback != nullptr) callback(codec, userdata, time_us, rendered_ns);
     return AMEDIA_OK;
 }
 
@@ -415,7 +496,9 @@ media_status_t release_output(AMediaCodec *codec, size_t index, bool render, int
 void *run_callbacks(void *argument) {
     auto *codec = static_cast<AMediaCodec *>(argument);
     pthread_mutex_lock(&codec->mutex);
-    while (!codec->stopping) {
+    const unsigned generation = codec->generation;
+    const auto running = [&] { return !codec->stopping && codec->generation == generation; };
+    while (running()) {
         pump(codec);
         bool called = false;
         if (codec->error != AMEDIA_OK) {
@@ -438,7 +521,7 @@ void *run_callbacks(void *argument) {
             pthread_mutex_lock(&codec->mutex);
             called = true;
         }
-        if (codec->ready_count > 0 && !codec->stopping) {
+        if (codec->ready_count > 0 && running()) {
             if (codec->format_changed && codec->output_format != nullptr) {
                 codec->format_changed = false;
                 AMediaFormat *format = AMediaFormat_new();
@@ -450,7 +533,7 @@ void *run_callbacks(void *argument) {
                 AMediaFormat_delete(format);
                 pthread_mutex_lock(&codec->mutex);
             }
-            if (codec->ready_count > 0 && !codec->stopping) {
+            if (codec->ready_count > 0 && running()) {
                 const int index = take_ready(codec);
                 AMediaCodecBufferInfo info = codec->outputs[index].info;
                 pthread_mutex_unlock(&codec->mutex);
@@ -519,6 +602,7 @@ media_status_t AMediaCodec_delete(AMediaCodec *codec) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_OBJECT;
     pthread_mutex_lock(&codec->mutex);
     stop_thread(codec);
+    join_thread(codec);
     end_decoder(codec);
     end_window(codec);
     pthread_mutex_unlock(&codec->mutex);
@@ -548,9 +632,10 @@ media_status_t AMediaCodec_configure(AMediaCodec *codec, const AMediaFormat *for
     if (codec == nullptr || format == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
     if (codec->state != AMediaCodec::kMade) return AMEDIA_ERROR_INVALID_OPERATION;
-    if ((surface != nullptr && !is_queue_window(surface)) || crypto != nullptr ||
+    uint64_t host = 0;
+    if ((surface != nullptr && !is_surface(surface, &host)) || crypto != nullptr ||
         (flags & AMEDIACODEC_CONFIGURE_FLAG_ENCODE) != 0) {
-        return AMEDIA_ERROR_UNSUPPORTED;  // a host window's surface with e2c3; no crypto, no encoder
+        return AMEDIA_ERROR_UNSUPPORTED;  // no crypto, no encoder
     }
     auto *asked = const_cast<AMediaFormat *>(format);
     const char *mime = nullptr;
@@ -590,6 +675,7 @@ media_status_t AMediaCodec_configure(AMediaCodec *codec, const AMediaFormat *for
         if (window_functions()->claim(surface) != 0) return AMEDIA_ERROR_UNKNOWN;  // another producer's
         ANativeWindow_acquire(surface);
         codec->window = surface;
+        codec->host_window = host;
     }
     codec->state = AMediaCodec::kConfigured;
     return AMEDIA_OK;
@@ -599,7 +685,9 @@ media_status_t AMediaCodec_setAsyncNotifyCallback(AMediaCodec *codec, AMediaCode
                                                   void *userdata) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
-    if (codec->state == AMediaCodec::kStarted) return AMEDIA_ERROR_INVALID_OPERATION;
+    if (codec->state == AMediaCodec::kStarted || codec->state == AMediaCodec::kReleased) {
+        return AMEDIA_ERROR_INVALID_OPERATION;
+    }
     codec->callbacks = callback;
     codec->userdata = userdata;
     codec->asynchronous = callback.onAsyncInputAvailable != nullptr || callback.onAsyncOutputAvailable != nullptr;
@@ -609,6 +697,7 @@ media_status_t AMediaCodec_setAsyncNotifyCallback(AMediaCodec *codec, AMediaCode
 media_status_t AMediaCodec_start(AMediaCodec *codec) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
+    join_thread(codec);  // one stopped from its own callback
     if (codec->state != AMediaCodec::kConfigured) return AMEDIA_ERROR_INVALID_OPERATION;
     apkrt_video_decoder call{};
     call.type = codec->type;
@@ -624,7 +713,9 @@ media_status_t AMediaCodec_start(AMediaCodec *codec) {
     codec->state = AMediaCodec::kStarted;
     if (codec->asynchronous) {
         codec->stopping = false;
+        codec->generation++;
         codec->thread_running = pthread_create(&codec->thread, nullptr, run_callbacks, codec) == 0;
+        codec->thread_joinable = codec->thread_running;
     }
     return AMEDIA_OK;
 }
@@ -632,6 +723,7 @@ media_status_t AMediaCodec_start(AMediaCodec *codec) {
 media_status_t AMediaCodec_stop(AMediaCodec *codec) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
+    if (codec->state == AMediaCodec::kReleased) return AMEDIA_ERROR_INVALID_OPERATION;
     stop_thread(codec);
     end_decoder(codec);
     end_window(codec);  // a surface is configure's, as Android's
@@ -753,18 +845,51 @@ media_status_t AMediaCodec_signalEndOfInputStream(AMediaCodec *) {
 media_status_t AMediaCodec_setOutputSurface(AMediaCodec *codec, ANativeWindow *surface) {
     if (codec == nullptr || surface == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
-    if (codec->window == nullptr || codec->state == AMediaCodec::kMade) return AMEDIA_ERROR_INVALID_OPERATION;
-    if (!is_queue_window(surface)) return AMEDIA_ERROR_UNSUPPORTED;  // a host window's with e2c3
+    if (codec->window == nullptr || codec->state == AMediaCodec::kMade || codec->state == AMediaCodec::kReleased) {
+        return AMEDIA_ERROR_INVALID_OPERATION;
+    }
+    uint64_t host = 0;
+    if (!is_surface(surface, &host)) return AMEDIA_ERROR_UNSUPPORTED;
     if (surface == codec->window) return AMEDIA_OK;
     if (window_functions()->claim(surface) != 0) return AMEDIA_ERROR_UNKNOWN;  // another producer's
     ANativeWindow_acquire(surface);
     end_window(codec);
     codec->window = surface;
+    codec->host_window = host;
+    return AMEDIA_OK;
+}
+
+media_status_t AMediaCodec_setOnFrameRenderedCallback(AMediaCodec *codec, AMediaCodecOnFrameRendered callback,
+                                                      void *userdata) {
+    if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
+    Lock hold(&codec->mutex);
+    if (codec->state == AMediaCodec::kReleased) return AMEDIA_ERROR_INVALID_OPERATION;
+    codec->rendered = callback;
+    codec->rendered_userdata = userdata;
+    return AMEDIA_OK;
+}
+
+int minato_AMediaCodec_isReleased(AMediaCodec *codec) {
+    if (codec == nullptr) return 0;
+    Lock hold(&codec->mutex);
+    return codec->state == AMediaCodec::kReleased ? 1 : 0;
+}
+
+int minato_AMediaCodec_setVideoScalingMode(AMediaCodec *codec, int mode) {
+    if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
+    Lock hold(&codec->mutex);
+    if (codec->state == AMediaCodec::kReleased) return AMEDIA_ERROR_INVALID_OPERATION;
+    // MediaCodec's VIDEO_SCALING_MODE_SCALE_TO_FIT (1) stretches, SCALE_TO_FIT_WITH_CROPPING (2) crops; another mode
+    // is refused, for MediaCodec's IllegalArgumentException.
+    if (mode != 1 && mode != 2) return AMEDIA_ERROR_INVALID_PARAMETER;
+    codec->scaling = mode == 2 ? APKRT_VIDEO_DECODER_CROP : 0;
     return AMEDIA_OK;
 }
 
 media_status_t AMediaCodec_setParameters(AMediaCodec *codec, const AMediaFormat *) {
-    return codec != nullptr ? AMEDIA_OK : AMEDIA_ERROR_INVALID_PARAMETER;  // none a decoder of ours takes
+    if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
+    Lock hold(&codec->mutex);
+    return codec->state == AMediaCodec::kReleased ? AMEDIA_ERROR_INVALID_OPERATION : AMEDIA_OK;  // none it takes
 }
 
 }  // extern "C"

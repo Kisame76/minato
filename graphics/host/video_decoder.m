@@ -31,6 +31,17 @@
      background render answers -EIO without the GPU, and a provider of "scheduled" waits for the renders that began
      before it (ADR-0032, decision 6); a surface Metal cannot wrap (a side past 16384, rows off its alignment) answers
      -EINVAL or -EIO, never Metal's abort.
+   - render_window (ADR-0060 e2c3) draws a waiting frame into a host window (a SurfaceView's or the activity's, found
+     by its ID with apkrt_window_layer): the next drawable of its layer, BGRA8Unorm as window.m's and of the frame's
+     size, as Android's codec sets the surface's buffers to it, by a render pass of the same conversion, the layer's
+     gravity stretching the frame to the window (SCALE_TO_FIT) or filling it cropped (SCALE_TO_FIT_WITH_CROPPING),
+     given back stretched at the decoder's end or its switch to another window;
+     presented at once or at the time asked (the guest's CLOCK_MONOTONIC is Darwin's CLOCK_UPTIME_RAW, Core
+     Animation's host time; more than a second ahead at once, as Android's), shown again with its drawable when
+     window.m's hide rule hid the layer, and counted for the window. It is in flight from its drawable on, as
+     window.m's present, and its command buffer is scheduled before render_window returns, so the same provider of
+     "scheduled" covers it; it keeps the image until the GPU read it. In the background it answers -EIO without the
+     GPU, -ENODEV for a window that is gone and -EINVAL for one without a Metal layer (apk-run's).
    - Each unit in VideoToolbox has a token of its own, which its call back or its refusal ends once. A flush or a
      destroy ends every token, so that no frame of its earlier input comes after it, waits for VideoToolbox's frames in
      flight and ends the session; a flush's next input makes a new one, as the next unit does after VideoToolbox ended
@@ -45,6 +56,7 @@
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
 #import <VideoToolbox/VideoToolbox.h>
 
 #include <pthread.h>
@@ -57,11 +69,12 @@
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
 #include "minato_graphics.h"
+#include "present_pace.h"
 #include "video_decoder_testing.h"
 #include "video_parameters.h"
 
 /* Linux's errno values, which the guest gets. */
-enum { linux_eio = 5, linux_eagain = 11, linux_enomem = 12, linux_einval = 22 };
+enum { linux_eio = 5, linux_eagain = 11, linux_enomem = 12, linux_enodev = 19, linux_einval = 22 };
 
 /* The decoded frames a decoder holds before a queue waits for pops. */
 static const NSUInteger max_frames = 8;
@@ -88,6 +101,7 @@ enum { max_sps_ids = 32, max_pps_ids = 256 };
     uint32_t type;
     BOOL surface;                       // frames by tokens, for render
     VTPixelTransferSessionRef transfer; // render's into YUV buffers, made at the first; the runtime's thread alone
+    uint64_t cropped_window;            // the window a render left cropped (e2c3), given back at the end or a switch
     NSMutableDictionary<NSNumber *, NSData *> *sets[3];  // the stream's VPSs, SPSs and PPSs, by their IDs
     int sps_depth[max_sps_ids];                          // each SPS's reorder depth, -1 for none
     int pps_sps[max_pps_ids];                            // the SPS each PPS names, -1 for none
@@ -665,6 +679,8 @@ static int flush(void *context, uint64_t handle) {
     }
 }
 
+static void give_back_gravity(uint64_t window);
+
 static void destroy(void *context, uint64_t handle) {
     (void)context;
     @try {
@@ -672,6 +688,7 @@ static void destroy(void *context, uint64_t handle) {
             MinatoVideoDecoder *decoder = find_decoder(handle);
             if (decoder == nil) return;
             @try {
+                if (decoder->cropped_window != 0) give_back_gravity(decoder->cropped_window);
                 drop_all(decoder);
             } @finally {
                 pthread_mutex_lock(&state_lock);
@@ -721,6 +738,19 @@ static NSString *const conversion_source =
      "    const float2 place = (float2(at) + 0.5) / float2(out.get_width(), out.get_height());\n"
      "    const float3 ycbcr = float3(luma.sample(linear, place).r, chroma.sample(linear, place).rg);\n"
      "    out.write(float4(clamp(conversion.matrix * (ycbcr - conversion.offset), 0.0, 1.0), 1.0), at);\n"
+     "}\n"
+     "struct Placed { float4 position [[position]]; float2 place; };\n"
+     "vertex Placed minato_window_vertex(uint corner [[vertex_id]]) {\n"
+     "    const float2 place = float2((corner << 1) & 2, corner & 2);\n"
+     "    return {float4(place * float2(2, -2) + float2(-1, 1), 0, 1), place};\n"
+     "}\n"
+     "fragment float4 minato_window_fragment(Placed in [[stage_in]],\n"
+     "                                       texture2d<float, access::sample> luma [[texture(0)]],\n"
+     "                                       texture2d<float, access::sample> chroma [[texture(1)]],\n"
+     "                                       constant Conversion &conversion [[buffer(0)]]) {\n"
+     "    constexpr sampler linear(coord::normalized, filter::linear, address::clamp_to_edge);\n"
+     "    const float3 ycbcr = float3(luma.sample(linear, in.place).r, chroma.sample(linear, in.place).rg);\n"
+     "    return float4(clamp(conversion.matrix * (ycbcr - conversion.offset), 0.0, 1.0), 1.0);\n"
      "}\n";
 
 /* A Metal texture's largest side on Apple's GPUs (hardware_buffer.m makes no image buffer past it). */
@@ -729,6 +759,7 @@ static const size_t max_texture_side = 16384;
 static id<MTLDevice> metal_device;
 static id<MTLCommandQueue> metal_queue;
 static id<MTLComputePipelineState> conversion_pipeline;
+static id<MTLRenderPipelineState> window_pipeline;  // the same conversion into a window's drawable (e2c3)
 static pthread_mutex_t metal_lock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic BOOL metal_made;
 
@@ -748,10 +779,18 @@ static BOOL metal_ready(void) {
             id<MTLFunction> kernel = [library newFunctionWithName:@"minato_nv12_to_rgba"];
             id<MTLComputePipelineState> pipeline =
                 kernel != nil ? [device newComputePipelineStateWithFunction:kernel error:&error] : nil;
-            if (queue != nil && pipeline != nil) {
+            MTLRenderPipelineDescriptor *drawing = [[MTLRenderPipelineDescriptor alloc] init];
+            drawing.vertexFunction = [library newFunctionWithName:@"minato_window_vertex"];
+            drawing.fragmentFunction = [library newFunctionWithName:@"minato_window_fragment"];
+            drawing.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+            id<MTLRenderPipelineState> window = drawing.vertexFunction != nil && drawing.fragmentFunction != nil
+                                                    ? [device newRenderPipelineStateWithDescriptor:drawing error:&error]
+                                                    : nil;
+            if (queue != nil && pipeline != nil && window != nil) {
                 metal_device = device;
                 metal_queue = queue;
                 conversion_pipeline = pipeline;
+                window_pipeline = window;
                 metal_made = YES;
             } else if (device != nil) {
                 pipeline_failed = YES;
@@ -883,7 +922,167 @@ static int draw_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurf
     return status == noErr ? 0 : -linux_eio;
 }
 
+/* The flags render_window takes: APKRT_VIDEO_DECODER_CROP alone. */
+static const uint32_t window_flags = APKRT_VIDEO_DECODER_CROP;
+
 #ifdef MINATO_VIDEO_DECODER_TESTING
+static id<MTLTexture> last_window_texture;  // the last window render's drawable, for the test to read back
+static int64_t last_window_time;           // the time it was presented at, 0 at once
+#endif
+
+/* Sets what the layer needs for the frame, in a transaction without animations: the device, the window's format,
+   the frame's size and the gravity of the scaling mode. */
+static void set_up_layer(CAMetalLayer *layer, CGSize size, uint32_t flags) {
+    NSString *gravity = (flags & APKRT_VIDEO_DECODER_CROP) != 0 ? kCAGravityResizeAspectFill : kCAGravityResize;
+    if (layer.device == metal_device && layer.pixelFormat == MTLPixelFormatBGRA8Unorm &&
+        CGSizeEqualToSize(layer.drawableSize, size) && [layer.contentsGravity isEqualToString:gravity]) {
+        return;
+    }
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.device = metal_device;
+    layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    layer.drawableSize = size;
+    layer.contentsGravity = gravity;
+    [CATransaction commit];
+    [CATransaction flush];
+}
+
+static int present_window(CVPixelBufferRef image, CAMetalLayer *layer, id<CAMetalDrawable> drawable,
+                          id<MTLTexture> luma, id<MTLTexture> chroma, uint64_t window, int64_t time_ns);
+
+/* Gives the window back stretched, Core Animation's default, which the other producers take (their buffers bring no
+   scaling mode of their own), when a render left it cropped: at the decoder's end or its switch to another window. */
+static void give_back_gravity(uint64_t window) {
+    id layer = (__bridge_transfer id)apkrt_window_layer(window);
+    if (![layer isKindOfClass:[CAMetalLayer class]]) return;
+    CAMetalLayer *metal = layer;
+    if (![metal.contentsGravity isEqualToString:kCAGravityResizeAspectFill]) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    metal.contentsGravity = kCAGravityResize;
+    [CATransaction commit];
+    [CATransaction flush];
+}
+
+/* The image drawn into the layer's next drawable and presented, never in the background: 0, -EINVAL for an image
+   Metal cannot wrap, or -EIO. As window.m's present, the render is counted for the provider of "scheduled" once it
+   has its drawable (Core Animation's wait for one, up to a second, is not), and looks at the background flag after
+   that count (ADR-0030's count-then-flag). */
+static int draw_window(CVPixelBufferRef image, CAMetalLayer *layer, uint64_t window, int64_t time_ns, uint32_t flags) {
+    IOSurfaceRef source = CVPixelBufferGetIOSurface(image);
+    if (!metal_ready() || source == NULL || IOSurfaceGetPlaneCount(source) != 2) return -linux_eio;
+    id<MTLTexture> luma = plane_texture(source, 0, MTLPixelFormatR8Unorm, MTLTextureUsageShaderRead);
+    id<MTLTexture> chroma = plane_texture(source, 1, MTLPixelFormatRG8Unorm, MTLTextureUsageShaderRead);
+    if (luma == nil || chroma == nil) return -linux_einval;
+    set_up_layer(layer, CGSizeMake((CGFloat)luma.width, (CGFloat)luma.height), flags);
+    id<CAMetalDrawable> drawable = [layer nextDrawable];
+    if (drawable == nil) return -linux_eio;
+    atomic_fetch_add(&renders_in_flight, 1);
+    @try {
+        if (apkrt_is_background()) return -linux_eio;
+        return present_window(image, layer, drawable, luma, chroma, window, time_ns);
+    } @finally {
+        atomic_fetch_sub(&renders_in_flight, 1);
+    }
+}
+
+/* draw_window's render pass and present, counted in flight. A hidden layer is shown at once, whatever the time. */
+static int present_window(CVPixelBufferRef image, CAMetalLayer *layer, id<CAMetalDrawable> drawable,
+                          id<MTLTexture> luma, id<MTLTexture> chroma, uint64_t window, int64_t time_ns) {
+    // A drawable of the decoder's takes no record of the front libs' presents (ADR-0041 decision 11 c)).
+    minato_present_unpaced((__bridge void *)drawable);
+    id<MTLCommandBuffer> commands = [metal_queue commandBuffer];
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = drawable.texture;
+    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> encoder = [commands renderCommandEncoderWithDescriptor:pass];
+    if (encoder == nil) return -linux_eio;
+    const struct conversion conversion = conversion_of(image);
+    [encoder setRenderPipelineState:window_pipeline];
+    [encoder setFragmentTexture:luma atIndex:0];
+    [encoder setFragmentTexture:chroma atIndex:1];
+    [encoder setFragmentBytes:&conversion length:sizeof conversion atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [encoder endEncoding];
+    // The image stays until the GPU has read it, as VideoToolbox may take its IOSurface back once it is released.
+    CVPixelBufferRef read = CVPixelBufferRetain(image);
+    [commands addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        (void)done;
+        CVPixelBufferRelease(read);
+    }];
+    // A time more than a second ahead is presented at once, as Android's consumer takes it for a wrong one
+    // (BufferQueueConsumer's MAX_REASONABLE_NSEC): Core Animation would hold the drawable until then.
+    if (time_ns > (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 1000000000) time_ns = 0;
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    last_window_time = 0;
+#endif
+    if (layer.hidden) {
+        // window.m's hide rule hid it: shown again with this drawable, in the transaction that presents it.
+        layer.presentsWithTransaction = YES;
+        [commands commit];
+        [commands waitUntilScheduled];
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        layer.hidden = NO;
+        [drawable present];
+        [CATransaction commit];
+        layer.presentsWithTransaction = NO;
+    } else {
+        if (time_ns > 0) {
+            [commands presentDrawable:drawable atTime:(CFTimeInterval)time_ns / 1e9];
+#ifdef MINATO_VIDEO_DECODER_TESTING
+            last_window_time = time_ns;
+#endif
+        } else {
+            [commands presentDrawable:drawable];
+        }
+        [commands commit];
+        [commands waitUntilScheduled];
+    }
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    [commands waitUntilCompleted];
+    last_window_texture = drawable.texture;
+#endif
+    if (commands.status == MTLCommandBufferStatusError) return -linux_eio;
+    apkrt_window_presented(window);
+    return 0;
+}
+
+static int render_window(void *context, uint64_t handle, uint64_t token, uint64_t window, int64_t time_ns,
+                         uint32_t flags) {
+    (void)context;
+    @try {
+        @autoreleasepool {
+            MinatoVideoDecoder *decoder = find_decoder(handle);
+            if (decoder == nil || !decoder->surface) return -linux_einval;
+            MinatoDecodedFrame *frame = take_waiting(decoder, token);
+            if (frame == nil || (flags & ~window_flags) != 0) return -linux_einval;
+            id layer = (__bridge_transfer id)apkrt_window_layer(window);
+            int32_t width = 0, height = 0;
+            if (layer == nil && apkrt_window_size(window, &width, &height) != 0) return -linux_enodev;
+            if (![layer isKindOfClass:[CAMetalLayer class]]) return -linux_einval;  // a window there without one
+            if (decoder->cropped_window != 0 && decoder->cropped_window != window) {
+                give_back_gravity(decoder->cropped_window);
+            }
+            decoder->cropped_window = (flags & APKRT_VIDEO_DECODER_CROP) != 0 ? window : 0;
+            return draw_window(frame->image, layer, window, time_ns, flags);
+        }
+    } @catch (id thrown) {
+        return exception_errno(thrown);
+    }
+}
+
+#ifdef MINATO_VIDEO_DECODER_TESTING
+id<MTLTexture> minato_video_decoder_window_texture_for_testing(void) {
+    return last_window_texture;
+}
+
+int64_t minato_video_decoder_window_time_for_testing(void) {
+    return last_window_time;
+}
+
 int minato_video_decoder_convert_for_testing(CVPixelBufferRef image, IOSurfaceRef target) {
     return convert_into(image, target);
 }
@@ -932,7 +1131,8 @@ static void discard(void *context, uint64_t handle, uint64_t token) {
     }
 }
 
-static const struct apkrt_video_decoders functions = {create, queue, peek, pop, flush, destroy, render, discard, NULL};
+static const struct apkrt_video_decoders functions = {create, queue,   peek,          pop, flush,
+                                                       destroy, render, discard, render_window, NULL};
 
 const struct apkrt_video_decoders *minato_graphics_video_decoders(void) {
     return &functions;

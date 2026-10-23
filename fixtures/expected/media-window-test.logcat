@@ -1,0 +1,31 @@
+I/media-window-test: surface created
+I/media-window-test: a decoder: true
+I/media-window-test: window: output format 320 x 180, color format 7f000789
+I/media-window-test: window: 30 frames released, callbacks: some true, each a released frame's true, in order true, its time the frame's true
+I/media-window-test: window at a time: callbacks: some true, each one's time the time asked true
+I/media-window-test: switch: to the reader
+I/media-window-test: switch: back to the window
+I/media-window-test: switch: 30 frames, the reader's images: some true, each a frame rendered into it true, in order true
+I/media-window-test: switch: 30 frames released, callbacks: some true, each a released frame's true, in order true, its time the frame's true
+I/media-window-test: producers: the holder's lockCanvas: null
+I/media-window-test: producers: Surface.lockCanvas: java.lang.IllegalArgumentException
+I/media-window-test: producers: an EGL window surface: none
+I/media-window-test: producers: a Vulkan swapchain: surface -1000000001, swapchain -13
+I/media-window-test: producers: setVideoScalingMode: ok
+I/media-window-test: producers: setVideoScalingMode(3): java.lang.IllegalArgumentException: Unrecognized mode: 3
+I/media-window-test: surface destroyed
+I/media-window-test: gone: surface destroyed in time true
+I/media-window-test: gone: renders into the destroyed surface fail true, the codec released by itself true
+I/media-window-test: surface created
+I/media-window-test: gone: surface again in time true
+I/media-window-test: gone: setOutputSurface to the new surface: java.lang.IllegalStateException
+I/media-window-test: gone: renders after it: IllegalStateException IllegalStateException IllegalStateException
+I/media-window-test: gone: callbacks after the new surface false
+I/media-window-test: gone: stop: IllegalStateException
+I/media-window-test: ndk: configure 0, frame rendered callback 0, start 0
+I/media-window-test: ndk: while the codec draws, a CPU lock -22, a second codec's configure -10000
+I/media-window-test: ndk: setOutputSurface to the reader 0
+I/media-window-test: ndk: setOutputSurface to the window 0
+I/media-window-test: ndk: 30 frames rendered, the reader's images some 1, callbacks: some 1, each a rendered frame's 1, in order 1, its time the frame's 1
+I/media-window-test: after: the holder's lockCanvas: a canvas
+I/media-window-test: done

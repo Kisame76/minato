@@ -623,6 +623,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PhotosActivity
       limit=120
       ;;
+    # media-window-test (ADR-0060 e2c3): its activity decodes into its SurfaceView's window, ends with "done".
+    media-window-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WindowActivity
+      limit=120
+      ;;
     # mediastore-test (ADR-0057 step e): its activity inserts, writes, finishes and deletes media in MediaStore and ends
     # with "done"; nothing to push or tap.
     mediastore-test)

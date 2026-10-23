@@ -9,8 +9,9 @@
 // 16 MiB, a decoder's entry) answers -ENOMEM: no exception leaves call(), whose caller is the syscall entry's
 // assembly, and a host decoder made before the failure is destroyed. A surface decoder's frames (ADR-0060 e2c) stay
 // the host's: the runtime keeps the tokens of those the guest dequeued, at most APKRT_VIDEO_DECODER_MAX_WAITING, so
-// that only a waiting token reaches the host's render or discard, and resolves the guest's hardware buffer of a RENDER
-// to the host's buffer with a reference of the runtime's for the call.
+// that only a waiting token reaches the host's render, render_window or discard, and resolves the guest's hardware
+// buffer of a RENDER to the host's buffer with a reference of the runtime's for the call; a RENDER_WINDOW (e2c3) names
+// the host window by its ID, which the host finds itself.
 #include "video_decoders.h"
 
 #include "APKRuntime/apkrt.h"
@@ -310,6 +311,26 @@ long render(const apkrt_video_decoder &asked) {
     return answer;
 }
 
+/// RENDER_WINDOW (ADR-0060 e2c3): the frame drawn into a host window, which the host finds by its ID
+/// (apkrt_window_layer). A window of ID 0, flags other than CROP or a time before 0 or past what nanoseconds hold end
+/// the token undrawn.
+long render_window(const apkrt_video_decoder &asked) {
+    const auto decoder = find(asked.id);
+    if (decoder == nullptr) return -linux_errno::ebadf;
+    const std::lock_guard hold(decoder->mutex);
+    if (const long taken = take_token(decoder, asked.data); taken != 0) return taken;
+    const long refused = asked.size == 0                                           ? -linux_errno::enodev
+                         : (asked.flags & ~std::uint32_t{APKRT_VIDEO_DECODER_CROP}) != 0 ? -linux_errno::einval
+                         : asked.time_us < 0 || asked.time_us > INT64_MAX / 1000       ? -linux_errno::einval
+                                                                                       : 0;
+    if (refused != 0) {
+        decoder->table.discard(decoder->table.context, decoder->handle, asked.data);
+        return refused;
+    }
+    return host_answer(decoder->table.render_window(decoder->table.context, decoder->handle, asked.data, asked.size,
+                                                    asked.time_us * 1000, asked.flags));
+}
+
 long discard(const apkrt_video_decoder &asked) {
     const auto decoder = find(asked.id);
     if (decoder == nullptr) return -linux_errno::ebadf;
@@ -329,7 +350,8 @@ long call(std::uint64_t op, std::uint64_t argument) try {
         case APKRT_VIDEO_DECODER_QUEUE:
         case APKRT_VIDEO_DECODER_DEQUEUE:
         case APKRT_VIDEO_DECODER_RENDER:
-        case APKRT_VIDEO_DECODER_DISCARD: break;
+        case APKRT_VIDEO_DECODER_DISCARD:
+        case APKRT_VIDEO_DECODER_RENDER_WINDOW: break;
         default: return -linux_errno::einval;
     }
     apkrt_video_decoder asked;  // the guest's struct, read once
@@ -342,6 +364,7 @@ long call(std::uint64_t op, std::uint64_t argument) try {
         case APKRT_VIDEO_DECODER_QUEUE: return queue(asked);
         case APKRT_VIDEO_DECODER_RENDER: return render(asked);
         case APKRT_VIDEO_DECODER_DISCARD: return discard(asked);
+        case APKRT_VIDEO_DECODER_RENDER_WINDOW: return render_window(asked);
         default: return dequeue(argument, asked);
     }
 } catch (const std::bad_alloc &) {
@@ -354,7 +377,7 @@ extern "C" int apkrt_set_video_decoders(const apkrt_video_decoders *set) {
     using namespace apkrt::video_decoders;
     if (set != nullptr && (set->create == nullptr || set->queue == nullptr || set->peek == nullptr ||
                            set->pop == nullptr || set->flush == nullptr || set->destroy == nullptr ||
-                           set->render == nullptr || set->discard == nullptr)) {
+                           set->render == nullptr || set->discard == nullptr || set->render_window == nullptr)) {
         return -1;
     }
     auto &all = registry();

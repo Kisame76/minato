@@ -8,12 +8,14 @@
    active SPS, and a new session after the old one's frames. graphics.video_decoder_asan runs the cases with the
    decoders' own sources under AddressSanitizer and VideoToolbox's decode call replaced (MINATO_VIDEO_DECODER_TESTING),
    for three more: units whose call back never comes with a session iOS ended, units VideoToolbox holds with the end
-   of the stream after them, exceptions, and surfaces the Metal pass cannot wrap.
+   of the stream after them, exceptions, and surfaces the Metal pass cannot wrap; and a frame drawn into a host
+   window (ADR-0060 e2c3), whose drawable's pixels only the testing build reads back.
    Usage: graphics-video-decoder-test <assets directory> <media-codec-test.logcat>. Exits 1 after the cases when one
    failed. */
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurface.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <math.h>
 #include <stdatomic.h>
@@ -27,7 +29,7 @@
 #include "minato_graphics.h"
 #include "video_decoder_testing.h"
 
-enum { linux_eio = 5, linux_eagain = 11, linux_enomem = 12, linux_einval = 22 };
+enum { linux_eio = 5, linux_eagain = 11, linux_enomem = 12, linux_enodev = 19, linux_einval = 22 };
 
 static const struct apkrt_video_decoders *table;
 static int failures;
@@ -840,6 +842,246 @@ static void aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(NSString *assets,
     buffers->free(buffers->context, rgba.handle);
 }
 
+/* The first frame of Baseline's stream from a new surface decoder: its handle, and the frame's token in `token`;
+   0 without one. */
+static uint64_t first_frame(struct stream stream, uint64_t *token, int64_t *time_us) {
+    const uint64_t handle = make_with(APKRT_VIDEO_DECODER_AVC, APKRT_VIDEO_DECODER_SURFACE);
+    NSArray<NSNumber *> *first = stream.units[0];
+    const uint8_t *bytes = stream.bytes.bytes;
+    table->queue(table->context, handle, bytes + first[0].longLongValue, (size_t)first[1].longLongValue, 0, 0);
+    struct apkrt_video_frame frame;
+    int peeked = -1;
+    for (int tries = 0; (peeked = table->peek(table->context, handle, &frame)) != 0 && tries < 2000; tries++) {
+        usleep(1000);
+    }
+    if (peeked != 0) {
+        table->destroy(table->context, handle);
+        return 0;
+    }
+    table->pop(table->context, handle);
+    *token = frame.token;
+    if (time_us != NULL) *time_us = frame.time_us;
+    return handle;
+}
+
+/* The token of the stream's second frame on a decoder of first_frame's, or 0. */
+static uint64_t next_token(struct stream stream, uint64_t handle) {
+    NSArray<NSNumber *> *second = stream.units[1];
+    const uint8_t *bytes = stream.bytes.bytes;
+    table->queue(table->context, handle, bytes + second[0].longLongValue, (size_t)second[1].longLongValue,
+                 second[2].longLongValue, 0);
+    struct apkrt_video_frame frame;
+    int peeked = -1;
+    for (int tries = 0; (peeked = table->peek(table->context, handle, &frame)) != 0 && tries < 2000; tries++) {
+        usleep(1000);
+    }
+    if (peeked != 0) return 0;
+    table->pop(table->context, handle);
+    return frame.token;
+}
+
+/* ADR-0060 e2c3: a surface decoder's frame into a host window (a SurfaceView's): drawn into the next drawable of the
+   window's layer, of the frame's size, and presented, at once or at the time asked, the layer's gravity by the
+   scaling mode (SCALE_TO_FIT stretches, WITH_CROPPING fills), the present counted for the window. The drawable's
+   pixels, which only the testing build hands back, are the YUV render's samples through BT.601 in video range, as
+   the RGBA render's are, in BGRA. Refused: a token that does not wait or has ended, a decoder for buffers, unknown
+   flags (-EINVAL), a window that is not there or was removed (-ENODEV); in the background nothing is drawn (-EIO)
+   and the token ends. */
+static void aSurfaceDecoderDrawsIntoAWindow(NSString *assets) {
+    const char *test = "a surface decoder draws into a window";
+    const struct stream stream = load(assets, @"baseline");
+    CAMetalLayer *layer = [CAMetalLayer layer];
+    layer.framebufferOnly = NO;  // so that the testing build can read the drawable back
+    const uint64_t window = apkrt_window_add((__bridge void *)layer, 1290, 2796);
+    struct apkrt_video_target yuv;
+    IOSurfaceRef yuv_surface = NULL;
+    if (window == 0 || target_buffer(0x23, 320, 180, &yuv, &yuv_surface) != 0) {
+        fail(test, @"no window or buffer");
+        return;
+    }
+    uint64_t token = 0;
+    int64_t time_us = 0;
+    // The reference: the same first frame through a YUV render.
+    uint64_t handle = first_frame(stream, &token, &time_us);
+    if (handle == 0 || table->render(table->context, handle, token, &yuv) != 0) fail(test, @"no YUV render");
+    table->destroy(table->context, handle);
+    // At once, scaled to fit.
+    handle = first_frame(stream, &token, NULL);
+    const uint64_t presents = apkrt_window_presents(window);
+    int answer = table->render_window(table->context, handle, token, window, 0, 0);
+    if (answer != 0) fail(test, [NSString stringWithFormat:@"render at once %d", answer]);
+    if (!CGSizeEqualToSize(layer.drawableSize, CGSizeMake(320, 180))) fail(test, @"the drawable is not the frame's");
+    if (![layer.contentsGravity isEqualToString:kCAGravityResize]) fail(test, @"SCALE_TO_FIT does not stretch");
+    if (apkrt_window_presents(window) != presents + 1) fail(test, @"the present was not counted");
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    id<MTLTexture> drawn = minato_video_decoder_window_texture_for_testing();
+    if (drawn.pixelFormat != MTLPixelFormatBGRA8Unorm || drawn.width != 320 || drawn.height != 180) {
+        fail(test, @"the drawable's texture");
+    } else {
+        IOSurfaceRef rgba = rgba_surface(320, 180, 320 * 4);
+        IOSurfaceLock(rgba, 0, NULL);
+        uint8_t *pixels = IOSurfaceGetBaseAddress(rgba);
+        [drawn getBytes:pixels bytesPerRow:320 * 4 fromRegion:MTLRegionMake2D(0, 0, 320, 180) mipmapLevel:0];
+        for (size_t at = 0; at < 320 * 180 * 4; at += 4) {  // BGRA to RGBA
+            const uint8_t blue = pixels[at];
+            pixels[at] = pixels[at + 2];
+            pixels[at + 2] = blue;
+        }
+        IOSurfaceUnlock(rgba, 0, NULL);
+        const double bt601 = rgba_difference(rgba, yuv_surface, 0.299, 0.114);
+        const double bt709 = rgba_difference(rgba, yuv_surface, 0.2126, 0.0722);
+        if (bt601 > 3 || bt709 < bt601 + 2) {
+            fail(test, [NSString stringWithFormat:@"the window's pixels: BT.601 %.2f, BT.709 %.2f", bt601, bt709]);
+        }
+        CFRelease(rgba);
+    }
+#endif
+    if (table->render_window(table->context, handle, token, window, 0, 0) != -linux_einval) {
+        fail(test, @"a token rendered twice");
+    }
+    table->destroy(table->context, handle);
+    // At a time, cropped to fill.
+    handle = first_frame(stream, &token, NULL);
+    const int64_t later = (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 50000000;
+    answer = table->render_window(table->context, handle, token, window, later, APKRT_VIDEO_DECODER_CROP);
+    if (answer != 0) fail(test, [NSString stringWithFormat:@"render at a time %d", answer]);
+    if (![layer.contentsGravity isEqualToString:kCAGravityResizeAspectFill]) fail(test, @"WITH_CROPPING does not fill");
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    if (minato_video_decoder_window_time_for_testing() != later) fail(test, @"not presented at the time asked");
+#endif
+    table->destroy(table->context, handle);
+    // The decoder's end gives the window back stretched, Core Animation's default, which the other producers take:
+    // their buffers bring no scaling mode of their own.
+    if (![layer.contentsGravity isEqualToString:kCAGravityResize]) fail(test, @"a cropping decoder's gravity stayed");
+    // So does its switch to another window.
+    {
+        CAMetalLayer *other = [CAMetalLayer layer];
+        const uint64_t second = apkrt_window_add((__bridge void *)other, 1290, 2796);
+        handle = first_frame(stream, &token, NULL);
+        table->render_window(table->context, handle, token, window, 0, APKRT_VIDEO_DECODER_CROP);
+        const uint64_t next = next_token(stream, handle);
+        if (next == 0 || table->render_window(table->context, handle, next, second, 0, 0) != 0 ||
+            ![layer.contentsGravity isEqualToString:kCAGravityResize]) {
+            fail(test, @"a cropping decoder's gravity stayed after its switch");
+        }
+        table->destroy(table->context, handle);
+        apkrt_window_remove(second);
+    }
+    // More than a second ahead, at once, as Android's consumer takes such a time for a wrong one (MAX_REASONABLE_NSEC).
+    handle = first_frame(stream, &token, NULL);
+    const int64_t far = (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 10000000000;
+    answer = table->render_window(table->context, handle, token, window, far, 0);
+    if (answer != 0) fail(test, [NSString stringWithFormat:@"render far ahead %d", answer]);
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    if (minato_video_decoder_window_time_for_testing() != 0) fail(test, @"a time far ahead was kept");
+#endif
+    table->destroy(table->context, handle);
+    // A layer window.m's hide rule hid is shown again with the frame.
+    handle = first_frame(stream, &token, NULL);
+    layer.hidden = YES;
+    const uint64_t shown = apkrt_window_presents(window);
+    answer = table->render_window(table->context, handle, token, window, 0, 0);
+    if (answer != 0 || layer.hidden || apkrt_window_presents(window) != shown + 1) {
+        fail(test, [NSString stringWithFormat:@"a render into a hidden layer: %d, hidden %d", answer, layer.hidden]);
+    }
+    table->destroy(table->context, handle);
+    // The refusals.
+    handle = first_frame(stream, &token, NULL);
+    if (table->render_window(table->context, handle, token + 1000, window, 0, 0) != -linux_einval) {
+        fail(test, @"a token not there");
+    }
+    if (table->render_window(table->context, handle, token, window, 0, 0x80) != -linux_einval) {
+        fail(test, @"unknown flags");
+    }
+    table->destroy(table->context, handle);
+    const uint64_t buffers = make(APKRT_VIDEO_DECODER_AVC);
+    if (table->render_window(table->context, buffers, 1, window, 0, 0) != -linux_einval) {
+        fail(test, @"a decoder for buffers");
+    }
+    table->destroy(table->context, buffers);
+    handle = first_frame(stream, &token, NULL);
+    if (table->render_window(table->context, handle, token, window + 1000, 0, 0) != -linux_enodev) {
+        fail(test, @"a window that is not there");
+    }
+    if (table->render_window(table->context, handle, token, window, 0, 0) != -linux_einval) {
+        fail(test, @"a token left after a refused window");
+    }
+    table->destroy(table->context, handle);
+    // A window there without a Metal layer (apk-run's have none) drops the frame, without -ENODEV's "gone".
+    const uint64_t plain = apkrt_window_add((__bridge void *)[CALayer layer], 1290, 2796);
+    const uint64_t layerless = apkrt_window_add(NULL, 1290, 2796);
+    handle = first_frame(stream, &token, NULL);
+    if (table->render_window(table->context, handle, token, plain, 0, 0) != -linux_einval) {
+        fail(test, @"a window of a plain CALayer");
+    }
+    if (table->render_window(table->context, handle, token, plain, 0, 0) != -linux_einval) {
+        fail(test, @"a token left after a plain CALayer");
+    }
+    table->destroy(table->context, handle);
+    handle = first_frame(stream, &token, NULL);
+    if (table->render_window(table->context, handle, token, layerless, 0, 0) != -linux_einval) {
+        fail(test, @"a window without a layer");
+    }
+    table->destroy(table->context, handle);
+    apkrt_window_remove(plain);
+    apkrt_window_remove(layerless);
+    // In the background nothing is drawn and the token ends.
+    handle = first_frame(stream, &token, NULL);
+    const uint64_t before = apkrt_window_presents(window);
+    apkrt_set_background(1);
+    answer = table->render_window(table->context, handle, token, window, 0, 0);
+    apkrt_set_background(0);
+    if (answer != -linux_eio || apkrt_window_presents(window) != before) {
+        fail(test, [NSString stringWithFormat:@"a render in the background: %d", answer]);
+    }
+    if (table->render_window(table->context, handle, token, window, 0, 0) != -linux_einval) {
+        fail(test, @"a token left after a render in the background");
+    }
+    table->destroy(table->context, handle);
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    // A render that waits for a drawable (Core Animation's wait of up to a second) is not in flight yet, so that the
+    // provider of "scheduled" answers meanwhile, as window.m's wait for a drawable is not counted either.
+    {
+        NSMutableArray<id<CAMetalDrawable>> *held = [NSMutableArray array];
+        for (int taken = 0; taken < 3; taken++) {
+            id<CAMetalDrawable> drawable = [layer nextDrawable];
+            if (drawable == nil) break;
+            [held addObject:drawable];
+        }
+        handle = first_frame(stream, &token, NULL);
+        __block int waited = 0;
+        const uint64_t waiting = handle, waiting_token = token;
+        dispatch_group_t group = dispatch_group_create();
+        dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            waited = table->render_window(table->context, waiting, waiting_token, window, 0, 0);
+        });
+        usleep(200000);
+        if (minato_video_decoder_scheduled_for_testing(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 100000000) != 1) {
+            fail(test, @"a render waiting for a drawable held the provider of \"scheduled\"");
+        }
+        dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+        (void)waited;
+        [held removeAllObjects];
+        table->destroy(table->context, handle);
+    }
+#endif
+    // A removed window.
+    handle = first_frame(stream, &token, NULL);
+    apkrt_window_remove(window);
+    if (table->render_window(table->context, handle, token, window, 0, 0) != -linux_enodev) {
+        fail(test, @"a removed window");
+    }
+    table->destroy(table->context, handle);
+#ifdef MINATO_VIDEO_DECODER_TESTING
+    if (minato_video_decoder_scheduled_for_testing(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 50000000) != 1) {
+        fail(test, @"window renders still in flight for the scheduled provider");
+    }
+#endif
+    CFRelease(yuv_surface);
+    const struct apkrt_hardware_buffers *hardware = minato_graphics_hardware_buffers();
+    hardware->free(hardware->context, yuv.handle);
+}
+
 static void typesItDoesNotDecodeAreRefused(void) {
     const char *test = "types it does not decode are refused";
     const struct apkrt_video_decoder_description description = {99, 320, 180, NULL, 0, 0};
@@ -896,7 +1138,8 @@ int main(int argc, char **argv) {
         theReorderDepthIsTheActiveSpss(assets, log);
         aNewSessionHandsOutTheOldOnesFramesFirst(assets, log);
         aSurfaceDecoderDrawsIntoAYuvBufferAsAndroidDecodes(assets, log);
-        int cases = 11;
+        aSurfaceDecoderDrawsIntoAWindow(assets);
+        int cases = 12;
 #ifdef MINATO_VIDEO_DECODER_TESTING
         lostUnitsAndAnEndedSessionLeaveTheDecoderWorking(assets, log);
         unitsVideoToolboxHoldsAndTheEndAreTaken(assets, log);

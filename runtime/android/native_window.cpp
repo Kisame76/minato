@@ -48,6 +48,7 @@ struct ANativeWindow {
     int32_t buffer_width, buffer_height, buffer_format;
     int32_t data_space;
     bool locked;  // from ANativeWindow_lock to the end of ANativeWindow_unlockAndPost
+    bool claimed;  // a host window's decoder (minato_ANativeWindow_claim, ADR-0060 e2c3); a queue's is its queue's
     minato_BufferQueue* queue;  // a queue window's, else nullptr
     int32_t locked_slot;        // a queue window's slot from ANativeWindow_lock to its post
     int32_t transform;          // a queue window's ANativeWindow_setBuffersTransform, for its frames
@@ -639,7 +640,14 @@ void minato_ANativeWindow_disconnect(ANativeWindow* window) {
 }
 
 int minato_ANativeWindow_claim(ANativeWindow* window) {
-    if (!is_window(window) || window->queue == nullptr) return -EINVAL;
+    if (!is_window(window)) return -EINVAL;
+    if (window->queue == nullptr) {  // a host window: its own flag, under the lock a CPU lock takes
+        pthread_mutex_lock(&window->lock);
+        const int result = window->claimed || window->locked ? -EBUSY : 0;
+        if (result == 0) window->claimed = true;
+        pthread_mutex_unlock(&window->lock);
+        return result;
+    }
     minato_BufferQueue* queue = window->queue;
     // The window's lock first, as a lock takes them: a lock and a claim never both go ahead.
     pthread_mutex_lock(&window->lock);
@@ -658,14 +666,26 @@ int minato_ANativeWindow_claim(ANativeWindow* window) {
 }
 
 void minato_ANativeWindow_unclaim(ANativeWindow* window) {
-    if (!is_window(window) || window->queue == nullptr) return;
+    if (!is_window(window)) return;
+    if (window->queue == nullptr) {
+        pthread_mutex_lock(&window->lock);
+        window->claimed = false;
+        pthread_mutex_unlock(&window->lock);
+        return;
+    }
     pthread_mutex_lock(&window->queue->lock);
     window->queue->claimed = false;
     pthread_mutex_unlock(&window->queue->lock);
 }
 
 int minato_ANativeWindow_isClaimed(ANativeWindow* window) {
-    if (!is_window(window) || window->queue == nullptr) return 0;
+    if (!is_window(window)) return 0;
+    if (window->queue == nullptr) {
+        pthread_mutex_lock(&window->lock);
+        const bool claimed = window->claimed;
+        pthread_mutex_unlock(&window->lock);
+        return claimed ? 1 : 0;
+    }
     pthread_mutex_lock(&window->queue->lock);
     const bool claimed = window->queue->claimed;
     pthread_mutex_unlock(&window->queue->lock);
@@ -874,6 +894,10 @@ int32_t ANativeWindow_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffe
     if (window->locked) {
         pthread_mutex_unlock(&window->lock);
         return kInvalidOperation;
+    }
+    if (window->claimed) {
+        pthread_mutex_unlock(&window->lock);
+        return -EINVAL;  // a decoder's, as on a queue window [verified: Android 15, media-window-test, -22]
     }
     window->locked = true;
     const bool geometry = window->buffer_width != 0;

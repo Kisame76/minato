@@ -454,7 +454,12 @@ struct apkrt_video_target {
 /// - destroy: last, once no call on the decoder runs;
 /// - render (a surface decoder's): the waiting frame of the token drawn into the target, scaled to its size, after
 ///   which it goes: 0; -EINVAL for a token that does not wait or a target they do not draw into;
-/// - discard: the waiting frame of the token goes undrawn.
+/// - discard: the waiting frame of the token goes undrawn;
+/// - render_window (a surface decoder's, ADR-0060 e2c3): the waiting frame of the token drawn into the host window
+///   `window` (apkrt_window_layer's), scaled by `flags` (APKRT_VIDEO_DECODER_CROP or 0, guest_interface.h) and
+///   presented at `time_ns` of Darwin's CLOCK_UPTIME_RAW, the guest's CLOCK_MONOTONIC (0, or more than a second
+///   ahead: at once, as Android's), after which it goes: 0; -EINVAL as render's or for a window without a Metal
+///   layer, -ENODEV for a window that is not there or was removed.
 /// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A decoder stays with the functions that made
 /// it, so the context must live as long as the process.
 struct apkrt_video_decoders {
@@ -466,6 +471,8 @@ struct apkrt_video_decoders {
     void (*destroy)(void *context, uint64_t handle);
     int (*render)(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target);
     void (*discard)(void *context, uint64_t handle, uint64_t token);
+    int (*render_window)(void *context, uint64_t handle, uint64_t token, uint64_t window, int64_t time_ns,
+                         uint32_t flags);
     void *context;
 };
 

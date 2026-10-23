@@ -3,7 +3,8 @@
    as Android 15's loader does where MoltenVK allows it: every queue supports it; its current extent is the
    window's buffer geometry once set, else the window's size in pixels (ADR-0028), never MoltenVK's drawable
    size; 3 to 4 images, the identity transform, alpha INHERIT; Android's formats, then B8G8R8A8 (first with
-   MINATO_VULKAN_BGRA8_FIRST=1), and FIFO. */
+   MINATO_VULKAN_BGRA8_FIRST=1), and FIFO. A window a decoder draws into (minato_ANativeWindow_claim, ADR-0060 e2c3)
+   gets no surface: VK_ERROR_NATIVE_WINDOW_IN_USE_KHR, as Android 15's. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <pthread.h>
@@ -15,8 +16,9 @@
 MINATO_HOST(vkCreateAndroidSurfaceKHR);
 MINATO_HOST(vkDestroySurfaceKHR);
 
-/* libnativewindow's private function (ADR-0028, decision 7), which its NDK stub lacks: found once. */
+/* libnativewindow's private functions (ADR-0028, decision 7), which its NDK stub lacks: found once. */
 static int (*get_info)(struct ANativeWindow *, struct minato_window_info *);
+static int (*is_claimed)(struct ANativeWindow *);
 static pthread_once_t found = PTHREAD_ONCE_INIT;
 
 static void find_info(void) {
@@ -24,6 +26,7 @@ static void find_info(void) {
     if (library != NULL) {
         get_info = (int (*)(struct ANativeWindow *, struct minato_window_info *))dlsym(library,
                                                                                     "minato_ANativeWindow_getInfo");
+        is_claimed = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_isClaimed");
     }
 }
 
@@ -38,6 +41,10 @@ VkResult vkCreateAndroidSurfaceKHR(VkInstance instance, const VkAndroidSurfaceCr
     struct minato_window_info window;
     if (window_info(info->window, &window) != 0) {
         return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;  /* as Android's answer when it cannot connect to it */
+    }
+    if (is_claimed != NULL && is_claimed(info->window)) {
+        /* a decoder's (ADR-0060 e2c3) [verified: Android 15, media-window-test] */
+        return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
     }
     struct minato_surface *made = calloc(1, sizeof *made);
     if (made == NULL) {
