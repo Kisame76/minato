@@ -1,0 +1,40 @@
+I/sensors-java-test: manager: android.hardware.SystemSensorManager
+I/sensors-java-test: absent type 9999: true, list 0
+I/sensors-java-test: register null sensor: false
+I/sensors-java-test: type 1: stringType android.sensor.accelerometer, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 1: register true
+I/sensors-java-test: type 1: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 1: events after unregister 0
+I/sensors-java-test: type 4: stringType android.sensor.gyroscope, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 4: register true
+I/sensors-java-test: type 4: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 4: events after unregister 0
+I/sensors-java-test: type 2: stringType android.sensor.magnetic_field, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 2: register true
+I/sensors-java-test: type 2: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 2: events after unregister 0
+I/sensors-java-test: type 9: stringType android.sensor.gravity, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 9: register true
+I/sensors-java-test: type 9: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 9: events after unregister 0
+I/sensors-java-test: type 10: stringType android.sensor.linear_acceleration, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 10: register true
+I/sensors-java-test: type 10: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 10: events after unregister 0
+I/sensors-java-test: type 11: stringType android.sensor.rotation_vector, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 11: register true
+I/sensors-java-test: type 11: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 11: events after unregister 0
+I/sensors-java-test: type 15: stringType android.sensor.game_rotation_vector, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 15: register true
+I/sensors-java-test: type 15: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 15: events after unregister 0
+I/sensors-java-test: type 14: stringType android.sensor.magnetic_field_uncalibrated, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 14: register true
+I/sensors-java-test: type 14: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 14: events after unregister 0
+I/sensors-java-test: type 16: stringType android.sensor.gyroscope_uncalibrated, reporting mode 0, wake-up false, dynamic false, fifoMax 0, minDelay>0 true
+I/sensors-java-test: type 16: register true
+I/sensors-java-test: type 16: events true, values true, finite true, timestamps increasing true, timestamps fresh true, same sensor true, main thread true
+I/sensors-java-test: type 16: events after unregister 0
+I/sensors-java-test: done

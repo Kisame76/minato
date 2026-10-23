@@ -319,7 +319,7 @@ def tzdata_module(tzdata, folder):
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
           lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=(), picks=(), photos=(), saves=None, tree=None,
-          export_dir=None):
+          export_dir=None, sensor_script=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -464,6 +464,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
             command += ["--pick-file", pick]
     if export_dir:
         command += ["--export-dir", export_dir]
+    if sensor_script:
+        command += ["--sensor-script", sensor_script]
     if picks:
         # The host's own folder for the records of the write-back, outside everything the app can reach (ADR-0057).
         state = os.path.join(run, "host-state")

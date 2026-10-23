@@ -18,6 +18,7 @@
 #include <mutex>
 
 #include "core_jni_helpers.h"
+#include "minato_message_queue.h"
 
 // The libandroid functions the natives call, with the NDK header's types.
 #define LOOPER_FUNCTIONS(X) \
@@ -84,6 +85,8 @@ public:
     }
 
     void wake() { libandroid().ALooper_wake(mLooper); }
+
+    ALooper *looper() const { return mLooper; }
 
     bool isPolling() const { return mPolling.load(std::memory_order_relaxed); }
 
@@ -194,6 +197,12 @@ const JNINativeMethod gMessageQueueMethods[] = {
 };
 
 }  // namespace
+
+ALooper *android_os_MessageQueue_getALooper(JNIEnv *env, jobject messageQueueObj) {
+    if (messageQueueObj == nullptr) return nullptr;
+    const jlong ptr = env->GetLongField(messageQueueObj, gMessageQueueClassInfo.mPtr);
+    return ptr == 0 ? nullptr : Queue(ptr)->looper();
+}
 
 int register_android_os_MessageQueue(JNIEnv *env) {
     int result = RegisterMethodsOrDie(env, "android/os/MessageQueue", gMessageQueueMethods, NELEM(gMessageQueueMethods));
