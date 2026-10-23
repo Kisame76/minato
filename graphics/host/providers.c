@@ -134,6 +134,14 @@ const char *minato_graphics_moltenvk_path(void) {
     return libs[0].path;
 }
 
+/* A part of minato_graphics_set_providers that failed, said once on stderr: the caller gets only the -1. The runtime
+   keeps four providers of "scheduled", and the background does not wait for the GPU work of one it has no room for
+   (graphics.providers). */
+static int part_failed(const char *what) {
+    fprintf(stderr, "minato graphics: %s\n", what);
+    return -1;
+}
+
 int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     const char *paths[] = {moltenvk, angle, angle};
     for (size_t index = 0; index < sizeof libs / sizeof *libs; index++) {
@@ -157,22 +165,22 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     }
     /* The app asks for "scheduled" at background (ADR-0029, decision 15; ADR-0030, decision 13). */
     if (moltenvk != NULL && moltenvk[0] != '\0' && apkrt_add_scheduled_provider(minato_graphics_vulkan_provider, NULL) != 0) {
-        result = -1;
+        result = part_failed("no room for MoltenVK's provider of \"scheduled\"");
     }
     if (angle != NULL && angle[0] != '\0' && apkrt_add_scheduled_provider(minato_graphics_angle_provider, NULL) != 0) {
-        result = -1;
+        result = part_failed("no room for ANGLE's provider of \"scheduled\"");
     }
     /* Drawing by the CPU (ADR-0043, decision 3), whatever the drivers. */
     if (minato_graphics_set_window_buffers() != 0) {
-        result = -1;
+        result = part_failed("the windows' buffers were not set, or their provider of \"scheduled\" found no room");
     }
     /* The guest's AHardwareBuffers (ADR-0058 a)), whatever the drivers. */
     if (minato_graphics_set_hardware_buffers() != 0) {
-        result = -1;
+        result = part_failed("the hardware buffers were not set");
     }
     /* The guest's video decoders (ADR-0060 e2b3), whatever the drivers. */
     if (minato_graphics_set_video_decoders() != 0) {
-        result = -1;
+        result = part_failed("the video decoders were not set, or their provider of \"scheduled\" found no room");
     }
     return result;
 }

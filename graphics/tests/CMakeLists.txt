@@ -206,6 +206,21 @@ if(TARGET minato_graphics_host)
   set_source_files_properties(hardware_buffers_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.hardware_buffers COMMAND graphics-hardware-buffers-test)
   set_tests_properties(graphics.hardware_buffers PROPERTIES TIMEOUT 60)
+  # ADR-0058 decision 7: graphics/host's import of a hardware buffer into an image (vulkan.m) against a guest that skips
+  # libvulkan's checks, on a fake MoltenVK.
+  add_executable(graphics-vulkan-import-test vulkan_import_test.cpp)
+  target_include_directories(graphics-vulkan-import-test PRIVATE ../host ../vulkan "${APK_GRAPHICS_GEN_DIR}"
+    "${PROJECT_SOURCE_DIR}/runtime/src")
+  target_include_directories(graphics-vulkan-import-test SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
+  target_link_libraries(graphics-vulkan-import-test PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework IOSurface")
+  add_test(NAME graphics.vulkan_import COMMAND graphics-vulkan-import-test)
+  set_tests_properties(graphics.vulkan_import PROPERTIES TIMEOUT 60)
+  # What minato_graphics_set_providers says when the runtime has no room for its providers of "scheduled".
+  add_executable(graphics-providers-test providers_test.c)
+  target_link_libraries(graphics-providers-test PRIVATE minato_graphics_host apkrt apk_defaults)
+  add_test(NAME graphics.providers COMMAND graphics-providers-test)
+  set_tests_properties(graphics.providers PROPERTIES TIMEOUT 60)
   # ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m) on media-codec-test's streams, each frame against
   # Android 15's (fixtures/expected/media-codec-test.logcat).
   add_executable(graphics-video-decoder-test video_decoder_test.m)

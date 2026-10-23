@@ -22,10 +22,18 @@
    - a dedicated allocation of a hardware buffer, which libvulkan names first in vkAllocateMemory's chain
      (host_protocol.h, ADR-0058 decision 7), gives the dedicated image the buffer's IOSurface (vkUseIOSurfaceMVK, which
      replaces the IOSurface of an image that has no memory yet) before MoltenVK allocates the memory; an ID without a
-     buffer of graphics/host's, a buffer of more than one layer, an IOSurface whose size or bytes per texel differ from
-     the image's, or a MoltenVK without the function answer VK_ERROR_INVALID_EXTERNAL_HANDLE; when MoltenVK's
-     allocation fails after it, the image keeps the IOSurface, which a later import replaces. vkUseIOSurfaceMVK is
-     MoltenVK's deprecated API, ADR-0058 decision 7's departure: check it at every update of MoltenVK.
+     buffer of graphics/host's, a buffer of more than one layer, or a MoltenVK without the function answer
+     VK_ERROR_INVALID_EXTERNAL_HANDLE; when MoltenVK's allocation fails after it, the image keeps the IOSurface, which
+     a later import replaces. vkUseIOSurfaceMVK is MoltenVK's deprecated API, ADR-0058 decision 7's departure: check it
+     at every update of MoltenVK;
+   - the image's shape is the guest's, which libvulkan checks (external_memory.c) and a guest may skip: vkCreateImage
+     keeps each image's flags, type, format, extent, levels, layers, samples and tiling until vkDestroyImage or its
+     device's vkDestroyDevice, and an import takes only an image the host made in the one shape a buffer's IOSurface
+     has (2D, depth 1, one sample, level and layer, optimal tiling, not sparse, protected or disjoint, the buffer's
+     size and the format of the specification's equivalence table for its format) that has no buffer's memory yet;
+     any other answers VK_ERROR_INVALID_EXTERNAL_HANDLE before MoltenVK sees the IOSurface, which it would wrap in a
+     texture of another shape (vkUseIOSurfaceMVK checks only the size and the bytes per texel). Android 15's driver
+     takes such an import (the specification's valid usage, which it does not check): the step's departure.
    Manual reference counting: the queues live in plain C structures. */
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurfaceRef.h>
@@ -71,6 +79,8 @@ static PFN_vkDestroyDebugUtilsMessengerEXT destroy_messenger;
 static PFN_vkCreateDebugReportCallbackEXT create_report;
 static PFN_vkDestroyDebugReportCallbackEXT destroy_report;
 static PFN_vkAllocateMemory allocate_memory;
+static PFN_vkCreateImage create_image;
+static PFN_vkDestroyImage destroy_image;
 static PFN_vkGetDeviceQueue2 get_queue;
 /* MoltenVK's vkUseIOSurfaceMVK (mvk_deprecated_api.h), NULL for a library without it. */
 static VkResult (*use_iosurface)(VkImage image, IOSurfaceRef surface);
@@ -562,8 +572,11 @@ void minato_graphics_vulkan_forget_device(VkDevice device) {
     free(gone);
 }
 
+static void images_forget_device(VkDevice device);
+
 static void device_destroyed(VkDevice device, const VkAllocationCallbacks *allocator) {
     minato_graphics_vulkan_forget_device(device);
+    images_forget_device(device);
     destroy_device(device, allocator);
 }
 
@@ -801,18 +814,185 @@ static void report_destroyed(VkInstance instance, VkDebugReportCallbackEXT repor
     callbacks_forget((uint64_t)(uintptr_t)reported);
 }
 
-/* The IOSurface of the hardware buffer `buffer`, retained; NULL for an ID without a buffer of graphics/host's or a
-   buffer of more than one layer. The host's reference is only taken for the lookup: the memory's reference to the
-   buffer is libvulkan's, and the image retains the IOSurface. */
-static IOSurfaceRef buffer_surface(uint64_t buffer) {
+/* An image the host's vkCreateImage made, as the guest asked for it, kept by its handle until vkDestroyImage. */
+struct image {
+    struct image *next;
+    VkDevice device;
+    VkImage handle;
+    VkImageCreateFlags flags;
+    VkImageType type;
+    VkFormat format;
+    VkExtent3D extent;
+    uint32_t levels, layers;
+    VkSampleCountFlagBits samples;
+    VkImageTiling tiling;
+    uint64_t taken; /* the import that has given it a buffer's IOSurface or is giving it one, else 0 */
+};
+enum { image_buckets = 256 };
+static struct image *images[image_buckets];
+static uint64_t imports; /* the last import's number */
+static pthread_mutex_t images_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static struct image **image_bucket(VkImage handle) {
+    const uint64_t key = (uint64_t)(uintptr_t)handle;
+    return &images[(key ^ (key >> 8) ^ (key >> 16)) % image_buckets];
+}
+
+/* The entry of `handle` in its bucket, or the end of the bucket; under images_lock. */
+static struct image **image_entry(VkImage handle) {
+    struct image **entry = image_bucket(handle);
+    while (*entry != NULL && (*entry)->handle != handle) {
+        entry = &(*entry)->next;
+    }
+    return entry;
+}
+
+/* Keeps the shape of a new image of `device`; 0, or -1 without memory. */
+static int image_keep(VkDevice device, VkImage handle, const VkImageCreateInfo *info) {
+    struct image *kept = calloc(1, sizeof *kept);
+    if (kept == NULL) {
+        return -1;
+    }
+    *kept = (struct image){.device = device,
+                           .handle = handle,
+                           .flags = info->flags,
+                           .type = info->imageType,
+                           .format = info->format,
+                           .extent = info->extent,
+                           .levels = info->mipLevels,
+                           .layers = info->arrayLayers,
+                           .samples = info->samples,
+                           .tiling = info->tiling};
+    pthread_mutex_lock(&images_lock);
+    struct image **entry = image_entry(handle);
+    if (*entry != NULL) { /* MoltenVK's handle again, of an image destroyed past the host */
+        kept->next = (*entry)->next;
+        free(*entry);
+    }
+    *entry = kept;
+    pthread_mutex_unlock(&images_lock);
+    return 0;
+}
+
+static void image_forget(VkImage handle) {
+    pthread_mutex_lock(&images_lock);
+    struct image **entry = image_entry(handle);
+    struct image *gone = *entry;
+    if (gone != NULL) {
+        *entry = gone->next;
+    }
+    pthread_mutex_unlock(&images_lock);
+    free(gone);
+}
+
+/* The images of a destroyed device, which the app may not have destroyed: their handles may come again. */
+static void images_forget_device(VkDevice device) {
+    struct image *gone = NULL;
+    pthread_mutex_lock(&images_lock);
+    for (size_t bucket = 0; bucket < image_buckets; bucket++) {
+        for (struct image **entry = &images[bucket]; *entry != NULL;) {
+            struct image *kept = *entry;
+            if (kept->device == device) {
+                *entry = kept->next;
+                kept->next = gone;
+                gone = kept;
+            } else {
+                entry = &kept->next;
+            }
+        }
+    }
+    pthread_mutex_unlock(&images_lock);
+    while (gone != NULL) {
+        struct image *next = gone->next;
+        free(gone);
+        gone = next;
+    }
+}
+
+/* The VkFormat of a buffer format in the specification's equivalence table, as libvulkan maps it
+   (graphics/vulkan/external_memory.c); VK_FORMAT_UNDEFINED for any other, which no image imports. */
+static VkFormat buffer_vk_format(uint32_t format) {
+    switch (format) {
+        case 1: /* AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM */
+        case 2: /* R8G8B8X8_UNORM, whose alpha is in memory */
+            return VK_FORMAT_R8G8B8A8_UNORM;
+        case 4: /* R5G6B5_UNORM */
+            return VK_FORMAT_R5G6B5_UNORM_PACK16;
+        case 0x16: /* R16G16B16A16_FLOAT */
+            return VK_FORMAT_R16G16B16A16_SFLOAT;
+        case 0x2b: /* R10G10B10A2_UNORM */
+            return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+        default:
+            return VK_FORMAT_UNDEFINED;
+    }
+}
+
+/* What no IOSurface's texture is. */
+static const VkImageCreateFlags flags_refused = VK_IMAGE_CREATE_SPARSE_BINDING_BIT |
+                                                VK_IMAGE_CREATE_SPARSE_RESIDENCY_BIT |
+                                                VK_IMAGE_CREATE_SPARSE_ALIASED_BIT | VK_IMAGE_CREATE_PROTECTED_BIT |
+                                                VK_IMAGE_CREATE_DISJOINT_BIT;
+
+/* Takes image `handle` for an import of a buffer of `description`: the import's number when the host made it in the
+   buffer's shape and no import took it yet, else 0. image_release with that number gives it back after an import
+   that failed, unless the image is gone by then. */
+static uint64_t image_take(VkImage handle, const struct apkrt_hardware_buffer_description *description) {
+    const VkFormat format = buffer_vk_format(description->format);
+    pthread_mutex_lock(&images_lock);
+    struct image *kept = *image_entry(handle);
+    const int fits = kept != NULL && kept->taken == 0 && (kept->flags & flags_refused) == 0 &&
+                     kept->type == VK_IMAGE_TYPE_2D && kept->extent.depth == 1 &&
+                     kept->samples == VK_SAMPLE_COUNT_1_BIT && kept->tiling == VK_IMAGE_TILING_OPTIMAL &&
+                     kept->levels == 1 && kept->layers == 1 && description->layers == 1 &&
+                     format != VK_FORMAT_UNDEFINED && kept->format == format &&
+                     kept->extent.width == description->width && kept->extent.height == description->height;
+    const uint64_t taken = fits ? (kept->taken = ++imports) : 0;
+    pthread_mutex_unlock(&images_lock);
+    return taken;
+}
+
+static void image_release(VkImage handle, uint64_t taken) {
+    pthread_mutex_lock(&images_lock);
+    struct image *kept = *image_entry(handle);
+    if (kept != NULL && kept->taken == taken) {
+        kept->taken = 0;
+    }
+    pthread_mutex_unlock(&images_lock);
+}
+
+static VkResult image_created(VkDevice device, const VkImageCreateInfo *info, const VkAllocationCallbacks *allocator,
+                              VkImage *image) {
+    const VkResult result = create_image(device, info, allocator, image);
+    if (result != VK_SUCCESS) {
+        return result;
+    }
+    if (image_keep(device, *image, info) != 0) {
+        destroy_image(device, *image, allocator);
+        *image = VK_NULL_HANDLE;
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+    return VK_SUCCESS;
+}
+
+/* The shape goes before MoltenVK lets the handle go, which a new image may get again. */
+static void image_destroyed(VkDevice device, VkImage image, const VkAllocationCallbacks *allocator) {
+    if (image != VK_NULL_HANDLE) {
+        image_forget(image);
+    }
+    destroy_image(device, image, allocator);
+}
+
+/* The IOSurface of the hardware buffer `buffer`, retained, with the buffer's description; NULL for an ID without a
+   buffer of graphics/host's. The host's reference is only taken for the lookup: the memory's reference to the buffer
+   is libvulkan's, and the image retains the IOSurface. */
+static IOSurfaceRef buffer_surface(uint64_t buffer, struct apkrt_hardware_buffer_description *description) {
     uint64_t handle = 0;
     void *context = NULL;
-    struct apkrt_hardware_buffer_description description;
     uint32_t stride = 0;
-    if (buffer == 0 || apkrt_hardware_buffer_acquire_handle(buffer, &handle, &context, &description, &stride) != 0) {
+    if (buffer == 0 || apkrt_hardware_buffer_acquire_handle(buffer, &handle, &context, description, &stride) != 0) {
         return NULL;
     }
-    IOSurfaceRef surface = context == minato_graphics_hardware_buffers()->context && description.layers == 1
+    IOSurfaceRef surface = context == minato_graphics_hardware_buffers()->context
                                ? (IOSurfaceRef)minato_graphics_hardware_buffer_surface(handle)
                                : NULL;
     apkrt_hardware_buffer_release_handle(buffer);
@@ -833,14 +1013,27 @@ static VkResult memory_allocated(VkDevice device, const VkMemoryAllocateInfo *in
             dedicated = (const VkMemoryDedicatedAllocateInfo *)next;
         }
     }
-    IOSurfaceRef surface = NULL;
-    if (dedicated == NULL || dedicated->image == VK_NULL_HANDLE || use_iosurface == NULL ||
-        (surface = buffer_surface(named->buffer)) == NULL) {
+    if (dedicated == NULL || dedicated->image == VK_NULL_HANDLE || use_iosurface == NULL) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+    struct apkrt_hardware_buffer_description description;
+    IOSurfaceRef surface = buffer_surface(named->buffer, &description);
+    if (surface == NULL) {
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+    const uint64_t taken = image_take(dedicated->image, &description);
+    if (taken == 0) {
+        CFRelease(surface);
         return VK_ERROR_INVALID_EXTERNAL_HANDLE;
     }
     const VkResult used = use_iosurface(dedicated->image, surface);
     CFRelease(surface);
-    return used == VK_SUCCESS ? allocate_memory(device, &theirs, allocator, memory) : VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    const VkResult result =
+        used == VK_SUCCESS ? allocate_memory(device, &theirs, allocator, memory) : VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    if (result != VK_SUCCESS) {
+        image_release(dedicated->image, taken);
+    }
+    return result;
 }
 
 void minato_graphics_vulkan_wrap(void **table, void *library) {
@@ -864,6 +1057,8 @@ void minato_graphics_vulkan_wrap(void **table, void *library) {
     WRAP(vkCreateDebugReportCallbackEXT, create_report, report_created)
     WRAP(vkDestroyDebugReportCallbackEXT, destroy_report, report_destroyed)
     WRAP(vkAllocateMemory, allocate_memory, memory_allocated)
+    WRAP(vkCreateImage, create_image, image_created)
+    WRAP(vkDestroyImage, destroy_image, image_destroyed)
 #undef WRAP
     use_iosurface = (VkResult(*)(VkImage, IOSurfaceRef))dlsym(library, "vkUseIOSurfaceMVK");
     table[MINATO_VULKAN_SLOT_vkCreateAndroidSurfaceKHR] = (void *)surface_created;
