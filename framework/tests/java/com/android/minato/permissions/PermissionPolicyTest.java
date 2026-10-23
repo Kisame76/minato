@@ -104,6 +104,45 @@ public final class PermissionPolicyTest {
         check(grant("android.permission.CAMERA", DANGEROUS, 23) == Grant.DENIED_FIXED, "dangerous at 23");
     }
 
+    // ADR-0063 decision 2: the location group is the host's to decide (the first ASK_HOST).
+
+    public void testLocationAsksTheHost() {
+        for (String permission : new String[] {"android.permission.ACCESS_FINE_LOCATION",
+                "android.permission.ACCESS_COARSE_LOCATION"}) {
+            for (int targetSdk : new int[] {23, 30, 35}) {
+                Decision decision = PermissionPolicy.decide(permission, DANGEROUS, targetSdk, true, false);
+                check(decision.grant == Grant.ASK_HOST, permission + " at " + targetSdk);
+                check(decision.reason.isEmpty() && decision.departure.isEmpty(), permission + " logs nothing");
+            }
+            check(grant(permission, DANGEROUS, 22) == Grant.GRANTED, permission + " below 23 is Android's old model");
+            check(PermissionPolicy.decide(permission, DANGEROUS, 35, false, false).grant == Grant.DENIED_FIXED,
+                    permission + " not requested");
+        }
+    }
+
+    public void testBackgroundLocationAndOtherGroupsStayDenied() {
+        check(grant("android.permission.ACCESS_BACKGROUND_LOCATION", DANGEROUS, 35) == Grant.DENIED_FIXED,
+                "background location is not offered (ADR-0063 decision 2)");
+        check(grant("android.permission.RECORD_AUDIO", DANGEROUS, 35) == Grant.DENIED_FIXED, "RECORD_AUDIO waits for ADR-0064");
+        check(grant("android.permission.CAMERA", DANGEROUS, 35) == Grant.DENIED_FIXED, "CAMERA");
+    }
+
+    public void testASplitLocationPermissionAsksTheHostToo() {
+        // Android 9 and below ask for ACCESS_COARSE_LOCATION with ACCESS_FINE_LOCATION.
+        PermissionPolicy.App app = app(28, List.of(P + "ACCESS_FINE_LOCATION"),
+                List.of(P + "ACCESS_COARSE_LOCATION"));
+        check(PermissionPolicy.decide(app, P + "ACCESS_FINE_LOCATION").grant == Grant.ASK_HOST, "fine");
+        check(PermissionPolicy.decide(app, P + "ACCESS_COARSE_LOCATION").grant == Grant.ASK_HOST, "coarse");
+    }
+
+    public void testHostGroups() {
+        check(PermissionPolicy.hostGroup(P + "ACCESS_FINE_LOCATION") == PermissionPolicy.GROUP_LOCATION, "fine");
+        check(PermissionPolicy.hostGroup(P + "ACCESS_COARSE_LOCATION") == PermissionPolicy.GROUP_LOCATION, "coarse");
+        check(PermissionPolicy.hostGroup(P + "ACCESS_BACKGROUND_LOCATION") == 0, "background");
+        check(PermissionPolicy.hostGroup(P + "CAMERA") == 0, "camera");
+        check(PermissionPolicy.hostGroup(null) == 0, "null");
+    }
+
     // 5. Normal, storage and dangerous from targetSdk 23.
 
     public void testNormalIsGranted() {
@@ -122,7 +161,7 @@ public final class PermissionPolicyTest {
     }
 
     public void testOtherDangerousAreDenied() {
-        String[] dangerous = {"android.permission.RECORD_AUDIO", "android.permission.ACCESS_FINE_LOCATION",
+        String[] dangerous = {"android.permission.RECORD_AUDIO", "android.permission.ACCESS_BACKGROUND_LOCATION",
                 "android.permission.CAMERA", "android.permission.READ_CONTACTS",
                 "android.permission.READ_MEDIA_IMAGES"};
         for (String permission : dangerous) {
@@ -206,10 +245,9 @@ public final class PermissionPolicyTest {
     }
 
     public void testFromADeniedSourceStaysDenied() {
-        PermissionPolicy.App app = app(28, List.of(P + "ACCESS_FINE_LOCATION"),
-                List.of(P + "ACCESS_COARSE_LOCATION", P + "ACCESS_BACKGROUND_LOCATION"));
-        for (String location : new String[] {"ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION",
-                "ACCESS_BACKGROUND_LOCATION"}) {
+        PermissionPolicy.App app = app(28, List.of(P + "CAMERA"),
+                List.of(P + "RECORD_AUDIO", P + "ACCESS_BACKGROUND_LOCATION"));
+        for (String location : new String[] {"CAMERA", "RECORD_AUDIO", "ACCESS_BACKGROUND_LOCATION"}) {
             Decision decision = PermissionPolicy.decide(app, P + location);
             check(decision.grant == Grant.DENIED_FIXED, location);
             check(!decision.reason.isEmpty() && decision.departure.isEmpty(), location + ": " + decision.reason);

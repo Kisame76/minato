@@ -60,6 +60,7 @@ import android.util.SparseArray;
 import android.util.TypedValue;
 import android.util.Xml;
 import com.android.internal.R;
+import com.android.minato.permissions.PermissionAnswers;
 import com.android.minato.permissions.PermissionPolicy;
 import com.android.minato.pm.SignersFile;
 import com.android.minato.pm.SystemFeatures;
@@ -167,6 +168,8 @@ final class ManifestPackage {
     private static boolean sX509Logged;
     /** Denials already logged, each once. */
     private final Set<String> mLoggedDenials = new HashSet<>();
+    /** What the host answered for the groups it decides (ADR-0063 decision 2). */
+    private final PermissionAnswers mAnswers = new PermissionAnswers();
     /** Whether a departure from Android's grants was logged, once per app. */
     private boolean mDepartureLogged;
     private PermissionPolicy.App mPolicyApp;
@@ -2269,6 +2272,9 @@ final class ManifestPackage {
      */
     boolean granted(String permission) {
         PermissionPolicy.Decision decision = PermissionPolicy.decide(policyApp(), permission);
+        if (decision.grant == PermissionPolicy.Grant.ASK_HOST) {
+            return mAnswers.granted(permission);
+        }
         synchronized (mLoggedDenials) {
             if (decision.grant == PermissionPolicy.Grant.GRANTED) {
                 if (!decision.departure.isEmpty() && !mDepartureLogged) {
@@ -2283,6 +2289,11 @@ final class ManifestPackage {
             }
         }
         return false;
+    }
+
+    /** What the host answered for the permission groups it decides, for the requests and checks of ADR-0063. */
+    PermissionAnswers answers() {
+        return mAnswers;
     }
 
     /** The app as PermissionPolicy sees it, made on first use, since it reads the platform's permissions. */

@@ -18,7 +18,8 @@ import java.util.function.ToIntFunction;
  *       and POST_NOTIFICATIONS, whose prompt Android does not start with the answer fixed;</li>
  *   <li>below targetSdk 23, Android's old model grants what the app requests;</li>
  *   <li>normal permissions are granted; storage up to targetSdk 32, since /storage/emulated/0 belongs to the app
- *       alone in Minato; every other dangerous one is denied.</li>
+ *       alone in Minato; the location group is the host's to decide ({@link Grant#ASK_HOST}, ADR-0063 decision 2);
+ *       every other dangerous one is denied.</li>
  * </ol>
  * A runtime permission that a split added is granted when a permission it was split from is granted
  * ({@link #decide(App, String)}). Every denial is "denied, don't ask again", and
@@ -36,7 +37,15 @@ public final class PermissionPolicy {
     /** A permission no package declares. */
     public static final int UNKNOWN = -1;
 
-    public enum Grant { GRANTED, DENIED_FIXED }
+    /** The groups the host decides; the value of APKRT_REQUEST_PERMISSION's group field (ADR-0063 decision 2). */
+    public static final int GROUP_LOCATION = 1;
+    public static final int GROUP_MICROPHONE = 2;
+
+    /**
+     * GRANTED and DENIED_FIXED are final. ASK_HOST is a dangerous permission of a group the host decides: the answer
+     * is what the host last said for the group ({@link PermissionAnswers}), denied before the first.
+     */
+    public enum Grant { GRANTED, DENIED_FIXED, ASK_HOST }
 
     public static final class Decision {
         public final Grant grant;
@@ -90,7 +99,12 @@ public final class PermissionPolicy {
     /** The last targetSdk whose storage permissions Minato grants (Android 13 replaced them). */
     private static final int LAST_STORAGE_SDK = 32;
 
+    private static final String ACCESS_FINE_LOCATION = "android.permission.ACCESS_FINE_LOCATION";
+    private static final String ACCESS_COARSE_LOCATION = "android.permission.ACCESS_COARSE_LOCATION";
+    private static final String ACCESS_BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION";
+
     private static final Decision GRANTED = new Decision(Grant.GRANTED, "", "");
+    private static final Decision ASK_HOST = new Decision(Grant.ASK_HOST, "", "");
 
     private PermissionPolicy() {
     }
@@ -130,7 +144,19 @@ public final class PermissionPolicy {
         if (STORAGE.contains(permission)) {
             return targetSdk <= LAST_STORAGE_SDK ? GRANTED : denied("storage from targetSdk 33 on, as Android 15");
         }
+        if (hostGroup(permission) != 0) {
+            return ASK_HOST;
+        }
+        if (permission.equals(ACCESS_BACKGROUND_LOCATION)) {
+            return denied("background location is not offered (ADR-0063 decision 2)");
+        }
         return denied("a dangerous permission, which nothing in M4 backs");
+    }
+
+    /** The host's group (GROUP_LOCATION ...) that decides the permission, or 0 for a permission the host does not. */
+    public static int hostGroup(String permission) {
+        return ACCESS_FINE_LOCATION.equals(permission) || ACCESS_COARSE_LOCATION.equals(permission)
+                ? GROUP_LOCATION : 0;
     }
 
     /**
@@ -154,7 +180,7 @@ public final class PermissionPolicy {
         int level = app.levels.applyAsInt(permission);
         Decision own = decide(permission, level, app.targetSdk, app.requested.contains(permission),
                 app.declared.contains(permission));
-        if (own.grant == Grant.GRANTED || !app.implicit.contains(permission)
+        if (own.grant != Grant.DENIED_FIXED || !app.implicit.contains(permission)
                 || (level & PROTECTION_MASK_BASE) != PROTECTION_DANGEROUS || !deciding.add(permission)) {
             return own;
         }
@@ -178,7 +204,7 @@ public final class PermissionPolicy {
         }
     }
 
-    /** Every denial is fixed, so Android would show no rationale either. */
+    /** Every denial of a permission the host does not decide is fixed, so Android would show no rationale either. */
     public static boolean shouldShowRequestPermissionRationale(String permission) {
         return false;
     }

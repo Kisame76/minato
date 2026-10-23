@@ -800,6 +800,12 @@ class ApplicationPackageManager {
                 ? PERMISSION_GRANTED : PERMISSION_DENIED;
     }
 
+    /** Android's rationale: true after one denial of a permission the host decides, else false (ADR-0063 decision 2). */
+    public boolean shouldShowRequestPermissionRationale(String permName) {
+        ManifestPackage pkg = mThread.getManifestPackage();
+        return pkg != null && pkg.answers().shouldShowRationale(permName);
+    }
+
     // Signatures (b3.5b1), from the import's signers.json: the app's own; any other package is unknown.
 
     public int checkSignatures(String packageName1, String packageName2) {
