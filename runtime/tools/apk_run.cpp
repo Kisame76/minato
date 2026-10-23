@@ -245,9 +245,28 @@ pick_host::Config pick_config;
 std::string export_directory;
 std::atomic<int> exports_running{0};
 
+std::int64_t now_ms();
+void on_clone_written(void *context, const char *);
+
 pick_host::Host &pick_host_of_run() {
     static pick_host::Host host(pick_config);
+    static const bool wired = [] {
+        host.on_clone = [](const std::string &clone) {
+            // The clone is in the folder the guest sees as Download; the watch lives as long as the process.
+            auto *name = new std::string(clone);
+            const std::string guest_path = "/storage/emulated/0/Download/" + clone;
+            const int id = apkrt_watch_writes(guest_path.c_str(), on_clone_written, name);
+            if (id < 0) delete name;  // -EEXIST: the earlier watch on this very file serves
+        };
+        return true;
+    }();
+    static_cast<void>(wired);
     return host;
+}
+
+/// The runtime tells that the guest has finished writing a clone: the host's record hears the close.
+void on_clone_written(void *context, const char *) {
+    pick_host_of_run().write_back().closed(*static_cast<std::string *>(context), now_ms());
 }
 
 std::int64_t now_ms() {
@@ -266,8 +285,9 @@ void write_back_at_end() {
     pick_host_of_run().write_back().end_session(now_ms());
 }
 
-/// Until the runtime tells the host that the guest closed a file it wrote (a pending request to Runtime), a thread looks
-/// at the clones every 100 ms, as the host's flush points do: a clone that changed is written back a second later.
+/// The runtime reports the last close of a clone the app wrote (apkrt_watch_writes); a thread also looks at the clones
+/// every 100 ms for what no close reports (a write through a mapping, a rename over the clone), as the host's flush
+/// points do, and writes back what is due.
 void watch_clones() {
     if (pick_config.files.empty() || pick_config.download.empty()) return;
     // Records of an earlier run over the same folders (--pick-state): what was not written back then is now.

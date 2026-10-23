@@ -68,6 +68,31 @@ int apkrt_mount_live(const char *guest_path, const char *host_dir);
 /// the user revokes the grant (a mount also ends when the process ends). Returns 0, or -EINVAL for an unknown id.
 int apkrt_unmount(int id);
 
+/// Called when the guest has finished writing a watched file (apkrt_watch_writes): `guest_path` is the path the file
+/// was watched by.
+typedef void (*apkrt_write_close_fn)(void *context, const char *guest_path);
+
+/// Asks to be told when the guest has finished writing the regular file at the absolute guest path `guest_path`
+/// (ADR-0057: the host writes an edited document back to the user's file). The watch is on the file itself, found
+/// once now (its device, inode and birth time), so a rename does not move it and a new file under the name is not
+/// watched. Each open of it for writing (write-only, read-write or with truncation) is a writer; `fn` runs once when
+/// the last writer is gone, that is when the last guest number of the last description that wrote closes. It runs
+/// on the guest thread that closed it, with no lock of the watch held (it may call apkrt_unwatch_writes), but the
+/// runtime may hold a lock of its own file or socket layer (a descriptor that was sent over a socket and never
+/// received goes at a sweep of that layer): it must be quick and must only record the event, never call into the
+/// guest's file or socket API; an exception out of it is dropped. Not seen: a write through a mapping, a truncate by
+/// path, a file saved by writing another and renaming it over the name, a writer that was open before the watch
+/// began, and the end of the process; the host compares the file at its own flush points and at its end. At most
+/// 1024 watches. Returns a watch id > 0, or a negative errno: -EINVAL (not absolute, no fn, too long, not a regular
+/// file), -ENOENT (no mount covers it, or it is not there), -ELOOP (a link), -EEXIST (watched already), -EMFILE
+/// (1024 watches).
+int apkrt_watch_writes(const char *guest_path, apkrt_write_close_fn fn, void *context);
+
+/// Ends the watch `id`; 0, or -EINVAL for an id that is not one. A callback of the watch that runs on another thread
+/// is waited for, so that the host may free `context` when this returns; called from inside the callback it does not
+/// wait.
+int apkrt_unwatch_writes(int id);
+
 // MARK: - Programs (ADR-0019, ADR-0021)
 
 /// The signed library containers in the host directory `host_path` (<file name>.dylib, as

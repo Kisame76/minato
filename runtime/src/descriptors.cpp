@@ -1,6 +1,7 @@
 // The guest's descriptor table (ADR-0027, descriptors.h). Numbers index a vector of entries under one
 // lock; a description's host descriptor is closed outside the lock, when its last handle goes.
 #include "descriptors.h"
+#include "watches.h"
 
 #include <fcntl.h>
 #include <limits.h>
@@ -101,6 +102,7 @@ void raise_host_limit() {
 Description::~Description() {
     if (stream != nullptr) ::closedir(stream);
     ::close(host_);
+    if (const int watch = write_watch_.load(std::memory_order_relaxed)) watches::writer_closed(watch);
 }
 
 Handle get(int fd) {
@@ -118,14 +120,15 @@ int capacity() {
     return static_cast<int>(128 * std::bit_ceil((size - 1) / 128 + 1));
 }
 
-long add(int host, bool close_on_exec, bool nonblocking) {
+long add(int host, bool close_on_exec, bool nonblocking, int write_watch) {
     ::fcntl(host, F_SETFD, FD_CLOEXEC);
     // The guest's calls on a descriptor that can block wait in the runtime, never in the host call.
     const auto traits = traits_of(host);
     if (traits.can_block) ::fcntl(host, F_SETFL, ::fcntl(host, F_GETFL) | O_NONBLOCK);
-    return add(std::make_shared<Description>(host, traits.can_block, false, nonblocking, Description::Kind::file,
-                                             traits.pipe_end),
-               close_on_exec);
+    auto description = std::make_shared<Description>(host, traits.can_block, false, nonblocking,
+                                                      Description::Kind::file, traits.pipe_end);
+    description->set_write_watch(write_watch);  // before the number is published: no thread can close it first
+    return add(std::move(description), close_on_exec);
 }
 
 long add(Handle description, bool close_on_exec) {

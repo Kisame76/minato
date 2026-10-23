@@ -8,6 +8,7 @@
 #include "sockets.h"
 #include "syscalls.h"
 #include "vfs.h"
+#include "watches.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -757,7 +758,14 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
     const int fd = ::openat(host.directory, host.path.c_str(),
                             host_flags | O_CLOEXEC | beneath(host, O_RESOLVE_BENEATH), mode & 07777);
     if (fd < 0) return -to_linux_errno(errno);
-    return descriptors::add(fd, (flags & linux_open::cloexec) != 0, (flags & linux_open::nonblock) != 0);
+    // A file the host watches (apkrt_watch_writes) counts this open as a writer; its description tells when it goes.
+    int writer = 0;
+    struct stat identity {};
+    if (((flags & linux_open::access_mode) != O_RDONLY || (flags & linux_open::truncate) != 0) &&
+        !(flags & linux_open::path) && ::fstat(fd, &identity) == 0 && S_ISREG(identity.st_mode)) {
+        writer = watches::writer_opened(identity);
+    }
+    return descriptors::add(fd, (flags & linux_open::cloexec) != 0, (flags & linux_open::nonblock) != 0, writer);
 }
 
 long sys_close(int fd) {

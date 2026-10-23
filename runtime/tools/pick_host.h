@@ -712,6 +712,10 @@ public:
     /// The records of the clones made from the user's files (kinds 1 and 2).
     WriteBack &write_back() { return write_back_; }
 
+    /// Called with the name of each clone this host makes from a user's file (not for one picked again): the place to
+    /// ask the runtime to watch it (apkrt_watch_writes), so that write_back().closed() hears the app's last close.
+    std::function<void(const std::string &clone)> on_clone;
+
     /// ACTION_OPEN_DOCUMENT or GET_CONTENT: the first file, or all of them when `several`, cloned into Download.
     bool documents(std::uint64_t id, bool several, std::uint64_t &count) {
         const Dir download = open_base(config_.download);
@@ -780,6 +784,7 @@ private:
                     write_back_.track(name, std::make_unique<PathOriginal>(file), version_of(content, source),
                                       version_of(content, made));
                 }
+                if (!photo && on_clone) on_clone(name);
             }
             manifest += (photo ? photo_line(file, name) : name) + "\n";
             ++count;

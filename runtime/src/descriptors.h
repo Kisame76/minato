@@ -65,8 +65,13 @@ public:
     /// of /proc/self/fd show. Set before the description goes into the table; empty for all others.
     std::string written_path;
 
+    /// The watch (watches.h) of the file this description writes: set when the guest opened a watched file for
+    /// writing, and the destructor, when the last guest number is closed, tells the watch that this writer is gone.
+    void set_write_watch(int id) { write_watch_.store(id, std::memory_order_relaxed); }
+
 private:
     std::atomic<bool> nonblocking_;
+    std::atomic<int> write_watch_{0};
     const int host_;
     const bool can_block_;
     const bool adopted_;
@@ -100,9 +105,10 @@ int capacity();
 
 /// Takes `host`, a host descriptor the runtime has just opened for the guest, into the table at the
 /// lowest free number and returns that number; `host` gets FD_CLOEXEC on the host, and O_NONBLOCK when
-/// it can block. `nonblocking` is the guest's O_NONBLOCK. When the table is full, `host` is closed and
-/// the result is -EMFILE.
-long add(int host, bool close_on_exec, bool nonblocking = false);
+/// it can block. `nonblocking` is the guest's O_NONBLOCK. `write_watch` is the id of the watch (watches.h)
+/// that counted this open as a writer: the description tells it when it goes, whether it ever gets a number
+/// or not. When the table is full, `host` is closed and the result is -EMFILE.
+long add(int host, bool close_on_exec, bool nonblocking = false, int write_watch = 0);
 
 /// Takes `description`, which the runtime has just made for the guest, into the table at the lowest
 /// free number and returns that number; -EMFILE when the table is full, and it goes.

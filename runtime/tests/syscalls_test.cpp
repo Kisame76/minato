@@ -8,7 +8,9 @@
 #include "syscall_frame.h"
 #include "syscalls.h"
 #include "vfs.h"
+#include "watches.h"
 
+#include "APKRuntime/apkrt.h"
 #include "check.h"
 
 #include <dirent.h>
@@ -39,6 +41,8 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <cerrno>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -728,6 +732,7 @@ struct Scratch {
         char resolved[PATH_MAX];
         host = ::realpath(::mkdtemp(pattern), resolved);
         apkrt::vfs::reset();
+        apkrt::watches::reset();
         apkrt::vfs::mount("/data/local/tmp", host);
         apkrt::vfs::set_working_directory("/data/local/tmp");
     }
@@ -4738,6 +4743,198 @@ TEST(ifreq_ioctls_fault_for_memory_the_guest_does_not_have) {
         CHECK(call(nr_ioctl, {unsigned_of(fd), siocgifconf, address(&conf)}) == 0 && conf.length == 0);
         call(nr_close, {unsigned_of(fd)});
     }));
+}
+
+// ---- apkrt_watch_writes (ADR-0057, write-back): the host hears when the guest has finished writing a file ----------
+
+struct WriteCloses {
+    std::mutex lock;
+    std::vector<std::string> paths;
+    int count() {
+        const std::lock_guard<std::mutex> hold(lock);
+        return static_cast<int>(paths.size());
+    }
+};
+
+void on_write_close(void *context, const char *path) {
+    auto *closes = static_cast<WriteCloses *>(context);
+    const std::lock_guard<std::mutex> hold(closes->lock);
+    closes->paths.push_back(path);
+}
+
+TEST(a_watched_file_reports_the_close_of_its_last_writing_descriptor_once) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    const int id = apkrt_watch_writes("/data/local/tmp/f", on_write_close, &closes);
+    CHECK(id > 0);
+    const auto first = open_guest(at_fdcwd, "/data/local/tmp/f", 01);                 // O_WRONLY
+    const auto second = open_guest(at_fdcwd, "/data/local/tmp/f", 02);                // O_RDWR
+    const auto copy = call(nr_dup, {unsigned_of(first)});
+    const auto reader = open_guest(at_fdcwd, "/data/local/tmp/f", 0);
+    CHECK(first >= 0 && second >= 0 && copy >= 0 && reader >= 0);
+    call(nr_close, {unsigned_of(reader)});
+    call(nr_close, {unsigned_of(first)});                                              // the copy keeps the description
+    call(nr_close, {unsigned_of(copy)});                                               // the O_RDWR one still writes
+    CHECK(closes.count() == 0);
+    call(nr_close, {unsigned_of(second)});
+    CHECK(closes.count() == 1 && closes.paths[0] == "/data/local/tmp/f");
+    const auto again = open_guest(at_fdcwd, "/data/local/tmp/f", 01 | 01000);        // O_WRONLY | O_TRUNC
+    call(nr_close, {unsigned_of(again)});
+    CHECK(closes.count() == 2);                                                        // every finish is reported
+    const auto only_read = open_guest(at_fdcwd, "/data/local/tmp/f", 0);
+    call(nr_close, {unsigned_of(only_read)});
+    CHECK(closes.count() == 2);
+    CHECK(apkrt_unwatch_writes(id) == 0);
+    const auto after = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    call(nr_close, {unsigned_of(after)});
+    CHECK(closes.count() == 2);                                                        // unwatched: nothing more
+    CHECK(apkrt_unwatch_writes(id) == -EINVAL);
+}
+
+TEST(a_watch_follows_the_file_not_its_name) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    CHECK(apkrt_watch_writes("/data/local/tmp/f", on_write_close, &closes) > 0);
+    CHECK(::rename((scratch.host + "/f").c_str(), (scratch.host + "/moved").c_str()) == 0);
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));         // another file under the old name
+    const auto other = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    call(nr_close, {unsigned_of(other)});
+    CHECK(closes.count() == 0);
+    const auto moved = open_guest(at_fdcwd, "/data/local/tmp/moved", 01);
+    call(nr_close, {unsigned_of(moved)});
+    CHECK(closes.count() == 1 && closes.paths[0] == "/data/local/tmp/f");             // the name it was watched by
+    // A write-close of the file after the guest unlinked it (its descriptor stayed open) is still its own.
+    const auto held = open_guest(at_fdcwd, "/data/local/tmp/moved", 01);
+    ::unlink((scratch.host + "/moved").c_str());
+    call(nr_close, {unsigned_of(held)});
+    CHECK(closes.count() == 2);
+}
+
+TEST(a_watch_is_refused_for_what_is_not_a_regular_file_below_a_mount) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    ::mkdir((scratch.host + "/dir").c_str(), 0700);
+    ::symlink((scratch.host + "/f").c_str(), (scratch.host + "/link").c_str());
+    WriteCloses closes;
+    CHECK(apkrt_watch_writes("/data/local/tmp/missing", on_write_close, &closes) == -ENOENT);
+    CHECK(apkrt_watch_writes("/data/local/tmp/link", on_write_close, &closes) == -ELOOP);
+    CHECK(apkrt_watch_writes("/data/local/tmp/dir", on_write_close, &closes) == -EINVAL);
+    CHECK(apkrt_watch_writes("data/local/tmp/f", on_write_close, &closes) == -EINVAL);
+    CHECK(apkrt_watch_writes(nullptr, on_write_close, &closes) == -EINVAL);
+    CHECK(apkrt_watch_writes("/data/local/tmp/f", nullptr, &closes) == -EINVAL);
+    CHECK(apkrt_watch_writes("/nowhere/f", on_write_close, &closes) == -ENOENT);
+    CHECK(apkrt_unwatch_writes(0) == -EINVAL && apkrt_unwatch_writes(-3) == -EINVAL);
+}
+
+TEST(at_most_a_thousand_and_twenty_four_files_are_watched) {
+    Scratch scratch;
+    WriteCloses closes;
+    std::vector<int> ids;
+    for (int i = 0; i < 1024; ++i) {
+        const std::string name = scratch.host + "/w" + std::to_string(i);
+        ::close(::open(name.c_str(), O_CREAT | O_WRONLY, 0600));
+        const int id = apkrt_watch_writes(("/data/local/tmp/w" + std::to_string(i)).c_str(), on_write_close, &closes);
+        CHECK(id > 0);
+        ids.push_back(id);
+    }
+    ::close(::open((scratch.host + "/extra").c_str(), O_CREAT | O_WRONLY, 0600));
+    CHECK(apkrt_watch_writes("/data/local/tmp/extra", on_write_close, &closes) == -EMFILE);
+    CHECK(apkrt_unwatch_writes(ids[5]) == 0);
+    CHECK(apkrt_watch_writes("/data/local/tmp/extra", on_write_close, &closes) > 0);   // a place is free again
+    for (const int id : ids) apkrt_unwatch_writes(id);
+}
+
+int g_watch_id = 0;
+void unwatching(void *context, const char *path) {
+    on_write_close(context, path);
+    CHECK(apkrt_unwatch_writes(g_watch_id) == 0);                    // the host may call back from inside the callback
+}
+
+TEST(the_callback_runs_without_a_runtime_lock_and_may_unwatch) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    g_watch_id = apkrt_watch_writes("/data/local/tmp/f", unwatching, &closes);
+    CHECK(g_watch_id > 0);
+    for (int i = 0; i < 2; ++i) call(nr_close, {unsigned_of(open_guest(at_fdcwd, "/data/local/tmp/f", 01))});
+    CHECK(closes.count() == 1);                                      // the second finish came after the unwatch
+}
+
+std::atomic<bool> g_callback_started{false}, g_callback_may_end{false}, g_callback_ended{false};
+void slow_callback(void *, const char *) {
+    g_callback_started = true;
+    while (!g_callback_may_end) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    g_callback_ended = true;
+}
+
+TEST(unwatch_from_another_thread_waits_for_a_running_callback) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    g_callback_started = g_callback_may_end = g_callback_ended = false;
+    const int id = apkrt_watch_writes("/data/local/tmp/f", slow_callback, nullptr);
+    CHECK(id > 0);
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    std::thread guest([fd] { call(nr_close, {unsigned_of(fd)}); });                    // runs the callback
+    while (!g_callback_started) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::atomic<bool> unwatched{false};
+    std::thread host([id, &unwatched] {
+        CHECK(apkrt_unwatch_writes(id) == 0);
+        CHECK(g_callback_ended);                                                       // it came back after the callback
+        unwatched = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    CHECK(!unwatched);                                                                 // still waiting for the callback
+    g_callback_may_end = true;
+    guest.join();
+    host.join();
+    CHECK(unwatched && apkrt_unwatch_writes(id) == -EINVAL);
+}
+
+TEST(a_file_that_is_written_while_a_second_open_is_still_running_reports_only_the_last_close) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    const int id = apkrt_watch_writes("/data/local/tmp/f", on_write_close, &closes);
+    CHECK(id > 0);
+    const auto held = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    std::atomic<bool> stop{false};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 3; ++t) {
+        threads.emplace_back([&stop] {
+            while (!stop) call(nr_close, {unsigned_of(open_guest(at_fdcwd, "/data/local/tmp/f", 01))});
+        });
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    stop = true;
+    for (auto &thread : threads) thread.join();
+    CHECK(closes.count() == 0);                                                        // one writer stayed open all along
+    call(nr_close, {unsigned_of(held)});
+    CHECK(closes.count() == 1);
+    apkrt_unwatch_writes(id);
+}
+
+TEST(finishes_on_many_threads_are_all_reported) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    const int id = apkrt_watch_writes("/data/local/tmp/f", on_write_close, &closes);
+    CHECK(id > 0);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 4; ++t) {
+        threads.emplace_back([] {
+            for (int i = 0; i < 50; ++i) call(nr_close, {unsigned_of(open_guest(at_fdcwd, "/data/local/tmp/f", 01))});
+        });
+    }
+    for (auto &thread : threads) thread.join();
+    // Writers overlapped, so there are fewer reports than finishes, at least one, and none while one was still open.
+    CHECK(closes.count() >= 1 && closes.count() <= 200);
+    const auto last = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    const int before = closes.count();
+    call(nr_close, {unsigned_of(last)});
+    CHECK(closes.count() == before + 1);
+    apkrt_unwatch_writes(id);
 }
 
 }  // namespace

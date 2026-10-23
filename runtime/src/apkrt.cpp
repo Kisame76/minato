@@ -2,6 +2,7 @@
 
 #include "dl.h"
 #include "vfs.h"
+#include "watches.h"
 
 #include <sys/param.h>
 
@@ -66,4 +67,13 @@ int apkrt_mount_live(const char *guest_path, const char *host_dir) {
 
 int apkrt_unmount(int id) {
     return apkrt::vfs::unmount(id);
+}
+
+int apkrt_watch_writes(const char *guest_path, apkrt_write_close_fn fn, void *context) {
+    if (guest_path == nullptr) return -EINVAL;
+    return apkrt::watches::watch(guest_path, fn, context);
+}
+
+int apkrt_unwatch_writes(int id) {
+    return apkrt::watches::unwatch(id);
 }
