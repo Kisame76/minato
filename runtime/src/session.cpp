@@ -491,6 +491,13 @@ int refresh_rate() {
 long connect(std::uint64_t configuration) {
     if (!begun.load(std::memory_order_acquire)) return -linux_errno::enoent;
     if (configuration == 0) return -linux_errno::efault;
+    // Write the configuration to the guest before the lock and the state change, through a checked copy:
+    // a bad pointer then returns -EFAULT with the session still unconnected and read_end intact, where a
+    // raw store would fault the host (ADR-0020). A concurrent connect that loses the race writes the
+    // (read-only) configuration too before its -EBUSY, which is harmless.
+    if (!sys::memory::copy_checked(configuration, reinterpret_cast<std::uint64_t>(&described.configuration),
+                                   sizeof described.configuration))
+        return -linux_errno::efault;
     int host;
     {
         const std::lock_guard<std::mutex> hold(lock);
@@ -498,15 +505,17 @@ long connect(std::uint64_t configuration) {
         connected = true;
         host = std::exchange(read_end, -1);
     }
-    std::memcpy(reinterpret_cast<void *>(configuration), &described.configuration, sizeof described.configuration);
     return descriptors::add(host, true);
 }
 
 long configuration(std::uint64_t address) {
     if (!begun.load(std::memory_order_acquire)) return -linux_errno::enoent;
     if (address == 0) return -linux_errno::efault;
-    // Set at the begin, before `begun`, and never again: no lock.
-    std::memcpy(reinterpret_cast<void *>(address), &described.configuration, sizeof described.configuration);
+    // Set at the begin, before `begun`, and never again: no lock. Written through a checked copy so a bad
+    // guest pointer returns -EFAULT instead of faulting the host.
+    if (!sys::memory::copy_checked(address, reinterpret_cast<std::uint64_t>(&described.configuration),
+                                   sizeof described.configuration))
+        return -linux_errno::efault;
     return 0;
 }
 

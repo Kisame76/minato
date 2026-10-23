@@ -351,6 +351,15 @@ TEST(events_posted_before_the_connect_wait_in_the_pipe) {
     // session_configuration before the connect leaves the connect to activity-host.
     apkrt_configuration early{};
     CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&early)) == 0 && same(early, iphone()));
+    // A bad configuration pointer faults cleanly and leaves the session unconnected: the checked write
+    // runs before the lock and the state change (ADR-0020 write path), so the real connect below still
+    // works. On the raw-memcpy version this call crashed the host instead of returning -EFAULT.
+    const auto gone_page = static_cast<std::size_t>(::getpagesize());
+    void *const gone = ::mmap(nullptr, gone_page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(gone != MAP_FAILED);
+    const auto gone_address = reinterpret_cast<std::uint64_t>(gone);
+    CHECK(::munmap(gone, gone_page) == 0);  // now unmapped: a non-null pointer that cannot be written
+    CHECK(call(APKRT_NR_SESSION_CONNECT, gone_address) == -efault);
     apkrt_configuration received{};
     const long descriptor = call(APKRT_NR_SESSION_CONNECT, address(&received));
     CHECK(descriptor >= 0);
@@ -378,6 +387,21 @@ TEST(the_configuration_comes_again_and_again_without_the_pipe) {
         CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&received)) == 0 && same(received, iphone()));
     }
     CHECK(call(APKRT_NR_SESSION_CONFIGURATION, 0) == -efault);
+}
+
+// SESSION_CONFIGURATION writes the configuration into a guest buffer; a bad guest pointer must give
+// -EFAULT, not fault the host (the write goes through a checked copy). The buffer starts in a gone page,
+// then straddles the boundary into it.
+TEST(a_configuration_write_to_bad_guest_memory_is_efault_not_a_crash) {
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    CHECK(::munmap(reinterpret_cast<void *>(first + page), page) == 0);  // the second page is gone
+    for (const std::uint64_t dest : {first + page, first + page - 8}) {
+        CHECK(call(APKRT_NR_SESSION_CONFIGURATION, dest) == -efault);
+    }
+    ::munmap(pages, page);
 }
 
 TEST(events_arrive_in_order_with_their_serial_numbers_and_arguments) {
