@@ -91,11 +91,13 @@ std::vector<Request> requests;
 
 // A FRAME_RATE handler that takes its time: it says when it began and when it returns.
 std::atomic<bool> slow_frame_rate{false}, frame_rate_began{false}, frame_rate_returned{false};
-// A PICK handler that takes its time, and counts the handlers that run at once.
+// A PICK or OPEN handler that takes its time, and counts the handlers that run at once.
 std::atomic<bool> slow_pick{false}, pick_overlap{false};
 std::atomic<int> pick_in_handler{0};
 // A PICK handler that waits for another thread to have posted the answer (and says whether that happened).
 std::atomic<bool> pick_waits_for_post{false}, pick_posted{false}, pick_saw_post{false};
+// An OPEN handler that answers at once, inside the handler.
+std::atomic<bool> open_answers_at_once{false};
 
 void on_request(void *context, int type, std::uint64_t argument, const char *text) {
     CHECK(context == &requests);
@@ -104,7 +106,7 @@ void on_request(void *context, int type, std::uint64_t argument, const char *tex
         requests.push_back(
             {type, argument, text != nullptr ? text : "", text != nullptr, ::pthread_self(), runtime_signal_blocked()});
     }
-    if (type == APKRT_REQUEST_PICK && slow_pick.load()) {
+    if ((type == APKRT_REQUEST_PICK || type == APKRT_REQUEST_OPEN) && slow_pick.load()) {
         if (pick_in_handler.fetch_add(1) != 0) pick_overlap.store(true);
         std::this_thread::sleep_for(30ms);
         pick_in_handler.fetch_sub(1);
@@ -112,6 +114,9 @@ void on_request(void *context, int type, std::uint64_t argument, const char *tex
     if (type == APKRT_REQUEST_PICK && pick_waits_for_post.load()) {
         for (int i = 0; i < 200 && !pick_posted.load(); ++i) std::this_thread::sleep_for(10ms);
         pick_saw_post.store(pick_posted.load());
+    }
+    if (type == APKRT_REQUEST_OPEN && open_answers_at_once.load()) {
+        CHECK(apkrt_session_post(APKRT_EVENT_OPEN_RESULT, argument, 0, 3) != 0);
     }
     if (type == APKRT_REQUEST_FRAME_RATE && slow_frame_rate.load()) {
         frame_rate_began.store(true);
@@ -752,6 +757,333 @@ TEST(a_pick_handler_may_wait_for_another_thread_to_post_the_answer) {
     pick_waits_for_post.store(false);
     CHECK(pick_saw_post.load());
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 41) == -enoent);  // answered
+    take_requests();
+}
+
+/// A field of an open request as the guest encodes it (ADR-0062): every byte but RFC 3986's unreserved ones as %XX.
+std::string open_field(std::string_view field) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string encoded;
+    for (const char c : field) {
+        const auto byte = static_cast<unsigned char>(c);
+        if ((byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') ||
+            byte == '-' || byte == '.' || byte == '_' || byte == '~') {
+            encoded += c;
+        } else {
+            encoded += '%';
+            encoded += hex[byte >> 4];
+            encoded += hex[byte & 15];
+        }
+    }
+    return encoded;
+}
+
+/// An open request's text: the kind, then the fields encoded.
+std::string open_text(int kind, std::initializer_list<std::string_view> fields) {
+    std::string text = std::to_string(kind);
+    for (const auto field : fields) text += "\t" + open_field(field);
+    return text;
+}
+
+TEST(an_open_request_reaches_the_handler_with_its_id_and_text) {
+    take_requests();
+    const std::string view = open_text(1, {"https://example.org/a?b=c"});
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), 88) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1);
+    if (seen.size() != 1) return;
+    CHECK(seen[0].type == APKRT_REQUEST_OPEN && seen[0].argument == 88 && seen[0].had_text && seen[0].text == view);
+    CHECK(seen[0].thread == ::pthread_self() && seen[0].runtime_signal_blocked);
+    // The host answers with the event; that frees the ID.
+    const auto serial = apkrt_session_post(APKRT_EVENT_OPEN_RESULT, 88, 0xFFFFFFFFu, 0);
+    CHECK(serial != 0);
+    CHECK(call(APKRT_NR_SESSION_ANSWER, serial) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), 88) == 0);  // free again
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 88) == 0);
+    const auto cancelled = take_requests();
+    CHECK(cancelled.size() == 2);
+    if (cancelled.size() == 2) {
+        CHECK(cancelled[1].type == APKRT_REQUEST_OPEN_CANCEL && cancelled[1].argument == 88 && !cancelled[1].had_text);
+    }
+}
+
+// The host parses what the guest wrote, so the runtime refuses every open request outside the grammar of
+// guest_interface.h, and none of them reaches the handler.
+TEST(a_malformed_or_oversized_open_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    const auto ask = [](const std::string &text, std::uint64_t id = 6) {
+        const long result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(text.c_str()), id);
+        if (result == 0) CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, id) == 0);
+        return result;
+    };
+    const auto refused = [&](const std::string &text, std::uint64_t id = 6) { return ask(text, id) == -einval; };
+    const auto accepted = [&](const std::string &text) { return ask(text, 9) == 0; };
+    // Good ones first, the limits themselves included.
+    CHECK(accepted(open_text(1, {"https://example.org"})));
+    CHECK(accepted(open_text(1, {"http://example.org"})));
+    CHECK(accepted(open_text(1, {"HTTPS://example.org"})));                      // the scheme's case is ignored
+    CHECK(accepted(open_text(1, {"tel:+49301234567"})));
+    CHECK(accepted(open_text(1, {"maps://?q=Berlin"})));
+    CHECK(accepted(open_text(1, {"https://example.org/" + std::string(4076, 'a')})));  // 4096 bytes
+    CHECK(accepted(open_text(1, {"https://example.org/\xc3\xa4\xe2\x82\xac\xf0\x9f\x98\x80"})));
+    CHECK(accepted("1\thttps%3a%2f%2fexample.org"));                            // lower-case hex digits
+    CHECK(accepted(open_text(2, {"mailto:a@example.org?subject=Hi%20there&body=Line%0D%0A"})));
+    CHECK(accepted(open_text(2, {"MAILTO:?subject=x"})));
+    CHECK(accepted(open_text(3, {"sms:+491701234567&body=See%20you"})));
+    CHECK(accepted(open_text(4, {"", "", "0"})));
+    CHECK(accepted(open_text(4, {std::string(1000, 's'), std::string(65536, 't'), "0"})));
+    CHECK(accepted(open_text(4, {"Subject", "Text\twith a tab\nand a line\r\n", "2", "a.png", "b c.txt", "image/png",
+                                 "text/plain"})));
+    CHECK(accepted(open_text(4, {"", "", "1", "\xc3\xa4 \xd7\xa9.jpg", "image/*"})));
+    CHECK(accepted(open_text(4, {"", "", "1", std::string(255, 'n'), "*/*"})));
+    CHECK(accepted(open_text(4, {"", "", "10", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "a/a", "a/a", "a/a",
+                                 "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a"})));
+    CHECK(accepted(open_text(4, {"", "", "1", "a.png", std::string(49, 'a') + "/" + std::string(50, 'b')})));
+    take_requests();
+    // The kind and the number of fields.
+    CHECK(refused(""));
+    CHECK(refused("1"));
+    CHECK(refused("1\t"));                                                     // an empty URL
+    CHECK(refused("0\t" + open_field("https://example.org")));
+    CHECK(refused("5\t" + open_field("https://example.org")));
+    CHECK(refused("01\t" + open_field("https://example.org")));
+    CHECK(refused("11\t" + open_field("https://example.org")));
+    CHECK(refused("a\t" + open_field("https://example.org")));
+    CHECK(refused(open_text(1, {"https://example.org", ""})));                 // a field too many
+    CHECK(refused(open_text(2, {"mailto:a@example.org", ""})));
+    CHECK(refused(open_text(3, {})));
+    CHECK(refused(open_text(4, {"", ""})));
+    CHECK(refused(open_text(4, {"", "", "0", ""})));
+    CHECK(refused(open_text(4, {"", "", "1", "a.png"})));                      // a name without its type
+    CHECK(refused(open_text(4, {"", "", "1", "a.png", "image/png", "x"})));
+    CHECK(refused(open_text(4, {"", "", "2", "a.png", "image/png"})));
+    // The count of the files.
+    CHECK(refused(open_text(4, {"", "", ""})));
+    CHECK(refused(open_text(4, {"", "", "00"})));
+    CHECK(refused(open_text(4, {"", "", "01", "a.png", "image/png"})));
+    CHECK(refused(open_text(4, {"", "", "-1"})));
+    CHECK(refused(open_text(4, {"", "", "1x", "a.png", "image/png"})));
+    CHECK(refused(open_text(4, {"", "", "18446744073709551617", "a.png", "image/png"})));
+    CHECK(refused(open_text(4, {"", "", "11", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "a/a", "a/a",
+                                "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a"})));
+    // The percent-encoding: only RFC 3986's unreserved bytes raw, every % followed by two hex digits.
+    CHECK(refused("1\thttps://example.org"));                                  // ':' and '/' raw
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2Fa b"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F\xc3\xa4"));                 // a raw byte above 127
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%4"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%G1"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%1g"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%%41"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%+1"));
+    CHECK(refused("1\t%68ttps%3A%2F%2Fexample.org"));                          // an unreserved byte encoded
+    CHECK(refused("1\thttps%3A%2F%2Fexample%2Eorg"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org%2F%7e"));
+    CHECK(refused("%31\thttps%3A%2F%2Fexample.org"));                          // the kind encoded
+    CHECK(refused("4\t\t\t%31\ta.png\timage%2Fpng"));                          // the count encoded
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org\n"));
+    CHECK(refused("1\thttps%3A%2F%2Fexample.org\r"));
+    CHECK(refused("1\t\thttps%3A%2F%2Fexample.org"));
+    // UTF-8 once decoded, and no NUL in any field.
+    for (const std::string bad : {"\x80", "\xc0\xaf", "\xe0\x80\xaf", "\xed\xa0\x80", "\xed\xa0\xbd\xed\xb8\x80",
+                                  "\xf4\x90\x80\x80", "\xff", "\xe2\x82", "\xf0"}) {
+        CHECK(refused(open_text(1, {"https://example.org/" + bad})));
+        CHECK(refused(open_text(4, {"", "text " + bad, "0"})));
+        CHECK(refused(open_text(4, {bad, "", "0"})));
+        CHECK(refused(open_text(4, {"", "", "1", "a" + bad, "image/png"})));
+    }
+    CHECK(refused(open_text(4, {"", std::string("a\0b", 3), "0"})));
+    CHECK(refused(open_text(4, {std::string("a\0b", 3), "", "0"})));
+    CHECK(refused(open_text(1, {std::string("https://example.org/\0", 21)})));
+    // The URL: its kind's scheme, no control, separator or formatting characters, 1 to 4096 bytes.
+    for (const std::string url : {"file:///etc/passwd", "javascript:alert(1)", "data:text/html,hi",
+                                  "intent://x#Intent;end", "market://details?id=a.b", "ftp://example.org",
+                                  "minato://open", "mailto:a@example.org", "sms:123", "httpx://example.org",
+                                  "http", "https//example.org", ":https://example.org", " https://example.org",
+                                  "ht\ttps://example.org", "maps", "tel"}) {
+        CHECK(refused(open_text(1, {url})));
+    }
+    CHECK(refused(open_text(2, {"https://example.org"})));
+    CHECK(refused(open_text(2, {"sms:123"})));
+    CHECK(refused(open_text(2, {"mailto"})));
+    CHECK(refused(open_text(3, {"mailto:a@example.org"})));
+    CHECK(refused(open_text(3, {"tel:123"})));
+    CHECK(refused(open_text(3, {"smsto:123"})));
+    for (const std::string bad : {"\n", "\r", "\t", "\x01", "\x1b", "\x7f", "\xc2\x85", "\xc2\x9f", "\xe2\x80\xa8",
+                                  "\xe2\x80\xae", "\xe2\x81\xa6", "\xe2\x80\x8b", "\xef\xbb\xbf"}) {
+        CHECK(refused(open_text(1, {"https://example.org/" + bad})));
+        CHECK(refused(open_text(2, {"mailto:a@example.org" + bad})));
+    }
+    // No space and no other invisible character in a URL: U+0020, U+00A0, U+2009, U+3000, U+00AD, U+061C, U+180E,
+    // U+E0001, U+0890, U+0891.
+    for (const std::string bad : {" ", "\xc2\xa0", "\xe2\x80\x89", "\xe3\x80\x80", "\xc2\xad", "\xd8\x9c",
+                                  "\xe1\xa0\x8e", "\xf3\xa0\x80\x81", "\xe0\xa2\x90", "\xe0\xa2\x91"}) {
+        CHECK(refused(open_text(1, {"https://bank.example" + bad + ".evil.org"})));
+        CHECK(refused(open_text(3, {"sms:123" + bad})));
+    }
+    CHECK(refused(open_text(1, {"https://example.org/" + std::string(4077, 'a')})));  // 4097 bytes
+    // The subject and the text.
+    CHECK(refused(open_text(4, {std::string(1001, 's'), "", "0"})));
+    CHECK(refused(open_text(4, {"", std::string(65537, 't'), "0"})));
+    // The names.
+    for (const std::string &name : std::initializer_list<std::string>{"", ".", "..", "a/b", "/", "a\nb", "a\tb", "a\x7f", "a\xc2\x85", "a\xe2\x80\xae",
+                                   "a\xe2\x80\x8b", "a\xef\xbb\xbf", std::string(256, 'n')}) {
+        CHECK(refused(open_text(4, {"", "", "1", name, "image/png"})));
+    }
+    CHECK(refused(open_text(4, {"", "", "2", "a.png", "a.png", "image/png", "image/png"})));  // a name twice
+    CHECK(refused(open_text(4, {"", "", "3", "a.png", "b.png", "a.png", "image/png", "image/png", "image/png"})));
+    // A name may have U+0020, but no other space and no format character.
+    for (const std::string bad : {"\xc2\xa0", "\xe3\x80\x80", "\xc2\xad", "\xd8\x9c", "\xf3\xa0\x80\x81", "\xe0\xa2\x90"}) {
+        CHECK(refused(open_text(4, {"", "", "1", "a" + bad + ".png", "image/png"})));
+    }
+    // 25 fields: a share of ten files and a field more.
+    CHECK(refused(open_text(4, {"", "", "10", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "a/a", "a/a", "a/a",
+                                "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a"})));
+    // The MIME types.
+    for (const std::string &type : std::initializer_list<std::string>{"", "image", "image/", "/png", "image/png/x", "image/p ng", "image/p;ng",
+                                   "image/p\xc3\xa4ng", std::string(50, 'a') + "/" + std::string(50, 'b')}) {
+        CHECK(refused(open_text(4, {"", "", "1", "a.png", type})));
+    }
+    take_requests();
+    // The whole text: more than 204800 bytes is refused, not cut, also without a NUL within reach.
+    {
+        // 1000 bytes of subject and 65536 of text, each byte encoded as %XX: 199608 bytes, within the limit; ten names
+        // of 255 such bytes more are over it, though each field is within its own.
+        const std::string subject(1000, '!'), text(65536, '!');
+        const std::string shorter(64812, '!');  // so that the rest leaves the first name 402 bytes to the limit
+        const auto text_of_share = [&]() -> const std::string & { return shorter; };
+        const std::string within = open_text(4, {subject, text, "0"});
+        CHECK(within.size() <= 204800);
+        CHECK(accepted(within));
+        take_requests();
+        std::string over = open_text(4, {subject, text, "10"});
+        for (char last = '0'; last <= '9'; ++last) over += "\t" + open_field(std::string(254, '!') + last);
+        for (int i = 0; i < 10; ++i) over += "\ta%2Fa";
+        CHECK(over.size() > 204800);
+        CHECK(refused(over));
+        // Exactly at the limit: the first name of '!' (3 bytes encoded) and 'a' (1 byte) makes the text 204800 bytes,
+        // and one 'a' more 204801.
+        const auto with_first = [&](std::size_t bangs, std::size_t as) {
+            std::string text = open_text(4, {subject, text_of_share(), "10"});
+            text += "\t" + open_field(std::string(bangs, '!') + std::string(as, 'a'));
+            for (char last = '1'; last <= '9'; ++last) text += "\t" + open_field(std::string(254, '!') + last);
+            for (int i = 0; i < 10; ++i) text += "\ta%2Fa";
+            return text;
+        };
+        const std::size_t rest = with_first(0, 0).size();
+        CHECK(rest < 204800 && 204800 - rest <= 3 * 254);
+        const std::size_t wanted = 204800 - rest, bangs = (wanted > 254 ? (wanted - 254 + 1) / 2 : 0);
+        const std::size_t as = wanted - 3 * bangs;
+        CHECK(bangs + as + 1 <= 255);
+        CHECK(with_first(bangs, as).size() == 204800);
+        CHECK(accepted(with_first(bangs, as)));
+        take_requests();
+        CHECK(with_first(bangs, as + 1).size() == 204801);
+        CHECK(refused(with_first(bangs, as + 1)));
+    }
+    {
+        std::vector<char> unterminated(300000, 'x');  // no NUL within the limit
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(unterminated.data()), 6) == -einval);
+    }
+    // The ID and the address.
+    CHECK(refused(open_text(1, {"https://example.org"}), 0));
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, 0, 6) == -efault);
+    CHECK(take_requests().empty());
+}
+
+// An open request's text in bad guest memory gives -EFAULT, not a crash, as PICK's.
+TEST(an_open_text_in_bad_guest_memory_is_efault_not_a_crash) {
+    take_requests();
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    std::memset(pages, 'a', page);                                      // no NUL anywhere in the readable page
+    CHECK(::munmap(reinterpret_cast<void *>(first + page), page) == 0);  // the second page is gone
+    for (const std::uint64_t text : {first + page, first + page - 8, first}) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, text, 1) == -efault);
+    }
+    // A good text that ends right before the gone page is read whole.
+    const std::string view = open_text(1, {"https://example.org"});
+    std::memcpy(reinterpret_cast<void *>(first + page - view.size() - 1), view.c_str(), view.size() + 1);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, first + page - view.size() - 1, 1) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 1) == 0);
+    ::munmap(pages, page);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 2 && seen[0].text == view);
+}
+
+TEST(open_requests_wait_for_their_answer_four_at_most_each_with_its_own_id) {
+    take_requests();
+    static const std::string view = open_text(1, {"https://example.org"});
+    const auto open = [](std::uint64_t id) {
+        return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), id);
+    };
+    CHECK(open(51) == 0 && open(52) == 0 && open(53) == 0 && open(54) == 0);
+    CHECK(open(55) == -ebusy);   // four wait
+    CHECK(open(52) == -eexist);  // an ID that waits
+    CHECK(take_requests().size() == 4);
+    // The picks have a table of their own: four waiting opens leave room for a pick, with an ID an open has.
+    static const char pick[] = "1\t0\t0\t\t";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(pick), 51) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 51) == 0);
+    CHECK(apkrt_session_post(APKRT_EVENT_PICK_RESULT, 52, 0, 0) != 0);  // a pick's answer frees no open
+    CHECK(open(52) == -eexist);
+    take_requests();
+    // An answer frees its ID, a cancel the same and tells the host, and neither is possible twice.
+    CHECK(apkrt_session_post(APKRT_EVENT_OPEN_RESULT, 51, 0, 0) != 0);
+    CHECK(open(55) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 52) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 2);
+    if (seen.size() == 2) {
+        CHECK(seen[0].type == APKRT_REQUEST_OPEN && seen[0].argument == 55);
+        CHECK(seen[1].type == APKRT_REQUEST_OPEN_CANCEL && seen[1].argument == 52 && !seen[1].had_text);
+    }
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 52) == -enoent);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 51) == -enoent);  // answered
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 0) == -einval);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 53) == -enoent);  // an open is no pick
+    CHECK(take_requests().empty());
+    for (const std::uint64_t id : std::initializer_list<std::uint64_t>{53, 54, 55}) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, id) == 0);
+    }
+    take_requests();
+}
+
+TEST(an_open_handler_may_answer_inside_the_handler) {
+    take_requests();
+    open_answers_at_once.store(true);
+    static const std::string view = open_text(1, {"tel:123"});
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), 71) == 0);
+    open_answers_at_once.store(false);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 71) == -enoent);  // answered
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), 71) == 0);  // free again
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 71) == 0);
+    take_requests();
+}
+
+TEST(open_requests_from_many_threads_reach_the_handler_one_at_a_time) {
+    take_requests();
+    pick_in_handler.store(0);
+    pick_overlap.store(false);
+    slow_pick.store(true);
+    static const std::string view = open_text(1, {"https://example.org"});
+    std::atomic<int> taken{0};
+    std::vector<std::thread> guests;
+    for (std::uint64_t id = 61; id < 65; ++id) {
+        guests.emplace_back([&, id] {
+            if (call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), id) == 0) taken.fetch_add(1);
+        });
+    }
+    for (auto &guest : guests) guest.join();
+    slow_pick.store(false);
+    CHECK(taken.load() == 4);
+    CHECK(!pick_overlap.load());
+    CHECK(take_requests().size() == 4);
+    for (std::uint64_t id = 61; id < 65; ++id) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, id) == 0);
+    }
     take_requests();
 }
 

@@ -28,7 +28,8 @@
 // descriptors and never through a link the app made (tools/pick_host.h). --pick-photo says the same for the photo
 // picker (kind 5): up to its maximum of the files, cloned into the data folder's .minato/photos. --pick-create Download answers an ACTION_CREATE_DOCUMENT request by creating the file
 // in --pick-download under the title, --pick-tree an ACTION_OPEN_DOCUMENT_TREE request with that folder (ADR-0057
-// step d).
+// step d). An open request (ADR-0062) is answered as a host that showed it: RESULT_OK 300 ms after the request, with
+// the line "apk-run: open <ID>: <kind>\t<decoded fields>" on stderr, tabs and newlines written out.
 // Without --configuration there is no frame clock, by design (vsync-lag-test posts its own ticks): a Java app's first
 // traversal posts ViewRootImpl's sync barrier, which only a frame removes, so its main Looper then dispatches no post
 // from another thread and no delayed post. A check that needs the main Looper passes a configuration.
@@ -286,6 +287,36 @@ void answer_pick(std::uint64_t id, const std::string &text) {
     }
 }
 
+/// An open request is answered as a host that showed what it asks: RESULT_OK with reason 0, a moment after the request,
+/// on a thread of its own. The runtime has checked the text against guest_interface.h's grammar, whose schemes are all
+/// the host's allow-list's. As with the picks, at most four wait, and one whose thread cannot start stays unanswered.
+void answer_open(std::uint64_t id) {
+    try {
+        std::thread([id] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            apkrt_session_post(APKRT_EVENT_OPEN_RESULT, id, 0xFFFFFFFFu, 0);
+        }).detach();
+    } catch (const std::system_error &) {
+        std::fprintf(stderr, "apk-run: no thread for the answer to open %llu\n", static_cast<unsigned long long>(id));
+    }
+}
+
+/// An open request's text with its fields decoded: every % and its two hex digits as the byte they stand for. The
+/// runtime has checked that each % has them.
+std::string decoded_open(const char *text) {
+    const auto digit = [](char c) { return c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10; };
+    std::string decoded;
+    for (; *text != '\0'; ++text) {
+        if (*text == '%' && text[1] != '\0' && text[2] != '\0') {
+            decoded += static_cast<char>(digit(text[1]) << 4 | digit(text[2]));
+            text += 2;
+        } else {
+            decoded += *text;
+        }
+    }
+    return decoded;
+}
+
 /// A pick request's text on one line: the tabs and the newlines in it written out.
 std::string one_line(const char *text) {
     std::string line;
@@ -310,6 +341,16 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
     }
     if (type == APKRT_REQUEST_PICK_CANCEL) {
         std::fprintf(stderr, "apk-run: pick %llu cancelled\n", static_cast<unsigned long long>(argument));
+        return;
+    }
+    if (type == APKRT_REQUEST_OPEN) {
+        std::fprintf(stderr, "apk-run: open %llu: %s\n", static_cast<unsigned long long>(argument),
+                     one_line(decoded_open(text != nullptr ? text : "").c_str()).c_str());
+        answer_open(argument);
+        return;
+    }
+    if (type == APKRT_REQUEST_OPEN_CANCEL) {
+        std::fprintf(stderr, "apk-run: open %llu cancelled\n", static_cast<unsigned long long>(argument));
         return;
     }
     if (type == APKRT_REQUEST_WINDOW_OPAQUE) {

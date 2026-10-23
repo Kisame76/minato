@@ -211,6 +211,24 @@ enum apkrt_event_type {
                                           // that path. The host remembers what the user chose (security-scoped
                                           // bookmarks) in ITS OWN data and never in anything the guest can write:
                                           // not the app's data folder, not uri-grants
+    APKRT_EVENT_OPEN_RESULT,              // the answer to APKRT_REQUEST_OPEN (ADR-0062): a0 the request's ID; a1 the
+                                          // result code (Activity.RESULT_CANCELED 0, RESULT_OK -1, as a 32-bit int in
+                                          // the low bits): RESULT_OK once the browser sheet, the composer, the share
+                                          // sheet or iOS's open reported that it was shown or done, RESULT_CANCELED
+                                          // when the user cancelled or the host did not open it; a2 why, for the log:
+                                          // 0 shown, 1 refused (scheme, URL or share file), 2 the session was in the
+                                          // background, 3 no handler on this device. The share files (kind 4): the
+                                          // app can write its data folder and leave links there, so the host opens
+                                          // the data folder from its own records and then each of ".minato", "share"
+                                          // and "<ID>" with openat(O_DIRECTORY|O_NOFOLLOW) on the one before, each
+                                          // file with openat(O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC) and fstat for
+                                          // a regular file (a link, a folder, a FIFO or a file over the host's size
+                                          // limit refuses the share), and copies them (fclonefileat or a capped
+                                          // copy) into a folder of its own for the sheet, where two names the file
+                                          // system takes for one (Unicode normalization, case) refuse the share too;
+                                          // it removes its copies when the sheet ends and never writes into the
+                                          // share folder, which the guest removes after the answer. The guest uses
+                                          // each ID once and ignores an answer to an ID it no longer waits for
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -263,6 +281,33 @@ enum apkrt_request_type {
     APKRT_REQUEST_PICK_CANCEL,     // guest only: a0 the ID of a request that waits and the guest no longer wants (its
                                    // activity is gone); the host gets the ID as `argument` and no text, and gives no
                                    // answer. -ENOENT for an ID that does not wait
+    APKRT_REQUEST_OPEN,            // guest only (ADR-0062): a0 the address of NUL-terminated text, a1 the request's ID
+                                   // (not 0, not one that waits); the host gets the ID as `argument` and the text as
+                                   // `text`: "<kind>\t<field>\t<field>...", each field percent-encoded UTF-8 (RFC
+                                   // 3986's unreserved bytes raw and never as %XX, every other byte as %XX), an empty
+                                   // field being "". Kinds: 1 VIEW, one field, an absolute URL of scheme http, https, tel or maps;
+                                   // 2 MAIL, one field, a mailto: URL (RFC 6068: to in the path, cc, bcc, subject and
+                                   // body in the query); 3 SMS, one field, an sms: URL; 4 SHARE, 3 + 2n fields: the
+                                   // subject, the text, n in decimal without leading zeros (0 to 10), n names of the
+                                   // files the guest put into ".minato/share/<ID in decimal>" below the app's data
+                                   // folder before the request, then n MIME types, one per name. The runtime refuses
+                                   // (-EINVAL) any text but this: a kind 1 to 4 and its number of fields; every %
+                                   // followed by two hex digits; each field valid UTF-8 once decoded, without NUL; a
+                                   // URL field of 1 to 4096 bytes decoded, without control characters, spaces (any of
+                                   // Unicode's Zs), line or paragraph separators or format characters (Cf), whose
+                                   // scheme (up to the first ":", ASCII case ignored) is the kind's; a subject of at
+                                   // most 1000 bytes and a text of at most 65536 bytes decoded, any code point but NUL;
+                                   // a name of 1 to 255 bytes decoded, without "/" and the URL's characters but
+                                   // U+0020, not "." or "..", each once byte by byte; a MIME type of 3 to 100 bytes
+                                   // "<type>/<subtype>" of RFC 6838's characters (or "*", as image/*); at most 204800
+                                   // bytes in all. At most 4 requests wait at once (-EBUSY), and an ID that waits is
+                                   // refused (-EEXIST). The requests reach the host's handler one at a time. The host
+                                   // answers once with APKRT_EVENT_OPEN_RESULT, which ends the request. The host checks
+                                   // again and is the last word: it opens only http, https, mailto, tel, sms and maps,
+                                   // and nothing while the session is in the background
+    APKRT_REQUEST_OPEN_CANCEL,     // guest only: a0 the ID of an open request that waits and the guest no longer wants
+                                   // (its activity is gone); the host gets the ID as `argument` and no text, drops what
+                                   // it shows for it and gives no answer. -ENOENT for an ID that does not wait
 };
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.

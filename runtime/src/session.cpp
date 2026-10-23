@@ -17,7 +17,10 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstring>
+#include <memory>
 #include <mutex>
+#include <new>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -213,8 +216,10 @@ bool plain_code_point(std::uint32_t point) {
     return point != 0xfeff && !(point >= 0xfff9 && point <= 0xfffb);
 }
 
-/// Whether `text` is well-formed UTF-8 (no overlong forms, no surrogates, nothing above U+10FFFF) of plain code points.
-bool plain_utf8(std::string_view text) {
+/// Whether `text` is well-formed UTF-8 (no overlong forms, no surrogates, nothing above U+10FFFF) whose every code
+/// point `allowed` takes.
+template <typename Allowed>
+bool utf8_code_points(std::string_view text, Allowed allowed) {
     for (std::size_t at = 0; at < text.size();) {
         const auto byte = static_cast<unsigned char>(text[at]);
         std::size_t more = 0;
@@ -244,11 +249,14 @@ bool plain_utf8(std::string_view text) {
                 return false;
             }
         }
-        if (!plain_code_point(point)) return false;
+        if (!allowed(point)) return false;
         at += more + 1;
     }
     return true;
 }
+
+/// Whether `text` is well-formed UTF-8 of plain code points.
+bool plain_utf8(std::string_view text) { return utf8_code_points(text, plain_code_point); }
 
 /// Whether `type` is a MIME type or a pattern such as image/*: two tokens of RFC 6838's characters and '*' around one
 /// '/', at most pick_type_length bytes.
@@ -327,6 +335,162 @@ bool pick_done(std::uint64_t id) {
     return true;
 }
 
+// APKRT_REQUEST_OPEN (ADR-0062): as with a pick, the host parses the text of a request that the guest wrote, so the
+// runtime checks every field before the host sees it.
+constexpr std::size_t open_text_limit = 204801;      // the NUL included
+constexpr std::size_t open_fields_limit = 24;        // the kind and a share's 3 + 2 * 10 fields
+constexpr std::size_t open_url_length = 4096;        // decoded bytes of a URL
+constexpr std::size_t open_subject_length = 1000;    // decoded bytes of a share's subject
+constexpr std::size_t open_share_text_length = 65536;  // decoded bytes of a share's text
+constexpr std::size_t open_name_length = 255;        // decoded bytes of a share file's name
+constexpr unsigned open_files_limit = 10;            // files in a share
+constexpr std::size_t open_live_limit = 4;           // requests that wait for their answer at once
+
+/// The value of a hex digit, or -1.
+int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/// Whether `c` is one of RFC 3986's unreserved bytes.
+bool unreserved(char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+           c == '_' || c == '~';
+}
+
+/// Whether a code point shows, for a URL or a file name the user sees: a plain one (plain_code_point) that is no
+/// space separator (Unicode's Zs, but U+0020 when `space` allows it) and no other format character (Cf) either.
+bool visible_code_point(std::uint32_t point, bool space) {
+    if (!plain_code_point(point)) return false;
+    if (point == 0x20) return space;
+    if (point == 0xa0 || point == 0x1680 || (point >= 0x2000 && point <= 0x200a) || point == 0x202f ||
+        point == 0x205f || point == 0x3000) {
+        return false;  // Zs
+    }
+    if (point == 0xad || (point >= 0x600 && point <= 0x605) || point == 0x61c || point == 0x6dd || point == 0x70f ||
+        (point >= 0x890 && point <= 0x891) || point == 0x8e2 || point == 0x180e || point == 0x110bd || point == 0x110cd ||
+        (point >= 0x13430 && point <= 0x1343f) || (point >= 0x1bca0 && point <= 0x1bca3) ||
+        (point >= 0x1d173 && point <= 0x1d17a) || point == 0xe0001 || (point >= 0xe0020 && point <= 0xe007f)) {
+        return false;  // the Cf that plain_code_point lets through
+    }
+    return true;
+}
+
+/// Decodes a percent-encoded field into `out`: RFC 3986's unreserved bytes raw, every other byte as % and two hex
+/// digits. Whether the field is so encoded, and so only.
+bool percent_decode(std::string_view field, std::string &out) {
+    out.clear();
+    for (std::size_t at = 0; at < field.size(); ++at) {
+        const char c = field[at];
+        if (unreserved(c)) {
+            out += c;
+            continue;
+        }
+        if (c != '%' || field.size() - at < 3) return false;
+        const int high = hex_digit(field[at + 1]), low = hex_digit(field[at + 2]);
+        if (high < 0 || low < 0) return false;
+        const auto byte = static_cast<char>((high << 4) | low);
+        if (unreserved(byte)) return false;  // an unreserved byte is raw (hex digits may be of either case)
+        out += byte;
+        at += 2;
+    }
+    return true;
+}
+
+/// Whether a decoded URL is 1 to open_url_length bytes of UTF-8 of visible code points without spaces, whose scheme, up
+/// to the first ':' and with ASCII's case ignored, is one of `schemes`.
+bool open_url(std::string_view url, std::initializer_list<std::string_view> schemes) {
+    const auto visible = [](std::uint32_t point) { return visible_code_point(point, false); };
+    if (url.empty() || url.size() > open_url_length || !utf8_code_points(url, visible)) return false;
+    const auto colon = url.find(':');
+    if (colon == std::string_view::npos) return false;
+    const auto scheme = url.substr(0, colon);
+    return std::any_of(schemes.begin(), schemes.end(), [scheme](std::string_view allowed) {
+        if (scheme.size() != allowed.size()) return false;
+        for (std::size_t at = 0; at < scheme.size(); ++at) {
+            char c = scheme[at];
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            if (c != allowed[at]) return false;
+        }
+        return true;
+    });
+}
+
+/// Whether a decoded share file name is 1 to open_name_length bytes of UTF-8 of visible code points or spaces, without
+/// '/', and not "." or "..".
+bool open_name(std::string_view name) {
+    const auto visible = [](std::uint32_t point) { return visible_code_point(point, true); };
+    return !name.empty() && name.size() <= open_name_length && name != "." && name != ".." &&
+           name.find('/') == std::string_view::npos && utf8_code_points(name, visible);
+}
+
+/// Whether `text` is an open request of guest_interface.h's grammar: "<kind>\t<field>...", the fields percent-encoded
+/// and each, decoded, well-formed UTF-8 without NUL and within its limit; a kind 1 to 4 with its number of fields: a
+/// URL of the kind's scheme for kinds 1 to 3, a share's subject, text, count of files without leading zeros (0 to
+/// open_files_limit), the files' names, each once, and their MIME types for kind 4.
+bool valid_open(std::string_view text) {
+    std::string_view encoded[open_fields_limit];
+    std::size_t count = 0;
+    for (std::size_t from = 0;;) {
+        const auto tab = text.find('\t', from);
+        if (count == open_fields_limit) return false;
+        encoded[count++] = text.substr(from, tab == std::string_view::npos ? std::string_view::npos : tab - from);
+        if (tab == std::string_view::npos) break;
+        from = tab + 1;
+    }
+    if (encoded[0].size() != 1 || encoded[0][0] < '1' || encoded[0][0] > '4') return false;
+    const int kind = encoded[0][0] - '0';
+    std::string field[open_fields_limit];
+    for (std::size_t at = 1; at < count; ++at) {
+        if (!percent_decode(encoded[at], field[at])) return false;
+        if (!utf8_code_points(field[at], [](std::uint32_t point) { return point != 0; })) return false;
+    }
+    switch (kind) {
+        case 1:
+            return count == 2 && open_url(field[1], {"http", "https", "tel", "maps"});
+        case 2:
+            return count == 2 && open_url(field[1], {"mailto"});
+        case 3:
+            return count == 2 && open_url(field[1], {"sms"});
+        default:
+            break;
+    }
+    if (count < 4 || field[1].size() > open_subject_length || field[2].size() > open_share_text_length) return false;
+    const std::string &files = field[3];
+    if (files.empty() || files.size() > 2 || (files.size() > 1 && files[0] == '0')) return false;
+    unsigned n = 0;
+    for (const char c : files) {
+        if (c < '0' || c > '9') return false;
+        n = n * 10 + static_cast<unsigned>(c - '0');
+    }
+    if (n > open_files_limit || count != 4 + 2 * static_cast<std::size_t>(n)) return false;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!open_name(field[4 + i])) return false;
+        for (std::size_t j = 0; j < i; ++j) {
+            if (field[4 + j] == field[4 + i]) return false;
+        }
+        if (!mime_type(field[4 + n + i])) return false;
+    }
+    return true;
+}
+
+// The open requests that wait for their answer (APKRT_EVENT_OPEN_RESULT or APKRT_REQUEST_OPEN_CANCEL), as the picks':
+// the check, the change of the table and the host's call under open_handler_lock, the table under its own lock.
+std::recursive_mutex open_handler_lock;
+std::mutex open_lock;
+std::vector<std::uint64_t> live_opens;
+
+/// Forgets open request `id`; whether it was waiting.
+bool open_done(std::uint64_t id) {
+    const std::lock_guard<std::mutex> hold(open_lock);
+    const auto at = std::find(live_opens.begin(), live_opens.end(), id);
+    if (at == live_opens.end()) return false;
+    live_opens.erase(at);
+    return true;
+}
+
 /// Copies the guest string at `address` into `out` through checked reads, byte by byte, so a bad guest
 /// pointer gives -EFAULT instead of faulting the host; stops at the first NUL. Returns the length before
 /// the NUL when one lies within `limit` bytes, `limit` when none does (out then holds `limit` non-NUL
@@ -374,6 +538,40 @@ long pick_cancel(std::uint64_t id) {
     const std::lock_guard<std::recursive_mutex> handler(pick_handler_lock);
     if (!pick_done(id)) return -linux_errno::enoent;
     report(APKRT_REQUEST_PICK_CANCEL, id, nullptr);
+    return 0;
+}
+
+/// APKRT_REQUEST_OPEN: the text at `address` copied once through a checked read, each byte read once, and handed to
+/// the host's request handler with the ID. 0, or the negative errno: -EFAULT without text or when the text cannot be
+/// read, -EINVAL for an ID of 0, a text of open_text_limit bytes or more, or one that valid_open refuses, -EEXIST for
+/// an ID that waits for its answer, -EBUSY when open_live_limit requests wait, -ENOMEM without memory for the copy.
+long open_request(std::uint64_t address, std::uint64_t id) {
+    if (address == 0) return -linux_errno::efault;
+    if (id == 0) return -linux_errno::einval;
+    const std::unique_ptr<char[]> text(new (std::nothrow) char[open_text_limit]);
+    if (!text) return -linux_errno::enomem;
+    const long length = copy_guest_text(text.get(), address, open_text_limit);
+    if (length < 0) return length;                                                  // -EFAULT: a byte unreadable
+    if (length >= static_cast<long>(open_text_limit)) return -linux_errno::einval;  // no NUL within the limit
+    if (!valid_open(std::string_view(text.get(), static_cast<std::size_t>(length)))) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(open_handler_lock);
+    {
+        const std::lock_guard<std::mutex> hold(open_lock);
+        if (std::find(live_opens.begin(), live_opens.end(), id) != live_opens.end()) return -linux_errno::eexist;
+        if (live_opens.size() >= open_live_limit) return -linux_errno::ebusy;
+        live_opens.push_back(id);
+    }
+    report(APKRT_REQUEST_OPEN, id, text.get());
+    return 0;
+}
+
+/// APKRT_REQUEST_OPEN_CANCEL: the guest no longer waits for request `id`; the host gets it only when it still waits.
+/// 0, or -EINVAL for an ID of 0, -ENOENT for one that does not wait.
+long open_request_cancel(std::uint64_t id) {
+    if (id == 0) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(open_handler_lock);
+    if (!open_done(id)) return -linux_errno::enoent;
+    report(APKRT_REQUEST_OPEN_CANCEL, id, nullptr);
     return 0;
 }
 
@@ -576,6 +774,10 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return pick(a0, a1);
         case APKRT_REQUEST_PICK_CANCEL:
             return pick_cancel(a0);
+        case APKRT_REQUEST_OPEN:
+            return open_request(a0, a1);
+        case APKRT_REQUEST_OPEN_CANCEL:
+            return open_request_cancel(a0);
         default:
             return -linux_errno::einval;
     }
@@ -613,6 +815,7 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
     if (!begun.load(std::memory_order_acquire)) return 0;
     // The answer to a pick request frees its ID, also when the post fails: the request is over.
     if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
+    if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);
     const std::lock_guard<std::mutex> hold(lock);
     if (broken || ended) return 0;
     const apkrt_event record{type, posted + 1, {a0, a1, a2}};
