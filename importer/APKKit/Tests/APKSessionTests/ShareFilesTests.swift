@@ -7,7 +7,7 @@ import Testing
 /// ADR-0062, decision 3: the host copies a share's files out of the app's share folder, which the app can fill with
 /// links, folders and FIFOs, through descriptors only.
 @Suite("ShareFiles")
-struct ShareFilesTests {
+final class ShareFilesTests {
     let root: URL
     let data: URL
     let destination: URL
@@ -19,6 +19,8 @@ struct ShareFilesTests {
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     }
+
+    deinit { try? FileManager.default.removeItem(at: root) }
 
     var share: URL { data.appending(path: ".minato/share/7") }
 

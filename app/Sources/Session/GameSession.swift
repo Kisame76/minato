@@ -84,7 +84,9 @@ final class GameSession {
         let withGuest = true
         #endif
         if withGuest {
-            let runtime = RuntimeSessionHost(preferRate: { [frameClockSlot] in frameClockSlot.setPreferredRate($0) })
+            let runtime = RuntimeSessionHost(
+                dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data"),
+                preferRate: { [frameClockSlot] in frameClockSlot.setPreferredRate($0) })
             self.runtime = runtime
             host = runtime
             waitForAnswer = { RuntimeSessionHost.wait(serial: $0, seconds: $1) }
@@ -359,7 +361,15 @@ final class GameSession {
         #endif
         startFailure = reason
         SessionEndReport.startFailed(reason)
-        Restart.now { [weak self] in self?.restartFailed = true }
+        restart()
+    }
+
+    /// Back to the library, once the exports to Photos under way are done or 5 s have passed (ADR-0057 step e).
+    private func restart() {
+        Task { [photos = runtime?.photos] in
+            await photos?.settle(within: 5)
+            Restart.now { [weak self] in self?.restartFailed = true }
+        }
     }
 
     /// The program ended, after onDestroy or by itself (ADR-0032, decision 7): back to the library. A crash
@@ -376,7 +386,7 @@ final class GameSession {
             return benchmark.ended(status, status == 0 ? nil : "the variant ended with status \(status)")
         }
         #endif
-        Restart.now { [weak self] in self?.restartFailed = true }
+        restart()
     }
 
     /// The guest started: the first session shows how to reach the menu for 3 s.
@@ -586,7 +596,7 @@ final class GameSession {
             #if BENCHMARK
             if let benchmark { return benchmark.ended(nil, bridge.isBroken ? "the session's channel broke" : nil) }
             #endif
-            Restart.now { [weak self] in self?.restartFailed = true }
+            restart()
         }
     }
 

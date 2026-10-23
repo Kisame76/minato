@@ -105,6 +105,8 @@ targets:
         LSApplicationCategoryType: public.app-category.games
         # The commit a benchmark build was built from (ADR-0037, decision 5); tools/benchmark.sh sets it.
         MinatoCommit: $(MINATO_COMMIT)
+        # What the apps the user runs save to Photos, with add-only access (ADR-0057 step e).
+        NSPhotoLibraryAddUsageDescription: Lets apps you run in Minato save photos and videos to your library.
         # No UIFileSharingEnabled: the app has no folder in the Files app (ADR-0018).
         # "Open with" hands over the original file instead of a copy in Documents/Inbox.
         LSSupportsOpeningDocumentsInPlace: true

@@ -17,14 +17,20 @@ final class RuntimeSessionHost: SessionHost {
     /// The frame clock's `setPreferredRate`: the request handler calls it on the guest's thread, and a
     /// window's removal with 0.
     private let preferRate: @Sendable (Float) -> Void
+    /// What the app finished in MediaStore, for Photos (ADR-0057 step e): the request handler takes the file at once.
+    private let exports: MediaExports
+    /// Where they go, which the session waits for before the process ends.
+    let photos = PhotoExports()
     #if BENCHMARK
     /// The presents of the session's removed windows, whose own count is 0 once they are gone: a recorded
     /// session compares the guest's presents with the layer's drawables (ADR-0041 d).
     private(set) var presentsOfRemovedWindows: UInt64 = 0
     #endif
 
-    init(preferRate: @escaping @Sendable (Float) -> Void) {
+    /// `dataFolder` is the app's data folder from the library's records (ApplicationInfo.dataDir).
+    init(dataFolder: URL?, preferRate: @escaping @Sendable (Float) -> Void) {
         self.preferRate = preferRate
+        exports = MediaExports(dataFolder: dataFolder)
     }
 
     func post(_ event: SessionEvent) -> UInt32 {
@@ -302,8 +308,15 @@ final class RuntimeSessionHost: SessionHost {
     /// The session's request handler: it runs on the guest thread that asks and must not block, so the
     /// request goes to the main queue; the text lives only until it returns, so it is copied first. A frame
     /// rate goes to the clock at once, which takes it without blocking: the runtime reports none for a
-    /// window after its removal has returned, so the preference cannot come after the reset.
+    /// window after its removal has returned, so the preference cannot come after the reset. An export to Photos
+    /// is taken here, under the runtime's pick lock, and copied off this thread; it has no answer.
     static let requestHandler: apkrt_request_handler = { context, type, argument, text in
+        if UInt32(bitPattern: type) == APKRT_REQUEST_EXPORT_MEDIA.rawValue {
+            guard let context, let text else { return }
+            let host = Unmanaged<RuntimeSessionHost>.fromOpaque(context).takeUnretainedValue()
+            if !host.photos.declined, let job = host.exports.take(String(cString: text)) { host.photos.export(job) }
+            return
+        }
         guard let request = RuntimeSessionHost.request(type: type, argument: argument, text: text) else { return }
         if case .frameRate(let rate) = request, let context {
             Unmanaged<RuntimeSessionHost>.fromOpaque(context).takeUnretainedValue().preferRate(rate)
