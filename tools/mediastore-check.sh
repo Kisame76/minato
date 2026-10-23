@@ -24,7 +24,10 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh mediastore-test >/dev/null
 
-python3 framework/tests/java_app_run.py --lifecycle start \
+# What the host adds to Photos is copied here by apk-run: images and videos that were finished, not audio.
+EXPORTED=$(mktemp -d "${TMPDIR:-/tmp}/mediastore-export.XXXXXX")
+trap 'rm -rf "$EXPORTED"' EXIT
+python3 framework/tests/java_app_run.py --lifecycle start --export-dir "$EXPORTED" \
   mediastore-test io.github.kisame76.minato.test.mediastore \
   android.app.Application build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
@@ -32,3 +35,14 @@ python3 framework/tests/java_app_run.py --lifecycle start \
   build/framework/framework.jar build/framework-res/framework-res \
   build/mediastore-test/mediastore-test.apk fixtures/expected/mediastore-test.logcat \
   1290x2796@3,en-US
+
+# The three finished images were exported with their sizes (shot.jpg 2000, the second 500, insertImage's 759); the
+# audio file and the item that was never written were not.
+listing=$(cd "$EXPORTED" && for f in *; do echo "$f $(wc -c < "$f" | tr -d ' ')"; done | sort)
+expected=$'legacy.jpg 759\nshot (1).jpg 500\nshot.jpg 2000'
+if [[ "$listing" != "$expected" ]]; then
+  echo "mediastore-test: the host exported:"
+  echo "$listing"
+  exit 1
+fi
+echo "mediastore-test: the host exported the three finished images"

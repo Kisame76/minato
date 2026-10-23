@@ -290,8 +290,9 @@ enum apkrt_request_type {
                                    // by newlines, none is allowed, and none for kind 4; a title of at most 200 bytes
                                    // of UTF-8 without control, separator or formatting characters, only for kind 3;
                                    // at most 1535 bytes in all. At most 4 requests wait at once (-EBUSY), and an ID
-                                   // that waits is refused (-EEXIST). The requests reach the host's handler one at a
-                                   // time. The host answers once with APKRT_EVENT_PICK_RESULT, which ends the request
+                                   // that waits is refused (-EEXIST). The PICK and EXPORT_MEDIA requests reach the
+                                   // host's handler one at a time; requests of other types may reach it meanwhile. The
+                                   // host answers once with APKRT_EVENT_PICK_RESULT, which ends the request
     APKRT_REQUEST_PICK_CANCEL,     // guest only: a0 the ID of a request that waits and the guest no longer wants (its
                                    // activity is gone); the host gets the ID as `argument` and no text, and gives no
                                    // answer. -ENOENT for an ID that does not wait
@@ -322,6 +323,33 @@ enum apkrt_request_type {
     APKRT_REQUEST_OPEN_CANCEL,     // guest only: a0 the ID of an open request that waits and the guest no longer wants
                                    // (its activity is gone); the host gets the ID as `argument` and no text, drops what
                                    // it shows for it and gives no answer. -ENOENT for an ID that does not wait
+    APKRT_REQUEST_EXPORT_MEDIA,    // guest only (ADR-0057 step e): a0 the address of NUL-terminated text, a1 0 (else
+                                   // -EINVAL); a finished image or video the app made in MediaStore. The host gets
+                                   // argument 0 and the text "<kind>\t<path>": kind 1 an image, 2 a video; the path
+                                   // of the file below the app's data folder (ApplicationInfo.dataDir), "/"-separated
+                                   // names, at most 16 of them and 1024 bytes, no leading "/", each 1 to 255 bytes of
+                                   // UTF-8, not "." or "..", without "/", NUL, C0 and C1 controls, DEL, line and
+                                   // paragraph separators, zero-width and bidirectional controls (U+200B to U+200F,
+                                   // U+2028 to U+202E, U+2060 to U+206F), U+FEFF and U+FFF9 to U+FFFB. Anything else
+                                   // is allowed, spaces and the other format characters included: it is a path the
+                                   // host opens, not a name it shows (the host may show the last name, with such
+                                   // characters taken out). The text ends at its first NUL. The runtime
+                                   // refuses (-EINVAL) any other text, -EFAULT like a pick for text it cannot read.
+                                   // There is no answer and no limit of waiting requests. The handler runs at once
+                                   // on the guest's thread, under the lock of the pick requests, so it must be
+                                   // quick: it only TAKES the file, by walking the path from its own record of the
+                                   // data folder with openat and O_NOFOLLOW at every component, O_DIRECTORY for the
+                                   // folders and O_NONBLOCK for the file (a FIFO the app made must not hold it),
+                                   // keeps the descriptor of a regular file with one link (st_nlink 1) within
+                                   // the limits it sets (apk-run's model: 1 GiB a file, 1000 files and 4 GiB in
+                                   // all for a session), and returns. The copy is made afterwards, off that thread,
+                                   // from that descriptor: PhotoKit takes a URL or data, so the host copies the
+                                   // descriptor (no more than the size it saw) into a file in a folder of its own and
+                                   // gives Photos only that copy, never the guest's path, which the app could swap
+                                   // for a link between the check and the use. A copy that fails leaves nothing. The
+                                   // host adds the copy to Photos when iOS allows (add-only access after its one
+                                   // prompt) and otherwise does nothing. The kind is advisory: the host does not
+                                   // trust the file to be a picture
 };
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.

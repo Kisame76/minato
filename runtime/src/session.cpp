@@ -317,6 +317,33 @@ bool valid_pick(std::string_view text) {
     return field[4].size() <= pick_title_length && plain_utf8(field[4]);
 }
 
+// APKRT_REQUEST_EXPORT_MEDIA (ADR-0057 step e): "<kind>\t<path>", the path of a finished image or video below the app's
+// data folder. The host opens it, so the runtime checks it as the framework checks a pick manifest's names.
+constexpr std::size_t export_path_limit = 1024;      // bytes of the path
+constexpr std::size_t export_components_limit = 16;  // names in it
+constexpr std::size_t export_name_limit = 255;       // bytes of one name
+
+/// Whether `text` is "<kind>\t<path>": a kind 1 or 2, then a path of 1 to export_components_limit names of 1 to
+/// export_name_limit bytes of plain UTF-8 without '/' and not "." or "..", separated by single '/', in all at most
+/// export_path_limit bytes.
+bool valid_export(std::string_view text) {
+    if (text.size() < 3 || (text[0] != '1' && text[0] != '2') || text[1] != '\t') return false;
+    const std::string_view path = text.substr(2);
+    if (path.size() > export_path_limit) return false;
+    std::size_t names = 0;
+    for (std::size_t from = 0;;) {
+        const auto slash = path.find('/', from);
+        const auto name = path.substr(from, slash == std::string_view::npos ? std::string_view::npos : slash - from);
+        if (++names > export_components_limit || name.empty() || name.size() > export_name_limit || name == "." ||
+            name == ".." || !plain_utf8(name)) {
+            return false;
+        }
+        if (slash == std::string_view::npos) break;
+        from = slash + 1;
+    }
+    return true;
+}
+
 // The pick requests that wait for their answer (APKRT_EVENT_PICK_RESULT or APKRT_REQUEST_PICK_CANCEL). The check, the
 // change of the table and the host's call happen under pick_handler_lock, so the host gets the requests one at a time,
 // in the order the runtime took them. The table has its own lock, held only for the change itself, so that a post of
@@ -528,6 +555,22 @@ long pick(std::uint64_t address, std::uint64_t id) {
         live_picks.push_back(id);
     }
     report(APKRT_REQUEST_PICK, id, text);
+    return 0;
+}
+
+/// APKRT_REQUEST_EXPORT_MEDIA: the text at `address` copied once through a checked read and handed to the host's
+/// request handler. 0, or the negative errno: -EFAULT without text or when it cannot be read, -EINVAL for a second
+/// argument other than 0, a text of pick_text_limit bytes or more, or one that valid_export refuses.
+long export_media(std::uint64_t address, std::uint64_t second) {
+    if (address == 0) return -linux_errno::efault;
+    if (second != 0) return -linux_errno::einval;
+    char text[pick_text_limit];
+    const long length = copy_guest_text(text, address, pick_text_limit);
+    if (length < 0) return length;                                                  // -EFAULT: a byte unreadable
+    if (length >= static_cast<long>(pick_text_limit)) return -linux_errno::einval;  // no NUL within the limit
+    if (!valid_export(std::string_view(text, static_cast<std::size_t>(length)))) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(pick_handler_lock);
+    report(APKRT_REQUEST_EXPORT_MEDIA, 0, text);
     return 0;
 }
 
@@ -778,6 +821,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return open_request(a0, a1);
         case APKRT_REQUEST_OPEN_CANCEL:
             return open_request_cancel(a0);
+        case APKRT_REQUEST_EXPORT_MEDIA:
+            return export_media(a0, a1);
         default:
             return -linux_errno::einval;
     }

@@ -11,6 +11,7 @@
  */
 package com.android.providers.media;
 
+import android.app.ActivityThread;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
@@ -21,6 +22,7 @@ import android.os.FileUtils;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelFileDescriptor;
+import android.system.OsConstants;
 import android.util.Log;
 
 import com.android.internal.minato.picker.UriGrants;
@@ -394,6 +396,10 @@ final class MediaLibrary {
         if (!file.getPath().startsWith(prefix)) {
             return;
         }
-        Log.i(TAG, "export " + type + " " + file.getPath().substring(prefix.length()));
+        final int error = ActivityThread.requestExportMedia("1".equals(type) ? 1 : 2,
+                file.getPath().substring(prefix.length()));
+        if (error != 0 && error != -OsConstants.EOPNOTSUPP) {
+            Log.w(TAG, "The host refused the export of " + file.getName() + ": " + error);
+        }
     }
 }

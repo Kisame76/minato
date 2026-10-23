@@ -270,6 +270,23 @@ jint SessionRequestOpenCancel(JNIEnv *, jclass, jlong id) {
     return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, static_cast<uint64_t>(id), 0) < 0 ? -errno : 0;
 }
 
+// APKRT_REQUEST_EXPORT_MEDIA (ADR-0057 step e): the text of an export request (UTF-8 bytes, as the pick's) by address;
+// 0, or the negative errno.
+jint SessionRequestExportMedia(JNIEnv *env, jclass, jbyteArray text) {
+    if (text == nullptr) return -EINVAL;
+    const jsize length = env->GetArrayLength(text);
+    std::vector<char> bytes(static_cast<size_t>(length) + 1, '\0');
+    env->GetByteArrayRegion(text, 0, length, reinterpret_cast<jbyte *>(bytes.data()));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -EFAULT;
+    }
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, reinterpret_cast<uintptr_t>(bytes.data()),
+                   0) < 0
+                   ? -errno
+                   : 0;
+}
+
 // input_connect of the session's input channel `id` (ADR-0045 step 7b2), as an InputChannel named `name`; null
 // when the runtime refuses the ID, or with the exception pending when the name cannot be read, which is read
 // first, as AOSP's natives read theirs before they open a channel.
@@ -299,6 +316,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRequestPickCancel", "(J)I", reinterpret_cast<void *>(SessionRequestPickCancel)},
         {"nativeSessionRequestOpen", "(J[B)I", reinterpret_cast<void *>(SessionRequestOpen)},
         {"nativeSessionRequestOpenCancel", "(J)I", reinterpret_cast<void *>(SessionRequestOpenCancel)},
+        {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},
         {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},

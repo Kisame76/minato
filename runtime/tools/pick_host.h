@@ -40,6 +40,8 @@ struct Config {
     /// The host's own folder for what it must not lose (write-back records and the app's version in a conflict): never
     /// below the data folder or Download, which the app can write. "" keeps records in memory only.
     std::string state;
+    /// The most bytes one session exports to Photos in all (ADR-0057 step e); each file also has a size limit.
+    std::uint64_t export_bytes = std::uint64_t{4} << 30;
 };
 
 /// A closed-on-exit directory descriptor.
@@ -243,7 +245,8 @@ inline Version version_of(const std::string &content, const struct stat &info) {
 /// Reads a regular file below `dir` without following a link at its name.
 inline bool read_regular_at(const Dir &dir, const std::string &name, std::string &content, Version &version,
                             int *error = nullptr) {
-    const int fd = ::openat(dir.fd(), name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    // O_NONBLOCK: a FIFO the app made in place of the file must not hold the host (an open would wait for a writer).
+    const int fd = ::openat(dir.fd(), name.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
         if (error != nullptr) *error = errno;
         return false;
@@ -595,10 +598,116 @@ private:
     unsigned sequence_ = 0;
 };
 
+/// A file taken for the export to Photos (Host::export_begin): its descriptor, kept until the copy is made. On the
+/// iPhone the host gives Photos only a copy it made in a folder of its own from this descriptor, never the guest's
+/// path, which the app could swap for a link meanwhile.
+class ExportJob {
+public:
+    ExportJob() = default;
+    ExportJob(int source, std::string name, off_t size) : source_(source), name_(std::move(name)), size_(size) {}
+    ExportJob(ExportJob &&other) noexcept
+        : source_(other.source_), name_(std::move(other.name_)), size_(other.size_) {
+        other.source_ = -1;
+    }
+    ExportJob &operator=(ExportJob &&other) noexcept {
+        if (this != &other) {
+            reset();
+            source_ = other.source_;
+            name_ = std::move(other.name_);
+            size_ = other.size_;
+            other.source_ = -1;
+        }
+        return *this;
+    }
+    ExportJob(const ExportJob &) = delete;
+    ExportJob &operator=(const ExportJob &) = delete;
+    ~ExportJob() { reset(); }
+
+    bool ok() const { return source_ >= 0; }
+
+    /// Copies what the file had when it was taken (no more than its size then) into the folder `to`, under its name
+    /// made unique; a copy that fails leaves nothing. Ends the job.
+    bool run(const std::string &to) {
+        if (source_ < 0) return false;
+        const Dir destination = open_base(to);
+        std::string chosen;
+        const int fd = destination.ok() ? create_new(destination, plain_name(name_), chosen) : -1;
+        bool copied = fd >= 0;
+        char buffer[65536];
+        for (off_t left = size_; copied && left > 0;) {
+            const ssize_t got = ::read(source_, buffer, static_cast<std::size_t>(std::min<off_t>(left, sizeof buffer)));
+            if (got < 0 && errno == EINTR) continue;
+            copied = got > 0 && write_all(fd, buffer, static_cast<std::size_t>(got));
+            left -= got;
+        }
+        if (fd >= 0) ::close(fd);
+        if (!copied && fd >= 0) ::unlinkat(destination.fd(), chosen.c_str(), 0);  // no half a file in Photos
+        reset();
+        return copied;
+    }
+
+private:
+    void reset() {
+        if (source_ >= 0) ::close(source_);
+        source_ = -1;
+    }
+    int source_ = -1;
+    std::string name_;
+    off_t size_ = 0;
+};
+
 class Host {
 public:
     explicit Host(Config config)
         : config_(std::move(config)), write_back_(config_.download, config_.state) {}
+
+    /// The most files one session exports, the largest one, and (Config::export_bytes) the most bytes in all: an app
+    /// must not fill the storage or the library.
+    static constexpr int export_count_limit = 1000;
+    static constexpr off_t export_size_limit = off_t{1} << 30;
+
+    /// APKRT_REQUEST_EXPORT_MEDIA (ADR-0057 step e), the first part, which the request handler does at once: the file
+    /// at the text's path ("<kind>\t<path>" below the data folder) is taken by a descriptor, walked from the data
+    /// folder's descriptor with O_NOFOLLOW at every name, opened without blocking, a regular file with one link
+    /// within the limits.
+    /// The job then copies from that descriptor, never from the path again, when the handler is done (run).
+    ExportJob export_begin(const std::string &text) {
+        if (text.size() < 3 || (text[0] != '1' && text[0] != '2') || text[1] != '\t') return {};
+        std::vector<std::string> parts;
+        for (std::size_t from = 2;;) {
+            const std::size_t slash = text.find('/', from);
+            parts.push_back(text.substr(from, slash == std::string::npos ? std::string::npos : slash - from));
+            if (slash == std::string::npos) break;
+            from = slash + 1;
+        }
+        for (const std::string &part : parts) {
+            if (part.empty() || part == "." || part == ".." || parts.size() > 16) return {};
+        }
+        Dir dir = open_base(config_.data);
+        for (std::size_t i = 0; dir.ok() && i + 1 < parts.size(); ++i) {
+            dir = Dir(::openat(dir.fd(), parts[i].c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+        }
+        if (!dir.ok() || exports_ >= export_count_limit) return {};
+        // A file the app made can be a FIFO, endless or huge: opened without blocking, it must be a regular file.
+        const int source = ::openat(dir.fd(), parts.back().c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+        if (source < 0) return {};
+        struct stat info {};
+        if (::fstat(source, &info) != 0 || !S_ISREG(info.st_mode) || info.st_nlink != 1 ||
+            info.st_size > export_size_limit ||
+            export_bytes_ + static_cast<std::uint64_t>(info.st_size) > config_.export_bytes) {
+            ::close(source);
+            return {};
+        }
+        ++exports_;
+        export_bytes_ += static_cast<std::uint64_t>(info.st_size);
+        return ExportJob(source, parts.back(), info.st_size);
+    }
+
+    /// Both parts at once, for a caller that has no thread to spare: the file is copied into the folder `to`.
+    bool export_media(const std::string &text, const std::string &to) {
+        ExportJob job = export_begin(text);
+        return job.ok() && job.run(to);
+    }
 
     /// The records of the clones made from the user's files (kinds 1 and 2).
     WriteBack &write_back() { return write_back_; }
@@ -633,6 +742,8 @@ public:
 private:
     Config config_;
     WriteBack write_back_;
+    int exports_ = 0;
+    std::uint64_t export_bytes_ = 0;
     /// The clone's name of each file picked so far (per folder); the answers run one after the other in a session.
     std::map<std::string, std::string> clones_;
 

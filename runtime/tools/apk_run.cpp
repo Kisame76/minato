@@ -4,7 +4,7 @@
 //           [--cwd <guest path>] [--app-environment] [--env <name>=<value>]... [--argv0 <text>]
 //           [--configuration <width>x<height>@<scale>[,<language>[-<country>]]] [--lifecycle <step>[,<step>]...]
 //           [--pick-file <host file>]... [--pick-download <host directory>] [--pick-data <host directory>]
-//           [--pick-state <host directory>]
+//           [--pick-state <host directory>] [--export-dir <host directory>]
 //           [--pick-photo <host file>]...
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
@@ -128,7 +128,7 @@ int usage() {
                  "               [--configuration <width>x<height>@<scale>[,<language>[-<country>]]]\n"
                  "               [--lifecycle <step>[,<step>]...] [--pick-file <host file>]...\n"
                  "               [--pick-download <host directory>] [--pick-data <host directory>]\n"
-                 "               [--pick-state <host directory>]\n"
+                 "               [--pick-state <host directory>] [--export-dir <host directory>]\n"
                  "               [--pick-photo <host file>]...\n"
                  "               [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]\n"
                  "               [--measures <file>] <container.dylib> [argument...]\n"
@@ -241,6 +241,10 @@ struct {
 /// work is tools/pick_host.h's, which writes nothing through a link the app made (ADR-0057).
 pick_host::Config pick_config;
 
+/// --export-dir: where the model of the host's export to Photos copies what the app finished in MediaStore.
+std::string export_directory;
+std::atomic<int> exports_running{0};
+
 pick_host::Host &pick_host_of_run() {
     static pick_host::Host host(pick_config);
     return host;
@@ -254,6 +258,10 @@ std::int64_t now_ms() {
 /// The program ended: the edits the app made to the clones of the user's files reach the files (ADR-0057, write-back),
 /// as a host does at the end of a session.
 void write_back_at_end() {
+    // The copies for Photos that are still running finish first (a few seconds at most).
+    for (int i = 0; i < 500 && exports_running.load() != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     if (pick_config.files.empty() || pick_config.download.empty()) return;
     pick_host_of_run().write_back().end_session(now_ms());
 }
@@ -364,6 +372,22 @@ std::string one_line(const char *text) {
 }
 
 void on_request(void *, int type, std::uint64_t argument, const char *text) {
+    if (type == APKRT_REQUEST_EXPORT_MEDIA) {
+        // The model of the host's export to Photos (ADR-0057 step e): the handler only takes the file, a thread of its
+        // own copies it into --export-dir, so that the guest and the other requests are not held up.
+        const std::string request = text != nullptr ? text : "";
+        auto job = std::make_shared<pick_host::ExportJob>(pick_host_of_run().export_begin(request));
+        std::fprintf(stderr, "apk-run: export %s: %s\n", one_line(request.c_str()).c_str(),
+                     job->ok() && !export_directory.empty() ? "taken" : "refused");
+        if (job->ok() && !export_directory.empty()) {
+            exports_running.fetch_add(1);
+            std::thread([job] {
+                job->run(export_directory);
+                exports_running.fetch_sub(1);
+            }).detach();
+        }
+        return;
+    }
     if (type == APKRT_REQUEST_PICK) {
         std::fprintf(stderr, "apk-run: pick %llu: %s\n", static_cast<unsigned long long>(argument),
                      one_line(text != nullptr ? text : "").c_str());
@@ -725,6 +749,8 @@ int main(int argc, char **argv) {
             pick_config.data = value;
         } else if (option == "--pick-download") {
             pick_config.download = value;
+        } else if (option == "--export-dir") {
+            export_directory = value;
         } else if (option == "--pick-state") {
             pick_config.state = value;
         } else if (option == "--measures") {

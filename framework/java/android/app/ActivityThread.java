@@ -2439,6 +2439,18 @@ public final class ActivityThread {
         return nativeSessionRequestOpenCancel(id);
     }
 
+    /**
+     * @hide MediaLibrary's (ADR-0057 step e): a finished image (kind 1) or video (kind 2) at `path` below the app's data
+     * folder, for the host to add to Photos; no answer. 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestExportMedia(int kind, String path) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestExportMedia((kind + "\t" + path).getBytes(StandardCharsets.UTF_8));
+    }
+
     public static void requestWindowFormat(int format) {
         final ActivityThread thread = sCurrentActivityThread;
         if (thread == null || thread.mSessionEvents == null) {
@@ -2625,6 +2637,7 @@ public final class ActivityThread {
 
     /** APKRT_REQUEST_OPEN_CANCEL (ADR-0062). */
     private static native int nativeSessionRequestOpenCancel(long id);
+    private static native int nativeSessionRequestExportMedia(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,

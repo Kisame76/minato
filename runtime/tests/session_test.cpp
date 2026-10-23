@@ -106,7 +106,8 @@ void on_request(void *context, int type, std::uint64_t argument, const char *tex
         requests.push_back(
             {type, argument, text != nullptr ? text : "", text != nullptr, ::pthread_self(), runtime_signal_blocked()});
     }
-    if ((type == APKRT_REQUEST_PICK || type == APKRT_REQUEST_OPEN) && slow_pick.load()) {
+    if ((type == APKRT_REQUEST_PICK || type == APKRT_REQUEST_OPEN || type == APKRT_REQUEST_EXPORT_MEDIA) &&
+        slow_pick.load()) {
         if (pick_in_handler.fetch_add(1) != 0) pick_overlap.store(true);
         std::this_thread::sleep_for(30ms);
         pick_in_handler.fetch_sub(1);
@@ -783,6 +784,124 @@ std::string open_text(int kind, std::initializer_list<std::string_view> fields) 
     std::string text = std::to_string(kind);
     for (const auto field : fields) text += "\t" + open_field(field);
     return text;
+}
+
+// APKRT_REQUEST_EXPORT_MEDIA (ADR-0057 step e): a finished image or video, by its path below the app's data folder.
+// Like a pick, the text is the guest's and the host opens the path, so the runtime refuses every text outside the
+// limits.
+TEST(an_export_request_reaches_the_handler_with_its_text_and_no_id) {
+    take_requests();
+    static const char text[] = "1\t.minato/library/files/Pictures/Minato/shot.jpg";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, address(text), 0) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, address("2\tclip.mp4"), 0) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 2);
+    if (seen.size() != 2) return;
+    CHECK(seen[0].type == APKRT_REQUEST_EXPORT_MEDIA && seen[0].argument == 0 && seen[0].had_text);
+    CHECK(seen[0].text == text && seen[1].text == "2\tclip.mp4");
+    CHECK(seen[0].thread == ::pthread_self() && seen[0].runtime_signal_blocked);
+}
+
+TEST(a_malformed_or_oversized_export_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    const auto ask = [](const std::string &text, std::uint64_t second = 0) {
+        return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, address(text.c_str()), second);
+    };
+    const auto refused = [&](const std::string &text) { return ask(text) == -einval; };
+    const auto accepted = [&](const std::string &text) { return ask(text) == 0; };
+    std::string sixteen = "a";
+    for (int i = 1; i < 16; ++i) sixteen += "/a";
+    std::string longest = std::string(255, 'x');
+    for (int i = 0; i < 3; ++i) longest += "/" + std::string(255, 'y');
+    longest = longest.substr(0, 1024);
+    CHECK(accepted("1\tshot.jpg") && accepted("2\tclip.mp4") && accepted("1\t" + sixteen));
+    CHECK(accepted("1\t" + std::string(255, 'n')));                                  // the longest name
+    CHECK(accepted("1\t" + longest.substr(0, 255) + "/" + longest.substr(256, 255) + "/" + longest.substr(512, 255) +
+                   "/" + longest.substr(768, 200)));                                  // under 1024 bytes
+    CHECK(accepted("1\t\xC3\xA4\xE2\x82\xAC.jpg"));                                  // plain UTF-8
+    CHECK(refused("") && refused("1") && refused("1\t") && refused("\tshot.jpg"));    // fields missing
+    CHECK(refused("0\tshot.jpg") && refused("3\tshot.jpg") && refused("01\tshot.jpg") && refused("x\tshot.jpg"));
+    CHECK(refused("1 shot.jpg") && refused("1\tshot.jpg\t") && refused("1\ta\tb"));
+    CHECK(refused("1\t/shot.jpg") && refused("1\ta//b") && refused("1\ta/") && refused("1\t./a") &&
+          refused("1\ta/.") && refused("1\t../a") && refused("1\ta/../b") && refused("1\t.."));
+    CHECK(refused("1\t" + sixteen + "/a"));                                           // 17 components
+    CHECK(refused("1\t" + std::string(256, 'n')));                                    // a name over 255 bytes
+    CHECK(refused("1\t" + std::string(1025, 'a')));                                   // over 1024 bytes
+    CHECK(refused("1\t" + std::string(1500, 'a')));
+    CHECK(refused("1\t" + std::string(255, 'a') + "/" + std::string(255, 'b') + "/" + std::string(255, 'c') + "/" +
+                  std::string(255, 'd') + "/e"));                                     // names fine, 1025 bytes in all
+    CHECK(refused("1\ta\nb") && refused("1\ta\rb"));                    // line breaks in a name
+    CHECK(refused("1\ta\x01" "b") && refused("1\ta\x7F" "b") && refused("1\ta\xC2\x85" "b"));      // controls
+    CHECK(refused("1\ta\xE2\x80\x8D" "b") && refused("1\ta\xE2\x80\xAE" "b") && refused("1\ta\xEF\xBB\xBF" "b"));
+    CHECK(refused("1\ta\xFF" "b") && refused("1\ta\xC0\x80" "b") && refused("1\ta\xED\xA0\x80" "b"));  // not UTF-8
+    // The limit of the path itself: 1024 bytes are allowed, 1025 are not (five names, four slashes).
+    const std::string names4 = std::string(255, 'a') + "/" + std::string(255, 'b') + "/" + std::string(255, 'c') +
+                               "/" + std::string(254, 'd') + "/";
+    CHECK(accepted("1\t" + names4 + "e") && refused("1\t" + names4 + "ee"));
+    CHECK(refused("1\ta\xE0\x80\x80") && refused("1\ta\xF0\x80\x80\x80") && refused("1\ta\xF4\x90\x80\x80") &&
+          refused("1\ta\xC1\xBF") && refused("1\ta\xE2\x82") && refused("1\ta\xC3"));      // overlong, too high, cut
+    CHECK(refused("1\ta\xE2\x81\xA6" "b"));                                       // U+2066, a bidirectional isolate
+    CHECK(refused("1\t" + std::string(1535, 'z')));                           // 1537 bytes: no NUL within the limit
+    CHECK(ask("1\tshot.jpg", 1) == -einval);                                          // a1 is 0
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, 0, 0) == -efault);   // no text
+    CHECK(take_requests().size() == 7);                                               // only the accepted ones
+}
+
+TEST(an_export_text_ends_at_its_first_nul_and_nothing_after_it_reaches_the_host) {
+    take_requests();
+    static const char text[] = "1\tshot.jpg\0../../x";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, address(text), 0) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1 && seen[0].text == "1\tshot.jpg");
+}
+
+TEST(an_export_text_in_bad_guest_memory_is_efault_not_a_crash) {
+    take_requests();
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    std::memset(pages, 'a', page);                                      // no NUL anywhere in the readable page
+    CHECK(::munmap(reinterpret_cast<void *>(first + page), page) == 0);  // the second page is gone
+    for (const std::uint64_t text : {first + page, first + page - 8}) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, text, 0) == -efault);
+    }
+    ::munmap(pages, page);
+    CHECK(take_requests().empty());
+}
+
+TEST(export_requests_and_picks_from_many_threads_reach_the_handler_one_at_a_time) {
+    take_requests();
+    pick_in_handler.store(0);
+    pick_overlap.store(false);
+    slow_pick.store(true);
+    static const char open[] = "1\t0\t0\t\t";
+    std::atomic<int> exported{0}, picked{0};
+    std::vector<std::thread> guests;
+    for (int t = 0; t < 3; ++t) {
+        guests.emplace_back([&, t] {
+            for (int i = 0; i < 4; ++i) {
+                const std::string text = "1\tfile-" + std::to_string(t) + "-" + std::to_string(i) + ".jpg";
+                if (call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_EXPORT_MEDIA, address(text.c_str()), 0) == 0) {
+                    exported.fetch_add(1);
+                }
+            }
+        });
+    }
+    for (std::uint64_t id = 41; id < 43; ++id) {
+        guests.emplace_back([&, id] {
+            if (call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(open), id) == 0) picked.fetch_add(1);
+        });
+    }
+    for (auto &guest : guests) guest.join();
+    slow_pick.store(false);
+    CHECK(exported.load() == 12 && picked.load() == 2);                 // no table, no limit of waiting requests
+    CHECK(!pick_overlap.load());                                        // no two requests were in the handler at once
+    CHECK(take_requests().size() == 14);
+    for (std::uint64_t id = 41; id < 43; ++id) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, id) == 0);
+    }
+    take_requests();
 }
 
 TEST(an_open_request_reaches_the_handler_with_its_id_and_text) {

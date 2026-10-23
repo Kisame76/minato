@@ -405,6 +405,146 @@ TEST(the_host_tracks_the_clones_it_makes_and_writes_them_back_at_the_session_end
     CHECK(host.documents(2, false, count) && read_text(layout.download + "/known.txt") == "edited\n");  // same clone
 }
 
+// ---- The export of a finished image or video to Photos (ADR-0057 step e), here a copy into a folder ----------------
+
+TEST(a_finished_image_below_the_data_folder_is_exported_by_its_path) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    make_dir(layout.data + "/.minato/library");
+    make_dir(layout.data + "/.minato/library/files");
+    write_file(layout.data + "/.minato/library/files/shot.jpg", "pixels");
+    ph::Config config = layout.config();
+    ph::Host host(config);
+    CHECK(host.export_media("1\t.minato/library/files/shot.jpg", target));
+    CHECK(read_text(target + "/shot.jpg") == "pixels");
+    CHECK(host.export_media("2\t.minato/library/files/shot.jpg", target));        // a second one gets another name
+    CHECK(names(target) == (std::vector<std::string>{"shot (1).jpg", "shot.jpg"}));
+    CHECK(!host.export_media("1\t.minato/library/files/missing.jpg", target));
+    CHECK(!host.export_media("1\t.minato/library", target));                         // a folder
+    CHECK(!host.export_media("3\t.minato/library/files/shot.jpg", target));          // not a kind
+    write_file(layout.outside + "/secret.jpg", "secret");                           // root/outside, beside the data folder
+    CHECK(!host.export_media("1\t../outside/secret.jpg", target));                  // only the ".." check stops this
+    CHECK(names(target).size() == 2);
+}
+
+TEST(an_export_does_not_follow_a_link_the_app_made_in_the_path) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    write_file(layout.outside + "/secret.jpg", "secret");
+    make_dir(layout.data + "/.minato");
+    ::symlink(layout.outside.c_str(), (layout.data + "/.minato/library").c_str());          // a folder that is a link
+    ph::Host host(layout.config());
+    CHECK(!host.export_media("1\t.minato/library/secret.jpg", target));
+    ::unlink((layout.data + "/.minato/library").c_str());
+    make_dir(layout.data + "/.minato/library");
+    ::symlink((layout.outside + "/secret.jpg").c_str(), (layout.data + "/.minato/library/shot.jpg").c_str());
+    CHECK(!host.export_media("1\t.minato/library/shot.jpg", target));                        // a file that is a link
+    CHECK(names(target).empty());
+}
+
+TEST(an_export_refuses_a_file_with_more_than_one_link) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    write_file(layout.data + "/.minato/a.jpg", "picture");
+    ph::Host host(layout.config());
+    CHECK(host.export_media("1\t.minato/a.jpg", target));                                    // one link: taken
+    ::link((layout.data + "/.minato/a.jpg").c_str(), (layout.data + "/.minato/b.jpg").c_str());
+    CHECK(!host.export_media("1\t.minato/a.jpg", target));                                   // two links: refused
+    CHECK(!host.export_media("1\t.minato/b.jpg", target));
+    CHECK(names(target).size() == 1);
+}
+
+TEST(an_export_never_blocks_on_a_fifo_nor_copies_a_huge_file_nor_leaves_a_partial_one) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    CHECK(::mkfifo((layout.data + "/.minato/pipe.jpg").c_str(), 0600) == 0);
+    const int big = ::open((layout.data + "/.minato/big.mp4").c_str(), O_CREAT | O_WRONLY, 0600);
+    CHECK(big >= 0 && ::ftruncate(big, std::int64_t{2} << 30) == 0);                          // 2 GiB, sparse
+    ::close(big);
+    write_file(layout.data + "/.minato/small.jpg", "ok");
+    ph::Host host(layout.config());
+    ::alarm(20);                                                                              // a hang fails the test
+    CHECK(!host.export_media("1\t.minato/pipe.jpg", target));
+    CHECK(!host.export_media("2\t.minato/big.mp4", target));
+    ::alarm(0);
+    CHECK(names(target).empty());
+    CHECK(host.export_media("1\t.minato/small.jpg", target) && names(target) == std::vector<std::string>{"small.jpg"});
+}
+
+TEST(the_host_takes_the_file_at_once_and_copies_it_after_the_handler_returned) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    write_file(layout.data + "/.minato/a.jpg", "abcdef");
+    ph::Host host(layout.config());
+    auto job = host.export_begin("1\t.minato/a.jpg");
+    CHECK(job.ok() && names(target).empty());                                     // nothing is copied yet
+    ::unlink((layout.data + "/.minato/a.jpg").c_str());                           // the app swaps the file meanwhile
+    write_file(layout.data + "/.minato/a.jpg", "other!");
+    CHECK(job.run(target) && read_text(target + "/a.jpg") == "abcdef");           // the copy is of the file taken
+}
+
+TEST(a_copy_that_fails_halfway_leaves_nothing_behind) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    write_file(layout.data + "/.minato/a.jpg", std::string(100000, 'x'));
+    ph::Host host(layout.config());
+    auto job = host.export_begin("1\t.minato/a.jpg");
+    CHECK(job.ok());
+    CHECK(::truncate((layout.data + "/.minato/a.jpg").c_str(), 70000) == 0);       // the file shrinks under the copy
+    CHECK(!job.run(target));
+    CHECK(names(target).empty());                                                  // no half a file
+}
+
+TEST(a_session_exports_at_most_its_budget_of_bytes) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    write_file(layout.data + "/.minato/a.jpg", std::string(60, 'a'));
+    ph::Config config = layout.config();
+    config.export_bytes = 100;
+    ph::Host host(config);
+    CHECK(host.export_media("1\t.minato/a.jpg", target));                          // 60 of 100
+    CHECK(!host.export_media("1\t.minato/a.jpg", target));                         // 120 would be over
+    write_file(layout.data + "/.minato/b.jpg", std::string(40, 'b'));
+    CHECK(host.export_media("1\t.minato/b.jpg", target));                          // exactly 100
+    CHECK(names(target).size() == 2);
+}
+
+TEST(a_session_exports_at_most_a_thousand_files) {
+    Layout layout;
+    const std::string target = layout.root + "/photos";
+    make_dir(target);
+    make_dir(layout.data + "/.minato");
+    write_file(layout.data + "/.minato/a.jpg", "a");
+    ph::Host host(layout.config());
+    int copied = 0;
+    for (int i = 0; i < 1100; ++i) copied += host.export_media("1\t.minato/a.jpg", target) ? 1 : 0;
+    CHECK(copied == 1000);
+}
+
+TEST(a_clone_the_app_replaced_by_a_fifo_is_a_conflict_not_a_hang) {
+    Tracked t;
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    CHECK(::mkfifo((t.layout.download + "/known.txt").c_str(), 0600) == 0);
+    t.write_back.closed("known.txt", 0);
+    ::alarm(20);
+    t.write_back.end_session(5000);
+    ::alarm(0);
+    CHECK(t.known() == "hello\n" && !t.write_back.removable("known.txt"));
+}
+
 }  // namespace
 
 int main() { return apk::testing::run_all(); }
