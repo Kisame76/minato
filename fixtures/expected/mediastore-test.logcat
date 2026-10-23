@@ -1,0 +1,35 @@
+I/mediastore-test: collection: content://media/external/images/media
+I/mediastore-test: volumes: [external_primary]
+I/mediastore-test: insert: content://media/external/images/media/<id>
+I/mediastore-test: pending row: name=shot.jpg title=.pending-<time>-shot type=image/jpeg path=Pictures/Minato/ pending=1 size=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=false filesize=0
+I/mediastore-test: pending: wrote 2000
+I/mediastore-test: written row: name=shot.jpg title=.pending-<time>-shot type=image/jpeg path=Pictures/Minato/ pending=1 size=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=true filesize=2000
+I/mediastore-test: finish: 1
+I/mediastore-test: finished row: name=shot.jpg title=shot type=image/jpeg path=Pictures/Minato/ pending=0 size=2000 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=true filesize=2000
+I/mediastore-test: read: 2000 6f4b7917eee3eaed expected 6f4b7917eee3eaed
+I/mediastore-test: collection query: 1
+I/mediastore-test: second insert: content://media/external/images/media/<id>
+I/mediastore-test: second: wrote 500
+I/mediastore-test: second row: name=shot (1).jpg title=shot (1) type=image/jpeg path=Pictures/Minato/ pending=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=true filesize=500
+I/mediastore-test: audio insert: content://media/external/audio/media/<id>
+I/mediastore-test: audio row: name=tune.mp3 title=tune type=audio/mpeg path=Music/Minato/ pending=0 size=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=false filesize=0
+I/mediastore-test: bad folder: java.lang.IllegalArgumentException: Primary directory Documents not allowed for content://media/external/images/media; allowed directories are [DCIM, Pictures]
+I/mediastore-test: folder video Music/x: java.lang.IllegalArgumentException: Primary directory Music not allowed for content://media/external/video/media; allowed directories are [DCIM, Movies, Pictures]
+I/mediastore-test: folder audio Pictures/x: java.lang.IllegalArgumentException: Primary directory Pictures not allowed for content://media/external/audio/media; allowed directories are [Alarms, Audiobooks, Music, Notifications, Podcasts, Recordings, Ringtones]
+I/mediastore-test: folder audio : content://media/external/audio/media/<id>
+I/mediastore-test: folder row: name=probe.bin.mp3 title=probe.bin type=audio/mpeg path=Music/ pending=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=false filesize=0
+I/mediastore-test: folder images DCIM/x: content://media/external/images/media/<id>
+I/mediastore-test: folder row: name=probe.bin.jpg title=probe.bin type=image/jpeg path=DCIM/x/ pending=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=false filesize=0
+I/mediastore-test: no name: content://media/external/images/media/<id>
+I/mediastore-test: no name row: name=<time>.jpg title=<time> type=image/jpeg path=Pictures/ pending=0 size=0 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=false filesize=0
+I/mediastore-test: no name delete: 1
+I/mediastore-test: insertImage: content://media/external/images/media/<id>
+I/mediastore-test: legacy row: name=legacy.jpg title=legacy type=image/jpeg path=Pictures/ pending=0 size=759 owner=io.github.kisame76.minato.test.mediastore volume=external_primary added=true file=true filesize=759
+I/mediastore-test: legacy delete: 1
+I/mediastore-test: delete first: 1
+I/mediastore-test: deleted row: no row
+I/mediastore-test: delete audio: 1
+I/mediastore-test: second size later: 500
+I/mediastore-test: delete second: 1
+I/mediastore-test: delete again: java.lang.SecurityException
+I/mediastore-test: done

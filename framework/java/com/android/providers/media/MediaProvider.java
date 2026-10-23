@@ -11,10 +11,9 @@
  * Departures: _data is the clone's real path in the app's data folder, where Android's is a synthetic path below
  * /sdcard/.transforms that the app's file access reaches through its FUSE daemon (the real path opens; the synthetic
  * one does not here); a column that the picker does not have is refused with an IllegalArgumentException, which
- * Android's behavior for it is not measured. Every other URI of "media" is answered as when there was no provider
- * for "media": a query gives null, an insert, update, delete or call an IllegalArgumentException, an open a
- * FileNotFoundException; the MediaStore provider comes with step e. Not under com.android.minato, whose classes
- * tools/framework-host-check.sh compiles without android.*.
+ * Android's behavior for it is not measured. Every other URI of "media" is the app's own media (step e), MediaLibrary;
+ * a call is an IllegalArgumentException. Not under com.android.minato, whose classes tools/framework-host-check.sh
+ * compiles without android.*.
  */
 package com.android.providers.media;
 
@@ -41,9 +40,19 @@ public final class MediaProvider extends ContentProvider {
     private static final String[] ALL_COLUMNS = {"duration", "orientation", "height", "_display_name", "datetaken",
         "mime_type", "_data", "_size", "width"};
 
+    private MediaLibrary mLibrary;
+
     @Override
     public boolean onCreate() {
         return true;
+    }
+
+    /** The app's own media: the rows its inserts made (step e). */
+    private synchronized MediaLibrary library() {
+        if (mLibrary == null) {
+            mLibrary = new MediaLibrary(getContext());
+        }
+        return mLibrary;
     }
 
     /** The photo's ID when `uri` is a picker URI of the photo picker, else -1. */
@@ -72,7 +81,7 @@ public final class MediaProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
         if (pickerId(uri) < 0) {
-            return null;
+            return library().query(uri, projection, selection, selectionArgs, sortOrder);
         }
         enforceRead(uri);
         final String[] columns = projection != null ? projection : ALL_COLUMNS;
@@ -119,7 +128,10 @@ public final class MediaProvider extends ContentProvider {
     @Override
     public String getType(Uri uri) {
         final long id = pickerId(uri);
-        final PhotoManifest.Item item = id < 0 ? null : UriGrants.photos().get(id);
+        if (id < 0) {
+            return library().getType(uri);
+        }
+        final PhotoManifest.Item item = UriGrants.photos().get(id);
         return item == null ? null : item.mimeType();
     }
 
@@ -127,7 +139,7 @@ public final class MediaProvider extends ContentProvider {
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         final long id = pickerId(uri);
         if (id < 0) {
-            throw new FileNotFoundException("No content provider: " + uri);
+            return library().open(uri, mode);
         }
         enforceRead(uri);
         if (!mode.equals("r")) {
@@ -144,17 +156,17 @@ public final class MediaProvider extends ContentProvider {
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        throw new IllegalArgumentException("Unknown URL " + uri);
+        return library().insert(uri, values);
     }
 
     @Override
     public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) {
-        throw new IllegalArgumentException("Unknown URL " + uri);
+        return library().update(uri, values, selection, selectionArgs);
     }
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        throw new IllegalArgumentException("Unknown URL " + uri);
+        return library().delete(uri, selection, selectionArgs);
     }
 
     @Override

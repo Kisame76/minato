@@ -68,7 +68,6 @@ android.database.BulkCursorToCursorAdaptor <- android.content.ContentProviderPro
 android.content.PermissionChecker <- android.content.ContentProvider  # stays: a provider's permission checks for another app, which never calls the app's providers on Minato
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.provider.MediaStore <- android.content.Intent  # gap: MediaStore, as Minato has no MediaProvider
 android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
 android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
 android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)

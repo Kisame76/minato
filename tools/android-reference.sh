@@ -617,6 +617,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PhotosActivity
       limit=120
       ;;
+    # mediastore-test (ADR-0057 step e): its activity inserts, writes, finishes and deletes media in MediaStore and ends
+    # with "done"; nothing to push or tap.
+    mediastore-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MediaStoreActivity
+      limit=90
+      ;;
     # saves-test (ADR-0057 step d): its activity saves note.txt with CREATE_DOCUMENT, opens the folder treetest with
     # OPEN_DOCUMENT_TREE, works with the provider's calls and ends with "done"; the script has treetest (a.txt, b.txt)
     # in Download and taps DocumentsUI by the texts on its screen (tools/ui-pick.py).

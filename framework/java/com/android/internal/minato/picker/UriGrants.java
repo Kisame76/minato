@@ -54,7 +54,7 @@ public final class UriGrants {
     }
 
     /** The app's .minato folder, null while there is no application. */
-    static File folder() {
+    public static File folder() {
         if (sFolder == null) {
             final Application application = ActivityThread.currentApplication();
             if (application == null) {

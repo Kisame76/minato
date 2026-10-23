@@ -681,6 +681,18 @@
       "digest": "c12dff6542d2515bb7bde9749f3937f62befba4c870ad74fb127118418f4a0bc"
     },
     {
+      "name": "media_provider_module",
+      "project": "platform/packages/providers/MediaProvider",
+      "commit": "8a53c6d378a9c6ff61ef751d260a1281985b93fe",
+      "license": "Apache-2.0",
+      "files": [
+        "apex/framework/java/android/provider/CloudMediaProviderContract.java",
+        "apex/framework/java/android/provider/Column.java",
+        "apex/framework/java/android/provider/MediaStore.java"
+      ],
+      "digest": "aa0671a20efec167a445ea2049956fccee3ebfa8e2272aef7bf3087d3008f894"
+    },
+    {
       "name": "mime_map",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

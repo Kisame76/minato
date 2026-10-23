@@ -930,6 +930,10 @@ frameworks_base/core/java/android/database/MatrixCursor.java
 frameworks_base/core/java/android/database/Observable.java
 frameworks_base/core/java/android/database/SQLException.java
 frameworks_base/core/java/android/provider/BaseColumns.java
+# ADR-0057 step e: the contract of the library's provider (authority media), with the two files it names.
+media_provider_module/apex/framework/java/android/provider/CloudMediaProviderContract.java
+media_provider_module/apex/framework/java/android/provider/Column.java
+media_provider_module/apex/framework/java/android/provider/MediaStore.java
 frameworks_base/core/java/android/os/RemoteCallback.java
 frameworks_base/core/java/android/os/ICancellationSignal.aidl
 
