@@ -158,8 +158,8 @@ enum apkrt_event_type {
                                           // int in the low bits); a2 the number of picks, whose details the host wrote
                                           // to the manifest before it posted this. The picks of a document request
                                           // (kinds 1 and 2, ADR-0057 step b): the host clones each file into the
-                                          // folder the guest sees as /storage/emulated/0/Download, under a name no
-                                          // file there has, and writes the manifest, the file ".minato/picks/<ID in
+                                          // folder the guest sees as /storage/emulated/0/Download (CLONE NAMES:
+                                          // see below), and writes the manifest, the file ".minato/picks/<ID in
                                           // decimal>" below the app's data folder (ApplicationInfo.dataDir): UTF-8,
                                           // the clones' names, one per line, each line ended by "\n"; a name is 1 to
                                           // 255 bytes, without "/", NUL, control, separator or formatting characters,
@@ -190,7 +190,27 @@ enum apkrt_event_type {
                                           // since 1970 and orientation (0, 90, 180 or 270), tab-separated, decimal
                                           // without leading zeros; the name's extension (jpg, jpeg, png, gif, webp,
                                           // bmp, mp4, webm, 3gp) says the MIME type. The host makes JPEG and MP4 of
-                                          // what the user picked, as iOS has no HEIF decoder in the guest
+                                          // what the user picked, as iOS has no HEIF decoder in the guest;
+                                          // CLONE NAMES (kinds 1, 2 and 5 alike): the host makes every clone as a
+                                          // new file with O_EXCL, so a clone is never written over a file that was
+                                          // there, and takes the first name of the plain one and its "<name> (<n>)"
+                                          // forms that is free at that moment. The one exception: a file the user
+                                          // picks again gets the clone of the earlier pick back, as long as that is
+                                          // still a regular file of that name in the same folder (the same document
+                                          // as on Android); a clone the app removed or replaced by a folder or link
+                                          // is made anew. A name is therefore new unless it is the same document.
+                                          // The picks of a save or a folder request (kinds 3 and 4, step d): a2 is 1
+                                          // and the manifest is ONE line, a path relative to /storage/emulated/0 with
+                                          // plain names between single "/", no "." or ".." component, at most 1024
+                                          // bytes and 16 components, no leading "/". Kind 3: the host made the file
+                                          // there itself (O_EXCL through the descriptor of the folder the user
+                                          // chose, never over an existing file), its name the request's title made
+                                          // plain by the rule above, numbered when busy, so that the title is
+                                          // FAT-valid (Android's buildValidFatFilename). Kind 4: the folder the user
+                                          // chose, which the host has mounted into the guest (apkrt_mount_live) at
+                                          // that path. The host remembers what the user chose (security-scoped
+                                          // bookmarks) in ITS OWN data and never in anything the guest can write:
+                                          // not the app's data folder, not uri-grants
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the

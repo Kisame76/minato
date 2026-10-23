@@ -146,6 +146,7 @@ public final class SystemPickerActivity extends Activity {
             final File clone = new File(ExternalStorage.DOWNLOAD, name);
             if (!clone.isFile()) {
                 Log.w(TAG, "The clone " + name + " of pick " + mId + " is no file in Download");
+                UriGrants.cloned(names);
                 return null;
             }
             uris.add(DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_AUTHORITY, "primary:Download/" + name));

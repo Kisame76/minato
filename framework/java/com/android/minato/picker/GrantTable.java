@@ -18,6 +18,8 @@ public final class GrantTable {
     /** Intent's FLAG_GRANT_READ_URI_PERMISSION, FLAG_GRANT_WRITE_URI_PERMISSION, ...PERSISTABLE... and ...PREFIX.... */
     public static final int READ = 1, WRITE = 2, PERSISTABLE = 0x40, PREFIX = 0x80;
     private static final int MODES = READ | WRITE;
+    /** Android's UriGrantsManagerService.MAX_PERSISTED_URI_GRANTS: the most kept grants an app has. */
+    public static final int MAX_PERSISTED = 512;
     /** In the stored text the modes come with this bit when the grant covers the URIs below its own. */
     private static final int STORED_PREFIX = 4;
 
@@ -101,6 +103,29 @@ public final class GrantTable {
         return false;
     }
 
+    /**
+     * Keeps at most `max` kept grants: the oldest by persisted time lose their kept modes (Android's
+     * maybePrunePersistedUriGrantsLocked), and a grant with nothing but those modes goes.
+     */
+    public synchronized void trim(int max) {
+        final List<Map.Entry<String, Grant>> kept = new ArrayList<>();
+        for (final Map.Entry<String, Grant> entry : mGrants.entrySet()) {
+            if (entry.getValue().kept != 0) {
+                kept.add(entry);
+            }
+        }
+        kept.sort((a, b) -> Long.compare(a.getValue().time, b.getValue().time));
+        for (int i = 0; i < kept.size() - max; i++) {
+            final Grant grant = kept.get(i).getValue();
+            final boolean ownedOnlyByKeeping = (grant.flags & MODES & ~grant.kept) == 0;
+            grant.kept = 0;
+            grant.time = 0;
+            if (ownedOnlyByKeeping) {
+                mGrants.remove(kept.get(i).getKey());
+            }
+        }
+    }
+
     /** The kept grants, in the order they were made. */
     public synchronized List<Entry> persisted() {
         final List<Entry> kept = new ArrayList<>();
@@ -144,6 +169,7 @@ public final class GrantTable {
             grant.time = Long.parseLong(field[0]);
             table.mGrants.put(field[2], grant);
         }
+        table.trim(MAX_PERSISTED);
         return table;
     }
 }

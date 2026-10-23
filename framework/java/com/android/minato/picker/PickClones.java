@@ -38,6 +38,49 @@ public final class PickClones {
                 StandardOpenOption.APPEND);
     }
 
+    /**
+     * Deletes the manifests in `picks` that nobody read (the answer was refused, or came late, or the process ended
+     * first) and lists the clone names they hold in `list`, for dropUnkept to delete unless a grant keeps them.
+     */
+    public static void sweepPicks(File picks, File list) throws IOException {
+        final File[] files = picks.listFiles();
+        if (files == null) {
+            return;
+        }
+        final Set<String> names = new LinkedHashSet<>();
+        for (final File file : files) {
+            if (file.isDirectory() && !Files.isSymbolicLink(file.toPath())) {
+                continue;
+            }
+            if (!Files.isSymbolicLink(file.toPath()) && file.isFile() && file.length() <= PickManifest.MAX_BYTES) {
+                for (final String name : new String(Files.readAllBytes(file.toPath()),
+                        StandardCharsets.UTF_8).split("\n")) {
+                    if (PickManifest.plainName(name)) {
+                        names.add(name);
+                    }
+                }
+            }
+            file.delete();
+        }
+        if (!names.isEmpty()) {
+            add(list, new java.util.ArrayList<>(names));
+        }
+    }
+
+    /** Deletes the regular files in `folder` whose names are not in `keep`: the photo clones no index names. */
+    public static void dropStrays(File folder, Set<String> keep) {
+        final File[] files = folder.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (final File file : files) {
+            if (PickManifest.plainName(file.getName()) && !keep.contains(file.getName())
+                    && !Files.isSymbolicLink(file.toPath()) && file.isFile()) {
+                file.delete();
+            }
+        }
+    }
+
     /** Deletes the listed clones in `download` that are not in `keep`, and rewrites the list with those that are. */
     public static void dropUnkept(File download, File list, Set<String> keep) throws IOException {
         if (Files.isSymbolicLink(list.toPath()) || !list.isFile()) {

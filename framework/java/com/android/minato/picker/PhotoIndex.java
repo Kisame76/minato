@@ -19,7 +19,8 @@ public final class PhotoIndex {
     private final Map<Long, PhotoManifest.Item> mItems = new LinkedHashMap<>();
     private long mNext = FIRST_ID;
 
-    /** Adds `item`, the ID it gets; a clone that is in the index already keeps its ID, as a photo has one ID. */
+    /** Adds `item`, the ID it gets; a clone that is in the index already keeps its ID, as a photo has one ID. The next ID is stored too, so
+     * that the ID of a dropped photo is never given again. */
     public synchronized long add(PhotoManifest.Item item) {
         for (final Map.Entry<Long, PhotoManifest.Item> entry : mItems.entrySet()) {
             if (entry.getValue().name.equals(item.name)) {
@@ -54,7 +55,7 @@ public final class PhotoIndex {
     }
 
     public synchronized String serialize() {
-        final StringBuilder text = new StringBuilder();
+        final StringBuilder text = new StringBuilder("next\t").append(mNext).append('\n');
         for (final Map.Entry<Long, PhotoManifest.Item> entry : mItems.entrySet()) {
             final PhotoManifest.Item item = entry.getValue();
             text.append(entry.getKey()).append('\t').append(item.name).append('\t').append(item.width).append('\t')
@@ -69,6 +70,13 @@ public final class PhotoIndex {
         final PhotoIndex index = new PhotoIndex();
         final Set<String> names = new java.util.HashSet<>();
         for (final String line : text.split("\n", -1)) {
+            if (line.startsWith("next\t")) {
+                final String value = line.substring(5);
+                if (value.matches("[0-9]{10,18}") && Long.parseLong(value) > FIRST_ID) {
+                    index.mNext = Math.max(index.mNext, Long.parseLong(value));
+                }
+                continue;
+            }
             final int tab = line.indexOf('\t');
             if (tab < 1 || !line.substring(0, tab).matches("[0-9]{10,18}")) {
                 continue;
