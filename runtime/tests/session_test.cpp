@@ -26,8 +26,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <new>
 #include <string>
 #include <thread>
 #include <utility>
@@ -40,7 +42,7 @@ using namespace std::chrono_literals;
 // Linux: include/uapi/asm-generic/unistd.h, fcntl.h, errno.h.
 constexpr std::uint64_t nr_fcntl = 25, nr_read = 63;
 constexpr std::uint64_t f_getfd = 1, f_setfl = 4, fd_cloexec = 1, o_nonblock = 04000;
-constexpr long enoent = 2, eagain = 11, efault = 14, ebusy = 16, eexist = 17, einval = 22, enospc = 28,
+constexpr long enoent = 2, eagain = 11, enomem = 12, efault = 14, ebusy = 16, eexist = 17, einval = 22, enospc = 28,
                eopnotsupp = 95;
 
 template <typename T>
@@ -99,7 +101,44 @@ std::atomic<bool> pick_waits_for_post{false}, pick_posted{false}, pick_saw_post{
 // An OPEN handler that answers at once, inside the handler.
 std::atomic<bool> open_answers_at_once{false};
 
+// The allocations a thread may still make before the next one fails with std::bad_alloc, -1 for no limit: the
+// requests' checks run inside the extern "C" dispatch, which must answer -ENOMEM rather than let an exception out.
+thread_local long allocations_left = -1;
+
+/// Lifts the limit for as long as it lives, for the test's own handler.
+struct Unlimited {
+    long saved = std::exchange(allocations_left, -1L);
+    ~Unlimited() { allocations_left = saved; }
+};
+
+}  // namespace
+
+void *operator new(std::size_t size) {
+    if (allocations_left == 0) throw std::bad_alloc();
+    if (allocations_left > 0) --allocations_left;
+    if (void *memory = std::malloc(size == 0 ? 1 : size)) return memory;
+    throw std::bad_alloc();
+}
+void *operator new[](std::size_t size) { return ::operator new(size); }
+void *operator new(std::size_t size, const std::nothrow_t &) noexcept {
+    try {
+        return ::operator new(size);
+    } catch (const std::bad_alloc &) {
+        return nullptr;
+    }
+}
+void *operator new[](std::size_t size, const std::nothrow_t &tag) noexcept { return ::operator new(size, tag); }
+void operator delete(void *memory) noexcept { std::free(memory); }
+void operator delete[](void *memory) noexcept { std::free(memory); }
+void operator delete(void *memory, std::size_t) noexcept { std::free(memory); }
+void operator delete[](void *memory, std::size_t) noexcept { std::free(memory); }
+void operator delete(void *memory, const std::nothrow_t &) noexcept { std::free(memory); }
+void operator delete[](void *memory, const std::nothrow_t &) noexcept { std::free(memory); }
+
+namespace {
+
 void on_request(void *context, int type, std::uint64_t argument, const char *text) {
+    const Unlimited unlimited;
     CHECK(context == &requests);
     {
         const std::lock_guard<std::mutex> hold(requests_lock);
@@ -1045,22 +1084,25 @@ TEST(a_malformed_or_oversized_open_request_is_refused_before_the_host_sees_it) {
     CHECK(refused(open_text(4, {std::string(1001, 's'), "", "0"})));
     CHECK(refused(open_text(4, {"", std::string(65537, 't'), "0"})));
     // The names.
-    for (const std::string &name : std::initializer_list<std::string>{"", ".", "..", "a/b", "/", "a\nb", "a\tb", "a\x7f", "a\xc2\x85", "a\xe2\x80\xae",
-                                   "a\xe2\x80\x8b", "a\xef\xbb\xbf", std::string(256, 'n')}) {
+    for (const std::string &name :
+         std::initializer_list<std::string>{"", ".", "..", "a/b", "/", "a\nb", "a\tb", "a\x7f", "a\xc2\x85",
+                                            "a\xe2\x80\xae", "a\xe2\x80\x8b", "a\xef\xbb\xbf", std::string(256, 'n')}) {
         CHECK(refused(open_text(4, {"", "", "1", name, "image/png"})));
     }
     CHECK(refused(open_text(4, {"", "", "2", "a.png", "a.png", "image/png", "image/png"})));  // a name twice
     CHECK(refused(open_text(4, {"", "", "3", "a.png", "b.png", "a.png", "image/png", "image/png", "image/png"})));
     // A name may have U+0020, but no other space and no format character.
-    for (const std::string bad : {"\xc2\xa0", "\xe3\x80\x80", "\xc2\xad", "\xd8\x9c", "\xf3\xa0\x80\x81", "\xe0\xa2\x90"}) {
+    for (const std::string bad :
+         {"\xc2\xa0", "\xe3\x80\x80", "\xc2\xad", "\xd8\x9c", "\xf3\xa0\x80\x81", "\xe0\xa2\x90"}) {
         CHECK(refused(open_text(4, {"", "", "1", "a" + bad + ".png", "image/png"})));
     }
     // 25 fields: a share of ten files and a field more.
     CHECK(refused(open_text(4, {"", "", "10", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "a/a", "a/a", "a/a",
                                 "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a", "a/a"})));
     // The MIME types.
-    for (const std::string &type : std::initializer_list<std::string>{"", "image", "image/", "/png", "image/png/x", "image/p ng", "image/p;ng",
-                                   "image/p\xc3\xa4ng", std::string(50, 'a') + "/" + std::string(50, 'b')}) {
+    for (const std::string &type :
+         std::initializer_list<std::string>{"", "image", "image/", "/png", "image/png/x", "image/p ng", "image/p;ng",
+                                            "image/p\xc3\xa4ng", std::string(50, 'a') + "/" + std::string(50, 'b')}) {
         CHECK(refused(open_text(4, {"", "", "1", "a.png", type})));
     }
     take_requests();
@@ -1127,9 +1169,16 @@ TEST(an_open_text_in_bad_guest_memory_is_efault_not_a_crash) {
     std::memcpy(reinterpret_cast<void *>(first + page - view.size() - 1), view.c_str(), view.size() + 1);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, first + page - view.size() - 1, 1) == 0);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 1) == 0);
+    // So are a PICK's and a START_FAILED's, read in pieces that end at the page's end.
+    static const char pick[] = "1\t0\t0\t\t";
+    std::memcpy(reinterpret_cast<void *>(first + page - sizeof pick), pick, sizeof pick);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, first + page - sizeof pick, 1) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 1) == 0);
+    std::memcpy(reinterpret_cast<void *>(first + page - 2), "x", 2);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_START_FAILED, first + page - 2) == 0);
     ::munmap(pages, page);
     const auto seen = take_requests();
-    CHECK(seen.size() == 2 && seen[0].text == view);
+    CHECK(seen.size() == 5 && seen[0].text == view && seen[2].text == pick && seen[4].text == "x");
 }
 
 TEST(open_requests_wait_for_their_answer_four_at_most_each_with_its_own_id) {
@@ -1202,6 +1251,90 @@ TEST(open_requests_from_many_threads_reach_the_handler_one_at_a_time) {
     CHECK(take_requests().size() == 4);
     for (std::uint64_t id = 61; id < 65; ++id) {
         CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, id) == 0);
+    }
+    take_requests();
+}
+
+// Without memory a request answers -ENOMEM and lets no exception out of the dispatch: an OPEN needs two buffers, one
+// for the text and one for its decoded fields, and nothing more; a PICK needs none, also not for its waiting table.
+TEST(requests_without_memory_answer_enomem_and_throw_nothing) {
+    take_requests();
+    // Fields longer than a std::string holds in itself, so that a decoder into strings would allocate.
+    static const std::string view =
+        open_text(4, {std::string(100, 's'), std::string(100, 't'), "1", "a.png", "image/png"});
+    for (const long allowed : {0L, 1L, 2L}) {
+        long result = 1;
+        bool threw = false;
+        allocations_left = allowed;
+        try {
+            result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(view.c_str()), 93);
+        } catch (...) {
+            threw = true;
+        }
+        allocations_left = -1;
+        CHECK(!threw);
+        CHECK(result == (allowed < 2 ? -enomem : 0));
+    }
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 93) == 0);
+    static const char pick[] = "1\t0\t0\t\t";
+    for (std::uint64_t id = 94; id < 98; ++id) {  // the table's four places, none of them allocated
+        allocations_left = 0;
+        const long result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(pick), id);
+        allocations_left = -1;
+        CHECK(result == 0);
+    }
+    for (std::uint64_t id = 94; id < 98; ++id) {
+        CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, id) == 0);
+    }
+    take_requests();
+}
+
+// A text that crosses a page boundary is read whole, its NUL in the next page.
+TEST(a_text_across_a_page_boundary_is_read_whole) {
+    take_requests();
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    void *const pages = ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    CHECK(pages != MAP_FAILED);
+    const auto first = reinterpret_cast<std::uint64_t>(pages);
+    const std::string view = open_text(1, {"https://example.org/" + std::string(200, 'a')});
+    const std::uint64_t start = first + page - 100;  // 100 bytes in the first page, the rest and the NUL in the second
+    std::memcpy(reinterpret_cast<void *>(start), view.c_str(), view.size() + 1);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, start, 99) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 99) == 0);
+    static const char reason[] = "a reason";
+    std::memcpy(reinterpret_cast<void *>(first + page - 4), reason, sizeof reason);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_START_FAILED, first + page - 4) == 0);
+    ::munmap(pages, 2 * page);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 3);
+    if (seen.size() == 3) {
+        CHECK(seen[0].text == view);
+        CHECK(seen[2].text == reason);
+    }
+}
+
+// '*' is a MIME type's whole type or subtype, as in */* or image/*, never a part of one.
+TEST(a_star_is_a_whole_mime_token) {
+    take_requests();
+    const auto pick = [](const std::string &type) {
+        const std::string text = "1\t0\t0\t" + type + "\t";
+        const long result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK, address(text.c_str()), 101);
+        if (result == 0) CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PICK_CANCEL, 101) == 0);
+        return result;
+    };
+    const auto share = [](const std::string &type) {
+        const std::string text = open_text(4, {"", "", "1", "a.png", type});
+        const long result = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN, address(text.c_str()), 102);
+        if (result == 0) CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, 102) == 0);
+        return result;
+    };
+    for (const char *type : {"*/*", "image/*", "*/png"}) {
+        CHECK(pick(type) == 0);
+        CHECK(share(type) == 0);
+    }
+    for (const char *type : {"im*ge/png", "image/p*g", "**/png", "image/**", "*image/png", "image/png*"}) {
+        CHECK(pick(type) == -einval);
+        CHECK(share(type) == -einval);
     }
     take_requests();
 }

@@ -59,23 +59,30 @@ public final class PickerRequest {
                 + (kind == 3 ? plainTitle(title) : "");
     }
 
-    /** Whether `type` is a MIME type or a pattern such as image/*: two tokens around one '/', RFC 6838's characters. */
+    /**
+     * Whether `type` is a MIME type or a pattern such as image/*: two tokens around one '/', each RFC 6838's
+     * characters or "*" alone (so also the pattern of every type), as the runtime takes them.
+     */
     static boolean mimeType(String type) {
         if (type.length() < 3 || type.length() > TYPE_LENGTH) {
             return false;
         }
         final int slash = type.indexOf('/');
-        if (slash <= 0 || slash == type.length() - 1) {
+        return slash > 0 && mimeToken(type.substring(0, slash)) && mimeToken(type.substring(slash + 1));
+    }
+
+    private static boolean mimeToken(String token) {
+        if (token.isEmpty()) {
             return false;
         }
-        for (int at = 0; at < type.length(); at++) {
-            if (at == slash) {
-                continue;
-            }
-            final char c = type.charAt(at);
-            final boolean token = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-                    || "!#$&^_.+-*".indexOf(c) >= 0;
-            if (!token) {
+        if (token.equals("*")) {
+            return true;
+        }
+        for (int at = 0; at < token.length(); at++) {
+            final char c = token.charAt(at);
+            final boolean allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                    || "!#$&^_.+-".indexOf(c) >= 0;
+            if (!allowed) {
                 return false;
             }
         }

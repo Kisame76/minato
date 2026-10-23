@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -258,20 +259,25 @@ bool utf8_code_points(std::string_view text, Allowed allowed) {
 /// Whether `text` is well-formed UTF-8 of plain code points.
 bool plain_utf8(std::string_view text) { return utf8_code_points(text, plain_code_point); }
 
-/// Whether `type` is a MIME type or a pattern such as image/*: two tokens of RFC 6838's characters and '*' around one
-/// '/', at most pick_type_length bytes.
+/// Whether `token` is a MIME type's type or subtype: RFC 6838's characters, or "*" alone.
+bool mime_token(std::string_view token) {
+    if (token.empty()) return false;
+    if (token == "*") return true;
+    for (const char c : token) {
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                             (c != '\0' && std::strchr("!#$&^_.+-", c) != nullptr);
+        if (!allowed) return false;
+    }
+    return true;
+}
+
+/// Whether `type` is a MIME type or a pattern such as image/* or */*: two tokens around one '/', at most
+/// pick_type_length bytes.
 bool mime_type(std::string_view type) {
     if (type.size() < 3 || type.size() > pick_type_length) return false;
     const auto slash = type.find('/');
-    if (slash == std::string_view::npos || slash == 0 || slash + 1 == type.size()) return false;
-    for (std::size_t at = 0; at < type.size(); ++at) {
-        const char c = type[at];
-        if (at == slash) continue;
-        const bool token = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-                           (c != '\0' && std::strchr("!#$&^_.+-*", c) != nullptr);
-        if (!token) return false;
-    }
-    return true;
+    if (slash == std::string_view::npos) return false;
+    return mime_token(type.substr(0, slash)) && mime_token(type.substr(slash + 1));
 }
 
 /// Whether `text` is "<kind>\t<flags>\t<max>\t<MIME types>\t<title>": a kind 1 to 5; flags 0 or 1, 1 only for the opens
@@ -344,6 +350,34 @@ bool valid_export(std::string_view text) {
     return true;
 }
 
+/// The IDs of the requests of one kind that wait for their answer, at most N, kept without allocating: the requests are
+/// taken inside the dispatch, which answers an errno and lets no exception out.
+template <std::size_t N>
+class WaitingIds {
+public:
+    bool contains(std::uint64_t id) const {
+        for (std::size_t at = 0; at < count_; ++at) {
+            if (ids_[at] == id) return true;
+        }
+        return false;
+    }
+    bool full() const { return count_ == N; }
+    void add(std::uint64_t id) { ids_[count_++] = id; }
+    /// Forgets `id`; whether it was there.
+    bool remove(std::uint64_t id) {
+        for (std::size_t at = 0; at < count_; ++at) {
+            if (ids_[at] != id) continue;
+            ids_[at] = ids_[--count_];
+            return true;
+        }
+        return false;
+    }
+
+private:
+    std::array<std::uint64_t, N> ids_{};
+    std::size_t count_ = 0;
+};
+
 // The pick requests that wait for their answer (APKRT_EVENT_PICK_RESULT or APKRT_REQUEST_PICK_CANCEL). The check, the
 // change of the table and the host's call happen under pick_handler_lock, so the host gets the requests one at a time,
 // in the order the runtime took them. The table has its own lock, held only for the change itself, so that a post of
@@ -351,15 +385,12 @@ bool valid_export(std::string_view text) {
 // is recursive, so that a handler may also post the answer or cancel at once.
 std::recursive_mutex pick_handler_lock;
 std::mutex pick_lock;
-std::vector<std::uint64_t> live_picks;
+WaitingIds<pick_live_limit> live_picks;
 
 /// Forgets pick request `id`; whether it was waiting.
 bool pick_done(std::uint64_t id) {
     const std::lock_guard<std::mutex> hold(pick_lock);
-    const auto at = std::find(live_picks.begin(), live_picks.end(), id);
-    if (at == live_picks.end()) return false;
-    live_picks.erase(at);
-    return true;
+    return live_picks.remove(id);
 }
 
 // APKRT_REQUEST_OPEN (ADR-0062): as with a pick, the host parses the text of a request that the guest wrote, so the
@@ -397,7 +428,8 @@ bool visible_code_point(std::uint32_t point, bool space) {
         return false;  // Zs
     }
     if (point == 0xad || (point >= 0x600 && point <= 0x605) || point == 0x61c || point == 0x6dd || point == 0x70f ||
-        (point >= 0x890 && point <= 0x891) || point == 0x8e2 || point == 0x180e || point == 0x110bd || point == 0x110cd ||
+        (point >= 0x890 && point <= 0x891) || point == 0x8e2 || point == 0x180e || point == 0x110bd ||
+        point == 0x110cd ||
         (point >= 0x13430 && point <= 0x1343f) || (point >= 0x1bca0 && point <= 0x1bca3) ||
         (point >= 0x1d173 && point <= 0x1d17a) || point == 0xe0001 || (point >= 0xe0020 && point <= 0xe007f)) {
         return false;  // the Cf that plain_code_point lets through
@@ -405,25 +437,25 @@ bool visible_code_point(std::uint32_t point, bool space) {
     return true;
 }
 
-/// Decodes a percent-encoded field into `out`: RFC 3986's unreserved bytes raw, every other byte as % and two hex
-/// digits. Whether the field is so encoded, and so only.
-bool percent_decode(std::string_view field, std::string &out) {
-    out.clear();
+/// Decodes a percent-encoded field into `out`, which has room for the field's bytes: RFC 3986's unreserved bytes raw,
+/// every other byte as % and two hex digits. The decoded length, or -1 when the field is not so encoded.
+long percent_decode(std::string_view field, char *out) {
+    std::size_t length = 0;
     for (std::size_t at = 0; at < field.size(); ++at) {
         const char c = field[at];
         if (unreserved(c)) {
-            out += c;
+            out[length++] = c;
             continue;
         }
-        if (c != '%' || field.size() - at < 3) return false;
+        if (c != '%' || field.size() - at < 3) return -1;
         const int high = hex_digit(field[at + 1]), low = hex_digit(field[at + 2]);
-        if (high < 0 || low < 0) return false;
+        if (high < 0 || low < 0) return -1;
         const auto byte = static_cast<char>((high << 4) | low);
-        if (unreserved(byte)) return false;  // an unreserved byte is raw (hex digits may be of either case)
-        out += byte;
+        if (unreserved(byte)) return -1;  // an unreserved byte is raw (hex digits may be of either case)
+        out[length++] = byte;
         at += 2;
     }
-    return true;
+    return static_cast<long>(length);
 }
 
 /// Whether a decoded URL is 1 to open_url_length bytes of UTF-8 of visible code points without spaces, whose scheme, up
@@ -456,8 +488,9 @@ bool open_name(std::string_view name) {
 /// Whether `text` is an open request of guest_interface.h's grammar: "<kind>\t<field>...", the fields percent-encoded
 /// and each, decoded, well-formed UTF-8 without NUL and within its limit; a kind 1 to 4 with its number of fields: a
 /// URL of the kind's scheme for kinds 1 to 3, a share's subject, text, count of files without leading zeros (0 to
-/// open_files_limit), the files' names, each once, and their MIME types for kind 4.
-bool valid_open(std::string_view text) {
+/// open_files_limit), the files' names, each once, and their MIME types for kind 4. The fields are decoded into
+/// `decoded`, which has room for the text's bytes.
+bool valid_open(std::string_view text, char *decoded) {
     std::string_view encoded[open_fields_limit];
     std::size_t count = 0;
     for (std::size_t from = 0;;) {
@@ -469,9 +502,13 @@ bool valid_open(std::string_view text) {
     }
     if (encoded[0].size() != 1 || encoded[0][0] < '1' || encoded[0][0] > '4') return false;
     const int kind = encoded[0][0] - '0';
-    std::string field[open_fields_limit];
+    std::string_view field[open_fields_limit];
+    std::size_t used = 0;
     for (std::size_t at = 1; at < count; ++at) {
-        if (!percent_decode(encoded[at], field[at])) return false;
+        const long length = percent_decode(encoded[at], decoded + used);
+        if (length < 0) return false;
+        field[at] = std::string_view(decoded + used, static_cast<std::size_t>(length));
+        used += static_cast<std::size_t>(length);
         if (!utf8_code_points(field[at], [](std::uint32_t point) { return point != 0; })) return false;
     }
     switch (kind) {
@@ -485,7 +522,7 @@ bool valid_open(std::string_view text) {
             break;
     }
     if (count < 4 || field[1].size() > open_subject_length || field[2].size() > open_share_text_length) return false;
-    const std::string &files = field[3];
+    const std::string_view files = field[3];
     if (files.empty() || files.size() > 2 || (files.size() > 1 && files[0] == '0')) return false;
     unsigned n = 0;
     for (const char c : files) {
@@ -507,30 +544,32 @@ bool valid_open(std::string_view text) {
 // the check, the change of the table and the host's call under open_handler_lock, the table under its own lock.
 std::recursive_mutex open_handler_lock;
 std::mutex open_lock;
-std::vector<std::uint64_t> live_opens;
+WaitingIds<open_live_limit> live_opens;
 
 /// Forgets open request `id`; whether it was waiting.
 bool open_done(std::uint64_t id) {
     const std::lock_guard<std::mutex> hold(open_lock);
-    const auto at = std::find(live_opens.begin(), live_opens.end(), id);
-    if (at == live_opens.end()) return false;
-    live_opens.erase(at);
-    return true;
+    return live_opens.remove(id);
 }
 
-/// Copies the guest string at `address` into `out` through checked reads, byte by byte, so a bad guest
-/// pointer gives -EFAULT instead of faulting the host; stops at the first NUL. Returns the length before
-/// the NUL when one lies within `limit` bytes, `limit` when none does (out then holds `limit` non-NUL
-/// bytes), or -EFAULT. These are control-path requests, so a byte at a time is fine; the caller
-/// NUL-terminates and decides whether no NUL within `limit` truncates (START_FAILED) or is refused (PICK).
+/// Copies the guest string at `address` into `out` through checked reads, so a bad guest pointer gives -EFAULT instead
+/// of faulting the host; stops at the first NUL. Each read ends at a 4096-byte boundary, so it stays within one page
+/// (pages are 4 or 16 KiB) and fails only where the string does: a string that ends before a page that cannot be read
+/// is read whole, and each byte is read once. Returns the length before the NUL when one lies within `limit` bytes,
+/// `limit` when none does (out then holds `limit` non-NUL bytes), or -EFAULT. The caller NUL-terminates and decides
+/// whether no NUL within `limit` truncates (START_FAILED) or is refused (PICK, OPEN).
 long copy_guest_text(char *out, std::uint64_t address, std::size_t limit) {
-    for (std::size_t i = 0; i < limit; ++i) {
-        char c;
-        if (!sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(&c), address + i, 1)) {
+    constexpr std::uint64_t block = 4096;
+    for (std::size_t done = 0; done < limit;) {
+        const std::uint64_t at = address + done;
+        const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(block - at % block, limit - done));
+        if (!sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(out + done), at, length)) {
             return -linux_errno::efault;
         }
-        out[i] = c;
-        if (c == '\0') return static_cast<long>(i);
+        if (const void *nul = std::memchr(out + done, '\0', length)) {
+            return static_cast<long>(static_cast<const char *>(nul) - out);
+        }
+        done += length;
     }
     return static_cast<long>(limit);
 }
@@ -550,9 +589,9 @@ long pick(std::uint64_t address, std::uint64_t id) {
     const std::lock_guard<std::recursive_mutex> handler(pick_handler_lock);
     {
         const std::lock_guard<std::mutex> hold(pick_lock);
-        if (std::find(live_picks.begin(), live_picks.end(), id) != live_picks.end()) return -linux_errno::eexist;
-        if (live_picks.size() >= pick_live_limit) return -linux_errno::ebusy;
-        live_picks.push_back(id);
+        if (live_picks.contains(id)) return -linux_errno::eexist;
+        if (live_picks.full()) return -linux_errno::ebusy;
+        live_picks.add(id);
     }
     report(APKRT_REQUEST_PICK, id, text);
     return 0;
@@ -587,22 +626,26 @@ long pick_cancel(std::uint64_t id) {
 /// APKRT_REQUEST_OPEN: the text at `address` copied once through a checked read, each byte read once, and handed to
 /// the host's request handler with the ID. 0, or the negative errno: -EFAULT without text or when the text cannot be
 /// read, -EINVAL for an ID of 0, a text of open_text_limit bytes or more, or one that valid_open refuses, -EEXIST for
-/// an ID that waits for its answer, -EBUSY when open_live_limit requests wait, -ENOMEM without memory for the copy.
+/// an ID that waits for its answer, -EBUSY when open_live_limit requests wait, -ENOMEM without memory for the copy and
+/// its decoded fields.
 long open_request(std::uint64_t address, std::uint64_t id) {
     if (address == 0) return -linux_errno::efault;
     if (id == 0) return -linux_errno::einval;
     const std::unique_ptr<char[]> text(new (std::nothrow) char[open_text_limit]);
-    if (!text) return -linux_errno::enomem;
+    const std::unique_ptr<char[]> decoded(text ? new (std::nothrow) char[open_text_limit] : nullptr);
+    if (!text || !decoded) return -linux_errno::enomem;
     const long length = copy_guest_text(text.get(), address, open_text_limit);
     if (length < 0) return length;                                                  // -EFAULT: a byte unreadable
     if (length >= static_cast<long>(open_text_limit)) return -linux_errno::einval;  // no NUL within the limit
-    if (!valid_open(std::string_view(text.get(), static_cast<std::size_t>(length)))) return -linux_errno::einval;
+    if (!valid_open(std::string_view(text.get(), static_cast<std::size_t>(length)), decoded.get())) {
+        return -linux_errno::einval;
+    }
     const std::lock_guard<std::recursive_mutex> handler(open_handler_lock);
     {
         const std::lock_guard<std::mutex> hold(open_lock);
-        if (std::find(live_opens.begin(), live_opens.end(), id) != live_opens.end()) return -linux_errno::eexist;
-        if (live_opens.size() >= open_live_limit) return -linux_errno::ebusy;
-        live_opens.push_back(id);
+        if (live_opens.contains(id)) return -linux_errno::eexist;
+        if (live_opens.full()) return -linux_errno::ebusy;
+        live_opens.add(id);
     }
     report(APKRT_REQUEST_OPEN, id, text.get());
     return 0;

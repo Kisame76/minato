@@ -41,7 +41,9 @@ public final class PickerRequestTest {
                 return false;
             }
             for (String type : types) {
-                if (!type.matches("[A-Za-z0-9!#$&^_.+*-]+/[A-Za-z0-9!#$&^_.+*-]+") || type.length() > 100) {
+                // Each token RFC 6838's characters, or "*" alone.
+                final String token = "([A-Za-z0-9!#$&^_.+-]+|\\*)";
+                if (!type.matches(token + "/" + token) || type.length() > 100) {
                     return false;
                 }
             }
@@ -56,6 +58,9 @@ public final class PickerRequestTest {
         final String text = PickerRequest.text(5, "image/*", new String[] {"video/*"}, true, 20, "ignored");
         check(text.equals("5\t1\t20\timage/*\nvideo/*\t"), "a plain request: " + text);
         check(wellFormed(text), "a plain request is well formed");
+        final String stars = PickerRequest.text(1, "im*ge/png", new String[] {"video/mp4*", "*/*", "image/*", "*/png"},
+                false, 0, null);
+        check(stars.equals("1\t0\t0\t*/*\nimage/*\n*/png\t"), "'*' only as a whole token, else left out: " + stars);
         check(PickerRequest.text(3, "text/plain", null, false, 0, "note.txt").equals("3\t0\t0\ttext/plain\tnote.txt"),
                 "a save");
         check(PickerRequest.text(4, null, null, false, 0, null).equals("4\t0\t0\t\t"), "a folder: no types, no title");

@@ -286,8 +286,9 @@ enum apkrt_request_type {
                                    // the text as `text`: "<kind>\t<flags>\t<max>\t<MIME types>\t<title>". The runtime
                                    // refuses (-EINVAL) any text but this: a kind 1 to 5; flags 0 or 1, 1 only for
                                    // kinds 1, 2 and 5; a maximum of 0 to 1000 in decimal without leading zeros, other
-                                   // than 0 only for kind 5; up to 8 MIME types of at most 100 bytes each, separated
-                                   // by newlines, none is allowed, and none for kind 4; a title of at most 200 bytes
+                                   // than 0 only for kind 5; up to 8 MIME types of at most 100 bytes each ("*" only
+                                   // as a whole type or subtype, as image/* or */*), separated by newlines, none is
+                                   // allowed, and none for kind 4; a title of at most 200 bytes
                                    // of UTF-8 without control, separator or formatting characters, only for kind 3;
                                    // at most 1535 bytes in all. At most 4 requests wait at once (-EBUSY), and an ID
                                    // that waits is refused (-EEXIST). The PICK and EXPORT_MEDIA requests reach the
@@ -295,34 +296,36 @@ enum apkrt_request_type {
                                    // host answers once with APKRT_EVENT_PICK_RESULT, which ends the request
     APKRT_REQUEST_PICK_CANCEL,     // guest only: a0 the ID of a request that waits and the guest no longer wants (its
                                    // activity is gone); the host gets the ID as `argument` and no text, and gives no
-                                   // answer. -ENOENT for an ID that does not wait
+                                   // answer. -EINVAL for ID 0, -ENOENT for an ID that does not wait
     APKRT_REQUEST_OPEN,            // guest only (ADR-0062): a0 the address of NUL-terminated text, a1 the request's ID
                                    // (not 0, not one that waits); the host gets the ID as `argument` and the text as
                                    // `text`: "<kind>\t<field>\t<field>...", each field percent-encoded UTF-8 (RFC
                                    // 3986's unreserved bytes raw and never as %XX, every other byte as %XX), an empty
-                                   // field being "". Kinds: 1 VIEW, one field, an absolute URL of scheme http, https, tel or maps;
-                                   // 2 MAIL, one field, a mailto: URL (RFC 6068: to in the path, cc, bcc, subject and
-                                   // body in the query); 3 SMS, one field, an sms: URL; 4 SHARE, 3 + 2n fields: the
-                                   // subject, the text, n in decimal without leading zeros (0 to 10), n names of the
-                                   // files the guest put into ".minato/share/<ID in decimal>" below the app's data
-                                   // folder before the request, then n MIME types, one per name. The runtime refuses
-                                   // (-EINVAL) any text but this: a kind 1 to 4 and its number of fields; every %
-                                   // followed by two hex digits; each field valid UTF-8 once decoded, without NUL; a
+                                   // field being "". Kinds: 1 VIEW, one field, an absolute URL of scheme http, https,
+                                   // tel or maps; 2 MAIL, one field, a mailto: URL (RFC 6068: to in the path, cc, bcc,
+                                   // subject and body in the query); 3 SMS, one field, an sms: URL; 4 SHARE, 3 + 2n
+                                   // fields: the subject, the text, n in decimal without leading zeros (0 to 10), n
+                                   // names of the files the guest put into ".minato/share/<ID in decimal>" below the
+                                   // app's data folder before the request, then n MIME types, one per name. The runtime
+                                   // refuses (-EINVAL) any text but this: a kind 1 to 4 and its number of fields; every
+                                   // % followed by two hex digits; each field valid UTF-8 once decoded, without NUL; a
                                    // URL field of 1 to 4096 bytes decoded, without control characters, spaces (any of
                                    // Unicode's Zs), line or paragraph separators or format characters (Cf), whose
                                    // scheme (up to the first ":", ASCII case ignored) is the kind's; a subject of at
                                    // most 1000 bytes and a text of at most 65536 bytes decoded, any code point but NUL;
-                                   // a name of 1 to 255 bytes decoded, without "/" and the URL's characters but
-                                   // U+0020, not "." or "..", each once byte by byte; a MIME type of 3 to 100 bytes
-                                   // "<type>/<subtype>" of RFC 6838's characters (or "*", as image/*); at most 204800
-                                   // bytes in all. At most 4 requests wait at once (-EBUSY), and an ID that waits is
-                                   // refused (-EEXIST). The requests reach the host's handler one at a time. The host
-                                   // answers once with APKRT_EVENT_OPEN_RESULT, which ends the request. The host checks
-                                   // again and is the last word: it opens only http, https, mailto, tel, sms and maps,
-                                   // and nothing while the session is in the background
+                                   // a name of 1 to 255 bytes decoded, without "/" and the URL's characters but U+0020,
+                                   // not "." or "..", each once byte by byte; a MIME type of 3 to 100 bytes
+                                   // "<type>/<subtype>" of RFC 6838's characters ("*" only as a whole type or subtype,
+                                   // as image/* or */*); at most 204800 bytes in all. At most 4 requests wait at once
+                                   // (-EBUSY), and an ID that waits is refused (-EEXIST). The OPEN requests reach the
+                                   // host's handler one at a time; requests of other types may reach it meanwhile. The
+                                   // host answers once with APKRT_EVENT_OPEN_RESULT, which ends the request. The host
+                                   // checks again and is the last word: it opens only http, https, mailto, tel, sms and
+                                   // maps, and nothing while the session is in the background
     APKRT_REQUEST_OPEN_CANCEL,     // guest only: a0 the ID of an open request that waits and the guest no longer wants
                                    // (its activity is gone); the host gets the ID as `argument` and no text, drops what
-                                   // it shows for it and gives no answer. -ENOENT for an ID that does not wait
+                                   // it shows for it and gives no answer. -EINVAL for ID 0, -ENOENT for an ID that does
+                                   // not wait
     APKRT_REQUEST_EXPORT_MEDIA,    // guest only (ADR-0057 step e): a0 the address of NUL-terminated text, a1 0 (else
                                    // -EINVAL); a finished image or video the app made in MediaStore. The host gets
                                    // argument 0 and the text "<kind>\t<path>": kind 1 an image, 2 a video; the path
