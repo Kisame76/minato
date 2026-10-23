@@ -598,6 +598,10 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
         return -1;
     }
     described = *session;
+    // The connect and configuration requests write the whole apkrt_configuration to the guest; clear the tail
+    // padding after its last field so no uninitialized host bytes reach the guest (the host need not zero them).
+    constexpr std::size_t fields = offsetof(apkrt_configuration, country) + sizeof described.configuration.country;
+    std::memset(reinterpret_cast<char *>(&described.configuration) + fields, 0, sizeof described.configuration - fields);
     read_end = ends[0];
     write_end = ends[1];
     begun.store(true, std::memory_order_release);

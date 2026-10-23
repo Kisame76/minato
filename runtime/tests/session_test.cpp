@@ -274,6 +274,11 @@ bool same(const apkrt_configuration &a, const apkrt_configuration &b) {
            std::strcmp(a.country, b.country) == 0;
 }
 
+// The apkrt_configuration bytes before its tail padding; begin() clears the padding so no uninitialized host
+// bytes reach the guest through connect or configuration.
+constexpr std::size_t configuration_fields =
+    offsetof(apkrt_configuration, country) + sizeof(apkrt_configuration::country);
+
 int events = -1;  // activity-host's descriptor of the event pipe
 
 /// Reads `count` records from the event pipe.
@@ -345,6 +350,10 @@ TEST(events_posted_before_the_connect_wait_in_the_pipe) {
     session.surface = on_surface;
     session.window = on_window;
     session.configuration = iphone();
+    // Dirty the configuration's tail padding before begin, so begin() must clear it: otherwise these
+    // uninitialized host bytes would reach the guest through connect and configuration (write-path finding).
+    std::memset(reinterpret_cast<char *>(&session.configuration) + configuration_fields, 0xff,
+                sizeof session.configuration - configuration_fields);
     CHECK(apkrt_session_begin(&session) == 0);
     session.configuration.width = 1;  // the runtime keeps its own copy
     CHECK(apkrt_session_post(APKRT_EVENT_CREATE, 0, 0, 0) == 1);
@@ -370,6 +379,9 @@ TEST(events_posted_before_the_connect_wait_in_the_pipe) {
     CHECK(received.orientation == expected.orientation && received.night == expected.night);
     CHECK(received.refresh_rate == expected.refresh_rate);
     CHECK(std::strcmp(received.language, "de") == 0 && std::strcmp(received.country, "DE") == 0);
+    // begin() cleared the tail padding, so connect wrote zeros there, not the 0xff we dirtied it with.
+    const auto *connect_bytes = reinterpret_cast<const unsigned char *>(&received);
+    for (std::size_t i = configuration_fields; i < sizeof received; ++i) CHECK(connect_bytes[i] == 0);
     if (events < 0) return;
     const auto records = read_events(1);
     CHECK(is(records[0], APKRT_EVENT_CREATE, 1));
@@ -385,6 +397,8 @@ TEST(the_configuration_comes_again_and_again_without_the_pipe) {
     for (int round = 0; round < 3; ++round) {
         apkrt_configuration received{};
         CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&received)) == 0 && same(received, iphone()));
+        const auto *bytes = reinterpret_cast<const unsigned char *>(&received);  // tail padding cleared too
+        for (std::size_t i = configuration_fields; i < sizeof received; ++i) CHECK(bytes[i] == 0);
     }
     CHECK(call(APKRT_NR_SESSION_CONFIGURATION, 0) == -efault);
 }
