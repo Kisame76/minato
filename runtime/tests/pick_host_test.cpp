@@ -382,6 +382,62 @@ TEST(an_original_that_is_gone_or_became_a_link_is_a_conflict_and_nothing_is_writ
     CHECK(!exists_nofollow(gone.layout.source + "/known.txt") && !gone.write_back.removable("known.txt"));
 }
 
+// A record must not outlive its clone: a later file under that name is the app's own (B2 of the review of 9415884).
+TEST(a_conflict_the_user_discards_is_forgotten_and_a_later_file_of_that_name_is_the_apps_own) {
+    Tracked t;
+    std::vector<std::string> forgotten;
+    t.write_back.on_forget = [&](const std::string &name) { forgotten.push_back(name); };
+    write_file(t.layout.source + "/known.txt", "somebody else\n");
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    t.write_back.flush(5000, false);
+    CHECK(t.write_back.resolve("known.txt", false));
+    CHECK(!t.write_back.tracked("known.txt") && forgotten == std::vector<std::string>{"known.txt"});
+    ::unlink((t.layout.download + "/known.txt").c_str());                    // the guest's cleaning deletes the clone
+    write_file(t.layout.download + "/known.txt", "the app's own export\n");
+    t.write_back.closed("known.txt", 6000);
+    t.write_back.end_session(9000);
+    CHECK(t.known() == "somebody else\n");                                   // (the record and its original are gone)
+}
+
+TEST(a_clean_clone_seen_missing_is_forgotten_before_the_app_makes_another_file_of_that_name) {
+    Tracked t;
+    std::vector<std::string> forgotten;
+    t.write_back.on_forget = [&](const std::string &name) { forgotten.push_back(name); };
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    t.write_back.scan(1000);
+    CHECK(!t.write_back.tracked("known.txt") && forgotten == std::vector<std::string>{"known.txt"});
+    write_file(t.layout.download + "/known.txt", "export.csv under a name the user once picked\n");
+    t.write_back.closed("known.txt", 2000);
+    t.write_back.end_session(5000);
+    CHECK(t.known() == "hello\n");
+}
+
+TEST(a_dirty_clone_that_is_gone_when_it_is_written_back_is_forgotten) {
+    Tracked t;
+    std::vector<std::string> forgotten;
+    t.write_back.on_forget = [&](const std::string &name) { forgotten.push_back(name); };
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    t.write_back.flush(5000, false);
+    CHECK(!t.write_back.tracked("known.txt") && forgotten == std::vector<std::string>{"known.txt"});
+    CHECK(t.known() == "hello\n" && t.write_back.conflicts().empty());
+}
+
+TEST(a_file_that_is_not_the_clone_any_more_is_never_written_back_even_after_a_restart) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);                                     // dirty, stored, the host is killed
+    ::unlink((t.layout.download + "/known.txt").c_str());                    // the app made another file of that name
+    write_file(t.layout.download + "/known.txt", "another file\n");
+    ph::WriteBack again(t.layout.download, t.state);
+    CHECK(again.load([&](const std::string &token) { return std::make_unique<CountingOriginal>(token); }));
+    again.end_session(5000);
+    CHECK(t.known() == "hello\n");
+    CHECK(again.conflicts() == std::vector<std::string>{"known.txt"});        // its version is kept for the user
+}
+
 TEST(a_clone_the_app_replaced_by_a_link_is_never_read_through) {
     Tracked t;
     write_file(t.layout.outside + "/secret", "secret\n");
@@ -392,12 +448,13 @@ TEST(a_clone_the_app_replaced_by_a_link_is_never_read_through) {
     CHECK(t.known() == "hello\n" && t.original->writes == 0 && !t.write_back.removable("known.txt"));
 }
 
-TEST(an_app_that_saves_by_writing_a_temporary_file_and_renaming_it_over_the_clone_is_found) {
+TEST(an_app_that_saves_by_renaming_a_temporary_file_over_the_clone_is_a_conflict_not_a_silent_write) {
     Tracked t;
     write_file(t.layout.download + "/known.tmp", "renamed over\n");
     CHECK(::rename((t.layout.download + "/known.tmp").c_str(), (t.layout.download + "/known.txt").c_str()) == 0);
     t.write_back.end_session(5000);                                          // no close of the clone's identity came
-    CHECK(t.known() == "renamed over\n" && t.write_back.removable("known.txt"));
+    CHECK(t.known() == "hello\n" && t.original->writes == 0);               // another file now: the user decides
+    CHECK(t.write_back.conflicts() == std::vector<std::string>{"known.txt"});
 }
 
 TEST(a_write_that_fails_is_tried_again_and_the_clone_stays) {

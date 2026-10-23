@@ -216,8 +216,16 @@ enum apkrt_event_type {
                                           // the host's own folder and the user decides. The clone is read with
                                           // O_NOFOLLOW from the Download descriptor, a link or folder there is a
                                           // conflict, and the guest's cleaning of unkept clones is harmless because the
-                                          // host holds the app's version. tools/pick_host.h's WriteBack is the
-                                          // reference and tests/pick_host_test.cpp plays the cases.
+                                          // host holds the app's version. A record never outlives its clone: the
+                                          // host forgets it (and stops watching the file) when the user lets a
+                                          // conflict go, when an untouched clone is seen missing, and when a clone
+                                          // is missing at the write-back; a file the app makes under that name
+                                          // later is its own. Each record keeps the clone's identity (device, inode
+                                          // and birth time as made), across restarts too, and a file of the clone's
+                                          // name with another identity is not the clone: it is never written back,
+                                          // its version is kept and the user decides (so a save that renames a file
+                                          // over the clone is a conflict, not a silent write). tools/pick_host.h's
+                                          // WriteBack is the reference and tests/pick_host_test.cpp plays the cases.
                                           // The picks of a save or a folder request (kinds 3 and 4, step d): a2 is 1
                                           // and the manifest is ONE line, a path relative to /storage/emulated/0 with
                                           // plain names between single "/", no "." or ".." component, at most 1024

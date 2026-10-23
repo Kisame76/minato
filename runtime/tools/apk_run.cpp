@@ -248,15 +248,38 @@ std::atomic<int> exports_running{0};
 std::int64_t now_ms();
 void on_clone_written(void *context, const char *);
 
+/// The watches on the clones: apkrt_watch_writes' id and the name its callback was given, by clone name. A watch ends
+/// when the host forgets the clone (the user let it go, or the clone is gone), so that a file the app makes under
+/// that name later is not mistaken for it.
+std::mutex clone_watches_lock;
+std::map<std::string, std::pair<int, std::string *>> clone_watches;
+
 pick_host::Host &pick_host_of_run() {
     static pick_host::Host host(pick_config);
     static const bool wired = [] {
         host.on_clone = [](const std::string &clone) {
-            // The clone is in the folder the guest sees as Download; the watch lives as long as the process.
+            // The clone is in the folder the guest sees as Download.
             auto *name = new std::string(clone);
             const std::string guest_path = "/storage/emulated/0/Download/" + clone;
             const int id = apkrt_watch_writes(guest_path.c_str(), on_clone_written, name);
-            if (id < 0) delete name;  // -EEXIST: the earlier watch on this very file serves
+            if (id < 0) {
+                delete name;  // -EEXIST: the earlier watch on this very file serves
+                return;
+            }
+            const std::lock_guard<std::mutex> lock(clone_watches_lock);
+            clone_watches[clone] = {id, name};
+        };
+        host.write_back().on_forget = [](const std::string &clone) {
+            std::pair<int, std::string *> watch{0, nullptr};
+            {
+                const std::lock_guard<std::mutex> lock(clone_watches_lock);
+                const auto found = clone_watches.find(clone);
+                if (found == clone_watches.end()) return;
+                watch = found->second;
+                clone_watches.erase(found);
+            }
+            apkrt_unwatch_writes(watch.first);  // waits for a callback that is running, so the name can go
+            delete watch.second;
         };
         return true;
     }();
