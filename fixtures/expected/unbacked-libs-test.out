@@ -6,4 +6,7 @@ xaCreateEngine from: libOpenMAXAL.so
 XA_IID_ENGINE from: libOpenMAXAL.so
 ANeuralNetworks_getDeviceCount: status 0, count written
 xaQueryNumSupportedEngineInterfaces: status 0, count written
+XA_IID_NULL: ec7178ec-e5e1-4432-a3f4-4657e6795210
+XA_IID_ENGINE: 45c58f40-df04-11db-9e76-0002a5d5c51b
+XA_IID_PLAY: b9c293e0-f776-11db-80df-0002a5d5c51b
 XA_IID_ENGINE and XA_IID_PLAY: differ

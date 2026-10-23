@@ -3,8 +3,8 @@
 // must load, and each function it takes comes from its own library. What the libraries do differs from a phone's on
 // purpose (Android's NNAPI lists devices, its OpenMAX AL makes an engine) and the generated stubs log, so only what
 // does not differ is printed: the library of each name, the status of the device count and of the engine interface
-// count and that each is written, and that two interface IDs differ in content. An interface ID is a pointer variable;
-// on Android 15 it points into libwilhelm.so, so its own place is asked.
+// count and that each is written, the content of three interface IDs, and that two of them differ. An interface ID is
+// a pointer variable; on Android 15 it points into libwilhelm.so, so its own place is asked.
 #define _GNU_SOURCE
 #include <OMXAL/OpenMAXAL.h>
 #include <amidi/AMidi.h>
@@ -25,6 +25,13 @@ static const char *library_of(const void *address) {
   return slash != NULL ? slash + 1 : info.dli_fname;
 }
 
+// The interface ID as the usual text of a UUID.
+static void print_id(const char *name, XAInterfaceID id) {
+  printf("XA_IID_%s: %08x-%04x-%04x-%04x-%02x%02x%02x%02x%02x%02x\n", name, (unsigned)id->time_low, id->time_mid,
+         id->time_hi_and_version, id->clock_seq, id->node[0], id->node[1], id->node[2], id->node[3], id->node[4],
+         id->node[5]);
+}
+
 int main(void) {
   printf("sync_merge from: %s\n", library_of((const void *)sync_merge));
   printf("AMidiDevice_release from: %s\n", library_of((const void *)AMidiDevice_release));
@@ -40,6 +47,9 @@ int main(void) {
   status = (int)xaQueryNumSupportedEngineInterfaces(&interfaces);
   printf("xaQueryNumSupportedEngineInterfaces: status %d, count %s\n", status,
          interfaces != 99 ? "written" : "untouched");
+  print_id("NULL", XA_IID_NULL);
+  print_id("ENGINE", XA_IID_ENGINE);
+  print_id("PLAY", XA_IID_PLAY);
   printf("XA_IID_ENGINE and XA_IID_PLAY: %s\n", memcmp(XA_IID_ENGINE, XA_IID_PLAY, sizeof(*XA_IID_ENGINE)) != 0 ? "differ" : "the same");
   return 0;
 }
