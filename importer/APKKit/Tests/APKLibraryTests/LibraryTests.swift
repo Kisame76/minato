@@ -455,6 +455,24 @@ struct LibraryTests {
         #expect(!sandbox.exists(sandbox.paths.dataDirectory(for: "org.example.game")))
         #expect(try await Library(paths: sandbox.paths).entries.isEmpty)
     }
+
+    /// The write-back's records and kept versions of the user's files (ADR-0057's addendum) go with the app, so that an
+    /// app installed again under that package, maybe another signer's, never reaches the files the old one was given.
+    @Test func removeDeletesTheWriteBackRecords() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        _ = try await library.importFile(sandbox.file(SampleAPK.make(), named: "game.apk"))
+        let records = sandbox.paths.writeBackDirectory(for: "org.example.game")
+        #expect(records.path.hasPrefix(sandbox.paths.applicationSupport.path + "/write-back/"))
+        try FileManager.default.createDirectory(at: records, withIntermediateDirectories: true)
+        try Data("[]".utf8).write(to: records.appendingPathComponent("records.json"))
+
+        try await library.remove(id: "org.example.game")
+
+        #expect(!sandbox.exists(records))
+        #expect(Library.isSafePackageName("org.example.game") && !Library.isSafePackageName("../x"))
+    }
 }
 
 final class ProgressRecorder: @unchecked Sendable {

@@ -248,10 +248,17 @@ final class GameSession {
         if let failure = runtime.begin(start, configuration: configuration) {
             return couldNotStart(failure)
         }
+        // The records of the clones of the user's files and their watches, once the mounts are made, and the app's
+        // versions kept before the guest's cleaning (ADR-0057's addendum, point 4).
+        if let data = (try? LibraryPaths.standard())?.dataDirectory(for: entry.id) {
+            WriteBackHost.shared.begin(package: entry.id, download: data.appending(path: "download"))
+        }
         let audio = audio
         Task.detached {
             // Before the guest runs, so its first stream opens on the host.
             audio.serveRuntime()
+            // After the app's versions are kept, before the guest's cleaning (ADR-0057's addendum, point 4).
+            WriteBackHost.shared.waitUntilSecured()
             let failure = RuntimeSessionHost.startProgram(start)
             await MainActor.run {
                 if let failure { self.couldNotStart(failure) } else { self.deliver(.start) }
@@ -373,10 +380,12 @@ final class GameSession {
         restart()
     }
 
-    /// Back to the library, once the exports to Photos under way are done or 5 s have passed (ADR-0057 step e).
+    /// Back to the library, once the exports to Photos under way are done or 5 s have passed (ADR-0057 step e) and the
+    /// app's edits of the user's files are written back, 5 s at most (its addendum).
     private func restart() {
         Task { [weak self, photos = runtime?.photos] in
             await photos?.settle(within: 5)
+            await WriteBackHost.shared.endSession()
             Restart.now { [weak self] in self?.restartFailed = true }
         }
     }

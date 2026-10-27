@@ -100,6 +100,13 @@ public struct LibraryPaths: Sendable {
         try download.setResourceValues(excluded)
     }
 
+    /// The host's own records of the app's clones of the user's files (ADR-0057's addendum): never below the app's
+    /// folders, which the guest can write.
+    public func writeBackDirectory(for package: String) -> URL {
+        applicationSupport.appendingPathComponent("write-back", isDirectory: true)
+            .appendingPathComponent(package, isDirectory: true)
+    }
+
     /// A Java app's guest /data (ADR-0039 c5): Caches/guest/<package>/data, with ART's dalvik-cache (the lead's
     /// decision). Nothing the app keeps lies there: its data is dataDirectory(for:), which longer mounts put over it.
     public func guestDataDirectory(for package: String) -> URL {

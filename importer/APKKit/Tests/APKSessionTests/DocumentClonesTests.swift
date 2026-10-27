@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Synchronization
 import Testing
 
 @testable import APKSession
@@ -144,6 +145,74 @@ final class DocumentClonesTests {
         #expect(clones.answer(id: 4, picks: [known]) == 1)
         #expect(manifest(4) == "known (1).txt\n")
         #expect(!exists(outside.appending(path: "x")))
+    }
+
+    /// pick_host_test's a_file_picked_again_after_the_user_changed_it_gets_a_new_clone_unless_the_app_has_edits, with
+    /// the write-back's records; the picked file's version is read by the clone, from the descriptor it clones from.
+    @Test func aFilePickedAgainAfterTheUserChangedItGetsANewCloneUnlessTheAppHasEdits() throws {
+        let state = root.appending(path: "host-state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let writeBack = WriteBack(download: download, state: state)
+        let clones = DocumentClones(dataFolder: data, download: download,
+                                    reusable: { writeBack.reusable($0, originalNow: $1) },
+                                    busy: { writeBack.busy($0) })
+        let original = PathOriginal(path: source.appending(path: "known.txt").path)
+        func pickKnown(_ id: UInt64) -> String? {
+            guard let clone = clones.clone(known) else { return nil }
+            if clone.made, let base = original.version() {
+                writeBack.track(clone: clone.name, original: original, originalNow: base, cloneNow: base)
+            }
+            return clones.finish(id: id, clones: [clone]) == 1 ? manifest(Int(id)) : nil
+        }
+        #expect(pickKnown(1) == "known.txt\n")
+        try Data("changed elsewhere\n".utf8).write(to: source.appending(path: "known.txt"))  // the user edits it
+        #expect(pickKnown(2) == "known (1).txt\n")
+        #expect(text(download.appending(path: "known (1).txt")) == "changed elsewhere\n")
+        #expect(text(download.appending(path: "known.txt")) == "hello\n")  // the old clone stays as it was
+        #expect(pickKnown(3) == "known (1).txt\n")  // now the same again
+        // An app with unsent edits keeps its clone: the write-back decides what becomes of the original.
+        try Data("app edit\n".utf8).write(to: download.appending(path: "known (1).txt"))
+        writeBack.closed("known (1).txt", at: 1000)
+        try Data("changed again\n".utf8).write(to: source.appending(path: "known.txt"))
+        #expect(pickKnown(4) == "known (1).txt\n")
+        #expect(text(download.appending(path: "known (1).txt")) == "app edit\n")
+    }
+
+    /// The lead's review, point 6: a clone says the version it was made with, read from the clone itself, which its
+    /// write-back record starts from (the original read again may have changed meanwhile); a clone used again has none.
+    @Test func aCloneSaysTheVersionItWasMadeWith() throws {
+        let clones = clones()
+        let clone = try #require(clones.clone(known))
+        let version = try #require(clone.version)
+        #expect(version == FileVersion.read(path: download.appending(path: clone.name).path))
+        #expect(version.digest.count == 64 && version.size == 6)
+        #expect(clones.clone(known)?.version == nil)
+    }
+
+    /// A name a write-back record holds (a conflict whose clone the guest removed) is not taken by a new clone, which
+    /// would orphan the record's kept version (the reviewer).
+    @Test func aNameARecordHoldsIsNotTakenByANewClone() {
+        let clones = DocumentClones(dataFolder: data, download: download, cloning: true,
+                                    reusable: { _, _ in true }, busy: { $0 == "known.txt" })
+        #expect(clones.answer(id: 1, picks: [known]) == 1)
+        #expect(manifest(1) == "known (1).txt\n")
+    }
+
+    /// The version a reuse is decided by is the picked file's, read from the descriptor the clone would come from,
+    /// and only asked when there is an earlier clone.
+    @Test func theReuseIsDecidedByThePickedFilesVersion() throws {
+        let asked = Mutex([String]())
+        let clones = DocumentClones(dataFolder: data, download: download, cloning: true,
+                                    reusable: { name, now in
+                                        asked.withLock { $0.append(name + " " + (now()?.digest.prefix(8) ?? "none")) }
+                                        return false
+                                    }, busy: { _ in false })
+        #expect(clones.answer(id: 1, picks: [known]) == 1)
+        #expect(asked.withLock { $0 }.isEmpty)
+        #expect(clones.answer(id: 2, picks: [known]) == 1)
+        let digest = try #require(FileVersion.read(path: source.appending(path: "known.txt").path)).digest
+        #expect(asked.withLock { $0 } == ["known.txt " + digest.prefix(8)])
+        #expect(manifest(2) == "known (1).txt\n")
     }
 
     @Test func twoFilesOfOneNameGetTwoClones() throws {

@@ -48,6 +48,8 @@ struct MinatoApp: App {
             library.firstSigningLook = { [weak signing] in await signing?.firstLookEnded() }
             _library = State(initialValue: library)
             _signing = State(initialValue: signing)
+            // Conflicts of the user's files a session left unasked, at its end or killed (ADR-0057's addendum).
+            WriteBackHost.askLeftConflicts()
         }
         Logger(subsystem: "io.github.kisame76.minato", category: "runtime")
             .info("Runtime \(String(cString: apkrt_version()), privacy: .public)")

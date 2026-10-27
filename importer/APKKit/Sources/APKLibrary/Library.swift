@@ -1394,14 +1394,15 @@ public actor Library {
         return try Self.sha256(of: url, size: size, progress: progress)
     }
 
-    /// Removes an app with its data and a Java app's guest /data in Caches (ADR-0039 c5). The file it was installed
-    /// from is not touched.
+    /// Removes an app with its data, a Java app's guest /data in Caches (ADR-0039 c5) and the write-back's records of
+    /// the user's files it edited (ADR-0057's addendum). The file it was installed from is not touched.
     public func remove(id: String) throws {
         guard entries.contains(where: { $0.id == id }) else { return }
         if !id.hasPrefix("file:"), Self.isSafePackageName(id) {
             try? FileManager.default.removeItem(at: paths.installDirectory(for: id))
             try? FileManager.default.removeItem(at: paths.dataDirectory(for: id))
             try? FileManager.default.removeItem(at: paths.guestDataDirectory(for: id).deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: paths.writeBackDirectory(for: id))
         }
         try save(entries.filter { $0.id != id })
         entries.removeAll { $0.id == id }
@@ -1596,7 +1597,7 @@ public actor Library {
 
     /// Android package names: dot-separated segments of letters, digits and underscores.
     /// Anything else could turn into a path outside the library.
-    static func isSafePackageName(_ name: String) -> Bool {
+    public static func isSafePackageName(_ name: String) -> Bool {
         guard !name.isEmpty, name.count <= 255 else { return false }
         return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { segment in
             guard let first = segment.first, first.isASCII, first.isLetter || first == "_" else { return false }

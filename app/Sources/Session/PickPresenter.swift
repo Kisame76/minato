@@ -60,7 +60,15 @@ final class PickPresenter: NSObject {
     /// `dataFolder` and `download` are the app's, from the host's records; `answer` gets a request's number of picks,
     /// nil for a cancel.
     init(dataFolder: URL?, download: URL?, answer: @escaping (UInt64, Int?) -> Void) {
-        clones = dataFolder.flatMap { data in download.map { DocumentClones(dataFolder: data, download: $0) } }
+        clones = dataFolder.flatMap { data in
+            download.map {
+                // A document picked again keeps its clone unless the user changed it elsewhere, and no new clone takes
+                // a name a write-back record holds (ADR-0057's addendum).
+                DocumentClones(dataFolder: data, download: $0,
+                               reusable: { WriteBackHost.shared.reusable($0, originalNow: $1) },
+                               busy: { WriteBackHost.shared.busy($0) })
+            }
+        }
         self.answer = answer
     }
 
@@ -159,6 +167,11 @@ final class PickPresenter: NSObject {
         coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &failure) { read in
             clone = clones.clone(DocumentClones.Pick(key: url.standardizedFileURL.path,
                                                      name: url.lastPathComponent, file: read))
+        }
+        // Its write-back record (ADR-0057's addendum) and bookmark after the coordinated read, still in the file's
+        // scope, from the clone's own version: what was cloned is what the original is compared with later.
+        if let clone, let version = clone.version {
+            WriteBackHost.shared.track(clone: clone.name, original: url, version: version)
         }
         if clone == nil {
             let reason = failure?.localizedDescription ?? "no clone"

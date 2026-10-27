@@ -32,6 +32,10 @@ public final class DocumentClones: Sendable {
     public struct Clone: Sendable, Equatable {
         public let name: String
         public let made: Bool
+        /// The version of a clone just made, read from the clone itself: what its write-back record starts from (the
+        /// original read again may have changed meanwhile). Nil for a clone used again, and one over the write-back's
+        /// limit.
+        public var version: FileVersion? = nil
     }
 
     private let dataFolder: URL
@@ -42,20 +46,32 @@ public final class DocumentClones: Sendable {
     private let freeSpace: @Sendable (Int32) -> UInt64?
     /// The clone of each document picked so far; the answers run one after the other.
     private let clones = Mutex([String: String]())
+    /// Whether an earlier clone may serve a document picked again, given the picked file's version, which it asks
+    /// only when it needs it (WriteBack.reusable: not after the user changed the file elsewhere, unless the app has
+    /// edits; never a clone whose record the user let go).
+    private let reusable: @Sendable (String, () -> FileVersion?) -> Bool
+    /// Whether a name must not be taken by a new clone (WriteBack.busy: a record holds it).
+    private let busy: @Sendable (String) -> Bool
 
     /// What a copy leaves free on the device at least.
     static let copyReserve: UInt64 = 256 << 20
 
-    public convenience init(dataFolder: URL, download: URL) {
-        self.init(dataFolder: dataFolder, download: download, cloning: true)
+    public convenience init(dataFolder: URL, download: URL,
+                            reusable: @escaping @Sendable (String, () -> FileVersion?) -> Bool = { _, _ in true },
+                            busy: @escaping @Sendable (String) -> Bool = { _ in false }) {
+        self.init(dataFolder: dataFolder, download: download, cloning: true, reusable: reusable, busy: busy)
     }
 
     init(dataFolder: URL, download: URL, cloning: Bool,
-         freeSpace: @escaping @Sendable (Int32) -> UInt64? = DocumentClones.freeSpace) {
+         freeSpace: @escaping @Sendable (Int32) -> UInt64? = DocumentClones.freeSpace,
+         reusable: @escaping @Sendable (String, () -> FileVersion?) -> Bool = { _, _ in true },
+         busy: @escaping @Sendable (String) -> Bool = { _ in false }) {
         self.dataFolder = dataFolder
         self.download = download
         self.cloning = cloning
         self.freeSpace = freeSpace
+        self.reusable = reusable
+        self.busy = busy
     }
 
     /// An answer: the number of picks its manifest names, nil for a cancel, and the clones it made.
@@ -141,24 +157,26 @@ public final class DocumentClones: Sendable {
         let folder = Darwin.open(download.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard folder >= 0 else { return nil }
         defer { close(folder) }
-        if let earlier = clones.withLock({ $0[pick.key] }) {
-            var status = stat()
-            if fstatat(folder, earlier, &status, AT_SYMLINK_NOFOLLOW) == 0, status.st_mode & S_IFMT == S_IFREG {
-                return Clone(name: earlier, made: false)
-            }
-        }
         let source = Darwin.open(pick.file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard source >= 0 else { return nil }
         defer { close(source) }
         var status = stat()
         guard fstat(source, &status) == 0, status.st_mode & S_IFMT == S_IFREG else { return nil }
+        if let earlier = clones.withLock({ $0[pick.key] }) {
+            var clone = stat()
+            if fstatat(folder, earlier, &clone, AT_SYMLINK_NOFOLLOW) == 0, clone.st_mode & S_IFMT == S_IFREG,
+               reusable(earlier, { try? FileVersion.of(source).get() }) {
+                return Clone(name: earlier, made: false)
+            }
+        }
         let plain = Self.plainName(Array(pick.name.utf8))
         for n in 0..<10000 {
             let name = Self.numbered(plain, n)
+            if busy(name) { continue }
             // CLONE_NOFOLLOW: a dangling link at the name is not followed (without it the clone is made at the link's
             // target); the clone fails with EEXIST for any name that is there.
             if cloning, fclonefileat(source, folder, name, UInt32(CLONE_NOFOLLOW)) == 0 {
-                if Self.makePlain(name, in: folder) { return remember(pick, name) }
+                if Self.makePlain(name, in: folder) { return remember(pick, name, in: folder) }
                 unlinkat(folder, name, 0)
             } else if cloning, errno == EEXIST {
                 continue
@@ -175,7 +193,7 @@ public final class DocumentClones: Sendable {
                 unlinkat(folder, name, 0)
                 return nil
             }
-            return remember(pick, name)
+            return remember(pick, name, in: folder)
         }
         return nil
     }
@@ -194,12 +212,14 @@ public final class DocumentClones: Sendable {
 
     /// Names `name` as the clone of `pick`'s document, and of none other: a name the app freed may have been taken by
     /// another document's clone since (pick_host.h's rule).
-    private func remember(_ pick: Pick, _ name: String) -> Clone {
+    private func remember(_ pick: Pick, _ name: String, in folder: Int32) -> Clone {
         clones.withLock { map in
             map = map.filter { $0.value != name }
             map[pick.key] = name
         }
-        return Clone(name: name, made: true)
+        let made = try? FileVersion.open(name, in: folder).get()
+        if let made { close(made.0) }
+        return Clone(name: name, made: true, version: made?.1)
     }
 
     /// The manifest to "<id>.partial" in <data>/.minato/picks, renamed to "<id>", so that the guest never reads half

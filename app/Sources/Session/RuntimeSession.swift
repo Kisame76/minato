@@ -61,6 +61,8 @@ final class RuntimeSessionHost: SessionHost {
         apkrt_set_background(on ? 1 : 0)
         // No sensor updates in the background (ADR-0061 decision 3).
         MotionHost.shared.setBackground(on)
+        // The app's edits of the user's files are written before iOS may suspend the process (ADR-0057's addendum).
+        WriteBackHost.shared.setBackground(on)
     }
 
     func waitScheduled(seconds: Double) -> Bool {
