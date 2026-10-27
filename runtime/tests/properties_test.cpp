@@ -189,6 +189,59 @@ TEST(the_gles_version_follows_angles_backend) {
     CHECK(get("ro.opengles.version") == "196608");
 }
 
+TEST(a_device_profile_replaces_the_names_build_reads_and_nothing_else) {
+    // ADR-0065: the defaults are the host's (the test above); a profile gives a phone's names for the Build fields,
+    // and leaves the build type, the keys, the debuggable flag, the density and the fingerprint as they are.
+    CHECK(apkrt_set_device_profile("pixel") == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.product.manufacturer") == "Google");
+    CHECK(get("ro.product.brand") == "google");
+    CHECK(get("ro.product.model") == "Pixel 9");
+    CHECK(get("ro.product.device") == "tokay");
+    CHECK(get("ro.product.name") == "tokay");
+    CHECK(get("ro.hardware") == "tokay");
+    CHECK(get("ro.soc.manufacturer") == "Google");
+    CHECK(get("ro.soc.model") == "Tensor G4");
+    CHECK(apkrt_set_device_profile("galaxy") == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.product.manufacturer") == "samsung");
+    CHECK(get("ro.product.brand") == "samsung");
+    CHECK(get("ro.product.model") == "SM-S921B");
+    CHECK(get("ro.product.device") == "e1s");
+    CHECK(get("ro.product.name") == "e1sxxx");
+    CHECK(get("ro.hardware") == "s5e9945");
+    CHECK(get("ro.soc.manufacturer") == "Samsung");
+    CHECK(get("ro.soc.model") == "S5E9945");
+    CHECK(get("ro.build.type") == "user");
+    CHECK(get("ro.build.tags") == "release-keys");
+    CHECK(get("ro.debuggable") == "0");
+    CHECK(get("ro.sf.lcd_density") == "480");
+    CHECK(get("ro.product.cpu.abilist") == "arm64-v8a");
+    CHECK(!get("ro.build.fingerprint"));
+    CHECK(!get("ro.boot.qemu"));
+}
+
+TEST(an_unknown_profile_is_refused_and_the_default_comes_back) {
+    CHECK(apkrt_set_device_profile("pixel") == 0);
+    CHECK(apkrt_set_device_profile("nokia") == -1);
+    CHECK(apkrt_set_device_profile("Pixel") == -1);
+    area = apkrt::properties::area();
+    CHECK(get("ro.product.model") == "Pixel 9");  // the refused name left the profile as it was
+    CHECK(apkrt_set_device_profile("") == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.product.manufacturer") == "Apple");
+    CHECK(get("ro.product.brand") == "Apple");
+    CHECK(get("ro.hardware") == "minato");
+    CHECK(get("ro.product.model") == machine());
+    CHECK(get("ro.product.device") == machine());
+    CHECK(!get("ro.product.name"));
+    CHECK(!get("ro.soc.model"));
+    CHECK(apkrt_set_device_profile("galaxy") == 0);
+    CHECK(apkrt_set_device_profile(nullptr) == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.product.manufacturer") == "Apple");
+}
+
 }  // namespace
 
 int main() {

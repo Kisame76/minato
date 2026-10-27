@@ -111,6 +111,35 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
     {"sys.use_memfd", "true"},
 };
 
+/// A device profile (ADR-0065): the names android.os.Build reads, as a phone's build properties give them, from the
+/// public device listings; the default has none and keeps the host's own (area()).
+struct DeviceProfile {
+    std::string_view name;
+    std::pair<std::string_view, std::string_view> values[8];
+};
+constexpr DeviceProfile device_profiles[] = {
+    {"pixel",
+     {{"ro.product.manufacturer", "Google"},
+      {"ro.product.brand", "google"},
+      {"ro.product.model", "Pixel 9"},
+      {"ro.product.device", "tokay"},
+      {"ro.product.name", "tokay"},
+      {"ro.hardware", "tokay"},
+      {"ro.soc.manufacturer", "Google"},
+      {"ro.soc.model", "Tensor G4"}}},
+    {"galaxy",
+     {{"ro.product.manufacturer", "samsung"},
+      {"ro.product.brand", "samsung"},
+      {"ro.product.model", "SM-S921B"},
+      {"ro.product.device", "e1s"},
+      {"ro.product.name", "e1sxxx"},
+      {"ro.hardware", "s5e9945"},
+      {"ro.soc.manufacturer", "Samsung"},
+      {"ro.soc.model", "S5E9945"}}},
+};
+/// apkrt_set_device_profile's, none (the host's own names) until it is called.
+std::atomic<const DeviceProfile *> device_profile{nullptr};
+
 /// apkrt_set_opengles_version's, ES 3.0 until graphics/host puts ANGLE on its Vulkan backend.
 std::atomic<std::uint32_t> opengles_version{0x30000};
 
@@ -256,6 +285,11 @@ private:
 
 std::string area() {
     Area written;
+    // The profile's names first: an Area keeps the first value a name gets, so they win over the table's and the
+    // host's below.
+    if (const auto *profile = device_profile.load()) {
+        for (const auto &[name, value] : profile->values) written.add(name, value);
+    }
     for (const auto &[name, value] : properties) written.add(name, value);
     const std::string model = machine();
     written.add("ro.product.model", model);
@@ -280,4 +314,18 @@ extern "C" int apkrt_set_opengles_version(uint32_t version) {
     if (version != 0x30000 && version != 0x30001) return -1;
     apkrt::properties::opengles_version.store(version);
     return 0;
+}
+
+extern "C" int apkrt_set_device_profile(const char *name) {
+    if (name == nullptr || *name == '\0') {
+        apkrt::properties::device_profile.store(nullptr);
+        return 0;
+    }
+    for (const auto &profile : apkrt::properties::device_profiles) {
+        if (profile.name == name) {
+            apkrt::properties::device_profile.store(&profile);
+            return 0;
+        }
+    }
+    return -1;
 }

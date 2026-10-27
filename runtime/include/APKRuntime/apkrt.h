@@ -623,6 +623,13 @@ int apkrt_set_host_provider(const char *name, apkrt_host_provider provider, void
 /// calls it, before the program starts, as the providers are set. Returns 0, or -1 for another version.
 int apkrt_set_opengles_version(uint32_t version);
 
+/// Sets the device profile of the program (ADR-0065): the names android.os.Build reads (manufacturer, brand, model,
+/// device, product, hardware, the SoC's) and nothing else, in place of the host's own, before the program starts, as
+/// the property area is built then. `name` is "pixel" or "galaxy"; NULL or "" is the default, the host's own (Apple,
+/// the host's hw.machine). Returns 0, or -1 for another name, which leaves the profile as it was. The GPU strings
+/// follow in a later step; nothing here touches attestation, build tags or the debuggable flag.
+int apkrt_set_device_profile(const char *name);
+
 /// Whether the app holds android.permission.INTERNET (ADR-0054 step c2a), from its manifest. Without it, AF_INET and
 /// AF_INET6 sockets answer EPERM, as netd's BPF program makes Android's kernel answer, and the guest's DNS proxy answers
 /// only from the hosts file, failing every other name and address as Android's proxy fails a uid whose networking is
