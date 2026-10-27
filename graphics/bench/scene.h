@@ -21,13 +21,16 @@ enum bench_load { BENCH_LIGHT, BENCH_HEAVY };
 
 /* bench.conf (ADR-0037): ASCII key=value lines. run is the run's ID, rate 60 or 120 Hz, load light or heavy,
    seconds the time to draw from the first frame; check, for tests only, the frame whose CRC the scene logs, at its
-   place and drawn once before the first frame, while the GPU is cold. */
+   place and drawn once before the first frame, while the GPU is cold; scale, 25 to 100 percent, the offscreen target's
+   size per side against the window's, which the post pass stretches over the window (M6's MetalFX plan, step 0:
+   whether a scene is bound by its pixels). */
 struct bench_conf {
     char run[64];
     int rate;
     enum bench_load load;
     int seconds;
     int check;  // -1 for none
+    int scale;  // percent, 100 by default
 };
 
 /* Without bench.conf, the emulator's defaults: 60 Hz, light, 10 s. */
@@ -35,6 +38,10 @@ void bench_conf_defaults(struct bench_conf *conf);
 
 /* bench.conf's text over the defaults: 0, or -1 with the line it does not take in `error`. */
 int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, size_t size);
+
+/* The offscreen target's size for a window of width x height at `scale` percent: each side rounded to the nearest
+   pixel, at least 1. */
+void bench_target_size(int width, int height, int scale, int *target_width, int *target_height);
 
 /* N: the meshes and the particles of a load with an API, calibrated on the iPhone in step e) (scene.c). */
 int bench_meshes(enum bench_api api, enum bench_load load);

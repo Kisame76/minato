@@ -44,6 +44,7 @@ void bench_conf_defaults(struct bench_conf *conf) {
     conf->load = BENCH_LIGHT;
     conf->seconds = 10;
     conf->check = -1;
+    conf->scale = 100;
 }
 
 /* A whole number from `text` between `low` and `high`, else -1. */
@@ -87,12 +88,21 @@ int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, siz
             conf->seconds = (int)parsed;
         } else if (strcmp(entry, "check") == 0 && (parsed = number(value, 0, 1000000)) >= 0) {
             conf->check = (int)parsed;
+        } else if (strcmp(entry, "scale") == 0 && (parsed = number(value, 25, 100)) > 0) {
+            conf->scale = (int)parsed;
         } else {
             snprintf(error, size, "not taken: %s=%s", entry, value);
             return -1;
         }
     }
     return 0;
+}
+
+void bench_target_size(int width, int height, int scale, int *target_width, int *target_height) {
+    const int scaled_width = (int)(((long)width * scale + 50) / 100);
+    const int scaled_height = (int)(((long)height * scale + 50) / 100);
+    *target_width = scaled_width < 1 ? 1 : scaled_width;
+    *target_height = scaled_height < 1 ? 1 : scaled_height;
 }
 
 /* ---- The loads */

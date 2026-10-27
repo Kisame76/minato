@@ -85,9 +85,11 @@ int main(int argc, char **argv) {
     const bool record = ((argc == 6 || argc == 8) && std::strcmp(argv[5], "record") == 0) || record_class;
     const bool qos = argc == 8 && std::strcmp(argv[6], "-benchmarkRenderQoS") == 0;
     const bool queue_path = argc == 7 && std::strcmp(argv[5], "-benchmarkQueuePath") == 0;
-    if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path) {
+    const bool scaled = argc == 7 && std::strcmp(argv[5], "-benchmarkScale") == 0;
+    if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path && !scaled) {
         std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> "
                              "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>] | record-class | "
+                             "-benchmarkScale <percent> | "
                              "-benchmarkQueuePath <value>]\n");
         return 2;
     }
@@ -103,7 +105,8 @@ int main(int argc, char **argv) {
     fs::create_directories(scratch);
     const fs::path csv = scratch / "scene.csv";
     const std::string conf = "run=" + api + "-120-" + load + "-native-00\nrate=120\nload=" + load +
-                             (record ? "\nseconds=1\n" : "\nseconds=9\ncheck=1000\n");
+                             (record ? "\nseconds=1\n" : "\nseconds=9\ncheck=1000\n") +
+                             (scaled ? "scale=" + std::string(argv[6]) + "\n" : "");
 
     int failures = 0;
     char error[512] = "";

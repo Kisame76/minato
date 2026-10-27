@@ -119,6 +119,8 @@ struct bench_vulkan {
     VkSwapchainKHR swapchain;
     VkFormat format;
     VkExtent2D extent;
+    VkExtent2D target_extent;  // the offscreen target's, the swapchain's at scale 100
+    int scale;
     uint32_t image_count;
     VkImage images[IMAGES];
     VkImageView views[IMAGES];
@@ -328,6 +330,10 @@ static int make_swapchain(struct bench_vulkan *scene) {
     scene->format = format.format;
     scene->extent = capabilities.currentExtent;
     scene->aspect = (float)scene->extent.width / (float)scene->extent.height;
+    int target_width, target_height;
+    bench_target_size((int)scene->extent.width, (int)scene->extent.height, scene->scale, &target_width,
+                      &target_height);
+    scene->target_extent = (VkExtent2D){(uint32_t)target_width, (uint32_t)target_height};
     uint32_t images = capabilities.minImageCount > 3 ? capabilities.minImageCount : 3;
     if (capabilities.maxImageCount != 0 && images > capabilities.maxImageCount) images = capabilities.maxImageCount;
     VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -443,8 +449,8 @@ enum kind { kFullScreen, kMesh, kParticles };
 static VkPipeline pipeline(const struct bench_vulkan *scene, const uint32_t *vertex, size_t vertex_size,
                            const uint32_t *fragment, size_t fragment_size, VkRenderPass pass, enum kind kind) {
     const VkShaderModule modules[2] = {shader(scene, vertex, vertex_size), shader(scene, fragment, fragment_size)};
-    // mesh.frag's constant 0: the window's height, for the meshes' texture level.
-    const float height = (float)scene->extent.height;
+    // mesh.frag's constant 0: the offscreen target's height, for the meshes' texture level.
+    const float height = (float)scene->target_extent.height;
     const VkSpecializationMapEntry entry = {0, 0, sizeof height};
     const VkSpecializationInfo specialization = {1, &entry, sizeof height, &height};
     const VkPipelineShaderStageCreateInfo stages[2] = {
@@ -536,17 +542,18 @@ static int make_pipelines(struct bench_vulkan *scene) {
 /* ---- The targets, the texture, the sphere */
 
 static int make_targets(struct bench_vulkan *scene) {
-    if (make_image(scene, target_format, scene->extent, 1,
+    if (make_image(scene, target_format, scene->target_extent, 1,
                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
                    &scene->target) != 0 ||
-        make_image(scene, depth_format, scene->extent, 1, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        make_image(scene, depth_format, scene->target_extent, 1, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                    VK_IMAGE_ASPECT_DEPTH_BIT, &scene->depth) != 0) {
         return -1;
     }
     const VkImageView views[2] = {scene->target.view, scene->depth.view};
     VkFramebufferCreateInfo info = {.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                                     .renderPass = scene->scene_pass, .attachmentCount = 2, .pAttachments = views,
-                                    .width = scene->extent.width, .height = scene->extent.height, .layers = 1};
+                                    .width = scene->target_extent.width, .height = scene->target_extent.height,
+                                    .layers = 1};
     if (!ok(vkCreateFramebuffer(scene->device, &info, NULL, &scene->target_framebuffer), "vkCreateFramebuffer")) {
         return -1;
     }
@@ -669,11 +676,13 @@ static int make_descriptors(struct bench_vulkan *scene) {
     return 0;
 }
 
-struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *platform, int meshes, int check) {
+struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *platform, int meshes, int check,
+                                        int scale) {
     struct bench_vulkan *scene = calloc(1, sizeof *scene);
     if (scene == NULL) return NULL;
     scene->meshes = meshes;
     scene->check = check;
+    scene->scale = scale;
     if (start_device(scene, platform) != 0 || make_swapchain(scene) != 0 || make_pipelines(scene) != 0 ||
         make_targets(scene) != 0 || make_contents(scene) != 0 || make_descriptors(scene) != 0) {
         bench_vulkan_stop(scene);
@@ -681,6 +690,7 @@ struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *plat
     }
     bench_log("Vulkan: %u x %u, format %d, %u images", scene->extent.width, scene->extent.height, scene->format,
               scene->image_count);
+    bench_log("target: %u x %u (%d %%)", scene->target_extent.width, scene->target_extent.height, scale);
     return scene;
 }
 
@@ -689,16 +699,20 @@ struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *plat
 static void record(const struct bench_vulkan *scene, VkCommandBuffer commands, uint32_t image, int frame) {
     const VkViewport viewport = {0, 0, (float)scene->extent.width, (float)scene->extent.height, 0, 1};
     const VkRect2D area = {{0, 0}, scene->extent};
+    const VkViewport target_viewport = {0, 0, (float)scene->target_extent.width, (float)scene->target_extent.height,
+                                        0, 1};
+    const VkRect2D target_area = {{0, 0}, scene->target_extent};
     const struct push push = {bench_time(frame), scene->aspect};
     const VkShaderStageFlags stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     const VkClearValue clears[2] = {{.color = {.float32 = {0, 0, 0, 1}}}, {.depthStencil = {1, 0}}};
     const VkRenderPassBeginInfo offscreen = {.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                                              .renderPass = scene->scene_pass, .framebuffer = scene->target_framebuffer,
-                                             .renderArea = area, .clearValueCount = 2, .pClearValues = clears};
+                                             .renderArea = target_area, .clearValueCount = 2,
+                                             .pClearValues = clears};
     vkCmdBeginRenderPass(commands, &offscreen, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdSetViewport(commands, 0, 1, &viewport);
-    vkCmdSetScissor(commands, 0, 1, &area);
+    vkCmdSetViewport(commands, 0, 1, &target_viewport);
+    vkCmdSetScissor(commands, 0, 1, &target_area);
     vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, scene->background);
     vkCmdPushConstants(commands, scene->layout, stages, 0, sizeof push, &push);
     vkCmdDraw(commands, 3, 1, 0, 0);

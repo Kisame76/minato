@@ -95,6 +95,50 @@ def check_scene(path, what):
         ticks = tick
 
 
+WINDOW = re.compile(r"^(?:bench-[a-z]+: )?(?:GLES|Vulkan): ([0-9]+) x ([0-9]+)\b", re.MULTILINE)
+TARGET = re.compile(r"^(?:bench-[a-z]+: )?target: ([0-9]+) x ([0-9]+) \(([0-9]+) %\)$", re.MULTILINE)
+
+
+def target_of(output, scale, what):
+    """The window's size and the offscreen target's from the output, and whether the target is `scale` percent of the
+    window's, each side rounded to the nearest pixel. Returns the pair of sizes, or None."""
+    window, target = WINDOW.findall(output), TARGET.findall(output)
+    if len(window) != 1 or len(target) != 1:
+        fail(f"{what}: {len(window)} window lines and {len(target)} target lines, not 1 each")
+        return None
+    width, height = int(window[0][0]), int(window[0][1])
+    wanted = ((width * scale + 50) // 100, (height * scale + 50) // 100)
+    got = (int(target[0][0]), int(target[0][1]), int(target[0][2]))
+    if got != (*wanted, scale):
+        fail(f"{what}: the target is {got[0]} x {got[1]} ({got[2]} %), not {wanted[0]} x {wanted[1]} ({scale} %) of "
+             f"{width} x {height}")
+    return (width, height), got[:2]
+
+
+def render_scale(args, scratch, plain_by_api):
+    """ADR-0037 / M6's MetalFX plan, step 0: bench.conf's scale. Without it the target is the window's. With
+    -benchmarkScale 50 the target is half of each side, the run draws all its frames, frame 1000 has the same CRC when
+    drawn before the first frame and at its place, and it is not the full-size frame's. A scale below 25 is refused."""
+    for api in ("gles", "vulkan"):
+        full = plain_by_api.get(api)
+        if full is not None:
+            target_of(full, 100, f"{api} light, host build")
+        what = f"{api} light, host build with -benchmarkScale 50"
+        output = run([args.host, api, "light", str(scratch / "scale"), args.moltenvk, "-benchmarkScale", "50"], what)
+        check_scene(scratch / "scale" / f"{api}-light" / "scene.csv", what)
+        target_of(output, 50, what)
+        half = crc(output, what)
+        full_crc = crc(full, f"{api} light, host build") if full is not None else None
+        if half is not None and full_crc is not None and half == full_crc:
+            fail(f"{what}: frame 1000 has the full-size run's CRC {half}")
+    refused = subprocess.run([args.host, "gles", "light", str(scratch / "scale"), args.moltenvk, "-benchmarkScale",
+                              "20"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                             timeout=300)
+    if refused.returncode == 0 or "not taken: scale=20" not in refused.stdout:
+        fail(f"gles light, host build with -benchmarkScale 20: not refused ({refused.returncode}): "
+             f"{refused.stdout.strip()[-300:]}")
+
+
 def queue_path(args, scratch, plain, plain_crc):
     """The Vulkan host build at the light load with -benchmarkQueuePath libvulkan, against `plain`, the output of
     its run without it, which drew frame 1000 with `plain_crc`."""
@@ -192,11 +236,14 @@ def main():
         return record_class(args, scratch)
 
     plain = ""
+    plain_by_api = {}
     for api in ("gles", "vulkan"):
         crcs = {}
         for load in ("light", "heavy"):
             name = f"{api} {load}"
             host = run([args.host, api, load, str(scratch / "host"), args.moltenvk], f"{name}, host build")
+            if load == "light":
+                plain_by_api[api] = host
             if api == "vulkan" and load == "light":
                 plain = host
             check_scene(scratch / "host" / f"{api}-{load}" / "scene.csv", f"{name}, host build")
@@ -212,6 +259,7 @@ def main():
         if crcs["light"] is not None and crcs["light"] == crcs["heavy"]:
             fail(f"{api}: the loads drew the same frame 1000")
     queue_path(args, scratch, plain, crcs["light"])
+    render_scale(args, scratch, plain_by_api)
 
     print(f"{len(failures)} failures" if failures else "PASS: graphics.bench")
     return 1 if failures else 0

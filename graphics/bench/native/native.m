@@ -88,7 +88,8 @@ static void *render(void *unused) {
         const EGLint surface[] = {MINATO_EGL_FIXED_SIZE(bench.width, bench.height), EGL_NONE};
         void *const display = (void *)(intptr_t)EGL_DEFAULT_DISPLAY;
         gles = bench_gles_start(eglGetPlatformDisplay(MINATO_EGL_PLATFORM_ANGLE_ANGLE, display, metal),
-                                (EGLNativeWindowType)bench.layer, surface, meshes, bench.conf.check);
+                                (EGLNativeWindowType)bench.layer, surface, meshes, bench.conf.check,
+                                bench.conf.scale);
     } else {
         static const char *const extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME,
                                                   VK_EXT_LAYER_SETTINGS_EXTENSION_NAME};
@@ -99,7 +100,9 @@ static void *render(void *unused) {
         PFN_vkGetInstanceProcAddr get = (PFN_vkGetInstanceProcAddr)dlsym(bench.moltenvk, "vkGetInstanceProcAddr");
         if (bench.queue_path) get = bench_queue_path(get);
         const struct bench_vulkan_platform platform = {get, extensions, 3, &settings, metal_surface, bench.layer};
-        if (platform.get_instance_proc_addr != NULL) vulkan = bench_vulkan_start(&platform, meshes, bench.conf.check);
+        if (platform.get_instance_proc_addr != NULL) {
+            vulkan = bench_vulkan_start(&platform, meshes, bench.conf.check, bench.conf.scale);
+        }
     }
 
     int frame = 0, failed = gles == NULL && vulkan == NULL;

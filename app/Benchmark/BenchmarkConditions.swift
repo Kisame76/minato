@@ -21,6 +21,15 @@ enum BenchmarkConditions {
         }
     }
 
+    /// M6's MetalFX plan, step 0: the render scale in percent of ADR-0037's scene, from the launch argument
+    /// `-benchmarkScale <n>` (it arrives as UserDefaults' "benchmarkScale"), 25 to 100; 100 without it, with a value
+    /// outside, and always for test 2's Godot scene, whose bench.gd takes no scale. A by-hand measure: nothing records
+    /// the scale in run.csv, so a scaled run is never a verdict's.
+    nonisolated static func renderScale(for scene: BenchScene) -> Int {
+        let scale = UserDefaults.standard.integer(forKey: "benchmarkScale")
+        return scene == .parity && (25...100).contains(scale) ? scale : 100
+    }
+
     static func maxFPS() -> Int {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first?.maximumFramesPerSecond
             ?? 0

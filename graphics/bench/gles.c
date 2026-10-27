@@ -16,6 +16,7 @@ struct bench_gles {
     EGLContext context;
     EGLBoolean current;
     EGLint width, height;
+    int target_width, target_height;  // the offscreen target's, the window's at scale 100
     float aspect;
     int meshes, check;
     int cold;  // 1 once the check frame was drawn before the first frame
@@ -192,7 +193,7 @@ static int make_programs(struct bench_gles *scene) {
     scene->particles_aspect = glGetUniformLocation(scene->particles, "u_aspect");
     glUseProgram(scene->mesh);
     glUniform1i(glGetUniformLocation(scene->mesh, "u_texture"), 0);
-    glUniform1f(glGetUniformLocation(scene->mesh, "u_height"), (float)scene->height);
+    glUniform1f(glGetUniformLocation(scene->mesh, "u_height"), (float)scene->target_height);
     glUseProgram(scene->post);
     glUniform1i(glGetUniformLocation(scene->post, "u_scene"), 0);
     return 0;
@@ -240,18 +241,19 @@ static int make_texture(struct bench_gles *scene) {
     return 0;
 }
 
-/* The offscreen target at the window's size: RGBA8 color, 24-bit depth. */
+/* The offscreen target at the window's size, or at bench.conf's scale of it: RGBA8 color, 24-bit depth. */
 static int make_target(struct bench_gles *scene) {
     glGenTextures(1, &scene->target);
     glBindTexture(GL_TEXTURE_2D, scene->target);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, scene->width, scene->height);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, scene->target_width, scene->target_height);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glGenRenderbuffers(1, &scene->depth);
     glBindRenderbuffer(GL_RENDERBUFFER, scene->depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, scene->width, scene->height);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, scene->target_width,
+                          scene->target_height);
     glGenFramebuffers(1, &scene->framebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, scene->target, 0);
@@ -266,7 +268,7 @@ static int make_target(struct bench_gles *scene) {
 }
 
 struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType window, const EGLint *surface_attributes,
-                                    int meshes, int check) {
+                                    int meshes, int check, int scale) {
     struct bench_gles *scene = calloc(1, sizeof *scene);
     if (scene == NULL) return NULL;
     scene->display = display;
@@ -292,6 +294,7 @@ struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType wind
         return NULL;
     }
     scene->aspect = (float)scene->width / (float)scene->height;
+    bench_target_size(scene->width, scene->height, scale, &scene->target_width, &scene->target_height);
     make_sphere(scene);
     if (make_programs(scene) != 0 || make_texture(scene) != 0 || make_target(scene) != 0) {
         bench_gles_stop(scene);
@@ -304,6 +307,7 @@ struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType wind
         return NULL;
     }
     bench_log("GLES: %d x %d", scene->width, scene->height);
+    bench_log("target: %d x %d (%d %%)", scene->target_width, scene->target_height, scale);
     return scene;
 }
 
@@ -323,7 +327,7 @@ static void log_crc(const struct bench_gles *scene, int frame, int cold) {
 static EGLint draw(struct bench_gles *scene, int frame, int cold) {
     const float time = bench_time(frame);
     glBindFramebuffer(GL_FRAMEBUFFER, scene->framebuffer);
-    glViewport(0, 0, scene->width, scene->height);
+    glViewport(0, 0, scene->target_width, scene->target_height);
     glDepthMask(GL_TRUE);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -363,6 +367,7 @@ static EGLint draw(struct bench_gles *scene, int frame, int cold) {
     glInvalidateFramebuffer(GL_FRAMEBUFFER, 1, &depth);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, scene->width, scene->height);
     glDisable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(scene->post);

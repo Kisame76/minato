@@ -16,6 +16,21 @@ struct BenchSceneTests {
         #expect(BenchConf.text(for: BenchRun("gles-120-heavy-native-00")!, seconds: 3).hasSuffix("seconds=3\n"))
     }
 
+    /// M6's MetalFX plan, step 0: the scene's render scale, in percent, is a line of bench.conf only when it is
+    /// not 100.
+    @Test func benchConfCarriesTheRenderScaleOnlyWhenItIsNot100() {
+        let run = BenchRun("gles-120-heavy-native-01")!
+        #expect(BenchConf.text(for: run, scale: 100) == BenchConf.text(for: run))
+        #expect(BenchConf.text(for: run, seconds: 3, scale: 67) == """
+            run=gles-120-heavy-native-01
+            rate=120
+            load=heavy
+            seconds=3
+            scale=67
+
+            """)
+    }
+
     /// Test 2's done file (ADR-0042 c): "<frames> frames", written after scene.csv.
     @Test func theDoneFileCountsTheFrames() {
         #expect(BenchDone.frames("6240 frames\n") == 6240)
