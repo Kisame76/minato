@@ -20,10 +20,11 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * The activity that stands in for the phone's permission dialog (ADR-0063): Activity.requestPermissions starts it with
- * the names, as the permission controller is started. A request that needs no dialog ends at once with PermissionPolicy's
- * answers; one for the location the host decides goes to the host (APKRT_REQUEST_PERMISSION), whose sheet and iOS's prompt
- * are the dialog, and ends with the answer. It has no window of its own, and the translucent theme keeps the app's under it.
+ * The activity that stands in for the phone's permission dialog (ADR-0063): Activity.requestPermissions starts it
+ * with the names, as the permission controller is started. A request that needs no dialog ends at once with
+ * PermissionPolicy's answers; one for the location the host decides goes to the host (APKRT_REQUEST_PERMISSION),
+ * whose sheet and iOS's prompt are the dialog, and ends with the answer. It has no window of its own, and the
+ * translucent theme keeps the app's under it.
  */
 public final class SystemPermissionActivity extends Activity {
     private static final String TAG = "SystemPermission";
@@ -83,8 +84,9 @@ public final class SystemPermissionActivity extends Activity {
     }
 
     /**
-     * The host's answer: PERMISSION_RESULT's request ID (0 for the foreground re-read of iOS's authorisation), group and
-     * outcome. A solicited answer counts as a denial or a grant and ends the request; an unsolicited one only updates the grant.
+     * The host's answer: PERMISSION_RESULT's request ID (0 for the foreground re-read of iOS's authorisation), group
+     * and outcome. A solicited answer counts as a denial or a grant and ends the request; an unsolicited one only
+     * updates the grant.
      */
     public static void onResult(long id, int group, int outcome) {
         final PermissionAnswers answers = ActivityThread.permissionAnswers();

@@ -5,9 +5,9 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * Which of an app's requested permissions go to the host and with what precision (ADR-0063 decision 2) on the host's
- * JVM (tools/framework-host-check.sh): only a permission that PermissionPolicy leaves to the host and that Android would
- * still ask about counts; a request that needs no dialog is answered at once.
+ * Which of an app's requested permissions go to the host and with what precision (ADR-0063 decision 2) on the
+ * host's JVM (tools/framework-host-check.sh): only a permission that PermissionPolicy leaves to the host and that
+ * Android would still ask about counts; a request that needs no dialog is answered at once.
  */
 public final class PermissionRequestsTest {
     private static final String FINE = "android.permission.ACCESS_FINE_LOCATION";
@@ -16,7 +16,8 @@ public final class PermissionRequestsTest {
     private static final int LOCATION = PermissionPolicy.GROUP_LOCATION;
 
     private static final Function<String, PermissionPolicy.Grant> HOST_DECIDES = name ->
-            PermissionPolicy.hostGroup(name) == LOCATION ? PermissionPolicy.Grant.ASK_HOST : PermissionPolicy.Grant.GRANTED;
+            PermissionPolicy.hostGroup(name) == LOCATION
+                    ? PermissionPolicy.Grant.ASK_HOST : PermissionPolicy.Grant.GRANTED;
 
     public void testAPermissionThatNeedsNoDialogAsksNothing() {
         check(PermissionRequests.detailToAsk(List.of(INTERNET), HOST_DECIDES, new PermissionAnswers()) == 0, "normal");
@@ -24,7 +25,8 @@ public final class PermissionRequestsTest {
     }
 
     public void testFineAndCoarseTogetherAskForFine() {
-        check(PermissionRequests.detailToAsk(List.of(COARSE, FINE), HOST_DECIDES, new PermissionAnswers()) == 1, "both");
+        check(PermissionRequests.detailToAsk(List.of(COARSE, FINE), HOST_DECIDES, new PermissionAnswers()) == 1,
+                "both");
         check(PermissionRequests.detailToAsk(List.of(FINE), HOST_DECIDES, new PermissionAnswers()) == 1, "fine alone");
     }
 
@@ -63,7 +65,8 @@ public final class PermissionRequestsTest {
     }
 
     public void testTheRequestTextIsGroupAndDetail() {
-        check("1\t2".equals(PermissionRequests.requestText(LOCATION, 2)), "text: " + PermissionRequests.requestText(LOCATION, 2));
+        final String text = PermissionRequests.requestText(LOCATION, 2);
+        check("1\t2".equals(text), "text: " + text);
     }
 
     private static void check(boolean condition, String what) {

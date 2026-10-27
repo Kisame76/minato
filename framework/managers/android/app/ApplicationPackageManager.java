@@ -800,13 +800,18 @@ class ApplicationPackageManager {
                 ? PERMISSION_GRANTED : PERMISSION_DENIED;
     }
 
-    /** Android's rationale: true after one denial of a permission the host decides, else false (ADR-0063 decision 2). */
+    /**
+     * Android's rationale: true after one denial of a permission the host decides, else false (ADR-0063 decision 2).
+     */
     public boolean shouldShowRequestPermissionRationale(String permName) {
         ManifestPackage pkg = mThread.getManifestPackage();
         return pkg != null && pkg.answers().shouldShowRationale(permName);
     }
 
-    /** The package of the permission dialog's activity, which Activity.requestPermissions names in its intent; as on apk-runner-35. */
+    /**
+     * The package of the permission dialog's activity, which Activity.requestPermissions names in its intent; as on
+     * apk-runner-35.
+     */
     public String getPermissionControllerPackageName() {
         return "com.android.permissioncontroller";
     }

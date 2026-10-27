@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Runs the test of Activity.requestPermissions (ADR-0063) on the Mac (framework/tests/java_app_run.py): builds apk-run and
-# apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so (incremental),
-# framework.jar (about 10 s) and the app (seconds) every time, so it never tests an old binary; then starts
-# permission-request-test through app_process in a session on the M4 plan's display and compares its log with Android 15's
-# on apk-runner-35 (fixtures/expected/permission-request-test.logcat, from tools/android-reference.sh --app
-# permission-request-test): a request for a normal permission, for one the app does not declare, for a mix, for an
-# unknown one and for none, each answered without a dialog as the permission controller answers.
+# Runs the test of Activity.requestPermissions (ADR-0063) on the Mac (framework/tests/java_app_run.py): builds
+# apk-run and apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so
+# (incremental), framework.jar (about 10 s) and the app (seconds) every time, so it never tests an old binary;
+# then starts permission-request-test through app_process in a session on the M4 plan's display and compares its
+# log with Android 15's on apk-runner-35 (fixtures/expected/permission-request-test.logcat, from
+# tools/android-reference.sh --app permission-request-test): a request for a normal permission, for one the app does
+# not declare, for a mix, for an unknown one and for none, each answered without a dialog as the permission
+# controller answers.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/permission-check.sh
 set -euo pipefail

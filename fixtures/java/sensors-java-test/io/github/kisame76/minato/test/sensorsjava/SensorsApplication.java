@@ -169,7 +169,8 @@ public class SensorsApplication extends Application {
             if (i > 0) {
                 increasing &= c.stamps.get(i) >= c.stamps.get(i - 1);
             }
-            // a timestamp is on the elapsedRealtimeNanos base: not after its arrival, and at most 20 s before it, as a loaded machine delays an arrival, while another base is off by the time since boot
+            // a timestamp is on the elapsedRealtimeNanos base: not after its arrival, and at most 20 s before it, as
+            // a loaded machine delays an arrival, while another base is off by the time since boot
             final long age = c.arrivals.get(i) - c.stamps.get(i);
             fresh &= age >= -10_000_000L && age < 20_000_000_000L;
         }

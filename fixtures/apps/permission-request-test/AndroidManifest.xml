@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ADR-0063's test of Activity.requestPermissions (permission-request-test), from the sources of fixtures/java/permission-request-test.
-     The harness grants what the twin's name says (-fine: both location permissions, else none). The label is the tag its
-     lines carry. -->
+<!-- ADR-0063's test of Activity.requestPermissions (permission-request-test), from the sources of
+     fixtures/java/permission-request-test. The harness grants what the twin's name says (-fine: both location
+     permissions, else none). The label is the tag its lines carry. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.permreq" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
