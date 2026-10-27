@@ -119,7 +119,10 @@ class Run:
             own.append("thermal_above_fair")
         period = Fraction(S, int(row["rate"]))
         link = int(row["link_period_median_ns"] or 0)
-        if link <= 0 or abs(link - period) > period / 100:
+        # An APK that asked for no rate (requested_rate 0) runs at the panel's rate (ADR-0042): judged by its frame
+        # times, so the link period is no reason for it. Every other run, the twin included, must match its rate.
+        unasked = self.variant == "apk" and float(row["requested_rate"] or 0) == 0
+        if not unasked and (link <= 0 or abs(link - period) > period / 100):
             own.append("link_period")
         if row["debugger"] == "1":
             own.append("debugger")

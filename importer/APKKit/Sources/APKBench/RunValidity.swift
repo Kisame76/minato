@@ -16,7 +16,11 @@ public enum RunValidity {
             reasons.append(thermalAboveFair)
         }
         let period = 1e9 / Double(record.run.configuration.rate)
-        if record.linkPeriodMedianNs <= 0 || abs(Double(record.linkPeriodMedianNs) - period) > period / 100 {
+        // An APK that asked for no rate (requested_rate 0) runs at the panel's rate (ADR-0042): judged by its frame
+        // times, so the link period is no reason for it. Every other run, the twin included, must match its rate.
+        let unasked = record.run.variant == .apk && record.requestedRate == 0
+        let offPeriod = record.linkPeriodMedianNs <= 0 || abs(Double(record.linkPeriodMedianNs) - period) > period / 100
+        if !unasked && offPeriod {
             reasons.append(linkPeriod)
         }
         if record.debugger { reasons.append(debugger) }

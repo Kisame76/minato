@@ -51,6 +51,22 @@ struct RunValidityTests {
         }
     }
 
+    /// ADR-0042: an APK that asks for no rate runs at the panel's rate and is judged by its frame times; the same
+    /// row with a rate asked, and the twin, must match their rate.
+    @Test func anApkThatAsksNoRateNeedsNoLinkPeriod() {
+        func record(_ run: String, requested: Float) -> BenchRunRecord {
+            var record = BenchRunRecord(run: BenchRun(run)!)
+            record.requestedRate = requested
+            record.linkPeriodMedianNs = 8_335_167
+            record.sceneFrames = 52 * 60
+            record.drawables = 52 * 60
+            return record
+        }
+        #expect(RunValidity.reasons(for: record("gles-60-light-apk-01", requested: 0)) == [])
+        #expect(RunValidity.reasons(for: record("gles-60-light-apk-01", requested: 60)) == [RunValidity.linkPeriod])
+        #expect(RunValidity.reasons(for: record("gles-60-light-native-01", requested: 0)) == [RunValidity.linkPeriod])
+    }
+
     @Test func noDebugger() {
         var record = Self.record()
         record.debugger = true

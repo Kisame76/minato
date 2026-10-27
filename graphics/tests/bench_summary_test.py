@@ -189,9 +189,21 @@ def check_validity(tool, scratch):
     for number in range(1, 6):
         first = (3000 + number * 100) * S
         write_run(results, f"vulkan-60-light-apk-{number:02}", standard(first, 95, 12), first, max_drawable_count=2)
+    # An APK that asks for no rate (requested_rate 0) runs at the panel's rate, so its link period is no reason
+    # (ADR-0042); with a rate asked, or as the native twin, the same row is invalid.
+    for name, fields in (("16", dict(requested_rate="0.0")), ("17", dict(requested_rate="60.0"))):
+        first = (1000 + int(name) * 100) * S
+        write_run(results, f"vulkan-60-light-apk-{name}", standard(first, 100, 12), first,
+                  link_period_median_ns=8_335_167, **fields)
+    first = 1800 * S
+    write_run(results, "vulkan-60-light-native-18", standard(first, 100, 12), first, requested_rate="0.0",
+              link_period_median_ns=8_335_167)
     tables = summarize(tool, results, scratch / "validity-summary")
     if tables is None:
         return
+    for run, reasons in (("vulkan-60-light-apk-16", ""), ("vulkan-60-light-apk-17", "link_period"),
+                         ("vulkan-60-light-native-18", "link_period")):
+        expect(tables, "warm", run, "invalid_reasons", reasons, f"the link period of {run}")
     for number, (_, _, reasons) in broken.items():
         run = f"vulkan-60-light-native-{number}"
         expect(tables, "warm", run, "valid", "0" if reasons else "1", f"validity of {run}")
