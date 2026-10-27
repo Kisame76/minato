@@ -25,6 +25,29 @@ public struct BenchRecording: Equatable, Sendable {
         self.lost = lost
     }
 
+    /// The recording of the layer the guest presents on, of the session's window layer and its SurfaceViews' layers
+    /// (ADR-0043 c4): the one with the most drawables, lost ones too, the first on a tie; `others` counts the rest's.
+    /// nil without recordings.
+    public static func presenting(_ recordings: [BenchRecording]) -> (recording: BenchRecording, others: Int)? {
+        let counts = recordings.map { $0.drawables.count + $0.lost }
+        guard let most = counts.max(), let index = counts.firstIndex(of: most) else { return nil }
+        return (recordings[index], counts.reduce(0, +) - most)
+    }
+
+    /// ADR-0042, decision 4: Godot's APK draws its boot image on the surface before frame 0, so its `frames` are the
+    /// recording's last drawables and `before` counts the ones ahead of them. A recording that lost drawables lost
+    /// its end: all of them, and -1.
+    public func alignedAtEnd(frames: Int) -> (drawables: [BenchDrawable], before: Int) {
+        guard lost == 0 else { return (drawables, -1) }
+        let before = max(0, drawables.count - frames)
+        return (Array(drawables.dropFirst(before)), before)
+    }
+
+    /// The drawables taken after `ns`, in the recording's clock.
+    public func drawablesTaken(after ns: Int64) -> Int {
+        drawables.count { $0.nextDrawableNs > ns }
+    }
+
     /// MTLPixelFormat's case name for the formats a CAMetalLayer takes, else the raw value.
     public static func pixelFormatName(_ raw: UInt) -> String {
         switch raw {

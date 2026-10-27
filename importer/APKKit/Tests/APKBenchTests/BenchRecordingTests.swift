@@ -55,6 +55,50 @@ struct BenchRecordingTests {
         #expect(RunValidity.reasons(for: record).contains("frames 3, drawables 0"))
     }
 
+    /// A guest that draws into a SurfaceView (Godot's GodotView) presents on the surface's layer, not on the
+    /// window's (ADR-0043 c4): the run takes the layer with the most drawables, lost ones too, and counts the
+    /// others'.
+    @Test func theLayerWithTheMostDrawablesIsTheRuns() {
+        func recording(_ drawables: Int, lost: Int = 0, width: Int = 10) -> BenchRecording {
+            BenchRecording(qos: "default", pixelFormat: 80, drawableWidth: width, drawableHeight: 20,
+                           maxDrawableCount: 3,
+                           drawables: (0..<drawables).map { BenchDrawable(nextDrawableNs: Int64($0), presentedNs: 1) },
+                           lost: lost)
+        }
+        let window = recording(2), surface = recording(3119, width: 2796)
+        let chosen = BenchRecording.presenting([window, surface])
+        #expect(chosen?.recording == surface)
+        #expect(chosen?.others == 2)
+        // Lost drawables count: a surface past the capacity still outnumbers the window.
+        #expect(BenchRecording.presenting([recording(5), recording(3, lost: 4)])?.recording == recording(3, lost: 4))
+        // On a tie the first, the window's, which the layer hook gives first.
+        #expect(BenchRecording.presenting([recording(4), recording(4, width: 7)])?.recording == recording(4))
+        #expect(BenchRecording.presenting([window])?.others == 0)
+        #expect(BenchRecording.presenting([]) == nil)
+    }
+
+    /// ADR-0042, decision 4: Godot's APK frames are the recording's last drawables, the ones before are its boot
+    /// image; a recording that lost drawables lost its end and gives -1.
+    @Test func godotsApkFramesAreTheRecordingsLast() {
+        func recording(_ count: Int, lost: Int = 0) -> BenchRecording {
+            BenchRecording(qos: "default", pixelFormat: 80, drawableWidth: 10, drawableHeight: 20, maxDrawableCount: 3,
+                           drawables: (0..<count).map { BenchDrawable(nextDrawableNs: Int64($0) * 10, presentedNs: 1) },
+                           lost: lost)
+        }
+        let aligned = recording(5).alignedAtEnd(frames: 3)
+        #expect(aligned.before == 2)
+        #expect(aligned.drawables.map(\.nextDrawableNs) == [20, 30, 40])
+        #expect(recording(3).alignedAtEnd(frames: 3).before == 0)
+        // Fewer drawables than frames: nothing before, and the counts differ (RunValidity).
+        #expect(recording(2).alignedAtEnd(frames: 3).before == 0)
+        #expect(recording(2).alignedAtEnd(frames: 3).drawables.count == 2)
+        let lost = recording(5, lost: 1).alignedAtEnd(frames: 3)
+        #expect(lost.before == -1 && lost.drawables.count == 5)
+        // The drawables taken after the done file was written: the done frame's own, and any later one.
+        #expect(recording(5).drawablesTaken(after: 25) == 2)
+        #expect(recording(5).drawablesTaken(after: 40) == 0)
+    }
+
     /// Each API's APK in the bundle's Benchmark/ folder, and the package it installs as.
     @Test func apksByAPI() {
         #expect(BenchAPI.gles.apkFile == "bench-gles.apk")

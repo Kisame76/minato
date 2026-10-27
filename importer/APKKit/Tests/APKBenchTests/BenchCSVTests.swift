@@ -57,7 +57,7 @@ struct BenchCSVTests {
         #expect(lines[1] == """
             vulkan-120-heavy-apk-02,apk,vulkan,120,heavy,400,120.0,120,8333333,nominal,nominal,\
             5000000000=fair|9000000000=nominal,0,unplugged,0.85,default,bgra8Unorm,1290,2796,3,8ea8ae5,Release,0,\
-            ,1000000000,1250000000,1,
+            ,1000000000,1250000000,0,,1,
             """)
         #expect(lines[2] == "")
     }
@@ -73,7 +73,12 @@ struct BenchCSVTests {
         record.debugger = true
         record.focusLosses = [2_000_000_000, 3_000_000_000]
         let row = try Self.row(record)
-        #expect(row.hasSuffix(",1,2000000000|3000000000,1000000000,1250000000,0,debugger|focus_loss"))
+        #expect(row.hasSuffix(",1,2000000000|3000000000,1000000000,1250000000,0,,0,debugger|focus_loss"))
+        // Godot's APK: the drawables before frame 0, and those after the done file.
+        var godot = BenchRunRecord(run: BenchRun("godot-vulkan-60-light-apk-01")!)
+        godot.drawablesBeforeFrame0 = 3
+        godot.drawablesAfterDone = 1
+        #expect(try Self.row(godot).contains(",0,0,3,1,0,"))
     }
 
     @Test func aReasonWithACommaIsQuoted() throws {

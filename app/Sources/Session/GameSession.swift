@@ -124,6 +124,9 @@ final class GameSession {
     var guestPresents: UInt64 {
         (runtime?.presentsOfRemovedWindows ?? 0) + (bridge.window == 0 ? 0 : presents(bridge.window))
     }
+
+    /// The last rate the guest asked for with `ANativeWindow_setFrameRate`, 0 when it asked none.
+    var guestAskedRate: Float { frameClockSlot.askedRate }
     #endif
 
     /// The session takes over the process once its view is there: it becomes the runtime's session, writes
@@ -207,6 +210,7 @@ final class GameSession {
         runtime?.surfaces = surfaces
         #if BENCHMARK
         benchmark?.layer(layer)
+        surfaces.onAdd = { [weak self] in self?.benchmark?.surface($0) }
         #endif
     }
 
@@ -657,12 +661,17 @@ final class GameSession {
 /// empty until the session opens.
 private final class FrameClockSlot: Sendable {
     private let clock = Mutex<DisplayLinkClock?>(nil)
+    private let asked = Mutex<Float>(0)
+
+    /// The last rate the guest asked for, 0 when it asked none: a benchmark run's requested_rate.
+    var askedRate: Float { asked.withLock { $0 } }
 
     func set(_ clock: DisplayLinkClock) {
         self.clock.withLock { $0 = clock }
     }
 
     func setPreferredRate(_ rate: Float) {
+        if rate > 0 { asked.withLock { $0 = rate } }
         clock.withLock { $0 }?.setPreferredRate(rate)
     }
 }

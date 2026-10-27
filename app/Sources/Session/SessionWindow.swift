@@ -243,6 +243,8 @@ final class SurfaceLayers {
     private var surfaceBelow = false
     /// The window layer's own background, the view's black, while a surface lies below.
     private var windowBackground: CGColor?
+    /// Runs with each new surface's layer before the guest gets its window: a benchmark records it.
+    var onAdd: (CAMetalLayer) -> Void = { _ in }
 
     init(backdrop: CALayer, windowLayer: CAMetalLayer) {
         self.backdrop = backdrop
@@ -256,6 +258,7 @@ final class SurfaceLayers {
         layer.contentsScale = windowLayer.contentsScale
         layer.isOpaque = opaque
         Self.withoutAnimation { layer.frame = points(frame) }
+        onAdd(layer)
         let window = register(layer)
         guard window != 0 else { return 0 }
         if below.superlayer == nil {

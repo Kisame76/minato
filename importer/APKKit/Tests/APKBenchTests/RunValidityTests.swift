@@ -113,6 +113,45 @@ struct RunValidityTests {
         #expect(RunValidity.reasons(for: Self.record()) == [])
     }
 
+    /// ADR-0042, decision 4: Godot's APK draws its boot image on the surface before frame 0, so its frames are the
+    /// recording's last ones, at most 10 drawables come before them, and the done frame is the last drawable.
+    @Test func godotsApkIsAlignedAtTheEnd() {
+        func record(_ run: String = "godot-vulkan-60-light-apk-01", drawables: Int, before: Int,
+                    afterDone: Int? = 1) -> BenchRunRecord {
+            var record = BenchRunRecord(run: BenchRun(run)!)
+            record.linkPeriodMedianNs = 1_000_000_000 / 60
+            record.requestedRate = 60
+            record.sceneFrames = 3119
+            record.doneFrames = 3119
+            record.drawables = drawables
+            record.drawablesBeforeFrame0 = before
+            record.drawablesAfterDone = afterDone
+            return record
+        }
+        #expect(RunValidity.reasons(for: record(drawables: 3122, before: 3)) == [])
+        #expect(RunValidity.reasons(for: record(drawables: 3119, before: 0)) == [])
+        #expect(RunValidity.reasons(for: record(drawables: 3129, before: 10)) == [])
+        #expect(RunValidity.reasons(for: record(drawables: 3130, before: 11)) == ["11 drawables before frame 0"])
+        // A recording that lost its last drawables has no end to align at.
+        #expect(RunValidity.reasons(for: record(drawables: 3122, before: -1)) == ["-1 drawables before frame 0",
+                                                                                   "frames 3119, drawables 3122"])
+        #expect(RunValidity.reasons(for: record(drawables: 3118, before: 0)) == ["frames 3119, drawables 3118"])
+        // A draw after the frame that wrote done would shift every frame: Godot must stop drawing at quit().
+        #expect(RunValidity.reasons(for: record(drawables: 3122, before: 3, afterDone: 2))
+            == ["2 drawables after the done frame"])
+        #expect(RunValidity.reasons(for: record(drawables: 3122, before: 3, afterDone: 0))
+            == ["0 drawables after the done frame"])
+        // The twin records from frame 0 on (its frame hooks), with the same check at the end.
+        #expect(RunValidity.reasons(for: record("godot-vulkan-60-light-twin-01", drawables: 3119, before: 0)) == [])
+        #expect(RunValidity.reasons(for: record("godot-vulkan-60-light-twin-01", drawables: 3119, before: 0,
+                                                afterDone: 2)) == ["2 drawables after the done frame"])
+        // ADR-0037's APKs draw from frame 0 on: their counts stay equal.
+        var own = Self.record()
+        own.drawables += 3
+        own.drawablesBeforeFrame0 = 3
+        #expect(RunValidity.reasons(for: own) == ["frames 6240, drawables 6243"])
+    }
+
     @Test func everyReasonCounts() {
         var record = Self.record()
         record.lowPower = true

@@ -70,6 +70,12 @@ public struct BenchRunRecord: Equatable, Sendable {
     public var drawables = 0
     /// The frames test 2's done file counts (ADR-0042 c); 0 for ADR-0037's scene, which writes none.
     public var doneFrames = 0
+    /// Godot's APK: the drawables before frame 0, its boot image (ADR-0042, decision 4); -1 when the recording lost
+    /// its end, 0 for every other run.
+    public var drawablesBeforeFrame0 = 0
+    /// Test 2: the drawables taken after the done file was written, 1 when the done frame was the last; nil when not
+    /// measured.
+    public var drawablesAfterDone: Int?
 
     public init(run: BenchRun) {
         self.run = run
@@ -89,8 +95,8 @@ public enum BenchCSV {
     public static let runHeader = """
         run,variant,api,rate,load,meshes,requested_rate,max_fps,link_period_median_ns,thermal_start,thermal_end,\
         thermal_changes,low_power,battery_state,battery_level,qos,pixel_format,drawable_width,drawable_height,\
-        max_drawable_count,commit,configuration,debugger,focus_losses,start_ns,first_present_ns,valid,\
-        invalid_reasons
+        max_drawable_count,commit,configuration,debugger,focus_losses,start_ns,first_present_ns,\
+        drawables_before_frame0,drawables_after_done,valid,invalid_reasons
         """
 
     public static func frames(_ frames: [BenchFrame]) -> String {
@@ -111,7 +117,8 @@ public enum BenchCSV {
             flag(record.lowPower), record.batteryState, "\(record.batteryLevel)", record.qos, record.pixelFormat,
             "\(record.drawableWidth)", "\(record.drawableHeight)", "\(record.maxDrawableCount)", record.commit,
             record.configuration, flag(record.debugger), record.focusLosses.map(String.init).joined(separator: "|"),
-            "\(record.startNs)", "\(record.firstPresentNs)", flag(reasons.isEmpty), reasons.joined(separator: "|"),
+            "\(record.startNs)", "\(record.firstPresentNs)", "\(record.drawablesBeforeFrame0)",
+            record.drawablesAfterDone.map(String.init) ?? "", flag(reasons.isEmpty), reasons.joined(separator: "|"),
         ]
         return lines([runHeader, fields.map(quoted).joined(separator: ",")])
     }

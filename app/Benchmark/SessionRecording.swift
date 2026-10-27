@@ -62,6 +62,8 @@ final class SessionRecorder {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private let folder: URL
     @ObservationIgnored private var layer: CAMetalLayer?
+    /// The SurfaceViews' layers, recorded beside the window's.
+    @ObservationIgnored private var surfaceLayers: [CAMetalLayer] = []
     @ObservationIgnored private var recording = false
     @ObservationIgnored private var notes: [String] = []
     @ObservationIgnored private var hasEnded = false
@@ -99,6 +101,7 @@ final class SessionRecorder {
 
         let session = GameSession(entry: entry)
         session.runBenchmark(BenchmarkHooks(ticks: periods, layer: { [weak self] in self?.startRecording($0) },
+                                            surface: { [weak self] in self?.recordSurface($0) },
                                             ended: { [weak self] in self?.ended(status: $0, reason: $1) }))
         self.session = session
         // A session that never ends still gets its files.
@@ -128,6 +131,14 @@ final class SessionRecorder {
         }
     }
 
+    /// A SurfaceView's layer (ADR-0043 c4): the guest may present its frames there instead, as Godot does, so it
+    /// records too, and the session takes the layer with the most drawables.
+    private func recordSurface(_ layer: CAMetalLayer) {
+        guard !hasEnded,
+              BenchmarkConditions.startRecording(layer, capacity: BenchPlan.sessionRecordingCapacity) else { return }
+        surfaceLayers.append(layer)
+    }
+
     /// The session ended. A lifecycle that ended by itself waits a little for the program's exit status, which
     /// comes after it.
     private func ended(status: Int32?, reason: String?) {
@@ -146,13 +157,18 @@ final class SessionRecorder {
         record.exitStatus = status
         record.linkPeriodMedianNs = periods.median()
         record.debugger = record.debugger || BenchmarkConditions.isTraced()
-        let (recorded, unanswered) = BenchmarkConditions.stopRecording(layer)
+        let stopped = ([layer] + surfaceLayers.map(Optional.some)).map { BenchmarkConditions.stopRecording($0) }
+        let unanswered = stopped.map(\.unanswered).reduce(0, +)
+        // Never nil: the window's entry is always there.
+        let (recorded, others) = BenchRecording.presenting(stopped.map(\.recording)) ?? (stopped[0].recording, 0)
+        if others > 0 { notes.append("\(others) drawables on the session's other layers") }
         record.take(recorded)
         record.unanswered = unanswered
         if unanswered > 0 {
             notes.append("\(unanswered) presented handlers did not run")
         }
-        if recording, let session,
+        // guestPresents counts the window's presents, so only a recording of the window's layer is compared.
+        if recording, recorded == stopped[0].recording, let session,
            let note = BenchSessionRecord.drawableNote(drawables: recorded.drawables.count, lost: recorded.lost,
                                                       presents: session.guestPresents) {
             notes.append(note)

@@ -30,12 +30,14 @@ enum BenchmarkMode {
     }()
 }
 
-/// What a run needs of game mode's session (GameSession.runBenchmark): the frame clock's ticks, the layer
-/// before the guest starts, and the variant's end instead of the way back to the library.
+/// What a run needs of game mode's session (GameSession.runBenchmark): the frame clock's ticks, the window's layer
+/// before the guest starts, each SurfaceView's layer as the guest makes it (ADR-0043 c4), and the variant's end
+/// instead of the way back to the library.
 @MainActor
 struct BenchmarkHooks {
     let ticks: FrameTickSink
     let layer: (CAMetalLayer) -> Void
+    let surface: (CAMetalLayer) -> Void
     /// The program's exit status, nil when it did not end by itself; then nil, or why the variant did not end
     /// well.
     let ended: (Int32?, String?) -> Void
@@ -114,6 +116,8 @@ final class BenchmarkRunner {
     @ObservationIgnored private let folder: URL
     @ObservationIgnored private var bench: MinatoBench?
     @ObservationIgnored private var layer: CAMetalLayer?
+    /// The APK's SurfaceViews' layers, recorded beside the window's.
+    @ObservationIgnored private var surfaceLayers: [CAMetalLayer] = []
     @ObservationIgnored private var clock: DisplayLinkClock?
     @ObservationIgnored private var nativeStarted = false
     /// The APK's scene.csv, beside its bench.conf in internalDataPath.
@@ -178,6 +182,7 @@ final class BenchmarkRunner {
         if let session {
             // The APK asks for the rate itself (ANativeWindow_setFrameRate), on game mode's frame clock.
             session.runBenchmark(BenchmarkHooks(ticks: periods, layer: { [weak self] in self?.startRecording($0) },
+                                                surface: { [weak self] in self?.recordSurface($0) },
                                                 ended: { [weak self] in self?.end($1) }))
             stage = .apk(session)
         } else if let twin {
@@ -358,6 +363,14 @@ final class BenchmarkRunner {
         return true
     }
 
+    /// A SurfaceView's layer in the APK variant (ADR-0043 c4): the guest may draw its frames there instead, as Godot
+    /// does, so it records too, and the run takes the layer with the most drawables.
+    private func recordSurface(_ layer: CAMetalLayer) {
+        guard !hasEnded else { return }
+        let capacity = BenchPlan.recordingCapacity(seconds: seconds, rate: run.configuration.rate)
+        if BenchmarkConditions.startRecording(layer, capacity: capacity) { surfaceLayers.append(layer) }
+    }
+
     /// The variant ended, or failed with `reason`: the recording, the scene's frames and the CSVs, then the
     /// process ends with _exit. Only the first call counts.
     private func end(_ reason: String?) {
@@ -366,6 +379,8 @@ final class BenchmarkRunner {
         clock?.run(false)
         if let reason { notes.insert(reason, at: 0) }
         record.linkPeriodMedianNs = periods.median()
+        // The APK asks for its rate itself: what it asked, 0 for none, which RunValidity judges by its frame times.
+        if case .apk(let session) = stage { record.requestedRate = session.guestAskedRate }
         record.debugger = record.debugger || BenchmarkConditions.isTraced()
         let recording = stopRecording()
         record.take(recording)
@@ -382,10 +397,22 @@ final class BenchmarkRunner {
         }
         record.sceneFrames = scene.count
         let configuration = run.configuration
+        var drawables = recording.drawables
         // Test 2's script counts its frames in the done file beside scene.csv.
         if configuration.scene == .godot {
             let done = sceneFile.deletingLastPathComponent().appending(path: "done")
             record.doneFrames = (try? String(contentsOf: done, encoding: .utf8)).flatMap(BenchDone.frames) ?? -1
+            // Godot's APK draws its boot image on its surface before frame 0: its frames are the last drawables
+            // (decision 4), which holds while the done frame is the last one.
+            if run.variant == .apk {
+                let aligned = recording.alignedAtEnd(frames: scene.count)
+                drawables = aligned.drawables
+                record.drawablesBeforeFrame0 = aligned.before
+                record.firstPresentNs = drawables.first { $0.presentedNs > 0 }?.presentedNs ?? 0
+            }
+            if !drawables.isEmpty, let written = Self.uptimeNs(ofWriteOf: done) {
+                record.drawablesAfterDone = recording.drawablesTaken(after: written)
+            }
         }
         if let meshes = configuration.godotMeshes {
             record.meshes = meshes
@@ -393,7 +420,7 @@ final class BenchmarkRunner {
             // MinatoBench knows the scene's APIs: bench-gles31 draws bench-gles's meshes (ADR-0044 d2)).
             record.meshes = Int(meshes.meshes(configuration.api.sceneAPI.rawValue, configuration.load.rawValue))
         }
-        write(frames: BenchCSV.join(drawables: recording.drawables, scene: scene))
+        write(frames: BenchCSV.join(drawables: drawables, scene: scene))
         // The CSVs are written and closed. The process ends without exit's static destructors, which would run under
         // Godot's live threads, the twin's (c4) or an APK's that ended by killing itself (the end handler, apkrt.h),
         // and abort on a destroyed mutex; stdio's buffers, Godot's last console lines, go out first.
@@ -401,11 +428,25 @@ final class BenchmarkRunner {
         _exit(0)
     }
 
+    /// When `file` was last written, on the recording's clock (CLOCK_UPTIME_RAW); nil when it cannot be read.
+    nonisolated private static func uptimeNs(ofWriteOf file: URL) -> Int64? {
+        var status = stat()
+        guard stat(file.path, &status) == 0 else { return nil }
+        let written = Int64(status.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(status.st_mtimespec.tv_nsec)
+        let offset = Int64(clock_gettime_nsec_np(CLOCK_REALTIME)) - BenchmarkConditions.now()
+        return written - offset
+    }
+
+    /// The recording of the layer the guest presented on: the window's or a SurfaceView's.
     private func stopRecording() -> BenchRecording {
-        let (recording, unanswered) = BenchmarkConditions.stopRecording(layer)
+        let stopped = ([layer] + surfaceLayers.map(Optional.some)).map { BenchmarkConditions.stopRecording($0) }
+        let unanswered = stopped.map(\.unanswered).reduce(0, +)
         if unanswered > 0 {
             notes.append("\(unanswered) presented handlers did not run")
         }
+        // Never nil: the window's entry is always there.
+        let (recording, others) = BenchRecording.presenting(stopped.map(\.recording)) ?? (stopped[0].recording, 0)
+        if others > 0 { notes.append("\(others) drawables on the session's other layers") }
         return recording
     }
 

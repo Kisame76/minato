@@ -7,6 +7,8 @@ public enum RunValidity {
     public static let linkPeriod = "link_period"
     public static let debugger = "debugger"
     public static let focusLoss = "focus_loss"
+    /// Godot's boot image takes a few drawables before frame 0; more would mean the alignment is off.
+    public static let maxDrawablesBeforeFrame0 = 10
 
     public static func reasons(for record: BenchRunRecord) -> [String] {
         var reasons: [String] = []
@@ -33,8 +35,17 @@ public enum RunValidity {
         // A drawable taken before frame 0 would shift every frame by one. The GLES twin's CAEAGLLayer gives no
         // drawables: its frames are the script's alone.
         let drawn = !(godot && run.variant == .twin && run.configuration.api == .gles)
-        if (drawn && record.sceneFrames != record.drawables) || record.sceneFrames == 0 {
+        // Godot's APK draws its boot image on the surface first: its frames are the recording's last (decision 4).
+        let before = godot && run.variant == .apk ? record.drawablesBeforeFrame0 : 0
+        if before < 0 || before > maxDrawablesBeforeFrame0 {
+            reasons.append("\(before) drawables before frame 0")
+        }
+        if (drawn && record.sceneFrames != record.drawables - max(before, 0)) || record.sceneFrames == 0 {
             reasons.append("frames \(record.sceneFrames), drawables \(record.drawables)")
+        }
+        // Godot stops drawing at quit(), in the frame that wrote done: a later drawable would shift every frame.
+        if godot, let after = record.drawablesAfterDone, after != 1 {
+            reasons.append("\(after) drawables after the done frame")
         }
         return reasons
     }
