@@ -460,6 +460,13 @@ if(APK_HOST_BUILD)
       "${CMAKE_CURRENT_BINARY_DIR}/session_runs")
   set_tests_properties(runtime.session_run PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
 
+  # The loader's resolve log (ADR-0066 step 0): the imports and dlsyms of the names MINATO_RESOLVE_LOG watches.
+  add_test(NAME runtime.resolve_log
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/resolve_log_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/resolve_log_runs")
+  set_tests_properties(runtime.resolve_log PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

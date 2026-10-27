@@ -1,0 +1,2 @@
+frame-cap-test: 30 fps before the app sets a rate
+frame-cap-test: the app set 60, the getter answers 60, the engine runs at 60 fps

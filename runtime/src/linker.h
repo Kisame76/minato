@@ -85,6 +85,19 @@ std::string_view symbol_version(const Object &object, std::uint32_t index);
 /// weak symbol is 0, an undefined strong one throws LoadError.
 std::uint64_t resolve(const Object &object, std::uint32_t index, std::span<const Object *const> scope);
 
+/// The resolve log (ADR-0066 step 0): from the program's environment, the prefixes MINATO_RESOLVE_LOG lists,
+/// separated by commas (for example "il2cpp_,mono_"); none without it. Called once at the program's start, before
+/// any guest thread.
+void watch_resolves(const char *const envp[]);
+
+/// Whether the resolve log watches `name`: it starts with one of the prefixes.
+bool watched(std::string_view name);
+
+/// For a watched name, a line in linker64's log on stderr, "D/linker  : <how> <name> by <by>: <definer>", how the
+/// name was found ("import" or "dlsym"), by which object and in which: so that a sitting learns how an engine reaches
+/// its scripting runtime's API without a look into its libraries.
+void note_resolved(std::string_view how, std::string_view name, std::string_view by, std::string_view definer);
+
 /// Applies every relocation of `object` (RELA, PLT, RELR) except the TLS ones, resolving symbols in
 /// `scope`. ifunc symbols and R_AARCH64_IRELATIVE call their resolver, which is guest code, with
 /// the device's AT_HWCAP and AT_HWCAP2 (hwcap::guest, ADR-0047), as linker64 does.

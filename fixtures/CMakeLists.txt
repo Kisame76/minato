@@ -106,6 +106,13 @@ add_library(dl-lock SHARED suite/libdl-lock.c)
 target_link_libraries(dl-lock PRIVATE dl)
 add_executable(dl-lock-test suite/dl-lock-test.c)
 target_link_libraries(dl-lock-test PRIVATE dl)
+# frame-cap-test and the two libraries that stand in for an engine and its scripting runtime by Unity's names
+# (ADR-0066): the engine imports one registration function and looks the other up with dlsym.
+add_library(frame-cap-api SHARED suite/libframe-cap-api.c)
+add_library(frame-cap-engine SHARED suite/libframe-cap-engine.c)
+target_link_libraries(frame-cap-engine PRIVATE frame-cap-api dl)
+add_executable(frame-cap-test suite/frame-cap-test.c)
+target_link_libraries(frame-cap-test PRIVATE frame-cap-engine frame-cap-api)
 # ns-test and its libraries (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a): a program outside the APEXes, and a
 # library for the folders of ART and Conscrypt that needs libns-dep.so and opens libns-plugin.so, both beside it
 # only; runtime.system_links places them (runtime/tests/ns_run.py).

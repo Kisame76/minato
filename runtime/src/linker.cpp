@@ -3,11 +3,15 @@
 #include "guest_call.h"
 #include "hwcap.h"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <cstring>
 #include <format>
 #include <set>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace apkrt::linker {
 namespace {
@@ -481,12 +485,18 @@ Definition lookup(const Object &object, std::uint32_t index, std::span<const Obj
     if (defined && (dynamic.symbolic || visibility(*symbol) == stv_protected)) return {&object, symbol, name};
     const auto version = symbol_version(object, index);
     for (const auto *candidate : scope) {
-        if (const auto *definition = find_symbol(*candidate, name, version)) return {candidate, definition, name};
+        if (const auto *definition = find_symbol(*candidate, name, version)) {
+            note_resolved("import", name, object.name, candidate->name);
+            return {candidate, definition, name};
+        }
     }
     if (binding(*symbol) == stb_weak) return {nullptr, nullptr, name};
     // linker64's words, the version left out as there.
     throw LoadError(std::format("cannot locate symbol \"{}\" referenced by \"{}\"...", name, object.shown_name()));
 }
+
+/// MINATO_RESOLVE_LOG's prefixes, set before any guest thread and only read after.
+std::vector<std::string> watched_prefixes;
 
 bool is_tls_relocation(std::uint32_t type) {
     return type == r_aarch64_tls_dtpmod64 || type == r_aarch64_tls_dtprel64 || type == r_aarch64_tls_tprel64 ||
@@ -494,6 +504,32 @@ bool is_tls_relocation(std::uint32_t type) {
 }
 
 }  // namespace
+
+void watch_resolves(const char *const envp[]) {
+    watched_prefixes.clear();
+    constexpr std::string_view variable = "MINATO_RESOLVE_LOG=";
+    for (; envp != nullptr && *envp != nullptr; ++envp) {
+        std::string_view value(*envp);
+        if (!value.starts_with(variable)) continue;
+        value.remove_prefix(variable.size());
+        while (!value.empty()) {
+            const auto comma = value.find(',');
+            const auto part = value.substr(0, comma);
+            value = comma == std::string_view::npos ? std::string_view{} : value.substr(comma + 1);
+            if (!part.empty()) watched_prefixes.emplace_back(part);
+        }
+    }
+}
+
+bool watched(std::string_view name) {
+    return std::ranges::any_of(watched_prefixes, [&](const std::string &prefix) { return name.starts_with(prefix); });
+}
+
+void note_resolved(std::string_view how, std::string_view name, std::string_view by, std::string_view definer) {
+    if (!watched(name)) return;
+    const auto line = std::format("D/{:<8}: {} {} by {}: {}\n", "linker", how, name, by, definer);
+    static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
+}
 
 std::uint64_t resolve(const Object &object, std::uint32_t index, std::span<const Object *const> scope) {
     const auto definition = lookup(object, index, scope);

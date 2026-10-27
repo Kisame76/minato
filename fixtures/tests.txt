@@ -45,6 +45,8 @@ signal-test system
 kill-self-test system status=137
 # A thread that waits for the dynamic linker's lock takes signals there (ADR-0025, addition d).
 dl-lock-test system libraries=libdl-lock.so
+# An engine that caps its frame rate and its scripting runtime's API, by Unity's names (ADR-0066).
+frame-cap-test system libraries=libframe-cap-api.so,libframe-cap-engine.so
 # x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).
 x18-test system
 x18-stress system

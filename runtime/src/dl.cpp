@@ -937,6 +937,11 @@ void *guest_dlsym(void *handle, const char *name, const char *version_text, cons
         set_error(std::format("undefined symbol: {}", shown));
         return nullptr;
     }
+    if (linker::watched(name)) {
+        const Library *caller_library = containing(state, reinterpret_cast<std::uint64_t>(caller));
+        linker::note_resolved("dlsym", name, caller_library != nullptr ? caller_library->object.name : "?",
+                              found_in->object.name);
+    }
     return address_of(state, *found_in, *symbol);
 }
 
@@ -1095,6 +1100,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         const auto slash = path.rfind('/');
         state.directories.push_back({slash == 0 ? std::string("/") : path.substr(0, slash), container.parent_path()});
         state.library_path = library_path(state, envp);
+        linker::watch_resolves(envp);
         make_namespaces(state);
 
         auto &program = state.libraries.emplace_back();
