@@ -414,6 +414,8 @@ public:
         Record &record = found->second;
         if (record.state == CONFLICT) return;
         record.state = DIRTY;
+        record.settled = true;
+        record.missed = 0;  // a count of the clean clone's scans says nothing of the write that has just ended
         record.due_ms = now_ms + delay_ms;
         save();
     }
@@ -525,6 +527,7 @@ public:
                 continue;
             }
             record.state = static_cast<State>(field[1][0] - '0');
+            record.settled = true;  // the process that wrote it has ended
             record.copy = field[5];
             record.due_ms = std::atoll(field[6].c_str());
             records_[field[0]] = std::move(record);
@@ -569,9 +572,23 @@ private:
         std::vector<std::string> gone;
         for (auto &entry : records_) {
             Record &record = entry.second;
-            if (record.state != CLEAN) continue;
+            if (record.state == CONFLICT) continue;
             struct stat info {};
             if (!download.ok()) continue;
+            if (record.state == DIRTY) {
+                // A write that goes on (a second burst through a descriptor opened again, a mapping) pushes the write
+                // back: the clone is copied when size and time have stood still for the delay.
+                if (::fstatat(download.fd(), entry.first.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0) continue;
+                const std::uint64_t size = static_cast<std::uint64_t>(info.st_size);
+                const std::int64_t mtime = mtime_ns_of(info);
+                if (record.seen_known && (size != record.seen_size || mtime != record.seen_mtime_ns)) {
+                    record.due_ms = now_ms + delay_ms;
+                }
+                record.seen_known = true;
+                record.seen_size = size;
+                record.seen_mtime_ns = mtime;
+                continue;
+            }
             if (::fstatat(download.fd(), entry.first.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0) {
                 // Missing once may be a save that unlinks the file before it renames another over it: the record
                 // waits for the next scan, which finds that file (another identity: a conflict) or still nothing.
@@ -586,6 +603,12 @@ private:
             if (!S_ISREG(info.st_mode) || static_cast<std::uint64_t>(info.st_size) != record.clone_base.size ||
                 mtime_ns_of(info) != record.clone_base.mtime_ns || !now.same_file(record.clone_base)) {
                 record.state = DIRTY;
+                // Another file under the name is no write in progress of a watched descriptor: it settles by
+                // standing still (the scans above), as nothing reports its writers.
+                record.settled = S_ISREG(info.st_mode) && !now.same_file(record.clone_base);
+                record.seen_known = true;
+                record.seen_size = static_cast<std::uint64_t>(info.st_size);
+                record.seen_mtime_ns = mtime_ns_of(info);
                 record.due_ms = now_ms + delay_ms;
                 changed = true;
             }
@@ -597,7 +620,10 @@ private:
     void flush_locked(std::int64_t now_ms, bool force, bool final) {
         std::vector<std::string> due;
         for (const auto &entry : records_) {
-            if (entry.second.state == DIRTY && (force || entry.second.due_ms <= now_ms)) due.push_back(entry.first);
+            // A change no close was reported for waits, whatever `force` says, until the session's end: a writer may
+            // still hold the clone then, and a copy of it in mid-write would replace the user's file.
+            if (entry.second.state != DIRTY || !(entry.second.settled || final)) continue;
+            if (force || entry.second.due_ms <= now_ms) due.push_back(entry.first);
         }
         for (const std::string &name : due) {
             write_back(name, records_.at(name), now_ms, final);
@@ -636,6 +662,14 @@ private:
         std::int64_t due_ms = 0;
         int failures = 0;  // of the write in a row; not stored
         int missed = 0;    // scans or flushes in a row that found the clone missing; not stored
+        // Whether the watch reported the last writer's close (or the file is another one, or an earlier run left
+        // the record): only then may the clone be copied. A change a scan found alone may be an open descriptor's
+        // write in progress, so it waits for the close or the session's end. Not stored: a loaded record is settled.
+        bool settled = false;
+        // The size and time the last scan saw of a changed clone; while they change, the write is pushed back.
+        bool seen_known = false;
+        std::uint64_t seen_size = 0;
+        std::int64_t seen_mtime_ns = 0;
         std::string copy;
     };
 

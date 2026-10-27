@@ -231,7 +231,13 @@ enum apkrt_event_type {
                                           // record is not reused by a pick again (it may hold a version the user
                                           // rejected), and a name that a record with the app's work holds (DIRTY or
                                           // CONFLICT) is not given to a new clone even when the guest deleted that
-                                          // clone, so its kept copy is never orphaned. A write that fails is tried
+                                          // clone, so its kept copy is never orphaned. A clone is copied only when
+                                          // no writer can hold it: after the last close of a descriptor the app wrote
+                                          // through (as the runtime's watch reports it) and then only when its size
+                                          // and time have stood still for the second, since a descriptor opened again
+                                          // may be writing in bursts; a change that no close was reported for (a
+                                          // mapping) waits for the session's end, when no writer is left, even at the
+                                          // background. A write that fails is tried
                                           // again after 1, 2, 4, 8 and 16 s; the sixth failure is a conflict with the
                                           // app's version kept. tools/pick_host.h's WriteBack is the reference and
                                           // tests/pick_host_test.cpp plays the cases.

@@ -490,6 +490,56 @@ TEST(a_dirty_clone_that_is_back_at_a_flush_starts_the_count_again) {
     CHECK(t.write_back.tracked("known.txt"));
 }
 
+TEST(a_change_a_scan_finds_is_not_written_until_the_last_writer_has_closed) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "half of the wri");         // an open descriptor is still writing
+    t.write_back.scan(1000);
+    t.write_back.flush(5000, false);
+    t.write_back.flush(6000, true);                                          // not even the background forces it
+    CHECK(t.known() == "hello\n" && t.write_back.holds("known.txt"));
+    write_file(t.layout.download + "/known.txt", "half of the writing\n");
+    t.write_back.closed("known.txt", 7000);                                  // the watch: the last writer is gone
+    t.write_back.flush(7500, false);
+    CHECK(t.known() == "hello\n");
+    t.write_back.flush(8000, false);
+    CHECK(t.known() == "half of the writing\n" && !t.write_back.holds("known.txt"));
+}
+
+TEST(a_change_no_close_reported_is_written_at_the_final_flush_when_no_writer_is_left) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "through a mapping\n");
+    t.write_back.scan(1000);
+    t.write_back.end_session(2000);
+    CHECK(t.known() == "through a mapping\n");
+}
+
+TEST(a_write_that_goes_on_after_a_close_pushes_the_write_back_back) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "one\n");
+    t.write_back.closed("known.txt", 0);                                     // due at 1000
+    t.write_back.scan(500);
+    write_file(t.layout.download + "/known.txt", "two, and more of it\n");  // the app opened it again
+    t.write_back.scan(900);                                                  // size and time changed: due at 1900
+    t.write_back.flush(1500, false);
+    CHECK(t.known() == "hello\n");
+    write_file(t.layout.download + "/known.txt", "two, and all of it\n");
+    t.write_back.scan(1700);                                                 // still changing: due at 2700
+    t.write_back.flush(2000, false);
+    CHECK(t.known() == "hello\n");
+    t.write_back.closed("known.txt", 2200);
+    t.write_back.flush(3300, false);
+    CHECK(t.known() == "two, and all of it\n");
+}
+
+TEST(a_count_of_missing_checks_does_not_carry_over_to_a_close) {
+    Tracked t;
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    t.write_back.scan(1000);                                                 // missing once as a clean clone
+    t.write_back.closed("known.txt", 2000);                                  // the app wrote the unlinked file
+    t.write_back.flush(4000, false);                                         // missing once as a changed one
+    CHECK(t.write_back.tracked("known.txt"));
+}
+
 TEST(a_dirty_clone_missing_at_the_final_flush_is_forgotten_at_once) {
     Tracked t;
     write_file(t.layout.download + "/known.txt", "edited\n");
