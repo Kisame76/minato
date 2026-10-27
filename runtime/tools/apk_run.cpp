@@ -270,6 +270,16 @@ pick_host::Host &pick_host_of_run() {
             const std::lock_guard<std::mutex> lock(clone_watches_lock);
             clone_watches[clone] = {id, name};
         };
+        host.write_back().writers = [](const std::string &clone) {
+            int id = 0;
+            {
+                const std::lock_guard<std::mutex> lock(clone_watches_lock);
+                const auto found = clone_watches.find(clone);
+                if (found == clone_watches.end()) return -1;
+                id = found->second.first;
+            }
+            return apkrt_watch_writers(id);  // -1 when the watch ended meanwhile
+        };
         host.write_back().on_forget = [](const std::string &clone) {
             std::pair<int, std::string *> watch{0, nullptr};
             {

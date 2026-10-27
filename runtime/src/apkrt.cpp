@@ -74,6 +74,10 @@ int apkrt_watch_writes(const char *guest_path, apkrt_write_close_fn fn, void *co
     return apkrt::watches::watch(guest_path, fn, context);
 }
 
+int apkrt_watch_writers(int id) {
+    return apkrt::watches::writers(id);
+}
+
 int apkrt_unwatch_writes(int id) {
     return apkrt::watches::unwatch(id);
 }

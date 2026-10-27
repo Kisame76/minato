@@ -4792,6 +4792,69 @@ TEST(a_watched_file_reports_the_close_of_its_last_writing_descriptor_once) {
     CHECK(apkrt_unwatch_writes(id) == -EINVAL);
 }
 
+TEST(a_watch_counts_its_open_writers_for_the_host) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    const int id = apkrt_watch_writes("/data/local/tmp/f", on_write_close, &closes);
+    CHECK(id > 0 && apkrt_watch_writers(id) == 0);
+    const auto first = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    CHECK(apkrt_watch_writers(id) == 1);
+    const auto second = open_guest(at_fdcwd, "/data/local/tmp/f", 02);
+    const auto copy = call(nr_dup, {unsigned_of(first)});
+    const auto reader = open_guest(at_fdcwd, "/data/local/tmp/f", 0);
+    CHECK(apkrt_watch_writers(id) == 2);                                   // a duplicate and a reader are no writers
+    call(nr_close, {unsigned_of(reader)});
+    call(nr_close, {unsigned_of(first)});
+    CHECK(apkrt_watch_writers(id) == 2);                                   // the copy keeps the description open
+    call(nr_close, {unsigned_of(copy)});
+    CHECK(apkrt_watch_writers(id) == 1);
+    call(nr_close, {unsigned_of(second)});
+    CHECK(apkrt_watch_writers(id) == 0 && closes.count() == 1);
+    CHECK(apkrt_watch_writers(0) == -1 && apkrt_watch_writers(-3) == -1 && apkrt_watch_writers(id + 1000) == -1);
+    CHECK(apkrt_unwatch_writes(id) == 0 && apkrt_watch_writers(id) == -1);
+}
+
+int g_writers_in_callback = -2;
+int g_writers_watch = 0;
+
+void count_in_callback(void *, const char *) { g_writers_in_callback = apkrt_watch_writers(g_writers_watch); }
+
+TEST(the_count_is_zero_inside_the_close_callback_and_asking_there_does_not_block) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    g_writers_watch = apkrt_watch_writes("/data/local/tmp/f", count_in_callback, nullptr);
+    CHECK(g_writers_watch > 0);
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    call(nr_close, {unsigned_of(fd)});
+    CHECK(g_writers_in_callback == 0);
+    apkrt_unwatch_writes(g_writers_watch);
+}
+
+TEST(asking_for_the_count_while_the_watch_ends_gives_a_count_or_minus_one) {
+    Scratch scratch;
+    ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));
+    WriteCloses closes;
+    const int id = apkrt_watch_writes("/data/local/tmp/f", on_write_close, &closes);
+    CHECK(id > 0);
+    const auto held = open_guest(at_fdcwd, "/data/local/tmp/f", 01);
+    std::atomic<bool> stop{false};
+    std::atomic<int> bad{0};
+    std::thread asker([&] {
+        while (!stop) {
+            const int n = apkrt_watch_writers(id);
+            if (n != 1 && n != -1) ++bad;
+        }
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    CHECK(apkrt_unwatch_writes(id) == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    stop = true;
+    asker.join();
+    CHECK(bad == 0 && apkrt_watch_writers(id) == -1);
+    call(nr_close, {unsigned_of(held)});
+}
+
 TEST(a_watch_follows_the_file_not_its_name) {
     Scratch scratch;
     ::close(::open((scratch.host + "/f").c_str(), O_CREAT | O_WRONLY, 0600));

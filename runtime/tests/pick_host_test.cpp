@@ -540,6 +540,51 @@ TEST(a_count_of_missing_checks_does_not_carry_over_to_a_close) {
     CHECK(t.write_back.tracked("known.txt"));
 }
 
+TEST(a_clone_with_an_open_writer_is_not_copied_even_after_its_close_was_reported) {
+    Tracked t;
+    int open_writers = 1;                                                    // the app opened it again
+    t.write_back.writers = [&](const std::string &) { return open_writers; };
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    t.write_back.scan(500);
+    t.write_back.flush(5000, false);
+    t.write_back.flush(6000, true);
+    CHECK(t.known() == "hello\n" && t.write_back.holds("known.txt"));
+    open_writers = 0;
+    t.write_back.flush(7000, false);
+    CHECK(t.known() == "edited\n" && !t.write_back.holds("known.txt"));
+}
+
+TEST(a_change_with_no_writer_left_is_copied_once_it_stood_still_without_a_reported_close) {
+    Tracked t;
+    int open_writers = 0;
+    t.write_back.writers = [&](const std::string &) { return open_writers; };
+    write_file(t.layout.download + "/known.txt", "through a mapping\n");
+    t.write_back.scan(1000);                                                 // due at 2000
+    t.write_back.flush(1500, false);
+    CHECK(t.known() == "hello\n");
+    t.write_back.flush(2000, false);
+    CHECK(t.known() == "through a mapping\n");
+}
+
+TEST(a_change_of_a_clone_nobody_counts_writers_for_waits_for_the_close_or_the_end) {
+    Tracked t;
+    t.write_back.writers = [](const std::string &) { return -1; };           // no watch on it
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.scan(1000);
+    t.write_back.flush(5000, false);
+    CHECK(t.known() == "hello\n");
+}
+
+TEST(the_final_flush_copies_a_clone_whatever_the_count_says) {
+    Tracked t;
+    t.write_back.writers = [](const std::string &) { return 2; };            // the process is gone: stale count
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    t.write_back.end_session(5000);
+    CHECK(t.known() == "edited\n");
+}
+
 TEST(a_dirty_clone_missing_at_the_final_flush_is_forgotten_at_once) {
     Tracked t;
     write_file(t.layout.download + "/known.txt", "edited\n");

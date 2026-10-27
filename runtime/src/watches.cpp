@@ -95,6 +95,12 @@ int writer_opened(const struct stat &info) {
     return 0;
 }
 
+int writers(int id) {
+    const std::lock_guard<std::mutex> hold(mutex);
+    const auto found = entries.find(id);
+    return found == entries.end() || found->second.ended ? -1 : found->second.writers;
+}
+
 void writer_closed(int id) {
     Callback callback;
     void *context;

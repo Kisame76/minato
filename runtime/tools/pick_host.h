@@ -345,6 +345,9 @@ public:
     /// Called, with no lock held, with the name of each clone whose record the host let go (the host stops watching
     /// it).
     std::function<void(const std::string &)> on_forget;
+    /// The guest writers open on a clone now (apkrt_watch_writers of the clone's watch), -1 when nothing is known (no
+    /// watch). Called with the lock held; it must not call back into this object.
+    std::function<int(const std::string &)> writers;
     using Factory = std::function<std::unique_ptr<Original>(const std::string &token)>;
 
     WriteBack(std::string download, std::string state) : download_(std::move(download)), state_(std::move(state)) {}
@@ -620,9 +623,14 @@ private:
     void flush_locked(std::int64_t now_ms, bool force, bool final) {
         std::vector<std::string> due;
         for (const auto &entry : records_) {
-            // A change no close was reported for waits, whatever `force` says, until the session's end: a writer may
-            // still hold the clone then, and a copy of it in mid-write would replace the user's file.
-            if (entry.second.state != DIRTY || !(entry.second.settled || final)) continue;
+            if (entry.second.state != DIRTY) continue;
+            if (!final) {
+                // A clone a guest writer holds is never copied, whatever `force` says: a copy of it in mid-write would
+                // replace the user's file. A change that is known to have no writer left (the count is 0) may be copied
+                // once it stood still; one that nothing counts waits for the close or for the session's end.
+                const int open_writers = writers ? writers(entry.first) : -1;
+                if (open_writers > 0 || !(entry.second.settled || open_writers == 0)) continue;
+            }
             if (force || entry.second.due_ms <= now_ms) due.push_back(entry.first);
         }
         for (const std::string &name : due) {

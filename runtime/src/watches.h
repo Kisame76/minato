@@ -34,6 +34,11 @@ int unwatch(int id);
 /// one more writer, or 0 when it is not watched.
 int writer_opened(const struct stat &info);
 
+/// The writers of watch `id` that are open now (each description that was opened for writing and has a guest number
+/// left), or -1 when `id` is not a watch or has ended. Takes the watch table's lock for the read only, so it is safe
+/// beside an unwatch on another thread and inside the watch's own callback.
+int writers(int id);
+
 /// A writer of watch `id` is gone. The callback runs when it was the last, unless the watch has ended meanwhile; it
 /// runs without a lock of this file held, and an exception out of it is dropped.
 void writer_closed(int id);

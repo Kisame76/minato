@@ -88,6 +88,12 @@ typedef void (*apkrt_write_close_fn)(void *context, const char *guest_path);
 /// (1024 watches).
 int apkrt_watch_writes(const char *guest_path, apkrt_write_close_fn fn, void *context);
 
+/// The number of writers of the watch `id` that are open now: the descriptions that were opened for writing and still
+/// have a guest number (a duplicate is no second writer). 0 means no guest writer holds the file; -1, an id that is
+/// not a watch or has ended. Safe beside apkrt_unwatch_writes on another thread, and callable from the callback (the
+/// count is 0 there unless another writer opened since). The host copies a watched clone only when it is 0 (ADR-0057).
+int apkrt_watch_writers(int id);
+
 /// Ends the watch `id`; 0, or -EINVAL for an id that is not one. A callback of the watch that runs on another thread
 /// is waited for, so that the host may free `context` when this returns; called from inside the callback it does not
 /// wait.
