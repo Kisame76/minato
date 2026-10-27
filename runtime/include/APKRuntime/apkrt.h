@@ -654,6 +654,43 @@ void apkrt_sensor_set_host(const struct apkrt_sensor_host *host, const int32_t *
 /// against it (they read the pipe directly), while apkrt_sensor_push itself briefly takes the hub's lock.
 void apkrt_sensor_push(int32_t type, const float *values, size_t count, double host_time_seconds, int32_t accuracy);
 
+// MARK: - Location (ADR-0063)
+
+/// The host's CoreLocation side. The hub calls these on the thread that drove the guest op (a guest thread, possibly
+/// on a small signal stack), so they must be quick and only record what to do — begin/end the CLLocationManager work
+/// on the host's own queue (App point 7), never block. `accuracy` is APKRT_LOCATION_ACCURACY_FINE
+/// (kCLLocationAccuracyBest) or _COARSE (kCLLocationAccuracyReduced); when the grant is coarse the hub always asks for
+/// _COARSE whatever the guest requested.
+struct apkrt_location_host {
+    void *context;
+    /// Begin or reconfigure continuous updates at `accuracy`, with a distance filter of `distance_m` metres (0: every
+    /// fix). Called again when the wanted state changes.
+    int (*start)(void *context, int32_t accuracy, int32_t distance_m);
+    /// End continuous updates. No apkrt_location_push after stop returns (a late one the hub drops).
+    void (*stop)(void *context);
+    /// getCurrentLocation: deliver one fix for `token` through apkrt_location_push_single. 0, or a negative errno;
+    /// a failure the hub reports to the guest as a no-fix one-shot.
+    int (*request_single)(void *context, uint64_t token);
+    /// The guest cancelled the getCurrentLocation for `token`; stop trying to answer it.
+    void (*cancel_single)(void *context, uint64_t token);
+};
+
+/// Registers the host. The hub copies the struct, so it need not outlive the call. Call once, before the guest runs; a
+/// NULL `host` leaves the hub with no host (every continuous/one-shot request is a no-op until one is set).
+void apkrt_location_set_host(const struct apkrt_location_host *host);
+
+/// The host pushes one continuous fix (CLLocationManager.didUpdateLocations). The hub stores it as the latest
+/// continuous fix (so getLastKnownLocation can read it even before an explicit START), announces it with
+/// APKRT_EVENT_LOCATION and a fresh sequence, and — under a coarse grant — fudges the copy it later hands the guest. A
+/// fix with a negative horizontal_accuracy_m is dropped. Runs on the host's own thread; takes only the hub's lock.
+void apkrt_location_push(const struct apkrt_location_fix *fix);
+
+/// The host answers a getCurrentLocation for `token`: `fix` the one fix, or NULL for no location (a timeout or
+/// failure). The hub resolves the one-shot, announces it with APKRT_EVENT_LOCATION (bit 0, and bit 2 for no-fix), and
+/// keeps a fix until its APKRT_LOCATION_GET or APKRT_LOCATION_CANCEL; a no-fix needs no GET. An unknown or
+/// already-resolved token is ignored. Runs on the host's own thread; takes only the hub's lock.
+void apkrt_location_push_single(uint64_t token, const struct apkrt_location_fix *fix);
+
 #ifdef __cplusplus
 }
 #endif

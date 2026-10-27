@@ -277,6 +277,13 @@ enum apkrt_event_type {
                                           // group (APKRT_PERMISSION_*); a2 the outcome 0 denied, 1 granted (fine for
                                           // location), 2 granted coarse (location only). checkSelfPermission answers
                                           // the stored outcome, DENIED before the first
+    APKRT_EVENT_LOCATION,                 // a fix the location hub announces (ADR-0063): a0 the fix's sequence (for
+                                          // APKRT_LOCATION_GET); a1 flags (APKRT_LOCATION_EVENT_* below): bit 0 a
+                                          // one-shot answer to an APKRT_LOCATION_CURRENT, bit 1 the fix is coarse
+                                          // (reduced accuracy), bit 2 a one-shot that resolved with no location (no
+                                          // GET follows); a2 the one-shot's token when bit 0 is set, else 0. A
+                                          // continuous fix (bit 0 clear) is fetched with GET by its sequence, or read
+                                          // whole with APKRT_LOCATION_LAST (getLastKnownLocation)
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -717,6 +724,86 @@ struct apkrt_sensor_request {
     int32_t queue;      // a queue's descriptor, from APKRT_SENSOR_OPEN
     int32_t type;       // an Android ASENSOR_TYPE_ number
     int64_t period_ns;  // the requested sampling period (ENABLE and RATE); ignored by DISABLE
+};
+
+// MARK: - Location (ADR-0063)
+//
+// One syscall carries every location operation, as the sensor's does: x0 the op, x1 its argument, x2 a sequence for
+// GET. A runtime location hub (location_hub.h) like the sensor hub, but delivering through the session event stream
+// (APKRT_EVENT_LOCATION), because the consumer is the Java ILocationManager pump, which already reads apkrt_event: a
+// fix (about 13 fields) is larger than a 24-byte event, so the event is a signal and the fix is fetched with
+// APKRT_LOCATION_GET. The host (App's CoreLocation side) feeds the hub (apkrt_location_push/_push_single in apkrt.h),
+// which the runtime gates: the per-group grant the host records through apkrt_permission_answer (ADR-0063 decision 2)
+// is the real gate, because iOS's authorisation is for all of Minato, so a guest denied in Minato's sheet must not
+// reach the device by calling this syscall. Every data op answers -EACCES without a location grant, and a coarse
+// grant makes the runtime fudge every fix it hands the guest (the fudger runs here, never in the guest).
+#define APKRT_NR_LOCATION 4130
+
+#define APKRT_LOCATION_START   0  // x1 the address of an apkrt_location_control: begin/reconfigure continuous updates;
+                                  // 0, -EFAULT, -EINVAL (bad accuracy), -EACCES (no grant)
+#define APKRT_LOCATION_STOP    1  // x1 0: end continuous updates. 0 (never gated, so a guest can always stop)
+#define APKRT_LOCATION_CURRENT 2  // x1 a guest token (!=0): getCurrentLocation, one fix for the token, which the
+                                  // answer event carries (bit 0). 0, -EINVAL (token 0), -EEXIST (token outstanding),
+                                  // -EBUSY (past APKRT_LOCATION_ONESHOT_MAX), -EACCES
+#define APKRT_LOCATION_CANCEL  3  // x1 an outstanding token: the CancellationSignal; drops the one-shot and tells the
+                                  // host. 0, -EINVAL (token 0), -ENOENT (unknown token)
+#define APKRT_LOCATION_LAST    4  // x1 the address of an apkrt_location_fix: the last continuous fix
+                                  // (getLastKnownLocation). 1 (filled), 0 (none yet), -EFAULT, -EACCES
+#define APKRT_LOCATION_GET     5  // x1 the address of an apkrt_location_fix, x2 a sequence: the fix an event announced.
+                                  // 1 (filled), 0 (gone/replaced), -EFAULT, -EACCES
+
+/// APKRT_LOCATION_START's and the host's accuracy.
+#define APKRT_LOCATION_ACCURACY_FINE   1  // kCLLocationAccuracyBest
+#define APKRT_LOCATION_ACCURACY_COARSE 2  // kCLLocationAccuracyReduced; the runtime asks the host for this under a
+                                          // coarse grant whatever the guest requested
+
+/// APKRT_EVENT_LOCATION's flags (a1).
+#define APKRT_LOCATION_EVENT_ONE_SHOT 1u  // an answer to an APKRT_LOCATION_CURRENT; a2 is its token
+#define APKRT_LOCATION_EVENT_COARSE   2u  // the fix is coarse (reduced accuracy)
+#define APKRT_LOCATION_EVENT_NO_FIX   4u  // a one-shot resolved with no location; no GET follows
+
+/// At most this many one-shot (getCurrentLocation) requests outstanding at once; a CURRENT past it is -EBUSY. A
+/// one-shot entry lives until its GET, its CANCEL, or a no-fix resolve, and a continuous fix never evicts it, so a
+/// getCurrentLocation answer is never lost under continuous traffic.
+#define APKRT_LOCATION_ONESHOT_MAX 8
+
+/// apkrt_location_fix.valid: which optional fields hold a value (lat, lon and time are always set). CLLocation's
+/// negative sentinels become a cleared bit; a coarse fix keeps only latitude, longitude, time and the horizontal
+/// accuracy, as Android's coarse Location does.
+#define APKRT_LOCATION_HAS_ALTITUDE            1u
+#define APKRT_LOCATION_HAS_HORIZONTAL_ACCURACY 2u
+#define APKRT_LOCATION_HAS_VERTICAL_ACCURACY   4u
+#define APKRT_LOCATION_HAS_SPEED               8u
+#define APKRT_LOCATION_HAS_SPEED_ACCURACY      16u
+#define APKRT_LOCATION_HAS_BEARING             32u
+#define APKRT_LOCATION_HAS_BEARING_ACCURACY    64u
+
+/// APKRT_LOCATION_START's argument: the wanted continuous state.
+struct apkrt_location_control {
+    int32_t accuracy;    // APKRT_LOCATION_ACCURACY_FINE or _COARSE
+    int32_t distance_m;  // the smallest move that makes a new fix (CLLocationManager.distanceFilter), 0 for every fix
+};
+
+/// One location fix (APKRT_LOCATION_LAST and _GET fill it; apkrt_location_push carries it). Times: `time_ms` is the
+/// CoreLocation timestamp in milliseconds since the epoch; `elapsed_realtime_ns` is on the guest's CLOCK_BOOTTIME /
+/// elapsedRealtimeNanos base (the host computes it, the hub passes it through unchanged). `valid` says which optional
+/// fields hold a value (APKRT_LOCATION_HAS_*). A fix with a negative horizontal accuracy is invalid and dropped.
+struct apkrt_location_fix {
+    double latitude;
+    double longitude;
+    double altitude;                  // ellipsoidal metres (CLLocation.altitude)
+    float horizontal_accuracy_m;
+    float vertical_accuracy_m;
+    float speed_mps;
+    float speed_accuracy_mps;
+    float bearing_deg;
+    float bearing_accuracy_deg;
+    int64_t time_ms;
+    int64_t elapsed_realtime_ns;
+    uint32_t provider;                // a host hint: 3 fused (one CoreLocation source). The framework sets the Java
+                                      // Location's provider per the listener from {gps, fused, passive}; "network"
+                                      // does not exist on Android 15 (ADR-0063)
+    uint32_t valid;                   // APKRT_LOCATION_HAS_* bits
 };
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)

@@ -6,6 +6,7 @@
 //           [--pick-file <host file>]... [--pick-download <host directory>] [--pick-data <host directory>]
 //           [--pick-state <host directory>] [--export-dir <host directory>]
 //           [--pick-photo <host file>]... [--sensor-script <host file>]
+//           [--grant-location fine|coarse|denied] [--location-script <host file>]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
@@ -834,6 +835,119 @@ void start_sensor_feed(const std::string &path) {
     std::thread(run_sensor_feed, std::move(samples)).detach();
 }
 
+// --- --location-script / --grant-location: a fake CoreLocation host that replays a script (ADR-0063), for the Java
+// end-to-end location test. --grant-location seeds the per-app grant the runtime gates on, as the host does at a
+// session's begin; the fudging of a coarse grant then happens in the runtime, not here. ---
+struct ScriptedFix {
+    int at_ms;
+    apkrt_location_fix fix;
+};
+
+std::mutex location_mutex;
+apkrt_location_fix location_latest{};  // the newest fix the feed pushed, for a getCurrentLocation answer
+bool location_have_latest = false;
+
+int location_start(void *, std::int32_t, std::int32_t) { return 0; }  // CoreLocation is replaced by the script
+void location_stop(void *) {}
+// getCurrentLocation: answer with the newest scripted fix, or no location when none has come yet.
+int location_request_single(void *, std::uint64_t token) {
+    apkrt_location_fix fix{};
+    bool have;
+    {
+        const std::lock_guard<std::mutex> hold(location_mutex);
+        have = location_have_latest;
+        fix = location_latest;
+    }
+    apkrt_location_push_single(token, have ? &fix : nullptr);
+    return 0;
+}
+void location_cancel_single(void *, std::uint64_t) {}
+
+void run_location_feed(std::vector<ScriptedFix> fixes) {
+    std::sort(fixes.begin(), fixes.end(), [](const ScriptedFix &a, const ScriptedFix &b) { return a.at_ms < b.at_ms; });
+    const auto start = std::chrono::steady_clock::now();
+    for (const ScriptedFix &scripted : fixes) {
+        std::this_thread::sleep_until(start + std::chrono::milliseconds(scripted.at_ms));
+        apkrt_location_fix fix = scripted.fix;
+        fix.time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+        fix.elapsed_realtime_ns = static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_MONOTONIC));
+        {
+            const std::lock_guard<std::mutex> hold(location_mutex);
+            location_latest = fix;
+            location_have_latest = true;
+        }
+        apkrt_location_push(&fix);
+    }
+}
+
+apkrt_location_fix scripted_fix(double lat, double lon, float accuracy, bool has_altitude, double altitude) {
+    apkrt_location_fix fix{};
+    fix.latitude = lat;
+    fix.longitude = lon;
+    fix.horizontal_accuracy_m = accuracy;
+    fix.provider = 3;  // one CoreLocation source, which the framework names fused
+    fix.valid = APKRT_LOCATION_HAS_HORIZONTAL_ACCURACY;
+    if (has_altitude) {
+        fix.altitude = altitude;
+        fix.valid |= APKRT_LOCATION_HAS_ALTITUDE;
+    }
+    return fix;
+}
+
+// A --location-script line is "<at_ms> <lat> <lon> <accuracy_m> [altitude]" (one fix) or
+// "rate <hz> <seconds> <lat> <lon> <accuracy_m>" (a fix every 1000/hz ms for <seconds>, at the one position);
+// '#' comments and blank lines are skipped. Installs a fake host and replays the fixes on a detached thread.
+void start_location_feed(const std::string &path) {
+    std::ifstream file(path);
+    if (!file) {
+        std::fprintf(stderr, "apk-run: cannot open location script %s\n", path.c_str());
+        return;
+    }
+    std::vector<ScriptedFix> fixes;
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream in(line);
+        std::string first;
+        if (!(in >> first) || first[0] == '#') continue;
+        if (first == "rate") {
+            double hz = 0, seconds = 0, lat = 0, lon = 0, accuracy = 0;
+            if (!(in >> hz >> seconds >> lat >> lon >> accuracy) || hz <= 0 || seconds < 0) continue;
+            const int total = static_cast<int>(hz * seconds);
+            for (int i = 0; i < total; ++i) {
+                fixes.push_back({static_cast<int>(std::lround(i * 1000.0 / hz)),
+                                 scripted_fix(lat, lon, static_cast<float>(accuracy), false, 0)});
+            }
+            continue;
+        }
+        int at_ms = 0;
+        try {
+            at_ms = std::stoi(first);
+        } catch (const std::exception &) {
+            continue;
+        }
+        double lat = 0, lon = 0, accuracy = 0, altitude = 0;
+        if (!(in >> lat >> lon >> accuracy)) continue;
+        const bool has_altitude = static_cast<bool>(in >> altitude);
+        fixes.push_back({at_ms, scripted_fix(lat, lon, static_cast<float>(accuracy), has_altitude, altitude)});
+    }
+    const apkrt_location_host host = {nullptr, location_start, location_stop, location_request_single,
+                                      location_cancel_single};
+    apkrt_location_set_host(&host);
+    if (!fixes.empty()) std::thread(run_location_feed, std::move(fixes)).detach();
+}
+
+// --grant-location's value as a stored outcome; -1 (and *ok false) when it does not name one.
+std::int32_t parse_grant(const std::string &value, bool &ok) {
+    ok = true;
+    if (value == "fine") return APKRT_PERMISSION_GRANTED;
+    if (value == "coarse") return APKRT_PERMISSION_GRANTED_COARSE;
+    if (value == "denied") return APKRT_PERMISSION_DENIED;
+    ok = false;
+    return -1;
+}
+
 int main(int argc, char **argv) {
     char error[1024] = "";
     // What an Android shell sets for a program rather than the Mac's environment, and --env's entries.
@@ -849,6 +963,8 @@ int main(int argc, char **argv) {
     bool configured = false;
     std::vector<std::string> lifecycle;
     std::string sensor_script;
+    std::string location_script;
+    std::int32_t location_grant = -1;  // -1: no --grant-location, so the runtime stays at its default (no grant)
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
@@ -898,6 +1014,12 @@ int main(int argc, char **argv) {
             export_directory = value;
         } else if (option == "--sensor-script") {
             sensor_script = value;
+        } else if (option == "--location-script") {
+            location_script = value;
+        } else if (option == "--grant-location") {
+            bool ok = false;
+            location_grant = parse_grant(value, ok);
+            if (!ok) return usage();
         } else if (option == "--pick-state") {
             pick_config.state = value;
         } else if (option == "--measures") {
@@ -958,6 +1080,10 @@ int main(int argc, char **argv) {
     }
     apkrt_set_audio_host(&headless_audio::host);
     if (!sensor_script.empty()) start_sensor_feed(sensor_script);
+    // The host records the location grant at a session's begin (ADR-0063 decision 2), so the runtime gates on it from
+    // the start; then the fake CoreLocation host replays the script, the runtime fudging a coarse grant on its own.
+    if (location_grant >= 0) apkrt_permission_answer(0, APKRT_PERMISSION_LOCATION, location_grant);
+    if (!location_script.empty()) start_location_feed(location_script);
     watch_clones();
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
     std::fprintf(stderr, "apk-run: %s\n", error);

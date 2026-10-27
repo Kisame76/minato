@@ -7,10 +7,10 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
   src/proc.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp src/netlink.cpp
-  src/video_decoders.cpp src/watches.cpp src/sensor_syscalls.cpp)
+  src/video_decoders.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
-  src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/hwcap.cpp src/dns_proxy.cpp ${apkrt_syscall_sources}
-  src/syscall_entry.S)
+  src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
+  ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(apkrt PRIVATE apk_defaults)
@@ -78,6 +78,28 @@ if(APK_HOST_BUILD)
   target_include_directories(permissions_test PRIVATE src)
   target_link_libraries(permissions_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.permissions COMMAND permissions_test)
+
+  # The coarse-location fudger (ADR-0063 decision 3): the ~2 km grid snap, the per-app offset and its redraw.
+  add_executable(location_fudge_test tests/location_fudge_test.cpp)
+  target_include_directories(location_fudge_test PRIVATE src)
+  target_link_libraries(location_fudge_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.location_fudge COMMAND location_fudge_test)
+
+  # The location hub (ADR-0063): the continuous slot and sequence, the bounded one-shot table, the host calls and the
+  # coarse fudge at delivery, driven with a fake host (no CoreLocation, no session, no syscalls).
+  add_executable(location_hub_test tests/location_hub_test.cpp)
+  target_include_directories(location_hub_test PRIVATE src)
+  target_link_libraries(location_hub_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.location_hub COMMAND location_hub_test)
+  set_tests_properties(runtime.location_hub PROPERTIES TIMEOUT 60)
+
+  # The location transport (ADR-0063): APKRT_NR_LOCATION through the dispatcher, the grant gate, and a fix announced
+  # through the session event stream and fetched with GET.
+  add_executable(location_transport_test tests/location_transport_test.cpp)
+  target_include_directories(location_transport_test PRIVATE src)
+  target_link_libraries(location_transport_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.location_transport COMMAND location_transport_test)
+  set_tests_properties(runtime.location_transport PROPERTIES TIMEOUT 60)
 
   # The guest's /dev/socket/dnsproxyd (ADR-0054 step b): the replies in DnsProxyListener's bytes.
   add_executable(dns_proxy_test tests/dns_proxy_test.cpp)
