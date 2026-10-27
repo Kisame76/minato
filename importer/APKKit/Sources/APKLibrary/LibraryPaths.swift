@@ -62,6 +62,12 @@ public struct LibraryPaths: Sendable {
         applicationSupport.appendingPathComponent("data", isDirectory: true).appendingPathComponent(package, isDirectory: true)
     }
 
+    /// The app's profile (`AppProfile`), beside the folders the guest sees, so that it stays over an update and goes
+    /// with the app.
+    public func profileFile(for package: String) -> URL {
+        dataDirectory(for: package).appendingPathComponent("profile.json")
+    }
+
     /// Makes the app's data, device protected data, external, OBB and Download folders, with the two that installd's
     /// createAppData makes at an install in /data/user/0/<package> and in /data/user_de/0/<package>: cache and
     /// code_cache (ADR-0039, decision 6). What is there stays, so an app installed before gets the ones it lacks at its
