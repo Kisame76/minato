@@ -30,4 +30,24 @@ struct FramePacingTests {
         #expect(FramePacing.range(preferred: .nan).preferred == 120)
         #expect(FramePacing.range(preferred: .infinity).preferred == 120)
     }
+
+    /// ADR-0066 decision 3: with an FPS unlock the link prefers at least the unlock, whatever lower rate the guest
+    /// asks.
+    @Test(arguments: [Float(0), 30, 60, 90, 120])
+    func anUnlockOf120PrefersIt(guest: Float) {
+        #expect(FramePacing.range(preferred: guest, unlock: 120)
+                == FrameRateRange(minimum: 60, maximum: 120, preferred: 120))
+    }
+
+    @Test func anUnlockOf60KeepsAHigherRate() {
+        #expect(FramePacing.range(preferred: 30, unlock: 60).preferred == 60)
+        #expect(FramePacing.range(preferred: 90, unlock: 60).preferred == 90)
+        #expect(FramePacing.range(preferred: 0, unlock: 60).preferred == 120)
+    }
+
+    @Test func noUnlockChangesNothing() {
+        for rate: Float in [0, 30, 60, 90, 144] {
+            #expect(FramePacing.range(preferred: rate, unlock: 0) == FramePacing.range(preferred: rate))
+        }
+    }
 }

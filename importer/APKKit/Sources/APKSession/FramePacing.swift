@@ -40,9 +40,11 @@ public enum FramePacing {
     public static let maximumRate: Float = 120
 
     /// The range for the rate `ANativeWindow_setFrameRate` prefers, 0 for none: 60 to 120 Hz, preferring
-    /// the rate clamped into that range, or 120 Hz without one.
-    public static func range(preferred rate: Float) -> FrameRateRange {
+    /// the rate clamped into that range, or 120 Hz without one. With the app's FPS unlock (ADR-0066 decision 3), 0 for
+    /// none, it prefers at least the unlock, so that a guest asking a lower rate cannot hold the link below it.
+    public static func range(preferred rate: Float, unlock: Float = 0) -> FrameRateRange {
         let preferred = rate.isFinite && rate > 0 ? min(max(rate, minimumRate), maximumRate) : maximumRate
-        return FrameRateRange(minimum: minimumRate, maximum: maximumRate, preferred: preferred)
+        return FrameRateRange(minimum: minimumRate, maximum: maximumRate,
+                              preferred: max(preferred, min(unlock, maximumRate)))
     }
 }

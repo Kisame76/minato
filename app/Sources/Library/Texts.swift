@@ -351,6 +351,14 @@ enum Texts {
         }
     }
 
+    /// The phone a device profile names (runtime/src/properties.cpp's table).
+    static func deviceProfile(_ profile: AppProfile.DeviceProfile) -> String {
+        switch profile {
+        case .pixel: "Pixel 9"
+        case .galaxy: "Galaxy S24"
+        }
+    }
+
     static func playDependency(_ dependency: APKReport.PlayDependency) -> String {
         switch dependency {
         case .playServices: "Google Play services"

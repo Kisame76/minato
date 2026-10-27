@@ -394,6 +394,22 @@ final class LibraryModel {
         entries = await library.entries
     }
 
+    /// The app's profile (ADR-0065, ADR-0066): the default where none is stored.
+    func profile(of entry: LibraryEntry) -> AppProfile {
+        paths.map { AppProfile.load(for: entry.id, in: $0) } ?? AppProfile()
+    }
+
+    /// Keeps the app's profile for its next start.
+    func setProfile(_ profile: AppProfile, of entry: LibraryEntry) {
+        guard let paths else { return }
+        do {
+            try profile.save(for: entry.id, in: paths)
+        } catch {
+            log.error("\(entry.id, privacy: .public): its profile: \(error.localizedDescription, privacy: .public)")
+            errorMessage = "The profile could not be saved: \(error.localizedDescription)"
+        }
+    }
+
     func remove(_ entries: [LibraryEntry]) async {
         guard let library else { return }
         for entry in entries {

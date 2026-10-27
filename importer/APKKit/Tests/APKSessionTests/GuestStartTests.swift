@@ -1,3 +1,4 @@
+import APKLibrary
 import Testing
 
 @testable import APKSession
@@ -189,6 +190,33 @@ struct GuestStartTests {
         start?.internet = false
         #expect(start?.internet == false)
         #expect(start?.arguments == Self.javaStart()?.arguments)
+    }
+
+    /// ADR-0065 and ADR-0066: without a profile the start sets neither the device profile nor an FPS unlock.
+    @Test func aStartHasNoProfileByDefault() {
+        #expect(Self.start()?.deviceProfile == nil)
+        #expect(Self.start()?.frameRateUnlock == 0)
+    }
+
+    /// The app's profile names the runtime's device profile and unlock; nothing else of the start changes.
+    @Test func theAppsProfileGivesTheDeviceAndTheUnlock() {
+        var start = Self.start()
+        start?.apply(AppProfile(deviceProfile: .galaxy, frameRate: .fps120), screenMaximum: 120)
+        #expect(start?.deviceProfile == "galaxy")
+        #expect(start?.frameRateUnlock == 120)
+        #expect(start?.arguments == Self.start()?.arguments)
+        #expect(start?.environment == Self.start()?.environment)
+
+        start?.apply(AppProfile(), screenMaximum: 120)
+        #expect(start == Self.start())
+    }
+
+    /// A stored 120 on a screen that shows fewer runs at the screen's highest rate the unlock takes, never refused.
+    @Test(arguments: [(120, 120, 120), (120, 60, 60), (120, 90, 60), (60, 120, 60), (60, 60, 60), (120, 30, 60)])
+    func theUnlockIsAtMostTheScreensRate(stored: Int, screen: Int, unlock: Int32) {
+        var start = Self.start()
+        start?.apply(AppProfile(frameRate: AppProfile.FrameRate(rawValue: stored)), screenMaximum: screen)
+        #expect(start?.frameRateUnlock == unlock)
     }
 
     /// An unsigned APK has no signers.json: no mount and no argument, as the harness starts it.

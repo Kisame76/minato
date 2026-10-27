@@ -246,6 +246,7 @@ final class GameSession {
         if case .art = entry.report?.runtime, let failure = prepareJavaStart(start) {
             return couldNotStart(failure)
         }
+        frameClock?.setUnlock(Float(start.frameRateUnlock))
         #if DEBUG
         SessionCheck.guestStarts()
         #endif
@@ -328,12 +329,21 @@ final class GameSession {
         start.angleBackend = ANGLEBackend(requiredGLESVersion: entry.report?.requiredGLESVersion)
         // The app's sockets without INTERNET answer EPERM, as on Android (ADR-0054 c2a).
         start.internet = entry.report?.usesInternet ?? true
+        let screenMaximum = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
+            .maximumFramesPerSecond ?? 60
+        #if !BENCHMARK
+        // The user's choices for this app (ADR-0065, ADR-0066); a benchmark run is judged at the app's own settings.
+        start.apply(AppProfile.load(for: entry.id, in: paths), screenMaximum: screenMaximum)
+        #endif
+        #if DEBUG
+        SessionCheck.event("profile device \(start.deviceProfile ?? "default") unlock \(start.frameRateUnlock)")
+        #endif
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(
             scale: Double(scale), width: Int32(windowPixels.width.rounded()), height: Int32(windowPixels.height.rounded()),
             dark: UITraitCollection.current.userInterfaceStyle == .dark,
-            refreshRate: Int32((UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.maximumFramesPerSecond ?? 60),
+            refreshRate: Int32(screenMaximum),
             languageCode: language.language.languageCode?.identifier,
             regionCode: language.region?.identifier ?? Locale.current.region?.identifier)
         return (start, configuration)

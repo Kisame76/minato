@@ -7,6 +7,7 @@ struct AppDetailView: View {
     @Environment(LibraryModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsRemoval = false
+    @State private var profile: AppProfile?
 
     var body: some View {
         NavigationStack {
@@ -20,6 +21,10 @@ struct AppDetailView: View {
                             StatusView(status: Texts.status(of: entry))
                         }
                     }
+                }
+
+                if entry.state == .ready, let shown = profile {
+                    profileSection(shown)
                 }
 
                 if let report = entry.report {
@@ -106,6 +111,7 @@ struct AppDetailView: View {
             }
             .navigationTitle(entry.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { profile = model.profile(of: entry) }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -121,6 +127,36 @@ struct AppDetailView: View {
             } message: {
                 Text("Its installed files and app data will be deleted. The original APK is kept.")
             }
+        }
+    }
+
+    /// The app's profile (ADR-0065 decision 6, ADR-0066 decision 7), kept at each change for the next start. 120 fps is
+    /// offered where the screen shows it, or where it is the stored choice, which runs at the screen's highest rate.
+    private func profileSection(_ shown: AppProfile) -> some View {
+        let binding = Binding<AppProfile>(get: { shown }, set: { changed in
+            profile = changed
+            model.setProfile(changed, of: entry)
+        })
+        let screenMaximum = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
+            .maximumFramesPerSecond ?? 60
+        return Section {
+            Picker("Device Profile", selection: binding.deviceProfile) {
+                Text("Default").tag(AppProfile.DeviceProfile?.none)
+                ForEach(AppProfile.DeviceProfile.allCases, id: \.self) { device in
+                    Text(Texts.deviceProfile(device)).tag(Optional(device))
+                }
+            }
+            Picker("Frame Rate", selection: binding.frameRate) {
+                Text("As the App Asks").tag(AppProfile.FrameRate?.none)
+                ForEach(AppProfile.FrameRate.allCases.filter { $0.rawValue <= screenMaximum || $0 == shown.frameRate },
+                        id: \.self) { rate in
+                    Text("\(rate.rawValue) fps").tag(Optional(rate))
+                }
+            }
+        } header: {
+            Text("Performance")
+        } footer: {
+            Text("Changes apply the next time the app opens. Apps see this phone's name and graphics chip.")
         }
     }
 

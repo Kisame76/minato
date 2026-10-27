@@ -1,3 +1,4 @@
+import APKLibrary
 import Foundation
 
 /// What game mode sets up before activity-host runs (ADR-0028, decision 14; the header of
@@ -31,6 +32,21 @@ public struct GuestStart: Sendable, Equatable {
     /// Whether the app holds android.permission.INTERNET, for `apkrt_set_internet` before the program starts (ADR-0054
     /// c2a): from the installed version's report, granted by default, as for a report from before the import read it.
     public var internet = true
+    /// The app's device profile for `apkrt_set_device_profile` (ADR-0065), "pixel" or "galaxy"; nil for the host's
+    /// own names.
+    public var deviceProfile: String?
+    /// The app's FPS unlock for `apkrt_set_frame_rate_unlock` and the frame clock (ADR-0066), 60 or 120; 0 for none.
+    public var frameRateUnlock: Int32 = 0
+
+    /// Takes the app's profile. An unlock above the screen's highest rate is the highest the screen shows, at least 60,
+    /// so a stored 120 on a 60 Hz screen runs at 60 and is never refused.
+    public mutating func apply(_ profile: AppProfile, screenMaximum: Int) {
+        deviceProfile = profile.deviceProfile?.rawValue
+        frameRateUnlock = profile.frameRate.map { rate in
+            Int32(AppProfile.FrameRate.allCases.map(\.rawValue).filter { $0 <= min(rate.rawValue, screenMaximum) }.max()
+                  ?? AppProfile.FrameRate.fps60.rawValue)
+        } ?? 0
+    }
 
     /// NativeActivity's default for `android.app.func_name`.
     public static let defaultFunction = "ANativeActivity_onCreate"
