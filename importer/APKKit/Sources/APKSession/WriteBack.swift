@@ -249,6 +249,8 @@ public final class WriteBack: Sendable {
         var settled = true
         /// The clone's size and time at the last look (nil: none yet since the record was made, loaded or written).
         var seen: (size: UInt64, mtimeNs: Int64)?
+        /// The app closed the clone while its conflict was open (not stored): after a Replace that version is due too.
+        var closedInConflict = false
     }
 
     /// A record as the host stores it, in its own folder.
@@ -283,14 +285,40 @@ public final class WriteBack: Sendable {
     /// The guest's closes not yet taken up: the clone's name and the time.
     private let closes = Mutex([String: Int64]())
     private let onForget: @Sendable (String) -> Void
+    private let writers: @Sendable (String) -> Int32?
 
     /// `download` is the folder the guest sees as Download; `state` the host's own folder for the records and the app's
-    /// versions, never below the app's folders (nil keeps the records in memory only); `onForget` gets each clone whose
-    /// record goes, with no lock held.
-    public init(download: URL, state: URL?, onForget: @escaping @Sendable (String) -> Void = { _ in }) {
+    /// versions, never below the app's folders (nil keeps the records in memory only); `writers` the guest's open
+    /// writers of a clone (apkrt_watch_writers; nil without a watch), asked with no lock held; `onForget` gets each
+    /// clone whose record goes, with no lock held.
+    public init(download: URL, state: URL?, writers: @escaping @Sendable (String) -> Int32? = { _ in nil },
+                onForget: @escaping @Sendable (String) -> Void = { _ in }) {
         self.download = download
         stateFolder = state
+        self.writers = writers
         self.onForget = onForget
+    }
+
+    /// Whether `url` lies in the trash, where the bookmark of a file the user deleted still leads: below `trash`, its
+    /// volume's trash folder, or below a folder named ".Trash". Such an original is gone for the write-back.
+    public static func inTrash(_ url: URL, trash: URL?) -> Bool {
+        let parent = url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        if let trash {
+            let folder = trash.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+            if parent.pathComponents.starts(with: folder) { return true }
+        }
+        return parent.pathComponents.contains(".Trash")
+    }
+
+    /// The open writers of each clone now, asked before the records' lock is taken (the host's answer takes a lock of
+    /// its own, which it may hold while it asks the records).
+    private func openWriters() -> [String: Int32] {
+        let clones = inner.withLock { Array($0.records.keys) }
+        var counts: [String: Int32] = [:]
+        for clone in clones {
+            if let count = writers(clone) { counts[clone] = count }
+        }
+        return counts
     }
 
     /// Starts watching `clone` (a name in Download), made from `original`, which had `originalNow`; `cloneNow` is the
@@ -360,7 +388,8 @@ public final class WriteBack: Sendable {
     /// its own, not the user's file, while one that saves by deleting the clone and renaming a file to its name has it
     /// back by the next scan, a file of another identity and so a conflict.
     public func scan(at nowMs: Int64) {
-        inner.withLock { scan(&$0, at: nowMs, final: false) }
+        let counts = openWriters()
+        inner.withLock { scan(&$0, at: nowMs, final: false, writers: counts) }
         announce()
     }
 
@@ -387,7 +416,8 @@ public final class WriteBack: Sendable {
 
     /// The session ends: what a mapping changed is found, everything is written, the records are stored.
     public func endSession(at nowMs: Int64) {
-        inner.withLock { scan(&$0, at: nowMs, final: true) }
+        let counts = openWriters()
+        inner.withLock { scan(&$0, at: nowMs, final: true, writers: counts) }
         flush(at: nowMs, force: true, final: true)
         inner.withLock { _ = save($0) }
     }
@@ -398,7 +428,7 @@ public final class WriteBack: Sendable {
     /// original.
     public func secure(at nowMs: Int64) {
         let pending = inner.withLock { inner in
-            scan(&inner, at: nowMs, final: false)
+            scan(&inner, at: nowMs, final: false, writers: [:])  // the guest has not started
             // A dirty one's copy kept before is renewed; a conflict keeps the copy its question shows.
             return inner.records.filter { _, record in
                 record.state == .dirty || record.state == .conflict && record.copy.isEmpty
@@ -487,6 +517,15 @@ public final class WriteBack: Sendable {
             (identity.dev, identity.ino, identity.birthNs)
         done.state = .clean
         done.failures = 0
+        // What the app wrote while the question was open is looked at anew, not against a look from before it; one it
+        // closed then is due at once, as its close was taken up during the question.
+        done.seen = nil
+        done.settled = true
+        if record.closedInConflict {
+            done.state = .dirty
+            done.dueMs = 0
+        }
+        done.closedInConflict = false
         dropCopy(&done)
         store(clone, record, .keep(done))
         return true
@@ -568,7 +607,11 @@ public final class WriteBack: Sendable {
         let folder = noted.isEmpty ? nil : openDownload()
         defer { if let folder { close(folder) } }
         for (clone, at) in noted {
-            guard var record = inner.records[clone], record.state != .conflict else { continue }
+            guard var record = inner.records[clone] else { continue }
+            if record.state == .conflict {
+                inner.records[clone]?.closedInConflict = true
+                continue
+            }
             record.state = .dirty
             record.dueMs = at + Self.delayMs
             record.failures = 0
@@ -587,7 +630,8 @@ public final class WriteBack: Sendable {
         if !noted.isEmpty { _ = save(inner) }
     }
 
-    private func scan(_ inner: inout Inner, at nowMs: Int64, final: Bool) {
+    /// `writers` the open writers of the clones that have a watch.
+    private func scan(_ inner: inout Inner, at nowMs: Int64, final: Bool, writers: [String: Int32]) {
         takeCloses(&inner)
         guard let folder = openDownload() else { return }
         defer { close(folder) }
@@ -632,6 +676,11 @@ public final class WriteBack: Sendable {
                 inner.records[clone]?.seen = (now.size, now.mtimeNs)
                 inner.records[clone]?.dueMs = nowMs + Self.delayMs
                 changed = true
+            } else if record.state == .dirty, !record.settled, writers[clone] == 0 {
+                // Still since the last look and no writer open (a mapping's or a truncate's change, which no close
+                // reports): settled, written a second later. Without a watch only a close or the end settles it.
+                inner.records[clone]?.settled = true
+                inner.records[clone]?.dueMs = nowMs + Self.delayMs
             }
         }
         if changed { _ = save(inner) }
@@ -650,6 +699,11 @@ public final class WriteBack: Sendable {
             } else {
                 record.dueMs = nowMs + (Self.delayMs << (record.failures - 1))
             }
+            return .keep(record)
+        }
+        if let count = writers(clone), count > 0 {
+            // A writer is open again: no copy of a file it may be writing, also at the background and the end.
+            record.dueMs = nowMs + Self.delayMs
             return .keep(record)
         }
         guard let folder = openDownload() else { return failed(nil, nil) }

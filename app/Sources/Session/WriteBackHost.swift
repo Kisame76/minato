@@ -34,21 +34,23 @@ final class WriteBackHost: Sendable {
 
     private init() {}
 
-    /// The session of `package` begins, its mounts made and the guest not yet started: the records stored for it are
-    /// loaded, each clone watched again, and on the queue the app's versions not yet written back are kept in Minato's
-    /// folder (WriteBack.secure: the guest's cleaning deletes the clones it keeps no grant for; local work, clones of
-    /// the files) before the first tick, which may wait on an original out of reach. The guest's start waits for the
+    /// The session of `package` begins, its mounts made and the guest not yet started. On the queue, the records stored
+    /// for it are loaded, each clone watched again, and the app's versions not yet written back kept in Minato's folder
+    /// (WriteBack.secure: the guest's cleaning deletes the clones it keeps no grant for; local work, clones of the
+    /// files), before the first tick, which may wait on an original out of reach. The guest's start waits for the
     /// keeping (`waitUntilSecured`), not for the ticks.
     func begin(package: String, download: URL) {
         guard Library.isSafePackageName(package), let paths = try? LibraryPaths.standard() else { return }
         let state = paths.writeBackDirectory(for: package)
-        let writeBack = WriteBack(download: download, state: state) { [self] in unwatch($0) }
-        _ = writeBack.load { BookmarkOriginal(token: $0) }
+        let writeBack = WriteBack(download: download, state: state, writers: { [self] in writers($0) }) { [self] in
+            unwatch($0)
+        }
         let secured = DispatchGroup()
         secured.enter()
         session.withLock { $0 = Session(writeBack: writeBack, state: state, secured: secured) }
-        for clone in writeBack.clones { watch(clone) }
         serial.async { [self] in
+            _ = writeBack.load { BookmarkOriginal(token: $0) }
+            for clone in writeBack.clones { watch(clone) }
             writeBack.secure(at: Self.now)
             secured.leave()
             timer?.cancel()
@@ -222,6 +224,14 @@ final class WriteBackHost: Sendable {
         watches.withLock { $0[clone] = id }
     }
 
+    /// The guest's open writers of `clone` (apkrt_watch_writers), nil without a watch; the watches' lock is not held
+    /// while the runtime is asked.
+    private func writers(_ clone: String) -> Int32? {
+        guard let id = watches.withLock({ $0[clone] }) else { return nil }
+        let count = apkrt_watch_writers(id)
+        return count < 0 ? nil : count
+    }
+
     /// The record of `clone` went: its watch ends (called with no lock of the write-back held), unless a record was
     /// made anew under the name meanwhile (a pick after the old one went), which keeps it. Decided under the watches'
     /// lock, which a new record's `watch` waits for.
@@ -255,8 +265,8 @@ private final class BackgroundTask: Sendable {
 /// The user's file a clone was made from, reached by its security-scoped bookmark: read and replaced under one
 /// coordinated read and write (the read for an evicted iCloud file, which the write alone does not download), the
 /// content compared again inside it and replaced through a file beside it and replaceItemAt, so that a crash never
-/// leaves half a file. A bookmark that no longer resolves is a conflict; a stale one is made anew while the file's
-/// scope lasts.
+/// leaves half a file. A bookmark that no longer resolves, or leads into the trash (the user deleted the file), is a
+/// conflict; a stale one is made anew while the file's scope lasts.
 final class BookmarkOriginal: Original {
     private let bookmark: Mutex<Data>
 
@@ -317,7 +327,8 @@ final class BookmarkOriginal: Original {
         } ?? .changed
     }
 
-    /// Runs `body` with the file's URL inside its security scope; nil when the bookmark no longer resolves.
+    /// Runs `body` with the file's URL inside its security scope; nil when the bookmark no longer resolves or the file
+    /// is in the trash.
     private func withFile<Result>(_ body: (URL) -> Result) -> Result? {
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: bookmark.withLock { $0 }, options: [], relativeTo: nil,
@@ -325,6 +336,10 @@ final class BookmarkOriginal: Original {
         else { return nil }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        // A file the user deleted is in the trash, where its bookmark still leads: gone, so the user is asked.
+        let trash = try? FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: url,
+                                                 create: false)
+        guard !WriteBack.inTrash(url, trash: trash) else { return nil }
         if stale, let fresh = try? url.bookmarkData() { bookmark.withLock { $0 = fresh } }
         return body(url)
     }

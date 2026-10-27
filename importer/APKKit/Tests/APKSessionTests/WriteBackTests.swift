@@ -94,19 +94,26 @@ final class WriteBackTests {
         }
     }
 
-    func writeBack(state folder: URL? = nil) -> WriteBack {
-        WriteBack(download: download, state: folder ?? state) { [forgotten] name in
+    /// The open writers of each clone, as apkrt_watch_writers reports them; nil, a clone without a watch.
+    final class Writers: Sendable {
+        let counts = Mutex([String: Int32]())
+        func set(_ clone: String, _ count: Int32?) { counts.withLock { $0[clone] = count } }
+        func of(_ clone: String) -> Int32? { counts.withLock { $0[clone] } }
+    }
+
+    func writeBack(state folder: URL? = nil, writers: Writers? = nil) -> WriteBack {
+        WriteBack(download: download, state: folder ?? state, writers: { writers?.of($0) }) { [forgotten] name in
             forgotten.list.withLock { $0.append(name) }
         }
     }
 
     /// A write-back that tracks the clone known.txt of source/known.txt.
-    func tracked(stateFolder: URL? = nil) throws -> (WriteBack, Counting) {
+    func tracked(stateFolder: URL? = nil, writers: Writers? = nil) throws -> (WriteBack, Counting) {
         let original = Counting(source.appending(path: "known.txt").path)
         if let stateFolder {
             try FileManager.default.createDirectory(at: stateFolder, withIntermediateDirectories: true)
         }
-        let writeBack = writeBack(state: stateFolder)
+        let writeBack = writeBack(state: stateFolder, writers: writers)
         let base = try #require(original.version())
         writeBack.track(clone: "known.txt", original: original, originalNow: base, cloneNow: base)
         return (writeBack, original)
@@ -556,6 +563,81 @@ final class WriteBackTests {
             now += 20000
         }
         #expect(t.conflicts.isEmpty && known == "hello\n" && original.count.withLock { $0 } == 1)
+    }
+
+    /// The lead's second pass, point 2: a change with no close after it (a mapping, a truncate by path) is settled
+    /// once the runtime reports no open writer and the clone stood still across a tick; without a watch it waits for
+    /// a close or the end, as before.
+    @Test func aChangeWithNoCloseIsWrittenOnceNoWriterIsOpenAndItStoodStill() throws {
+        let writers = Writers()
+        writers.set("known.txt", 0)
+        let (t, original) = try tracked(writers: writers)
+        try FileHandle(forWritingTo: clone).write(contentsOf: Data("HELLO".utf8))  // a mapping's write
+        t.scan(at: 0)
+        t.flush(at: 1000, force: false)
+        #expect(known == "hello\n")  // seen changing
+        t.scan(at: 250)  // still, no writer open
+        t.flush(at: 2000, force: false)
+        #expect(known == "HELLO\n" && original.writes == 1)
+
+        writers.set("known.txt", nil)  // no watch: the close rule
+        try FileHandle(forWritingTo: clone).write(contentsOf: Data("hello".utf8))
+        t.scan(at: 3000)
+        t.scan(at: 3250)
+        t.flush(at: 6000, force: true)
+        #expect(known == "HELLO\n")
+    }
+
+    /// The lead's second pass, point 3: no copy while a writer is open, whatever the close and the background say.
+    @Test func noCopyIsMadeWhileAWriterIsOpen() throws {
+        let writers = Writers()
+        writers.set("known.txt", 1)
+        let (t, original) = try tracked(writers: writers)
+        try write(clone, "saved\n")
+        t.closed("known.txt", at: 0)  // and opened again since
+        t.flush(at: 1000, force: false)
+        t.flush(at: 2000, force: true)  // the background
+        t.scan(at: 2250)
+        t.scan(at: 2500)
+        t.flush(at: 4000, force: false)
+        #expect(known == "hello\n" && original.writes == 0)
+        writers.set("known.txt", 0)
+        t.scan(at: 4250)
+        t.flush(at: 6000, force: false)
+        #expect(known == "saved\n" && original.writes == 1)
+    }
+
+    /// The lead's second pass, point 1: after Replace, what the app wrote and closed while the question was open is
+    /// written back too, not left waiting for a close that came before (here without a watch's count, which would
+    /// settle it by itself).
+    @Test func whatTheAppWroteDuringTheQuestionIsWrittenAfterReplace() throws {
+        let (t, _) = try tracked()
+        try write(source.appending(path: "known.txt"), "somebody else\n")
+        try write(clone, "edited\n")
+        t.closed("known.txt", at: 0)
+        t.flush(at: 1000, force: false)
+        #expect(t.conflicts == ["known.txt"])
+        try write(clone, "edited during the question\n")
+        t.closed("known.txt", at: 1500)  // a close while in conflict
+        t.scan(at: 1600)  // taken up by the host's tick before the user answers
+        #expect(t.resolve("known.txt", replace: true))
+        #expect(known == "edited\n")
+        t.scan(at: 2000)
+        t.scan(at: 2250)
+        t.flush(at: 4000, force: false)
+        #expect(known == "edited during the question\n")
+    }
+
+    /// The sitting's finding: an original the user deleted is in the trash, where its bookmark still leads; it is gone
+    /// for the write-back (a conflict), found by the volume's trash folder or a ".Trash" component.
+    @Test func anOriginalInTheTrashIsGone() throws {
+        let trash = root.appending(path: "Recently Deleted")  // a volume's trash under a name of its own
+        try FileManager.default.createDirectory(at: trash.appending(path: "folder"), withIntermediateDirectories: true)
+        #expect(WriteBack.inTrash(trash.appending(path: "a.txt"), trash: trash))
+        #expect(WriteBack.inTrash(trash.appending(path: "folder/a.txt"), trash: trash))
+        #expect(WriteBack.inTrash(root.appending(path: "x/.Trash/a.txt"), trash: nil))
+        #expect(!WriteBack.inTrash(source.appending(path: "known.txt"), trash: trash))
+        #expect(!WriteBack.inTrash(root.appending(path: ".Trashed/a.txt"), trash: nil))
     }
 
     /// The lead's review, point 8: a scan's look and a write-back's look are counted apart; a clone a scan saw missing
