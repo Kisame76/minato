@@ -53,7 +53,8 @@ enum BenchmarkConditions {
     static func startable(_ entry: LibraryEntry, named name: String, library: Library,
                           signing: SigningCoordinator) async throws -> LibraryEntry {
         let signer = signing.currentSigner()
-        switch LaunchDecision(entry: entry, isUpdating: false, signer: signer) {
+        switch LaunchDecision(entry: entry, isUpdating: false, signer: signer,
+                              containerVersion: ContainerSigner.containerVersion) {
         case .start:
             return entry
         case .signFirst:
