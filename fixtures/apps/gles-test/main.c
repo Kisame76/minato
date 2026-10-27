@@ -15,7 +15,9 @@
 // ADR-0038 c): it logs the size of each APP_CMD_WINDOW_RESIZED and each new size of its surface with the frame
 // count. Every 5 s it asks the window for 120 and 60 frames a second in turn (ANativeWindow_setFrameRate, by dlsym
 // above the minSdk) and logs the frame intervals of each rate. AKEYCODE_BACK finishes it. At onDestroy it logs its
-// frames, windows and failures with the tag "gles-live".
+// frames, windows and failures with the tag "gles-live". When the focus goes it draws one more frame and does not
+// swap it: the frame an app is still drawing as the scene leaves, whose GL work is not committed yet
+// when the background comes (ADR-0032 decision 6, 2026-10-27), so TERM_WINDOW's teardown commits it.
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -1049,8 +1051,8 @@ static void live_window_gone(void) {
     app_state.surface = EGL_NO_SURFACE;
 }
 
-// A frame: a dark clear and a square that moves with the frame count, swapped. A turn changes the surface's size.
-static void live_frame(void) {
+// A frame's drawing: a dark clear and a square that moves with the frame count. A turn changes the surface's size.
+static void draw_live(void) {
     EGLint width = 0, height = 0;
     eglQuerySurface(app_state.display, app_state.surface, EGL_WIDTH, &width);
     eglQuerySurface(app_state.display, app_state.surface, EGL_HEIGHT, &height);
@@ -1073,6 +1075,11 @@ static void live_frame(void) {
         ++live.failures;
         DEVICE("frame %d: GL error 0x%04x", live.frames, error);
     }
+}
+
+// A frame, drawn and swapped.
+static void live_frame(void) {
+    draw_live();
     if (eglSwapBuffers(app_state.display, app_state.surface)) {
         ++live.frames;
         return;
@@ -1140,6 +1147,7 @@ static void on_live_command(struct android_app *app, int32_t command) {
         case APP_CMD_LOST_FOCUS:
             live.focused = false;
             live.previous = 0;  // a break, no frame interval
+            if (live.ready && !live.lost) draw_live();  // left unswapped: the frame cut off by the background
             break;
         case APP_CMD_DESTROY:
             log_phase();

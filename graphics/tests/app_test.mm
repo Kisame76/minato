@@ -16,22 +16,22 @@
 // - gles-test with <mode> translucent:<presents>, the opaque layer's part G (V5's late frames): the same, started at
 //   ANativeActivity_onCreateTranslucent, which asks for WINDOW_FORMAT_RGBA_8888 in onCreate. It passes as above
 //   when the requests were WINDOW_OPAQUE 0 and FINISH, and the window's layer is not opaque at the end.
-// - gles-live and vulkan-live (<mode> live), which draw until onDestroy: a thread stands in for the App's frame
-//   clock, with ticks at the rate the window prefers (FRAME_RATE; 120 without a preference) while the window's gate
-//   is open. Their manifests' activities handle orientation and screenSize (configChanges), so the window turns as
-//   the App turns it (ADR-0038 c): the layer's new bounds, onConfigurationChanged, the window's new size
-//   (apkrt_window_set_size), onNativeWindowResized, onContentRectChanged, onNativeWindowRedrawNeeded. The start; 6 s
-//   of frames, over one change of the rate, with a turn to landscape after 2 s and back after 4 s; HOME as iOS gives
-//   it, the scene inactive (the focus lost, the gate closed) and 300 ms later in the background (the background
-//   flag, "scheduled" with 1 s to go, the window removed, onPause, onNativeWindowDestroyed, onStop,
-//   onSaveInstanceState); 0.5 s away; the return with a new window (the foreground, onStart, onResume, the window's
-//   events, the focus, the gate opened); 2 s of frames; Quit. It passes when both windows counted presents,
+// - gles-live and vulkan-live (<mode> live), which draw until onDestroy: a thread stands in for the App's frame clock,
+//   with ticks at the rate the window prefers (FRAME_RATE; 120 without a preference) while the window's gate is open.
+//   Their manifests' activities handle orientation and screenSize (configChanges), so the window turns as the App turns
+//   it (ADR-0038 c): the layer's new bounds, onConfigurationChanged, the window's new size (apkrt_window_set_size),
+//   onNativeWindowResized, onContentRectChanged, onNativeWindowRedrawNeeded. The start; 6 s of frames, over one change
+//   of the rate, with a turn to landscape after 2 s and back after 4 s; HOME as iOS gives it, the scene inactive (the
+//   focus lost, the gate closed) and 300 ms later in the background (the window removed, onPause,
+//   onNativeWindowDestroyed, onStop and onSaveInstanceState with the gates open, then the background flag and
+//   "scheduled" with 1 s to go); 0.5 s away; the return with a new window (the foreground, onStart, onResume, the
+//   window's events, the focus, the gate opened); 2 s of frames; Quit. It passes when both windows counted presents,
 //   "scheduled" said yes, every onNativeWindowDestroyed, onDestroy and the turns' onNativeWindowRedrawNeeded was
-//   answered within 500 ms, each turn gave vulkan-live a present that answered VK_SUBOPTIMAL_KHR and a new swapchain
-//   at the window's new size and gles-live its surface at that size within 2 frames of APP_CMD_WINDOW_RESIZED (the
-//   apps' device lines), guest threads committed no command buffer from "scheduled" to the foreground (metal_hook.m
-//   with MINATO_METAL_HOOK=count), the only requests were FRAME_RATE, with 120 and 60 among them, the app's
-//   onDestroy line says "windows 2, failures 0", and activity-host ended with status 0.
+//   answered within 500 ms, each turn gave vulkan-live a present that answered VK_SUBOPTIMAL_KHR and a new swapchain at
+//   the window's new size and gles-live its surface at that size within 2 frames of APP_CMD_WINDOW_RESIZED (the apps'
+//   device lines), guest threads committed no command buffer from "scheduled" to the foreground (metal_hook.m with
+//   MINATO_METAL_HOOK=count), the only requests were FRAME_RATE, with 120 and 60 among them, the app's onDestroy line
+//   says "windows 2, failures 0", and activity-host ended with status 0.
 // - present-gles and present-vulkan (<mode> present), ADR-0041 test 3: present-test's library, which asks for its
 //   presents' times. The start with the frame clock; the app's frames at 60 and then 120 frames a second until its
 //   own ANativeActivity_finish; the App's quit. It passes when the window counted 1200 presents, the requests were
@@ -552,13 +552,12 @@ void play_live(const std::string &app, Capture &capture) {
     std::this_thread::sleep_for(2s);
 
     // HOME: the scene inactive, and after the home gesture's animation in the background, a few hundred ms later
-    // on iOS [guess]. A frame whose GL or Vulkan work reaches its commit only after the background flag waits at
-    // the gates until the foreground (ADR-0029, decision 15), and onNativeWindowDestroyed with it.
+    // on iOS [guess]. Inside didEnterBackground the window goes and the teardown is answered while the gates are
+    // still open, so the frame gles-live was still drawing as the focus went commits in time; only then the
+    // background flag and "scheduled" (ADR-0032 decision 6 and ADR-0029 decision 15, 2026-10-27). With the flag
+    // first, that frame's commit waited at the gates until the foreground, and onNativeWindowDestroyed with it.
     focus_lost(first, &vsync);
     std::this_thread::sleep_for(300ms);
-    apkrt_set_background(1);
-    const int scheduled = apkrt_wait_scheduled(1.0);
-    minato_app_test_count_commits();
     const std::uint64_t first_presents = apkrt_window_presents(first);
     apkrt_window_remove(first);
     preferred_rate = 0;  // the App drops a removed window's preference
@@ -566,6 +565,9 @@ void play_live(const std::string &app, Capture &capture) {
     const double first_destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, first), 2);
     post(APKRT_EVENT_STOP);
     post(APKRT_EVENT_SAVE_INSTANCE_STATE);
+    apkrt_set_background(1);
+    const int scheduled = apkrt_wait_scheduled(1.0);
+    minato_app_test_count_commits();
     std::this_thread::sleep_for(500ms);
 
     // The return: the foreground with a new window, then the scene active.
