@@ -96,6 +96,10 @@
 #   WINDOW      only test 3 of ADR-0043, with window-test
 #   ANGLE_VULKAN  only ADR-0044 c2's rounds on ANGLE's Vulkan backend; with LIVE, gles-live is installed once and
 #               runs both ways on the iPhone
+#   SHADERS     only the rounds of shader-bench (M6, the shader cache plan): N launches in a row (default 3), each
+#               printing the times of its fixed and fresh shader builds; run it again after a reinstall of Minato
+#   DERIVED_DATA  with SKIP_BUILD: the DerivedData folder whose Debug Minato.app is installed (default
+#               build/DerivedData)
 #   WAY         with AUDIO_LIVE: the restart's only way, "url" or "workspace" (the default order when unset)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -114,6 +118,7 @@ AUDIO_LIVE_PKG="io.github.kisame76.minato.test.audiolive"
 WINDOW_PKG="io.github.kisame76.minato.test.window"
 GLES_PKG="io.github.kisame76.minato.test.gles"
 GLES31_PKG="io.github.kisame76.minato.test.gles31"
+SHADER_BENCH_PKG="io.github.kisame76.minato.test.shaderbench"
 ON_DEVICE=no
 if [[ "${1:-}" == "--device" ]]; then
   ON_DEVICE=yes
@@ -158,6 +163,7 @@ fi
 [[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
 [[ -z "${AUDIO_LIVE:-}" ]] || GUEST_APPS+="$AUDIO_LIVE_PKG build/fixtures/apks/audio-live.apk"$'\n'
 [[ -z "${WINDOW:-}" ]] || GUEST_APPS+="$WINDOW_PKG build/fixtures/apks/window-test.apk"$'\n'
+[[ -z "${SHADERS:-}" ]] || GUEST_APPS+="$SHADER_BENCH_PKG build/fixtures/apks/shader-bench.apk"$'\n'
 if [[ -n "${ANGLE_VULKAN:-}" ]]; then
   GUEST_APPS+="$GLES31_PKG build/fixtures/apks/gles31-test.apk"$'\n'"$GLES_PKG build/fixtures/apks/gles-test.apk"$'\n'
   [[ -n "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
@@ -225,7 +231,8 @@ if [[ "$ON_DEVICE" == yes ]]; then
 fi
 if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${SKIP_BUILD:-}" ]]; then
-    on_device install app --device "$DEVICE_ID" -q build/DerivedData/Build/Products/Debug-iphoneos/Minato.app >/dev/null
+    on_device install app --device "$DEVICE_ID" -q \
+      "${DERIVED_DATA:-build/DerivedData}/Build/Products/Debug-iphoneos/Minato.app" >/dev/null
   else
     INSTALL_ONLY=1 tools/deploy.sh "$DEVICE_ID" >/dev/null
   fi
@@ -234,7 +241,8 @@ else
   if [[ -n "${APP:-}" ]]; then
     xcrun simctl install "$SIM_UDID" "$APP"
   elif [[ -n "${SKIP_BUILD:-}" ]]; then
-    xcrun simctl install "$SIM_UDID" build/DerivedData/Build/Products/Debug-iphonesimulator/Minato.app
+    xcrun simctl install "$SIM_UDID" \
+      "${DERIVED_DATA:-build/DerivedData}/Build/Products/Debug-iphonesimulator/Minato.app"
   else
     INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
   fi
@@ -1250,6 +1258,24 @@ run_angle_live() {
   [[ "$ON_DEVICE" == no ]] || echo "      ${swapchains:-no swapchain count}"
 }
 
+# M6's shader cache plan: shader-bench builds its fixed and fresh programs in game mode and ends by itself; its lines
+# hold the times, which differ by device, so they are printed and not compared. A second launch with a fixed set far
+# below the first's says that the system keeps the compiled shaders between launches.
+run_shaders() {
+  begin_round "shader-bench, launch $1" || return 0
+  rm -f "$CHECK/no-guest" "$CHECK/quit"
+  echo "$SHADER_BENCH_PKG" > "$CHECK/tap"
+  echo yes > "$CHECK/guest-log"
+  send_requests
+  launch
+  await_event "process gameMode $SHADER_BENCH_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  await_event "program ended .*" 120 \
+    && expect "  it ends with status 0" "program ended 0" "$(event_of "$EVENT")" || fail "  it did not end"
+  await_event "process library.*" 30 || fail "  no library after the end"
+  has "$CHECK_REL/guest-log" || { fail "  no guest log"; return; }
+  grep -E '^I/shader-bench: (renderer|fixed|fresh|done|failed)' "$CHECK/guest-log" | sed 's/^I\/shader-bench: /      /'
+}
+
 # The lines of tag $1 in the guest's log against Android 15's (fixtures/expected/$1.logcat), then the lines of
 # its -device tag, which differ by device.
 compare_guest_log() {
@@ -1550,7 +1576,7 @@ fi
 
 if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${GUEST_ENV:-}${LIVE:-}" ||
       -n "${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}${WINDOW:-}" ||
-      -n "${ANGLE_VULKAN:-}" ]]; then
+      -n "${ANGLE_VULKAN:-}${SHADERS:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
   [[ -n "${ENDS:-}" ]] && run_ends
@@ -1563,6 +1589,9 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLU
   [[ -n "${ROTATION:-}" ]] && run_rotation
   [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
   [[ -n "${WINDOW:-}" ]] && run_window
+  if [[ -n "${SHADERS:-}" ]]; then
+    for launch_number in $(seq 1 "${LAUNCHES:-3}"); do run_shaders "$launch_number"; done
+  fi
   if [[ -n "${ANGLE_VULKAN:-}" ]]; then
     run_angle_app "$GLES31_PKG" gles31-test
     run_angle_refused

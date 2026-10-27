@@ -284,6 +284,8 @@ target_link_options(island-bench PRIVATE -Wl,--no-relax)
 # The Grafik chat's test apps (ADR-0029 B2, ADR-0030 V5), each with its own CMakeLists.txt.
 add_subdirectory(apps/gles-test)
 add_subdirectory(apps/gles31-test)
+# The Planung chat's shader-bench for the shader cache plan (M6): times of fresh and repeated shader builds.
+add_subdirectory(apps/shader-bench)
 add_subdirectory(apps/vulkan-test)
 # The Grafik chat's vk-ahb-test, graphics/tests/vk_ahb_test.c as an app for the iPhone (ADR-0058 e1)).
 add_subdirectory(apps/vk-ahb-test)
