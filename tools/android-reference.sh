@@ -508,7 +508,8 @@ run_app() {
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \
       | preferences-test | service-exceptions-test | network-security-test | network-security-config-test \
       | noted-app-op-test | app-services-test | image-reader-test | autocomplete-test | bound-services-test | package-answers-test \
-      | image-writer-test | media-codec-test | open-test | sensors-java-test)
+      | image-writer-test | media-codec-test | open-test | sensors-java-test | location-manager-test \
+      | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
@@ -798,6 +799,20 @@ run_app() {
     # ADR-0063: the twin's permissions are granted before the start, so that its requests need no dialog.
     run pm grant "$package" android.permission.ACCESS_FINE_LOCATION
     run pm grant "$package" android.permission.ACCESS_COARSE_LOCATION
+  fi
+  if [[ "$app" == location-manager-test* ]]; then
+    # ADR-0063: what the twin's name says is granted before the start (-fine both location permissions, -coarse the
+    # coarse one), and the emulator's GNSS is set to a position in Berlin, which its next fixes report.
+    case "$app" in
+      location-manager-test-fine)
+        run pm grant "$package" android.permission.ACCESS_FINE_LOCATION
+        run pm grant "$package" android.permission.ACCESS_COARSE_LOCATION
+        ;;
+      location-manager-test-coarse)
+        run pm grant "$package" android.permission.ACCESS_COARSE_LOCATION
+        ;;
+    esac
+    device emu geo fix 13.405 52.52 40 >/dev/null
   fi
   if [[ "$app" == obb-test ]]; then
     # ADR-0049 test 8: its main and patch OBBs in its OBB folder before the start, as a user or a store puts them there.

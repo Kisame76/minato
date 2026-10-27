@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0063's test of LocationManager (location-manager-test-coarse): from the sources of
+     fixtures/java/location-manager-test, with the permissions this twin requests. The harness grants what the twin's
+     name says (-fine: both, -coarse: the coarse one, else none). The label is the tag its lines carry. The launcher
+     activity is the framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.locmancoarse" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+  <application android:label="location-manager-test-coarse"
+      android:name="io.github.kisame76.minato.test.locman.LocationApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

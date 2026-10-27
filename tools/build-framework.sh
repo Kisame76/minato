@@ -76,7 +76,8 @@ for path in "${taken[@]}"; do
   name=$(basename "$path")
   if [[ "$name" == *.aidl ]]; then
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
-      -I"$SOURCES/frameworks_base_types/apex/jobscheduler/framework/java" -Iframework/aidl-imports -o "$GEN/aidl" "$source"
+      -I"$SOURCES/frameworks_base_types/apex/jobscheduler/framework/java" -I"$SOURCES/location_java/location/java" \
+      -Iframework/aidl-imports -o "$GEN/aidl" "$source"
     continue
   fi
   if [[ "$name" == *.logtags ]]; then
@@ -106,7 +107,8 @@ for patch in framework/patches/*.patch; do
 done
 python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
   --declarations "$SOURCES/frameworks_base_graphics" --declarations "$SOURCES/frameworks_base_hwui" \
-  --declarations "$SOURCES/frameworks_base_types" --values "$SOURCES/build_release/aconfig/ap3a" \
+  --declarations "$SOURCES/frameworks_base_types" --declarations "$SOURCES/location_java" \
+  --values "$SOURCES/build_release/aconfig/ap3a" \
   --out "$GEN/aconfig" >/dev/null
 cp -R "$R_JAVA/." "$GEN/r/"
 # The values of every feature flag framework-res was built with (ap3a's), which Android's parser reads from the

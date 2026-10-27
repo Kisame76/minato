@@ -270,8 +270,8 @@ jint SessionRequestOpenCancel(JNIEnv *, jclass, jlong id) {
     return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_OPEN_CANCEL, static_cast<uint64_t>(id), 0) < 0 ? -errno : 0;
 }
 
-// APKRT_REQUEST_PERMISSION (ADR-0063): the text "<group>\t<detail>" of a permission request by address and its ID; 0, or
-// the negative errno.
+// APKRT_REQUEST_PERMISSION (ADR-0063): the text "<group>\t<detail>" of a permission request by address and its ID;
+// 0, or the negative errno.
 jint SessionRequestPermission(JNIEnv *env, jclass, jlong id, jbyteArray text) {
     if (text == nullptr) return -EINVAL;
     const jsize length = env->GetArrayLength(text);
@@ -291,6 +291,51 @@ jint SessionRequestPermission(JNIEnv *env, jclass, jlong id, jbyteArray text) {
 jint SessionRequestPermissionCancel(JNIEnv *, jclass, jlong id) {
     return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, static_cast<uint64_t>(id), 0) < 0 ? -errno
                                                                                                          : 0;
+}
+
+// The location hub (ADR-0063): APKRT_NR_LOCATION's operations, 0 or the negative errno.
+jint LocationStart(JNIEnv *, jclass, jint accuracy, jint distance) {
+    apkrt_location_control control = {accuracy, distance};
+    return syscall(APKRT_NR_LOCATION, APKRT_LOCATION_START, reinterpret_cast<uintptr_t>(&control), 0) < 0 ? -errno : 0;
+}
+
+// APKRT_LOCATION_PERMISSION: the stored outcome of a permission group (0 denied or unanswered, 1 granted, 2 granted
+// coarse), or the negative errno.
+jint LocationGrant(JNIEnv *, jclass, jint group) {
+    const long result = syscall(APKRT_NR_LOCATION, APKRT_LOCATION_PERMISSION, static_cast<uint64_t>(group), 0);
+    return result < 0 ? -errno : static_cast<jint>(result);
+}
+
+jint LocationStop(JNIEnv *, jclass) {
+    return syscall(APKRT_NR_LOCATION, APKRT_LOCATION_STOP, 0, 0) < 0 ? -errno : 0;
+}
+
+jint LocationCurrent(JNIEnv *, jclass, jlong token) {
+    return syscall(APKRT_NR_LOCATION, APKRT_LOCATION_CURRENT, static_cast<uint64_t>(token), 0) < 0 ? -errno : 0;
+}
+
+jint LocationCancel(JNIEnv *, jclass, jlong token) {
+    return syscall(APKRT_NR_LOCATION, APKRT_LOCATION_CANCEL, static_cast<uint64_t>(token), 0) < 0 ? -errno : 0;
+}
+
+// GET or LAST into nine doubles (latitude, longitude, altitude, the horizontal and vertical accuracy, the speed, its
+// accuracy, the bearing and its accuracy) and four longs (time in ms, elapsed realtime in ns, provider, the has-bits);
+// 1 when filled, 0 for none, or the negative errno.
+jint LocationFix(JNIEnv *env, jclass, jboolean last, jlong sequence, jdoubleArray doubles, jlongArray longs) {
+    if (doubles == nullptr || longs == nullptr || env->GetArrayLength(doubles) < 9 || env->GetArrayLength(longs) < 4) {
+        return -EINVAL;
+    }
+    apkrt_location_fix fix{};
+    const long result = syscall(APKRT_NR_LOCATION, last ? APKRT_LOCATION_LAST : APKRT_LOCATION_GET,
+                                reinterpret_cast<uintptr_t>(&fix), static_cast<uint64_t>(sequence));
+    if (result < 0) return -errno;
+    if (result != 1) return 0;
+    const jdouble d[9] = {fix.latitude, fix.longitude, fix.altitude, fix.horizontal_accuracy_m, fix.vertical_accuracy_m,
+                          fix.speed_mps, fix.speed_accuracy_mps, fix.bearing_deg, fix.bearing_accuracy_deg};
+    const jlong l[4] = {fix.time_ms, fix.elapsed_realtime_ns, fix.provider, fix.valid};
+    env->SetDoubleArrayRegion(doubles, 0, 9, d);
+    env->SetLongArrayRegion(longs, 0, 4, l);
+    return env->ExceptionCheck() ? -EFAULT : 1;
 }
 
 // APKRT_REQUEST_EXPORT_MEDIA (ADR-0057 step e): the text of an export request (UTF-8 bytes, as the pick's) by address;
@@ -341,6 +386,12 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRequestOpenCancel", "(J)I", reinterpret_cast<void *>(SessionRequestOpenCancel)},
         {"nativeSessionRequestPermission", "(J[B)I", reinterpret_cast<void *>(SessionRequestPermission)},
         {"nativeSessionRequestPermissionCancel", "(J)I", reinterpret_cast<void *>(SessionRequestPermissionCancel)},
+        {"nativeLocationStart", "(II)I", reinterpret_cast<void *>(LocationStart)},
+        {"nativeLocationGrant", "(I)I", reinterpret_cast<void *>(LocationGrant)},
+        {"nativeLocationStop", "()I", reinterpret_cast<void *>(LocationStop)},
+        {"nativeLocationCurrent", "(J)I", reinterpret_cast<void *>(LocationCurrent)},
+        {"nativeLocationCancel", "(J)I", reinterpret_cast<void *>(LocationCancel)},
+        {"nativeLocationFix", "(ZJ[D[J)I", reinterpret_cast<void *>(LocationFix)},
         {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},

@@ -1,0 +1,29 @@
+I/location-manager-test-coarse: manager: android.location.LocationManager
+I/location-manager-test-coarse: permissions: fine -1, coarse 0
+I/location-manager-test-coarse: check: -1 0
+I/location-manager-test-coarse: all providers: [fused, gps, passive]
+I/location-manager-test-coarse: enabled providers: [fused, gps, passive]
+I/location-manager-test-coarse: location enabled: true
+I/location-manager-test-coarse: provider gps: has true, enabled true
+I/location-manager-test-coarse: provider gps: properties true
+I/location-manager-test-coarse: provider network: has false, enabled false
+I/location-manager-test-coarse: provider network: properties false
+I/location-manager-test-coarse: provider passive: has true, enabled true
+I/location-manager-test-coarse: provider passive: properties true
+I/location-manager-test-coarse: provider fused: has true, enabled true
+I/location-manager-test-coarse: provider fused: properties true
+I/location-manager-test-coarse: provider nonsense: has false, enabled false
+I/location-manager-test-coarse: provider nonsense: properties false
+I/location-manager-test-coarse: last known gps: none
+I/location-manager-test-coarse: last known network: none
+I/location-manager-test-coarse: last known passive: none
+I/location-manager-test-coarse: updates gps: requested
+I/location-manager-test-coarse: updates gps: got a location true
+I/location-manager-test-coarse: updates gps: first, provider gps, within 500 m false, within 3000 m true, has accuracy true, accuracy under 100 m false, accuracy 2000 m true, time fresh true, elapsed realtime fresh true, mock false
+I/location-manager-test-coarse: updates gps: on the main thread true
+I/location-manager-test-coarse: updates gps: after removing 0
+I/location-manager-test-coarse: current gps: requested
+I/location-manager-test-coarse: current gps: provider gps, within 500 m false, within 3000 m true, has accuracy true, accuracy under 100 m false, accuracy 2000 m true, time fresh true, elapsed realtime fresh true, mock false
+I/location-manager-test-coarse: current gps: answered true
+I/location-manager-test-coarse: gnss: java.lang.SecurityException: Neither user UID nor current process has android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-coarse: done

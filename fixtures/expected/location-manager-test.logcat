@@ -1,0 +1,23 @@
+I/location-manager-test: manager: android.location.LocationManager
+I/location-manager-test: permissions: fine -1, coarse -1
+I/location-manager-test: check: -1 -1
+I/location-manager-test: all providers: [fused, gps, passive]
+I/location-manager-test: enabled providers: []
+I/location-manager-test: location enabled: true
+I/location-manager-test: provider gps: has true, enabled true
+I/location-manager-test: provider gps: properties true
+I/location-manager-test: provider network: has false, enabled false
+I/location-manager-test: provider network: properties false
+I/location-manager-test: provider passive: has true, enabled true
+I/location-manager-test: provider passive: properties true
+I/location-manager-test: provider fused: has true, enabled true
+I/location-manager-test: provider fused: properties true
+I/location-manager-test: provider nonsense: has false, enabled false
+I/location-manager-test: provider nonsense: properties false
+I/location-manager-test: last known gps: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test: last known network: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test: last known passive: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test: updates gps: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test: current gps: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test: gnss: java.lang.SecurityException: Neither user UID nor current process has android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test: done

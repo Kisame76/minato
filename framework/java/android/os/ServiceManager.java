@@ -19,6 +19,7 @@ package android.os;
 import android.app.LocalActivityManagerService;
 import android.app.LocalActivityTaskManager;
 import android.app.LocalAlarmManager;
+import android.location.LocalLocationManager;
 import android.app.LocalJobScheduler;
 import android.app.LocalUriGrants;
 import android.app.NotificationService;
@@ -67,6 +68,7 @@ public final class ServiceManager {
         sMakers.put(Context.NOTIFICATION_SERVICE, NotificationService::newBinder);
         sMakers.put(Context.JOB_SCHEDULER_SERVICE, LocalJobScheduler::newBinder);
         sMakers.put(Context.ALARM_SERVICE, LocalAlarmManager::newBinder);
+        sMakers.put(Context.LOCATION_SERVICE, LocalLocationManager::newBinder);
         sMakers.put(Context.CLIPBOARD_SERVICE, LocalClipboard::newBinder);
         sMakers.put(Context.ACCOUNT_SERVICE, LocalAccountManager::newBinder);
         sMakers.put(Context.URI_GRANTS_SERVICE, LocalUriGrants::newBinder);

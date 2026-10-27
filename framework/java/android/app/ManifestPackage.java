@@ -170,6 +170,7 @@ final class ManifestPackage {
     private final Set<String> mLoggedDenials = new HashSet<>();
     /** What the host answered for the groups it decides (ADR-0063 decision 2). */
     private final PermissionAnswers mAnswers = new PermissionAnswers();
+    private boolean mAnswersSeeded;
     /** Whether a departure from Android's grants was logged, once per app. */
     private boolean mDepartureLogged;
     private PermissionPolicy.App mPolicyApp;
@@ -2273,7 +2274,7 @@ final class ManifestPackage {
     boolean granted(String permission) {
         PermissionPolicy.Decision decision = PermissionPolicy.decide(policyApp(), permission);
         if (decision.grant == PermissionPolicy.Grant.ASK_HOST) {
-            return mAnswers.granted(permission);
+            return answers().granted(permission);
         }
         synchronized (mLoggedDenials) {
             if (decision.grant == PermissionPolicy.Grant.GRANTED) {
@@ -2296,8 +2297,21 @@ final class ManifestPackage {
         return PermissionPolicy.decide(policyApp(), permission).grant;
     }
 
-    /** What the host answered for the permission groups it decides, for the requests and checks of ADR-0063. */
+    /**
+     * What the host answered for the permission groups it decides, for the requests and checks of ADR-0063. The first
+     * use reads the runtime's stored answer, which the host recorded before the app's first code ran and which no event
+     * carries to an app that started before the session began; the events after it update it.
+     */
     PermissionAnswers answers() {
+        synchronized (mAnswers) {
+            if (!mAnswersSeeded) {
+                mAnswersSeeded = true;
+                final int stored = ActivityThread.storedPermissionGrant(PermissionPolicy.GROUP_LOCATION);
+                if (stored != PermissionAnswers.DENIED) {
+                    mAnswers.answer(PermissionPolicy.GROUP_LOCATION, stored, false);
+                }
+            }
+        }
         return mAnswers;
     }
 

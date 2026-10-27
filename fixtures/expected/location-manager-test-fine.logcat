@@ -1,0 +1,29 @@
+I/location-manager-test-fine: manager: android.location.LocationManager
+I/location-manager-test-fine: permissions: fine 0, coarse 0
+I/location-manager-test-fine: check: 0 0
+I/location-manager-test-fine: all providers: [fused, gps, passive]
+I/location-manager-test-fine: enabled providers: [fused, gps, passive]
+I/location-manager-test-fine: location enabled: true
+I/location-manager-test-fine: provider gps: has true, enabled true
+I/location-manager-test-fine: provider gps: properties true
+I/location-manager-test-fine: provider network: has false, enabled false
+I/location-manager-test-fine: provider network: properties false
+I/location-manager-test-fine: provider passive: has true, enabled true
+I/location-manager-test-fine: provider passive: properties true
+I/location-manager-test-fine: provider fused: has true, enabled true
+I/location-manager-test-fine: provider fused: properties true
+I/location-manager-test-fine: provider nonsense: has false, enabled false
+I/location-manager-test-fine: provider nonsense: properties false
+I/location-manager-test-fine: last known gps: none
+I/location-manager-test-fine: last known network: none
+I/location-manager-test-fine: last known passive: none
+I/location-manager-test-fine: updates gps: requested
+I/location-manager-test-fine: updates gps: got a location true
+I/location-manager-test-fine: updates gps: first, provider gps, within 500 m true, within 3000 m true, has accuracy true, accuracy under 100 m true, accuracy 2000 m false, time fresh true, elapsed realtime fresh true, mock false
+I/location-manager-test-fine: updates gps: on the main thread true
+I/location-manager-test-fine: updates gps: after removing 0
+I/location-manager-test-fine: current gps: requested
+I/location-manager-test-fine: current gps: provider gps, within 500 m true, within 3000 m true, has accuracy true, accuracy under 100 m true, accuracy 2000 m false, time fresh true, elapsed realtime fresh true, mock false
+I/location-manager-test-fine: current gps: answered true
+I/location-manager-test-fine: gnss: registered true
+I/location-manager-test-fine: done

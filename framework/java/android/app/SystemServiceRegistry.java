@@ -11,6 +11,8 @@
  */
 package android.app;
 
+import android.location.ILocationManager;
+import android.location.LocationManager;
 import android.accounts.AccountManager;
 import android.accounts.IAccountManager;
 import android.app.job.IJobScheduler;
@@ -129,6 +131,9 @@ final class SystemServiceRegistry {
         cached(Context.ALARM_SERVICE, AlarmManager.class, ctx -> new AlarmManager(
                 IAlarmManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ALARM_SERVICE)),
                 ctx.getOuterContext()));
+        // ADR-0063: as AOSP's, over the local location service.
+        cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
+                ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));
     }
 
     private SystemServiceRegistry() {

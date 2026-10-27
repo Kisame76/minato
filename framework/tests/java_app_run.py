@@ -57,6 +57,11 @@ request's maximum of the files into the folder .minato/photos of the app's data 
 With --sensor-script <file>, apk-run installs a fake sensor host that replays the file's samples (ADR-0061 step 2;
 runtime/tools/apk_run.cpp's lines: "<at_ms> <type> <values>" and "rate <type> <hz> <seconds>").
 
+With --grant-location fine|coarse|denied, the session's host records that answer for the location group before the app
+starts, and with --location-script <file> a fake location host replays the file's fixes (ADR-0063;
+runtime/tools/apk_run.cpp's lines: "<at_ms> <lat> <lon> <accuracy_m> [altitude]" and "rate <hz> <seconds> <lat> <lon>
+<accuracy_m>"); the runtime makes the fixes of a coarse grant coarse.
+
 With --export-dir <folder>, the session's host answers an export request of the app's MediaStore (ADR-0057 step e) by
 copying the finished image or video into that folder, as the iPhone's host adds it to Photos.
 
@@ -82,7 +87,7 @@ Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <s
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
                        [--pick <file>]... [--pick-photo <file>]...
                        [--pick-save] [--pick-tree <folder>] [--export-dir <folder>]
-                       [--sensor-script <file>]
+                       [--sensor-script <file>] [--grant-location fine|coarse|denied] [--location-script <file>]
                        [--status <n>] [--once <line>]... [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
@@ -117,6 +122,8 @@ def main():
     photos = []
     export_dir = None
     sensor_script = None
+    grant_location = None
+    location_script = None
     saves = False
     tree = None
     splits = []
@@ -125,7 +132,8 @@ def main():
     environment = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
                        ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
-                       ["--pick-tree"], ["--export-dir"], ["--sensor-script"], ["--status"], ["--once"], ["--env"], ["--split"]):
+                       ["--pick-tree"], ["--export-dir"], ["--sensor-script"], ["--grant-location"],
+                       ["--location-script"], ["--status"], ["--once"], ["--env"], ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
@@ -138,6 +146,10 @@ def main():
             export_dir, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--sensor-script":
             sensor_script, args = args[1], args[2:]
+        elif len(args) > 1 and args[0] == "--grant-location":
+            grant_location, args = args[1], args[2:]
+        elif len(args) > 1 and args[0] == "--location-script":
+            location_script, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--pick-tree":
             tree, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--pick-photo":
@@ -198,7 +210,7 @@ def main():
                        last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
                        android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits,
                        picks=picks, photos=photos, saves=saves, tree=tree, export_dir=export_dir,
-                       sensor_script=sensor_script)
+                       sensor_script=sensor_script, grant_location=grant_location, location_script=location_script)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

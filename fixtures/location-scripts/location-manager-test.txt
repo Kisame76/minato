@@ -1,0 +1,4 @@
+# Fixes for location-manager-test and its twins (ADR-0063): runtime/tools/apk_run.cpp's --location-script. A fix every
+# half second for ten minutes at the position tools/android-reference.sh gives the emulator (52.52 N, 13.405 E), 5 m
+# accurate as Android 15's GPS reports it; a coarse grant makes the runtime coarsen them.
+rate 2 600 52.52 13.405 5

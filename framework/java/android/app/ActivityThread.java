@@ -118,6 +118,7 @@ import com.android.minato.permissions.PermissionPolicy;
 import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.open.SystemOpenActivity;
 import com.android.internal.minato.permissions.SystemPermissionActivity;
+import android.location.LocalLocationManager;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.internal.minato.picker.SystemPickerActivity;
 import com.android.internal.minato.picker.UriGrants;
@@ -1177,6 +1178,7 @@ public final class ActivityThread {
     private static final int EVENT_PICK_RESULT = 24;
     private static final int EVENT_OPEN_RESULT = 25;
     private static final int EVENT_PERMISSION_RESULT = 26;
+    private static final int EVENT_LOCATION = 27;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
@@ -1407,6 +1409,9 @@ public final class ActivityThread {
                 break;
             case EVENT_PERMISSION_RESULT:
                 SystemPermissionActivity.onResult(event[2], (int) event[3], (int) event[4]);
+                break;
+            case EVENT_LOCATION:
+                LocalLocationManager.onEvent(event[2], (int) event[3], event[4]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2499,6 +2504,58 @@ public final class ActivityThread {
     }
 
     /**
+     * @hide LocalLocationManager's (ADR-0063): begins or reconfigures continuous updates; 0, or a negative errno,
+     * -EOPNOTSUPP without a session.
+     */
+    public static int locationStart(int accuracy, int distanceM) {
+        return sessionOf() == null ? -EOPNOTSUPP : nativeLocationStart(accuracy, distanceM);
+    }
+
+    /**
+     * @hide ManifestPackage's (ADR-0063): the runtime's stored answer for a permission group (0 denied or unanswered,
+     * 1 granted, 2 granted coarse), which the host recorded before the app's first code ran; 0 when the runtime has
+     * none.
+     */
+    public static int storedPermissionGrant(int group) {
+        // No session needed: the answer is the runtime's, and the app's first code may run before the pipe is attached.
+        return Math.max(0, nativeLocationGrant(group));
+    }
+
+    /** @hide LocalLocationManager's: ends continuous updates. */
+    public static int locationStop() {
+        return sessionOf() == null ? -EOPNOTSUPP : nativeLocationStop();
+    }
+
+    /** @hide LocalLocationManager's: one fix for `token`, which APKRT_EVENT_LOCATION answers. */
+    public static int locationCurrent(long token) {
+        return sessionOf() == null ? -EOPNOTSUPP : nativeLocationCurrent(token);
+    }
+
+    /** @hide LocalLocationManager's: the one-shot `token` is not wanted any more. */
+    public static int locationCancel(long token) {
+        return sessionOf() == null ? -EOPNOTSUPP : nativeLocationCancel(token);
+    }
+
+    /**
+     * @hide LocalLocationManager's: the fix an event announced, into the arrays (nine doubles, four longs); false when
+     * gone.
+     */
+    public static boolean locationGet(long sequence, double[] doubles, long[] longs) {
+        return sessionOf() != null && nativeLocationFix(false, sequence, doubles, longs) == 1;
+    }
+
+    /** @hide LocalLocationManager's: the last continuous fix, into the arrays; false when there is none. */
+    public static boolean locationLast(double[] doubles, long[] longs) {
+        return sessionOf() != null && nativeLocationFix(true, 0, doubles, longs) == 1;
+    }
+
+    /** The thread when a session drives it, else null: the requests to the host have no one to answer without. */
+    private static ActivityThread sessionOf() {
+        final ActivityThread thread = sCurrentActivityThread;
+        return thread == null || thread.mSessionEvents == null ? null : thread;
+    }
+
+    /**
      * @hide MediaLibrary's (ADR-0057 step e): a finished image (kind 1) or video (kind 2) at `path` below the app's data
      * folder, for the host to add to Photos; no answer. 0, or a negative errno, -EOPNOTSUPP without a session.
      */
@@ -2700,6 +2757,19 @@ public final class ActivityThread {
     private static native int nativeSessionRequestPermission(long id, byte[] text);
 
     private static native int nativeSessionRequestPermissionCancel(long id);
+
+    private static native int nativeLocationStart(int accuracy, int distanceM);
+
+    private static native int nativeLocationGrant(int group);
+
+    private static native int nativeLocationStop();
+
+    private static native int nativeLocationCurrent(long token);
+
+    private static native int nativeLocationCancel(long token);
+
+    /** GET (the fix of `sequence`) or LAST into nine doubles and four longs; 1 filled, 0 none, or a negative errno. */
+    private static native int nativeLocationFix(boolean last, long sequence, double[] doubles, long[] longs);
     private static native int nativeSessionRequestExportMedia(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */

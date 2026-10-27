@@ -1,0 +1,23 @@
+I/location-manager-test-denied: manager: android.location.LocationManager
+I/location-manager-test-denied: permissions: fine -1, coarse -1
+I/location-manager-test-denied: check: -1 -1
+I/location-manager-test-denied: all providers: [fused, gps, passive]
+I/location-manager-test-denied: enabled providers: []
+I/location-manager-test-denied: location enabled: true
+I/location-manager-test-denied: provider gps: has true, enabled true
+I/location-manager-test-denied: provider gps: properties true
+I/location-manager-test-denied: provider network: has false, enabled false
+I/location-manager-test-denied: provider network: properties false
+I/location-manager-test-denied: provider passive: has true, enabled true
+I/location-manager-test-denied: provider passive: properties true
+I/location-manager-test-denied: provider fused: has true, enabled true
+I/location-manager-test-denied: provider fused: properties true
+I/location-manager-test-denied: provider nonsense: has false, enabled false
+I/location-manager-test-denied: provider nonsense: properties false
+I/location-manager-test-denied: last known gps: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-denied: last known network: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-denied: last known passive: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-denied: updates gps: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-denied: current gps: java.lang.SecurityException: uid UID does not have android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-denied: gnss: java.lang.SecurityException: Neither user UID nor current process has android.permission.ACCESS_FINE_LOCATION.
+I/location-manager-test-denied: done

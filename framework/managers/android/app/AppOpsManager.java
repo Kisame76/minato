@@ -18,6 +18,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 class AppOpsManager {
+    /**
+     * @hide As AOSP's: a receiver's id for the app ops, its class and identity hash (LocationManager names its
+     * listeners with it); a PendingIntent gets the same, since Minato's has no target binder to name.
+     */
+    public static String toReceiverId(Object obj) {
+        return obj == null ? "null" : obj.getClass().getName() + "@" + System.identityHashCode(obj);
+    }
+
     /** @hide No app op, as for a permission without one. */
     public static final int OP_NONE = -1;
 
