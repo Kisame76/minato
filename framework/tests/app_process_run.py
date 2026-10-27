@@ -255,14 +255,22 @@ def run_app(command, last=None, grace=2.0, timeout=300):
     An app process runs its main Looper and does not end by itself (step c2b): `last` is a pattern of the app's last
     line, and once a line of its output or its log matches it, the process has `grace` s to end. Then it is killed,
     as tools/android-reference.sh has am force-stop end the app after that line, and the run counts as ended, with
-    status 0. A process that ends by itself keeps its status, also a crash within the grace."""
+    status 0. A process that ends by itself keeps its status, also a crash within the grace. With the environment
+    variable MINATO_LINE_TIMES set to a file, each line of the process's output is appended to it with the seconds since
+    the process was started (tools/m6-baseline.sh)."""
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
     pattern = re.compile(last) if last is not None else None
     seen = threading.Event()
     output = {"stdout": [], "stderr": []}
 
+    started = time.monotonic()
+    times_path = os.environ.get("MINATO_LINE_TIMES")
+
     def read(name, stream):
         for line in stream:
+            if times_path:
+                with open(times_path, "a") as times:
+                    times.write(f"{time.monotonic() - started:.4f}\t{name}\t{line}")
             output[name].append(line)
             if pattern is not None and pattern.search(line.rstrip("\n")):
                 seen.set()
