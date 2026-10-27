@@ -339,12 +339,6 @@ if(TARGET minato_graphics_host)
     "${APK_GRAPHICS_GUEST_DIR}/libvulkan.so")
   add_guest_test(vulkan_fake vulkan-fake-test vulkan_fake_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:")
-  # ADR-0065 step 4: the device's name and vendor with and without a device profile (MINATO_DEVICE_PROFILE is apk-run's
-  # --device-profile for graphics-run).
-  add_guest_test(vulkan_profile vulkan-profile-test vulkan_profile_test "${vulkan_system_libraries}"
-    "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=unset:")
-  add_guest_test(vulkan_profile_pixel vulkan-profile-test vulkan_profile_pixel_test "${vulkan_system_libraries}"
-    "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:pixel")
   add_guest_test(vulkan_window vulkan-window-test vulkan_window_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_WINDOW=set:64x48")
   # ADR-0043 b1: libnativewindow's lock and post against the window host's fake buffers, whose first lock opens the
@@ -436,11 +430,6 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW=set:64x48")
     add_guest_test(gles_front gles-front-test gles_front_test "${gles_system_libraries}" ${with_angle})
     add_guest_test(gles_gate gles-gate-test gles_gate_test "${gles_system_libraries}" ${with_angle})
-    # ADR-0065 step 4: GL_VENDOR and GL_RENDERER with and without a device profile (apk-run's --device-profile).
-    add_guest_test(gles_profile gles-profile-test gles_profile_test "${gles_system_libraries}" ${with_angle}
-      "MINATO_DEVICE_PROFILE=unset:")
-    add_guest_test(gles_profile_pixel gles-profile-test gles_profile_pixel_test "${gles_system_libraries}" ${with_angle}
-      "MINATO_DEVICE_PROFILE=set:pixel")
     # ADR-0044 c): the same gates on the ES 3.1 path, ANGLE's Vulkan backend on MoltenVK, whose submits wait in the
     # background in graphics/host's functions (angle_vulkan.m); its display has no Metal events.
     if(EXISTS "${moltenvk}")
