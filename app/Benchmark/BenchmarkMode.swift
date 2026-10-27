@@ -186,6 +186,12 @@ final class BenchmarkRunner {
                                                 ended: { [weak self] in self?.end($1) }))
             stage = .apk(session)
         } else if let twin {
+            // Landscape before Godot starts, as the APK's session holds it, or the pair's layers differ (ADR-0042, d4).
+            guard let scene = UIApplication.shared.connectedScenes.lazy.compactMap({ $0 as? UIWindowScene }).first
+            else { return end("no window scene for the twin") }
+            _ = AppDelegate.hold(.landscape, in: scene) {}
+            guard await TwinOrientation.wait(isLandscape: { scene.effectiveGeometry.interfaceOrientation.isLandscape })
+            else { return end(TwinOrientation.refused) }
             startTwin(twin)
         } else {
             stage = .native

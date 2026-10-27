@@ -55,4 +55,21 @@ struct BenchLaunchTests {
         #expect(BenchConfiguration("godot-gles-60-light")!.godotMeshes == Int(loads.1))
         #expect(BenchConfiguration("godot-vulkan-120-heavy")!.godotMeshes == Int(loads.2))
     }
+
+    /// ADR-0042, decision 4: the twin starts once its window holds landscape, the APK's orientation, so that the pair
+    /// rule compares like layers. The wait polls the scene and gives up after its time, which ends the run.
+    @MainActor @Test func theTwinWaitsForLandscape() async {
+        var polls = 0
+        let turned = await TwinOrientation.wait(timeout: .seconds(2), step: .milliseconds(1)) {
+            polls += 1
+            return polls >= 3
+        }
+        #expect(turned && polls == 3)
+        let clock = ContinuousClock()
+        let start = clock.now
+        let never = await TwinOrientation.wait(timeout: .milliseconds(50), step: .milliseconds(5)) { false }
+        #expect(!never && clock.now - start >= .milliseconds(50))
+        #expect(await TwinOrientation.wait(timeout: .zero, step: .milliseconds(5)) { true })
+        #expect(TwinOrientation.refused == "the twin's window did not turn to landscape within 2 s")
+    }
 }

@@ -16,6 +16,27 @@ public enum BenchLaunch {
     }
 }
 
+/// Test 2's twin starts once its window holds landscape, the APK's orientation (Godot's default, which a session
+/// holds for the APK), so that the pair rule compares like layers (ADR-0042, decision 4): Godot's own view
+/// controller is not the window's root, so its wish alone does not turn the window.
+public enum TwinOrientation {
+    /// Why a run ends when the window did not turn in time.
+    public static let refused = "the twin's window did not turn to landscape within 2 s"
+
+    /// Asks `isLandscape` every `step` until it answers true or `timeout` has passed: whether it did.
+    @MainActor
+    public static func wait(timeout: Duration = .seconds(2), step: Duration = .milliseconds(20),
+                            isLandscape: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while !isLandscape() {
+            guard clock.now < deadline else { return false }
+            try? await clock.sleep(for: step)
+        }
+        return true
+    }
+}
+
 extension BenchConfiguration {
     /// Test 2's meshes per load, as bench.gd's LOADS; nil for ADR-0037's scene, whose MinatoBench answers.
     public var godotMeshes: Int? {
