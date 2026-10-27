@@ -471,12 +471,10 @@ struct UpdateTests {
         #expect(!sandbox.exists(picked))
     }
 
-    @Test(arguments: [["arm64-v8a"], ["armeabi-v7a"]])
-    func theSameBytesChangeNothing(abis: [String]) async throws {
-        // Also for an incompatible version, which keeps no base.apk but the file's SHA-256.
+    @Test func theSameBytesChangeNothing() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
-        let apk = SampleAPK.make(abis: abis)
+        let apk = SampleAPK.make(abis: ["arm64-v8a"])
         let library = try Library(paths: sandbox.paths)
         let installed = try await library.importFile(sandbox.file(apk, named: "game.apk")).entry
         let picked = try await library.adopt(sandbox.file(apk, named: "again.apk"))
@@ -489,6 +487,28 @@ struct UpdateTests {
         #expect(result.decision == .unchanged)
         #expect(result.entry == installed)
         #expect(await library.entries == [installed])
+        #expect(Self.appFolder(sandbox) == [folder])
+        #expect(!sandbox.exists(picked))
+    }
+
+    @Test func theSameBytesOverAnIncompatibleVersionAreImportedAgain() async throws {
+        // An incompatible version keeps no base.apk but the file's SHA-256; the same file is analysed afresh, as a
+        // newer converter may make it ready (ADR-0018, addendum of 2026-10-27). 32-bit code stays incompatible.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let apk = SampleAPK.make(abis: ["armeabi-v7a"])
+        let library = try Library(paths: sandbox.paths)
+        let installed = try await library.importFile(sandbox.file(apk, named: "game.apk")).entry
+        let picked = try await library.adopt(sandbox.file(apk, named: "again.apk"))
+
+        let result = try await library.importFile(picked)
+
+        let folder = try #require(installed.folder)
+        #expect(result.decision == .reinstall)
+        #expect(result.entry.state == .incompatible)
+        #expect(result.entry.folder == folder)
+        #expect(result.entry.importedAt == installed.importedAt)
+        #expect(await library.entries == [result.entry])
         #expect(Self.appFolder(sandbox) == [folder])
         #expect(!sandbox.exists(picked))
     }

@@ -418,8 +418,12 @@ public actor Library {
         let appDirectory = paths.installDirectory(for: package)
         let versionDirectory = appDirectory.appendingPathComponent(folder, isDirectory: true)
         // The same bytes changed nothing above, so only another file whose SHA-256 begins like the
-        // installed version's gets here with its folder: that one stays untouched.
-        guard installed?.folder != folder else { throw LibraryError.versionFolderInUse(folder) }
+        // installed version's gets here with its folder: that one stays untouched. A version that could not run
+        // holds no code, so the same file imported again is built afresh in its folder (ADR-0018, addendum of
+        // 2026-10-27).
+        guard installed?.folder != folder || installed?.state == .incompatible else {
+            throw LibraryError.versionFolderInUse(folder)
+        }
         try? fileManager.removeItem(at: versionDirectory) // left over from an interrupted import of this file
         try fileManager.createDirectory(at: versionDirectory, withIntermediateDirectories: true)
 

@@ -729,7 +729,8 @@ struct XAPKImportTests {
     }
 
     @Test func anIncompatibleAppGetsNoOBBFromTheSameVersion() async throws {
-        // As an incompatible version installs no OBB, the same version from an XAPK adds none.
+        // As an incompatible version installs no OBB, the same version from an XAPK adds none; it is imported again
+        // (ADR-0018, addendum of 2026-10-27) and stays incompatible.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -739,7 +740,8 @@ struct XAPKImportTests {
 
         let results = try await library.importUnit(unit)
 
-        #expect(results.map(\.decision) == [.unchanged])
+        #expect(results.map(\.decision) == [.reinstall])
+        #expect(results.first?.entry.state == .incompatible)
         #expect(results.first?.installedOBBs == [])
         #expect(results.first?.entry.obbs == [])
         #expect(!sandbox.exists(Self.obbFolder(sandbox.paths)))

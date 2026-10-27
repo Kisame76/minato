@@ -53,9 +53,16 @@ struct UpdatePolicyTests {
         #expect(UpdatePolicy.decide(installed: Self.version(2, .needsSplits), new: unproven) == .reject(.incompatible))
     }
 
-    @Test(arguments: [LibraryEntry.State.ready, .needsSplits, .incompatible])
+    @Test(arguments: [LibraryEntry.State.ready, .needsSplits])
     func leavesTheSameBytesUnchanged(state: LibraryEntry.State) {
         #expect(UpdatePolicy.decide(installed: Self.version(3, state), new: Self.version(3, state)) == .unchanged)
+    }
+
+    /// A newer converter can make an app that could not run ready (ADR-0018, addendum of 2026-10-27): the same bytes
+    /// over an incompatible version are imported again, as another file of its version would be.
+    @Test(arguments: [LibraryEntry.State.ready, .needsSplits, .incompatible])
+    func importsTheSameBytesAgainOverAnIncompatibleVersion(state: LibraryEntry.State) {
+        #expect(UpdatePolicy.decide(installed: Self.version(3, .incompatible), new: Self.version(3, state)) == .reinstall)
     }
 
     @Test func leavesTheSameBytesUnchangedBeforeAnyQuestion() {

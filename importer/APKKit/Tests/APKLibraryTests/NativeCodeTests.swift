@@ -405,6 +405,49 @@ struct NativeCodeTests {
         #expect(Self.names(in: sandbox.paths.installDirectory(for: installed.id)) == [result.entry.folder].compactMap { $0 })
     }
 
+    /// The same file again after the converter learned more (ADR-0018, addendum of 2026-10-27): the app that could not
+    /// run is converted afresh in its folder and becomes ready, with the new report alone.
+    @Test func theSameFileAgainConvertsAnAppThatCouldNotRun() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let apk = try Self.madeAPK(extractNativeLibs: false)
+        let refused = try await library.importFile(sandbox.file(apk, named: "first.apk"),
+                                                   signing: Self.signing(Converter(refuses: "libhelper.so"))).entry
+        #expect(refused.state == .incompatible)
+
+        let result = try await library.importFile(sandbox.file(apk, named: "again.apk"), signing: Self.signing())
+
+        #expect(result.decision == .reinstall)
+        #expect(result.entry.state == .ready)
+        #expect(result.entry.report?.compatibility.status != .incompatible)
+        #expect(result.entry.report?.compatibility.issues.contains { if case .conversionFailed = $0 { true } else { false } }
+            == false)
+        #expect(result.entry.base != nil)
+        #expect(result.entry.folder == refused.folder)
+        #expect(Self.names(in: sandbox.paths.installDirectory(for: refused.id)) == [refused.folder].compactMap { $0 })
+        #expect(Self.names(in: sandbox.paths.libraryDirectory(for: result.entry)).count == 4)
+        #expect(await library.entries == [result.entry])
+    }
+
+    /// Refused again, the app keeps one refusal, today's, not the first import's beside it.
+    @Test func theSameFileRefusedAgainHasOnlyTheNewRefusal() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let apk = try Self.madeAPK(extractNativeLibs: false)
+        let signing = Self.signing(Converter(refuses: "libhelper.so"))
+        _ = try await library.importFile(sandbox.file(apk, named: "first.apk"), signing: signing)
+
+        let result = try await library.importFile(sandbox.file(apk, named: "again.apk"), signing: signing)
+
+        #expect(result.decision == .reinstall)
+        #expect(result.entry.state == .incompatible)
+        #expect(result.entry.report?.compatibility.issues.filter { if case .conversionFailed = $0 { true } else { false } }
+            .count == 1)
+        #expect(result.entry.base == nil)
+    }
+
     @Test func aRefusedUpdateOverABaseThatNeedsSplitsLeavesIt() async throws {
         // A base that waits for its split APKs is kept as a ready version is (ADR-0034, decision 1).
         let sandbox = try Sandbox()
