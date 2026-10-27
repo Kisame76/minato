@@ -7,6 +7,7 @@
 //           [--pick-state <host directory>] [--export-dir <host directory>]
 //           [--pick-photo <host file>]... [--sensor-script <host file>]
 //           [--grant-location fine|coarse|denied] [--location-script <host file>]
+//           [--device-profile pixel|galaxy]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
@@ -100,6 +101,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -975,6 +977,7 @@ int main(int argc, char **argv) {
     std::string sensor_script;
     std::string location_script;
     std::int32_t location_grant = -1;  // -1: no --grant-location, so the runtime stays at its default (no grant)
+    std::string device_profile;        // empty: no --device-profile, so the host's own names (ADR-0065)
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
@@ -1030,6 +1033,8 @@ int main(int argc, char **argv) {
             bool ok = false;
             location_grant = parse_grant(value, ok);
             if (!ok) return usage();
+        } else if (option == "--device-profile") {
+            device_profile = value;
         } else if (option == "--pick-state") {
             pick_config.state = value;
         } else if (option == "--measures") {
@@ -1093,6 +1098,11 @@ int main(int argc, char **argv) {
     // The host records the location grant at a session's begin (ADR-0063 decision 2), so the runtime gates on it from
     // the start; then the fake CoreLocation host replays the script, the runtime fudging a coarse grant on its own.
     if (location_grant >= 0) apkrt_permission_answer(0, APKRT_PERMISSION_LOCATION, location_grant);
+    // MINATO_DEVICE_PROFILE stands for --device-profile where a test harness cannot pass options (graphics' CTest tests).
+    if (device_profile.empty()) {
+        if (const char *environment = std::getenv("MINATO_DEVICE_PROFILE")) device_profile = environment;
+    }
+    if (apkrt_set_device_profile(device_profile.c_str()) != 0) return usage();
     if (!location_script.empty()) start_location_feed(location_script);
     watch_clones();
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
