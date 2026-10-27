@@ -23,7 +23,7 @@ MS = 1_000_000
 RUN_HEADER = ("run,variant,api,rate,load,meshes,requested_rate,max_fps,link_period_median_ns,thermal_start,"
               "thermal_end,thermal_changes,low_power,battery_state,battery_level,qos,pixel_format,drawable_width,"
               "drawable_height,max_drawable_count,commit,configuration,debugger,focus_losses,start_ns,"
-              "first_present_ns,valid,invalid_reasons").split(",")
+              "first_present_ns,drawables_before_frame0,drawables_after_done,valid,invalid_reasons").split(",")
 FRAMES_HEADER = "index,tick_ns,next_drawable_ns,presented_ns,cpu_ns"
 
 failures = []
@@ -37,14 +37,21 @@ def fail(what):
 def write_run(results, run, frames, first, **fields):
     """A run folder: run.csv with valid defaults for the run's rate, `fields` over them, and frames.csv from
     (next_drawable_ns, presented_ns, cpu_ns) in frame order."""
-    api, rate, load, variant, _ = run.split("-")
+    parts = run.split("-")
+    godot = parts[0] == "godot"
+    api, rate, load, variant, _ = parts[1:] if godot else parts
+    # Test 2's APK has dropped k = 3 boot-image drawables and its one after done; it asks no rate (ADR-0042).
+    apk = godot and variant == "apk"
     row = dict(run=run, variant=variant, api=api, rate=rate, load=load, meshes="512", requested_rate=f"{rate}.0",
+               drawables_before_frame0="3" if apk else "0", drawables_after_done="1" if apk else "",
                max_fps="120", link_period_median_ns=str(round(S / int(rate))), thermal_start="nominal",
                thermal_end="nominal", thermal_changes="", low_power="0", battery_state="unplugged",
                battery_level="0.8", qos="user-interactive", pixel_format="80", drawable_width="1290",
                drawable_height="2796", max_drawable_count="3", commit="abc1234", configuration="Release",
                debugger="0", focus_losses="", start_ns=str(first - 400 * MS), first_present_ns=str(first), valid="1",
                invalid_reasons="")
+    if apk:
+        row.update(requested_rate="0.0", link_period_median_ns="8335167")
     row.update({key: str(value) for key, value in fields.items()})
     folder = results / run
     folder.mkdir(parents=True)
@@ -54,6 +61,13 @@ def write_run(results, run, frames, first, **fields):
         writer.writerow(row)
     lines = [FRAMES_HEADER] + [f"{index},{taken - MS},{taken},{presented},{cpu}"
                                for index, (taken, presented, cpu) in enumerate(frames)]
+    if godot and api == "gles":
+        # The script's frames: ticks count from Godot's start, so only their intervals mean something.
+        ticks = ["index,tick_ns,cpu_ns"] + [f"{index},{presented - first + 5 * S},{cpu}"
+                                            for index, (_, presented, cpu) in enumerate(frames)]
+        (folder / "scene.csv").write_text("\n".join(ticks) + "\n")
+        if variant == "twin":
+            lines = lines[:1]
     (folder / "frames.csv").write_text("\n".join(lines) + "\n")
 
 
@@ -100,6 +114,8 @@ def summarize(tool, results, out):
         tables[name] = {row[key]: row for row in rows}
     parity = [line for line in result.stdout.splitlines() if line.startswith("parity: ")]
     tables["parity"] = parity[-1] if parity else "no parity line"
+    godot = [line for line in result.stdout.splitlines() if line.startswith("godot parity: ")]
+    tables["godot"] = godot[-1] if godot else "no godot parity line"
     return tables
 
 
@@ -302,6 +318,83 @@ def check_es31(tool, scratch):
         expect(tables, "verdict", "gles31-120-heavy", field, wanted, "bench-gles31 alone")
 
 
+def godot_configuration(results, runs, name, twin, apk, fields=None):
+    """Test 2's runs of a configuration `godot-<api>-<rate>-<load>`: `twin` and `apk` list (fps, p99 in ms) per run;
+    `fields` maps (variant, number) to the run.csv fields that differ."""
+    for variant, values in (("twin", twin), ("apk", apk)):
+        for number, (fps, p99) in enumerate(values, start=1):
+            runs[0] += 1
+            first = (1000 + runs[0] * 100) * S
+            write_run(results, f"{name}-{variant}-{number:02}", standard(first, fps, p99), first,
+                      **(fields or {}).get((variant, number), {}))
+
+
+def check_godot(tool, scratch):
+    results = scratch / "godot"
+    runs = [0]
+    for config in ("godot-gles-60-light", "godot-gles-120-light", "godot-gles-120-heavy", "godot-vulkan-60-light",
+                   "godot-vulkan-120-heavy"):
+        godot_configuration(results, runs, config, [(100, 12)] * 5, [(95, 12.6)] * 5)
+    # k and the drawable after done: each run must hold decision d4's, and the series the same k in every run.
+    godot_configuration(results, runs, "godot-vulkan-120-light", [(100, 12)] * 5, [(95, 12.6)] * 5, {
+        ("apk", 1): dict(drawables_before_frame0=11), ("apk", 2): dict(drawables_before_frame0=-1),
+        ("apk", 3): dict(drawables_after_done=2), ("apk", 4): dict(drawables_after_done=""),
+        ("apk", 5): dict(drawables_before_frame0=4)})
+    # A series whose fifth run drifts from the others' k.
+    godot_configuration(results, runs, "godot-metal-120-heavy", [(100, 12)] * 5, [])
+    # A drift alone: four runs with k = 3 and one with 4.
+    drift = scratch / "godot-drift"
+    for config in ("godot-gles-60-light", "godot-gles-120-light", "godot-gles-120-heavy", "godot-vulkan-60-light",
+                   "godot-vulkan-120-light", "godot-vulkan-120-heavy"):
+        godot_configuration(drift, runs, config, [(100, 12)] * 5, [(95, 12.6)] * 5,
+                            {("apk", 5): dict(drawables_before_frame0=4)} if config == "godot-vulkan-60-light"
+                            else None)
+    tables = summarize(tool, results, scratch / "godot-summary")
+    if tables is not None:
+        for run, reasons in (("godot-vulkan-120-light-apk-01", "drawables_before_frame0"),
+                             ("godot-vulkan-120-light-apk-02", "drawables_before_frame0"),
+                             ("godot-vulkan-120-light-apk-03", "drawables_after_done"),
+                             ("godot-vulkan-120-light-apk-04", "drawables_after_done"),
+                             ("godot-gles-60-light-apk-01", ""), ("godot-gles-60-light-twin-01", ""),
+                             ("godot-vulkan-120-light-twin-01", "")):
+            expect(tables, "warm", run, "invalid_reasons", reasons, f"test 2's validity of {run}")
+        for field, wanted in (("verdict", "pass"), ("native_runs", "5"), ("apk_runs", "5"), ("fps_ratio", "0.9500"),
+                              ("p99_ratio", "1.0500")):
+            expect(tables, "verdict", "godot-gles-60-light", field, wanted, "the twin against the APK")
+        expect(tables, "verdict", "godot-vulkan-120-light", "verdict", "incomplete", "runs that break d4")
+        expect(tables, "warm", "godot-vulkan-120-light-twin-01", "variant", "twin", "the twin's variant")
+        # Metal has a twin only: reported beside the Vulkan APK of its rate and load, never judged.
+        for field, wanted in (("verdict", "reported"), ("native_runs", "5"), ("apk_runs", "5"),
+                              ("fps_ratio", "0.9500")):
+            expect(tables, "verdict", "godot-metal-120-heavy", field, wanted, "metal's twin beside the Vulkan APK")
+        # GLES has no drawables on the twin: frames.csv holds the header alone, the script's scene.csv has the
+        # frames, and the judged numbers of both variants are its tick intervals (ADR-0042 d4), the APK's presents
+        # reported beside them. The pair rule compares no layer there.
+        expect(tables, "warm", "godot-gles-60-light-twin-01", "fps", "100.00", "the GLES twin's ticks")
+        expect(tables, "warm", "godot-gles-60-light-apk-01", "p99_ms", "12.600", "the GLES APK's ticks")
+        expect(tables, "warm", "godot-gles-60-light-apk-01", "presented_p99_ms", "12.600", "the APK's presents")
+        expect(tables, "warm", "godot-gles-60-light-twin-01", "presented_p99_ms", "", "no presents of the twin")
+        if tables["godot"] != "godot parity: not decided":
+            fail(f"test 2's series with a configuration that is incomplete: {tables['godot']}")
+        if tables["parity"] != "parity: not decided":
+            fail(f"ADR-0037's line beside test 2's runs alone: {tables['parity']}")
+    tables = summarize(tool, drift, scratch / "godot-drift-summary")
+    if tables is not None:
+        expect(tables, "warm", "godot-vulkan-60-light-apk-05", "invalid_reasons", "drawables_before_frame0 drifts",
+               "k that drifts from the series' majority")
+        expect(tables, "warm", "godot-vulkan-60-light-apk-04", "invalid_reasons", "", "k of the majority")
+        expect(tables, "verdict", "godot-vulkan-60-light", "verdict", "incomplete", "a series with a drift")
+        if tables["godot"] != "godot parity: not decided":
+            fail(f"test 2's series with a drift: {tables['godot']}")
+    clean = scratch / "godot-clean"
+    for config in ("godot-gles-60-light", "godot-gles-120-light", "godot-gles-120-heavy", "godot-vulkan-60-light",
+                   "godot-vulkan-120-light", "godot-vulkan-120-heavy"):
+        godot_configuration(clean, runs, config, [(100, 12)] * 5, [(95, 12.6)] * 5)
+    tables = summarize(tool, clean, scratch / "godot-clean-summary")
+    if tables is not None and tables["godot"] != "godot parity: holds":
+        fail(f"test 2's series that passes: {tables['godot']}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tool", required=True)
@@ -313,7 +406,7 @@ def main():
     if not tool.exists():
         fail(f"no {tool}")
     else:
-        for check in (check_windows, check_validity, check_parity, check_verdicts, check_es31):
+        for check in (check_windows, check_validity, check_parity, check_verdicts, check_es31, check_godot):
             check(tool, scratch)
     print(f"{len(failures)} failures" if failures else "PASS: graphics.bench_summary")
     return 1 if failures else 0

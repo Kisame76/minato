@@ -19,10 +19,17 @@
 bench-gles31's configurations (ADR-0044 d2)), its APK alone on ANGLE's Vulkan backend, get rows of verdict.csv as well:
 the APK's numbers beside gles's native runs of the same rate and load, with the same columns, "reported" and never
 judged (ADR-0044 decision 5), and the reason a verdict would give after its note.
+Test 2's runs (ADR-0042, `godot-<api>-<rate>-<load>-<twin|apk>-NN`) are judged the same way, the twin being the
+reference, in `godot parity: holds|fails|not decided` over its six configurations. Its APK must have a k of
+drawables_before_frame0 in 0 to 10, the same in every run of its series (else "drawables_before_frame0 drifts"), and
+drawables_after_done 1. The GLES pair has no drawables on the twin: both variants are judged on scene.csv's tick
+intervals (window origin = the first tick), the APK's presents reported beside them (presented_* in the windows);
+the pair rule compares no layer there. Metal has a twin only: a "reported" row beside the Vulkan APK's runs.
 It prints the verdicts and then "parity: holds" (every configuration of decision 7 passed), "parity: fails" (one
 failed) or "parity: not decided"; bench-gles31's rows count for none of them.
 Usage: tools/bench-summary.py [<results>, default build/benchmark] [--out <folder>]"""
 import argparse
+import collections
 import csv
 import math
 import pathlib
@@ -34,15 +41,19 @@ S = 1_000_000_000
 COLD_S, WARM_BEGIN_S, WARM_END_S = 10, 20, 50
 SERIES = [f"{api}-{rate}-{load}" for api in ("gles", "vulkan")
           for rate, load in ((60, "light"), (120, "light"), (120, "heavy"))]
+GODOT_SERIES = [f"godot-{configuration}" for configuration in SERIES]
+K_MOST = 10
 VALID_RUNS = 5
 NOISE = Fraction(5, 100)
 FPS_LEAST = Fraction(95, 100)
 P99_MOST = Fraction(105, 100)
 THERMAL = ["nominal", "fair", "serious", "critical"]
-RUN = re.compile(r"((?:gles31|gles|vulkan)-[0-9]+-(?:light|heavy))-(native|apk)-([0-9]{2})")
+RUN = re.compile(r"((?:godot-)?(?:gles31|gles|vulkan|metal)-[0-9]+-(?:light|heavy))-(native|apk|twin)-([0-9]{2})")
 FRAMES_HEADER = ["index", "tick_ns", "next_drawable_ns", "presented_ns", "cpu_ns"]
+SCENE_HEADER = ["index", "tick_ns", "cpu_ns"]
 WINDOW_COLUMNS = ["run", "configuration", "variant", "valid", "invalid_reasons", "window_s", "frames", "fps",
-                  "p50_ms", "p99_ms", "drops", "cpu_p50_ms", "cpu_p99_ms", "first_frame_ms"]
+                  "p50_ms", "p99_ms", "drops", "cpu_p50_ms", "cpu_p99_ms", "first_frame_ms", "presented_fps",
+                  "presented_p50_ms", "presented_p99_ms"]
 VERDICT_COLUMNS = ["configuration", "native_runs", "apk_runs", "native_fps", "apk_fps", "fps_ratio", "native_p99_ms",
                    "apk_p99_ms", "p99_ratio", "native_fps_spread", "native_p99_spread", "native_cpu_p50_ms",
                    "apk_cpu_p50_ms", "verdict", "reason"]
@@ -82,6 +93,10 @@ class Run:
             raise ValueError(f"{folder}/run.csv names the run {self.row['run']!r}")
         self.name = self.row["run"]
         self.configuration, self.variant, self.number = match.group(1), match.group(2), int(match.group(3))
+        # Test 2's twin is the reference, as the native build is in ADR-0037; its GLES pair is judged on the script's
+        # frames (scene.csv) on both sides, as the twin's CAEAGLLayer gives no drawables (ADR-0042 d4).
+        self.side = "apk" if self.variant == "apk" else "native"
+        self.scripted = self.configuration.startswith("godot-gles-")
         self.layer = f"{self.row['drawable_width']}x{self.row['drawable_height']}/{self.row['max_drawable_count']}"
         self.frames, self.reasons = [], []
         try:
@@ -95,15 +110,31 @@ class Run:
         except (OSError, ValueError) as error:
             self.frames = []
             self.reasons.append(f"frames_csv ({error})")
+        self.ticks = []
+        if self.scripted:
+            try:
+                with open(folder / "scene.csv", newline="") as file:
+                    rows = list(csv.reader(file))
+                if not rows or rows[0] != SCENE_HEADER:
+                    raise ValueError("no header")
+                self.scene = [tuple(int(field) for field in row) for row in rows[1:]]
+                self.ticks = [row[1] for row in self.scene]
+                if not self.ticks:
+                    raise ValueError("no rows")
+            except (OSError, ValueError) as error:
+                self.scene = []
+                self.reasons.append(f"scene_csv ({error})")
         presents = [frame[3] for frame in self.frames if frame[3] != 0]
         self.first = min(presents) if presents else None
         # A drawable whose present time the next presented one shares was superseded at that refresh.
         shown = [frame for frame in self.frames if frame[3] != 0]
         self.superseded = {earlier[0] for earlier, later in zip(shown, shown[1:]) if later[3] == earlier[3]}
+        # The run's origin: its first present, or the first tick of the script's frames.
+        self.origin = self.ticks[0] if self.scripted and self.ticks else self.first
         self.check(presents)
         self.cold = self.window("cold")
         self.warm = self.window("warm")
-        if self.first is not None and self.warm["frames"] < 2 and "short_run" not in self.reasons:
+        if self.origin is not None and self.warm["frames"] < 2 and "short_run" not in self.reasons:
             self.reasons.append("warm_window_empty")
 
     def check(self, presents):
@@ -128,6 +159,15 @@ class Run:
             own.append("debugger")
         if row["focus_losses"]:
             own.append("focus_loss")
+        if self.scripted and self.ticks and self.ticks[-1] < self.ticks[0] + WARM_END_S * S:
+            own.append("short_run")
+        if self.variant == "apk" and self.configuration.startswith("godot-"):
+            # ADR-0042 d4: the boot-image drawables cut off at the start, and the one drawable after done.
+            dropped = int(row.get("drawables_before_frame0") or 0)
+            if not 0 <= dropped <= K_MOST:
+                own.append("drawables_before_frame0")
+            if row.get("drawables_after_done", "") != "1":
+                own.append("drawables_after_done")
         if self.frames and self.first is None:
             own.append("no_present")
         elif self.frames:
@@ -135,7 +175,7 @@ class Run:
                 own.append("present_before_drawable")
             if any(later < earlier for earlier, later in zip(presents, presents[1:])):
                 own.append("presents_out_of_order")
-            if max(frame[2] for frame in self.frames) < self.first + WARM_END_S * S:
+            if max(frame[2] for frame in self.frames) < self.first + WARM_END_S * S and "short_run" not in own:
                 own.append("short_run")
         if row["valid"] != "1":
             own += [reason for reason in row["invalid_reasons"].split("|") if reason] or ["invalid in run.csv"]
@@ -152,6 +192,27 @@ class Run:
         return frame[3] != 0 and frame[0] not in self.superseded
 
     def window(self, which):
+        """The window's numbers: of the presents, or for test 2's GLES runs of the script's ticks, with the presents'
+        beside them."""
+        if not self.scripted:
+            return self.presented_window(which)
+        numbers = dict(window_s=None, frames=0, fps=None, p50=None, p99=None, drops=0, cpu_p50=None, cpu_p99=None)
+        beside = self.presented_window(which)
+        numbers.update(presented_fps=beside["fps"], presented_p50=beside["p50"], presented_p99=beside["p99"])
+        if self.origin is None:
+            return numbers
+        begin, end = ((self.origin, self.origin + COLD_S * S) if which == "cold"
+                      else (self.origin + WARM_BEGIN_S * S, self.origin + WARM_END_S * S))
+        inside = [row for row in self.scene if begin <= row[1] < end]
+        times = sorted(row[1] for row in inside)
+        intervals = [later - earlier for earlier, later in zip(times, times[1:])]
+        cpu = [row[2] for row in inside]
+        seconds = Fraction(end - begin, S)
+        numbers.update(window_s=seconds, frames=len(times), fps=len(times) / seconds, p50=nearest_rank(intervals, 50),
+                       p99=nearest_rank(intervals, 99), cpu_p50=nearest_rank(cpu, 50), cpu_p99=nearest_rank(cpu, 99))
+        return numbers
+
+    def presented_window(self, which):
         numbers = dict(window_s=None, frames=0, fps=None, p50=None, p99=None, drops=0, cpu_p50=None, cpu_p99=None)
         if self.first is None:
             return numbers
@@ -174,17 +235,20 @@ class Run:
 
     def window_row(self, which):
         numbers = self.cold if which == "cold" else self.warm
-        first_frame = None if self.first is None else self.first - int(self.row["start_ns"] or 0)
+        first_frame = None if self.first is None or self.scripted else self.first - int(self.row["start_ns"] or 0)
         return dict(run=self.name, configuration=self.configuration, variant=self.variant,
                     valid="1" if self.valid else "0", invalid_reasons="|".join(self.reasons),
                     window_s=number(numbers["window_s"], 3),
                     frames=str(numbers["frames"]), fps=number(numbers["fps"], 2), p50_ms=ms(numbers["p50"]),
                     p99_ms=ms(numbers["p99"]), drops=str(numbers["drops"]), cpu_p50_ms=ms(numbers["cpu_p50"]),
-                    cpu_p99_ms=ms(numbers["cpu_p99"]), first_frame_ms=ms(first_frame))
+                    cpu_p99_ms=ms(numbers["cpu_p99"]), first_frame_ms=ms(first_frame),
+                    presented_fps=number(numbers.get("presented_fps"), 2),
+                    presented_p50_ms=ms(numbers.get("presented_p50")),
+                    presented_p99_ms=ms(numbers.get("presented_p99")))
 
 
 def verdict(configuration, runs):
-    valid = {variant: [run for run in runs if run.variant == variant and run.valid] for variant in ("native", "apk")}
+    valid = {side: [run for run in runs if run.side == side and run.valid] for side in ("native", "apk")}
     fps = {variant: [run.warm["fps"] for run in valid[variant]] for variant in valid}
     p99 = {variant: [run.warm["p99"] for run in valid[variant]] for variant in valid}
     cpu = {variant: [run.warm["cpu_p50"] for run in valid[variant]] for variant in valid}
@@ -201,7 +265,9 @@ def verdict(configuration, runs):
                native_fps_spread=number(None if fps_spread is None else fps_spread * 100, 2),
                native_p99_spread=number(None if p99_spread is None else p99_spread * 100, 2),
                native_cpu_p50_ms=ms(nearest_rank(cpu["native"], 50)), apk_cpu_p50_ms=ms(nearest_rank(cpu["apk"], 50)))
-    layers = {variant: sorted({run.layer for run in valid[variant]}) for variant in valid}
+    # The GLES twin has no layer (width 0): the pair rule has nothing to compare there.
+    layers = {variant: sorted({run.layer for run in valid[variant] if not run.layer.startswith(("0x0/", "x/"))})
+              for variant in valid}
     if layers["native"] and layers["apk"] and layers["native"] != layers["apk"]:
         return dict(row, verdict="pair differs", reason=f"layers native {' '.join(layers['native'])}, "
                                                         f"apk {' '.join(layers['apk'])}")
@@ -224,12 +290,35 @@ def verdict(configuration, runs):
 
 
 def reported(configuration, runs):
-    """bench-gles31's row: its APK's runs beside gles's native runs of the same rate and load, not judged."""
-    reference = "gles" + configuration[len("gles31"):]
-    row = verdict(configuration, [run for run in runs if (run.configuration, run.variant)
-                                  in ((configuration, "apk"), (reference, "native"))])
-    note = f"not judged (ADR-0044 decision 5), beside {reference}'s native runs"
+    """A row that is not judged: bench-gles31's APK beside gles's native runs of the same rate and load (ADR-0044
+    decision 5), or test 2's Metal twin beside the Vulkan APK's runs (ADR-0042)."""
+    if configuration.startswith("godot-metal-"):
+        reference = "godot-vulkan" + configuration[len("godot-metal"):]
+        row = verdict(configuration, [run for run in runs if (run.configuration, run.side)
+                                      in ((configuration, "native"), (reference, "apk"))])
+        note = f"not judged (ADR-0042), the Metal twin beside {reference}'s APK runs"
+    else:
+        reference = "gles" + configuration[len("gles31"):]
+        row = verdict(configuration, [run for run in runs if (run.configuration, run.side)
+                                      in ((configuration, "apk"), (reference, "native"))])
+        note = f"not judged (ADR-0044 decision 5), beside {reference}'s native runs"
     return dict(row, verdict="reported", reason=f"{note}; {row['reason']}" if row["reason"] else note)
+
+
+def mark_drift(runs):
+    """Test 2's rule (ADR-0042 d4): the APK drops the same number of boot-image drawables in every run of a series.
+    The runs whose count differs from the series' majority (the smaller on a tie) are invalid."""
+    for configuration in {run.configuration for run in runs if run.configuration.startswith("godot-")}:
+        apks = [run for run in runs if run.configuration == configuration and run.variant == "apk"]
+        counts = collections.Counter(int(run.row.get("drawables_before_frame0") or 0) for run in apks)
+        counts = collections.Counter({k: n for k, n in counts.items() if 0 <= k <= K_MOST})
+        if not counts:
+            continue
+        majority = min(counts, key=lambda k: (-counts[k], k))
+        for run in apks:
+            k = int(run.row.get("drawables_before_frame0") or 0)
+            if 0 <= k <= K_MOST and k != majority:
+                run.reasons.append("drawables_before_frame0 drifts")
 
 
 def write(path, columns, rows):
@@ -251,8 +340,9 @@ def main():
         print(f"no run folders with a run.csv in {results}", file=sys.stderr)
         return 2
     runs = [run for run in (Run(folder) for folder in folders) if run.number != 0]
+    mark_drift(runs)
     configurations = sorted({run.configuration for run in runs})
-    verdicts = [reported(configuration, runs) if configuration.startswith("gles31-")
+    verdicts = [reported(configuration, runs) if configuration.startswith(("gles31-", "godot-metal-"))
                 else verdict(configuration, [run for run in runs if run.configuration == configuration])
                 for configuration in configurations]
     out.mkdir(parents=True, exist_ok=True)
@@ -270,10 +360,17 @@ def main():
     judged = {row["configuration"]: row["verdict"] for row in verdicts}
     if all(judged.get(configuration) == "pass" for configuration in SERIES):
         print("parity: holds")
-    elif "fail" in judged.values():
+    elif any(judged.get(configuration) == "fail" for configuration in SERIES):
         print("parity: fails")
     else:
         print("parity: not decided")
+    if any(configuration in judged for configuration in GODOT_SERIES):
+        if all(judged.get(configuration) == "pass" for configuration in GODOT_SERIES):
+            print("godot parity: holds")
+        elif any(judged.get(configuration) == "fail" for configuration in GODOT_SERIES):
+            print("godot parity: fails")
+        else:
+            print("godot parity: not decided")
     print(f"summary in {out}")
     return 0
 
