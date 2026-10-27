@@ -1,11 +1,12 @@
 # Samples for sensors-java-test (ADR-0061 step 2): runtime/tools/apk_run.cpp's --sensor-script. A sample for a sensor
-# the app has not enabled is dropped, so every type flows for a minute at 50 Hz and the app takes the stretch it enables.
-rate 1 50 60
-rate 4 50 60
-rate 2 50 60
-rate 9 50 60
-rate 10 50 60
-rate 11 50 60
-rate 15 50 60
-rate 14 50 60
-rate 16 50 60
+# the app has not enabled is dropped, so every type flows for ten minutes at 50 Hz, long enough for a loaded machine to
+# reach the last one, and the app takes the stretch it enables.
+rate 1 50 600
+rate 4 50 600
+rate 2 50 600
+rate 9 50 600
+rate 10 50 600
+rate 11 50 600
+rate 15 50 600
+rate 14 50 600
+rate 16 50 600

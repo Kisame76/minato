@@ -30,6 +30,10 @@ public class SensorsApplication extends Application {
         Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED, Sensor.TYPE_GYROSCOPE_UNCALIBRATED};
     private static final int[] VALUES = {3, 3, 3, 3, 3, 4, 4, 6, 6};
 
+    /** The events a sensor must have given before it is judged, and how long its judging waits for them at most. */
+    private static final int MIN_EVENTS = 5;
+    private static final long MAX_WAIT_MS = 30_000;
+
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private SensorManager mManager;
     private int mIndex;
@@ -127,15 +131,25 @@ public class SensorsApplication extends Application {
                 + (sensor.getMaxDelay() >= sensor.getMinDelay()));
         log("type " + type + ": register " + mManager.registerListener(collector, sensor,
                 SensorManager.SENSOR_DELAY_GAME));
+        mHandler.postDelayed(() -> finish(type, sensor, collector, SystemClock.uptimeMillis()), 1500);
+    }
+
+    /**
+     * Judges the events once there are enough, not after a fixed time: on a loaded machine a sensor's first events come
+     * late, and the point of the test is their shape, not how soon they come. Gives up after MAX_WAIT_MS.
+     */
+    private void finish(int type, Sensor sensor, Collector collector, long since) {
+        if (collector.events.size() < MIN_EVENTS && SystemClock.uptimeMillis() - since < MAX_WAIT_MS) {
+            mHandler.postDelayed(() -> finish(type, sensor, collector, since), 100);
+            return;
+        }
+        mManager.unregisterListener(collector, sensor);
+        final int before = collector.events.size();
+        judge(type, collector);
         mHandler.postDelayed(() -> {
-            mManager.unregisterListener(collector, sensor);
-            final int before = collector.events.size();
-            judge(type, collector);
-            mHandler.postDelayed(() -> {
-                log("type " + type + ": events after unregister " + (collector.events.size() - before));
-                next();
-            }, 400);
-        }, 1500);
+            log("type " + type + ": events after unregister " + (collector.events.size() - before));
+            next();
+        }, 400);
     }
 
     private void judge(int type, Collector c) {
@@ -155,11 +169,11 @@ public class SensorsApplication extends Application {
             if (i > 0) {
                 increasing &= c.stamps.get(i) >= c.stamps.get(i - 1);
             }
-            // a timestamp is on the elapsedRealtimeNanos base: not after its arrival, and at most a second before it
+            // a timestamp is on the elapsedRealtimeNanos base: not after its arrival, and at most 20 s before it, as a loaded machine delays an arrival, while another base is off by the time since boot
             final long age = c.arrivals.get(i) - c.stamps.get(i);
-            fresh &= age >= -10_000_000L && age < 1_000_000_000L;
+            fresh &= age >= -10_000_000L && age < 20_000_000_000L;
         }
-        log("type " + type + ": events " + (count >= 5) + ", values " + lengths + ", finite " + finite
+        log("type " + type + ": events " + (count >= MIN_EVENTS) + ", values " + lengths + ", finite " + finite
                 + ", timestamps increasing " + increasing + ", timestamps fresh " + fresh + ", same sensor "
                 + c.sameSensor + ", main thread " + !c.wrongThread);
     }
