@@ -8,12 +8,15 @@
      their slots put a host function of theirs in front of the app's (decision 16).
    - An ES 1.x context's GL_VERSION names the Common profile, "OpenGL ES-CM 1.1 ...", as the ES 1.1
      specification (6.1.5) lays it out and Android's drivers answer; ANGLE says "OpenGL ES 1.1 ..." (ADR-0041
-     a1). */
+     a1).
+   - GL_VENDOR and GL_RENDERER under a device profile (ADR-0065 step 4): the properties ro.minato.gpu.gl_vendor and
+     ro.minato.gpu.gl_renderer, which the runtime writes only for an app with a profile, in place of ANGLE's strings. */
 #include <float.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/system_properties.h>
 #include <time.h>
 
 #include "libgles.h"
@@ -186,10 +189,30 @@ static const GLubyte *common_profile(const GLubyte *string) {
     return entry != NULL ? (const GLubyte *)entry->text : string;
 }
 
+/* The device profile's GL_VENDOR and GL_RENDERER (ADR-0065 step 4), read once: the property's text, or NULL for
+   ANGLE's own, with the properties absent. The profile is fixed before the program starts. */
+static char profile_vendor[PROP_VALUE_MAX], profile_renderer[PROP_VALUE_MAX];
+static pthread_once_t profile_once = PTHREAD_ONCE_INIT;
+
+static void read_profile(void) {
+    __system_property_get("ro.minato.gpu.gl_vendor", profile_vendor);
+    __system_property_get("ro.minato.gpu.gl_renderer", profile_renderer);
+}
+
+static const GLubyte *profile_string(GLenum name) {
+    pthread_once(&profile_once, read_profile);
+    const char *text = name == GL_VENDOR ? profile_vendor : profile_renderer;
+    return text[0] != '\0' ? (const GLubyte *)text : NULL;
+}
+
 const GLubyte *glGetString(GLenum name) {
     const GLubyte *string = minato_host_glGetString(name);
     if (string == NULL) {
         return string;
+    }
+    if (name == GL_VENDOR || name == GL_RENDERER) {
+        const GLubyte *profile = profile_string(name);
+        return profile != NULL ? profile : string;
     }
     if (name == GL_VERSION) {
         return common_profile(string);

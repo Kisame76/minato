@@ -2,12 +2,15 @@
    decisions 5, 10, 11 and 13). */
 #include <stdlib.h>
 #include <string.h>
+#include <sys/system_properties.h>
 
 #include "libvulkan.h"
 
 MINATO_HOST(vkEnumerateDeviceExtensionProperties);
 MINATO_HOST(vkCreateDevice);
 MINATO_HOST(vkDestroyDevice);
+MINATO_HOST(vkGetPhysicalDeviceProperties);
+MINATO_HOST(vkGetPhysicalDeviceProperties2);
 
 /* Taken out of vkCreateDevice's chain: the memory report's callback, whose extension is not offered
    (decision 5). Copied, to enable timeline semaphores there: the app's features of Vulkan 1.2 or of
@@ -160,4 +163,31 @@ void vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator) {
         }
         minato_host_vkDestroyDevice(device, NULL);
     }
+}
+
+/* The device's name and vendor under a device profile (ADR-0065 step 4): the properties
+   ro.minato.gpu.vk_device_name and ro.minato.gpu.vk_vendor_id (decimal), which the runtime writes only for an app with
+   a profile, in place of MoltenVK's; nothing else of the properties changes, not the device ID and type, the limits
+   or the driver's name and ID in the chain. */
+static void apply_profile(VkPhysicalDeviceProperties *properties) {
+    char name[PROP_VALUE_MAX] = "", vendor[PROP_VALUE_MAX] = "";
+    __system_property_get("ro.minato.gpu.vk_device_name", name);
+    __system_property_get("ro.minato.gpu.vk_vendor_id", vendor);
+    if (name[0] != '\0') {
+        strncpy(properties->deviceName, name, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE - 1);
+        properties->deviceName[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE - 1] = '\0';
+    }
+    if (vendor[0] != '\0') {
+        properties->vendorID = (uint32_t)strtoul(vendor, NULL, 10);
+    }
+}
+
+void vkGetPhysicalDeviceProperties(VkPhysicalDevice physical, VkPhysicalDeviceProperties *properties) {
+    minato_host_vkGetPhysicalDeviceProperties(physical, properties);
+    apply_profile(properties);
+}
+
+void vkGetPhysicalDeviceProperties2(VkPhysicalDevice physical, VkPhysicalDeviceProperties2 *properties) {
+    minato_host_vkGetPhysicalDeviceProperties2(physical, properties);
+    apply_profile(&properties->properties);
 }

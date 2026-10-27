@@ -99,7 +99,7 @@ target_compile_options(vulkan PRIVATE -Wall -Wextra)
 # ADR-0030, test 6: vulkan-fake-test and vulkan-window-test against graphics/tests/fake_vulkan.c in
 # MoltenVK's place, the others against MoltenVK itself.
 foreach(test IN ITEMS vulkan_fake_test vulkan_moltenvk_test vulkan_queue_test vulkan_window_test vulkan_present_test
-    vulkan_drop_test vulkan_destroy_test)
+    vulkan_drop_test vulkan_destroy_test vulkan_profile_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_include_directories(${program} PRIVATE "${APK_MOLTENVK_DIR}/include")
@@ -198,7 +198,7 @@ target_include_directories(gles-thunk-test PRIVATE "${tests}")
 target_link_libraries(gles-thunk-test PRIVATE EGL dl)
 target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
 set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
-foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test)
+foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test gles_profile_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")

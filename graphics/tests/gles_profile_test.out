@@ -1,0 +1,5 @@
+GL_VENDOR: ANGLE's
+GL_RENDERER: ANGLE's
+GL_VERSION begins with OpenGL ES 3.0: yes
+GL_SHADING_LANGUAGE_VERSION begins with OpenGL ES GLSL ES 3.00: yes
+GL_NUM_EXTENSIONS is above 0 and glGetStringi names the first: yes

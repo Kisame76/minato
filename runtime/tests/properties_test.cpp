@@ -221,6 +221,32 @@ TEST(a_device_profile_replaces_the_names_build_reads_and_nothing_else) {
     CHECK(!get("ro.boot.qemu"));
 }
 
+TEST(a_profile_names_the_gpu_in_properties_that_exist_only_under_it) {
+    // ADR-0065 step 4: the front libs of GLES and Vulkan read these four to replace the GPU's strings; without a
+    // profile none of them exists, so the host's own names (ANGLE's, MoltenVK's) stay.
+    CHECK(apkrt_set_device_profile("") == 0);
+    area = apkrt::properties::area();
+    for (const char *name : {"ro.minato.gpu.gl_vendor", "ro.minato.gpu.gl_renderer", "ro.minato.gpu.vk_device_name",
+                             "ro.minato.gpu.vk_vendor_id"}) {
+        CHECK(!get(name));
+    }
+    CHECK(apkrt_set_device_profile("pixel") == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.minato.gpu.gl_vendor") == "ARM");
+    CHECK(get("ro.minato.gpu.gl_renderer") == "Mali-G715");
+    CHECK(get("ro.minato.gpu.vk_device_name") == "Mali-G715");
+    CHECK(get("ro.minato.gpu.vk_vendor_id") == "5045");  // 0x13B5
+    CHECK(apkrt_set_device_profile("galaxy") == 0);
+    area = apkrt::properties::area();
+    CHECK(get("ro.minato.gpu.gl_vendor") == "Samsung Electronics Co., Ltd.");
+    CHECK(get("ro.minato.gpu.gl_renderer") == "Xclipse 940");
+    CHECK(get("ro.minato.gpu.vk_device_name") == "Xclipse 940");
+    CHECK(get("ro.minato.gpu.vk_vendor_id") == "5197");  // 0x144D
+    CHECK(apkrt_set_device_profile("") == 0);
+    area = apkrt::properties::area();
+    CHECK(!get("ro.minato.gpu.gl_renderer"));
+}
+
 TEST(an_unknown_profile_is_refused_and_the_default_comes_back) {
     CHECK(apkrt_set_device_profile("pixel") == 0);
     CHECK(apkrt_set_device_profile("nokia") == -1);

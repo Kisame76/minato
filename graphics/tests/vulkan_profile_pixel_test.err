@@ -1,0 +1,11 @@
+fake: vkCreateInstance, allocator NULL, flags 0x0
+fake:   application NULL 0, engine NULL 0, API 1.3.0
+fake:   layers: none
+fake:   extensions: VK_EXT_layer_settings
+fake:   chain:
+fake:     layer settings, 4:
+fake:       MoltenVK MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS type 0, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS type 1, 1 values, first 0
+fake:       MoltenVK MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE type 1, 1 values, first 1
+fake:       MoltenVK MVK_CONFIG_API_VERSION_TO_ADVERTISE type 3, 1 values, first 4206592
+fake: vkDestroyInstance, allocator NULL

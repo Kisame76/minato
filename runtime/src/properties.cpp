@@ -115,7 +115,7 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
 /// public device listings; the default has none and keeps the host's own (area()).
 struct DeviceProfile {
     std::string_view name;
-    std::pair<std::string_view, std::string_view> values[8];
+    std::pair<std::string_view, std::string_view> values[12];
 };
 constexpr DeviceProfile device_profiles[] = {
     {"pixel",
@@ -126,7 +126,13 @@ constexpr DeviceProfile device_profiles[] = {
       {"ro.product.name", "tokay"},
       {"ro.hardware", "tokay"},
       {"ro.soc.manufacturer", "Google"},
-      {"ro.soc.model", "Tensor G4"}}},
+      {"ro.soc.model", "Tensor G4"},
+      // The GPU's names (step 4), which the front libs of GLES and Vulkan read to replace ANGLE's and MoltenVK's:
+      // only under a profile. Vulkan's vendorID is the PCI-style ID in decimal (0x13B5, ARM's).
+      {"ro.minato.gpu.gl_vendor", "ARM"},
+      {"ro.minato.gpu.gl_renderer", "Mali-G715"},
+      {"ro.minato.gpu.vk_device_name", "Mali-G715"},
+      {"ro.minato.gpu.vk_vendor_id", "5045"}}},
     {"galaxy",
      {{"ro.product.manufacturer", "samsung"},
       {"ro.product.brand", "samsung"},
@@ -135,7 +141,11 @@ constexpr DeviceProfile device_profiles[] = {
       {"ro.product.name", "e1sxxx"},
       {"ro.hardware", "s5e9945"},
       {"ro.soc.manufacturer", "Samsung"},
-      {"ro.soc.model", "S5E9945"}}},
+      {"ro.soc.model", "S5E9945"},
+      {"ro.minato.gpu.gl_vendor", "Samsung Electronics Co., Ltd."},
+      {"ro.minato.gpu.gl_renderer", "Xclipse 940"},
+      {"ro.minato.gpu.vk_device_name", "Xclipse 940"},
+      {"ro.minato.gpu.vk_vendor_id", "5197"}}},  // 0x144D, Samsung's
 };
 /// apkrt_set_device_profile's, none (the host's own names) until it is called.
 std::atomic<const DeviceProfile *> device_profile{nullptr};

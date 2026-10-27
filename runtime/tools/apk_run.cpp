@@ -101,6 +101,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1097,6 +1098,11 @@ int main(int argc, char **argv) {
     // The host records the location grant at a session's begin (ADR-0063 decision 2), so the runtime gates on it from
     // the start; then the fake CoreLocation host replays the script, the runtime fudging a coarse grant on its own.
     if (location_grant >= 0) apkrt_permission_answer(0, APKRT_PERMISSION_LOCATION, location_grant);
+    // MINATO_DEVICE_PROFILE stands for --device-profile where a test harness cannot pass options (graphics' CTest
+    // tests).
+    if (device_profile.empty()) {
+        if (const char *environment = std::getenv("MINATO_DEVICE_PROFILE")) device_profile = environment;
+    }
     if (apkrt_set_device_profile(device_profile.c_str()) != 0) return usage();
     if (!location_script.empty()) start_location_feed(location_script);
     watch_clones();

@@ -54,7 +54,7 @@ ABI_COUNTS = {
 KIND_COUNTS = {
     "gles": {"plain": 578, "extend": 37, "repack": 8, "by hand": 11},
     "egl": {"plain": 55, "by hand": 18},
-    "vulkan": {"plain": 143, "without allocator": 41, "by hand": 49},
+    "vulkan": {"plain": 141, "without allocator": 41, "by hand": 51},
 }
 # ADR-0029, decision 14: the extensions the strings withhold by name, whatever their commands; and the
 # private exports beside the NDK's names (B1: libEGL finds libGLES's functions with minato_gles_proc).

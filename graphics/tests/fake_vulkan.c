@@ -342,7 +342,24 @@ EXPORTED void vkGetPhysicalDeviceProperties(VkPhysicalDevice physical, VkPhysica
     (void)physical;
     memset(properties, 0, sizeof *properties);
     properties->apiVersion = VK_MAKE_API_VERSION(0, VK_API_VERSION_MAJOR(api), VK_API_VERSION_MINOR(api), 999);
+    properties->vendorID = 0x106B;  /* Apple's, as MoltenVK says */
+    properties->deviceID = 0x1234;
+    properties->deviceType = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    properties->limits.maxImageDimension2D = 16384;
     strcpy(properties->deviceName, "Minato's fake Vulkan");
+}
+
+/* The same properties, and the driver's name and ID in a VkPhysicalDeviceDriverProperties of the chain
+   (ADR-0065 step 4: libvulkan changes the device's name and vendor and nothing else). */
+EXPORTED void vkGetPhysicalDeviceProperties2(VkPhysicalDevice physical, VkPhysicalDeviceProperties2 *properties) {
+    vkGetPhysicalDeviceProperties(physical, &properties->properties);
+    for (VkBaseOutStructure *next = properties->pNext; next != NULL; next = next->pNext) {
+        if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES) {
+            VkPhysicalDeviceDriverProperties *driver = (VkPhysicalDeviceDriverProperties *)next;
+            driver->driverID = VK_DRIVER_ID_MOLTENVK;
+            strcpy(driver->driverName, "MoltenVK");
+        }
+    }
 }
 
 EXPORTED VkResult vkEnumerateDeviceLayerProperties(VkPhysicalDevice physical, uint32_t *count,
