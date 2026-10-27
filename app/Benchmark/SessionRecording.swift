@@ -168,7 +168,9 @@ final class SessionRecorder {
             try? (notes.joined(separator: "; ") + "\n").write(to: folder.appending(path: "error"), atomically: true,
                                                               encoding: .utf8)
         }
-        exit(0)
+        // Without exit's static destructors, which would run under the app's threads (the end handler, apkrt.h).
+        fflush(nil)
+        _exit(0)
     }
 }
 #endif
