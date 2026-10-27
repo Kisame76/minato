@@ -113,8 +113,11 @@ import com.android.providers.media.MediaProvider;
 import com.android.internal.compat.CompatTable;
 import com.android.internal.minato.GapScan;
 import com.android.minato.app.ActivityWindows;
+import com.android.minato.permissions.PermissionAnswers;
+import com.android.minato.permissions.PermissionPolicy;
 import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.open.SystemOpenActivity;
+import com.android.internal.minato.permissions.SystemPermissionActivity;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.internal.minato.picker.SystemPickerActivity;
 import com.android.internal.minato.picker.UriGrants;
@@ -1173,6 +1176,7 @@ public final class ActivityThread {
     private static final int EVENT_WINDOW_DESTROYED = 23;
     private static final int EVENT_PICK_RESULT = 24;
     private static final int EVENT_OPEN_RESULT = 25;
+    private static final int EVENT_PERMISSION_RESULT = 26;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
@@ -1401,6 +1405,9 @@ public final class ActivityThread {
             case EVENT_OPEN_RESULT:
                 SystemOpenActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
+            case EVENT_PERMISSION_RESULT:
+                SystemPermissionActivity.onResult(event[2], (int) event[3], (int) event[4]);
+                break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
                 break;
@@ -1458,12 +1465,16 @@ public final class ActivityThread {
         final int pickerKind = component == null ? PickerIntents.kindOf(intent) : PickerIntents.NONE;
         // The links, mail, calls, texts, maps and shares of ADR-0062 go to the activity that asks iOS for them.
         final boolean open = component == null && pickerKind == PickerIntents.NONE && OpenIntents.kindOf(intent) != 0;
+        // Activity.requestPermissions' intent goes to the activity that stands in for the permission dialog (ADR-0063).
+        final boolean permissions = component == null && pickerKind == PickerIntents.NONE && !open
+                && PackageManager.ACTION_REQUEST_PERMISSIONS.equals(intent.getAction());
         ActivityInfo info = pickerKind != PickerIntents.NONE
                 ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
                 : open ? OpenIntents.activityInfo(mPackage.applicationInfo(0))
+                : permissions ? SystemPermissionActivity.activityInfo(mPackage.applicationInfo(0))
                 : component != null
                 ? mPackage.activityInfo(component, PackageManager.GET_SHARED_LIBRARY_FILES, false) : null;
-        final int result = component == null && pickerKind == PickerIntents.NONE && !open
+        final int result = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
                 ? ActivityManager.START_INTENT_NOT_RESOLVED
                 : info == null ? ActivityManager.START_CLASS_NOT_FOUND : ActivityManager.START_SUCCESS;
         if (info != null) {
@@ -1472,7 +1483,7 @@ public final class ActivityThread {
             return result;
         }
         final Intent started = new Intent(intent);
-        if (pickerKind != PickerIntents.NONE || open) {
+        if (pickerKind != PickerIntents.NONE || open || permissions) {
             started.setComponent(new ComponentName(info.packageName, info.name));
         }
         sMainThreadHandler.post(() -> addTransaction(
@@ -2440,6 +2451,54 @@ public final class ActivityThread {
     }
 
     /**
+     * @hide SystemPermissionActivity's (ADR-0063): what the host answered so far for the groups it decides; null
+     * before the thread.
+     */
+    public static PermissionAnswers permissionAnswers() {
+        final ActivityThread thread = sCurrentActivityThread;
+        return thread == null ? null : thread.mPackage.answers();
+    }
+
+    /**
+     * @hide SystemPermissionActivity's: PermissionPolicy's grant for the app's permission; denied for good before the
+     * thread.
+     */
+    public static PermissionPolicy.Grant permissionGrant(String permission) {
+        final ActivityThread thread = sCurrentActivityThread;
+        return thread == null ? PermissionPolicy.Grant.DENIED_FIXED : thread.mPackage.grantOf(permission);
+    }
+
+    /** @hide SystemPermissionActivity's: whether the app holds the permission now, as checkSelfPermission answers. */
+    public static boolean permissionGranted(String permission) {
+        final ActivityThread thread = sCurrentActivityThread;
+        return thread != null && thread.mPackage.granted(permission);
+    }
+
+    /**
+     * @hide SystemPermissionActivity's (ADR-0063): the permission request `id` with its text for the host, which
+     * answers with PERMISSION_RESULT; 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestPermission(long id, String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestPermission(id, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * @hide SystemPermissionActivity's: the request `id` is not wanted any more; the host drops its sheet, no
+     * answer.
+     */
+    public static int cancelPermission(long id) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestPermissionCancel(id);
+    }
+
+    /**
      * @hide MediaLibrary's (ADR-0057 step e): a finished image (kind 1) or video (kind 2) at `path` below the app's data
      * folder, for the host to add to Photos; no answer. 0, or a negative errno, -EOPNOTSUPP without a session.
      */
@@ -2637,6 +2696,10 @@ public final class ActivityThread {
 
     /** APKRT_REQUEST_OPEN_CANCEL (ADR-0062). */
     private static native int nativeSessionRequestOpenCancel(long id);
+
+    private static native int nativeSessionRequestPermission(long id, byte[] text);
+
+    private static native int nativeSessionRequestPermissionCancel(long id);
     private static native int nativeSessionRequestExportMedia(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */

@@ -1,0 +1,18 @@
+I/permission-request-test-fine: controller: com.android.permissioncontroller
+I/permission-request-test-fine: request 0: [android.permission.INTERNET]
+I/permission-request-test-fine: result 0: 1 [android.permission.INTERNET granted]
+I/permission-request-test-fine: after android.permission.INTERNET: check 0, rationale false
+I/permission-request-test-fine: request 1: [android.permission.ACCESS_FINE_LOCATION]
+I/permission-request-test-fine: result 1: 1 [android.permission.ACCESS_FINE_LOCATION granted]
+I/permission-request-test-fine: after android.permission.ACCESS_FINE_LOCATION: check 0, rationale false
+I/permission-request-test-fine: request 2: [android.permission.ACCESS_COARSE_LOCATION, android.permission.ACCESS_FINE_LOCATION, android.permission.INTERNET]
+I/permission-request-test-fine: result 2: 3 [android.permission.ACCESS_COARSE_LOCATION granted, android.permission.ACCESS_FINE_LOCATION granted, android.permission.INTERNET granted]
+I/permission-request-test-fine: after android.permission.ACCESS_COARSE_LOCATION: check 0, rationale false
+I/permission-request-test-fine: after android.permission.ACCESS_FINE_LOCATION: check 0, rationale false
+I/permission-request-test-fine: after android.permission.INTERNET: check 0, rationale false
+I/permission-request-test-fine: request 3: [android.permission.nonsense]
+I/permission-request-test-fine: result 3: 1 [android.permission.nonsense denied]
+I/permission-request-test-fine: after android.permission.nonsense: check -1, rationale false
+I/permission-request-test-fine: request 4: []
+I/permission-request-test-fine: request 4 threw java.lang.IllegalArgumentException: permission cannot be null or empty
+I/permission-request-test-fine: done

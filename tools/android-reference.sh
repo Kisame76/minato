@@ -512,6 +512,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
+    permission-request-test | permission-request-test-fine)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
+      mask=yes
+      ;;
     # pad-test (ADR-0050 test 3): its activity asks for its two packs, each within 30 s, and ends with "done".
     pad-test)
       apk="build/$app/$app-local.apks" build=tools/build-pad-test.sh last=done activity_class=.PadActivity limit=90
@@ -788,6 +793,11 @@ run_app() {
     # "cmd window user-rotation" says "free" or "lock <rotation>", which it takes back as it is.
     rotation=$(run cmd window user-rotation | tr -d '\r')
     run cmd window user-rotation lock 0 >/dev/null
+  fi
+  if [[ "$app" == permission-request-test-fine ]]; then
+    # ADR-0063: the twin's permissions are granted before the start, so that its requests need no dialog.
+    run pm grant "$package" android.permission.ACCESS_FINE_LOCATION
+    run pm grant "$package" android.permission.ACCESS_COARSE_LOCATION
   fi
   if [[ "$app" == obb-test ]]; then
     # ADR-0049 test 8: its main and patch OBBs in its OBB folder before the start, as a user or a store puts them there.

@@ -806,6 +806,11 @@ class ApplicationPackageManager {
         return pkg != null && pkg.answers().shouldShowRationale(permName);
     }
 
+    /** The package of the permission dialog's activity, which Activity.requestPermissions names in its intent; as on apk-runner-35. */
+    public String getPermissionControllerPackageName() {
+        return "com.android.permissioncontroller";
+    }
+
     // Signatures (b3.5b1), from the import's signers.json: the app's own; any other package is unknown.
 
     public int checkSignatures(String packageName1, String packageName2) {

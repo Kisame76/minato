@@ -11,6 +11,7 @@
 // gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider. Step SV2
 // adds the started services: startService, startForegroundService and stopService, through LocalActiveServices, and
 // step SV3 the bound ones: bindService and unbindService.
+import android.content.AttributionSource;
 import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
 import android.content.ComponentName;
@@ -945,6 +946,15 @@ class ContextImpl {
     /** As the tag's: the attribution tag this context was made for, null for the app's default. */
     public String getAttributionTag() {
         return mAttributionTag;
+    }
+
+    /**
+     * As AOSP's ContextImpl makes it: the app's uid and pid, its package and this context's attribution tag, with no
+     * next source and no renounced permission, which Activity.requestPermissions reads (ADR-0063).
+     */
+    public AttributionSource getAttributionSource() {
+        return new AttributionSource.Builder(Process.myUid()).setPid(Process.myPid()).setPackageName(mOpPackageName)
+                .setAttributionTag(mAttributionTag).build();
     }
 
     /** As the tag's: this context with the params' attribution tag. */

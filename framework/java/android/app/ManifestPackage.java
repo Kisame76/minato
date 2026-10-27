@@ -2291,6 +2291,11 @@ final class ManifestPackage {
         return false;
     }
 
+    /** PermissionPolicy's grant for the permission: the host's to answer, denied for good or granted (ADR-0063). */
+    PermissionPolicy.Grant grantOf(String permission) {
+        return PermissionPolicy.decide(policyApp(), permission).grant;
+    }
+
     /** What the host answered for the permission groups it decides, for the requests and checks of ADR-0063. */
     PermissionAnswers answers() {
         return mAnswers;
