@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Framework breadth F4d's twin test (f4d-cells-test-fine): f4d-cells-test's app, from the same sources
+     (fixtures/java/f4d-cells-test), that requests the fine location permission and is granted it, so that
+     TelephonyManager.getAllCellInfo answers its (empty) list where the app without the permission gets a
+     SecurityException (ADR-0063 decision 9). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.cells.fine" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.cells.CellsActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

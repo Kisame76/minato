@@ -46,11 +46,12 @@ import java.util.List;
  * technology are made through the public CREATOR of CellInfo from parcels in the layout AOSP writes (the cells have no
  * public constructors, and a phone without a SIM sees none), read back through their getters and tested with
  * instanceof, and the small data types around them are built through their public constructors. It runs on the main
- * thread when the window first has the focus and logs under the tag f4d-cells-test; tools/android-reference.sh takes
- * the log from Android 15, and tools/f4d-cells-check.sh compares Minato's with it.
+ * thread when the window first has the focus and logs under the app's label (f4d-cells-test, and f4d-cells-test-fine
+ * for its twin); tools/android-reference.sh takes the log from Android 15, and tools/f4d-cells-check.sh compares
+ * Minato's with it.
  */
 public class CellsActivity extends Activity {
-    static final String TAG = "f4d-cells-test";
+    private static String sTag = "f4d-cells-test";
     // CellInfo.TYPE_*, hidden constants: the values of the cell types in a parcel
     private static final int TYPE_GSM = 1;
     private static final int TYPE_CDMA = 2;
@@ -62,7 +63,7 @@ public class CellsActivity extends Activity {
     private boolean mStarted;
 
     private static void log(String line) {
-        Log.i(TAG, line);
+        Log.i(sTag, line);
     }
 
     private interface Part {
@@ -79,6 +80,12 @@ public class CellsActivity extends Activity {
             }
             log(line.toString());
         }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        sTag = String.valueOf(getApplicationInfo().loadLabel(getPackageManager()));
     }
 
     @Override

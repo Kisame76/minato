@@ -589,6 +589,11 @@ run_app() {
     f4d-cells-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CellsActivity limit=90
       ;;
+    # its twin f4d-cells-test-fine has the package ...cells.fine but the same activity class.
+    f4d-cells-test-fine)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done limit=90
+      activity_class=io.github.kisame76.minato.test.cells.CellsActivity
+      ;;
     # f4c-types-test (framework breadth F4c): its activity runs when the window has the focus and ends with "done".
     f4c-types-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TypesActivity limit=90
@@ -813,6 +818,11 @@ run_app() {
         ;;
     esac
     device emu geo fix 13.405 52.52 40 >/dev/null
+  fi
+  if [[ "$app" == f4d-cells-test-fine ]]; then
+    # ADR-0063 decision 9: the fine location permission it requests is granted before the start, so that
+    # getAllCellInfo answers its list where f4d-cells-test gets a SecurityException.
+    run pm grant "$package" android.permission.ACCESS_FINE_LOCATION
   fi
   if [[ "$app" == obb-test ]]; then
     # ADR-0049 test 8: its main and patch OBBs in its OBB folder before the start, as a user or a store puts them there.
