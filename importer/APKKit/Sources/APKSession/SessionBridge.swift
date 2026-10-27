@@ -98,6 +98,9 @@ public protocol SessionHost: AnyObject {
     func setBackground(_ on: Bool)
     /// `apkrt_wait_scheduled`: whether every provider reported its GPU work scheduled in time.
     func waitScheduled(seconds: Double) -> Bool
+    /// `apkrt_session_wait`: 1 answered, 0 the time is up, -1 the channel broke or the program ended. The bridge
+    /// calls it only at the background, on the main thread, within `backgroundAnswerBudget`.
+    func waitAnswer(serial: UInt32, seconds: Double) -> Int32
     /// `apkrt_input_add`: a new input channel's ID, from 1, 0 without memory (ADR-0036, decision 1).
     func addInputChannel() -> UInt64
     /// `apkrt_window_set_size`: the window has a new size, which the guest's ANativeWindow answers from then
@@ -127,11 +130,23 @@ public struct SessionBridge: Sendable {
     public struct Handled: Sendable, Equatable {
         public var callbacks: [Lifecycle.Callback] = []
         public var wait: Wait?
+        /// The waits the bridge ran itself, at the background, for the log.
+        public var answers: [Answer] = []
+    }
+
+    /// A wait the bridge ran itself: the callback, `apkrt_session_wait`'s result and the seconds it took.
+    public struct Answer: Sendable, Equatable {
+        public let callback: Lifecycle.Callback
+        public let result: Int32
+        public let seconds: Double
     }
 
     /// How long the host waits for the GPU work to be scheduled before the background (ADR-0032,
     /// decision 6).
     public static let scheduledTimeout = 1.0
+    /// How long the background waits for the guest's answers, all of them together, before the runtime learns of it
+    /// (ADR-0032, decision 6, changed 2026-10-27).
+    public static let backgroundAnswerBudget = 1.5
 
     public private(set) var lifecycle: Lifecycle
     /// The size a new window gets: the window's at its last layout.
@@ -193,12 +208,9 @@ public struct SessionBridge: Sendable {
     public mutating func handle(_ event: Lifecycle.Event, host: SessionHost) -> Handled {
         guard !isBroken else { return Handled() }
         switch event {
-        // At background, the runtime learns of it first and the GPU work is scheduled before the window
-        // goes (ADR-0028, decision 6). Once per trip, even while the lifecycle holds the event back.
         case .background where !isInBackground:
             isInBackground = true
-            host.setBackground(true)
-            _ = host.waitScheduled(seconds: Self.scheduledTimeout)
+            return background(host: host)
         case .foreground where isInBackground:
             isInBackground = false
             host.setBackground(false)
@@ -206,6 +218,37 @@ public struct SessionBridge: Sendable {
             break
         }
         return apply(lifecycle.handle(event), host: host)
+    }
+
+    /// At background, once per trip, even while the lifecycle holds the event back (ADR-0032, decision 6, changed
+    /// 2026-10-27): the window goes and the guest hears of it while the runtime still lets its GPU work through, so
+    /// that the frames its teardown draws are committed; the bridge waits for its answers on the caller's thread,
+    /// `backgroundAnswerBudget` for all of them, and only then the runtime learns of the background and the GPU work
+    /// is scheduled before iOS may suspend the process. A wait the budget does not cover goes to the caller as any
+    /// other.
+    private mutating func background(host: SessionHost) -> Handled {
+        var handled = apply(lifecycle.handle(.background), host: host)
+        let clock = ContinuousClock()
+        let start = clock.now
+        while let wait = handled.wait {
+            let left = Self.backgroundAnswerBudget - Self.seconds(clock.now - start)
+            guard left > 0 else { break }
+            let begun = clock.now
+            let result = host.waitAnswer(serial: wait.serial, seconds: left)
+            handled.answers.append(Answer(callback: wait.callback, result: result,
+                                          seconds: Self.seconds(clock.now - begun)))
+            guard result != 0 else { break }
+            let next = finished(wait, result: result, host: host)
+            handled.callbacks += next.callbacks
+            handled.wait = next.wait
+        }
+        host.setBackground(true)
+        _ = host.waitScheduled(seconds: Self.scheduledTimeout)
+        return handled
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
     /// A SurfaceView's request as the runtime checked it (ADR-0043 c4), answered as apk-run's headless host answers

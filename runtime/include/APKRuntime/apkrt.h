@@ -252,7 +252,8 @@ void apkrt_permission_answer(uint32_t request_id, int32_t group, int32_t outcome
 /// `seconds` (none below 0 or for NaN; at most 10^9, so INFINITY waits for good). Answers come in the
 /// pipe's order, so the answer to a later event counts as well. Returns 1 once answered, 0 when the time is
 /// up, -1 when the channel broke or the program has ended, and at once for serial 0 (a failed post) or a
-/// serial not posted yet. Never on the main thread (ADR-0032: 2 s for onNativeWindowDestroyed and onDestroy).
+/// serial not posted yet. Off the main thread (ADR-0032: 2 s for onNativeWindowDestroyed and onDestroy), but
+/// for the app's background wait of 1.5 s at most, inside didEnterBackground.
 int apkrt_session_wait(uint32_t serial, double seconds);
 
 // MARK: - The window, host side (ADR-0028, decision 6)
@@ -261,8 +262,9 @@ int apkrt_session_wait(uint32_t serial, double seconds);
 // called from any thread; graphics/host's also from guest threads inside a host call.
 //
 // The order the app keeps (ADR-0029, decision 15; ADR-0032):
-//   - at background: apkrt_set_background(1); apkrt_wait_scheduled (at most 1 s); apkrt_window_remove;
-//     only then the events from APKRT_EVENT_PAUSE on;
+//   - at background: apkrt_window_remove; the events from APKRT_EVENT_PAUSE on, their answers waited for on
+//     the main thread within 1.5 s in all; only then apkrt_set_background(1) and apkrt_wait_scheduled (at
+//     most 1 s), so that a frame the app commits in its teardown is scheduled before the background;
 //   - at Quit and after APKRT_REQUEST_FINISH: apkrt_window_remove, then the events from APKRT_EVENT_PAUSE on
 //     (native_app_glue's onPause waits for an app thread that may wait at the closed gate);
 //   - at foreground: apkrt_set_background(0), a new window with apkrt_window_add, the events, and the gate

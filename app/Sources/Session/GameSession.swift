@@ -617,6 +617,12 @@ final class GameSession {
             SessionCheck.event("callback \(callback)")
             #endif
         }
+        #if DEBUG
+        // The bridge's own waits at the background come after the callbacks they answered.
+        for answer in handled.answers {
+            SessionCheck.answer(answer.callback, result: answer.result, seconds: answer.seconds)
+        }
+        #endif
         if handled.callbacks.contains(.onCreate) { guestStarted() }
         frameClock?.run(framesRun)
         // A gesture that is open when the focus goes ends with a CANCEL (ADR-0036, decision 3).

@@ -69,6 +69,11 @@ final class RuntimeSessionHost: SessionHost {
         apkrt_wait_scheduled(seconds) == 1
     }
 
+    /// The bridge's wait at the background, on the main thread within its budget (ADR-0032, decision 6).
+    func waitAnswer(serial: UInt32, seconds: Double) -> Int32 {
+        Self.wait(serial: serial, seconds: seconds)
+    }
+
     func addInputChannel() -> UInt64 {
         apkrt_input_add()
     }
@@ -97,8 +102,8 @@ final class RuntimeSessionHost: SessionHost {
         surfaces?.remove(window)
     }
 
-    /// `apkrt_session_wait`, never on the main thread: 1 answered, 0 timed out, -1 the channel broke or the
-    /// program ended.
+    /// `apkrt_session_wait`, off the main thread but for the bridge's background wait: 1 answered, 0 timed out, -1 the
+    /// channel broke or the program ended.
     static func wait(serial: UInt32, seconds: Double) -> Int32 {
         apkrt_session_wait(serial, seconds)
     }
@@ -359,6 +364,7 @@ final class NoGuestSessionHost: SessionHost {
     func removeWindow(_ window: UInt64) {}
     func setBackground(_ on: Bool) {}
     func waitScheduled(seconds: Double) -> Bool { true }
+    func waitAnswer(serial: UInt32, seconds: Double) -> Int32 { Self.wait(serial: serial, seconds: seconds) }
     func addInputChannel() -> UInt64 { 0 }
     func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {}
 

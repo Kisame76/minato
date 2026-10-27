@@ -357,7 +357,12 @@ enum SessionCheck {
     /// The wait for the guest's answer to `callback`, begun at `start` on CLOCK_UPTIME_RAW, ended with
     /// `apkrt_session_wait`'s `result`: whether it was answered, and how long it took in ms.
     static func answer(_ callback: Lifecycle.Callback, result: Int32, since start: UInt64) {
-        let ms = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1e6
+        answer(callback, result: result, seconds: Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / 1e9)
+    }
+
+    /// The same for a wait of `seconds`, which the bridge ran itself at the background.
+    static func answer(_ callback: Lifecycle.Callback, result: Int32, seconds: Double) {
+        let ms = seconds * 1000
         let outcome = switch result {
         case 1: "answered"
         case 0: "timedOut"

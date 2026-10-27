@@ -14,6 +14,7 @@ struct SessionBridgeTests {
         case removeWindow(UInt64)
         case setBackground(Bool)
         case waitScheduled(Double)
+        case waitAnswer(UInt32)
         case addInputChannel
         case setWindowSize(UInt64, width: Int32, height: Int32)
         case addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool)
@@ -70,6 +71,17 @@ struct SessionBridgeTests {
         func waitScheduled(seconds: Double) -> Bool {
             calls.append(.waitScheduled(seconds))
             return true
+        }
+
+        /// The results the waits for answers get, in order; 0 (the time is up) once they are used up.
+        var answers: [Int32] = []
+        /// The time each wait for an answer was given.
+        var answerSeconds: [Double] = []
+
+        func waitAnswer(serial: UInt32, seconds: Double) -> Int32 {
+            calls.append(.waitAnswer(serial))
+            answerSeconds.append(seconds)
+            return answers.isEmpty ? 0 : answers.removeFirst()
         }
 
         /// The runtime's IDs count from 1; 7 tells the channel from a window or a serial.
@@ -180,21 +192,70 @@ struct SessionBridgeTests {
         #expect(bridge.isBroken)
     }
 
-    @Test func backgroundWaitsForTheGPUAndRemovesTheWindowBeforeOnPause() {
+    /// At the background the window goes before onPause, and the guest hears of it while the runtime still lets its
+    /// GPU work through, so that its teardown's last frames are committed; only once it answered, or the budget is
+    /// spent, does the runtime learn of the background and the GPU work get scheduled (ADR-0032 d6, changed
+    /// 2026-10-27).
+    @Test func backgroundTellsTheGuestBeforeTheRuntime() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        _ = host.take()
+        host.answers = [1]
+
+        let handled = bridge.handle(.background, host: host)
+        #expect(host.take() == [
+            .removeWindow(1), .post(.pause), .post(.nativeWindowDestroyed(window: 1)), .waitAnswer(12),
+            .post(.stop), .post(.saveInstanceState),
+            .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout),
+        ])
+        #expect(handled.callbacks == [.onPause, .onNativeWindowDestroyed, .onStop, .onSaveInstanceState])
+        #expect(handled.wait == nil)
+        #expect(handled.answers.map(\.callback) == [.onNativeWindowDestroyed])
+        #expect(handled.answers.map(\.result) == [1])
+        let seconds = try #require(host.answerSeconds.first)
+        #expect(seconds > SessionBridge.backgroundAnswerBudget - 0.1 && seconds <= SessionBridge.backgroundAnswerBudget)
+    }
+
+    /// A guest that does not answer within the budget does not hold the background: the runtime learns of it, and the
+    /// wait goes on as any other, whose answer then brings onStop.
+    @Test func aBackgroundWaitThatRunsOutGoesOnAfterTheRuntimeLearnsOfIt() throws {
         let host = FakeHost()
         var bridge = Self.running(host)
         bridge.handle(.inactive, host: host)
         _ = host.take()
 
-        let wait = bridge.handle(.background, host: host).wait
+        let handled = bridge.handle(.background, host: host)
         #expect(host.take() == [
-            .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout), .removeWindow(1),
-            .post(.pause), .post(.nativeWindowDestroyed(window: 1)),
+            .removeWindow(1), .post(.pause), .post(.nativeWindowDestroyed(window: 1)), .waitAnswer(12),
+            .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout),
         ])
+        #expect(handled.callbacks == [.onPause, .onNativeWindowDestroyed])
+        #expect(handled.answers.map(\.result) == [0])
+        let wait = try #require(handled.wait)
         #expect(wait == SessionBridge.Wait(serial: 12, callback: .onNativeWindowDestroyed))
 
-        #expect(bridge.finished(wait!, result: 1, host: host).wait == nil)
+        #expect(bridge.finished(wait, result: 1, host: host).wait == nil)
         #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
+    }
+
+    /// A channel that broke or a program that ended while the background waited goes on at once, as a wait off the
+    /// main thread does.
+    @Test func aBackgroundWaitThatBreaksGoesOnBeforeTheRuntimeLearnsOfIt() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        _ = host.take()
+        host.answers = [-1]
+
+        let handled = bridge.handle(.background, host: host)
+        #expect(host.take() == [
+            .removeWindow(1), .post(.pause), .post(.nativeWindowDestroyed(window: 1)), .waitAnswer(12),
+            .post(.stop), .post(.saveInstanceState),
+            .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout),
+        ])
+        #expect(handled.wait == nil)
+        #expect(host.answerSeconds.count == 1)
     }
 
     @Test func foregroundAddsANewWindowAndOpensItsGateOnceActive() {
@@ -562,9 +623,10 @@ struct SessionBridgeTests {
         ])
         let wait = try #require(bridge.handle(.background, host: host).wait)
         #expect(host.take() == [
-            .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout), .removeWindow(1), .removeSurface(2),
-            .removeSurface(3), .post(.pause), .post(.surfaceDestroyed(token: 5, window: 2)),
-            .post(.surfaceDestroyed(token: 6, window: 3)), .post(.nativeWindowDestroyed(window: 1)),
+            .removeWindow(1), .removeSurface(2), .removeSurface(3), .post(.pause),
+            .post(.surfaceDestroyed(token: 5, window: 2)), .post(.surfaceDestroyed(token: 6, window: 3)),
+            .post(.nativeWindowDestroyed(window: 1)), .waitAnswer(wait.serial), .setBackground(true),
+            .waitScheduled(SessionBridge.scheduledTimeout),
         ])
         #expect(wait.callback == .onNativeWindowDestroyed)
         #expect(bridge.surfaceWindows == [])
