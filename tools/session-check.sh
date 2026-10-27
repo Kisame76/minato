@@ -84,6 +84,7 @@
 #   AWAY        with AUDIO: the seconds the second round stays in Settings (2 when unset)
 #   FPS         only the rounds of the FPS label
 #   ACTIVITY    only test 7, with activity-test
+#   ACTIVITY_SET  test 7 with activity-test as a bundletool split set (library only in a config split)
 #   TRANSLUCENT only the round of activity-test's translucent entry
 #   GUEST_ENV   only the round of the Debug guest environment
 #   LIVE        only test 8, with the live variants
@@ -130,6 +131,13 @@ else
     exit 1
   fi
 fi
+# Each devicectl call on the iPhone checks first that it is still connected by cable and stops the run when it is
+# not; the message goes to the script's stderr, kept as 3, also where the call's output goes to /dev/null.
+exec 3>&2
+on_device() {
+  python3 tools/require-cable.py "$DEVICE_ID" 2>&3 || exit 1
+  xcrun devicectl device "$@"
+}
 if [[ -n "${LIVE_BY_HAND:-}" && "$ON_DEVICE" == no ]]; then
   echo "LIVE_BY_HAND needs the iPhone (--device)." >&2
   exit 1
@@ -138,6 +146,13 @@ fi
 # The fixture apps this run imports beside the test app, one "<package> <APK>" per line. The Simulator has no
 # MoltenVK (ADR-0030, decision 8), so vulkan-live runs only on the iPhone.
 GUEST_APPS=""
+if [[ -n "${ACTIVITY_SET:-}" ]]; then
+  # Test 7 with activity-test as a bundletool split set (ADR-0048 c4), its NativeActivity library only in a config
+  # split, picked as a unit folder; the app's lines are the single APK's (fixtures/expected/activity-test.logcat).
+  ACTIVITY=1
+  ACTIVITY_APK="build/activity-splits/activity-splits.apks"
+  [[ -f "$ACTIVITY_APK" ]] || tools/build-activity-splits.sh >/dev/null
+fi
 [[ -z "${ACTIVITY:-}${GUEST_ENV:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
 [[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
@@ -202,7 +217,7 @@ REQUEST_REL="$SUPPORT_REL/launch-request.json"
 # rounds that force the URL would open it: they are skipped while it is there. Read only; empty without one.
 SECOND_MINATO=""
 if [[ "$ON_DEVICE" == yes ]]; then
-  if xcrun devicectl device info apps --device "$DEVICE_ID" --json-output "$WORK/apps.json" >/dev/null 2>&1; then
+  if on_device info apps --device "$DEVICE_ID" --json-output "$WORK/apps.json" >/dev/null 2>&1; then
     SECOND_MINATO=$(python3 tools/second-minato.py "$WORK/apps.json" "$BUNDLE_ID")
   else
     echo "note  the iPhone's apps could not be listed; the rounds through the URL run" >&2
@@ -210,7 +225,7 @@ if [[ "$ON_DEVICE" == yes ]]; then
 fi
 if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${SKIP_BUILD:-}" ]]; then
-    xcrun devicectl device install app --device "$DEVICE_ID" -q build/DerivedData/Build/Products/Debug-iphoneos/Minato.app >/dev/null
+    on_device install app --device "$DEVICE_ID" -q build/DerivedData/Build/Products/Debug-iphoneos/Minato.app >/dev/null
   else
     INSTALL_ONLY=1 tools/deploy.sh "$DEVICE_ID" >/dev/null
   fi
@@ -233,22 +248,22 @@ REQUEST="$CONTAINER/$REQUEST_REL"
 devicectl_copy() {
   local direction=$1
   shift
-  xcrun devicectl device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
+  on_device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
     --domain-identifier "$BUNDLE_ID" -q "$@" >/dev/null 2>&1
 }
 # Starts app $1, Minato when none, or brings it to the front when it runs.
 launch() {
   if [[ "$ON_DEVICE" == yes ]]; then
-    xcrun devicectl device process launch --device "$DEVICE_ID" -q "${1:-$BUNDLE_ID}" >/dev/null
+    on_device process launch --device "$DEVICE_ID" -q "${1:-$BUNDLE_ID}" >/dev/null
   else
     xcrun simctl launch "$SIM_UDID" "${1:-$BUNDLE_ID}" >/dev/null
   fi
 }
 terminate() {
   if [[ "$ON_DEVICE" == yes ]]; then
-    xcrun devicectl device info processes --device "$DEVICE_ID" -q -j "$WORK/processes.json" >/dev/null 2>&1 || return 0
+    on_device info processes --device "$DEVICE_ID" -q -j "$WORK/processes.json" >/dev/null 2>&1 || return 0
     for pid in $(python3 -c 'import json,sys; print(" ".join(str(p["processIdentifier"]) for p in json.load(open(sys.argv[1]))["result"]["runningProcesses"] if p.get("executable", "").endswith("/Minato.app/Minato")))' "$WORK/processes.json"); do
-      xcrun devicectl device process terminate --device "$DEVICE_ID" -q --kill --pid "$pid" >/dev/null 2>&1 || true
+      on_device process terminate --device "$DEVICE_ID" -q --kill --pid "$pid" >/dev/null 2>&1 || true
     done
   else
     xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
@@ -374,7 +389,7 @@ shot() {
   mkdir -p "$SHOTS"
   sleep "${2:-0.8}"
   if [[ "$ON_DEVICE" == yes ]]; then
-    xcrun devicectl device capture screenshot --device "$DEVICE_ID" -q --destination "$SHOTS/$1.png" >/dev/null 2>&1 || true
+    on_device capture screenshot --device "$DEVICE_ID" -q --destination "$SHOTS/$1.png" >/dev/null 2>&1 || true
   else
     xcrun simctl io "$SIM_UDID" screenshot --type=png "$SHOTS/$1.png" >/dev/null 2>&1 || true
   fi
@@ -1483,7 +1498,18 @@ fi
 while read -r package apk; do
   [[ -n "$package" ]] || continue
   [[ -f "$apk" ]] || { echo "$apk is missing: tools/build-fixtures.sh builds it" >&2; exit 1; }
-  if [[ "$ON_DEVICE" == yes ]]; then
+  if [[ "$apk" == *.apks ]]; then
+    # A set goes in as a unit folder that appears whole, as "+" leaves a pick.
+    unit="$WORK/unit-${apk##*/}"
+    rm -rf "$unit" && mkdir -p "$unit" && cp "$apk" "$unit/"
+    if [[ "$ON_DEVICE" == yes ]]; then
+      devicectl_copy to --source "$unit" --destination "$SUPPORT_REL/incoming/${package##*.}-apks"
+    else
+      mkdir "$SUPPORT/incoming/${package##*.}-apks.partial"
+      cp "$apk" "$SUPPORT/incoming/${package##*.}-apks.partial/"
+      mv "$SUPPORT/incoming/${package##*.}-apks.partial" "$SUPPORT/incoming/${package##*.}-apks"
+    fi
+  elif [[ "$ON_DEVICE" == yes ]]; then
     devicectl_copy to --source "$apk" --destination "$SUPPORT_REL/incoming/${apk##*/}"
   else
     cp "$apk" "$SUPPORT/incoming/"
