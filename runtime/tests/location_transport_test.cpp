@@ -249,4 +249,24 @@ TEST(a_current_token_is_unique_and_cancel_checks_it) {
     CHECK(location(APKRT_LOCATION_CANCEL, 70) == 0);
 }
 
+TEST(the_grant_read_is_ungated_and_normalized) {
+    setup();
+    apkrt::permissions::reset();
+    // Never gated: it works with no grant, and an unanswered group reads as denied (0) — that is how a guest learns
+    // it was denied, so checkSelfPermission can answer in onCreate before any PERMISSION_RESULT event is pumped.
+    CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_LOCATION) == 0);
+    apkrt::permissions::set(APKRT_PERMISSION_LOCATION, APKRT_PERMISSION_GRANTED);
+    CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_LOCATION) == 1);
+    apkrt::permissions::set(APKRT_PERMISSION_LOCATION, APKRT_PERMISSION_GRANTED_COARSE);
+    CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_LOCATION) == 2);
+    // The host stored a nonsense int: it reads as denied, as the gate sees it.
+    apkrt::permissions::set(APKRT_PERMISSION_LOCATION, 7);
+    CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_LOCATION) == 0);
+    apkrt::permissions::set(APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_GRANTED);
+    CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_MICROPHONE) == 1);  // serves any group, for ADR-0064 too
+    CHECK(location(APKRT_LOCATION_PERMISSION, 0) == -einval);                      // unknown group
+    CHECK(location(APKRT_LOCATION_PERMISSION, 3) == -einval);
+    CHECK(location(APKRT_LOCATION_PERMISSION, (std::uint64_t{1} << 32) | APKRT_PERMISSION_LOCATION) == -einval);
+}
+
 int main() { return apk::testing::run_all(); }

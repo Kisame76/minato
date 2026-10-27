@@ -1,6 +1,7 @@
 #include "location_syscalls.h"
 
 #include <cstddef>
+#include <limits>
 #include <new>
 
 #include "APKRuntime/guest_interface.h"
@@ -73,6 +74,19 @@ long call(std::uint64_t op, std::uint64_t argument, std::uint64_t sequence) try 
             apkrt_location_fix fix{};
             const int found = get(sequence, fix);
             return copy_out(argument, found, fix);
+        }
+        case APKRT_LOCATION_PERMISSION: {
+            // A permission read (checkSelfPermission) for any group; never gated, since it is how a guest learns it was
+            // denied. `argument` is the group. The stored int is normalized to {0,1,2} by the same rule the gate uses,
+            // so the read and the gate always agree: anything the host stored that is not fine or coarse reads denied.
+            if (argument > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+                return -linux_errno::einval;  // checked before the cast, so a high bit cannot alias a known group
+            const auto group = static_cast<std::int32_t>(argument);
+            if (!permissions::known_group(group)) return -linux_errno::einval;
+            const int outcome = permissions::outcome(group);
+            return (outcome == APKRT_PERMISSION_GRANTED || outcome == APKRT_PERMISSION_GRANTED_COARSE)
+                       ? outcome
+                       : APKRT_PERMISSION_DENIED;
         }
         default:
             return -linux_errno::einval;

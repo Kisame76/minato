@@ -751,6 +751,13 @@ struct apkrt_sensor_request {
                                   // (getLastKnownLocation). 1 (filled), 0 (none yet), -EFAULT, -EACCES
 #define APKRT_LOCATION_GET     5  // x1 the address of an apkrt_location_fix, x2 a sequence: the fix an event announced.
                                   // 1 (filled), 0 (gone/replaced), -EFAULT, -EACCES
+#define APKRT_LOCATION_PERMISSION 6  // a PERMISSION read (checkSelfPermission), not a location op: x1 a
+                                  // permission group (APKRT_PERMISSION_*), returns its stored grant normalized to 0
+                                  // (denied or not yet answered), 1 (granted/fine) or 2 (granted coarse); -EINVAL for
+                                  // an unknown group. NEVER gated: it is how a guest learns it was denied. It answers
+                                  // the microphone group too, and only rides APKRT_NR_LOCATION as the next free op.
+                                  // The guest must query it at the first checkSelfPermission, not keep a value from
+                                  // before the host's answer, then track changes through APKRT_EVENT_PERMISSION_RESULT
 
 /// APKRT_LOCATION_START's and the host's accuracy.
 #define APKRT_LOCATION_ACCURACY_FINE   1  // kCLLocationAccuracyBest
