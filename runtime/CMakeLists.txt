@@ -295,6 +295,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(heap_window_test PRIVATE apk_defaults apk_testing)
   add_test(NAME runtime.heap_window COMMAND heap_window_test)
 
+  # The heap window's implicit null-check bound (ADR-0053 decision 3), with ART's own header for it.
+  add_executable(heap_window_null_test tests/heap_window_null_test.cpp)
+  target_include_directories(heap_window_null_test PRIVATE art/overlay/art/libartbase/base)
+  target_link_libraries(heap_window_null_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.heap_window_null COMMAND heap_window_null_test)
+
   # The property area's device and version values as android.os.Build reads them (ADR-0039 decision 9).
   add_executable(properties_test tests/properties_test.cpp)
   target_include_directories(properties_test PRIVATE src)

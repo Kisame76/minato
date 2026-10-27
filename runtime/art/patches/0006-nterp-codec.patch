@@ -1,0 +1,55 @@
+nterp and the reference codec (M6 step a, ADR-0053): the implicit null-check handler for the heap window.
+
+A reference is an object's 32-bit offset from the heap window base B (base/heap_window.h, ADR-0033 decision 3), and
+the unconditional decode turns a null reference (0) into B. So a null dereference faults in the guard page
+[B, B + page) that ReserveHeapWindow keeps unmapped (base/heap_window_ranges.h), not in the zero page. ART's
+NullPointerHandler must recognize that fault and hand the NPE-from-signal path the offset into the absent object,
+the fault address less B, exactly as on Android, where null is 0 and the fault address already is the offset. It
+keeps recognizing the zero page [0, page) too, which Android and the compile-time select-decode fallback fault in
+(base/heap_window_null.h). Until the decode is made unconditional (step a (3)) the select form stays in use, so this
+handler only ever sees the zero page and does not change behaviour yet; it is in place for the decode flip.
+
+--- a/art/runtime/fault_handler.h
++++ b/art/runtime/fault_handler.h
+@@ -27,6 +27,8 @@
+ #include "base/locks.h"  // For annotalysis.
+ #include "base/macros.h"
+ #include "base/mutex.h"
+ #include "runtime_globals.h"  // For CanDoImplicitNullCheckOn.
++#include "base/heap_window.h"       // For gHeapWindowBase (Minato, ADR-0053).
++#include "base/heap_window_null.h"  // For HeapWindowNullFault.
+
+ namespace art HIDDEN {
+@@ -152,9 +152,12 @@
+   // checks (that we cannot reasonably do in signal processing code) based
+   // on the dex instruction faulting.
+
+   static bool IsValidFaultAddress(uintptr_t fault_address) {
+-    // Our implicit NPE checks always limit the range to a page.
+-    return CanDoImplicitNullCheckOn(fault_address);
++    // Our implicit NPE checks limit the range to a page. On Minato a null reference decodes to the heap window
++    // base B (base/heap_window.h), so a null dereference faults in the guard page [B, B + page); the handler also
++    // keeps the zero page [0, page) that Android and the select-decode fallback fault in (base/heap_window_null.h).
++    uintptr_t offset;
++    return HeapWindowNullFault(fault_address, gHeapWindowBase, gPageSize, &offset);
+   }
+
+   static bool IsValidMethod(ArtMethod* method)
+--- a/art/runtime/arch/arm64/fault_handler_arm64.cc
++++ b/art/runtime/arch/arm64/fault_handler_arm64.cc
+@@ -82,9 +82,13 @@
+     return false;
+   }
+
+-  // Push the return PC to the stack and pass the fault address in LR.
++  // Push the return PC to the stack and pass the faulting offset in LR.
+   mc->sp -= sizeof(uintptr_t);
+   *reinterpret_cast<uintptr_t*>(mc->sp) = return_pc;
+-  mc->regs[30] = fault_address;
++  // The NPE path treats LR as the offset into the absent object: the address less the base B for a fault in the
++  // heap window's guard page [B, B + page) (ADR-0053), the address itself for one in the zero page.
++  uintptr_t offset;
++  HeapWindowNullFault(fault_address, gHeapWindowBase, gPageSize, &offset);
++  mc->regs[30] = offset;
+
+   // Arrange for the signal handler to return to the NPE entrypoint.

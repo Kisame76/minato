@@ -93,24 +93,31 @@ class HeapWindowRanges {
 };
 
 // Where ReserveHeapWindow put the window: its base, aligned to 4 GiB, where the offset 0 lies, and the reserved range
-// [begin, end), which ends 4 GiB above the base. All 0 when nothing was reserved.
+// [begin, end), which ends 4 GiB above the base. All 0 when nothing was reserved. `guard` says the null page
+// [base, base + page) is reserved with no access, so a null decode (address base) faults there and ART's implicit
+// null check (NullPointerHandler) catches it (ADR-0053 D3); false means the decode keeps null 0 with a select instead.
 struct HeapWindowPlace {
   uintptr_t base;
   uintptr_t begin;
   uintptr_t end;
+  bool guard;
 };
 
 // How far 32-bit offsets reach from the base.
 static constexpr size_t kHeapWindowReach = size_t{4} << 30;
 
-// Reserves the window through `map(length)`, which maps `length` bytes without access wherever the system has room
-// and returns their address, 0 when it has none, and `unmap(begin, length)`:
+// Reserves the window through `map(hint, length)`, which maps `length` bytes without access and returns their
+// address, 0 when the system has no room: at `hint` when that exact range is free and otherwise wherever the system
+// has room, as mmap takes an address hint with no MAP_FIXED (Darwin has no MAP_FIXED_NOREPLACE, and MAP_FIXED would
+// silently replace whatever is mapped there). `unmap(begin, length)` gives a range back. The window is:
 // - all 4 GiB at a base aligned to 4 GiB, cut out of a mapping of 8 GiB, where the system has room for that;
 // - else only their upper 2 GiB, the lowest in the largest piece it has, found to `granularity`, the page size.
 //   Without increased-memory-limit, iOS gives an app 7.84 GiB in 4 pieces, the largest 6.00 GiB (spike S2,
 //   ADR-0012). The upper half fits into any piece of 6 GiB less a page, its offsets all lie above 2^31, and it holds
 //   ART's spaces at heapsize 512m (1,600 MiB); all 4 GiB would leave 2 GiB less to the rest of the process.
-// Only the window stays mapped; HeapWindowPlace is all 0 when nothing fits.
+// In the full-4 GiB window the null page [base, base + page) lies inside the one mapping and is never given out, so
+// it guards null on its own. Only the window (and, in the upper-half mode, the guard page beside it) stays mapped;
+// HeapWindowPlace is all 0 when nothing fits.
 template <typename Map, typename Unmap>
 HeapWindowPlace ReserveHeapWindow(Map map, Unmap unmap, size_t granularity) {
   constexpr size_t kHalf = kHeapWindowReach / 2;
@@ -126,10 +133,12 @@ HeapWindowPlace ReserveHeapWindow(Map map, Unmap unmap, size_t granularity) {
     if (end != piece + length) {
       unmap(end, piece + length - end);
     }
-    return HeapWindowPlace{base, begin, end};
+    return HeapWindowPlace{base, begin, end, false};
   };
-  if (const uintptr_t piece = map(2 * kHeapWindowReach); piece != 0u) {
-    return keep(piece, 2 * kHeapWindowReach, round_up(piece), round_up(piece));
+  if (const uintptr_t piece = map(0u, 2 * kHeapWindowReach); piece != 0u) {
+    HeapWindowPlace place = keep(piece, 2 * kHeapWindowReach, round_up(piece), round_up(piece));
+    place.guard = true;  // the window's first page is inside [base, base + 4 GiB) and never given out
+    return place;
   }
   size_t largest = 0u;
   for (size_t too_large = 2 * kHeapWindowReach; too_large - largest > granularity;) {
@@ -137,24 +146,48 @@ HeapWindowPlace ReserveHeapWindow(Map map, Unmap unmap, size_t granularity) {
     if (length <= largest) {
       break;
     }
-    if (const uintptr_t probe = map(length); probe != 0u) {
+    if (const uintptr_t probe = map(0u, length); probe != 0u) {
       unmap(probe, length);
       largest = length;
     } else {
       too_large = length;
     }
   }
-  const uintptr_t piece = largest >= kHalf ? map(largest) : 0u;
+  const uintptr_t piece = largest >= kHalf ? map(0u, largest) : 0u;
   if (piece == 0u) {
-    return HeapWindowPlace{0u, 0u, 0u};
+    return HeapWindowPlace{0u, 0u, 0u, false};
   }
-  // The lowest aligned base above 0 whose upper half begins in the piece.
-  const uintptr_t base = piece > kHalf ? round_up(piece - kHalf) : kHeapWindowReach;
-  if (base + kHeapWindowReach <= piece + largest) {
-    return keep(piece, largest, base, base + kHalf);
+  // Try aligned bases from the lowest whose upper half begins in the piece, upward: the first whose null page can be
+  // a no-access guard wins (ADR-0053 D3, decided 2026-10-27). The lowest base's guard may lie below the piece — hint
+  // at it with no MAP_FIXED and keep it only on an exact hit (Darwin has no MAP_FIXED_NOREPLACE); every higher base
+  // lies at or above the piece, so its guard is inside the piece and always securable. Bounded, so a crafted address
+  // space cannot spin. If no base is guardable the window is given back and nothing is reserved, so the caller
+  // refuses rather than run the unconditional decode with no guard.
+  constexpr int kMaxBaseTries = 16;
+  const uintptr_t lowest = piece > kHalf ? round_up(piece - kHalf) : kHeapWindowReach;
+  int tries = 0;
+  for (uintptr_t base = lowest; base + kHeapWindowReach <= piece + largest && tries < kMaxBaseTries;
+       base += kHeapWindowReach, ++tries) {
+    if (base < piece) {
+      // The guard lies below the piece: reserve it by a hint at base; on anything but an exact hit, give it back and
+      // try the next base.
+      const uintptr_t guard = map(base, granularity);
+      if (guard != base) {
+        if (guard != 0u) unmap(guard, granularity);
+        continue;
+      }
+    }
+    // Committed. Keep the window [begin, end) and, where the guard lies inside the piece, the guard page
+    // [base, base + granularity); give the rest of the piece back.
+    const uintptr_t begin = base + kHalf, end = base + kHeapWindowReach;
+    if (base > piece) unmap(piece, base - piece);
+    const uintptr_t after_guard = base >= piece ? base + granularity : piece;
+    if (after_guard < begin) unmap(after_guard, begin - after_guard);
+    if (end < piece + largest) unmap(end, piece + largest - end);
+    return HeapWindowPlace{base, begin, end, true};
   }
   unmap(piece, largest);
-  return HeapWindowPlace{0u, 0u, 0u};
+  return HeapWindowPlace{0u, 0u, 0u, false};
 }
 
 }  // namespace art

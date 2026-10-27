@@ -54,7 +54,7 @@ base/heap_window_ranges.h, a file of the overlay, which runtime/tests/heap_windo
  #include "logging.h"  // For VLOG_IS_ON.
  #include "memory_tool.h"
  #include "mman.h"  // For the PROT_* and MAP_* constants.
-@@ -151,6 +153,108 @@
+@@ -151,6 +153,109 @@
  uintptr_t MemMap::next_mem_pos_;
  #endif
  
@@ -82,11 +82,12 @@ base/heap_window_ranges.h, a file of the overlay, which runtime/tests/heap_windo
 +static void ReserveWindow() {
 +  const bool upper_half = getenv("APKRT_HEAP_WINDOW_UPPER_HALF") != nullptr;
 +  const HeapWindowPlace place = ReserveHeapWindow(
-+      [upper_half](size_t length) {
++      [upper_half](uintptr_t hint, size_t length) {
 +        if (upper_half && length == 2 * kHeapWindowReach) {
 +          return uintptr_t{0u};
 +        }
-+        void* piece = mmap(nullptr, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
++        void* piece = mmap(reinterpret_cast<void*>(hint), length, PROT_NONE,
++                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
 +        return piece == MAP_FAILED ? uintptr_t{0u} : reinterpret_cast<uintptr_t>(piece);
 +      },
 +      [](uintptr_t begin, size_t length) { CHECK_EQ(munmap(reinterpret_cast<void*>(begin), length), 0); },
@@ -163,7 +164,7 @@ base/heap_window_ranges.h, a file of the overlay, which runtime/tests/heap_windo
  // Return true if the address range is contained in a single memory map by either reading
  // the gMaps variable or the /proc/self/map entry.
  bool MemMap::ContainedWithinExistingMap(uint8_t* ptr, size_t size, std::string* error_msg) {
-@@ -1174,6 +1278,11 @@
+@@ -1174,6 +1279,11 @@
                            off_t offset,
                            bool low_4gb) {
  #ifdef __LP64__

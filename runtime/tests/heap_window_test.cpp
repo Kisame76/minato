@@ -96,7 +96,14 @@ public:
         for (const auto &[begin, length] : pieces) add(free_, begin, begin + length);
     }
 
-    std::uintptr_t map(std::size_t length) {
+    // mmap with an address hint and no MAP_FIXED: the hint when [hint, hint + length) holds no mapping, else the
+    // lowest piece that holds `length` (the kernel ignores a hint it cannot honour). 0 when nothing holds it.
+    std::uintptr_t map(std::uintptr_t hint, std::size_t length) {
+        if (hint != 0 && is_free(hint, length)) {
+            cut(free_, hint, hint + length);
+            add(mapped, hint, hint + length);
+            return hint;
+        }
         for (const auto &piece : free_) {
             if (piece.second - piece.first >= length) {
                 const std::uintptr_t begin = piece.first;
@@ -144,13 +151,21 @@ private:
         }
     }
 
+    // Whether [begin, begin + length) overlaps no mapping, so an mmap hint there would be honoured.
+    bool is_free(std::uintptr_t begin, std::size_t length) const {
+        auto it = mapped.upper_bound(begin);
+        if (it != mapped.begin() && std::prev(it)->second > begin) return false;
+        if (it != mapped.end() && it->first < begin + length) return false;
+        return true;
+    }
+
     Ranges free_;
 };
 
 art::HeapWindowPlace reserve(AddressSpace &space) {
-    return art::ReserveHeapWindow([&](std::size_t length) { return space.map(length); },
-                                  [&](std::uintptr_t begin, std::size_t length) { space.unmap(begin, length); },
-                                  page);
+    return art::ReserveHeapWindow(
+        [&](std::uintptr_t hint, std::size_t length) { return space.map(hint, length); },
+        [&](std::uintptr_t begin, std::size_t length) { space.unmap(begin, length); }, page);
 }
 
 // Whether only [begin, end) is mapped, so every probe went back.
@@ -158,10 +173,13 @@ bool only_mapped(const AddressSpace &space, std::uintptr_t begin, std::uintptr_t
     return space.mapped.size() == 1 && space.mapped.begin()->first == begin && space.mapped.begin()->second == end;
 }
 
-// Whether the window is the upper half of the 4 GiB at `aligned`, and only it stayed mapped.
+// Whether the window is the upper half of the 4 GiB at `aligned`, with the null page [aligned, aligned + page) kept
+// as a no-access guard beside it and nothing else mapped.
 bool upper_half_at(const AddressSpace &space, const art::HeapWindowPlace &place, std::uintptr_t aligned) {
     return place.base == aligned && place.begin == aligned + 2 * gib && place.end == aligned + 4 * gib &&
-           only_mapped(space, aligned + 2 * gib, aligned + 4 * gib);
+           place.guard && space.mapped.size() == 2 && space.mapped.count(aligned) == 1 &&
+           space.mapped.at(aligned) == aligned + page && space.mapped.count(aligned + 2 * gib) == 1 &&
+           space.mapped.at(aligned + 2 * gib) == aligned + 4 * gib;
 }
 
 TEST(with_room_for_8_gib_the_window_is_all_4_gib_cut_out_of_them) {
@@ -170,6 +188,8 @@ TEST(with_room_for_8_gib_the_window_is_all_4_gib_cut_out_of_them) {
     const auto place = reserve(space);
     CHECK(place.base == 8 * gib && place.begin == 8 * gib && place.end == 12 * gib);
     CHECK(only_mapped(space, 8 * gib, 12 * gib));
+    // The null page [base, base + page) is inside that one mapping and never given out, so it guards null.
+    CHECK(place.guard);
 }
 
 TEST(without_room_for_8_gib_the_window_is_the_upper_2_gib_of_an_aligned_4_in_the_largest_piece) {
@@ -213,6 +233,40 @@ TEST(a_piece_of_6_gib_less_a_page_holds_the_lowest_upper_half_wherever_it_begins
             CHECK(upper_half_at(space, reserve(space), half - 2 * gib));
         }
     }
+}
+
+TEST(the_null_page_below_the_piece_is_reserved_as_a_guard_in_the_upper_half) {
+    // The 6 GiB piece [6, 12) gives the upper half of [4, 8), so the base 4 GiB lies 2 GiB below the piece: the
+    // guard page [base, base + page) is reserved there on its own, by a hint, beside the window.
+    AddressSpace space({{6 * gib, 6 * gib}});
+    const auto place = reserve(space);
+    CHECK(upper_half_at(space, place, 4 * gib));
+    CHECK(space.mapped.at(4 * gib) == 4 * gib + page);
+}
+
+TEST(a_base_with_its_null_page_taken_retries_at_the_next_aligned_base) {
+    // The lowest base (4 GiB) has its guard page taken, so the reservation must not clobber it (Darwin MAP_FIXED
+    // would) and instead moves up to the next aligned base (8 GiB), whose guard lies inside the piece.
+    AddressSpace space({{6 * gib, 6 * gib}});
+    space.map(4 * gib, page);  // something else already holds the 4 GiB base's null page
+    const auto place = reserve(space);
+    CHECK(place.base == 8 * gib && place.begin == 10 * gib && place.end == 12 * gib && place.guard);
+    CHECK(space.mapped.count(8 * gib) == 1 && space.mapped.at(8 * gib) == 8 * gib + page);  // the guard
+    CHECK(space.mapped.count(10 * gib) == 1 && space.mapped.at(10 * gib) == 12 * gib);      // the window
+    CHECK(space.mapped.count(4 * gib) == 1 && space.mapped.at(4 * gib) == 4 * gib + page);  // left intact
+    CHECK(space.mapped.size() == 3);
+}
+
+TEST(when_no_base_can_be_guarded_nothing_is_reserved_so_the_caller_refuses) {
+    // A 4 GiB piece gives only one upper-half base (4 GiB) and no room for 8 GiB. With that base's null page taken,
+    // no placement gets a guard, so the reservation yields nothing (D3: never run the unconditional decode with no
+    // guard). The piece is given back and the taken page is left intact.
+    AddressSpace space({{6 * gib, 4 * gib}});
+    space.map(4 * gib, page);
+    const auto place = reserve(space);
+    CHECK(place.base == 0 && place.begin == 0 && place.end == 0 && !place.guard);
+    CHECK(space.mapped.count(4 * gib) == 1 && space.mapped.at(4 * gib) == 4 * gib + page);
+    CHECK(space.mapped.size() == 1);  // only the pre-existing mapping; the piece went back
 }
 
 TEST(without_either_nothing_is_reserved_and_every_probe_goes_back) {
