@@ -400,20 +400,66 @@ TEST(a_conflict_the_user_discards_is_forgotten_and_a_later_file_of_that_name_is_
     CHECK(t.known() == "somebody else\n");                                   // (the record and its original are gone)
 }
 
-TEST(a_clean_clone_seen_missing_is_forgotten_before_the_app_makes_another_file_of_that_name) {
+TEST(a_clean_clone_missing_at_two_scans_in_a_row_is_forgotten) {
     Tracked t;
     std::vector<std::string> forgotten;
     t.write_back.on_forget = [&](const std::string &name) { forgotten.push_back(name); };
     ::unlink((t.layout.download + "/known.txt").c_str());
     t.write_back.scan(1000);
+    CHECK(t.write_back.tracked("known.txt") && forgotten.empty());           // once is a save in between
+    t.write_back.scan(2000);
     CHECK(!t.write_back.tracked("known.txt") && forgotten == std::vector<std::string>{"known.txt"});
     write_file(t.layout.download + "/known.txt", "export.csv under a name the user once picked\n");
-    t.write_back.closed("known.txt", 2000);
+    t.write_back.closed("known.txt", 3000);
     t.write_back.end_session(5000);
     CHECK(t.known() == "hello\n");
 }
 
-TEST(a_dirty_clone_that_is_gone_when_it_is_written_back_is_forgotten) {
+TEST(a_clean_clone_missing_when_the_session_ends_is_forgotten_at_once) {
+    Tracked t;
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    t.write_back.end_session(1000);
+    CHECK(!t.write_back.tracked("known.txt"));
+}
+
+TEST(a_clone_that_is_back_between_two_scans_is_not_forgotten) {
+    Tracked t;
+    const std::string path = t.layout.download + "/known.txt";
+    const std::string aside = path + ".aside";
+    // The fixture's clone_base is the original's version; track the clone again with its own.
+    std::string text;
+    ph::Version clone_now, original_now;
+    CHECK(ph::read_regular_at(ph::open_base(t.layout.download), "known.txt", text, clone_now));
+    CHECK(ph::read_regular_at(ph::open_base(t.layout.source), "known.txt", text, original_now));
+    t.write_back.track("known.txt", std::make_unique<CountingOriginal>(t.layout.source + "/known.txt"), original_now,
+                       clone_now);
+    CHECK(::rename(path.c_str(), aside.c_str()) == 0);
+    t.write_back.scan(1000);
+    CHECK(::rename(aside.c_str(), path.c_str()) == 0);                       // the same file, with its identity
+    t.write_back.scan(2000);
+    CHECK(!t.write_back.holds("known.txt"));                                 // still clean: the same file came back
+    CHECK(::rename(path.c_str(), aside.c_str()) == 0);
+    t.write_back.scan(3000);                                                 // missing once more: the count began again
+    CHECK(t.write_back.tracked("known.txt"));
+}
+
+TEST(a_save_by_unlink_and_rename_with_a_flush_between_is_a_conflict_and_loses_nothing) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    t.write_back.flush(5000, false);                                         // the app's temp file is not there yet
+    CHECK(t.write_back.tracked("known.txt") && t.write_back.holds("known.txt"));
+    write_file(t.layout.download + "/.tmp-save", "the app's work\n");
+    CHECK(::rename((t.layout.download + "/.tmp-save").c_str(), (t.layout.download + "/known.txt").c_str()) == 0);
+    t.write_back.scan(6000);
+    t.write_back.flush(10000, false);
+    CHECK(t.write_back.conflicts() == std::vector<std::string>{"known.txt"});
+    CHECK(t.known() == "hello\n");                                          // never written over the user's file
+    CHECK(!t.write_back.removable("known.txt"));
+}
+
+TEST(a_dirty_clone_missing_at_two_flushes_in_a_row_is_forgotten) {
     Tracked t;
     std::vector<std::string> forgotten;
     t.write_back.on_forget = [&](const std::string &name) { forgotten.push_back(name); };
@@ -421,8 +467,36 @@ TEST(a_dirty_clone_that_is_gone_when_it_is_written_back_is_forgotten) {
     t.write_back.closed("known.txt", 0);
     ::unlink((t.layout.download + "/known.txt").c_str());
     t.write_back.flush(5000, false);
+    CHECK(t.write_back.tracked("known.txt") && forgotten.empty());
+    t.write_back.flush(10000, false);
     CHECK(!t.write_back.tracked("known.txt") && forgotten == std::vector<std::string>{"known.txt"});
     CHECK(t.known() == "hello\n" && t.write_back.conflicts().empty());
+}
+
+TEST(a_dirty_clone_that_is_back_at_a_flush_starts_the_count_again) {
+    Tracked t;
+    const std::string path = t.layout.download + "/known.txt";
+    write_file(path, "edited\n");
+    t.write_back.closed("known.txt", 0);
+    CHECK(::rename(path.c_str(), (path + ".aside").c_str()) == 0);
+    t.write_back.flush(5000, false);                                         // missing once
+    CHECK(::rename((path + ".aside").c_str(), path.c_str()) == 0);
+    t.write_back.flush(10000, false);                                        // due again, the same file: written
+    CHECK(t.known() == "edited\n" && !t.write_back.holds("known.txt"));
+    write_file(path, "edited again\n");
+    t.write_back.closed("known.txt", 11000);
+    CHECK(::rename(path.c_str(), (path + ".aside").c_str()) == 0);
+    t.write_back.flush(15000, false);                                        // missing once, not twice
+    CHECK(t.write_back.tracked("known.txt"));
+}
+
+TEST(a_dirty_clone_missing_at_the_final_flush_is_forgotten_at_once) {
+    Tracked t;
+    write_file(t.layout.download + "/known.txt", "edited\n");
+    t.write_back.closed("known.txt", 0);
+    ::unlink((t.layout.download + "/known.txt").c_str());
+    t.write_back.end_session(5000);
+    CHECK(!t.write_back.tracked("known.txt") && t.known() == "hello\n");
 }
 
 TEST(a_file_that_is_not_the_clone_any_more_is_never_written_back_even_after_a_restart) {

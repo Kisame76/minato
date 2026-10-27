@@ -419,22 +419,22 @@ public:
     }
 
     /// Finds the clones that changed without a close being reported (a write through a mapping, a rename over the
-    /// clone); they are written back one second later, as after a close. A clone that is untouched and gone is
-    /// forgotten: a file the app makes under that name later is its own, not the user's file.
+    /// clone); they are written back one second later, as after a close. A clone that is untouched and gone at
+    /// two scans in a row is forgotten: a file the app makes under that name later is its own, not the user's file.
     void scan(std::int64_t now_ms) {
-        announce([&] { scan_locked(now_ms); });
+        announce([&] { scan_locked(now_ms, false); });
     }
 
     /// Writes back what is due at `now_ms`, or everything dirty when `force` (the session goes to the background).
     void flush(std::int64_t now_ms, bool force) {
-        announce([&] { flush_locked(now_ms, force); });
+        announce([&] { flush_locked(now_ms, force, false); });
     }
 
     /// The session ends: what a mapping changed is found, everything is written, the records are stored.
     void end_session(std::int64_t now_ms) {
         announce([&] {
-            scan_locked(now_ms);
-            flush_locked(now_ms, true);
+            scan_locked(now_ms, true);
+            flush_locked(now_ms, true, true);
             save();
         });
     }
@@ -563,7 +563,7 @@ private:
         return true;
     }
 
-    void scan_locked(std::int64_t now_ms) {
+    void scan_locked(std::int64_t now_ms, bool final) {
         bool changed = false;
         const Dir download = open_base(download_);
         std::vector<std::string> gone;
@@ -573,9 +573,12 @@ private:
             struct stat info {};
             if (!download.ok()) continue;
             if (::fstatat(download.fd(), entry.first.c_str(), &info, AT_SYMLINK_NOFOLLOW) != 0) {
-                if (errno == ENOENT) gone.push_back(entry.first);
+                // Missing once may be a save that unlinks the file before it renames another over it: the record
+                // waits for the next scan, which finds that file (another identity: a conflict) or still nothing.
+                if (errno == ENOENT && (final || ++record.missed >= 2)) gone.push_back(entry.first);
                 continue;
             }
+            record.missed = 0;
             Version now;
             now.dev = static_cast<std::uint64_t>(info.st_dev);
             now.ino = info.st_ino;
@@ -591,13 +594,13 @@ private:
         if (changed || !gone.empty()) save();
     }
 
-    void flush_locked(std::int64_t now_ms, bool force) {
+    void flush_locked(std::int64_t now_ms, bool force, bool final) {
         std::vector<std::string> due;
         for (const auto &entry : records_) {
             if (entry.second.state == DIRTY && (force || entry.second.due_ms <= now_ms)) due.push_back(entry.first);
         }
         for (const std::string &name : due) {
-            write_back(name, records_.at(name), now_ms);
+            write_back(name, records_.at(name), now_ms, final);
             save();
         }
     }
@@ -632,6 +635,7 @@ private:
         State state = CLEAN;
         std::int64_t due_ms = 0;
         int failures = 0;  // of the write in a row; not stored
+        int missed = 0;    // scans or flushes in a row that found the clone missing; not stored
         std::string copy;
     };
 
@@ -680,19 +684,24 @@ private:
         if (written) record.copy = chosen; else ::unlinkat(state.fd(), chosen.c_str(), 0);
     }
 
-    void write_back(const std::string &clone, Record &record, std::int64_t now_ms) {
+    void write_back(const std::string &clone, Record &record, std::int64_t now_ms, bool final) {
         const Dir download = open_base(download_);
         std::string content;
         Version version;
         int error = 0;
         if (!download.ok() || !read_regular_at(download, clone, content, version, &error)) {
             if (error == ENOENT) {
-                forget(clone);                                               // nothing to write back, nothing to guard
+                if (final || ++record.missed >= 2) {
+                    forget(clone);                                           // nothing to write back, nothing to guard
+                } else {
+                    record.due_ms = now_ms + delay_ms;                       // a save in between may bring the file
+                }
             } else {
                 record.state = CONFLICT;
             }
             return;
         }
+        record.missed = 0;
         if (!version.same_file(record.clone_base)) {
             // Another file has this name now (the app deleted the clone and made one, or renamed one over it): it is
             // not what was cloned, so it is never written over the user's file; the user decides.

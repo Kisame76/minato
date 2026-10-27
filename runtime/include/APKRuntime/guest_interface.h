@@ -218,10 +218,13 @@ enum apkrt_event_type {
                                           // conflict, and the guest's cleaning of unkept clones is harmless because the
                                           // host holds the app's version. A record never outlives its clone: the
                                           // host forgets it (and stops watching the file) when the user lets a
-                                          // conflict go, when an untouched clone is seen missing, and when a clone
-                                          // is missing at the write-back; a file the app makes under that name
-                                          // later is its own. Each record keeps the clone's identity (device, inode
-                                          // and birth time as made), across restarts too, and a file of the clone's
+                                          // conflict go and when the clone is missing at two checks in a row (the
+                                          // 100 ms scans of an untouched clone, the write-backs of a changed one) or
+                                          // at the session's final one; a save that unlinks the clone and renames
+                                          // another file to its name between two checks is a conflict, not a loss.
+                                          // A file the app makes under that name later is its own. Each record
+                                          // keeps the clone's identity (device, inode and birth time as made),
+                                          // across restarts too, and a file of the clone's
                                           // name with another identity is not the clone: it is never written back,
                                           // its version is kept and the user decides (so a save that renames a file
                                           // over the clone is a conflict, not a silent write). A clone with no
