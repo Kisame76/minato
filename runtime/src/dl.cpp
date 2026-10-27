@@ -155,6 +155,8 @@ struct State {
     int argc = 0;
     char **argv = nullptr;
     char **envp = nullptr;
+    // The FPS unlock's rate (ADR-0066), 0 for none, as the host set it before the program starts.
+    int frame_rate_unlock = 0;
 };
 
 State &state() {
@@ -942,6 +944,14 @@ void *guest_dlsym(void *handle, const char *name, const char *version_text, cons
         linker::note_resolved("dlsym", name, caller_library != nullptr ? caller_library->object.name : "?",
                               found_in->object.name);
     }
+    // The FPS unlock's wrappers stand for the registration functions here too (ADR-0066).
+    if (const auto *taken = linker::override_of(name); taken != nullptr && &found_in->object != taken->wrapper) {
+        const Library *caller_library = containing(state, reinterpret_cast<std::uint64_t>(caller));
+        if (caller_library == nullptr || &caller_library->object != taken->wrapper) {
+            *taken->original = linker::symbol_address(found_in->object, *symbol);
+            return reinterpret_cast<void *>(linker::symbol_address(*taken->wrapper, *taken->replacement));
+        }
+    }
     return address_of(state, *found_in, *symbol);
 }
 
@@ -987,6 +997,41 @@ int guest_dladdr(const void *address, void *raw_info) {
 
 /// Ends the process the way linker64 ends a program it cannot link: the message on stderr, then in
 /// the log, which is stderr here too, in logcat's tag format as our liblog.so writes it.
+/// With an FPS unlock (ADR-0066), its library, loaded as linker64 loads an LD_PRELOAD library: after the program, in
+/// the global group, before anything is relocated; with the rate written into it and the overrides of the two
+/// registration functions pointing at its wrappers. The libraries it adds to the program's group, none without one.
+std::vector<Library *> preload_frame_rate(State &state, Library &program, bool &missed) {
+    if (state.frame_rate_unlock == 0) return {};
+    constexpr std::string_view name = "libminato-frame-rate.so";
+    auto located = locate(state, *program.ns, name, &program, true, missed);
+    if (located.loaded != nullptr) return {};  // a library the program needs: it is already in the group
+    if (!located.found) throw LoadError(std::format("library \"{}\" not found: needed for the FPS unlock", name));
+    auto &library = load_library(state, name, std::move(*located.found), *located.space);
+    library.object.dynamic.global = true;  // in the global group, where linker64 puts its LD_PRELOAD libraries
+    auto added = load_needed(state, library, false, missed);
+    const auto &object = library.object;
+    const auto symbol = [&](const char *wanted) {
+        const auto *found = linker::find_symbol(object, wanted);
+        if (found == nullptr) throw LoadError(std::format("{} lacks {}", name, wanted));
+        return found;
+    };
+    *reinterpret_cast<std::int32_t *>(linker::symbol_address(object, *symbol("minato_frame_rate_target"))) =
+        state.frame_rate_unlock;
+    std::vector<linker::Override> overrides;
+    const char *const runtimes[] = {"il2cpp", "mono"};
+    for (std::size_t index = 0; index < std::size(runtimes); ++index) {
+        const auto *original = symbol(std::format("minato_frame_rate_{}_original", runtimes[index]).c_str());
+        auto *slot = reinterpret_cast<std::uint64_t *>(linker::symbol_address(object, *original));
+        overrides.push_back({.name = std::format("{}_add_internal_call", runtimes[index]),
+                             .wrapper = &object,
+                             .replacement = symbol(std::format("minato_frame_rate_{}_add_internal_call",
+                                                               runtimes[index]).c_str()),
+                             .original = slot});
+    }
+    linker::set_overrides(std::move(overrides));
+    return added;
+}
+
 [[noreturn]] void fail(const std::string &message) {
     const auto text = std::format("CANNOT LINK EXECUTABLE \"{}\": {}", state().program_name, message);
     const auto lines = std::format("{}\nF/{:<8}: {}\n", text, "linker", text);
@@ -1111,7 +1156,8 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         program.ns = &namespace_of_program(state, path);
         for (auto &space : state.namespaces) add_to(space, program);
         bool missed = false;  // libc.so's start sets errno to 0 anyway
-        const auto added = load_needed(state, program, true, missed);
+        auto added = load_needed(state, program, true, missed);
+        for (auto *library : preload_frame_rate(state, program, missed)) added.push_back(library);
         for (auto *library : added) {
             library->global = true;
             library->group_root = &program;
@@ -1211,3 +1257,11 @@ void finish_start(int argc, char **argv, char **envp) {
 }
 
 }  // namespace apkrt::dl
+
+extern "C" int apkrt_set_frame_rate_unlock(int rate) {
+    if (rate != 0 && rate != 60 && rate != 120) return -1;
+    auto &state = apkrt::dl::state();
+    const std::lock_guard lock(state.mutex);
+    state.frame_rate_unlock = rate;
+    return 0;
+}

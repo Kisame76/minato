@@ -487,6 +487,12 @@ Definition lookup(const Object &object, std::uint32_t index, std::span<const Obj
     for (const auto *candidate : scope) {
         if (const auto *definition = find_symbol(*candidate, name, version)) {
             note_resolved("import", name, object.name, candidate->name);
+            // Never for the wrapper's own lookups, which reach the definition it stands for.
+            if (const auto *taken = override_of(name);
+                taken != nullptr && candidate != taken->wrapper && &object != taken->wrapper) {
+                *taken->original = symbol_address(*candidate, *definition);
+                return {taken->wrapper, taken->replacement, name};
+            }
             return {candidate, definition, name};
         }
     }
@@ -498,12 +504,26 @@ Definition lookup(const Object &object, std::uint32_t index, std::span<const Obj
 /// MINATO_RESOLVE_LOG's prefixes, set before any guest thread and only read after.
 std::vector<std::string> watched_prefixes;
 
+/// The overrides (ADR-0066), likewise.
+std::vector<Override> overrides;
+
 bool is_tls_relocation(std::uint32_t type) {
     return type == r_aarch64_tls_dtpmod64 || type == r_aarch64_tls_dtprel64 || type == r_aarch64_tls_tprel64 ||
            type == r_aarch64_tlsdesc;
 }
 
 }  // namespace
+
+void set_overrides(std::vector<Override> taken) {
+    overrides = std::move(taken);
+}
+
+const Override *override_of(std::string_view name) {
+    for (const auto &taken : overrides) {
+        if (taken.name == name) return &taken;
+    }
+    return nullptr;
+}
 
 void watch_resolves(const char *const envp[]) {
     watched_prefixes.clear();

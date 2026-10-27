@@ -98,6 +98,22 @@ bool watched(std::string_view name);
 /// its scripting runtime's API without a look into its libraries.
 void note_resolved(std::string_view how, std::string_view name, std::string_view by, std::string_view definer);
 
+/// A name the loader resolves to a definition of its own (ADR-0066): an import of `name`, or a dlsym of it, that finds
+/// a definition outside `wrapper` gets `replacement`, a definition in `wrapper`, and the definition it found goes into
+/// `*original`, for the replacement to call.
+struct Override {
+    std::string name;
+    const Object *wrapper = nullptr;
+    const Symbol *replacement = nullptr;
+    std::uint64_t *original = nullptr;
+};
+
+/// The overrides from now on, none by default. Set at the program's start, before any guest thread.
+void set_overrides(std::vector<Override> overrides);
+
+/// The override of `name`, or nullptr.
+const Override *override_of(std::string_view name);
+
 /// Applies every relocation of `object` (RELA, PLT, RELR) except the TLS ones, resolving symbols in
 /// `scope`. ifunc symbols and R_AARCH64_IRELATIVE call their resolver, which is guest code, with
 /// the device's AT_HWCAP and AT_HWCAP2 (hwcap::guest, ADR-0047), as linker64 does.

@@ -7,7 +7,7 @@
 //           [--pick-state <host directory>] [--export-dir <host directory>]
 //           [--pick-photo <host file>]... [--sensor-script <host file>]
 //           [--grant-location fine|coarse|denied] [--location-script <host file>]
-//           [--device-profile pixel|galaxy]
+//           [--device-profile pixel|galaxy] [--frame-rate 60|120]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
@@ -978,6 +978,7 @@ int main(int argc, char **argv) {
     std::string location_script;
     std::int32_t location_grant = -1;  // -1: no --grant-location, so the runtime stays at its default (no grant)
     std::string device_profile;        // empty: no --device-profile, so the host's own names (ADR-0065)
+    int frame_rate = 0;                // 0: no --frame-rate, so no FPS unlock (ADR-0066)
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
@@ -1035,6 +1036,10 @@ int main(int argc, char **argv) {
             if (!ok) return usage();
         } else if (option == "--device-profile") {
             device_profile = value;
+        } else if (option == "--frame-rate") {
+            // The FPS unlock (ADR-0066): 60 or 120.
+            if (value != "60" && value != "120") return usage();
+            frame_rate = std::stoi(value);
         } else if (option == "--pick-state") {
             pick_config.state = value;
         } else if (option == "--measures") {
@@ -1104,6 +1109,7 @@ int main(int argc, char **argv) {
         if (const char *environment = std::getenv("MINATO_DEVICE_PROFILE")) device_profile = environment;
     }
     if (apkrt_set_device_profile(device_profile.c_str()) != 0) return usage();
+    if (apkrt_set_frame_rate_unlock(frame_rate) != 0) return usage();
     if (!location_script.empty()) start_location_feed(location_script);
     watch_clones();
     apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);

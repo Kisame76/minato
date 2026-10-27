@@ -303,6 +303,12 @@ apk_bionic_unit(apk_openmaxal SOURCES "${android_sources}/openmaxal.c" INCLUDES 
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libOpenMAXAL UNITS apk_openmaxal NEEDED libc VERSION_SCRIPTS "${openmaxal_map}")
 
+# libminato-frame-rate.so (ADR-0066): the FPS unlock's wrappers of il2cpp_add_internal_call and
+# mono_add_internal_call, which the loader preloads only with an unlock (runtime/android/frame_rate.c).
+apk_bionic_unit(apk_frame_rate SOURCES "${android_sources}/frame_rate.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libminato-frame-rate UNITS apk_frame_rate NEEDED libc)
+
 # activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 # process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with
 # libandroid's asset manager and the JNI stub. A PIE with linker64 as its interpreter, like the NDK's

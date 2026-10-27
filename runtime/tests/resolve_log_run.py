@@ -16,9 +16,12 @@ import os
 import subprocess
 import sys
 
+# fixtures/expected/frame-cap-test.out
 OUTPUT = [
     "frame-cap-test: 30 fps before the app sets a rate",
     "frame-cap-test: the app set 60, the getter answers 60, the engine runs at 60 fps",
+    "frame-cap-test: the app set -1, the getter answers -1, the engine runs at 30 fps",
+    "frame-cap-test: the app set 240, the getter answers 240, the engine runs at 240 fps",
 ]
 IMPORT = "D/linker  : import il2cpp_add_internal_call by libframe-cap-engine.so: libframe-cap-api.so"
 DLSYM = "D/linker  : dlsym mono_add_internal_call by libframe-cap-engine.so: libframe-cap-api.so"

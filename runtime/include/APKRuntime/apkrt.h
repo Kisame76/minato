@@ -630,6 +630,13 @@ int apkrt_set_opengles_version(uint32_t version);
 /// follow in a later step; nothing here touches attestation, build tags or the debuggable flag.
 int apkrt_set_device_profile(const char *name);
 
+/// Sets the program's FPS unlock (ADR-0066): 60 or 120 frames per second, 0 for none (the default), before the program
+/// starts. With one, the loader preloads /system/lib64/libminato-frame-rate.so and resolves il2cpp_add_internal_call
+/// and mono_add_internal_call, by import and by dlsym alike, to its wrappers, which raise a targetFrameRate the app
+/// sets below the unlock, or -1, to it; without one nothing is loaded and nothing changes. Returns 0, or -1 for another
+/// rate, which leaves the unlock as it was.
+int apkrt_set_frame_rate_unlock(int rate);
+
 /// Whether the app holds android.permission.INTERNET (ADR-0054 step c2a), from its manifest. Without it, AF_INET and
 /// AF_INET6 sockets answer EPERM, as netd's BPF program makes Android's kernel answer, and the guest's DNS proxy answers
 /// only from the hosts file, failing every other name and address as Android's proxy fails a uid whose networking is
