@@ -1,5 +1,6 @@
 // The parity benchmark's scene without an API (ADR-0037, decision 1; M6's MetalFX plan, step 0): bench.conf's render
-// scale and the offscreen target's size that follows from it.
+// scale and the offscreen target's size that follows from it; the engine cap and the FPS unlock (ADR-0066 step 4):
+// bench.conf's cap and unlock, the rate an engine draws at for its target, the wrapper's raise and the limiter.
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -68,6 +69,41 @@ int main(void) {
     expect(width == 1 && height == 1, "a side is never 0");
     bench_target_size(256, 256, 100, &width, &height);
     expect(width == 256 && height == 256, "a small window at 100 %");
+
+    // ADR-0066 step 4: without cap and unlock the scene draws every tick, as before.
+    bench_conf_defaults(&conf);
+    expect(conf.cap == 0 && conf.unlock == 0, "no cap and no unlock by default");
+    expect(parse("cap=-1\n", &conf) == 0 && conf.cap == -1, "cap=-1, Unity's default, is taken");
+    expect(parse("cap=30\nunlock=120\n", &conf) == 0 && conf.cap == 30 && conf.unlock == 120, "cap=30, unlock=120");
+    expect(parse("cap=1000\nunlock=60\n", &conf) == 0 && conf.cap == 1000 && conf.unlock == 60, "cap=1000, unlock=60");
+    static const char *const refused_cap[] = {"cap=0\n", "cap=-2\n", "cap=1001\n", "cap=x\n", "cap=\n",
+                                              "unlock=90\n", "unlock=0\n", "unlock=-1\n", "unlock=\n"};
+    for (size_t index = 0; index < sizeof refused_cap / sizeof refused_cap[0]; ++index) {
+        char what[64];
+        snprintf(what, sizeof what, "%.*s is refused", (int)strcspn(refused_cap[index], "\n"), refused_cap[index]);
+        expect(parse(refused_cap[index], &conf) == -1, what);
+    }
+
+    // Unity on Android and iOS: -1 (or any value up to 0) draws at 30 frames per second, a positive value at itself.
+    expect(bench_cap_rate(-1) == 30 && bench_cap_rate(0) == 30, "-1 and 0 draw at 30");
+    expect(bench_cap_rate(60) == 60 && bench_cap_rate(240) == 240, "a set rate draws at itself");
+    // The loader's wrapper (runtime/android/frame_rate.c): -1 or a rate below the unlock becomes the unlock.
+    expect(bench_cap_raise(30, 0) == 30 && bench_cap_raise(-1, 0) == -1, "no unlock keeps the cap");
+    expect(bench_cap_raise(30, 120) == 120 && bench_cap_raise(-1, 60) == 60, "the unlock raises -1 and a lower cap");
+    expect(bench_cap_raise(240, 120) == 240 && bench_cap_raise(60, 60) == 60, "a cap at or above the unlock stays");
+
+    // The limiter on ticks `period` apart: a tick is due once the rate's interval has passed, within half a period.
+    const int64_t at120 = 8333333, at60 = 16666667;
+    expect(!bench_cap_due(3 * at120, at120, 30) && bench_cap_due(4 * at120, at120, 30), "30 on 120 Hz: every 4th tick");
+    expect(!bench_cap_due(at120, at120, 60) && bench_cap_due(2 * at120, at120, 60), "60 on 120 Hz: every 2nd tick");
+    expect(bench_cap_due(at120, at120, 120), "120 on 120 Hz: every tick");
+    expect(bench_cap_due(at60, at60, 120) && bench_cap_due(at60, at60, 60), "120 or 60 on 60 Hz: every tick");
+    expect(!bench_cap_due(at60, at60, 30) && bench_cap_due(2 * at60, at60, 30), "30 on 60 Hz: every 2nd tick");
+    expect(bench_cap_due(4 * at120 - 2000000, at120, 30) && !bench_cap_due(3 * at120 + 2000000, at120, 30),
+           "a tick 2 ms early or late is taken as its own");
+    // A rate that divides no display rate: the nearest whole number of periods.
+    expect(bench_cap_due(at120, at120, 90), "90 on 120 Hz: every tick");
+    expect(!bench_cap_due(2 * at120, at120, 45) && bench_cap_due(3 * at120, at120, 45), "45 on 120 Hz: every 3rd tick");
 
     printf(failures ? "%d failures\n" : "PASS: graphics.bench_scene\n", failures);
     return failures != 0;

@@ -16,6 +16,22 @@ struct BenchSceneTests {
         #expect(BenchConf.text(for: BenchRun("gles-120-heavy-native-00")!, seconds: 3).hasSuffix("seconds=3\n"))
     }
 
+    /// ADR-0066 step 4: the engine cap and the FPS unlock are lines of bench.conf only when they are set.
+    @Test func benchConfCarriesTheCapAndTheUnlockOnlyWhenSet() {
+        let run = BenchRun("gles-120-light-apk-02")!
+        #expect(BenchConf.text(for: run, cap: 0, unlock: 0) == BenchConf.text(for: run))
+        #expect(BenchConf.text(for: run, seconds: 3, cap: 30, unlock: 120) == """
+            run=gles-120-light-apk-02
+            rate=120
+            load=light
+            seconds=3
+            cap=30
+            unlock=120
+
+            """)
+        #expect(BenchConf.text(for: run, seconds: 3, cap: -1).hasSuffix("seconds=3\ncap=-1\n"))
+    }
+
     /// M6's MetalFX plan, step 0: the scene's render scale, in percent, is a line of bench.conf only when it is
     /// not 100.
     @Test func benchConfCarriesTheRenderScaleOnlyWhenItIsNot100() {

@@ -65,5 +65,5 @@ for app in bench-gles bench-vulkan bench-gles31; do
   library=$app
   [[ "$app" != bench-gles31 ]] || library=bench-gles
   tools/make-apk.sh --manifest "graphics/bench/android/$app/AndroidManifest.xml" --lib "$out/bin/lib$library.so" \
-    --out "$out/$app.apk"
+    --lib "$out/bin/libbench-scripting.so" --out "$out/$app.apk"
 done

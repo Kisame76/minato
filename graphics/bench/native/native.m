@@ -5,7 +5,9 @@
 // slice (ADR-0030, decision 8). A render thread at QOS_CLASS_USER_INTERACTIVE (QOS_CLASS_DEFAULT with the launch
 // argument -benchmarkRenderQoS default, ADR-0030 V5) draws a frame per tick that minato_bench_tick passes in, the
 // latest it has not drawn, until bench.conf's seconds from the first frame's tick. With the launch argument
-// -benchmarkQueuePath libvulkan, MoltenVK gets the calls with libvulkan's queue path (queue_path.h, ADR-0030 V5).
+// -benchmarkQueuePath libvulkan, MoltenVK gets the calls with libvulkan's queue path (queue_path.h, ADR-0030 V5). With
+// bench.conf's cap (ADR-0066 step 4) the twin is the engine's iOS build: it holds the cap as raised by bench.conf's
+// unlock, as the APK's setter takes it from the loader's wrapper, and draws only on the ticks its limiter takes.
 #define VK_NO_PROTOTYPES
 #import <QuartzCore/QuartzCore.h>
 
@@ -108,7 +110,11 @@ static void *render(void *unused) {
 
     int frame = 0, failed = gles == NULL && vulkan == NULL;
     uint64_t seen = 0;
-    int64_t first = 0;
+    int64_t first = 0, last = 0;
+    const int rate = bench_cap_rate(bench_cap_raise(bench.conf.cap, bench.conf.unlock));
+    if (bench.conf.cap != 0) {
+        bench_log("cap %d, unlock %d: the engine draws at %d fps", bench.conf.cap, bench.conf.unlock, rate);
+    }
     while (!failed) {
         pthread_mutex_lock(&bench.lock);
         while (bench.ticks == seen) pthread_cond_wait(&bench.changed, &bench.lock);
@@ -117,6 +123,10 @@ static void *render(void *unused) {
         pthread_mutex_unlock(&bench.lock);
         if (frame == 0) first = tick;
         if (tick - first >= (int64_t)bench.conf.seconds * 1000000000) break;
+        // With a cap, the engine's limiter skips the ticks before its interval has passed, as the APK's does.
+        const int64_t period = 1000000000 / bench.conf.rate;
+        if (bench.conf.cap != 0 && frame > 0 && !bench_cap_due(tick - last, period, rate)) continue;
+        last = tick;
         const int64_t cpu = bench_cpu_ns();
         if (gles != NULL) {
             const EGLint result = bench_gles_frame(gles, frame);

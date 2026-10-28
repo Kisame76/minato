@@ -36,6 +36,22 @@ enum BenchmarkConditions {
         scene == .parity && UserDefaults.standard.string(forKey: "benchmarkLoad") == "fill" ? "fill" : nil
     }
 
+    /// ADR-0066 step 4: the engine cap of ADR-0037's scene, the targetFrameRate its engine sets, from the launch
+    /// argument `-benchmarkCap <n>` ("benchmarkCap"), -1 or 1 to 1000; 0, none, without it, with a value outside, and
+    /// always for test 2's Godot scene. A by-hand measure like the render scale: run.csv does not record it.
+    nonisolated static func engineCap(for scene: BenchScene) -> Int {
+        let cap = UserDefaults.standard.integer(forKey: "benchmarkCap")
+        return scene == .parity && (cap == -1 || (1...1000).contains(cap)) ? cap : 0
+    }
+
+    /// ADR-0066 step 4: the FPS unlock of a capped run, from `-benchmarkUnlock 60|120` ("benchmarkUnlock"); 0 without
+    /// it, with another value and without a cap. The APK's session takes it as an app's profile would, the twin from
+    /// bench.conf.
+    nonisolated static func frameRateUnlock(for scene: BenchScene) -> Int {
+        let unlock = UserDefaults.standard.integer(forKey: "benchmarkUnlock")
+        return engineCap(for: scene) != 0 && (unlock == 60 || unlock == 120) ? unlock : 0
+    }
+
     static func maxFPS() -> Int {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first?.maximumFramesPerSecond
             ?? 0

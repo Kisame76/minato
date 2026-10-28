@@ -25,7 +25,10 @@ enum bench_load { BENCH_LIGHT, BENCH_HEAVY, BENCH_FILL };
    seconds the time to draw from the first frame; check, for tests only, the frame whose CRC the scene logs, at its
    place and drawn once before the first frame, while the GPU is cold; scale, 25 to 100 percent, the offscreen target's
    size per side against the window's, which the post pass stretches over the window (M6's MetalFX plan, step 0:
-   whether a scene is bound by its pixels). */
+   whether a scene is bound by its pixels); cap, the targetFrameRate an engine's script sets (ADR-0066 step 4), -1 or 1
+   to 1000, with which the scene draws only on the ticks the engine's limiter takes; unlock, 60 or 120, the FPS unlock,
+   which only the host build applies itself, as the loader's wrapper raises the APK's cap. Without cap the scene draws
+   on every tick. */
 struct bench_conf {
     char run[64];
     int rate;
@@ -33,6 +36,8 @@ struct bench_conf {
     int seconds;
     int check;  // -1 for none
     int scale;  // percent, 100 by default
+    int cap;     // 0 for none
+    int unlock;  // 0 for none
 };
 
 /* Without bench.conf, the emulator's defaults: 60 Hz, light, 10 s. */
@@ -44,6 +49,22 @@ int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, siz
 /* The offscreen target's size for a window of width x height at `scale` percent: each side rounded to the nearest
    pixel, at least 1. */
 void bench_target_size(int width, int height, int scale, int *target_width, int *target_height);
+
+/* The rate an engine draws at for the targetFrameRate `target` it holds: Unity's 30 frames per second on Android and
+   iOS for -1 (any value up to 0), else the target. */
+int bench_cap_rate(int target);
+
+/* The target the loader's wrapper (runtime/android/frame_rate.c) hands the engine for `cap` under `unlock`, 0 for none:
+   -1 and a cap below the unlock become the unlock, any other cap stays. */
+int bench_cap_raise(int cap, int unlock);
+
+/* Whether a tick `elapsed` ns after the last drawn frame's tick, with ticks `period` ns apart, is one the engine's
+   limiter draws at `rate`: once the rate's interval has passed, within half a period, as a swap interval of whole
+   periods takes it. Both builds pass bench.conf's rate's period, not the time between two ticks, so that a tick the
+   twin's render thread passes over does not move the next drawn frame. A rate that divides no display rate draws at
+   the nearest whole number of periods: on 120 Hz, 90 on every tick and 45 on every 3rd. Whether Unity's limiter or
+   Swappy rounds such a rate to the nearest or up is not verified; the tested caps are divisors of 120. */
+int bench_cap_due(int64_t elapsed, int64_t period, int rate);
 
 /* N: the meshes and the particles of a load with an API, calibrated on the iPhone in step e) (scene.c). */
 int bench_meshes(enum bench_api api, enum bench_load load);

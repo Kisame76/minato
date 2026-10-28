@@ -81,7 +81,8 @@
 # fixtures/expected/views-test.rows (framework/tests/views_compare.py --crop): SystemUI draws over the rest.
 # The benchmark's APKs bench-gles and bench-vulkan (ADR-0037,
 # step c) come from build/graphics/bench (tools/build-bench.sh) and run with the emulator's defaults, as they find
-# no bench.conf: their lines are only shown, and the line of their run must count frames and no failure.
+# no bench.conf: their lines are only shown, and the line of their run must count frames and no failure. With
+# BENCH_CONF they find its lines as their bench.conf (ADR-0066 step 4: an engine cap, cap=30 say).
 # Test 2's Godot APKs godot-bench-vulkan and godot-bench-gles (ADR-0042 a) come from build/godot
 # (tools/build-godot.sh) and run with the emulator's defaults too. Godot logs under its own tag, godot: bench.gd's
 # lines that begin "godot-bench:" must be fixtures/expected/<app>.logcat, the rest are only shown, and the line of
@@ -109,6 +110,8 @@
 #   ANDROID_AVD_HOME  where the AVD lives, default: ~/.android/avd
 #   FIXTURES_BUILD    the fixtures' build directory (tools/build-fixtures.sh), default: build/fixtures
 #   ART_TEST_JARS     the Java programs' jars for --art, default: build/art/test
+#   BENCH_BUILD       the bench's build directory (tools/build-bench.sh), default: build/graphics/bench
+#   BENCH_CONF        bench.conf's lines for bench-gles and bench-vulkan, written into their internalDataPath
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -120,7 +123,7 @@ AVD=apk-runner-35
 IMAGE=system-images/android-35/default/arm64-v8a/
 FIXTURES="${FIXTURES_BUILD:-build/fixtures}/bin"
 APKS="${FIXTURES_BUILD:-build/fixtures}/apks"
-BENCH=build/graphics/bench
+BENCH="${BENCH_BUILD:-build/graphics/bench}"
 RESULTS=build/android-reference
 DEVICE_DIR=/data/local/tmp
 
@@ -325,6 +328,28 @@ wait_for() {
   done
   echo "$1 did not log \"$2\" within $seconds s." >&2
   return 1
+}
+
+# BENCH_CONF's lines as bench.conf in the installed bench's internalDataPath, /data/user/0/<package>/files ($1), with
+# the app's owner and label, written through a root adbd, as the App writes it into a session's data (ADR-0066 step 4).
+bench_conf_in() {
+  local files="/data/user/0/$1/files" rooted_here="" owner
+  if [[ "$(run id -u | tr -d '\r')" != 0 ]]; then
+    rooted_here=yes
+    device root >/dev/null
+    wait_for_adbd 0
+  fi
+  printf '%s\n' "$BENCH_CONF" >"$RESULTS/bench.conf"
+  device push "$RESULTS/bench.conf" /data/local/tmp/bench.conf >/dev/null
+  owner=$(run stat -c %u:%g "/data/user/0/$1" | tr -d '\r')
+  run mkdir -p "$files"
+  run mv /data/local/tmp/bench.conf "$files/bench.conf"
+  run chown -R "$owner" "$files"
+  run restorecon -R "$files"
+  if [[ -n "$rooted_here" ]]; then
+    device unroot >/dev/null
+    wait_for_adbd shell
+  fi
 }
 
 # Waits up to 20 s until adbd, restarted by adb root or unroot, runs the shell as root ($1 = 0) or not (else).
@@ -859,6 +884,9 @@ run_app() {
     # emulator stops before it writes the removal, and gives them back at the next install, which gets the same uid;
     # the package's data cleared drops them, so that each run starts as a first install does.
     run pm clear "${package:?}" >/dev/null
+  fi
+  if [[ -n "${BENCH_CONF:-}" && ("$app" == bench-gles || "$app" == bench-vulkan) ]]; then
+    bench_conf_in "$package"
   fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   if [[ "$app" == rotation-test ]]; then

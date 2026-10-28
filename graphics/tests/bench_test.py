@@ -70,7 +70,9 @@ def crc(output, what):
     return found[0]
 
 
-def check_scene(path, what):
+def check_scene(path, what, frames=FRAMES, every=1):
+    """scene.csv at `path`: a row per frame, `frames` of them, the indices in order, the ticks rising (with a cap
+    `every` periods of 120 Hz apart, within 2 ms) and the CPU times above 0."""
     try:
         lines = path.read_text().splitlines()
     except OSError as error:
@@ -80,8 +82,8 @@ def check_scene(path, what):
         fail(f"{what}: scene.csv lacks its header")
         return
     rows = [line.split(",") for line in lines[1:]]
-    if len(rows) != FRAMES:
-        fail(f"{what}: scene.csv has {len(rows)} rows, not {FRAMES}")
+    if len(rows) != frames:
+        fail(f"{what}: scene.csv has {len(rows)} rows, not {frames}")
         return
     ticks = 0
     for number, row in enumerate(rows):
@@ -91,6 +93,9 @@ def check_scene(path, what):
         index, tick, cpu = (int(field) for field in row)
         if index != number or tick <= ticks or cpu <= 0:
             fail(f"{what}: scene.csv row {number} is {','.join(row)} after tick {ticks}")
+            return
+        if every != 1 and number > 0 and abs(tick - ticks - every * 1e9 / 120) > 2e6:
+            fail(f"{what}: scene.csv row {number}'s tick is {tick - ticks} ns after the last, not {every} periods")
             return
         ticks = tick
 
@@ -137,6 +142,37 @@ def render_scale(args, scratch, plain_by_api):
     if refused.returncode == 0 or "not taken: scale=20" not in refused.stdout:
         fail(f"gles light, host build with -benchmarkScale 20: not refused ({refused.returncode}): "
              f"{refused.stdout.strip()[-300:]}")
+
+
+DRAWS_AT = re.compile(r"the engine (?:holds -?[0-9]+ and )?draws at ([0-9]+) fps$", re.MULTILINE)
+
+
+def capped(args, scratch):
+    """ADR-0066 step 4: bench.conf's engine cap and FPS unlock, the light load. A cap of 30 draws every 4th tick, 270
+    frames in both builds; an unlock of 120 over it every tick, 1080 frames: the APK's setter, registered with
+    libbench-scripting, came from the loader's wrapper, the twin raised its cap itself; -1, Unity's default, under an
+    unlock of 60 draws every 2nd tick. Each run logs the rate its engine draws at."""
+    cases = [("gles", "30", None, 30), ("gles", "30", "120", 120), ("gles", "-1", "60", 60),
+             ("vulkan", "30", None, 30), ("vulkan", "30", "120", 120)]
+    for api, cap, unlock, rate in cases:
+        # The fewest whole periods of 120 Hz, within half a period, that the rate takes (scene.h's bench_cap_due).
+        every = 1
+        while every * 1e9 / 120 + 1e9 / 240 < 1e9 / rate:
+            every += 1
+        frames = 1080 // every
+        name = f"{api} light, cap {cap}" + (f", unlock {unlock}" if unlock else "")
+        knobs = ["-benchmarkCap", cap] + (["-benchmarkUnlock", unlock] if unlock else [])
+        host = run([args.host, api, "light", str(scratch / "cap"), args.moltenvk, *knobs], f"{name}, host build")
+        check_scene(scratch / "cap" / f"{api}-light" / "scene.csv", f"{name}, host build", frames, every)
+        app = f"bench-{api}"
+        mode = f"cap:light:{cap}" + (f":{unlock}" if unlock else "")
+        guest = run([args.app_test, str(scratch / "cap-guest"), app, args.bench, args.bionic, args.system, args.front,
+                     args.manifests, args.angle, args.moltenvk, mode], f"{name}, APK")
+        check_scene(scratch / "cap-guest" / app / "data" / "files" / "scene.csv", f"{name}, APK", frames, every)
+        for output, variant in ((host, "host build"), (guest, "APK")):
+            found = DRAWS_AT.findall(output)
+            if found != [str(rate)]:
+                fail(f"{name}, {variant}: the engine draws at {found}, not [{rate}]")
 
 
 def fill_load(args, scratch, crcs):
@@ -280,6 +316,7 @@ def main():
     queue_path(args, scratch, plain, crcs["light"])
     render_scale(args, scratch, plain_by_api)
     fill_load(args, scratch, all_crcs)
+    capped(args, scratch)
 
     print(f"{len(failures)} failures" if failures else "PASS: graphics.bench")
     return 1 if failures else 0

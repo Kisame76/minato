@@ -3,7 +3,9 @@
 // ANativeWindow_setFrameRate and the screen kept on. The run's settings come from bench.conf in internalDataPath,
 // else the emulator's defaults; after the run's seconds from its first frame's tick the app writes scene.csv beside
 // bench.conf, logs its frames and ends with ANativeActivity_finish. Built twice from this file: BENCH_APK_VULKAN picks
-// the API.
+// the API. With bench.conf's cap (ADR-0066 step 4) the app is an engine that caps itself: it registers its
+// targetFrameRate setter with libbench-scripting, the stand-in for its scripting runtime, sets the cap through what the
+// runtime hands back, and draws only on the ticks its limiter takes at the rate the setter was given.
 #include <android/choreographer.h>
 #include <android/log.h>
 #include <android/native_activity.h>
@@ -42,6 +44,8 @@ static struct {
     int ended;   // the run is over, or never began
     int frame;   // the next frame's index
     int64_t first;
+    int rate;      // with a cap, the rate the engine draws at
+    int64_t last;  // with a cap, the last drawn frame's tick
     int failures;
     struct bench_frames frames;
 #ifdef BENCH_APK_VULKAN
@@ -122,6 +126,39 @@ static int draw(int frame) {
     return -1;
 }
 
+/* The engine's targetFrameRate, as its setter last took it. */
+static int32_t engine_target = -1;
+
+static void set_target_frame_rate(int32_t rate) {
+    engine_target = rate;
+}
+
+static const char setter_name[] = "UnityEngine.Application::set_targetFrameRate(System.Int32)";
+
+/* With a cap: the engine registers its setter with the scripting runtime, which it finds by dlsym, as an engine may,
+   and the script sets the cap through the method the runtime hands back. 0, or -1 with the reason logged. */
+static int set_cap(void) {
+    void *scripting = dlopen("libbench-scripting.so", RTLD_NOW);
+    void (*const add)(const char *, const void *) =
+        scripting != NULL ? (void (*)(const char *, const void *))dlsym(scripting, "il2cpp_add_internal_call") : NULL;
+    const void *(*const method)(const char *) =
+        scripting != NULL ? (const void *(*)(const char *))dlsym(scripting, "bench_scripting_method") : NULL;
+    if (add == NULL || method == NULL) {
+        bench_log("cap %d: no scripting runtime", run.conf.cap);
+        return -1;
+    }
+    add(setter_name, (const void *)set_target_frame_rate);
+    void (*const set)(int32_t) = (void (*)(int32_t))method(setter_name);
+    if (set == NULL) {
+        bench_log("cap %d: the setter is not registered", run.conf.cap);
+        return -1;
+    }
+    set(run.conf.cap);
+    run.rate = bench_cap_rate(engine_target);
+    bench_log("cap %d: the engine holds %d and draws at %d fps", run.conf.cap, engine_target, run.rate);
+    return 0;
+}
+
 typedef int32_t (*set_frame_rate_function)(ANativeWindow *window, float rate, int8_t compatibility);
 
 /* ANativeWindow_setFrameRate came with API 30, above the minSdk: from libnativewindow by dlsym. */
@@ -159,6 +196,10 @@ static void on_frame(int64_t tick, void *data) {
     }
     AChoreographer_postFrameCallback64(run.choreographer, on_frame, NULL);
     run.posted = 1;
+    // With a cap, the engine's limiter skips the ticks before its interval has passed.
+    const int64_t period = 1000000000 / run.conf.rate;
+    if (run.conf.cap != 0 && run.frame > 0 && !bench_cap_due(tick - run.last, period, run.rate)) return;
+    run.last = tick;
     const int64_t cpu = bench_cpu_ns();
     if (draw(run.frame) != 0) {
         ++run.failures;
@@ -197,7 +238,7 @@ void android_main(struct android_app *app) {
     app->onAppCmd = on_command;
     ANativeActivity_setWindowFlags(app->activity, AWINDOW_FLAG_KEEP_SCREEN_ON, 0);
     run.choreographer = AChoreographer_getInstance();
-    if (run.choreographer == NULL || read_conf() != 0) {
+    if (run.choreographer == NULL || read_conf() != 0 || (run.conf.cap != 0 && set_cap() != 0)) {
         run.ended = 1;
         ANativeActivity_finish(app->activity);
     } else {

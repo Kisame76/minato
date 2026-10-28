@@ -1,6 +1,7 @@
 # The parity benchmark's APKs (ADR-0037, decision 1), built with the Android NDK for arm64-v8a by
 # tools/build-bench.sh: libbench-gles.so and libbench-vulkan.so, NativeActivity libraries on the NDK's
-# native_app_glue, from main.c and the scene's files with the API each picks.
+# native_app_glue, from main.c and the scene's files with the API each picks, and libbench-scripting.so, the stand-in
+# for an engine's scripting runtime that a capped run registers its targetFrameRate setter with (ADR-0066 step 4).
 cmake_minimum_required(VERSION 4.0)
 project(MinatoBench LANGUAGES C)
 
@@ -30,6 +31,8 @@ target_include_directories(bench-vulkan PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/sha
 target_link_libraries(bench-vulkan PRIVATE native_app_glue vulkan)
 # -ffp-contract=off: no fused multiply-adds, as in the host build (scene.h). The glue's ANativeActivity_onCreate is
 # only referenced by Java, so -u keeps it.
+add_library(bench-scripting SHARED scripting_stand_in.c)
+target_compile_options(bench-scripting PRIVATE -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion -Werror)
 foreach(api IN ITEMS gles vulkan)
   target_include_directories(bench-${api} PRIVATE "${bench}")
   target_compile_options(bench-${api} PRIVATE -ffp-contract=off -Wall -Wextra -Wshadow -Wconversion

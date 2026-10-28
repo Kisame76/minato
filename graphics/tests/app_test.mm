@@ -49,13 +49,19 @@
 // - The same with <mode> record:<load> (ADR-0037 b), graphics.recorder): a run of 1 s, 120 frames, which the window's
 //   layer records, and a nextDrawable of the test's own before and after the recording. It passes as above with 120
 //   presents, and when the recording holds every drawable once and in order (recording_check.h).
+// - The same with <mode> cap:<load>:<cap>[:<unlock>] (ADR-0066 step 4): bench.conf adds the engine cap and no check,
+//   the APK registers its targetFrameRate setter with libbench-scripting and draws only on the ticks its limiter
+//   takes; with an unlock the runtime preloads libminato-frame-rate.so, whose wrapper raises the cap. Ticks on which
+//   the engine draws wait for its present, the others pass after 2 ms. It passes as above with 1080 over every
+//   presents, every being the fewest whole periods of 120 Hz, within half a period, that the rate the engine holds
+//   takes (the cap raised to the unlock, -1 drawing at Unity's 30).
 // - With MINATO_ANGLE_BACKEND=vulkan (ADR-0044 c)), any of the above runs on the ES 3.1 path, ANGLE's Vulkan backend on
 //   MoltenVK, once graphics/host's run-time check passed, as the session runs an app whose manifest requires ES 3.1.
 //   It passes as above, and with gles-test's and gles31-test's <presents> when ANGLE made one swapchain and its layer's
 //   drawables have the app's buffer size, 256 x 256.
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
 //                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib>
-//                     <presents | live | present | bench:<load> | record:<load>>
+//                     <presents | live | present | bench:<load> | record:<load> | cap:<load>:<cap>[:<unlock>]>
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -78,6 +84,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -736,10 +743,11 @@ bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseco
 
 /// bench-gles and bench-vulkan: the start, the frames in lockstep with the ticks until the app finishes, the quit.
 /// With `record`, the layer records the run.
-void play_bench(const std::string &app, Capture &capture, bool record) {
-    const std::uint64_t frames = record ? 120 : 1080;  // 1 s or 9 s at 120 Hz
-    // Without the recording, bench.conf's check: frame 1000 drawn and presented once before the first frame too.
-    const std::uint64_t extra = record ? 0 : 1;
+void play_bench(const std::string &app, Capture &capture, bool record, bool capped, std::uint64_t every) {
+    const std::uint64_t frames = record ? 120 : 1080 / every;  // 1 s or 9 s at 120 Hz
+    // Without the recording or a cap, bench.conf's check: frame 1000 drawn and presented once before the first frame
+    // too.
+    const std::uint64_t extra = record || capped ? 0 : 1;
     constexpr double period = 1e9 / 120;
     const std::uint64_t window = add_window();
     MinatoMetalLayer *layer = last_layer;
@@ -777,7 +785,26 @@ void play_bench(const std::string &app, Capture &capture, bool record) {
             const std::int64_t tick = first + std::llround(static_cast<double>(ticks) * period) + late;
             posts.push_back(static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)));
             apkrt_vsync_post(tick, tick + std::llround(period));
-            if (!presented(window, ticks + 1 + extra, 5000ms)) break;
+            if (ticks % every != 0) {
+                // A tick the capped engine passes over: no present to wait for. The app may not have asked for the
+                // next tick yet, so this one can be lost, which the limiter does not mind.
+                std::this_thread::sleep_for(2ms);
+                if (requested("FINISH")) break;
+                continue;
+            }
+            if (!capped) {
+                if (!presented(window, ticks / every + 1 + extra, 5000ms)) break;
+                continue;
+            }
+            // A tick only reaches an app that asked for one (apkrt_vsync_post): the tick it draws on comes again
+            // every 20 ms until its present. The limiter passes over a second one at the same time while the
+            // engine's interval exceeds half a period, a held rate below 240 on 120 Hz, as every tested cap.
+            bool shown = false;
+            for (int attempt = 0; attempt < 250 && !shown && !requested("FINISH"); ++attempt) {
+                if (attempt > 0) apkrt_vsync_post(tick, tick + std::llround(period));
+                shown = presented(window, ticks / every + 1, 20ms);
+            }
+            if (!shown) break;
         }
     }
     if (!wait_for([] { return std::find(seen.requests.begin(), seen.requests.end(), "FINISH") != seen.requests.end(); },
@@ -826,14 +853,35 @@ int main(int argc, char **argv) {
     if (argc != 11) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
                              "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> "
-                             "<presents | translucent:<presents> | live | present | bench:<load> | record:<load>>\n");
+                             "<presents | translucent:<presents> | live | present | bench:<load> | record:<load> | "
+                             "cap:<load>:<cap>[:<unlock>]>\n");
         return 2;
     }
     const std::string app = argv[2];
     const fs::path scratch = fs::path(argv[1]) / app, fixtures = argv[3], bionic = argv[4], system = argv[5],
                    front = argv[6], expected = argv[7], angle = argv[8], moltenvk = argv[9];
     const bool record = std::strncmp(argv[10], "record:", 7) == 0;
-    const bool live = std::strcmp(argv[10], "live") == 0, bench = record || std::strncmp(argv[10], "bench:", 6) == 0;
+    const bool capped = std::strncmp(argv[10], "cap:", 4) == 0;
+    const bool live = std::strcmp(argv[10], "live") == 0,
+               bench = record || capped || std::strncmp(argv[10], "bench:", 6) == 0;
+    // cap:<load>:<cap>[:<unlock>]: the engine draws every `every`th tick, the fewest whole periods of 120 Hz, within
+    // half a period, that the rate it holds takes.
+    std::string load_name = bench ? std::string(std::strchr(argv[10], ':') + 1) : "";
+    int cap = 0, unlock = 0;
+    if (capped) {
+        const auto colon = load_name.find(':');
+        const std::string rest = colon == std::string::npos ? "" : load_name.substr(colon + 1);
+        load_name = load_name.substr(0, colon);
+        cap = std::atoi(rest.c_str());
+        if (const auto second = rest.find(':'); second != std::string::npos) {
+            unlock = std::atoi(rest.c_str() + second + 1);
+        }
+    }
+    const int held = unlock > 0 && (cap <= 0 || cap < unlock) ? unlock : cap;
+    std::uint64_t every = 1;
+    constexpr double tick_period = 1e9 / 120;
+    const double rate = held <= 0 ? 30 : held;
+    while (capped && static_cast<double>(every) * tick_period + tick_period / 2 < 1e9 / rate) ++every;
     const bool present = std::strcmp(argv[10], "present") == 0;
     const bool translucent = std::strncmp(argv[10], "translucent:", 12) == 0;
     const std::uint64_t presents = live || bench || present ? 0
@@ -884,14 +932,18 @@ int main(int argc, char **argv) {
         convert(front / name, system_libraries, name);
     }
     convert(library, app_libraries, "lib" + app + ".so");
+    if (capped) convert(fixtures / "bin" / "libbench-scripting.so", app_libraries, "libbench-scripting.so");
+    if (unlock != 0) convert(bionic / "libminato-frame-rate.so", system_libraries, "libminato-frame-rate.so");
     for (const auto &folder : {data, external, obb}) fs::create_directories(folder);
     if (bench) {
         // bench.conf in the app's internalDataPath, /data/user/0/<package>/files.
-        const std::string load = std::strchr(argv[10], ':') + 1;
+        const std::string &load = load_name;
         fs::create_directories(data / "files");
-        std::ofstream(data / "files" / "bench.conf") << "run=" << app.substr(6) << "-120-" << load
-                                                      << "-apk-00\nrate=120\nload=" << load
-                                                      << (record ? "\nseconds=1\n" : "\nseconds=9\ncheck=1000\n");
+        std::ofstream(data / "files" / "bench.conf")
+            << "run=" << app.substr(6) << "-120-" << load << "-apk-00\nrate=120\nload=" << load
+            << (record ? "\nseconds=1\n" : capped ? "\nseconds=9\n" : "\nseconds=9\ncheck=1000\n")
+            << (capped ? "cap=" + std::to_string(cap) + "\n" : "")
+            << (unlock != 0 ? "unlock=" + std::to_string(unlock) + "\n" : "");
     }
 
     // The guest paths the App mounts (ADR-0028, decision 14).
@@ -945,6 +997,8 @@ int main(int argc, char **argv) {
                                      nullptr};
     const char *const environment[] = {library_path.c_str(), nullptr};
     const fs::path container = scratch / "system-bin" / "activity-host.dylib";
+    // ADR-0066 step 4: the FPS unlock before the program, as the App's session sets it.
+    if (unlock != 0 && apkrt_set_frame_rate_unlock(unlock) != 0) fail("the runtime refused the unlock");
     if (apkrt_start_program(container.c_str(), arguments, environment, error, sizeof error) != 0) {
         fail(std::string("apkrt_start_program: ") + error);
         _exit(1);
@@ -955,7 +1009,7 @@ int main(int argc, char **argv) {
     } else if (present) {
         play_present(app, expected, data, capture);
     } else if (bench) {
-        play_bench(app, capture, record);
+        play_bench(app, capture, record, capped, every);
     } else {
         play_scenes(app, expected, presents, translucent, capture);
     }

@@ -1,15 +1,17 @@
 /// The interface with the scene (ADR-0037, step a): bench.conf in, scene.csv out, the same in both variants.
 public enum BenchConf {
     /// ASCII `key=value` lines: run, rate, load and seconds, and the render scale (25 to 100 percent, M6's MetalFX
-    /// plan, step 0) when it is not 100. The APK reads them from <internalDataPath>/bench.conf, the native build gets
-    /// the text through MinatoBench's run call.
-    /// `load` replaces the run's own load for a by-hand measure ("fill", the fill-heavy load of the scene).
+    /// plan, step 0) when it is not 100, the engine cap and the FPS unlock (ADR-0066 step 4) when they are not 0. The
+    /// APK reads them from <internalDataPath>/bench.conf, the native build gets the text through MinatoBench's run
+    /// call. `load` replaces the run's own load for a by-hand measure ("fill", the fill-heavy load of the scene).
     public static func text(for run: BenchRun, seconds: Int = BenchPlan.drawSeconds, scale: Int = 100,
-                            load: String? = nil) -> String {
+                            load: String? = nil, cap: Int = 0, unlock: Int = 0) -> String {
         let configuration = run.configuration
         var lines = ["run=\(run)", "rate=\(configuration.rate)", "load=\(load ?? configuration.load.rawValue)",
                      "seconds=\(seconds)"]
         if scale != 100 { lines.append("scale=\(scale)") }
+        if cap != 0 { lines.append("cap=\(cap)") }
+        if unlock != 0 { lines.append("unlock=\(unlock)") }
         return BenchCSV.lines(lines)
     }
 }

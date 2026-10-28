@@ -331,8 +331,15 @@ final class GameSession {
         start.internet = entry.report?.usesInternet ?? true
         let screenMaximum = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen
             .maximumFramesPerSecond ?? 60
-        #if !BENCHMARK
-        // The user's choices for this app (ADR-0065, ADR-0066); a benchmark run is judged at the app's own settings.
+        #if BENCHMARK
+        // A benchmark run is judged at the app's own settings; only a capped run takes its FPS unlock, as an app's
+        // profile hands it (ADR-0066 step 4).
+        if let run = BenchmarkMode.run {
+            let unlock = BenchmarkConditions.frameRateUnlock(for: run.configuration.scene)
+            start.apply(AppProfile(frameRate: AppProfile.FrameRate(rawValue: unlock)), screenMaximum: screenMaximum)
+        }
+        #else
+        // The user's choices for this app (ADR-0065, ADR-0066).
         start.apply(AppProfile.load(for: entry.id, in: paths), screenMaximum: screenMaximum)
         #endif
         #if DEBUG

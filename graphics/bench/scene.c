@@ -91,12 +91,28 @@ int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, siz
             conf->check = (int)parsed;
         } else if (strcmp(entry, "scale") == 0 && (parsed = number(value, 25, 100)) > 0) {
             conf->scale = (int)parsed;
+        } else if (strcmp(entry, "cap") == 0 && (strcmp(value, "-1") == 0 || (parsed = number(value, 1, 1000)) > 0)) {
+            conf->cap = strcmp(value, "-1") == 0 ? -1 : (int)parsed;
+        } else if (strcmp(entry, "unlock") == 0 && (strcmp(value, "60") == 0 || strcmp(value, "120") == 0)) {
+            conf->unlock = value[0] == '6' ? 60 : 120;
         } else {
             snprintf(error, size, "not taken: %s=%s", entry, value);
             return -1;
         }
     }
     return 0;
+}
+
+int bench_cap_rate(int target) {
+    return target <= 0 ? 30 : target;
+}
+
+int bench_cap_raise(int cap, int unlock) {
+    return unlock > 0 && (cap <= 0 || cap < unlock) ? unlock : cap;
+}
+
+int bench_cap_due(int64_t elapsed, int64_t period, int rate) {
+    return elapsed + period / 2 >= 1000000000 / rate;
 }
 
 void bench_target_size(int width, int height, int scale, int *target_width, int *target_height) {

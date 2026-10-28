@@ -21,7 +21,10 @@
 # tools/build-graphics-host.sh --release (through tools/deploy.sh and tools/sim.sh); their next
 # Debug run packs the Debug builds again.
 # Usage: tools/benchmark.sh [--simulator] [--device <name or identifier>] [--scene godot] [--api <api>]
-#                           [--more <configuration> ...] [--seconds <n>]
+#                           [--more <configuration> ...] [--seconds <n>] [--cap <n> [--unlock 60|120]]
+# --cap gives ADR-0037's scene an engine cap, the targetFrameRate its engine sets (-1 or 1 to 1000), and --unlock the
+# FPS unlock over it (ADR-0066 step 4): a by-hand measure that run.csv does not record, so its results go to a folder
+# of their own, build/benchmark-cap<n>[-unlock<m>].
 #        tools/benchmark.sh --build-check [simulator name or UDID]
 #        tools/benchmark.sh --embed-check   the build phase's cases of --build-check alone, without a build
 set -euo pipefail
@@ -185,6 +188,8 @@ SIMULATOR=0
 GODOT=0
 WANTED_DEVICE=""
 SECONDS_ARGS=()
+CAP_ARGS=()
+CAP_NAME=""
 PLAN_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -195,6 +200,8 @@ while [[ $# -gt 0 ]]; do
       GODOT=1; PLAN_ARGS+=(--scene godot); shift 2 ;;
     --api | --more) PLAN_ARGS+=("$1" "$2"); shift 2 ;;
     --seconds) SECONDS_ARGS=(-benchmarkSeconds "$2"); shift 2 ;;
+    --cap) CAP_ARGS+=(-benchmarkCap "$2"); CAP_NAME="-cap$2$CAP_NAME"; shift 2 ;;
+    --unlock) CAP_ARGS+=(-benchmarkUnlock "$2"); CAP_NAME="$CAP_NAME-unlock$2"; shift 2 ;;
     *) echo "Unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -202,6 +209,7 @@ done
 [[ "$SIMULATOR" == 1 ]] || python3 tools/require-cable.py "$WANTED_DEVICE" || exit 1
 RESULTS=build/benchmark
 [[ "$SIMULATOR" == 0 ]] || RESULTS=build/benchmark-simulator
+RESULTS=$RESULTS$CAP_NAME
 mkdir -p "$RESULTS"
 
 swift build --package-path importer/APKKit --scratch-path build/swift-app -j 6 --product bench-plan >/dev/null
@@ -241,12 +249,13 @@ launch() {
   local run=$1
   if [[ "$SIMULATOR" == 1 ]]; then
     xcrun simctl launch --console --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID" \
-      -runBenchmark "$run" ${SECONDS_ARGS[@]+"${SECONDS_ARGS[@]}"} >"$RESULTS/$run.console" 2>&1 || true
+      -runBenchmark "$run" ${SECONDS_ARGS[@]+"${SECONDS_ARGS[@]}"} ${CAP_ARGS[@]+"${CAP_ARGS[@]}"} \
+      >"$RESULTS/$run.console" 2>&1 || true
     return
   fi
   # "--" ends devicectl's options. Without --start-stopped no debugger attaches.
   xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing --console --timeout 900 \
-    "$BUNDLE_ID" -- -runBenchmark "$run" ${SECONDS_ARGS[@]+"${SECONDS_ARGS[@]}"} \
+    "$BUNDLE_ID" -- -runBenchmark "$run" ${SECONDS_ARGS[@]+"${SECONDS_ARGS[@]}"} ${CAP_ARGS[@]+"${CAP_ARGS[@]}"} \
     >"$RESULTS/$run.console" 2>&1 || true
 }
 

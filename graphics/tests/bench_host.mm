@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -86,17 +87,26 @@ int main(int argc, char **argv) {
     const bool qos = argc == 8 && std::strcmp(argv[6], "-benchmarkRenderQoS") == 0;
     const bool queue_path = argc == 7 && std::strcmp(argv[5], "-benchmarkQueuePath") == 0;
     const bool scaled = argc == 7 && std::strcmp(argv[5], "-benchmarkScale") == 0;
-    if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path && !scaled) {
+    // ADR-0066 step 4: an engine cap, and an FPS unlock over it.
+    const bool capped = (argc == 7 || (argc == 9 && std::strcmp(argv[7], "-benchmarkUnlock") == 0)) &&
+                        std::strcmp(argv[5], "-benchmarkCap") == 0;
+    if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path && !scaled && !capped) {
         std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy | fill> <scratch> "
                              "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>] | record-class | "
-                             "-benchmarkScale <percent> | "
+                             "-benchmarkScale <percent> | -benchmarkCap <n> [-benchmarkUnlock <m>] | "
                              "-benchmarkQueuePath <value>]\n");
         return 2;
     }
     const bool at_default = qos && std::strcmp(argv[7], "default") == 0;
     const std::string api = argv[1], load = argv[2];
     const fs::path scratch = fs::path(argv[3]) / (api + "-" + load), moltenvk = argv[4];
-    const std::uint64_t frames = record ? 120 : 1080;  // 1 s or 9 s at 120 Hz
+    // A capped run's engine draws every `every`th tick: the fewest whole periods of 120 Hz, within half a period, that
+    // the rate it holds takes, the cap raised to the unlock as the loader's wrapper does, -1 drawing at Unity's 30.
+    const int cap = capped ? std::atoi(argv[6]) : 0, unlock = capped && argc == 9 ? std::atoi(argv[8]) : 0;
+    const int held = unlock > 0 && (cap <= 0 || cap < unlock) ? unlock : cap;
+    std::uint64_t every = 1;
+    while (capped && static_cast<double>(every) * period + period / 2 < 1e9 / (held <= 0 ? 30 : held)) ++every;
+    const std::uint64_t frames = record ? 120 : 1080 / every;  // 1 s or 9 s at 120 Hz
     if (api == "vulkan" && !fs::exists(moltenvk)) {
         std::printf("skipped: %s is missing (tools/fetch-moltenvk.sh)\n", moltenvk.c_str());
         return 0;
@@ -105,8 +115,10 @@ int main(int argc, char **argv) {
     fs::create_directories(scratch);
     const fs::path csv = scratch / "scene.csv";
     const std::string conf = "run=" + api + "-120-" + load + "-native-00\nrate=120\nload=" + load +
-                             (record ? "\nseconds=1\n" : "\nseconds=9\ncheck=1000\n") +
-                             (scaled ? "scale=" + std::string(argv[6]) + "\n" : "");
+                             (record ? "\nseconds=1\n" : capped ? "\nseconds=9\n" : "\nseconds=9\ncheck=1000\n") +
+                             (scaled ? "scale=" + std::string(argv[6]) + "\n" : "") +
+                             (capped ? "cap=" + std::string(argv[6]) + "\n" : "") +
+                             (unlock != 0 ? "unlock=" + std::string(argv[8]) + "\n" : "");
 
     int failures = 0;
     char error[512] = "";
@@ -174,7 +186,13 @@ int main(int argc, char **argv) {
     for (;; ++ticks) {
         posts.push_back(now());
         minato_bench_tick(first + std::llround(static_cast<double>(ticks) * period));
-        if (!drawn(ticks + 1, ticks == 0 ? 20000ms : 5000ms)) break;
+        if (ticks % every != 0) {
+            // A tick the capped engine passes over: no frame to wait for.
+            std::this_thread::sleep_for(2ms);
+            if (minato_bench_wait(0, error, sizeof error) != 1) break;
+            continue;
+        }
+        if (!drawn(ticks / every + 1, ticks == 0 ? 20000ms : 5000ms)) break;
     }
     const int status = minato_bench_wait(10, error, sizeof error);
     std::printf("host: %llu ticks, %llu frames\n", static_cast<unsigned long long>(ticks + 1),
