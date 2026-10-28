@@ -183,11 +183,15 @@ function(art_object_text output)
   list(TRANSFORM object_INCLUDES PREPEND "-I")
   list(TRANSFORM object_SYSTEM_INCLUDES PREPEND "-isystem")
   get_filename_component(directory "${output}" DIRECTORY)
+  # The generated depfile makes Ninja re-run this when a header asm_defines.cc includes changes (e.g. thread.h,
+  # thread.def), not only when the .cc itself does; otherwise an incremental build keeps a stale asm_defines.h.
   add_custom_command(OUTPUT "${output}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${directory}"
     COMMAND "${CMAKE_CXX_COMPILER}" ${art_flags} ${art_cppflags} -isystem "${ndk_libcxx_include}" ${flags}
-      ${object_INCLUDES} ${object_SYSTEM_INCLUDES} -Wno-error -S -o "${output}" ${object_SOURCES}
-    DEPENDS ${object_SOURCES} VERBATIM)
+      ${object_INCLUDES} ${object_SYSTEM_INCLUDES} -Wno-error -MD -MF "${output}.d" -S -o "${output}" ${object_SOURCES}
+    DEPENDS ${object_SOURCES}
+    DEPFILE "${output}.d"
+    VERBATIM)
 endfunction()
 
 # The boot jars into <build>/javalib (runtime/art/boot_jars.py), with the JDK and D8 that tools/fetch-sources.py
