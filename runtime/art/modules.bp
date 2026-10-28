@@ -77,22 +77,6 @@ cc_library_static {
     cflags: ["-Wall", "-Wextra", "-Werror"],
 }
 
-// libart-compiler and vixl are left out (ADR-0033 decision 2): ART runs without a JIT in M4 (-Xint). What libart
-// takes from them is only jit_create, which ends the process if a JIT is ever asked for.
-art_cc_library_static {
-    name: "libart-compiler",
-    defaults: ["art_defaults"],
-    srcs: ["jit/jit_create.cc"],
-    header_libs: ["libart-compiler_jit_headers", "art_libartbase_headers", "libbase_headers"],
-}
-
-art_cc_library_static {
-    name: "libartd-compiler",
-    defaults: ["art_debug_defaults"],
-    srcs: ["jit/jit_create.cc"],
-    header_libs: ["libart-compiler_jit_headers", "art_libartbase_headers", "libbase_headers"],
-}
-
 // What libunwindstack links for Rust names and zstd-compressed debug sections: Rust names stay mangled in ART's
 // stack dumps, and such sections are not read (zlib's still are).
 cc_library_static {

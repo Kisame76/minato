@@ -6,8 +6,8 @@ of dalvikvm. runtime/art/CMakeLists.txt builds the plan with the NDK compiler.
 
 ART's own module types (art/build/art.go) are cc modules with what art.go adds when Soong loads them: art_defaults
 gets the global flags of globalFlags and deviceFlags, every art_cc_* module -DART_TARGET and -DART_TARGET_ANDROID,
-and the codegen properties are those of arm64. runtime/art/modules.bp, read in the same syntax, holds what Minato
-puts in place of modules of projects we do not fetch and of services the iPhone does not have.
+and the codegen properties are those of arm64 and the files it shares with arm. runtime/art/modules.bp, read in the same
+syntax, holds what Minato puts in place of modules of projects we do not fetch and of services the iPhone does not have.
 
 The build reads its sources from <tree> next to the plan: AOSP's tree layout of symbolic links to the fetched
 files, with runtime/art/overlay's files in place of AOSP's at the same path, and runtime/art/patches applied, in
@@ -49,6 +49,7 @@ TREE = {
     "external/tinyxml2": "tinyxml2",
     "external/cpu_features": "cpu_features",
     "external/fmtlib": "fmtlib",
+    "external/vixl": "vixl",
     "external/dlmalloc": "dlmalloc",
     "system/libbase": "libbase",
     "system/libziparchive": "libziparchive",
@@ -71,8 +72,8 @@ GUEST_SYSTEM = ["libc", "libm", "libdl", "libdl_android", "ld-android", "liblog"
 LIBRARIES = ["libart", "libartd", "libopenjdkjvm", "libopenjdkjvmd", "libjavacore", "libopenjdk", "libopenjdkd",
              "libicu_jni", "libartpalette-system", "libsigchain", "libnativehelper", "libnativeloader",
              "libjavacrypto", "libandroidicu"]
-# dalvikvm, and boringssl-test of runtime/art/modules.bp (ADR-0046 b).
-PROGRAMS = ["dalvikvm", "boringssl-test"]
+# dalvikvm, boringssl-test of runtime/art/modules.bp (ADR-0046 b), and dex2oat in both flavors (M6 c).
+PROGRAMS = ["dalvikvm", "boringssl-test", "dex2oat", "dex2oatd"]
 
 # The boot jars (ADR-0033 decision 10), okhttp's, BouncyCastle's and Conscrypt's (ADR-0046 c and d), which
 # runtime/art/boot_jars.py builds; and what core-all, which Soong compiles them against, has beyond their sources:
@@ -89,8 +90,11 @@ SOONG_PROGUARD = "build/make/core/proguard.flags"
 
 # Dependencies left out (ADR-0033 decision 2): statsd, which the runtime reports to only through
 # metrics/statsd.cc (the overlay gives it no backend, as ART's host build has none) and which nothing else of the
-# set calls; and vixl, the assembler of the JIT compiler, which runtime/art/modules.bp leaves out.
-DROPPED = {"libstatspull", "libstatssocket", "libstatslog_art", "libvixl", "libvixld"}
+# set calls.
+DROPPED = {"libstatspull", "libstatssocket", "libstatslog_art"}
+
+# What arm64's code generator and relative patcher take from the arm codegen entries (ArtPlanner.adapt).
+ARM_SHARED = {"instruction_simplifier_shared.cc", "nodes_shared.cc", "relative_patcher_arm_base.cc"}
 
 # art.go's flags (ADR-0033 decision 2): globalFlags with ART_TEST_DEBUG_GC's semispace collector and TLAB, without
 # read barriers and with the page size taken at run time; deviceFlags with the frame limit and the boot image
@@ -144,9 +148,16 @@ class ArtPlanner(soong_plan.Planner):
         kind = module.kind
         module.kind = ART_KINDS[kind]
         additions = {}
-        codegen = properties.pop("codegen", {}).get("arm64")
-        if codegen:
-            additions = blueprint.merge(additions, {"target": {"android": codegen}})
+        # arm64 needs three files that only the arm entries list (Soong builds both backends on an arm64 device): the
+        # code generator's two shared ones and the base of the relative patcher. Minato targets arm64 only
+        # (ADR-0006), so the 32-bit A32/T32 backend itself stays out.
+        codegens = properties.pop("codegen", {})
+        merged = dict(codegens.get("arm64") or {})
+        shared = [src for src in (codegens.get("arm") or {}).get("srcs", []) if src.rpartition("/")[2] in ARM_SHARED]
+        if shared:
+            merged["srcs"] = merged.get("srcs", []) + shared
+        if merged:
+            additions = blueprint.merge(additions, {"target": {"android": merged}})
         if kind == "art_global_defaults":
             additions = blueprint.merge(additions, {"cflags": GLOBAL_CFLAGS, "target": {"android": {"cflags": DEVICE_CFLAGS}}})
         if kind in ("art_global_defaults", "art_cc_library", "art_cc_library_static", "art_cc_binary", "art_cc_test",
