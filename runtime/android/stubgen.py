@@ -134,8 +134,9 @@ LIBRARIES = {
     },
     # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp), the key strings
     # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*, data with Android 15's values, runtime/android/media_keys.cpp,
-    # ADR-0060 e2b), AMediaFormat (media_format.cpp) and AMediaCodec's decoders (media_codec.cpp, e2b3); no
-    # surfaces, crypto, extractor, muxer or DRM yet (gap 15): every other function answers an error.
+    # ADR-0060 e2b), AMediaFormat (media_format.cpp), AMediaCodec's decoders (media_codec.cpp, e2b3), and
+    # AMediaExtractor with AMediaDataSource (media_extractor.cpp, e2d); no crypto, muxer or DRM yet (gap 15): every
+    # other function answers an error.
     "libmediandk": {"version": None,
                     "implemented": ["AImageReader_new", "AImageReader_newWithUsage", "AImageReader_newWithDataSpace",
                                     "AImageReader_delete", "AImageReader_getWindow", "AImageReader_getWidth",
@@ -148,6 +149,7 @@ LIBRARIES = {
                                     "AImage_getDataSpace", "AImage_getNumberOfPlanes", "AImage_getPlanePixelStride",
                                     "AImage_getPlaneRowStride", "AImage_getPlaneData", "AImage_getHardwareBuffer",
                                     "AMEDIAFORMAT_KEY_*", "AMEDIACODEC_KEY_*", "AMediaFormat_*",
+                                    "AMediaExtractor_*", "AMediaDataSource_*",
                                     "AMediaCodec_configure", "AMediaCodec_createCodecByName",
                                     "AMediaCodec_createDecoderByType", "AMediaCodec_createEncoderByType",
                                     "AMediaCodec_delete", "AMediaCodec_dequeueInputBuffer",
@@ -237,15 +239,12 @@ VALUES = {
     "android_tag_socket": "-ENOSYS", "android_tag_socket_with_uid": "-ENOSYS", "android_untag_socket": "-ENOSYS",
     # Cameras: none exists (ADR-0042 b, gap 15); their status results come from STATUS_VALUES
     "ACameraMetadata_isLogicalMultiCamera": "0",
-    # Media beyond the decoders (gap 15): no crypto, extractor or muxer, so nothing is supported or counted
+    # Media beyond the decoders and the extractor (gap 15): no crypto or muxer, so nothing is supported or counted
     "AMediaCodecActionCode_isRecoverable": "0", "AMediaCodecActionCode_isTransient": "0",
     "AMediaCrypto_isCryptoSchemeSupported": "0", "AMediaCrypto_requiresSecureDecoderComponent": "0",
-    "AMediaDrm_isCryptoSchemeSupported": "0", "AMediaExtractor_advance": "0",
+    "AMediaDrm_isCryptoSchemeSupported": "0",
     "AMediaCodecCryptoInfo_getMode": "0",  # AMEDIACODECRYPTOINFO_MODE_CLEAR
-    "AMediaCodecCryptoInfo_getNumSubSamples": "0", "AMediaExtractor_getTrackCount": "0", "AMediaMuxer_getTrackCount": "0",
-    "AMediaExtractor_getSampleFlags": "0",
-    "AMediaExtractor_getSampleTrackIndex": "-1", "AMediaExtractor_getSampleSize": "-1",  # no sample
-    "AMediaExtractor_readSampleData": "-1", "AMediaExtractor_getSampleTime": "-1", "AMediaExtractor_getCachedDuration": "-1",
+    "AMediaCodecCryptoInfo_getNumSubSamples": "0", "AMediaMuxer_getTrackCount": "0",
     "AMediaMuxer_addTrack": "-10002",  # AMEDIA_ERROR_UNSUPPORTED
     # No NNAPI feature level
     "ANeuralNetworks_getRuntimeFeatureLevel": "0",

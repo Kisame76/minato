@@ -163,7 +163,8 @@ foreach(header IN ITEMS jni zconf zlib)
 endforeach()
 file(COPY "${ndk_sysroot_include}/aaudio/AAudio.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/aaudio")
 file(COPY "${ndk_sysroot_include}/camera" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
-foreach(header IN ITEMS NdkImage NdkImageReader NdkMediaCodec NdkMediaCrypto NdkMediaError NdkMediaFormat)
+foreach(header IN ITEMS NdkImage NdkImageReader NdkMediaCodec NdkMediaCrypto NdkMediaDataSource NdkMediaError
+                       NdkMediaExtractor NdkMediaFormat)
   file(COPY "${ndk_sysroot_include}/media/${header}.h" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include/media")
 endforeach()
 file(COPY "${ndk_sysroot_include}/OMXAL" DESTINATION "${CMAKE_BINARY_DIR}/ndk_android/include")
@@ -251,7 +252,8 @@ apk_bionic_library(libOpenSLES UNITS apk_opensles NEEDED libc libm liblog libaau
 # links them, as Godot's libgodot_android.so does, loads. The camera manager has no camera
 # (runtime/android/camera_manager.c); libmediandk's AImageReader and AImage are on libnativewindow's buffer queue
 # (runtime/android/image_reader.cpp, ADR-0058 e1)), and its key strings have Android 15's values
-# (runtime/android/media_keys.cpp, ADR-0060 e2b); every other function is a generated stub that answers its API's
+# (runtime/android/media_keys.cpp, ADR-0060 e2b), and its AMediaExtractor reads mp4 files through Minato's parser
+# (media_extractor.cpp and mp4_extractor.cpp, e2d); every other function is a generated stub that answers its API's
 # error.
 set(camera2ndk_map "${android_generated}/libcamera2ndk.map")
 set(camera2ndk_stubs "${android_generated}/libcamera2ndk_stubs.c")
@@ -267,8 +269,8 @@ add_custom_command(OUTPUT "${mediandk_map}" "${mediandk_stubs}"
   COMMAND ${stubgen} libmediandk ${stubgen_tools} --map "${mediandk_map}" --stubs "${mediandk_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libmediandk.so" VERBATIM)
 apk_bionic_unit(apk_mediandk SOURCES "${android_sources}/image_reader.cpp" "${android_sources}/media_keys.cpp"
-  "${android_sources}/media_format.cpp" "${android_sources}/media_codec.cpp" "${mediandk_stubs}"
-  INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+  "${android_sources}/media_format.cpp" "${android_sources}/media_codec.cpp" "${android_sources}/mp4_extractor.cpp"
+  "${android_sources}/media_extractor.cpp" "${mediandk_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libnativewindow
   VERSION_SCRIPTS "${mediandk_map}")
 

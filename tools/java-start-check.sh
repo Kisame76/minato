@@ -48,6 +48,7 @@
 # package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
 # refusal of a new one, and the exit reasons.
 # media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
+# media-extractor-test (ADR-0060 e2d part 2a) is one too: the NDK's AMediaExtractor on Minato's own mp4 files.
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
 # performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD
@@ -118,7 +119,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "sqlite-test io.github.kisame76.minato.test.sqlite"
       "timezone-test io.github.kisame76.minato.test.timezone"
       "package-installer-test io.github.kisame76.minato.test.packageinstaller"
-      "media-absent-test io.github.kisame76.minato.test.mediaabsent")
+      "media-absent-test io.github.kisame76.minato.test.mediaabsent"
+      "media-extractor-test io.github.kisame76.minato.test.mediaextractor")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -738,6 +740,7 @@ run_one timezone-test io.github.kisame76.minato.test.timezone
 run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 # android.media's DRM, codec list, retriever, extractor, image reader and TV input manager without the hardware.
 run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
+run_one media-extractor-test io.github.kisame76.minato.test.mediaextractor
 # ADR-0043's test 1: views, a TextView and a Button drawn in software. This check plays no touches, so the Button's
 # click comes from the app's performClick, 5 s after its label's change, which its device line names; the Mac's
 # tools/views-check.sh and the AVD tap it.

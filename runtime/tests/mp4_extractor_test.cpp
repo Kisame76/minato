@@ -18,25 +18,22 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
-#include <new>
+#include <malloc/malloc.h>
+#include <sanitizer/allocator_interface.h>
 #include <random>
 #include <string>
 #include <vector>
 
-// The bytes operator new hands out while `counting` is set: what a parse allocates.
-size_t allocated = 0;
-bool counting = false;
-
-void *operator new(size_t size) {
-    if (counting) allocated += size;
-    if (void *memory = std::malloc(size == 0 ? 1 : size)) return memory;
-    throw std::bad_alloc();
+// The bytes the process holds from malloc: the sanitizer's count in the ASan build, the default zone's otherwise.
+size_t held_bytes() {
+#if defined(__has_feature) && __has_feature(address_sanitizer)
+    return __sanitizer_get_current_allocated_bytes();
+#else
+    malloc_statistics_t statistics;
+    malloc_zone_statistics(nullptr, &statistics);
+    return statistics.size_in_use;
+#endif
 }
-void *operator new[](size_t size) { return operator new(size); }
-void operator delete(void *memory) noexcept { std::free(memory); }
-void operator delete[](void *memory) noexcept { std::free(memory); }
-void operator delete(void *memory, size_t) noexcept { std::free(memory); }
-void operator delete[](void *memory, size_t) noexcept { std::free(memory); }
 
 namespace {
 
@@ -58,6 +55,10 @@ ssize_t read_memory(void *context, uint64_t offset, void *data, size_t size) {
     std::memcpy(data, bytes->data() + offset, got);
     return static_cast<ssize_t>(got);
 }
+
+// A track's text and bytes as the test compares them.
+std::string text(const char *value) { return value == nullptr ? std::string() : std::string(value); }
+Bytes bytes(const minato::mp4::Bytes &value) { return Bytes(value.data, value.data + value.size); }
 
 Source source_of(const Bytes &bytes) {
     return Source{const_cast<Bytes *>(&bytes), read_memory, bytes.size()};
@@ -139,18 +140,18 @@ minato::mp4::Sample sample_of(const Track &track, size_t index) {
 }
 
 void check_video_track(const Track &track, const std::vector<Unit> &units, int64_t shift) {
-    CHECK(track.mime == "video/avc");
+    CHECK(text(track.mime) == "video/avc");
     CHECK(track.width == 320 && track.height == 180);
     CHECK(track.timescale == 30000 && track.nal_length_size == 4);
     CHECK(track.edit_media_time == shift * 1000 && track.edit_empty == 0);
-    CHECK(track.language == "und");
+    CHECK(text(track.language) == "und");
     std::vector<Bytes> sets = nal_units(units[0].bytes);
     Bytes sps, pps;
     for (const Bytes &nal : sets) {
         if ((nal[0] & 0x1f) == 7 && sps.empty()) sps = with_start_code(nal);
         if ((nal[0] & 0x1f) == 8 && pps.empty()) pps = with_start_code(nal);
     }
-    CHECK(track.csd0 == sps && track.csd1 == pps);
+    CHECK(bytes(track.csd0) == sps && bytes(track.csd1) == pps);
     CHECK(track.samples.count() == units.size());
     if (track.samples.count() != units.size()) return;
     uint32_t largest = 0;
@@ -166,7 +167,7 @@ void check_video_track(const Track &track, const std::vector<Unit> &units, int64
 TEST(baseline_mp4_has_the_streams_frames_and_an_aac_track) {
     const Bytes file = file_bytes(kAssets + "media-extractor-test/assets/baseline.mp4");
     const Source source = source_of(file);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(!file.empty() && minato::mp4::parse(source, &tracks) == 0);
     CHECK(tracks.size() == 2);
     if (tracks.size() != 2) return;
@@ -178,9 +179,9 @@ TEST(baseline_mp4_has_the_streams_frames_and_an_aac_track) {
         CHECK(answer == static_cast<long>(got.size()) && got == expected_sample(units[index]));
     }
     const Track &audio = tracks[1];
-    CHECK(audio.mime == "audio/mp4a-latm");
+    CHECK(text(audio.mime) == "audio/mp4a-latm");
     CHECK(audio.sample_rate == 44100 && audio.channels == 1 && audio.timescale == 44100);
-    CHECK((audio.csd0 == Bytes{0x12, 0x08}));  // AAC LC, 44.1 kHz, mono
+    CHECK((bytes(audio.csd0) == Bytes{0x12, 0x08}));  // AAC LC, 44.1 kHz, mono
     CHECK(audio.nal_length_size == 0 && audio.edit_media_time == 2112);  // the encoder's priming
     CHECK(audio.samples.count() == 46);
     for (size_t index = 0; index < audio.samples.count(); index++) {
@@ -195,7 +196,7 @@ TEST(baseline_mp4_has_the_streams_frames_and_an_aac_track) {
 TEST(main_mp4_shows_frames_in_another_order_than_it_decodes_them) {
     const Bytes file = file_bytes(kAssets + "media-extractor-test/assets/main.mp4");
     const Source source = source_of(file);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(minato::mp4::parse(source, &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() != 1) return;
     const std::vector<Unit> units = units_of("main");
@@ -212,7 +213,7 @@ TEST(main_mp4_shows_frames_in_another_order_than_it_decodes_them) {
 TEST(samples_asked_for_in_any_order_are_the_same) {
     for (const char *name : {"baseline", "main"}) {
         const Bytes file = file_bytes(kAssets + "media-extractor-test/assets/" + name + ".mp4");
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         CHECK(minato::mp4::parse(source_of(file), &tracks) == 0 && !tracks.empty());
         for (const Track &track : tracks) {
             std::vector<minato::mp4::Sample> forward;
@@ -231,6 +232,85 @@ TEST(samples_asked_for_in_any_order_are_the_same) {
             }
             CHECK(wrong == 0);
         }
+    }
+}
+
+// Android 15's answers for the test files, from media-extractor-test's reference (tools/android-reference.sh): each
+// track's samples in order (time, sync flag and size, from the extractor's lines of that track) and the seeks of a
+// track alone (the first sample after each, or the end of the stream).
+struct Reference {
+    std::vector<std::vector<std::array<int64_t, 3>>> samples;           // per track: time, flags, size
+    std::vector<std::array<int64_t, 4>> seeks;                          // mode, time, status, the next sample's time
+};
+
+Reference reference_of(const std::string &name, bool alone_track) {
+    std::ifstream in(std::string(APKRT_SOURCE_DIR) + "/fixtures/expected/media-extractor-test.logcat");
+    Reference reference;
+    const std::string walk = "fd " + name + " s";
+    const std::string seeks = "fd " + name + (alone_track ? " track 0 alone" : "") + " seek mode ";
+    for (std::string line; std::getline(in, line);) {
+        const size_t colon = line.find(": ");
+        if (colon == std::string::npos) continue;
+        const std::string text = line.substr(colon + 2);
+        long long track = 0, time = 0, flags = 0, size = 0, mode = 0, to = 0, status = 0;
+        int read = 0;
+        if (text.compare(0, walk.size(), walk) == 0 &&
+            std::sscanf(text.c_str() + walk.size(), "%*d: track %lld time %lld flags %lld size %lld%n", &track, &time,
+                        &flags, &size, &read) == 4) {
+            const size_t index = static_cast<size_t>(track);
+            if (reference.samples.size() <= index) reference.samples.resize(index + 1);
+            reference.samples[index].push_back({time, flags, size});
+        } else if (text.compare(0, seeks.size(), seeks) == 0 &&
+                   std::sscanf(text.c_str() + seeks.size(), "%lld to %lld: status %lld; track %*d time %lld", &mode,
+                               &to, &status, &time) == 4 &&
+                   to >= 0) {  // a time below 0 takes no seek
+            reference.seeks.push_back({mode, to, status, time});
+        }
+    }
+    return reference;
+}
+
+// Each track's samples in order, as Android 15 gives them: the time after the edits (below 0 for AAC's priming), the
+// sync flag and the size; and the seeks of the first track alone in each mode, the sample reading goes on from.
+TEST(the_test_files_read_and_seek_as_android_15s) {
+    for (const char *name : {"baseline", "main"}) {
+        const Bytes file = file_bytes(kAssets + "media-extractor-test/assets/" + name + ".mp4");
+        minato::mp4::Tracks tracks;
+        CHECK(minato::mp4::parse(source_of(file), &tracks) == 0);
+        const Reference reference = reference_of(name, tracks.size() > 1);
+        CHECK(reference.samples.size() == tracks.size() && reference.seeks.size() == 18);
+        size_t wrong = 0;
+        for (size_t track = 0; track < tracks.size() && track < reference.samples.size(); track++) {
+            const auto &want = reference.samples[track];
+            CHECK(want.size() == tracks[track].samples.count());
+            for (size_t index = 0; index < want.size() && index < tracks[track].samples.count(); index++) {
+                const minato::mp4::Sample sample = sample_of(tracks[track], index);
+                const int64_t time = minato::mp4::sample_time_us(tracks[track], sample);
+                const int64_t flags = tracks[track].samples.is_sync(index) ? 1 : 0;
+                wrong += time != want[index][0] || flags != want[index][1] ||
+                         minato::mp4::output_size(tracks[track], index) != want[index][2];
+            }
+        }
+        for (const auto &[mode, to, status, time] : reference.seeks) {
+            size_t sample = 0;
+            const int answer = minato::mp4::seek(tracks[0], to, static_cast<minato::mp4::SeekMode>(mode), &sample);
+            const bool ended = status == -10006;  // AMEDIA_ERROR_END_OF_STREAM
+            if (ended != (answer == minato::mp4::kEndOfStream) || (!ended && answer != 0)) {
+                wrong++;
+                std::fprintf(stderr, "  %s seek mode %lld to %lld: %d\n", name, static_cast<long long>(mode),
+                             static_cast<long long>(to), answer);
+                continue;
+            }
+            if (ended) continue;
+            const int64_t got = minato::mp4::sample_time_us(tracks[0], sample_of(tracks[0], sample));
+            if (got != time) {
+                wrong++;
+                std::fprintf(stderr, "  %s seek mode %lld to %lld: %lld, not %lld\n", name,
+                             static_cast<long long>(mode), static_cast<long long>(to), static_cast<long long>(got),
+                             static_cast<long long>(time));
+            }
+        }
+        CHECK(wrong == 0);
     }
 }
 
@@ -261,6 +341,24 @@ struct Knobs {
     std::vector<std::array<uint32_t, 2>> time_runs;  // not empty: stts's runs, count and delta
     uint32_t ctts_count = 0;      // not 0: ctts covers this many samples, each 2000 ticks later than decoded
     uint8_t stz2_field = 0;       // not 0: an stz2 of this field size in place of the stsz
+    uint16_t language = 0x55c4;   // mdhd's packed ISO 639-2/T code ("und")
+    int rotation = -1;            // not -1: tkhd's matrix for this rotation, with a display of 640 x 360
+    int tkhd_extra = 0;           // bytes after tkhd's fields
+    uint8_t tkhd_version = 0;
+    uint32_t last_size = 16;      // the size stsz gives the last sample
+    Bytes first_sample;           // not empty: the first sample's bytes (and its size), in place of a 12-byte unit
+    uint8_t nal_size = 4;         // avcC's NAL length size: 1, 2 or 4
+    int64_t mdhd_duration = -1;   // not -1: mdhd's duration (all its bits in a version 1 mdhd)
+    uint8_t mdhd_version = 0;
+    bool mvhd_last = false;       // the mvhd after the traks
+    Bytes audio_config;           // not empty: an AAC track of this AudioSpecificConfig in place of the AVC track
+    std::vector<int32_t> ctts_offsets;  // not empty: ctts's offsets, one run a sample
+    std::vector<std::array<uint32_t, 2>> ctts_runs;  // not empty: ctts's runs, count and offset
+    std::vector<std::vector<std::string>> stsds;  // not empty: these stsd boxes, of these entries ("avc1", "mp4a")
+    uint32_t stsd_claim = 0;      // not 0: the entry count each stsd claims
+    uint32_t stsd_flags = 0;      // each stsd's version and flags
+    bool stsd_tail = false;       // 4 bytes in each stsd after its entries
+    bool avcc_twice = false;      // a second avcC in the avc1 entry, of another SPS
 };
 
 void put32(Bytes &out, uint32_t value) {
@@ -292,13 +390,18 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     const uint32_t count = knobs.samples;
     Bytes mdat_body;
     for (uint32_t index = 0; index < count; index++) {
+        if (index == 0 && !knobs.first_sample.empty()) {
+            mdat_body.insert(mdat_body.end(), knobs.first_sample.begin(), knobs.first_sample.end());
+            continue;
+        }
         put32(mdat_body, index == 0 ? knobs.nal_length : 12);
         mdat_body.push_back(0x65);  // an IDR slice's header
         for (uint32_t byte = 0; byte < 11; byte++) mdat_body.push_back(static_cast<uint8_t>(index * 16 + byte));
     }
     const Bytes ftyp = box("ftyp", cat({{'i', 's', 'o', 'm'}, {0, 0, 2, 0}, {'i', 's', 'o', 'm'}}));
     // avcC: version 1, profile 66, compat 0, level 30, length size 4, one SPS and one PPS.
-    const Bytes avcc = box("avcC", {1, 66, 0, 30, 0xff, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0, 2, 0x68, 0xce});
+    const uint8_t length_size = static_cast<uint8_t>(0xfc | (knobs.nal_size - 1));
+    const Bytes avcc = box("avcC", {1, 66, 0, 30, length_size, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0, 2, 0x68, 0xce});
     Bytes entry_body(6, 0);
     put16(entry_body, 1);                       // data reference index
     entry_body.insert(entry_body.end(), 16, 0);  // pre_defined, reserved
@@ -312,9 +415,47 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     put16(entry_body, 0x18);
     put16(entry_body, 0xffff);
     Bytes visual = knobs.avcc ? cat({entry_body, avcc}) : entry_body;
+    if (knobs.avcc_twice) {
+        visual = cat({visual, box("avcC", {1, 77, 0, 30, length_size, 0xe1, 0, 4, 0x67, 77, 0, 30, 1, 0, 2, 0x68,
+                                           0xee})});
+    }
     if (knobs.encrypted) visual = cat({visual, box("sinf", box("frma", {'a', 'v', 'c', '1'}))});
-    const Bytes stsd = box("stsd", cat({full(0), {0, 0, 0, 1}, box(knobs.encrypted ? "encv" : "avc1", visual)}));
+    // mp4a: version 0, 2 channels of 16 bits at 44,100 a second, and an esds whose DecoderSpecificInfo is the config.
+    Bytes sound(6, 0);
+    put16(sound, 1);
+    sound.insert(sound.end(), 8, 0);
+    put16(sound, 2);
+    put16(sound, 16);
+    put32(sound, 0);
+    put32(sound, 44100u << 16);
+    const Bytes &config = knobs.audio_config;
+    const Bytes &esds_config = config.empty() ? Bytes{0x12, 0x10} : config;
+    Bytes decoder = {0x40, 0x15, 0, 0, 0};
+    put32(decoder, 128000);
+    put32(decoder, 96000);
+    decoder.insert(decoder.end(), {5, static_cast<uint8_t>(esds_config.size())});
+    decoder.insert(decoder.end(), esds_config.begin(), esds_config.end());
+    Bytes descriptor = {0, 1, 0, 4, static_cast<uint8_t>(decoder.size())};
+    descriptor.insert(descriptor.end(), decoder.begin(), decoder.end());
+    Bytes esds = full(0);
+    esds.insert(esds.end(), {3, static_cast<uint8_t>(descriptor.size())});
+    esds.insert(esds.end(), descriptor.begin(), descriptor.end());
+    const Bytes video_entry = box(knobs.encrypted ? "encv" : "avc1", visual);
+    const Bytes audio_entry = box("mp4a", cat({sound, box("esds", esds)}));
+    Bytes stsd = box("stsd", cat({full(0), {0, 0, 0, 1}, config.empty() ? video_entry : audio_entry}));
+    if (!knobs.stsds.empty()) {
+        stsd.clear();
+        for (const std::vector<std::string> &names : knobs.stsds) {
+            Bytes body = full(knobs.stsd_flags);
+            put32(body, knobs.stsd_claim != 0 ? knobs.stsd_claim : static_cast<uint32_t>(names.size()));
+            for (const std::string &name : names) body = cat({body, name == "mp4a" ? audio_entry : video_entry});
+            if (knobs.stsd_tail) put32(body, 0);
+            stsd = cat({stsd, box("stsd", body)});
+        }
+    }
     const uint32_t constant = knobs.constant_count;
+    const uint32_t first =
+        knobs.first_sample.empty() ? knobs.first_size : static_cast<uint32_t>(knobs.first_sample.size());
     Bytes stts = full(0);
     if (knobs.time_runs.empty()) {
         put32(stts, 1);
@@ -340,7 +481,9 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
         put32(stsz, 0);
         const uint32_t entries = knobs.stsz_count != 0 ? knobs.stsz_count : count;
         put32(stsz, knobs.stsz_box_count != 0 ? knobs.stsz_box_count : entries);
-        for (uint32_t index = 0; index < entries; index++) put32(stsz, index == 0 ? knobs.first_size : 16);
+        for (uint32_t index = 0; index < entries; index++) {
+            put32(stsz, index == 0 ? first : index + 1 == entries ? knobs.last_size : 16);
+        }
     }
     const uint64_t header = knobs.largesize ? 16 : 8;
     // The moov comes after the mdat, so the chunk's offset is known: ftyp, then mdat's header.
@@ -382,6 +525,24 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     Bytes tables = cat({stsd, box("stts", stts), box("stsc", stsc)});
     if (knobs.stsz) tables = cat({tables, knobs.stz2_field != 0 ? box("stz2", stz2) : box("stsz", stsz)});
     if (knobs.ctts_count != 0) tables = cat({tables, box("ctts", ctts)});
+    if (!knobs.ctts_runs.empty()) {
+        Bytes runs = full(0);
+        put32(runs, static_cast<uint32_t>(knobs.ctts_runs.size()));
+        for (const auto &run : knobs.ctts_runs) {
+            put32(runs, run[0]);
+            put32(runs, run[1]);
+        }
+        tables = cat({tables, box("ctts", runs)});
+    }
+    if (!knobs.ctts_offsets.empty()) {
+        Bytes runs = full(0);
+        put32(runs, static_cast<uint32_t>(knobs.ctts_offsets.size()));
+        for (const int32_t offset : knobs.ctts_offsets) {
+            put32(runs, 1);
+            put32(runs, static_cast<uint32_t>(offset));
+        }
+        tables = cat({tables, box("ctts", runs)});
+    }
     tables = cat({tables, box(knobs.chunk_offset64 != 0 ? "co64" : "stco", stco)});
     if (!knobs.syncs.empty()) tables = cat({tables, box("stss", syncs)});
     if (knobs.repeat == "stsz") tables = cat({tables, box("stsz", other_stsz)});
@@ -391,24 +552,39 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     if (knobs.repeat == "ctts") tables = cat({tables, box("ctts", ctts), box("ctts", ctts)});
     if (knobs.repeat == "stss") tables = cat({tables, box("stss", stss), box("stss", stss)});
     const Bytes stbl = box("stbl", tables);
-    Bytes mdhd = full(0);
-    put32(mdhd, 0);
-    put32(mdhd, 0);
+    Bytes mdhd = full(static_cast<uint32_t>(knobs.mdhd_version) << 24);
+    const uint64_t duration = knobs.mdhd_duration != -1 ? static_cast<uint64_t>(knobs.mdhd_duration) : count * 1000u;
+    mdhd.insert(mdhd.end(), knobs.mdhd_version == 1 ? 16 : 8, 0);
     put32(mdhd, knobs.timescale);
-    put32(mdhd, count * 1000);
-    put16(mdhd, 0x55c4);  // "und"
+    if (knobs.mdhd_version == 1) put32(mdhd, static_cast<uint32_t>(duration >> 32));
+    put32(mdhd, static_cast<uint32_t>(duration));
+    put16(mdhd, knobs.language);
     put16(mdhd, 0);
     Bytes hdlr = full(0);
     put32(hdlr, 0);
-    hdlr.insert(hdlr.end(), {'v', 'i', 'd', 'e'});
+    if (config.empty()) {
+        hdlr.insert(hdlr.end(), {'v', 'i', 'd', 'e'});
+    } else {
+        hdlr.insert(hdlr.end(), {'s', 'o', 'u', 'n'});
+    }
     hdlr.insert(hdlr.end(), 13, 0);
     const Bytes minf = box("minf", cat({box("vmhd", cat({full(1), Bytes(8, 0)})), stbl}));
     const Bytes mdia = box("mdia", knobs.mdhd ? cat({box("mdhd", mdhd), box("hdlr", hdlr), minf})
                                               : cat({box("hdlr", hdlr), minf}));
-    Bytes tkhd = full(3);
+    Bytes tkhd = full(static_cast<uint32_t>(knobs.tkhd_version) << 24 | 3);
     tkhd.insert(tkhd.end(), 8, 0);
     put32(tkhd, 1);  // track ID
-    tkhd.insert(tkhd.end(), 68, 0);
+    if (knobs.rotation < 0) {
+        tkhd.insert(tkhd.end(), 68, 0);
+    } else {
+        tkhd.insert(tkhd.end(), 24, 0);  // reserved, duration, reserved, layer, group, volume, reserved
+        const int32_t one = 0x10000, c = knobs.rotation == 0 ? one : knobs.rotation == 180 ? -one : 0;
+        const int32_t s = knobs.rotation == 90 ? one : knobs.rotation == 270 ? -one : 0;
+        for (const int32_t value : {c, s, 0, -s, c, 0, 0, 0, 0x40000000}) put32(tkhd, static_cast<uint32_t>(value));
+        put32(tkhd, 640u << 16);
+        put32(tkhd, 360u << 16);
+    }
+    tkhd.insert(tkhd.end(), static_cast<size_t>(knobs.tkhd_extra), 0);
     Bytes nested;
     for (int level = 0; level < knobs.depth; level++) nested = box("udta", nested);
     Bytes mvhd = full(0);
@@ -417,8 +593,9 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     mvhd.insert(mvhd.end(), 84, 0);
     const Bytes edts = knobs.elst.empty() ? Bytes{} : box("edts", box("elst", knobs.elst));
     const Bytes trak = box("trak", cat({box("tkhd", tkhd), edts, mdia}));
-    Bytes moov_body = box("mvhd", mvhd);
+    Bytes moov_body = knobs.mvhd_last ? Bytes{} : box("mvhd", mvhd);
     for (int track = 0; track < knobs.tracks; track++) moov_body = cat({moov_body, trak});
+    if (knobs.mvhd_last) moov_body = cat({moov_body, box("mvhd", mvhd)});
     const Bytes moov = box("moov", cat({moov_body, nested}));
     Bytes mdat;
     if (knobs.largesize) {
@@ -434,7 +611,7 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     return cat({ftyp, moof, mdat, moov});
 }
 
-int parsed(const Bytes &file, std::vector<Track> *tracks) {
+int parsed(const Bytes &file, minato::mp4::Tracks *tracks) {
     return minato::mp4::parse(source_of(file), tracks);
 }
 
@@ -443,10 +620,10 @@ TEST(a_built_file_parses_and_reads) {
         Knobs knobs;
         knobs.largesize = largesize;
         const Bytes file = built_file(knobs);
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         CHECK(parsed(file, &tracks) == 0 && tracks.size() == 1);
         if (tracks.size() != 1) continue;
-        CHECK(tracks[0].samples.count() == 4 && tracks[0].csd0 == (Bytes{0, 0, 0, 1, 0x67, 66, 0, 30}));
+        CHECK(tracks[0].samples.count() == 4 && bytes(tracks[0].csd0) == (Bytes{0, 0, 0, 1, 0x67, 66, 0, 30}));
         long answer = 0;
         const Bytes got = read_all(source_of(file), tracks[0], 1, &answer);
         CHECK(answer == 16 && got[3] == 1 && got[4] == 0x65 && got[5] == 16);
@@ -461,7 +638,7 @@ TEST(sample_tables_that_disagree_end_the_track_where_one_ends) {
     Knobs short_chunk;
     short_chunk.stsc_per_chunk = 1;  // one chunk of one sample
     for (const Knobs &knobs : {short_stts, short_stsz, short_chunk}) {
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         const int answer = parsed(built_file(knobs), &tracks);
         CHECK(answer == 0 && tracks.size() == 1);
         if (tracks.size() == 1) CHECK(tracks[0].samples.count() < 4);
@@ -471,7 +648,7 @@ TEST(sample_tables_that_disagree_end_the_track_where_one_ends) {
 TEST(counts_a_box_cannot_hold_and_sizes_past_the_end_are_malformed) {
     Knobs huge;
     huge.stsz_box_count = 0xffffffffu;
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(parsed(built_file(huge), &tracks) == minato::mp4::kMalformed);
     Bytes file = built_file(Knobs{});
     // The moov's size past the end of the file.
@@ -488,7 +665,7 @@ TEST(truncated_files_end_with_an_error_or_fewer_samples) {
     const Bytes whole = built_file(Knobs{});
     for (size_t length = 0; length < whole.size(); length++) {
         const Bytes cut(whole.begin(), whole.begin() + static_cast<long>(length));
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         const int answer = parsed(cut, &tracks);
         CHECK(answer == minato::mp4::kMalformed || answer == 0);
     }
@@ -497,7 +674,7 @@ TEST(truncated_files_end_with_an_error_or_fewer_samples) {
 TEST(reads_past_the_file_or_the_sample_are_refused) {
     Knobs past;
     past.chunk_past_end = true;
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     const Bytes file = built_file(past);
     CHECK(parsed(file, &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() == 1) {
@@ -506,13 +683,13 @@ TEST(reads_past_the_file_or_the_sample_are_refused) {
         CHECK(answer == minato::mp4::kMalformed || answer == minato::mp4::kIo);
     }
     Knobs long_nal;
-    long_nal.nal_length = 13;  // one byte past the sample
+    long_nal.nal_length = 13;  // one byte past the sample: MPEG4Source drops the unit
     const Bytes other = built_file(long_nal);
     CHECK(parsed(other, &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() == 1) {
-        long answer = 0;
+        long answer = 1;
         read_all(source_of(other), tracks[0], 0, &answer);
-        CHECK(answer == minato::mp4::kMalformed);
+        CHECK(answer == 0);
         Bytes small(4);
         CHECK(minato::mp4::read_sample(source_of(other), tracks[0], 1, small.data(), small.size()) ==
               minato::mp4::kNoMemory);
@@ -523,7 +700,7 @@ TEST(reads_past_the_file_or_the_sample_are_refused) {
 TEST(a_track_with_a_sample_larger_than_androids_input_buffer_is_refused) {
     // MPEG4Source::start refuses a track whose largest sample plus 20 bytes is above 64 MiB, so a size field
     // never decides how much a reader allocates.
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     Knobs largest;
     largest.first_size = static_cast<uint32_t>(minato::mp4::kMaxInputBytes - 20);
     CHECK(parsed(built_file(largest), &tracks) == 0 && tracks.size() == 1);
@@ -557,7 +734,7 @@ TEST(a_sample_table_given_twice_makes_the_file_malformed) {
     for (const char *table : {"stsz", "stco", "stsc", "stts", "ctts", "stss"}) {
         Knobs knobs;
         knobs.repeat = table;
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         const int answer = parsed(built_file(knobs), &tracks);
         CHECK(answer == minato::mp4::kMalformed);
         if (answer != minato::mp4::kMalformed) std::fprintf(stderr, "  %s twice: %d\n", table, answer);
@@ -566,9 +743,8 @@ TEST(a_sample_table_given_twice_makes_the_file_malformed) {
 
 // As Android's verifyTrack: a track without a timescale (none, or no mdhd), without its sample tables or without
 // its codec configuration is left out, and the file still parses.
+// (A timescale of 0 in an mdhd makes the file malformed: a_media_header_reads_as_androids.)
 TEST(a_track_without_a_timescale_tables_or_configuration_is_left_out) {
-    Knobs no_timescale;
-    no_timescale.timescale = 0;
     Knobs no_mdhd;
     no_mdhd.mdhd = false;
     Knobs no_avcc;
@@ -577,9 +753,9 @@ TEST(a_track_without_a_timescale_tables_or_configuration_is_left_out) {
     no_stsz.stsz = false;
     Knobs two;
     two.tracks = 2;
-    two.timescale = 0;
-    for (const Knobs &knobs : {no_timescale, no_mdhd, no_avcc, no_stsz, two}) {
-        std::vector<Track> tracks;
+    two.mdhd = false;
+    for (const Knobs &knobs : {no_mdhd, no_avcc, no_stsz, two}) {
+        minato::mp4::Tracks tracks;
         CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.empty());
     }
 }
@@ -600,7 +776,7 @@ TEST(a_track_of_more_samples_than_part_1_took_parses) {
     knobs.constant_count = 1u << 22;
     uint64_t data = 0;
     const Bytes file = built_file(knobs, &data);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(minato::mp4::parse(Source{const_cast<Bytes *>(&file), read_padded, 1ull << 40}, &tracks) == 0 &&
           tracks.size() == 1);
     if (tracks.size() != 1) return;
@@ -615,19 +791,18 @@ TEST(a_track_of_more_samples_than_part_1_took_parses) {
 }
 
 // The parse keeps no memory per sample, as Android's SampleTable reads stsz and stco from the file when a sample is
-// asked for: 2,097,152 samples of a file of about 1 KiB allocate far less than one byte a sample.
+// asked for: the tracks of 2,097,152 samples of a file of about 1 KiB hold far less than one byte a sample.
 TEST(parsing_allocates_no_memory_per_sample) {
     Knobs knobs;
     knobs.constant_count = 1u << 21;
     const Bytes file = built_file(knobs);
-    std::vector<Track> tracks;
-    allocated = 0;
-    counting = true;
+    minato::mp4::Tracks tracks;
+    const size_t before = held_bytes();
     const int answer = minato::mp4::parse(Source{const_cast<Bytes *>(&file), read_padded, 1ull << 40}, &tracks);
-    counting = false;
+    const size_t held = held_bytes() - before;
     CHECK(answer == 0 && tracks.size() == 1);
-    CHECK(allocated < (64u << 10));
-    if (allocated >= (64u << 10)) std::fprintf(stderr, "  allocated %zu bytes\n", allocated);
+    CHECK(held < (64u << 10));
+    if (held >= (64u << 10)) std::fprintf(stderr, "  held %zu bytes\n", held);
 }
 
 // A chunk near the end of the 64-bit range: a sample whose bytes would end past it is malformed when it is asked for,
@@ -636,7 +811,7 @@ TEST(a_sample_past_the_64_bit_range_fails_alone) {
     Knobs knobs;
     knobs.chunk_offset64 = ~uint64_t{0} - 39;  // samples of 16 bytes: the third ends past the range
     const Bytes file = built_file(knobs);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(parsed(file, &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() != 1) return;
     CHECK(tracks[0].samples.count() == 4 && sample_of(tracks[0], 1).offset == ~uint64_t{0} - 23);
@@ -654,7 +829,7 @@ TEST(a_sample_past_the_64_bit_range_fails_alone) {
 TEST(samples_past_the_ctts_have_no_composition_offset) {
     Knobs knobs;
     knobs.ctts_count = 2;
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() != 1) return;
     for (size_t index = 0; index < 4; index++) {
@@ -671,7 +846,7 @@ TEST(an_stz2_gives_the_sizes_an_stsz_gives) {
         knobs.stz2_field = field;
         knobs.first_size = field == 16 ? 300 : field == 8 ? 200 : 12;  // the NAL length is checked on a read only
         const Bytes file = built_file(knobs, &data);
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         CHECK(parsed(file, &tracks) == 0 && tracks.size() == 1);
         if (tracks.size() != 1) continue;
         const uint32_t later = field == 4 ? 0 : 16;
@@ -691,7 +866,7 @@ TEST(samples_after_one_past_the_64_bit_range_fail_in_bounded_time) {
     knobs.samples = 1u << 20;
     knobs.chunk_offset64 = ~uint64_t{0} - 16 * (uint64_t{1} << 19) + 1;  // sample 2^19 - 1 is the first to fail
     const Bytes file = built_file(knobs);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(parsed(file, &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() != 1) return;
     // From a sample well past the first that fails, with no sample of the chunk found before.
@@ -714,7 +889,7 @@ TEST(a_decode_time_past_int64_fails_alone) {
     knobs.constant_count = 0xffffffffu;
     knobs.time_runs = {{1u << 31, 0xffffffffu}, {1u << 31, 0xffffffffu}};
     const Bytes file = built_file(knobs);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(minato::mp4::parse(Source{const_cast<Bytes *>(&file), read_padded, 1ull << 40}, &tracks) == 0 &&
           tracks.size() == 1);
     if (tracks.size() != 1) return;
@@ -724,6 +899,133 @@ TEST(a_decode_time_past_int64_fails_alone) {
     CHECK(tracks[0].samples.at((size_t{1} << 31) + 1, &sample) == minato::mp4::kMalformed);
     CHECK(tracks[0].samples.at((size_t{1} << 31) - 1, &sample) == 0 &&
           static_cast<uint64_t>(sample.decode) == first_run - 0xffffffffu);
+}
+
+// A sample at INT64_MAX's decode time whose composition offset takes it past: its composition time saturates.
+TEST(a_composition_time_past_int64_saturates) {
+    Knobs knobs;
+    knobs.constant_count = 0xffffffffu;
+    knobs.time_runs = {{1u << 31, 0xffffffffu}, {1, 0x7fffffffu}, {1, 1}};
+    knobs.ctts_runs = {{(1u << 31) + 1, 0}, {1, 1}};
+    const Bytes file = built_file(knobs);
+    minato::mp4::Tracks tracks;
+    CHECK(minato::mp4::parse(Source{const_cast<Bytes *>(&file), read_padded, 1ull << 40}, &tracks) == 0 &&
+          tracks.size() == 1);
+    if (tracks.size() != 1) return;
+    minato::mp4::Sample sample{};
+    CHECK(tracks[0].samples.at((size_t{1} << 31) + 1, &sample) == 0 && sample.decode == INT64_MAX &&
+          sample.composition_offset == 1);
+    CHECK(sample.composition() == INT64_MAX);
+}
+
+// What a parse holds is freed when its tracks go or are parsed again, on success and on each way it fails: the test
+// files, a table given twice after the avcC's csd was made, an encrypted and a fragmented file, a fragment after the
+// moov was read, a track left out for want of its avcC, and an unsorted stss, whose sorted copy the track holds.
+TEST(a_parse_holds_nothing_once_its_tracks_go) {
+    Knobs twice;
+    twice.repeat = "stsz";
+    Knobs encrypted;
+    encrypted.encrypted = true;
+    Knobs fragmented;
+    fragmented.fragmented = true;
+    Knobs no_avcc;
+    no_avcc.avcc = false;
+    Knobs unsorted;
+    unsorted.syncs = {3, 1};
+    // ftyp, moov, then a moof: the walk reads the moov before it meets the fragment.
+    const Bytes plain = built_file(Knobs{});
+    const Bytes moov_type{'m', 'o', 'o', 'v'};
+    const auto moov = std::search(plain.begin(), plain.end(), moov_type.begin(), moov_type.end()) - 4;
+    const Bytes moof = box("moof", box("mfhd", cat({full(0), {0, 0, 0, 1}})));
+    const Bytes moov_then_moof = cat({Bytes(plain.begin(), plain.begin() + 20), Bytes(moov, plain.end()), moof});
+    const std::vector<Bytes> files = {file_bytes(kAssets + "media-extractor-test/assets/baseline.mp4"),
+                                      file_bytes(kAssets + "media-extractor-test/assets/main.mp4"),
+                                      built_file(twice), built_file(encrypted), built_file(fragmented),
+                                      moov_then_moof, built_file(no_avcc), built_file(unsorted)};
+    // Once before counting: the C library allocates 16 bytes for good on qsort's first call (the unsorted stss).
+    for (const Bytes &file : files) {
+        minato::mp4::Tracks tracks;
+        parsed(file, &tracks);
+    }
+    const size_t before = held_bytes();
+    {
+        minato::mp4::Tracks tracks;
+        for (const Bytes &file : files) parsed(file, &tracks);
+        CHECK(tracks.size() == 1);  // the last file's
+    }
+    for (const Bytes &file : files) {
+        minato::mp4::Tracks tracks;
+        parsed(file, &tracks);
+    }
+    CHECK(held_bytes() == before);
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(moov_then_moof, &tracks) == minato::mp4::kUnsupported);
+}
+
+// mdhd's language: its packed letters, each plus 0x60 whatever they are, as MPEG4Extractor reads them.
+TEST(a_track_language_reads_as_androids) {
+    const std::pair<uint16_t, const char *> cases[] = {
+        {0x55c4, "und"}, {0, "```"}, {0x7fff, "\x7f\x7f\x7f"}, {0x15c7, "eng"}};
+    for (const auto &[code, language] : cases) {
+        Knobs knobs;
+        knobs.language = code;
+        minato::mp4::Tracks tracks;
+        CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+        if (tracks.size() == 1) CHECK(text(tracks[0].language) == language);
+    }
+}
+
+// tkhd as MPEG4Extractor's parseTrackHeader reads it: a size other than its version's is malformed, a version above 1
+// unsupported; its matrix gives the rotation, its last two fields the display size.
+TEST(a_track_header_reads_as_androids) {
+    for (const int rotation : {0, 90, 180, 270}) {
+        Knobs knobs;
+        knobs.rotation = rotation;
+        minato::mp4::Tracks tracks;
+        CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+        if (tracks.size() != 1) continue;
+        CHECK(tracks[0].rotation == rotation && tracks[0].display_width == 640 && tracks[0].display_height == 360);
+    }
+    Knobs longer;
+    longer.tkhd_extra = 4;
+    Knobs later;
+    later.tkhd_version = 2;
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(longer), &tracks) == minato::mp4::kMalformed);
+    CHECK(parsed(built_file(later), &tracks) == minato::mp4::kUnsupported);
+}
+
+// An stss entry of 0 names the first sample, as SampleTable keeps it; the largest size counts all of stsz's sizes,
+// past where another table ends the track (getMaxSampleSize).
+TEST(stss_zero_and_the_largest_size_read_as_androids) {
+    Knobs zero;
+    zero.syncs = {0, 3};
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(zero), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) {
+        CHECK(tracks[0].samples.is_sync(0) && !tracks[0].samples.is_sync(1) && tracks[0].samples.is_sync(2));
+    }
+    Knobs shorter;
+    shorter.stts_count = 2;
+    shorter.last_size = 40;
+    CHECK(parsed(built_file(shorter), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) {
+        CHECK(tracks[0].samples.count() == 2 && tracks[0].max_size == 40 && tracks[0].frame_count == 4);
+    }
+}
+
+// Seeks on a built file of 4 samples of 1000 ticks at 30,000 a second (0, 33,333, 66,667 and 100,000 µs as
+// SampleTable rounds them), all sync samples: an exact time, the closest, and a time after the last.
+TEST(seeks_on_a_built_file_follow_androids_rules) {
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(Knobs{}), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() != 1) return;
+    size_t sample = 99;
+    CHECK(minato::mp4::seek(tracks[0], 66667, minato::mp4::kSeekNextSync, &sample) == 0 && sample == 2);
+    CHECK(minato::mp4::seek(tracks[0], 40000, minato::mp4::kSeekClosestSync, &sample) == 0 && sample == 1);
+    CHECK(minato::mp4::seek(tracks[0], 60000, minato::mp4::kSeekClosestSync, &sample) == 0 && sample == 2);
+    CHECK(minato::mp4::seek(tracks[0], 200000, minato::mp4::kSeekNextSync, &sample) == minato::mp4::kEndOfStream);
+    CHECK(minato::mp4::seek(tracks[0], 200000, minato::mp4::kSeekPreviousSync, &sample) == 0 && sample == 3);
 }
 
 // An stss out of order is taken as a set, as part 1 took it, and reading every sample's flag stays linear: 1,048,576
@@ -737,7 +1039,7 @@ TEST(an_unsorted_sync_table_reads_in_bounded_time) {
     }
     knobs.syncs.push_back(0);
     const Bytes file = built_file(knobs);
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(minato::mp4::parse(Source{const_cast<Bytes *>(&file), read_padded, 1ull << 40}, &tracks) == 0 &&
           tracks.size() == 1);
     if (tracks.size() != 1) return;
@@ -796,7 +1098,7 @@ TEST(the_top_level_walk_stops_after_the_movie_and_its_data_as_androids_does) {
         // The chunk offsets assume the 20-byte ftyp: a shorter or longer one only moves where the samples are.
         const Bytes file = with_ftyp(one.ftyp, tail);
         Furthest furthest{&file};
-        std::vector<Track> tracks;
+        minato::mp4::Tracks tracks;
         CHECK(minato::mp4::parse(Source{&furthest, read_furthest, file.size()}, &tracks) == 0 && tracks.size() == 1);
         const uint64_t walked_to = file.size() - tail.size();
         CHECK((furthest.end <= walked_to) == one.stops);
@@ -809,7 +1111,7 @@ TEST(the_top_level_walk_stops_after_the_movie_and_its_data_as_androids_does) {
     // No ftyp: the walk goes on.
     const Bytes bare = cat({Bytes(plain.begin() + static_cast<long>(ftyp_size), plain.end()), tail});
     Furthest furthest{&bare};
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(minato::mp4::parse(Source{&furthest, read_furthest, bare.size()}, &tracks) == 0 &&
           furthest.end == bare.size());
     CHECK(parsed(cat({bare, cut}), &tracks) == 0 && tracks.size() == 1);
@@ -857,14 +1159,14 @@ TEST(a_box_above_64_mib_but_the_mdat_fails_the_file_before_the_movie) {
             if (std::strcmp(type, "ftyp") == 0) box.insert(box.end(), {'i', 's', 'o', 'm', 0, 0, 2, 0});
             Sparse sparse{{{0, start}, {ftyp_size, box}, {ftyp_size + 16 + data, rest}}};
             const uint64_t length = ftyp_size + 16 + data + rest.size();
-            std::vector<Track> tracks;
+            minato::mp4::Tracks tracks;
             const int answer = minato::mp4::parse(Source{&sparse, read_sparse, length}, &tracks);
             CHECK(data > cap ? answer == minato::mp4::kMalformed : answer == 0 && tracks.size() == 1);
         }
     }
     // After the moov (no ftyp, so the walk reaches it), a large box is not read and ends the walk.
     Sparse after{{{0, rest}, {rest.size(), header("free", cap + 1)}}};
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(minato::mp4::parse(Source{&after, read_sparse, rest.size() + 16 + cap + 1}, &tracks) == 0 &&
           tracks.size() == 1);
 }
@@ -887,22 +1189,253 @@ Bytes edit_list(uint8_t version, std::initializer_list<std::pair<uint64_t, int64
 }
 
 // As Android's elst and getTrack: an edit list of more than two entries is ignored; an empty first edit is rounded
-// from the movie's timescale into the track's; and one whose conversion overflows leaves the track out (getTrack
-// fails for it on Android).
+// from the movie's timescale (the moov's last mvhd's, wherever it is) into the track's; one whose conversion
+// overflows keeps the track listed but marks it, as getTrack fails for it; and one past int64_t's range saturates.
 TEST(an_edit_list_reads_as_android_reads_it) {
     Knobs knobs;
     knobs.movie_timescale = 7;
     knobs.timescale = 10;
     knobs.elst = edit_list(0, {{2, -1}, {40, 5}});
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() == 1) CHECK(tracks[0].edit_empty == 3 && tracks[0].edit_media_time == 5);  // (2*10+3)/7
     knobs.elst = edit_list(0, {{2, -1}, {40, 5}, {40, 6}});
     CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
     if (tracks.size() == 1) CHECK(tracks[0].edit_empty == 0 && tracks[0].edit_media_time == 0);
+    knobs.elst = edit_list(0, {{2, -1}, {40, 5}});
+    knobs.mvhd_last = true;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) CHECK(tracks[0].edit_empty == 3 && tracks[0].movie_timescale == 7);
+    knobs.mvhd_last = false;
     knobs.timescale = 30000;
     knobs.elst = edit_list(1, {{1ull << 63, -1}, {40, 5}});
-    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.empty());
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) CHECK(tracks[0].edit_overflow);
+    knobs.timescale = 1;
+    knobs.movie_timescale = 1;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) CHECK(!tracks[0].edit_overflow && tracks[0].edit_empty == INT64_MAX);
+}
+
+// MPEG4Source::read's conversion of NAL units to Annex B: a unit of length 0 is skipped, a length past the sample
+// ends the sample with the units before it, and a sample that grows past the buffer (max-input-size, the largest
+// size plus 20) is malformed.
+TEST(nal_units_convert_as_mpeg4_source_reads_them) {
+    struct Case {
+        uint8_t nal_size;
+        Bytes sample, output;
+        long answer;
+    };
+    std::vector<Case> cases = {
+        {4, {0, 0, 0, 0, 0, 0, 0, 5, 0x65, 1, 2, 3, 4, 0, 0, 0, 3, 9, 9}, {0, 0, 0, 1, 0x65, 1, 2, 3, 4}, 9},
+        {2, {0, 0, 0, 3, 0x65, 1, 2, 0, 9, 7, 7}, {0, 0, 0, 1, 0x65, 1, 2}, 7},
+        {1, {0, 2, 0x65, 1, 5, 0x65}, {0, 0, 0, 1, 0x65, 1}, 6},
+        {1, {1, 0x65, 1, 0x65, 1, 0x65, 1, 0x65}, {}, 20},
+    };
+    // 8 units of 1 byte: 40 bytes, past 16 + 20.
+    cases.push_back({1, {1, 0x65, 1, 0x65, 1, 0x65, 1, 0x65, 1, 0x65, 1, 0x65, 1, 0x65, 1, 0x65}, {}, -1007});
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.nal_size = test.nal_size;
+        knobs.first_sample = test.sample;
+        const Bytes file = built_file(knobs);
+        minato::mp4::Tracks tracks;
+        CHECK(parsed(file, &tracks) == 0 && tracks.size() == 1);
+        if (tracks.size() != 1) continue;
+        long answer = 0;
+        const Bytes out = read_all(source_of(file), tracks[0], 0, &answer);
+        CHECK(answer == test.answer);
+        if (answer != test.answer) std::fprintf(stderr, "  NAL size %u: %ld\n", test.nal_size, answer);
+        if (!test.output.empty() && answer > 0) CHECK(Bytes(out.begin(), out.begin() + answer) == test.output);
+    }
+}
+
+// mdhd as MPEG4Extractor reads it: a duration of 0, or all ones in a version 0 box, gives none; one past int64_t's µs
+// or a negative one of a version 1 box (all ones too) is malformed, as a timescale of 0 is; a version above 1 is an
+// I/O error.
+TEST(a_media_header_reads_as_androids) {
+    struct Case {
+        uint8_t version;
+        int64_t duration;
+        uint32_t timescale;
+        int answer;
+        int64_t duration_us;
+    };
+    const Case cases[] = {
+        {0, -1, 30000, 0, 133333},  // the 4 samples' 4000 ticks
+        {0, 0, 30000, 0, -1},
+        {0, 0xffffffff, 30000, 0, -1},
+        {1, static_cast<int64_t>(UINT64_MAX), 30000, minato::mp4::kMalformed, 0},
+        {1, INT64_MIN, 30000, minato::mp4::kMalformed, 0},
+        {1, int64_t{1} << 62, 1, minato::mp4::kMalformed, 0},
+        {1, int64_t{1} << 40, 1, 0, (int64_t{1} << 40) * 1000000},
+        {0, -1, 0, minato::mp4::kMalformed, 0},
+        {2, -1, 30000, minato::mp4::kIo, 0},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.mdhd_version = test.version;
+        knobs.timescale = test.timescale;
+        // -1 is the knob's default, so all ones of a version 1 box is put in through UINT64_MAX's bits.
+        knobs.mdhd_duration = test.duration;
+        if (test.version == 1 && test.duration == static_cast<int64_t>(UINT64_MAX)) knobs.mdhd_duration = -2;
+        Bytes file = built_file(knobs);
+        if (knobs.mdhd_duration == -2) {
+            const char mdhd[] = {'m', 'd', 'h', 'd'};
+            const auto at = std::search(file.begin(), file.end(), mdhd, mdhd + 4);
+            CHECK(at != file.end());
+            if (at != file.end()) std::fill(at + 4 + 4 + 16 + 4, at + 4 + 4 + 16 + 4 + 8, 0xff);
+        }
+        minato::mp4::Tracks tracks;
+        const int answer = parsed(file, &tracks);
+        CHECK(answer == test.answer);
+        if (answer != test.answer) std::fprintf(stderr, "  mdhd %u %lld: %d\n", test.version,
+                                                static_cast<long long>(test.duration), answer);
+        if (answer == 0) CHECK(tracks.size() == 1 && tracks[0].duration_us == test.duration_us);
+    }
+}
+
+// stsd as MPEG4Extractor reads it: every entry in turn, each one's codec in place of the one before (a second avcC's
+// configuration in place of the first's); a second stsd likewise, unless it has more than one entry, which leaves the
+// track out; a version or flags other than 0, a count of entries the box does not hold, or bytes after them, malformed.
+TEST(sample_descriptions_read_as_androids) {
+    struct Case {
+        std::vector<std::vector<std::string>> stsds;
+        uint32_t claim, flags;
+        bool tail;
+        int answer;
+        const char *mime;  // nullptr: no track
+    };
+    const Case cases[] = {
+        {{{"avc1"}, {"mp4a"}}, 0, 0, false, 0, "audio/mp4a-latm"},
+        {{{"avc1", "mp4a"}}, 0, 0, false, 0, "audio/mp4a-latm"},
+        {{{"mp4a", "avc1"}}, 0, 0, false, 0, "video/avc"},
+        {{{"avc1"}, {"mp4a", "avc1"}}, 0, 0, false, 0, nullptr},
+        {{{"avc1"}}, 0, 1, false, minato::mp4::kMalformed, nullptr},
+        {{{"avc1"}}, 2, 0, false, minato::mp4::kMalformed, nullptr},
+        {{{"avc1"}}, 0, 0, true, minato::mp4::kMalformed, nullptr},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.stsds = test.stsds;
+        knobs.stsd_claim = test.claim;
+        knobs.stsd_flags = test.flags;
+        knobs.stsd_tail = test.tail;
+        const Bytes file = built_file(knobs);
+        minato::mp4::Tracks tracks;
+        const int answer = parsed(file, &tracks);
+        CHECK(answer == test.answer);
+        if (answer != test.answer) std::fprintf(stderr, "  stsd case: %d\n", answer);
+        if (answer != 0) continue;
+        CHECK(tracks.size() == (test.mime == nullptr ? 0u : 1u));
+        if (tracks.size() != 1 || test.mime == nullptr) continue;
+        CHECK(text(tracks[0].mime) == test.mime);
+        // An AAC track's samples are read as they are, a video track's as Annex B.
+        const bool audio = text(test.mime) == "audio/mp4a-latm";
+        CHECK(tracks[0].nal_length_size == (audio ? 0u : 4u));
+        long read = 0;
+        const Bytes got = read_all(source_of(file), tracks[0], 0, &read);
+        CHECK(read == 16 && got[3] == (audio ? 12 : 1));
+    }
+    Knobs twice;
+    twice.avcc_twice = true;
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(twice), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) {
+        const Bytes sps{0, 0, 0, 1, 0x67, 77, 0, 30};
+        CHECK(tracks[0].csd0.size == sps.size() && Bytes(tracks[0].csd0.data, tracks[0].csd0.data + 8) == sps);
+        const Bytes pps{0, 0, 0, 1, 0x68, 0xee};
+        CHECK(tracks[0].csd1.size == pps.size() && Bytes(tracks[0].csd1.data, tracks[0].csd1.data + 6) == pps);
+    }
+}
+
+// The AudioSpecificConfig as MPEG4Extractor's updateAudioTrackInfoFromESDS_MPEG4Audio reads it: the rate by its
+// index or in 24 bits, channel configurations 7, 11, 12 and 14 as 8, 7, 8 and 8 channels, others above 6
+// unsupported (as no channels are), a reserved rate index or a config too short for its fields malformed.
+TEST(an_audio_specific_config_reads_as_androids) {
+    struct Case {
+        Bytes config;
+        int answer;
+        uint32_t object;
+        int32_t rate, channels;
+    };
+    const Case cases[] = {
+        {{0x12, 0x10}, 0, 2, 44100, 2},
+        {{0x11, 0xb8}, 0, 2, 48000, 8},
+        {{0x11, 0xd8}, 0, 2, 48000, 7},
+        {{0x11, 0xc0}, minato::mp4::kUnsupported, 0, 0, 0},
+        {{0x16, 0x90}, minato::mp4::kMalformed, 0, 0, 0},
+        {{0x17, 0x80, 0x2b, 0x11, 0x08}, 0, 2, 22050, 1},
+        {{0x12}, minato::mp4::kMalformed, 0, 0, 0},
+        {{0x12, 0x00}, minato::mp4::kMalformed, 0, 0, 0},  // no channel configuration and no program config element
+        {{0x0a, 0x00}, minato::mp4::kUnsupported, 0, 0, 0},  // AAC Main without a channel configuration
+        {{0xf9, 0x48, 0x40}, 0, 42, 44100, 2},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.audio_config = test.config;
+        minato::mp4::Tracks tracks;
+        const int answer = parsed(built_file(knobs), &tracks);
+        CHECK(answer == test.answer);
+        if (answer != test.answer) std::fprintf(stderr, "  config %02x %02x: %d\n", test.config[0],
+                                                test.config.size() > 1 ? test.config[1] : 0, answer);
+        if (answer != 0) continue;
+        CHECK(tracks.size() == 1);
+        if (tracks.size() != 1) continue;
+        CHECK(text(tracks[0].mime) == "audio/mp4a-latm" && tracks[0].audio_object == test.object);
+        CHECK(tracks[0].sample_rate == test.rate && tracks[0].channels == test.channels);
+    }
+}
+
+// MPEG4Source takes every AAC sample as a sync sample but USAC's (audio object 42), whose stss it reads.
+TEST(usac_audio_seeks_to_its_sync_samples) {
+    for (const bool usac : {false, true}) {
+        Knobs knobs;
+        knobs.audio_config = usac ? Bytes{0xf9, 0x48, 0x40} : Bytes{0x12, 0x10};
+        knobs.syncs = {1, 3};
+        minato::mp4::Tracks tracks;
+        CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+        if (tracks.size() != 1) continue;
+        size_t sample = 99;
+        CHECK(minato::mp4::seek(tracks[0], 33333, minato::mp4::kSeekPreviousSync, &sample) == 0);
+        CHECK(sample == (usac ? 0u : 1u));
+    }
+}
+
+// SampleTable's seek index takes a running time that a negative composition offset larger than it resets to 0, so
+// that the samples after it are earlier by the time it had: here sample 2 is at 1000 ticks and sample 3 at 2000.
+TEST(the_seek_index_resets_its_time_as_androids) {
+    Knobs knobs;
+    knobs.ctts_offsets = {0, -1500, 0, 0};
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() != 1) return;
+    size_t sample = 99;
+    CHECK(minato::mp4::seek(tracks[0], 66667, minato::mp4::kSeekPreviousSync, &sample) == 0 && sample == 3);
+    CHECK(minato::mp4::seek(tracks[0], 33333, minato::mp4::kSeekPreviousSync, &sample) == 0 && sample == 2);
+}
+
+// Times past int64_t's range saturate rather than overflow (Android's arithmetic overflows there): an empty edit of
+// INT64_MAX ticks, and a seek to INT64_MAX past a shift.
+TEST(times_past_int64_saturate) {
+    Knobs knobs;
+    knobs.timescale = 1;
+    knobs.movie_timescale = 1;
+    knobs.elst = edit_list(1, {{static_cast<uint64_t>(INT64_MAX), -1}, {40, 0}});
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) {
+        CHECK(minato::mp4::sample_time_us(tracks[0], sample_of(tracks[0], 1)) == INT64_MAX);
+        size_t sample = 99;
+        CHECK(minato::mp4::seek(tracks[0], 0, minato::mp4::kSeekPreviousSync, &sample) == 0 && sample == 0);
+    }
+    knobs.timescale = 30000;
+    knobs.elst = edit_list(0, {{40, 5}});
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) {
+        size_t sample = 99;
+        CHECK(minato::mp4::seek(tracks[0], INT64_MAX, minato::mp4::kSeekPreviousSync, &sample) == 0 && sample == 3);
+    }
 }
 
 TEST(encrypted_and_fragmented_files_are_unsupported) {
@@ -910,33 +1443,48 @@ TEST(encrypted_and_fragmented_files_are_unsupported) {
     encrypted.encrypted = true;
     Knobs fragmented;
     fragmented.fragmented = true;
-    std::vector<Track> tracks;
+    minato::mp4::Tracks tracks;
     CHECK(parsed(built_file(encrypted), &tracks) == minato::mp4::kUnsupported);
     CHECK(parsed(built_file(fragmented), &tracks) == minato::mp4::kUnsupported);
 }
 
 // --sweep: each test file and a built one with every byte changed three ways and cut at every length, each file for
-// its share of the time budget; each answer is one of parse's, and reading every sample of every track answers within
-// its size.
+// its share of the time budget; each answer is one of parse's, reading every sample of every track answers within
+// its size, and nothing stays held once the tracks go.
 int sweep(double seconds) {
+    Knobs audio;
+    audio.audio_config = {0x12, 0x10};
+    Knobs short_lengths;
+    short_lengths.nal_size = 2;
+    short_lengths.first_sample = {0, 3, 0x65, 1, 2, 0, 0, 0, 5, 0x65, 3, 4, 5, 6};
     const std::vector<Bytes> files = {file_bytes(kAssets + "media-extractor-test/assets/baseline.mp4"),
                                       file_bytes(kAssets + "media-extractor-test/assets/main.mp4"),
-                                      built_file(Knobs{})};
-    size_t tried = 0;
+                                      built_file(Knobs{}), built_file(audio), built_file(short_lengths)};
+    size_t tried = 0, leaks = 0;
     auto exercise = [&](const Bytes &file) {
-        std::vector<Track> tracks;
-        const int answer = minato::mp4::parse(source_of(file), &tracks);
-        CHECK(answer == 0 || answer == minato::mp4::kMalformed || answer == minato::mp4::kUnsupported ||
-              answer == minato::mp4::kNoMemory);
-        for (const Track &track : tracks) {
-            for (size_t index = 0; index < track.samples.count(); index++) {
-                long read = 0;
-                const Bytes got = read_all(source_of(file), track, index, &read);
-                CHECK(read <= static_cast<long>(got.size()));
+        const size_t before = held_bytes();
+        {
+            minato::mp4::Tracks tracks;
+            const int answer = minato::mp4::parse(source_of(file), &tracks);
+            // kIo as MPEG4Extractor gives it for an mdhd of a version above 1.
+            CHECK(answer == 0 || answer == minato::mp4::kMalformed || answer == minato::mp4::kUnsupported ||
+                  answer == minato::mp4::kNoMemory || answer == minato::mp4::kIo);
+            for (const Track &track : tracks) {
+                for (size_t index = 0; index < track.samples.count(); index++) {
+                    long read = 0;
+                    const Bytes got = read_all(source_of(file), track, index, &read);
+                    CHECK(read <= static_cast<long>(got.size()));
+                }
             }
         }
+        leaks += held_bytes() != before;
         tried++;
     };
+    // Once before counting, as in the test above: an unsorted stss makes qsort's first call.
+    Knobs unsorted;
+    unsorted.syncs = {3, 1};
+    exercise(built_file(unsorted));
+    leaks = 0;
     for (const Bytes &file : files) {
         const auto share = std::chrono::duration<double>(seconds / static_cast<double>(files.size()));
         const auto deadline = std::chrono::steady_clock::now() + share;
@@ -950,6 +1498,8 @@ int sweep(double seconds) {
         }
     }
     std::printf("mp4 sweep: %zu files tried\n", tried);
+    CHECK(leaks == 0);
+    if (leaks != 0) std::printf("mp4 sweep: %zu files held memory afterwards\n", leaks);
     return apk::testing::failures == 0 ? 0 : 1;
 }
 

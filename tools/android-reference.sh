@@ -548,7 +548,8 @@ run_app() {
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \
       | preferences-test | service-exceptions-test | network-security-test | network-security-config-test \
       | noted-app-op-test | app-services-test | image-reader-test | autocomplete-test | bound-services-test | package-answers-test \
-      | image-writer-test | media-codec-test | open-test | sensors-java-test | location-manager-test \
+      | image-writer-test | media-codec-test | media-extractor-test | open-test | sensors-java-test \
+      | location-manager-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | device-profile-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
@@ -838,6 +839,8 @@ run_app() {
   else
     device install "$apk" >/dev/null
   fi
+  # A ring for a long log (media-extractor-test's about 600 lines) beside the system's own lines.
+  run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
   if [[ "$AVD" == apk-runner-35-iphone-gesture ]]; then
     # Gesture navigation's overlay, and the screen on past the keyguard, so that the window takes focus.

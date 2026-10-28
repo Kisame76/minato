@@ -2,13 +2,12 @@
 // the moov box is read whole (at most kMaxMovieBytes) and parsed in memory through Span, whose every read is checked
 // against its end, so a box never reaches past the one that holds it. Sample tables stay where the moov has them
 // (SampleTable); tables that disagree on the count end the track at the shortest one, as Android's SampleTable
-// refuses samples past what all its tables describe.
+// refuses samples past what all its tables describe. Bionic's C library alone (mp4_extractor.h): malloc'd memory,
+// which Tracks frees.
 #include "mp4_extractor.h"
 
-#include <algorithm>
-#include <cstring>
-#include <limits>
-#include <new>
+#include <stdlib.h>
+#include <string.h>
 
 namespace minato::mp4 {
 namespace {
@@ -73,15 +72,43 @@ bool next_box(Span& in, uint32_t* type, Span* body) {
     return !body->bad;
 }
 
+template <typename T>
+T smaller(T a, T b) {
+    return b < a ? b : a;
+}
+
+template <typename T>
+T larger(T a, T b) {
+    return a < b ? b : a;
+}
+
 uint32_t be32(const uint8_t* bytes) {
     return static_cast<uint32_t>(bytes[0]) << 24 | static_cast<uint32_t>(bytes[1]) << 16 |
            static_cast<uint32_t>(bytes[2]) << 8 | static_cast<uint32_t>(bytes[3]);
 }
 
+// Frees what a track owns.
+void release(Track& track) {
+    free(track.csd0.data);
+    free(track.csd1.data);
+    free(track.samples.sorted_syncs);
+    free(track.seek_index.entries);
+    track.csd0 = Bytes{};
+    track.csd1 = Bytes{};
+    track.samples.sorted_syncs = nullptr;
+    track.seek_index = SeekIndex{};
+}
+
+// The first bytes of a codec configuration (avcC, hvcC), for the profile and level.
+void keep_config(Track& track, const Span& body) {
+    track.config_size = static_cast<uint8_t>(smaller<size_t>(body.size, sizeof track.config));
+    memcpy(track.config, body.data, track.config_size);
+}
+
 struct Parser {
-    std::vector<Track>* tracks;
+    Tracks* tracks;
     uint64_t source_length;  // the source's: a track's samples of one size never number more than it holds
-    std::shared_ptr<const std::vector<uint8_t>> movie;  // the moov's body, which the tracks' tables point into
+    const uint8_t* movie;    // the moov's body, which the tracks' tables point into
     int error = 0;
     bool skip = false;  // the track being read is left out, as Android's verifyTrack leaves it out
 
@@ -95,6 +122,7 @@ struct Parser {
         uint32_t size_count = 0;
         bool has_sizes = false, has_chunks = false, has_chunk_runs = false, has_times = false, has_offsets = false,
              has_syncs = false;
+        bool described = false;  // an stsd named the track's codec
     };
 
     // A count of entries of `entry` bytes each that the body must hold, or false (malformed).
@@ -102,10 +130,20 @@ struct Parser {
 
     // The body's next `count` entries in the movie.
     SampleTable::Entries entries(const Span& body, uint32_t count) const {
-        return SampleTable::Entries{static_cast<size_t>(body.data + body.at - movie->data()), count};
+        return SampleTable::Entries{static_cast<size_t>(body.data + body.at - movie), count};
+    }
+
+    // A codec configuration in place of the one before, as MPEG4Extractor's setBuffer of csd-avc or csd-hevc.
+    static void drop_codec_data(Track& track) {
+        free(track.csd0.data);
+        free(track.csd1.data);
+        track.csd0 = Bytes{};
+        track.csd1 = Bytes{};
     }
 
     void read_avcc(Span body, Track& track) {
+        drop_codec_data(track);
+        keep_config(track, body);
         body.take(4);  // version, profile, compatibility, level
         track.nal_length_size = (body.u8() & 3u) + 1;
         const uint8_t sps_count = body.u8() & 0x1f;
@@ -120,10 +158,12 @@ struct Parser {
             Span set = body.sub(length);
             if (index == 0 && !set.bad) append_set(track.csd1, set);
         }
-        if (body.bad || track.csd0.empty()) fail(kMalformed);
+        if (body.bad || track.csd0.size == 0) fail(kMalformed);
     }
 
     void read_hvcc(Span body, Track& track) {
+        drop_codec_data(track);
+        keep_config(track, body);
         body.take(21);
         track.nal_length_size = (body.u8() & 3u) + 1;
         const uint8_t arrays = body.u8();
@@ -136,17 +176,21 @@ struct Parser {
                 if (!set.bad) append_set(track.csd0, set);  // VPS, SPS and PPS, each after a start code
             }
         }
-        if (body.bad || track.csd0.empty()) fail(kMalformed);
+        if (body.bad || track.csd0.size == 0) fail(kMalformed);
     }
 
-    void append_set(std::vector<uint8_t>& csd, const Span& set) {
-        if (csd.size() + 4 + set.size > kMaxCodecData) {
+    void append_set(Bytes& csd, const Span& set) {
+        if (csd.size + 4 + set.size > kMaxCodecData) {
             fail(kMalformed);
             return;
         }
+        auto* grown = static_cast<uint8_t*>(realloc(csd.data, csd.size + 4 + set.size));
+        if (grown == nullptr) return fail_void(kNoMemory);
         static const uint8_t start[] = {0, 0, 0, 1};
-        csd.insert(csd.end(), start, start + 4);
-        csd.insert(csd.end(), set.data, set.data + set.size);
+        memcpy(grown + csd.size, start, 4);
+        memcpy(grown + csd.size + 4, set.data, set.size);
+        csd.data = grown;
+        csd.size += 4 + set.size;
     }
 
     // A descriptor's length in ISO 14496-1's variable form, at most four bytes.
@@ -173,45 +217,169 @@ struct Parser {
         if (es.u8() != 4) return fail_void(kMalformed);
         Span config = es.sub(descriptor_length(es));
         const uint8_t object = config.u8();
-        config.take(12);  // stream type, buffer size, bit rates
+        config.take(4);  // stream type, buffer size
+        track.max_bitrate = config.u32();
+        track.avg_bitrate = config.u32();
         if (object != 0x40 && object != 0x66 && object != 0x67 && object != 0x68) {
-            track.mime.clear();  // not AAC: a track this parser leaves out
+            track.mime = nullptr;  // not AAC: a track this parser leaves out
             return;
         }
         if (config.left() > 0 && config.u8() == 5) {
             Span info = config.sub(descriptor_length(config));
             if (info.bad || info.size > kMaxCodecData) return fail_void(kMalformed);
-            track.csd0.assign(info.data, info.data + info.size);
-            read_audio_config(track);
+            free(track.csd0.data);
+            track.csd0 = Bytes{};
+            if (info.size > 0) {
+                track.csd0.data = static_cast<uint8_t*>(malloc(info.size));
+                if (track.csd0.data == nullptr) return fail_void(kNoMemory);
+                memcpy(track.csd0.data, info.data, info.size);
+                track.csd0.size = info.size;
+            }
+            const int answer = read_audio_config(track);
+            if (answer != 0) return fail_void(answer);
         }
         if (body.bad || es.bad || config.bad) fail(kMalformed);
     }
 
     void fail_void(int answer) { fail(answer); }
 
-    // The AudioSpecificConfig's sampling frequency and channel configuration, when it names them.
-    static void read_audio_config(Track& track) {
+    // Bits of the AudioSpecificConfig, as ABitReader reads them (the callers check what is left first).
+    struct Bits {
+        const uint8_t* data;
+        size_t size, at;  // in bits
+        size_t left() const { return size - at; }
+        uint32_t get(size_t count) {
+            uint32_t value = 0;
+            for (; count > 0 && at < size; count--, at++) value = value << 1 | ((data[at / 8] >> (7 - at % 8)) & 1u);
+            return value;
+        }
+    };
+
+    // MPEG4Extractor's updateAudioTrackInfoFromESDS_MPEG4Audio on the AudioSpecificConfig: its audio object type, and
+    // the sampling rate and channel count in place of the sample entry's; 0, kMalformed or kUnsupported, which fail the
+    // file.
+    static int read_audio_config(Track& track) {
         static const int32_t rates[] = {96000, 88200, 64000, 48000, 44100, 32000, 24000,
                                         22050, 16000, 12000, 11025, 8000,  7350};
-        if (track.csd0.size() < 2) return;
-        const uint32_t bits = static_cast<uint32_t>(track.csd0[0]) << 8 | track.csd0[1];
-        const uint32_t object = bits >> 11, frequency = (bits >> 7) & 0xf, channels = (bits >> 3) & 0xf;
-        if (object == 0 || object == 31 || frequency == 15) return;  // escapes: the sample entry's values stay
-        if (frequency < 13) track.sample_rate = rates[frequency];
-        if (channels != 0) track.channels = static_cast<int32_t>(channels);
+        if (track.csd0.size == 0) return 0;  // the sample entry's values stay
+        if (track.csd0.size < 2) return kMalformed;
+        Bits bits{track.csd0.data, track.csd0.size * 8, 0};
+        uint32_t object = bits.get(5);
+        if (object == 31) object = 32 + bits.get(6);  // the escape
+        track.audio_object = object;
+        const uint32_t frequency = bits.get(4);
+        int32_t rate = 0, channels = 0;
+        if (frequency == 15) {
+            if (bits.left() < 28) return kMalformed;
+            rate = static_cast<int32_t>(bits.get(24));
+            channels = static_cast<int32_t>(bits.get(4));
+        } else {
+            if (bits.left() < 4) return kMalformed;
+            channels = static_cast<int32_t>(bits.get(4));
+            if (frequency == 13 || frequency == 14) return kMalformed;
+            rate = rates[frequency];
+        }
+        const bool sbr = object == 5 || object == 29;  // SBR, PS
+        if (sbr) {
+            if (bits.left() < 4) return kMalformed;
+            const uint32_t extension = bits.get(4);
+            if (extension == 15) {
+                if (track.csd0.size < 8 || bits.left() < 24) return kMalformed;
+                bits.get(24);
+            } else if (extension == 13 || extension == 14) {
+                return kMalformed;
+            }
+        }
+        // 14496-3's channel configurations 7, 11, 12 and 14 by their channels; others above 6 are not supported.
+        if (channels == 11) {
+            channels = 7;
+        } else if (channels == 7 || channels == 12 || channels == 14) {
+            channels = 8;
+        } else if (channels > 6) {
+            return kUnsupported;
+        }
+        if (sbr) {
+            if (bits.left() < 5) return kMalformed;
+            object = bits.get(5);
+            if (object == 31) {
+                if (bits.left() < 6) return kMalformed;
+                object = 32 + bits.get(6);
+            }
+        }
+        if (object == 2 || object == 17 || object == 23 || object == 20 || object == 22) {  // the AAC LC family
+            if (bits.left() < 2) return kMalformed;
+            bits.get(1);  // frameLengthFlag
+            if (bits.get(1) != 0) {  // dependsOnCoreCoder
+                if (bits.left() < 14) return kMalformed;
+                bits.get(14);
+            }
+            if (bits.left() > 0) bits.get(1);  // extensionFlag, else taken by the object type
+            if (channels == 0) {
+                // The program config element's channels.
+                if (bits.left() < 32) return kMalformed;
+                bits.get(10);  // element instance tag, profile, sampling frequency index
+                const uint32_t front = bits.get(4), side = bits.get(4), back = bits.get(4), lfe = bits.get(2);
+                bits.get(7);  // associated data and valid coupling channel elements
+                if (bits.get(1) != 0) {  // mono mixdown
+                    if (bits.left() < 4) return kMalformed;
+                    bits.get(4);
+                }
+                if (bits.left() < 1) return kMalformed;
+                if (bits.get(1) != 0) {  // stereo mixdown
+                    if (bits.left() < 4) return kMalformed;
+                    bits.get(4);
+                }
+                if (bits.left() < 1) return kMalformed;
+                if (bits.get(1) != 0) {  // matrix mixdown
+                    if (bits.left() < 3) return kMalformed;
+                    bits.get(3);
+                }
+                for (uint32_t element = 0; element < front + side + back; element++) {
+                    if (bits.left() < 5) return kMalformed;
+                    channels += bits.get(1) != 0 ? 2 : 1;  // a channel pair, else one channel
+                    bits.get(4);
+                }
+                for (uint32_t element = 0; element < lfe; element++) {
+                    if (bits.left() < 4) return kMalformed;
+                    bits.get(4);
+                    channels++;
+                }
+            }
+        }
+        if (channels == 0) return kUnsupported;
+        track.sample_rate = rate;
+        track.channels = channels;
+        return 0;
     }
 
-    void read_stsd(Span body, Track& track) {
-        body.take(4);
+    // As MPEG4Extractor's stsd: version and flags 0; more than one entry in a track an earlier stsd described leaves it
+    // out ("only a single type of media per track"); else each entry in turn, the codec of each in place of the one
+    // before, and the entries fill the box. An AVC or HEVC track left without its avcC or hvcC is left out.
+    void read_stsd(Span body, Track& track, Tables& tables) {
+        if (body.u32() != 0) return fail_void(kMalformed);
         const uint32_t entries = body.u32();
-        uint32_t type = 0;
-        Span entry;
-        if (entries == 0 || !next_box(body, &type, &entry)) return fail_void(kMalformed);
-        // Only the first entry: a track whose description changes is described by its first, as Android's.
+        if (body.bad) return fail_void(kMalformed);
+        if (entries > 1 && tables.described) {
+            skip = true;
+            return;
+        }
+        for (uint32_t index = 0; index < entries && error == 0; index++) {
+            uint32_t type = 0;
+            Span entry;
+            if (!next_box(body, &type, &entry)) return fail_void(kMalformed);
+            read_sample_entry(type, entry, track, tables);
+        }
+        if (error == 0 && body.left() != 0) return fail_void(kMalformed);
+        const bool coded = track.mime != nullptr && strncmp(track.mime, "video/", 6) == 0;
+        if (coded && track.nal_length_size == 0) skip = true;  // no avcC or hvcC: no codec configuration
+    }
+
+    void read_sample_entry(uint32_t type, Span entry, Track& track, Tables& tables) {
         if (type == type_of("encv") || type == type_of("enca")) return fail_void(kUnsupported);
         const bool avc = type == type_of("avc1") || type == type_of("avc3");
         const bool hevc = type == type_of("hvc1") || type == type_of("hev1");
         if (avc || hevc) {
+            tables.described = true;
             entry.take(24);
             track.width = entry.u16();
             track.height = entry.u16();
@@ -223,8 +391,9 @@ struct Parser {
                 if (avc && inner == type_of("avcC")) read_avcc(part, track);
                 if (hevc && inner == type_of("hvcC")) read_hvcc(part, track);
             }
-            if (track.nal_length_size == 0) skip = true;  // no avcC or hvcC: no codec configuration
         } else if (type == type_of("mp4a")) {
+            tables.described = true;
+            track.nal_length_size = 0;  // AAC's samples are read as they are
             entry.take(8);
             const uint16_t version = entry.u16();
             entry.take(6);
@@ -255,7 +424,7 @@ struct Parser {
         };
         while (error == 0 && next_box(stbl, &type, &body)) {
             if (type == type_of("stsd")) {
-                read_stsd(body, track);
+                read_stsd(body, track, tables);
             } else if (type == type_of("stsz")) {
                 if (twice(&tables.has_sizes)) return;
                 body.take(4);
@@ -315,17 +484,23 @@ struct Parser {
                 table.syncs = entries(body, count);
                 // Entries that do not rise are sorted once, into memory the stss box bounds, so that every lookup
                 // is a binary search and a read through the track never scans the table per sample.
-                const uint8_t* first = movie->data() + table.syncs.at;
+                const uint8_t* first = movie + table.syncs.at;
                 bool rising = true;
                 for (uint32_t index = 1; index < count && rising; index++) {
                     rising = be32(first + (index - 1) * 4) <= be32(first + index * 4);
                 }
                 if (!rising) {
-                    table.sorted_syncs.resize(count);
+                    free(table.sorted_syncs);
+                    table.sorted_syncs = static_cast<uint32_t*>(malloc(larger<size_t>(count, 1) * sizeof(uint32_t)));
+                    if (table.sorted_syncs == nullptr) return fail_void(kNoMemory);
                     for (uint32_t index = 0; index < count; index++) {
                         table.sorted_syncs[index] = be32(first + index * 4);
                     }
-                    std::sort(table.sorted_syncs.begin(), table.sorted_syncs.end());
+                    qsort(table.sorted_syncs, count, sizeof(uint32_t), [](const void* a, const void* b) {
+                        const uint32_t left = *static_cast<const uint32_t*>(a);
+                        const uint32_t right = *static_cast<const uint32_t*>(b);
+                        return left < right ? -1 : left > right ? 1 : 0;
+                    });
                 }
             }
             if (body.bad) fail(kMalformed);
@@ -341,12 +516,12 @@ struct Parser {
         }
         SampleTable& table = track.samples;
         table.movie = movie;
-        const uint8_t* base = movie->data();
+        const uint8_t* base = movie;
         uint64_t count = tables.size_count;
-        if (table.constant_size != 0) count = std::min<uint64_t>(count, source_length / table.constant_size);
+        if (table.constant_size != 0) count = smaller<uint64_t>(count, source_length / table.constant_size);
         uint64_t timed = 0;
         for (uint32_t run = 0; run < table.time_runs.count; run++) timed += be32(base + table.time_runs.at + run * 8);
-        count = std::min(count, timed);
+        count = smaller(count, timed);
         // Chunks: run r covers chunks first(r) to the next run's first, each of its samples per chunk; the runs
         // describe samples as far as they are in order and within the chunk table.
         uint64_t chunked = 0;
@@ -357,23 +532,53 @@ struct Parser {
             if (first == 0 || end < first || end > table.chunks.count + 1ull) break;
             chunked += (end - first) * be32(entry + 4);  // below 2^64: at most 2^32 chunks of 2^32 samples
         }
-        table.samples = static_cast<size_t>(std::min(count, chunked));
+        table.samples = static_cast<size_t>(smaller(count, chunked));
+        // As SampleTable's countSamples and getMaxSampleSize: stsz's count, and the largest of its sizes.
+        track.frame_count = tables.size_count;
+        track.max_size = table.constant_size;
+        for (size_t index = 0; table.constant_size == 0 && index < tables.size_count; index++) {
+            track.max_size = larger(track.max_size, table.size(index));
+        }
         if (table.constant_size != 0) {
             track.largest_sample = table.samples == 0 ? 0 : table.constant_size;
             return;
         }
         // Read once here, in one pass without memory per sample.
         for (size_t index = 0; index < table.samples; index++) {
-            track.largest_sample = std::max(track.largest_sample, table.size(index));
+            track.largest_sample = larger(track.largest_sample, table.size(index));
         }
     }
 
+    // As MPEG4Extractor's parseTrackHeader: a tkhd of another size than its version's is malformed, one of another
+    // version unsupported; the matrix gives the rotation, and the last two fields the display size.
+    void read_tkhd(Span body, Track& track) {
+        const uint8_t version = body.size > 0 ? body.data[0] : 0;
+        const size_t dynamic = version == 1 ? 36 : 24;
+        if (body.size < 4 || body.size != dynamic + 60) return fail_void(kMalformed);
+        if (version > 1) return fail_void(kUnsupported);
+        const uint8_t* bytes = body.data;
+        track.id = be32(bytes + (version == 1 ? 20 : 12));
+        const size_t matrix = dynamic + 16;
+        const int32_t a00 = static_cast<int32_t>(be32(bytes + matrix));
+        const int32_t a01 = static_cast<int32_t>(be32(bytes + matrix + 4));
+        const int32_t a10 = static_cast<int32_t>(be32(bytes + matrix + 12));
+        const int32_t a11 = static_cast<int32_t>(be32(bytes + matrix + 16));
+        const int32_t one = 0x10000;
+        track.rotation = a00 == 0 && a01 == one && a10 == -one && a11 == 0     ? 90
+                         : a00 == 0 && a01 == -one && a10 == one && a11 == 0   ? 270
+                         : a00 == -one && a01 == 0 && a10 == 0 && a11 == -one ? 180
+                                                                               : 0;
+        track.display_width = static_cast<int32_t>(be32(bytes + dynamic + 52) >> 16);
+        track.display_height = static_cast<int32_t>(be32(bytes + dynamic + 56) >> 16);
+    }
+
     // As Android's elst and getTrack: an empty first edit, then the media time of the first edit that shows media.
-    void read_elst(Span body, Track& track, uint32_t movie_timescale) {
+    void read_elst(Span body, Track& track) {
         const uint8_t version = body.u8();
         body.take(3);
         const uint32_t count = body.u32();
         if (count > 2) return;  // Android ignores an edit list of more entries
+        track.edit_listed = true;
         uint64_t empty = 0;
         bool has_empty = false;
         for (uint32_t index = 0; index < count && !body.bad; index++) {
@@ -386,22 +591,32 @@ struct Parser {
                 has_empty = true;
             } else if (media_time >= 0 && (index == 0 || has_empty)) {
                 track.edit_media_time = media_time;
+                if (index == 0) {
+                    track.edit_first_media_time = media_time;
+                    track.edit_first_segment = duration;
+                }
             }
         }
         if (body.bad) return fail_void(kMalformed);
-        if (!has_empty || movie_timescale == 0) return;
-        // Into the track's timescale, rounded; a conversion that overflows leaves the track out (getTrack fails).
-        uint64_t scaled = 0;
-        if (__builtin_mul_overflow(empty, static_cast<uint64_t>(track.timescale), &scaled) ||
-            __builtin_add_overflow(scaled, static_cast<uint64_t>(movie_timescale / 2), &scaled) ||
-            scaled / movie_timescale > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-            skip = true;
-            return;
-        }
-        track.edit_empty = static_cast<int64_t>(scaled / movie_timescale);
+        if (has_empty) track.edit_empty_movie = empty;
     }
 
-    void read_trak(Span trak, uint32_t movie_timescale) {
+    // As getTrack, once the moov is read: the empty edit into the track's timescale by the movie's (the moov's last
+    // mvhd's), rounded. A conversion that overflows marks the track, for which getTrack fails; ticks past int64_t's
+    // range are taken as INT64_MAX.
+    static void convert_edit(Track& track, uint32_t movie_timescale) {
+        track.movie_timescale = movie_timescale;
+        if (movie_timescale == 0) return;
+        uint64_t scaled = 0;
+        if (__builtin_mul_overflow(track.edit_empty_movie, static_cast<uint64_t>(track.timescale), &scaled) ||
+            __builtin_add_overflow(scaled, static_cast<uint64_t>(movie_timescale / 2), &scaled)) {
+            track.edit_overflow = true;
+            return;
+        }
+        track.edit_empty = static_cast<int64_t>(smaller<uint64_t>(scaled / movie_timescale, INT64_MAX));
+    }
+
+    void read_trak(Span trak) {
         Track track;
         Tables tables;
         skip = false;
@@ -411,9 +626,7 @@ struct Parser {
         Span body;
         while (error == 0 && next_box(trak, &type, &body)) {
             if (type == type_of("tkhd")) {
-                const uint8_t version = body.u8();
-                body.take(3 + (version == 1 ? 16 : 8));
-                track.id = body.u32();
+                read_tkhd(body, track);
             } else if (type == type_of("edts")) {
                 uint32_t inner = 0;
                 Span list;
@@ -429,13 +642,47 @@ struct Parser {
             if (body.bad) fail(kMalformed);
         }
         if (trak.bad) fail(kMalformed);
-        if (error != 0 || track.mime.empty()) return;
-        if (track.timescale == 0) return;  // none, or no mdhd: as Android's verifyTrack, the track is left out
-        if (tracks->size() >= kMaxTracks) return fail_void(kMalformed);
-        if (has_edits) read_elst(edits, track, movie_timescale);
+        if (!keep(track, tables, has_edits, edits)) {
+            release(track);
+            return;
+        }
+        tracks->list[tracks->count++] = track;
+    }
+
+    // Whether the track read is one to keep, its edits and its tables taken: as Android's verifyTrack, a track without
+    // a timescale (none, or no mdhd) is left out.
+    bool keep(Track& track, const Tables& tables, bool has_edits, Span edits) {
+        if (error != 0 || track.mime == nullptr || track.timescale == 0) return false;
+        if (tracks->count >= kMaxTracks) {
+            fail(kMalformed);
+            return false;
+        }
+        if (has_edits) read_elst(edits, track);
         if (!skip && error == 0) combine(track, tables);
-        if (skip || error != 0) return;
-        tracks->push_back(std::move(track));
+        return !skip && error == 0;
+    }
+
+    // As MPEG4Extractor's mdhd: a version above 1 is an I/O error and a timescale of 0 malformed; a duration of 0 (or
+    // a version 0 duration of all ones) gives none, and one whose µs pass int64_t's or a version 1 duration below 0
+    // (all ones among them) is malformed. The language is the three packed letters, each plus 0x60.
+    void read_mdhd(Span& body, Track& track) {
+        const uint8_t version = body.u8();
+        if (version > 1) return fail_void(kIo);
+        body.take(3 + (version == 1 ? 16 : 8));
+        track.timescale = body.u32();
+        if (!body.bad && track.timescale == 0) return fail_void(kMalformed);
+        const uint64_t duration = version == 1 ? body.u64() : body.u32();
+        const bool none = duration == 0 || (version == 0 && duration == UINT32_MAX);
+        if (!none && track.timescale != 0) {
+            const unsigned __int128 scaled = static_cast<unsigned __int128>(duration) * 1000000 / track.timescale;
+            if (static_cast<int64_t>(duration) < 0 || scaled > INT64_MAX) return fail_void(kMalformed);
+            track.duration_us = static_cast<int64_t>(scaled);
+        }
+        const uint16_t code = body.u16();
+        track.language[0] = static_cast<char>(((code >> 10) & 0x1f) + 0x60);
+        track.language[1] = static_cast<char>(((code >> 5) & 0x1f) + 0x60);
+        track.language[2] = static_cast<char>((code & 0x1f) + 0x60);
+        track.language[3] = 0;
     }
 
     void read_mdia(Span mdia, Track& track, Tables& tables) {
@@ -443,18 +690,7 @@ struct Parser {
         Span body;
         while (error == 0 && next_box(mdia, &type, &body)) {
             if (type == type_of("mdhd")) {
-                const uint8_t version = body.u8();
-                body.take(3 + (version == 1 ? 16 : 8));
-                track.timescale = body.u32();
-                track.duration = version == 1 ? body.u64() : body.u32();
-                const uint16_t code = body.u16();
-                if (code == 0 || code == 0x7fff) {
-                    track.language = "und";
-                } else {
-                    track.language = {static_cast<char>(((code >> 10) & 0x1f) + 0x60),
-                                      static_cast<char>(((code >> 5) & 0x1f) + 0x60),
-                                      static_cast<char>((code & 0x1f) + 0x60)};
-                }
+                read_mdhd(body, track);
             } else if (type == type_of("minf")) {
                 uint32_t inner = 0;
                 Span part;
@@ -495,11 +731,12 @@ struct Parser {
             } else if (type == type_of("mvex")) {
                 return fail_void(kUnsupported);  // fragmented (e2d2)
             } else if (type == type_of("trak")) {
-                read_trak(body, movie_timescale);
+                read_trak(body);
             }
             if (body.bad) fail(kMalformed);
         }
         if (moov.bad) fail(kMalformed);
+        for (size_t index = 0; index < tracks->count; index++) convert_edit(tracks->list[index], movie_timescale);
     }
 };
 
@@ -526,7 +763,7 @@ int read_brands(const Source& source, uint64_t body, uint64_t size, bool* brande
     const uint64_t count = (size - 8) / 4 + 2;
     uint8_t piece[1024];
     for (uint64_t index = 0; index < count;) {
-        const uint64_t many = std::min<uint64_t>(count - index, sizeof piece / 4);
+        const uint64_t many = smaller<uint64_t>(count - index, sizeof piece / 4);
         if (!read_exactly(source, body + index * 4, piece, static_cast<size_t>(many * 4))) return kMalformed;
         for (uint64_t at = 0; at < many; at++, index++) {
             if (index == 1) continue;  // the minor version
@@ -549,12 +786,12 @@ int read_brands(const Source& source, uint64_t body, uint64_t size, bool* brande
 }  // namespace
 
 uint32_t SampleTable::word(const Entries& entries, size_t index, size_t bytes, size_t field) const {
-    return be32(movie->data() + entries.at + index * bytes + field * 4);
+    return be32(movie + entries.at + index * bytes + field * 4);
 }
 
 uint32_t SampleTable::size(size_t index) const {
     if (constant_size != 0) return constant_size;
-    const uint8_t* table = movie->data() + sizes.at;
+    const uint8_t* table = movie + sizes.at;
     switch (size_bits) {
         case 4: return index % 2 == 0 ? table[index / 2] >> 4 : table[index / 2] & 0xfu;
         case 8: return table[index];
@@ -587,7 +824,7 @@ int SampleTable::at(size_t index, Sample* out) const {
         sample = cached_sample_;
         offset = cached_offset_;
     } else {
-        const uint8_t* entry = movie->data() + chunks.at + (chunk - 1) * chunk_bytes;
+        const uint8_t* entry = movie + chunks.at + (chunk - 1) * chunk_bytes;
         offset = chunk_bytes == 8 ? static_cast<uint64_t>(be32(entry)) << 32 | be32(entry + 4) : be32(entry);
     }
     if (constant_size != 0) {
@@ -613,7 +850,15 @@ int SampleTable::at(size_t index, Sample* out) const {
     cached_sample_ = index;
     cached_offset_ = offset;
     const uint32_t bytes = size(index);
-    if (offset > std::numeric_limits<uint64_t>::max() - bytes) return kMalformed;
+    if (offset > UINT64_MAX - bytes) return kMalformed;
+    Sample found{offset, 0, bytes, 0, 0, chunk_first + per_chunk - 1};
+    const int answer = timing(index, &found);
+    if (answer == 0 && out != nullptr) *out = found;
+    return answer;
+}
+
+int SampleTable::timing(size_t index, Sample* out) const {
+    if (index >= samples) return kMalformed;
     // Its decode time: the time runs before its own, then its place in its run.
     if (index < time_cursor_.first) time_cursor_ = Cursor{};
     // The sums stay below 2^64: fewer than 2^32 samples (stsz's count), each of a delta below 2^32.
@@ -623,9 +868,9 @@ int SampleTable::at(size_t index, Sample* out) const {
         time_cursor_.start += many * word(time_runs, time_cursor_.run, 8, 1);
         time_cursor_.first += many;
     }
-    const uint64_t decode =
-        time_cursor_.start + (index - time_cursor_.first) * word(time_runs, time_cursor_.run, 8, 1);
-    if (decode > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) return kMalformed;
+    const uint32_t delta = word(time_runs, time_cursor_.run, 8, 1);
+    const uint64_t decode = time_cursor_.start + (index - time_cursor_.first) * delta;
+    if (decode > static_cast<uint64_t>(INT64_MAX)) return kMalformed;
     // Its composition offset: ctts's for the samples it covers, 0 past them. Version 0's offsets are unsigned by the
     // standard and taken as signed by Android and writers.
     if (index < offset_cursor_.first) offset_cursor_ = Cursor{};
@@ -638,19 +883,24 @@ int SampleTable::at(size_t index, Sample* out) const {
         }
         offset_cursor_.first += many;
     }
-    if (out != nullptr) *out = Sample{offset, static_cast<int64_t>(decode), bytes, composition_offset};
+    out->decode = static_cast<int64_t>(decode);
+    out->composition_offset = composition_offset;
+    out->duration = delta;
     return 0;
 }
 
 bool SampleTable::is_sync(size_t index) const {
     if (!has_syncs) return true;
-    if (index >= std::numeric_limits<uint32_t>::max()) return false;
-    const uint32_t wanted = static_cast<uint32_t>(index + 1);
-    if (!sorted_syncs.empty()) return std::binary_search(sorted_syncs.begin(), sorted_syncs.end(), wanted);
+    if (index >= UINT32_MAX) return false;
+    if (index == 0 && listed(0)) return true;  // SampleTable keeps an entry 0 as 0, the first sample
+    return listed(static_cast<uint32_t>(index + 1));
+}
+
+bool SampleTable::listed(uint32_t wanted) const {
     size_t low = 0, high = syncs.count;
     while (low < high) {
         const size_t middle = low + (high - low) / 2;
-        const uint32_t sync = word(syncs, middle, 4, 0);
+        const uint32_t sync = sorted_syncs != nullptr ? sorted_syncs[middle] : word(syncs, middle, 4, 0);
         if (sync == wanted) return true;
         if (sync < wanted) low = middle + 1;
         else high = middle;
@@ -658,9 +908,212 @@ bool SampleTable::is_sync(size_t index) const {
     return false;
 }
 
-int parse(const Source& source, std::vector<Track>* tracks) {
+uint32_t SampleTable::sync_entry(size_t index) const {
+    const uint32_t entry = sorted_syncs != nullptr ? sorted_syncs[index] : word(syncs, index, 4, 0);
+    return entry == 0 ? 0 : entry - 1;
+}
+
+namespace {
+
+constexpr int kOutOfRange = -1008;  // ERROR_OUT_OF_RANGE
+enum Find { kBefore, kAfter, kClosest };  // SampleTable's kFlagBefore, kFlagAfter and kFlagClosest
+
+uint64_t distance(uint64_t a, uint64_t b) { return a > b ? a - b : b - a; }
+
+// A long double in int64_t's range, saturated there.
+int64_t saturated(long double value) {
+    if (value >= 9223372036854775808.0L) return INT64_MAX;
+    if (value < -9223372036854775808.0L) return INT64_MIN;
+    return static_cast<int64_t>(value);
+}
+
+int64_t saturated_add(int64_t a, int64_t b) {
+    int64_t sum = 0;
+    if (!__builtin_add_overflow(a, b, &sum)) return sum;
+    return b > 0 ? INT64_MAX : INT64_MIN;
+}
+
+// Ticks in µs, truncated, as MPEG4Source's long double arithmetic gives them (saturated past int64_t's range, where
+// Android's overflows).
+int64_t ticks_us(int64_t ticks, uint32_t timescale) {
+    return saturated(static_cast<long double>(ticks) * 1000000 / timescale);
+}
+
+// SampleTable's buildSampleEntriesTable: each sample's composition time, by time; none over kMaxTableBytes with the
+// tables, as its mTotalSize counts them.
+void make_index(Track& track) {
+    SeekIndex& index = track.seek_index;
+    index.made = true;
+    const SampleTable& table = track.samples;
+    const size_t count = table.count();
+    const uint64_t tables = uint64_t{table.chunk_runs.count} * 12 + uint64_t{table.time_runs.count} * 8 +
+                            uint64_t{table.offset_runs.count} * 8 + uint64_t{table.syncs.count} * 4;
+    if (count == 0 || tables + uint64_t{count} * sizeof(SeekIndex::Entry) > kMaxTableBytes) return;
+    index.entries = static_cast<SeekIndex::Entry*>(malloc(count * sizeof(SeekIndex::Entry)));
+    if (index.entries == nullptr) return;
+    // SampleTable's running time: a negative offset larger than it resets it to 0 (and the entry's time), so the
+    // samples after it are earlier by the time it had. -INT32_MIN stays INT32_MIN in its int arithmetic.
+    uint64_t reset = 0;
+    for (size_t at = 0; at < count; at++) {
+        Sample sample{};
+        uint64_t time = UINT64_MAX;  // a time past int64_t's, as SampleTable clamps an overflow
+        if (table.timing(at, &sample) == 0) {
+            const uint64_t running = static_cast<uint64_t>(sample.decode) - reset;
+            const int32_t offset = sample.composition_offset;
+            const uint64_t back = offset == INT32_MIN ? static_cast<uint64_t>(int64_t{INT32_MIN})
+                                                      : static_cast<uint64_t>(-static_cast<int64_t>(offset));
+            const uint64_t least = offset == INT32_MIN ? INT32_MAX : back;
+            if (offset < 0 && running < least) {
+                reset = static_cast<uint64_t>(sample.decode);
+                time = 0;
+            } else {
+                time = offset < 0 ? running - back : running + static_cast<uint64_t>(offset);
+            }
+        }
+        index.entries[at] = SeekIndex::Entry{time, static_cast<uint32_t>(at)};
+    }
+    index.count = count;
+    qsort(index.entries, count, sizeof(SeekIndex::Entry), [](const void* a, const void* b) {
+        const uint64_t left = static_cast<const SeekIndex::Entry*>(a)->time;
+        const uint64_t right = static_cast<const SeekIndex::Entry*>(b)->time;
+        return left < right ? -1 : left > right ? 1 : 0;
+    });
+}
+
+// SampleTable's getSampleTime: entry `at`'s time in µs, rounded.
+uint64_t entry_us(const SeekIndex& index, size_t at, uint32_t timescale) {
+    return (index.entries[at].time * 1000000 + timescale / 2) / timescale;
+}
+
+// SampleTable's findSampleAtTime.
+int sample_at_time(const Track& track, uint64_t time_us, Find find, uint32_t* sample) {
+    const SeekIndex& index = track.seek_index;
+    if (index.entries == nullptr) return kOutOfRange;
+    size_t left = 0, right = index.count;
+    while (left < right) {
+        const size_t center = left + (right - left) / 2;
+        const uint64_t center_us = entry_us(index, center, track.timescale);
+        if (time_us < center_us) {
+            right = center;
+        } else if (time_us > center_us) {
+            left = center + 1;
+        } else {
+            *sample = index.entries[center].sample;
+            return 0;
+        }
+    }
+    size_t closest = left;
+    if (closest == index.count) {
+        if (find == kAfter) return kOutOfRange;
+        find = kBefore;
+    } else if (closest == 0) {
+        find = kAfter;  // the first sample, where the end of the stream would be the answer before it
+    }
+    if (find == kBefore) {
+        closest--;
+    } else if (find == kClosest && distance(entry_us(index, closest, track.timescale), time_us) >
+                                       distance(time_us, entry_us(index, closest - 1, track.timescale))) {
+        closest--;
+    }
+    *sample = index.entries[closest].sample;
+    return 0;
+}
+
+// A sample's composition time as SampleIterator's getSampleTime gives it, or false.
+bool composition(const Track& track, size_t at, uint64_t* time) {
+    Sample sample{};
+    if (track.samples.timing(at, &sample) != 0) return false;
+    *time = static_cast<uint64_t>(sample.composition());
+    return true;
+}
+
+// SampleTable's findSyncSampleNear.
+int sync_near(const Track& track, uint32_t start, Find find, size_t* sync) {
+    const SampleTable& table = track.samples;
+    *sync = 0;
+    if (!table.has_syncs) {
+        *sync = start;
+        return 0;
+    }
+    if (table.syncs.count == 0) return 0;
+    size_t left = 0, right = table.syncs.count;
+    while (left < right) {
+        const size_t center = left + (right - left) / 2;
+        const uint32_t entry = table.sync_entry(center);
+        if (start < entry) {
+            right = center;
+        } else if (start > entry) {
+            left = center + 1;
+        } else {
+            *sync = entry;
+            return 0;
+        }
+    }
+    if (left == table.syncs.count) {
+        if (find == kAfter) return kOutOfRange;  // "tried to find a sync frame after the last one"
+        find = kBefore;
+    } else if (left == 0) {
+        find = kAfter;
+    }
+    if (find == kBefore) {
+        left--;
+    } else if (find == kClosest) {
+        uint64_t time = 0, upper = 0, lower = 0;
+        if (!composition(track, start, &time) || !composition(track, table.sync_entry(left), &upper) ||
+            !composition(track, table.sync_entry(left - 1), &lower)) {
+            return kMalformed;
+        }
+        if (distance(upper, time) > distance(time, lower)) left--;
+    }
+    *sync = table.sync_entry(left);
+    return 0;
+}
+
+}  // namespace
+
+int seek(Track& track, int64_t time_us, SeekMode mode, size_t* sample) {
+    const Find find = mode == kSeekPreviousSync ? kBefore : mode == kSeekNextSync ? kAfter : kClosest;
+    // MPEG4Source's edits: the empty edit's time comes off (not below 0), the shift's goes on.
+    if (track.edit_empty > 0) time_us = larger<int64_t>(time_us - ticks_us(track.edit_empty, track.timescale), 0);
+    if (track.edit_media_time > 0) time_us = saturated_add(time_us, ticks_us(track.edit_media_time, track.timescale));
+    if (!track.seek_index.made) make_index(track);
+    uint32_t found = 0;
+    int answer = sample_at_time(track, static_cast<uint64_t>(time_us), find, &found);
+    size_t sync = found;
+    // Every audio sample counts as a sync sample, as MPEG4Source has it for AAC but USAC (audio object 42).
+    const bool all_sync = strncmp(track.mime, "audio/", 6) == 0 && track.audio_object != 42;
+    if (answer == 0 && !all_sync) answer = sync_near(track, found, find, &sync);
+    Sample at{};
+    if (answer == 0 && track.samples.at(found, &at) != 0) answer = kMalformed;
+    if (answer != 0) return answer == kOutOfRange ? kEndOfStream : kUnknown;
+    *sample = sync;
+    return 0;
+}
+
+int64_t sample_time_us(const Track& track, const Sample& sample) {
+    int64_t ticks = sample.composition();
+    if (track.edit_empty > 0) ticks = saturated_add(ticks, track.edit_empty);
+    if (track.edit_media_time > 0) ticks = saturated_add(ticks, -track.edit_media_time);
+    return ticks_us(ticks, track.timescale);
+}
+
+int64_t duration_us(const Track& track, uint64_t ticks) {
+    return saturated(static_cast<long double>(ticks) * 1000000 / track.timescale);
+}
+
+void Tracks::clear() {
+    for (size_t index = 0; index < count; index++) release(list[index]);
+    free(list);
+    free(movie);
+    list = nullptr;
+    count = 0;
+    movie = nullptr;
+}
+
+int parse(const Source& source, Tracks* tracks) {
     tracks->clear();
-    auto movie = std::make_shared<std::vector<uint8_t>>();
+    uint8_t* movie = nullptr;
+    size_t movie_size = 0;
     uint64_t offset = 0;
     bool found = false, branded = false, data = false;
     // One box of the top level, on the source: ftyp, mdat, moov, free and others, each skipped by its size but the
@@ -688,13 +1141,11 @@ int parse(const Source& source, std::vector<Track>* tracks) {
         }
         data |= type == type_of("mdat");
         if (type == type_of("moov") && !found) {
-            try {
-                movie->resize(static_cast<size_t>(size - length));
-            } catch (const std::bad_alloc&) {
-                return kNoMemory;
-            }
-            if (!read_exactly(source, offset + length, movie->data(), movie->size())) return kIo;
+            movie_size = static_cast<size_t>(size - length);
+            movie = static_cast<uint8_t*>(malloc(larger<size_t>(movie_size, 1)));
+            if (movie == nullptr) return kNoMemory;
             found = true;
+            if (!read_exactly(source, offset + length, movie, movie_size)) return kIo;
         }
         offset += size;
         return 0;
@@ -702,22 +1153,29 @@ int parse(const Source& source, std::vector<Track>* tracks) {
     // As MPEG4Extractor::readMetaData: the walk ends once the brands said there is a movie and both the moov and an
     // mdat were seen; an error ends the file before the moov and only the walk after it (mInitCheck is OK by then),
     // but a fragment, which this step does not read.
-    while (offset < source.length && !(branded && found && data)) {
-        const int answer = next();
-        if (answer == kUnsupported || (answer != 0 && !found)) return answer;
+    int answer = 0;
+    bool read = false;  // the moov's bytes are all there
+    while (offset < source.length && !(branded && read && data)) {
+        answer = next();
+        read = found && answer != kIo && answer != kNoMemory;
+        if (answer == kUnsupported || (answer != 0 && !read)) {
+            free(movie);
+            return answer;
+        }
         if (answer != 0) break;
     }
     if (!found) return kMalformed;
-    try {
-        Parser parser{tracks, source.length, movie};
-        parser.read_moov(Span{movie->data(), movie->size(), 0, false});
-        if (parser.error != 0) {
-            tracks->clear();
-            return parser.error;
-        }
-    } catch (const std::bad_alloc&) {
+    tracks->movie = movie;
+    tracks->list = static_cast<Track*>(calloc(kMaxTracks, sizeof(Track)));
+    if (tracks->list == nullptr) {
         tracks->clear();
         return kNoMemory;
+    }
+    Parser parser{tracks, source.length, movie};
+    parser.read_moov(Span{movie, movie_size, 0, false});
+    if (parser.error != 0) {
+        tracks->clear();
+        return parser.error;
     }
     return 0;
 }
@@ -727,7 +1185,8 @@ long output_size(const Track& track, size_t index) {
     // As MPEG4Source::start: a track whose largest sample plus 20 bytes is above the buffer it allocates is refused.
     if (track.largest_sample > kMaxInputBytes - 20) return kMalformed;
     const uint32_t size = track.samples.size(index);
-    // A NAL length of fewer than 4 bytes becomes a 4-byte start code: at most 3 more bytes a unit of one byte or more.
+    // A NAL length of fewer than 4 bytes becomes a 4-byte start code: at most 3 more bytes a unit of one byte or more
+    // (a unit of length 0 is skipped).
     if (track.nal_length_size == 0 || track.nal_length_size == 4) return static_cast<long>(size);
     const uint64_t units = size / (track.nal_length_size + 1) + 1;
     return static_cast<long>(size + units * (4 - track.nal_length_size));
@@ -740,35 +1199,30 @@ long read_sample(const Source& source, const Track& track, size_t index, uint8_t
     Sample sample;
     if (track.samples.at(index, &sample) != 0) return kMalformed;
     if (sample.offset > source.length || sample.size > source.length - sample.offset) return kMalformed;
-    if (track.nal_length_size == 0 || track.nal_length_size == 4) {
+    if (track.nal_length_size == 0) {
         if (!read_exactly(source, sample.offset, out, sample.size)) return kIo;
-        if (track.nal_length_size == 0) return static_cast<long>(sample.size);
-        // In place: each 4-byte length becomes a start code, and the lengths must fill the sample exactly.
-        size_t at = 0;
-        while (at < sample.size) {
-            if (sample.size - at < 4) return kMalformed;
-            const uint32_t length = be32(out + at);
-            if (length > sample.size - at - 4) return kMalformed;
-            out[at] = out[at + 1] = out[at + 2] = 0;
-            out[at + 3] = 1;
-            at += 4 + length;
-        }
         return static_cast<long>(sample.size);
     }
-    // Lengths of 1 or 2 bytes: read into the end of the buffer, then copy each unit forward after a start code.
+    // As MPEG4Source::read: read into the end of the buffer, then copy each unit forward after a start code. A unit of
+    // length 0 is skipped, a length past the sample drops the rest of it ("abnormal nallength, ignore this NAL"), and
+    // the units may not grow past MPEG4Source's buffer, max-input-size (the largest size plus 20).
     const size_t from = capacity - sample.size;
     if (!read_exactly(source, sample.offset, out + from, sample.size)) return kIo;
+    const uint64_t buffer = uint64_t{track.max_size} + 20;
     size_t at = from, written = 0;
     const size_t end = capacity;
     while (at < end) {
-        if (end - at < track.nal_length_size) return kMalformed;
+        if (end - at < track.nal_length_size) break;
         uint32_t length = 0;
         for (uint32_t byte = 0; byte < track.nal_length_size; byte++) length = length << 8 | out[at + byte];
         at += track.nal_length_size;
-        if (length > end - at || written + 4 > at) return kMalformed;  // the unit would overwrite unread bytes
+        if (length > end - at) break;
+        if (length == 0) continue;
+        if (written + 4 + uint64_t{length} > buffer) return kMalformed;
+        if (written + 4 > at) return kMalformed;  // the unit would overwrite unread bytes (output_size rules it out)
         out[written] = out[written + 1] = out[written + 2] = 0;
         out[written + 3] = 1;
-        std::memmove(out + written + 4, out + at, length);
+        memmove(out + written + 4, out + at, length);
         written += 4 + length;
         at += length;
     }

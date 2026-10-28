@@ -1,0 +1,329 @@
+I/media-extractor-test: fd baseline: status 0
+I/media-extractor-test: fd baseline: 2 tracks, cached duration -1
+I/media-extractor-test: fd baseline file mime: string video/mp4
+I/media-extractor-test: fd baseline track 0 mime: string video/avc
+I/media-extractor-test: fd baseline track 0 durationUs: int64 1000000
+I/media-extractor-test: fd baseline track 0 width: int32 320
+I/media-extractor-test: fd baseline track 0 height: int32 180
+I/media-extractor-test: fd baseline track 0 display-width: int32 320
+I/media-extractor-test: fd baseline track 0 display-height: int32 180
+I/media-extractor-test: fd baseline track 0 frame-rate: int32 30
+I/media-extractor-test: fd baseline track 0 profile: int32 1
+I/media-extractor-test: fd baseline track 0 level: int32 16
+I/media-extractor-test: fd baseline track 0 language: string und
+I/media-extractor-test: fd baseline track 0 track-id: int32 1
+I/media-extractor-test: fd baseline track 0 max-input-size: int32 1473
+I/media-extractor-test: fd baseline track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: fd baseline track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: fd baseline track 0 frame-count: int32 30
+I/media-extractor-test: fd baseline track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: fd baseline track 1 durationUs: int64 1068117
+I/media-extractor-test: fd baseline track 1 bitrate: int32 64000
+I/media-extractor-test: fd baseline track 1 max-bitrate: int32 64000
+I/media-extractor-test: fd baseline track 1 profile: int32 2
+I/media-extractor-test: fd baseline track 1 aac-profile: int32 2
+I/media-extractor-test: fd baseline track 1 sample-rate: int32 44100
+I/media-extractor-test: fd baseline track 1 channel-count: int32 1
+I/media-extractor-test: fd baseline track 1 encoder-delay: int32 2112
+I/media-extractor-test: fd baseline track 1 encoder-padding: int32 892
+I/media-extractor-test: fd baseline track 1 language: string und
+I/media-extractor-test: fd baseline track 1 track-id: int32 2
+I/media-extractor-test: fd baseline track 1 max-input-size: int32 207
+I/media-extractor-test: fd baseline track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: fd baseline: before a track is selected: track -1, time -1
+I/media-extractor-test: fd baseline: select 0: status 0
+I/media-extractor-test: fd baseline: select 1: status 0
+I/media-extractor-test: fd baseline: select 2: status -10000, unselect 2: status -10000
+I/media-extractor-test: fd baseline s0: track 1 time -47891 flags 1 size 4 read 4 crc c2d0308a
+I/media-extractor-test: fd baseline s0 format: status 0
+I/media-extractor-test: fd baseline s0 format mime: string audio/mp4a-latm
+I/media-extractor-test: fd baseline s0 format durationUs: int64 23219
+I/media-extractor-test: fd baseline s0 format track-index: int32 1
+I/media-extractor-test: fd baseline s0 format sample-file-offset: int64 44
+I/media-extractor-test: fd baseline s1: track 1 time -24671 flags 1 size 150 read 150 crc 03f0d02b
+I/media-extractor-test: fd baseline s1 format: status 0
+I/media-extractor-test: fd baseline s1 format mime: string audio/mp4a-latm
+I/media-extractor-test: fd baseline s1 format durationUs: int64 23219
+I/media-extractor-test: fd baseline s1 format track-index: int32 1
+I/media-extractor-test: fd baseline s1 format sample-file-offset: int64 48
+I/media-extractor-test: fd baseline s2: track 1 time -1451 flags 1 size 126 read 126 crc 7c9348fb
+I/media-extractor-test: fd baseline s3: track 0 time 0 flags 1 size 872 read 872 crc 6d1a2351
+I/media-extractor-test: fd baseline s4: track 1 time 21768 flags 1 size 81 read 81 crc edcbe5d5
+I/media-extractor-test: fd baseline s5: track 0 time 33333 flags 0 size 955 read 955 crc 972ffabb
+I/media-extractor-test: fd baseline s6: track 1 time 44988 flags 1 size 95 read 95 crc 2d756928
+I/media-extractor-test: fd baseline s7: track 0 time 66666 flags 0 size 514 read 514 crc 7e2b3dfd
+I/media-extractor-test: fd baseline s8: track 1 time 68208 flags 1 size 75 read 75 crc 24801338
+I/media-extractor-test: fd baseline s9: track 1 time 91428 flags 1 size 92 read 92 crc 2bb1d273
+I/media-extractor-test: fd baseline s10: track 0 time 100000 flags 0 size 532 read 532 crc 0ffe4ba5
+I/media-extractor-test: fd baseline s11: track 1 time 114648 flags 1 size 96 read 96 crc 525ed2fb
+I/media-extractor-test: fd baseline s12: track 0 time 133333 flags 0 size 354 read 354 crc 68d80550
+I/media-extractor-test: fd baseline s13: track 1 time 137868 flags 1 size 101 read 101 crc 3cacd852
+I/media-extractor-test: fd baseline s14: track 1 time 161088 flags 1 size 97 read 97 crc 64a11871
+I/media-extractor-test: fd baseline s15: track 0 time 166666 flags 0 size 362 read 362 crc a0257393
+I/media-extractor-test: fd baseline s16: track 1 time 184308 flags 1 size 84 read 84 crc f2e3cadb
+I/media-extractor-test: fd baseline s17: track 0 time 200000 flags 0 size 345 read 345 crc f35dae3d
+I/media-extractor-test: fd baseline s18: track 1 time 207528 flags 1 size 100 read 100 crc 9fb81f34
+I/media-extractor-test: fd baseline s19: track 1 time 230748 flags 1 size 78 read 78 crc 2e4183af
+I/media-extractor-test: fd baseline s20: track 0 time 233333 flags 0 size 299 read 299 crc 52f8ce4a
+I/media-extractor-test: fd baseline s21: track 1 time 253968 flags 1 size 112 read 112 crc 7379548c
+I/media-extractor-test: fd baseline s22: track 0 time 266666 flags 0 size 287 read 287 crc 5b8efbf0
+I/media-extractor-test: fd baseline s23: track 1 time 277188 flags 1 size 77 read 77 crc 11878ce4
+I/media-extractor-test: fd baseline s24: track 0 time 300000 flags 0 size 315 read 315 crc 8b46f3a2
+I/media-extractor-test: fd baseline s25: track 1 time 300408 flags 1 size 106 read 106 crc fe42123f
+I/media-extractor-test: fd baseline s26: track 1 time 323628 flags 1 size 97 read 97 crc 92d8ae30
+I/media-extractor-test: fd baseline s27: track 0 time 333333 flags 0 size 262 read 262 crc 666674b7
+I/media-extractor-test: fd baseline s28: track 1 time 346848 flags 1 size 95 read 95 crc 9a16fb53
+I/media-extractor-test: fd baseline s29: track 0 time 366666 flags 0 size 259 read 259 crc 5db609df
+I/media-extractor-test: fd baseline s30: track 1 time 370068 flags 1 size 112 read 112 crc 06227b6a
+I/media-extractor-test: fd baseline s31: track 1 time 393287 flags 1 size 90 read 90 crc 2d6ddccf
+I/media-extractor-test: fd baseline s32: track 0 time 400000 flags 0 size 260 read 260 crc f82898e3
+I/media-extractor-test: fd baseline s33: track 1 time 416507 flags 1 size 111 read 111 crc ddf57c23
+I/media-extractor-test: fd baseline s34: track 0 time 433333 flags 0 size 239 read 239 crc a6d9afc6
+I/media-extractor-test: fd baseline s35: track 1 time 439727 flags 1 size 81 read 81 crc 235b5222
+I/media-extractor-test: fd baseline s36: track 1 time 462947 flags 1 size 104 read 104 crc e0cd53eb
+I/media-extractor-test: fd baseline s37: track 0 time 466666 flags 0 size 283 read 283 crc 38e2f06e
+I/media-extractor-test: fd baseline s38: track 1 time 486167 flags 1 size 97 read 97 crc 6973a2f9
+I/media-extractor-test: fd baseline s39: track 0 time 500000 flags 1 size 1453 read 1453 crc 201f9590
+I/media-extractor-test: fd baseline s40: track 1 time 509387 flags 1 size 115 read 115 crc 36cd8099
+I/media-extractor-test: fd baseline s41: track 1 time 532607 flags 1 size 103 read 103 crc e9a13106
+I/media-extractor-test: fd baseline s42: track 0 time 533333 flags 0 size 646 read 646 crc 565c1bad
+I/media-extractor-test: fd baseline s43: track 1 time 555827 flags 1 size 101 read 101 crc f5518b60
+I/media-extractor-test: fd baseline s44: track 0 time 566666 flags 0 size 320 read 320 crc b6405101
+I/media-extractor-test: fd baseline s45: track 1 time 579047 flags 1 size 104 read 104 crc 2f28a439
+I/media-extractor-test: fd baseline s46: track 0 time 600000 flags 0 size 265 read 265 crc cdaa2335
+I/media-extractor-test: fd baseline s47: track 1 time 602267 flags 1 size 98 read 98 crc 84f1b28c
+I/media-extractor-test: fd baseline s48: track 1 time 625487 flags 1 size 114 read 114 crc bdc67582
+I/media-extractor-test: fd baseline s49: track 0 time 633333 flags 0 size 276 read 276 crc 82517745
+I/media-extractor-test: fd baseline s50: track 1 time 648707 flags 1 size 108 read 108 crc e7bf8d0e
+I/media-extractor-test: fd baseline s51: track 0 time 666666 flags 0 size 317 read 317 crc 740d6433
+I/media-extractor-test: fd baseline s52: track 1 time 671927 flags 1 size 105 read 105 crc c68557e0
+I/media-extractor-test: fd baseline s53: track 1 time 695147 flags 1 size 117 read 117 crc 8d4ce551
+I/media-extractor-test: fd baseline s54: track 0 time 700000 flags 0 size 262 read 262 crc 03473726
+I/media-extractor-test: fd baseline s55: track 1 time 718367 flags 1 size 97 read 97 crc 3d2b9f5c
+I/media-extractor-test: fd baseline s56: track 0 time 733333 flags 0 size 297 read 297 crc 34fba54e
+I/media-extractor-test: fd baseline s57: track 1 time 741587 flags 1 size 102 read 102 crc 1d09af5f
+I/media-extractor-test: fd baseline s58: track 1 time 764807 flags 1 size 92 read 92 crc 9704f218
+I/media-extractor-test: fd baseline s59: track 0 time 766666 flags 0 size 285 read 285 crc 76e0a164
+I/media-extractor-test: fd baseline s60: track 1 time 788027 flags 1 size 115 read 115 crc 32f516fc
+I/media-extractor-test: fd baseline s61: track 0 time 800000 flags 0 size 257 read 257 crc d80f36ad
+I/media-extractor-test: fd baseline s62: track 1 time 811247 flags 1 size 104 read 104 crc 8fe8bccc
+I/media-extractor-test: fd baseline s63: track 0 time 833333 flags 0 size 294 read 294 crc 9783ff97
+I/media-extractor-test: fd baseline s64: track 1 time 834467 flags 1 size 109 read 109 crc b594c3ee
+I/media-extractor-test: fd baseline s65: track 1 time 857687 flags 1 size 108 read 108 crc f22ecd57
+I/media-extractor-test: fd baseline s66: track 0 time 866666 flags 0 size 236 read 236 crc bb46500c
+I/media-extractor-test: fd baseline s67: track 1 time 880907 flags 1 size 103 read 103 crc 3781dfb0
+I/media-extractor-test: fd baseline s68: track 0 time 900000 flags 0 size 225 read 225 crc d50ffdfc
+I/media-extractor-test: fd baseline s69: track 1 time 904126 flags 1 size 114 read 114 crc eff9dae4
+I/media-extractor-test: fd baseline s70: track 1 time 927346 flags 1 size 99 read 99 crc d35e8e6a
+I/media-extractor-test: fd baseline s71: track 0 time 933333 flags 0 size 243 read 243 crc 70cf1b9d
+I/media-extractor-test: fd baseline s72: track 1 time 950566 flags 1 size 172 read 172 crc 1364d19b
+I/media-extractor-test: fd baseline s73: track 0 time 966666 flags 0 size 238 read 238 crc d11500da
+I/media-extractor-test: fd baseline s74: track 1 time 973786 flags 1 size 187 read 187 crc da05a8a2
+I/media-extractor-test: fd baseline s75: track 1 time 997006 flags 1 size 4 read 4 crc f953a8c1
+I/media-extractor-test: fd baseline: 76 samples
+I/media-extractor-test: fd baseline end: advance 0, track -1, time -1, flags -1, size -1, read -1
+I/media-extractor-test: fd baseline seek mode 0 to -500000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd baseline seek mode 0 to 0: status 0; track 1 time -1451 flags 1; track 0 time 0 flags 1; track 1 time 21768 flags 1
+I/media-extractor-test: fd baseline seek mode 0 to 200000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline seek mode 0 to 433333: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline seek mode 0 to 450000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline seek mode 0 to 966667: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline seek mode 0 to 2000000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline seek mode 1 to -500000: status 0; track 0 time 600000 flags 0; track 0 time 633333 flags 0; track 0 time 666666 flags 0
+I/media-extractor-test: fd baseline seek mode 1 to 0: status 0; track 0 time 0 flags 1; track 1 time 21768 flags 1; track 0 time 33333 flags 0
+I/media-extractor-test: fd baseline seek mode 1 to 200000: status 0; track 1 time 207528 flags 1; track 1 time 230748 flags 1; track 1 time 253968 flags 1
+I/media-extractor-test: fd baseline seek mode 1 to 433333: status 0; track 1 time 439727 flags 1; track 1 time 462947 flags 1; track 1 time 486167 flags 1
+I/media-extractor-test: fd baseline seek mode 1 to 450000: status 0; track 1 time 462947 flags 1; track 1 time 486167 flags 1; track 0 time 500000 flags 1
+I/media-extractor-test: fd baseline seek mode 1 to 966667: status 0; track 1 time 973786 flags 1; track 1 time 997006 flags 1
+I/media-extractor-test: fd baseline seek mode 1 to 2000000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd baseline seek mode 2 to -500000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd baseline seek mode 2 to 0: status 0; track 1 time -1451 flags 1; track 0 time 0 flags 1; track 1 time 21768 flags 1
+I/media-extractor-test: fd baseline seek mode 2 to 200000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline seek mode 2 to 433333: status 0; track 1 time 439727 flags 1; track 1 time 462947 flags 1; track 1 time 486167 flags 1
+I/media-extractor-test: fd baseline seek mode 2 to 450000: status 0; track 1 time 439727 flags 1; track 1 time 462947 flags 1; track 1 time 486167 flags 1
+I/media-extractor-test: fd baseline seek mode 2 to 966667: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline seek mode 2 to 2000000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline: seek to 0 0, read into 1 byte -1, pssh none, crypto info none
+I/media-extractor-test: fd baseline: unselect 1: status 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to -500000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to 0: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to 200000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to 433333: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to 450000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to 966667: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 0 to 2000000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to -500000: status 0; track 0 time 600000 flags 0; track 0 time 633333 flags 0; track 0 time 666666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to 0: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to 200000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to 433333: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to 450000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to 966667: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd baseline track 0 alone seek mode 1 to 2000000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to -500000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to 0: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to 200000: status 0; track 0 time 0 flags 1; track 0 time 33333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to 433333: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to 450000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to 966667: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline track 0 alone seek mode 2 to 2000000: status 0; track 0 time 500000 flags 1; track 0 time 533333 flags 0; track 0 time 566666 flags 0
+I/media-extractor-test: fd baseline: a second source: status -10000
+I/media-extractor-test: path baseline: status -10002, tracks 0, 0 samples, others than from the fd
+I/media-extractor-test: custom baseline: status 0, tracks 2, 76 samples, the same as from the fd
+I/media-extractor-test: custom baseline file mime: string video/mp4
+I/media-extractor-test: custom baseline: the source closed 1 times on delete
+I/media-extractor-test: custom baseline cut after 4096: status 0, tracks 0, 0 samples
+I/media-extractor-test: custom baseline cut after 4096 file: no keys
+I/media-extractor-test: custom baseline cut after 4096: the source closed 1 times on delete
+I/media-extractor-test: custom baseline cut after 64: status 0, tracks 0, 0 samples
+I/media-extractor-test: custom baseline cut after 64 file: no keys
+I/media-extractor-test: custom baseline cut after 64: the source closed 1 times on delete
+I/media-extractor-test: custom baseline with a short box: status 0, tracks 0, 0 samples
+I/media-extractor-test: custom baseline with a short box file: no keys
+I/media-extractor-test: custom baseline with a short box: the source closed 1 times on delete
+I/media-extractor-test: custom baseline no movie: status -10000, tracks 0, 0 samples
+I/media-extractor-test: custom baseline no movie: the source closed 0 times on delete
+I/media-extractor-test: custom baseline without durations: status 0, tracks 2
+I/media-extractor-test: custom baseline without durations track 0 mime: string video/avc
+I/media-extractor-test: custom baseline without durations track 0 width: int32 320
+I/media-extractor-test: custom baseline without durations track 0 height: int32 180
+I/media-extractor-test: custom baseline without durations track 0 display-width: int32 320
+I/media-extractor-test: custom baseline without durations track 0 display-height: int32 180
+I/media-extractor-test: custom baseline without durations track 0 profile: int32 1
+I/media-extractor-test: custom baseline without durations track 0 level: int32 16
+I/media-extractor-test: custom baseline without durations track 0 language: string und
+I/media-extractor-test: custom baseline without durations track 0 track-id: int32 1
+I/media-extractor-test: custom baseline without durations track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline without durations track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline without durations track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline without durations track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline without durations track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline without durations track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline without durations track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline without durations track 1 profile: int32 2
+I/media-extractor-test: custom baseline without durations track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline without durations track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline without durations track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline without durations track 1 language: string und
+I/media-extractor-test: custom baseline without durations track 1 track-id: int32 2
+I/media-extractor-test: custom baseline without durations track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline without durations track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline no movie, then the fd: status -10000 then 0, 2 tracks, the refused source closed 0 times
+I/media-extractor-test: fd main: status 0
+I/media-extractor-test: fd main: 1 tracks, cached duration -1
+I/media-extractor-test: fd main file mime: string video/mp4
+I/media-extractor-test: fd main track 0 mime: string video/avc
+I/media-extractor-test: fd main track 0 durationUs: int64 1000000
+I/media-extractor-test: fd main track 0 width: int32 320
+I/media-extractor-test: fd main track 0 height: int32 180
+I/media-extractor-test: fd main track 0 display-width: int32 320
+I/media-extractor-test: fd main track 0 display-height: int32 180
+I/media-extractor-test: fd main track 0 frame-rate: int32 30
+I/media-extractor-test: fd main track 0 profile: int32 2
+I/media-extractor-test: fd main track 0 level: int32 16
+I/media-extractor-test: fd main track 0 language: string und
+I/media-extractor-test: fd main track 0 track-id: int32 1
+I/media-extractor-test: fd main track 0 max-input-size: int32 983
+I/media-extractor-test: fd main track 0 csd-0: buffer 14 bytes, crc db387358
+I/media-extractor-test: fd main track 0 csd-1: buffer 8 bytes, crc 00f3767d
+I/media-extractor-test: fd main track 0 frame-count: int32 30
+I/media-extractor-test: fd main: before a track is selected: track -1, time -1
+I/media-extractor-test: fd main: select 0: status 0
+I/media-extractor-test: fd main: select 1: status -10000, unselect 1: status -10000
+I/media-extractor-test: fd main s0: track 0 time 0 flags 1 size 540 read 540 crc eef35c70
+I/media-extractor-test: fd main s0 format: status 0
+I/media-extractor-test: fd main s0 format mime: string video/avc
+I/media-extractor-test: fd main s0 format durationUs: int64 33333
+I/media-extractor-test: fd main s0 format track-index: int32 0
+I/media-extractor-test: fd main s0 format temporal-layer-id: int32 0
+I/media-extractor-test: fd main s0 format sample-file-offset: int64 44
+I/media-extractor-test: fd main s1: track 0 time 133333 flags 0 size 650 read 650 crc e76f0499
+I/media-extractor-test: fd main s1 format: status 0
+I/media-extractor-test: fd main s1 format mime: string video/avc
+I/media-extractor-test: fd main s1 format durationUs: int64 33333
+I/media-extractor-test: fd main s1 format track-index: int32 0
+I/media-extractor-test: fd main s1 format temporal-layer-id: int32 0
+I/media-extractor-test: fd main s1 format sample-file-offset: int64 584
+I/media-extractor-test: fd main s2: track 0 time 66666 flags 0 size 451 read 451 crc 0b571992
+I/media-extractor-test: fd main s3: track 0 time 33333 flags 0 size 194 read 194 crc ecae732a
+I/media-extractor-test: fd main s4: track 0 time 100000 flags 0 size 284 read 284 crc 01ce5c2b
+I/media-extractor-test: fd main s5: track 0 time 266666 flags 0 size 410 read 410 crc 8f7de52d
+I/media-extractor-test: fd main s6: track 0 time 200000 flags 0 size 304 read 304 crc ca0eec67
+I/media-extractor-test: fd main s7: track 0 time 166666 flags 0 size 162 read 162 crc 6098fb56
+I/media-extractor-test: fd main s8: track 0 time 233333 flags 0 size 160 read 160 crc 8524226a
+I/media-extractor-test: fd main s9: track 0 time 333333 flags 0 size 298 read 298 crc ec8c1e29
+I/media-extractor-test: fd main s10: track 0 time 300000 flags 0 size 167 read 167 crc 595b918d
+I/media-extractor-test: fd main s11: track 0 time 400000 flags 0 size 274 read 274 crc a9fb109e
+I/media-extractor-test: fd main s12: track 0 time 366666 flags 0 size 146 read 146 crc d1529e0d
+I/media-extractor-test: fd main s13: track 0 time 466666 flags 0 size 244 read 244 crc d9526999
+I/media-extractor-test: fd main s14: track 0 time 433333 flags 0 size 122 read 122 crc e02c3ef0
+I/media-extractor-test: fd main s15: track 0 time 500000 flags 1 size 963 read 963 crc 0c04e12d
+I/media-extractor-test: fd main s16: track 0 time 566666 flags 0 size 496 read 496 crc a6dfcd9b
+I/media-extractor-test: fd main s17: track 0 time 533333 flags 0 size 171 read 171 crc 87c77cb7
+I/media-extractor-test: fd main s18: track 0 time 633333 flags 0 size 272 read 272 crc 934e3667
+I/media-extractor-test: fd main s19: track 0 time 600000 flags 0 size 52 read 52 crc f54494b0
+I/media-extractor-test: fd main s20: track 0 time 766666 flags 0 size 284 read 284 crc f0a9dca6
+I/media-extractor-test: fd main s21: track 0 time 700000 flags 0 size 215 read 215 crc f717719e
+I/media-extractor-test: fd main s22: track 0 time 666666 flags 0 size 155 read 155 crc feaa110b
+I/media-extractor-test: fd main s23: track 0 time 733333 flags 0 size 145 read 145 crc d5f99ae0
+I/media-extractor-test: fd main s24: track 0 time 900000 flags 0 size 208 read 208 crc 368d0935
+I/media-extractor-test: fd main s25: track 0 time 833333 flags 0 size 195 read 195 crc 5089af69
+I/media-extractor-test: fd main s26: track 0 time 800000 flags 0 size 54 read 54 crc adc21089
+I/media-extractor-test: fd main s27: track 0 time 866666 flags 0 size 141 read 141 crc d086a1d4
+I/media-extractor-test: fd main s28: track 0 time 933333 flags 1 size 875 read 875 crc 44a6e999
+I/media-extractor-test: fd main s29: track 0 time 966666 flags 0 size 462 read 462 crc c7d23e43
+I/media-extractor-test: fd main: 30 samples
+I/media-extractor-test: fd main end: advance 0, track -1, time -1, flags -1, size -1, read -1
+I/media-extractor-test: fd main seek mode 0 to -500000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd main seek mode 0 to 0: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 0 to 200000: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 0 to 433333: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 0 to 450000: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 0 to 966667: status 0; track 0 time 933333 flags 1; track 0 time 966666 flags 0
+I/media-extractor-test: fd main seek mode 0 to 2000000: status 0; track 0 time 933333 flags 1; track 0 time 966666 flags 0
+I/media-extractor-test: fd main seek mode 1 to -500000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd main seek mode 1 to 0: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 1 to 200000: status 0; track 0 time 500000 flags 1; track 0 time 566666 flags 0; track 0 time 533333 flags 0
+I/media-extractor-test: fd main seek mode 1 to 433333: status 0; track 0 time 500000 flags 1; track 0 time 566666 flags 0; track 0 time 533333 flags 0
+I/media-extractor-test: fd main seek mode 1 to 450000: status 0; track 0 time 500000 flags 1; track 0 time 566666 flags 0; track 0 time 533333 flags 0
+I/media-extractor-test: fd main seek mode 1 to 966667: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd main seek mode 1 to 2000000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd main seek mode 2 to -500000: status -10006; track -1 time -1 flags -1
+I/media-extractor-test: fd main seek mode 2 to 0: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 2 to 200000: status 0; track 0 time 0 flags 1; track 0 time 133333 flags 0; track 0 time 66666 flags 0
+I/media-extractor-test: fd main seek mode 2 to 433333: status 0; track 0 time 500000 flags 1; track 0 time 566666 flags 0; track 0 time 533333 flags 0
+I/media-extractor-test: fd main seek mode 2 to 450000: status 0; track 0 time 500000 flags 1; track 0 time 566666 flags 0; track 0 time 533333 flags 0
+I/media-extractor-test: fd main seek mode 2 to 966667: status 0; track 0 time 933333 flags 1; track 0 time 966666 flags 0
+I/media-extractor-test: fd main seek mode 2 to 2000000: status 0; track 0 time 933333 flags 1; track 0 time 966666 flags 0
+I/media-extractor-test: fd main: seek to 0 0, read into 1 byte -1, pssh none, crypto info none
+I/media-extractor-test: fd main: a second source: status -10000
+I/media-extractor-test: path main: status -10002, tracks 0, 0 samples, others than from the fd
+I/media-extractor-test: custom main: status 0, tracks 1, 30 samples, the same as from the fd
+I/media-extractor-test: custom main file mime: string video/mp4
+I/media-extractor-test: custom main: the source closed 1 times on delete
+I/media-extractor-test: custom main cut after 4096: status 0, tracks 0, 0 samples
+I/media-extractor-test: custom main cut after 4096 file: no keys
+I/media-extractor-test: custom main cut after 4096: the source closed 1 times on delete
+I/media-extractor-test: custom main cut after 64: status 0, tracks 0, 0 samples
+I/media-extractor-test: custom main cut after 64 file: no keys
+I/media-extractor-test: custom main cut after 64: the source closed 1 times on delete
+I/media-extractor-test: custom main with a short box: status 0, tracks 0, 0 samples
+I/media-extractor-test: custom main with a short box file: no keys
+I/media-extractor-test: custom main with a short box: the source closed 1 times on delete
+I/media-extractor-test: custom main no movie: status -10000, tracks 0, 0 samples
+I/media-extractor-test: custom main no movie: the source closed 0 times on delete
+I/media-extractor-test: custom main without durations: status 0, tracks 1
+I/media-extractor-test: custom main without durations track 0 mime: string video/avc
+I/media-extractor-test: custom main without durations track 0 width: int32 320
+I/media-extractor-test: custom main without durations track 0 height: int32 180
+I/media-extractor-test: custom main without durations track 0 display-width: int32 320
+I/media-extractor-test: custom main without durations track 0 display-height: int32 180
+I/media-extractor-test: custom main without durations track 0 profile: int32 2
+I/media-extractor-test: custom main without durations track 0 level: int32 16
+I/media-extractor-test: custom main without durations track 0 language: string und
+I/media-extractor-test: custom main without durations track 0 track-id: int32 1
+I/media-extractor-test: custom main without durations track 0 max-input-size: int32 983
+I/media-extractor-test: custom main without durations track 0 csd-0: buffer 14 bytes, crc db387358
+I/media-extractor-test: custom main without durations track 0 csd-1: buffer 8 bytes, crc 00f3767d
+I/media-extractor-test: custom main without durations track 0 frame-count: int32 30
+I/media-extractor-test: custom main no movie, then the fd: status -10000 then 0, 1 tracks, the refused source closed 0 times
+I/media-extractor-test: done
