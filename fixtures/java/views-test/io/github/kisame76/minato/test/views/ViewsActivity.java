@@ -15,6 +15,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -23,10 +24,14 @@ import android.widget.TextView;
  * test's own, in a column in the middle of a window that is edge to edge with the system bars shown. A label view
  * draws its text with Canvas.drawText, a plain view is a block of color, a third view draws a Bitmap of density 160,
  * which the window canvas's density scales (step c3), and below them a TextView in a color of the test's own (step
- * d)); a Button joins with the XML drawables' step, as its theme's background is a ripple. The app logs its
- * lifecycle, the views' bounds in the window and the text's advance once laid out, and the window's insets under
- * views-test-device. When the window gains the focus, which Android gives after the window's first draw, the label's
- * text changes, which redraws the label alone, and the app logs the last line, "done", after that draw.
+ * d)), and a Button of the theme, whose background is a ripple (test 1 complete). The app logs its lifecycle, the
+ * views' bounds in the window and the text's advance once laid out, and the window's insets under views-test-device.
+ * When the window gains the focus, which Android gives after the window's first draw, the label's text changes, which
+ * redraws the label alone. Then a tap on the Button, which the script plays (adb shell input tap on the AVD, the
+ * session's input channel on the Mac), clicks it: "button clicked", and under views-test-device whether a touch came
+ * before the click. A run without a tap within 5 s of the text's change clicks the Button with performClick, for a
+ * host that plays no touches (java-start-check.sh on the iPhone), which the device line names. A second after the
+ * click, when the ripple has gone, the app redraws the Button alone and logs the last line, "done", after that draw.
  */
 public class ViewsActivity extends Activity {
     private static final String TAG = "views-test";
@@ -36,6 +41,10 @@ public class ViewsActivity extends Activity {
     private LabelView mLabel;
     private boolean mLaidOut;
     private boolean mChanged;
+    private Button mButton;
+    private boolean mTouched;
+    private boolean mClicked;
+    private boolean mSettled;
     private boolean mDone;
 
     @Override
@@ -64,6 +73,17 @@ public class ViewsActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(24);
         mColumn.addView(text, params);
+        mButton = new Button(this);
+        mButton.setText("Minato button");
+        mButton.setOnTouchListener((view, event) -> {
+            mTouched = true;
+            return false;
+        });
+        mButton.setOnClickListener(view -> clicked());
+        params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(24);
+        mColumn.addView(mButton, params);
         setContentView(mColumn);
         mColumn.getViewTreeObserver().addOnGlobalLayoutListener(this::laidOut);
         mColumn.getViewTreeObserver().addOnDrawListener(this::drawing);
@@ -89,7 +109,26 @@ public class ViewsActivity extends Activity {
             mChanged = true;
             mLabel.setText("Minato views 2");
             Log.i(TAG, "text changed");
+            mColumn.postDelayed(() -> {
+                if (!mClicked) {
+                    mButton.performClick();
+                }
+            }, 5000);
         }
+    }
+
+    /** The click: its line, then a redraw a second later, when the ripple has gone, after which "done" follows. */
+    private void clicked() {
+        if (mClicked) {
+            return;
+        }
+        mClicked = true;
+        Log.i(TAG, "button clicked");
+        Log.i(DEVICE_TAG, mTouched ? "click from a touch" : "click without a touch (performClick)");
+        mColumn.postDelayed(() -> {
+            mSettled = true;
+            mButton.invalidate();
+        }, 1000);
     }
 
     /** The first layout's bounds, the text's advance and the window's insets. */
@@ -102,14 +141,15 @@ public class ViewsActivity extends Activity {
         Log.i(TAG, "block bounds " + bounds(mColumn.getChildAt(1)));
         Log.i(TAG, "bitmap bounds " + bounds(mColumn.getChildAt(2)));
         Log.i(TAG, "textview bounds " + bounds(mColumn.getChildAt(3)));
+        Log.i(TAG, "button bounds " + bounds(mButton));
         Log.i(TAG, "text advance " + mLabel.advance());
         Insets bars = getWindow().getDecorView().getRootWindowInsets().getInsets(WindowInsets.Type.systemBars());
         Log.i(DEVICE_TAG, "insets top " + bars.top + " bottom " + bars.bottom);
     }
 
-    /** The first draw after the text changed: "done" once it is posted. */
+    /** The first draw after the click has settled: "done" once it is posted. */
     private void drawing() {
-        if (mChanged && !mDone) {
+        if (mSettled && !mDone) {
             mDone = true;
             mColumn.post(() -> Log.i(TAG, "done"));
         }

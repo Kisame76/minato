@@ -48,6 +48,10 @@
 # package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
 # refusal of a new one, and the exit reasons.
 # media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
+# views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
+# its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
+# performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD
+# tap it).
 # vk-ahb-test (ADR-0058 e1), decision 7) runs on the iPhone only, a NativeActivity app of tools/build-fixtures.sh whose
 # Vulkan needs MoltenVK, which the Simulator lacks: VK_ANDROID_external_memory_android_hardware_buffer's import and
 # export on the iPhone's IOSurfaces. media-codec-test and media-window-test (ADR-0060 e2c) run on the iPhone only too,
@@ -143,6 +147,8 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-codec-test io.github.kisame76.minato.test.mediacodec")
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-bench-test io.github.kisame76.minato.test.mediabench")
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-window-test io.github.kisame76.minato.test.mediawindow")
+# ADR-0043's test 1 on the iPhone only: its views' bounds are the iPhone 15 Pro Max's screen's, as the AVD's are.
+[[ "$ON_DEVICE" == no ]] || APPS+=("views-test io.github.kisame76.minato.test.views")
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -732,6 +738,10 @@ run_one timezone-test io.github.kisame76.minato.test.timezone
 run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 # android.media's DRM, codec list, retriever, extractor, image reader and TV input manager without the hardware.
 run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
+# ADR-0043's test 1: views, a TextView and a Button drawn in software. This check plays no touches, so the Button's
+# click comes from the app's performClick, 5 s after its label's change, which its device line names; the Mac's
+# tools/views-check.sh and the AVD tap it.
+[[ "$ON_DEVICE" == no ]] || run_one views-test io.github.kisame76.minato.test.views
 # On the iPhone only, as its APPS entry (the Simulator has no MoltenVK).
 [[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
 [[ "$ON_DEVICE" == no ]] || run_one media-codec-test io.github.kisame76.minato.test.mediacodec

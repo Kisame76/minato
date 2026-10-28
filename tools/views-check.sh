@@ -5,7 +5,9 @@
 # views-test starts under graphics-run in a session on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at
 # scale 3 in en-US, whose host plays a start (apk-run --lifecycle start), with graphics/tests/window_host.m's fake
 # buffers, which write each post of the window into build/views-check/dump (MINATO_WINDOW_BUFFERS=fake,
-# MINATO_WINDOW_DUMP). Its log is compared with Android 15's (fixtures/expected/views-test.logcat), and its posts with
+# MINATO_WINDOW_DUMP). Its lifecycle plays a tap on the Button's middle, from its bounds in that log, which must click
+# it from the touch (views-test-device's line), as the AVD's adb shell input tap does (test 1's click). Its log is
+# compared with Android 15's (fixtures/expected/views-test.logcat), and its posts with
 # Android's screen by framework/tests/views_compare.py (fixtures/expected/views-test.rgba.gz and views-test.rows); all
 # three come from tools/android-reference.sh --app views-test.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-front-libs.sh, tools/build-aapt2.sh
@@ -40,8 +42,16 @@ tools/build-java-test-app.sh $APP >/dev/null
 # leaves none of an earlier run's.
 mkdir -p "$WORK/dump"
 : >"$WORK/dump/posts.txt"
+# The Button's middle in the window, from Android's line of its bounds.
+read -r left top right bottom <<<"$(sed -n 's/.*: button bounds \([0-9 ]*\)$/\1/p' fixtures/expected/$APP.logcat)"
+if [[ -z "$bottom" ]]; then
+  echo "FAIL: fixtures/expected/$APP.logcat has no button bounds: run tools/android-reference.sh --app $APP"
+  exit 1
+fi
 failed=0
-MINATO_WINDOW_BUFFERS=fake MINATO_WINDOW_DUMP="$PWD/$WORK/dump" python3 framework/tests/java_app_run.py $APP $PACKAGE \
+MINATO_WINDOW_BUFFERS=fake MINATO_WINDOW_DUMP="$PWD/$WORK/dump" python3 framework/tests/java_app_run.py \
+  --lifecycle "start,tap:$(((left + right) / 2)):$(((top + bottom) / 2))" \
+  --in-order "I/views-test-device: click from a touch" $APP $PACKAGE \
   android.app.Application build/art build/bionic/lib build/bionic/system build/hwui/lib \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/graphics/tests/graphics-run" "$WORK" build/framework-native/app_process64 build/framework/framework.jar \

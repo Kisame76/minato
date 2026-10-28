@@ -9,11 +9,15 @@ size and the bars' insets ("width <w> height <h> top <t> bottom <b>"), which the
 The check:
   - the last post's window equals the reference in those rows, by graphics/tests/canvas_compare.py's rule, its RGB
     bytes only: the fourth byte of an RGBX_8888 buffer is no alpha, and SurfaceFlinger shows an opaque window;
-  - so does each view whose bounds the reference's log names (label, block and bitmap), on its own by the same rule,
-    so that a small view's difference cannot hide in the window's 0.1 %: the bitmap's 96 x 96 pixels drawn at the
-    wrong density differ in 566 of the window's 3.4 million;
-  - the first post takes the whole window, as a new surface's first draw does, and the last only the label's bounds
-    from the reference's log ("label bounds"), as AOSP's software path redraws only what the text change invalidated;
+  - so does each view whose bounds the reference's log names (label, block, bitmap, TextView and Button), on its own
+    by the same rule, so that a small view's difference cannot hide in the window's 0.1 %: the bitmap's 96 x 96
+    pixels drawn at the wrong density differ in 566 of the window's 3.4 million;
+  - the first post takes the whole window, as a new surface's first draw does (and again at REDRAW_NEEDED); a later
+    one takes exactly the union of the label's and the Button's bounds from the reference's log
+    ("label bounds", "button bounds"): AOSP's software path draws one dirty rectangle per traversal, the union of the
+    frame's invalidates, and the label's text change and the Button's drawable state, which follows the window's
+    focus, come from the same focus message before the next frame (a split into two traversals fails here, loudly);
+    the last post takes only the Button's bounds, the redraw the app asks for once the click's ripple has gone;
   - every post is RGBX_8888 (format 2), the buffers of an opaque window, whose decor has an opaque background.
 
 With --crop, it makes the reference instead, as tools/android-reference.sh calls it: from the raw output of
@@ -79,8 +83,9 @@ def check(expected, rows_text, expected_log, dump):
         if found.group(1) in views:
             return [f"the reference's log names the {found.group(1)}'s bounds twice"]
         views[found.group(1)] = tuple(int(value) for value in found.groups()[1:])
-    if "label" not in views:
-        return ["no line of the label's bounds in the reference's log"]
+    for view in ("label", "button"):
+        if view not in views:
+            return [f"no line of the {view}'s bounds in the reference's log"]
     posts = []
     with open(os.path.join(dump, "posts.txt")) as handle:
         for line in handle:
@@ -98,8 +103,12 @@ def check(expected, rows_text, expected_log, dump):
             failures.append(f"post {number}: format {post_format}, not RGBX_8888 ({RGBX_8888})")
     if tuple(posts[0][5:]) != (0, 0, width, height):
         failures.append(f"post 1 drew {posts[0][5:]}, not the whole window")
-    if tuple(posts[-1][5:]) != views["label"]:
-        failures.append(f"post {posts[-1][0]} drew {posts[-1][5:]}, not the label's bounds {views['label']}")
+    label, button = views["label"], views["button"]
+    union = (min(label[0], button[0]), min(label[1], button[1]), max(label[2], button[2]), max(label[3], button[3]))
+    if not any(tuple(post[5:]) == union for post in posts[1:]):
+        failures.append(f"no post drew the union of the label's and the Button's bounds {union}")
+    if tuple(posts[-1][5:]) != views["button"]:
+        failures.append(f"post {posts[-1][0]} drew {posts[-1][5:]}, not the Button's bounds {views['button']}")
     with open(os.path.join(dump, f"post-{posts[-1][0]}.rgba"), "rb") as handle:
         window = handle.read()
     if len(window) != width * height * 4:

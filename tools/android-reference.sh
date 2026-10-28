@@ -772,8 +772,9 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.javatest.JavaActivity
       ;;
-    # views-test (ADR-0043 step c3): its activity draws in software, changes its label's text once it has the focus,
-    # and logs "done" after that draw; its screen follows its log.
+    # views-test (ADR-0043 step c3, test 1): its activity draws in software, changes its label's text once it has the
+    # focus, and logs "done" after the draw that follows the click of the script's tap on its Button; its screen follows
+    # its log.
     views-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.views.ViewsActivity
@@ -922,6 +923,16 @@ run_app() {
     { wait_for "$app" "pad: ready" && sleep 1 && run input tap 645 1398 &&
       wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
       run input swipe 300 1398 1000 1398 200; } || return 1
+  fi
+  if [[ "$app" == views-test ]]; then
+    # ADR-0043 test 1: a tap on the Button's middle, from its logged bounds in the window, which fills the screen, a
+    # second after the label's change, as apk-run's lifecycle plays it in tools/views-check.sh.
+    local bounds left top right bottom
+    { wait_for "$app" "text changed" && sleep 1; } || return 1
+    bounds=$(app_lines "$app" | tr -d '\r' | sed -n 's/.*: button bounds \([0-9 ]*\)$/\1/p' | tail -n 1)
+    read -r left top right bottom <<<"$bounds"
+    [[ -n "$bottom" ]] || { echo "views-test logged no button bounds." >&2; return 1; }
+    run input tap $(((left + right) / 2)) $(((top + bottom) / 2)) || return 1
   fi
   if [[ "$app" == picker-test ]]; then
     # ADR-0057 step a: each picker is cancelled with BACK a few seconds after its start line, once it shows.
