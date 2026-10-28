@@ -571,7 +571,7 @@ bool holds(const Taken &taken, const Motion &motion) {
         motion.times.size() > APKRT_MOTION_SAMPLES ? motion.times.size() - APKRT_MOTION_SAMPLES : 0;
     const std::size_t samples = motion.times.size() - first;
     if (taken.result != 0 || event.action != motion.action || event.pointer_count != pointers ||
-        event.sample_count != samples || event.reserved != 0 || event.down_time != motion.down_time) {
+        event.sample_count != samples || event.kind != APKRT_INPUT_MOTION || event.down_time != motion.down_time) {
         return false;
     }
     const auto places = motion.places();
@@ -1012,6 +1012,185 @@ TEST(input_channels_come_and_go_while_the_host_posts) {
     stop.store(true);
     host.join();
     CHECK(failed == 0);
+}
+
+// ADR-0068 step 0: the channel carries kinds. A key, a text and a device record travel in the motion record's
+// place, told apart by `kind` (the field that was reserved), in the order they were posted.
+
+/// What a key post fills in, with values the round trip can tell apart.
+apkrt_key_event key_of(std::int32_t action, std::int32_t key_code) {
+    apkrt_key_event key{};
+    key.action = action;
+    key.down_time = 11;
+    key.event_time = 12;
+    key.key_code = key_code;
+    key.scan_code = 13;
+    key.meta_state = 0x41;
+    key.repeat_count = 2;
+    key.device_id = 7;
+    key.flags = 0x8;
+    key.source = 0x101;
+    return key;
+}
+
+/// A record read back as its kind's struct.
+template <typename Record>
+Record as(const Taken &taken) {
+    Record record;
+    std::memcpy(&record, &taken.event, sizeof record);
+    return record;
+}
+
+TEST(a_key_record_arrives_whole_and_tells_its_kind) {
+    const auto input = open_input();
+    const apkrt_key_event key = key_of(0, 29);
+    CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    const auto taken = take(input.fd);
+    CHECK(taken.result == 0);
+    CHECK(taken.event.kind == APKRT_INPUT_KEY);
+    const auto read = as<apkrt_key_event>(taken);
+    CHECK(read.action == 0 && read.key_code == 29 && read.scan_code == 13 && read.meta_state == 0x41);
+    CHECK(read.repeat_count == 2 && read.device_id == 7 && read.flags == 0x8 && read.source == 0x101);
+    CHECK(read.down_time == 11 && read.event_time == 12);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_key_that_is_not_sound_is_refused) {
+    const auto input = open_input();
+    apkrt_key_event key = key_of(0, 29);
+    CHECK(apkrt_input_post_key(input.id, nullptr) == 0);
+    key.action = 2;  // AKEY_EVENT_ACTION_MULTIPLE is not a key the host posts
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);
+    key.action = -1;
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);
+    key.action = 1;
+    key.key_code = -1;
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);
+    CHECK(take(input.fd).result == -eagain);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_text_record_carries_its_bytes_and_its_serial) {
+    const auto input = open_input();
+    apkrt_text_event text{};
+    text.op = APKRT_TEXT_COMMIT;
+    text.arg0 = 1;
+    text.serial = 5;
+    const char bytes[] = "h\xc3\xa9llo";
+    text.length = sizeof bytes - 1;
+    std::memcpy(text.text, bytes, text.length);
+    CHECK(apkrt_input_post_text(input.id, &text) == 1);
+    const auto taken = take(input.fd);
+    CHECK(taken.result == 0 && taken.event.kind == APKRT_INPUT_TEXT);
+    const auto read = as<apkrt_text_event>(taken);
+    CHECK(read.op == APKRT_TEXT_COMMIT && read.arg0 == 1 && read.serial == 5 && read.length == text.length);
+    CHECK(std::memcmp(read.text, bytes, read.length) == 0);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_text_that_is_not_sound_is_refused) {
+    const auto input = open_input();
+    apkrt_text_event text{};
+    text.op = APKRT_TEXT_COMMIT;
+    text.length = APKRT_TEXT_BYTES;  // the largest text still fits
+    CHECK(apkrt_input_post_text(input.id, &text) == 1);
+    text.length = APKRT_TEXT_BYTES + 1;
+    CHECK(apkrt_input_post_text(input.id, &text) == 0);
+    text.length = 0;
+    text.op = APKRT_TEXT_OPS;
+    CHECK(apkrt_input_post_text(input.id, &text) == 0);
+    text.op = -1;
+    CHECK(apkrt_input_post_text(input.id, &text) == 0);
+    CHECK(apkrt_input_post_text(input.id, nullptr) == 0);
+    CHECK(take(input.fd).result == 0);
+    CHECK(take(input.fd).result == -eagain);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_device_record_carries_its_name) {
+    const auto input = open_input();
+    apkrt_device_event device{};
+    device.op = APKRT_DEVICE_ADDED;
+    device.device_id = 1001;
+    device.sources = 0x01000510;
+    device.vendor_id = 0x45e;
+    device.product_id = 0x2e0;
+    std::strcpy(device.name, "Minato Pad");
+    CHECK(apkrt_input_post_device(input.id, &device) == 1);
+    const auto taken = take(input.fd);
+    CHECK(taken.result == 0 && taken.event.kind == APKRT_INPUT_DEVICE);
+    const auto read = as<apkrt_device_event>(taken);
+    CHECK(read.op == APKRT_DEVICE_ADDED && read.device_id == 1001 && read.sources == 0x01000510);
+    CHECK(read.vendor_id == 0x45e && read.product_id == 0x2e0 && std::strcmp(read.name, "Minato Pad") == 0);
+    device.name[sizeof device.name - 1] = 'x';  // a name without its NUL is refused
+    std::memset(device.name, 'x', sizeof device.name);
+    CHECK(apkrt_input_post_device(input.id, &device) == 0);
+    device.op = APKRT_DEVICE_OPS;
+    device.name[0] = 0;
+    CHECK(apkrt_input_post_device(input.id, &device) == 0);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(records_of_all_kinds_arrive_in_the_order_they_were_posted) {
+    const auto input = open_input();
+    const apkrt_key_event key = key_of(0, 29);
+    apkrt_text_event text{};
+    text.op = APKRT_TEXT_FINISH_COMPOSING;
+    CHECK(post(input.id, Motion{.action = down, .down_time = 1, .ids = {0}, .times = {1}}) == 1);
+    CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    CHECK(apkrt_input_post_text(input.id, &text) == 1);
+    CHECK(post(input.id, Motion{.action = up, .down_time = 1, .ids = {0}, .times = {2}}) == 1);
+    CHECK(pipe_bytes(input.fd) == 4);
+    CHECK(take(input.fd).event.kind == APKRT_INPUT_MOTION);
+    CHECK(take(input.fd).event.kind == APKRT_INPUT_KEY);
+    CHECK(take(input.fd).event.kind == APKRT_INPUT_TEXT);
+    const auto last = take(input.fd);
+    CHECK(last.event.kind == APKRT_INPUT_MOTION && last.event.action == up);
+    CHECK(pipe_bytes(input.fd) == 0);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// A key lies between two MOVEs of one gesture: a full channel does not merge them over it, and the gesture's MOVEs
+// keep their samples.
+TEST(a_full_channel_does_not_merge_moves_over_a_key) {
+    const auto input = open_input();
+    const apkrt_key_event key = key_of(0, 29);
+    CHECK(post(input.id, Motion{.action = down, .down_time = 1, .ids = {0}, .times = {1}}) == 1);
+    CHECK(post(input.id, Motion{.action = move, .down_time = 1, .ids = {0}, .times = {2}}) == 1);
+    CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    for (std::int64_t time = 3; time < static_cast<std::int64_t>(most_events); ++time) {
+        CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    }
+    CHECK(post(input.id, Motion{.action = move, .down_time = 1, .ids = {0}, .times = {300}}) == 0);
+    CHECK(take(input.fd).event.action == down);
+    const auto moved = take(input.fd);
+    CHECK(moved.event.kind == APKRT_INPUT_MOTION && moved.event.sample_count == 1 && moved.event.sample_times[0] == 2);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// A channel full of keys refuses more at 256: the 17 beyond are the open gesture's ends, which keys do not take.
+TEST(a_channel_full_of_keys_refuses_at_256_and_keeps_the_ends_of_a_gesture) {
+    const auto input = open_input();
+    const apkrt_key_event key = key_of(1, 30);
+    CHECK(post(input.id, Motion{.action = down, .down_time = 1, .ids = {0}, .times = {1}}) == 1);
+    for (std::size_t count = 1; count < most_events; ++count) CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);
+    CHECK(post(input.id, Motion{.action = up, .down_time = 1, .ids = {0}, .times = {9}}) == 1);
+    CHECK(take(input.fd).event.action == down);
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);  // 256 again with the UP: still full
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_closed_queue_refuses_every_kind) {
+    const auto input = open_input();
+    call(nr_close, {unsigned_of(input.fd)});
+    const apkrt_key_event key = key_of(0, 29);
+    apkrt_text_event text{};
+    apkrt_device_event device{};
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);
+    CHECK(apkrt_input_post_text(input.id, &text) == 0);
+    CHECK(apkrt_input_post_device(input.id, &device) == 0);
+    CHECK(apkrt_input_post_key(input.id + 100, &key) == 0);
 }
 
 }  // namespace

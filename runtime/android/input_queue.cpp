@@ -84,10 +84,13 @@ int32_t AInputQueue_getEvent(AInputQueue *queue, AInputEvent **outEvent) {
     if (queue->fd < 0) return -EWOULDBLOCK;
     auto *event = static_cast<AInputEvent *>(malloc(sizeof(AInputEvent)));
     if (event == nullptr) return -ENOMEM;  // NO_MEMORY
-    if (syscall(APKRT_NR_INPUT_READ, queue->fd, &event->motion) != 0) {
-        free(event);
-        return -EWOULDBLOCK;
-    }
+    // Keys, texts and devices (ADR-0068) are not delivered through this queue yet: they are taken and dropped.
+    do {
+        if (syscall(APKRT_NR_INPUT_READ, queue->fd, &event->motion) != 0) {
+            free(event);
+            return -EWOULDBLOCK;
+        }
+    } while (event->motion.kind != APKRT_INPUT_MOTION);
     *outEvent = event;
     return 0;
 }

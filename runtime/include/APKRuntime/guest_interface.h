@@ -860,6 +860,15 @@ struct apkrt_pointer_coords {
     float touch_major;  // in pixels
 };
 
+/// The kinds of record an input channel carries (ADR-0068, step 0). input_read fills one buffer of
+/// sizeof(struct apkrt_motion_event) bytes whatever the kind; the kind is the uint32_t at byte 12 of every record,
+/// 0 for a motion event, so that a reader that knows only motion events sees the others as not its own. A reader
+/// that does not handle a kind drops its records.
+#define APKRT_INPUT_MOTION 0
+#define APKRT_INPUT_KEY 1
+#define APKRT_INPUT_TEXT 2
+#define APKRT_INPUT_DEVICE 3
+
 /// A motion event of the touchscreen as input_read gives it (AMotionEvent). Its source, tool type and device
 /// are libandroid's in M3: AINPUT_SOURCE_TOUCHSCREEN, AMOTION_EVENT_TOOL_TYPE_FINGER and one device.
 struct apkrt_motion_event {
@@ -867,11 +876,71 @@ struct apkrt_motion_event {
                              // POINTER_UP 6 with the pointer's index << 8
     uint32_t pointer_count;  // 1 to APKRT_MOTION_POINTERS
     uint32_t sample_count;   // 1 to APKRT_MOTION_SAMPLES: the history, oldest first, then the event's own sample
-    uint32_t reserved;
+    uint32_t kind;           // APKRT_INPUT_MOTION
     int64_t down_time;       // the time of the gesture's DOWN
     int32_t pointer_ids[APKRT_MOTION_POINTERS];  // in the order of the pointers: ascending, 0 to 31
     int64_t sample_times[APKRT_MOTION_SAMPLES];  // the last is the event's time
     struct apkrt_pointer_coords coords[APKRT_MOTION_SAMPLES][APKRT_MOTION_POINTERS];  // by sample, then pointer index
+};
+
+/// A key (AKeyEvent) as input_read gives it, after the motion event's four header words.
+struct apkrt_key_event {
+    int32_t action;       // AKEY_EVENT_ACTION_DOWN 0 or UP 1
+    uint32_t reserved0[2];
+    uint32_t kind;        // APKRT_INPUT_KEY
+    int64_t down_time;    // the time of the key's DOWN
+    int64_t event_time;
+    int32_t key_code;     // AKEYCODE_*, 0 or more
+    int32_t scan_code;
+    int32_t meta_state;   // AMETA_*
+    int32_t repeat_count;
+    int32_t device_id;
+    int32_t flags;        // AKEY_EVENT_FLAG_*
+    int32_t source;       // AINPUT_SOURCE_*
+    int32_t reserved1;
+};
+
+/// The longest text of one record, in bytes of UTF-8.
+#define APKRT_TEXT_BYTES 1024
+
+/// What a text record asks of the focused view's InputConnection (ADR-0068, part 1).
+#define APKRT_TEXT_COMMIT 0             // commitText(text, arg0 = newCursorPosition)
+#define APKRT_TEXT_SET_COMPOSING 1      // setComposingText(text, arg0 = newCursorPosition)
+#define APKRT_TEXT_FINISH_COMPOSING 2   // finishComposingText()
+#define APKRT_TEXT_DELETE_SURROUNDING 3 // deleteSurroundingText(arg0 = before, arg1 = after), in UTF-16 units
+#define APKRT_TEXT_SET_SELECTION 4      // setSelection(arg0 = start, arg1 = end)
+#define APKRT_TEXT_SET_COMPOSING_REGION 5  // setComposingRegion(arg0 = start, arg1 = end)
+#define APKRT_TEXT_PERFORM_ACTION 6     // performEditorAction(arg0 = IME_ACTION_*)
+#define APKRT_TEXT_OPS 7
+
+/// A text edit of the host's keyboard, for the connection with `serial`: the host takes the serial from the
+/// editor it was told of, so that a record for a connection that has since changed is dropped by the guest.
+struct apkrt_text_event {
+    int32_t op;           // APKRT_TEXT_*
+    int32_t arg0;
+    int32_t arg1;
+    uint32_t kind;        // APKRT_INPUT_TEXT
+    int64_t serial;
+    uint32_t length;      // the bytes in text, 0 to APKRT_TEXT_BYTES; no NUL is needed
+    uint32_t reserved;
+    char text[APKRT_TEXT_BYTES];
+};
+
+/// What a device record says (ADR-0068, part 3).
+#define APKRT_DEVICE_ADDED 0
+#define APKRT_DEVICE_REMOVED 1
+#define APKRT_DEVICE_CHANGED 2
+#define APKRT_DEVICE_OPS 3
+
+/// An input device that came, went or changed.
+struct apkrt_device_event {
+    int32_t op;           // APKRT_DEVICE_*
+    int32_t device_id;    // the host's, 1 or more; 0 and -1 are Android's own
+    int32_t sources;      // InputDevice.SOURCE_* of the device
+    uint32_t kind;        // APKRT_INPUT_DEVICE
+    int32_t vendor_id;
+    int32_t product_id;
+    char name[64];        // UTF-8 with its NUL
 };
 
 /// vsync_connect, AChoreographer's, once per instance: a new vsync channel. Returns its guest descriptor

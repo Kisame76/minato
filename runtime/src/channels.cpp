@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -170,6 +171,13 @@ constexpr std::size_t most_ends = APKRT_MOTION_POINTERS + 1;
 constexpr std::int32_t action_down = 0, action_up = 1, action_move = 2, action_cancel = 3, action_pointer_down = 5,
                        action_pointer_up = 6, index_shift = 8, most_id = 31;
 
+// The kind sits at byte 12 of every record, and each record fits the buffer input_read fills.
+static_assert(offsetof(apkrt_motion_event, kind) == 12 && offsetof(apkrt_key_event, kind) == 12 &&
+              offsetof(apkrt_text_event, kind) == 12 && offsetof(apkrt_device_event, kind) == 12);
+static_assert(sizeof(apkrt_key_event) <= sizeof(apkrt_motion_event) &&
+              sizeof(apkrt_text_event) <= sizeof(apkrt_motion_event) &&
+              sizeof(apkrt_device_event) <= sizeof(apkrt_motion_event));
+
 class InputChannel;
 
 /// The host's side of an input channel, from apkrt_input_add on. It stays after its queue closed, so that
@@ -262,7 +270,8 @@ bool make_event(apkrt_motion_event &event, std::int32_t action, std::int64_t dow
 /// Whether `later`, the event right after `earlier`, can take its samples: two MOVEs of the same pointers
 /// and down time.
 bool mergeable(const apkrt_motion_event &earlier, const apkrt_motion_event &later) {
-    return earlier.action == action_move && later.action == action_move &&
+    return earlier.kind == APKRT_INPUT_MOTION && later.kind == APKRT_INPUT_MOTION && earlier.action == action_move &&
+           later.action == action_move &&
            earlier.pointer_count == later.pointer_count && earlier.down_time == later.down_time &&
            std::equal(earlier.pointer_ids, earlier.pointer_ids + earlier.pointer_count, later.pointer_ids);
 }
@@ -326,6 +335,7 @@ apkrt_motion_event cancel_of(const apkrt_motion_event &pointer_down) {
 /// with the rest of its gesture; and ends the gesture at a POINTER_DOWN with a CANCEL of the pointers the guest
 /// has, refusing its rest. Under `lock`.
 bool takes(InputQueue &queue, apkrt_motion_event &event) {
+    if (event.kind != APKRT_INPUT_MOTION) return queue.events.size() < most_events;
     const std::int32_t kind = event.action & 0xff;
     if (queue.refusing && event.down_time == queue.refused) return false;
     if (queue.events.size() < most_events) return true;
@@ -344,6 +354,31 @@ bool takes(InputQueue &queue, apkrt_motion_event &event) {
                 if (queue.channel != nullptr) queue.channel->arrived();
             }
             return false;
+    }
+}
+
+
+/// Keeps a record of another kind than motion in the buffer input_read fills, the rest zero.
+template <typename Record>
+apkrt_motion_event wrapped(const Record &record) {
+    apkrt_motion_event event{};
+    std::memcpy(&event, &record, sizeof record);
+    return event;
+}
+
+/// Queues `event`, a record of another kind, for the channel of `id`. 1 when it was taken.
+int post_record(std::uint64_t id, apkrt_motion_event &event) {
+    try {
+        const std::lock_guard hold(lock);
+        const auto found = inputs.find(id);
+        if (found == inputs.end() || found->second.ended) return 0;
+        InputQueue &queue = found->second;
+        if (!takes(queue, event)) return 0;
+        queue.events.push_back(event);
+        if (queue.channel != nullptr) queue.channel->arrived();
+        return 1;
+    } catch (const std::bad_alloc &) {
+        return 0;
     }
 }
 
@@ -511,16 +546,38 @@ extern "C" int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, 
                                 const struct apkrt_pointer_coords *coords) {
     apkrt_motion_event event;
     if (!make_event(event, action, down_time, pointer_count, pointer_ids, sample_count, sample_times, coords)) return 0;
-    try {
-        const std::lock_guard hold(lock);
-        const auto found = inputs.find(id);
-        if (found == inputs.end() || found->second.ended) return 0;
-        InputQueue &queue = found->second;
-        if (!takes(queue, event)) return 0;
-        queue.events.push_back(event);
-        if (queue.channel != nullptr) queue.channel->arrived();
-        return 1;
-    } catch (const std::bad_alloc &) {
+    return post_record(id, event);
+}
+
+extern "C" int apkrt_input_post_key(uint64_t id, const struct apkrt_key_event *key) {
+    if (key == nullptr || (key->action != 0 && key->action != 1) || key->key_code < 0) return 0;
+    apkrt_key_event record = *key;
+    record.reserved0[0] = record.reserved0[1] = 0;
+    record.reserved1 = 0;
+    record.kind = APKRT_INPUT_KEY;
+    apkrt_motion_event event = wrapped(record);
+    return post_record(id, event);
+}
+
+extern "C" int apkrt_input_post_text(uint64_t id, const struct apkrt_text_event *text) {
+    if (text == nullptr || text->op < 0 || text->op >= APKRT_TEXT_OPS || text->length > APKRT_TEXT_BYTES) return 0;
+    apkrt_text_event record = *text;
+    record.reserved = 0;
+    record.kind = APKRT_INPUT_TEXT;
+    std::memset(record.text + record.length, 0, sizeof record.text - record.length);
+    apkrt_motion_event event = wrapped(record);
+    return post_record(id, event);
+}
+
+extern "C" int apkrt_input_post_device(uint64_t id, const struct apkrt_device_event *device) {
+    if (device == nullptr || device->op < 0 || device->op >= APKRT_DEVICE_OPS || device->device_id < 1 ||
+        std::memchr(device->name, 0, sizeof device->name) == nullptr) {
         return 0;
     }
+    apkrt_device_event record = *device;
+    const std::size_t named = std::strlen(device->name);
+    std::memset(record.name + named, 0, sizeof record.name - named);
+    record.kind = APKRT_INPUT_DEVICE;
+    apkrt_motion_event event = wrapped(record);
+    return post_record(id, event);
 }

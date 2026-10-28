@@ -266,6 +266,8 @@ private:
 
     // A record as InputConsumer's messages: each sample of a MOVE, or the record's one event.
     void receive(Round &round, const apkrt_motion_event &record) {
+        // Keys, texts and devices (ADR-0068) are not delivered through this receiver yet: they are dropped.
+        if (record.kind != APKRT_INPUT_MOTION) return;
         if (record.action == AMOTION_EVENT_ACTION_MOVE) {
             for (uint32_t sample = 0; sample < record.sample_count; ++sample) {
                 if (!mBatch.samples.empty() && !canAddSample(record)) sendBatch(round, mBatch.samples.size());

@@ -535,6 +535,18 @@ int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, uint32_t po
                      const int32_t *pointer_ids, uint32_t sample_count, const int64_t *sample_times,
                      const struct apkrt_pointer_coords *coords);
 
+/// The other kinds of input record (ADR-0068, step 0): a key, a text edit and a device change, queued with the
+/// motion events in the order they were posted. A key's action is DOWN 0 or UP 1 and its key code 0 or more; a
+/// text's op is below APKRT_TEXT_OPS and its length at most APKRT_TEXT_BYTES; a device's op is below
+/// APKRT_DEVICE_OPS, its ID 1 or more and its name ends within its 64 bytes. They fill the `kind` themselves.
+/// A full channel (256 records) refuses them, since the guest's keys and edits cannot be merged; the 17 records
+/// beyond 256 stay for the ends of an open gesture, and a gesture's merging and refusing are not disturbed.
+/// Each returns 1 when the channel took the record, else 0:
+/// an unknown ID, a channel whose queue has closed, a record that is not sound, a full channel, no memory.
+int apkrt_input_post_key(uint64_t id, const struct apkrt_key_event *event);
+int apkrt_input_post_text(uint64_t id, const struct apkrt_text_event *event);
+int apkrt_input_post_device(uint64_t id, const struct apkrt_device_event *event);
+
 // MARK: - Audio output (ADR-0036, decisions 4 to 6)
 //
 // The guest's libaaudio opens output streams through the runtime (guest_interface.h), which keeps each stream's ring
