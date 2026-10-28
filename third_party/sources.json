@@ -270,17 +270,17 @@
     },
     {
       "name": "icu_tzdata",
-      "raw": "https://raw.githubusercontent.com/unicode-org/icu-data/1c3d36e741bd648caaaba3a744267b23ca41bfc1",
-      "commit": "1c3d36e741bd648caaaba3a744267b23ca41bfc1",
+      "raw": "https://raw.githubusercontent.com/unicode-org/icu-data/bae5ca647fa41703393dbf00240ec1b807a9c353",
+      "commit": "bae5ca647fa41703393dbf00240ec1b807a9c353",
       "license": "Unicode-3.0",
       "files": [
         "LICENSE",
-        "tzdata/icunew/2026c/44/le/zoneinfo64.res",
-        "tzdata/icunew/2026c/44/le/metaZones.res",
-        "tzdata/icunew/2026c/44/le/timezoneTypes.res",
-        "tzdata/icunew/2026c/44/le/windowsZones.res"
+        "tzdata/icunew/2026e/44/le/zoneinfo64.res",
+        "tzdata/icunew/2026e/44/le/metaZones.res",
+        "tzdata/icunew/2026e/44/le/timezoneTypes.res",
+        "tzdata/icunew/2026e/44/le/windowsZones.res"
       ],
-      "digest": "6883b87a6308cb430529ce63ce7496eb34f2ed4ef58c86ecd07da28728464c74"
+      "digest": "494eb94e0976e8179b133ad9fb0d98fe3d23e951afc559759d2ebffd612172fe"
     },
     {
       "name": "unwinding",
