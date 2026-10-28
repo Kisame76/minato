@@ -99,7 +99,7 @@
 # build/art-run-tests/jars, runs from one script on the device, each test as the guest runs it, with dalvikvm64; the
 # results write fixtures/art-run-tests.txt and Android 15's own outputs in fixtures/expected/art-run-tests.
 # Usage: tools/android-reference.sh [test ...]   (default: every test in fixtures/tests.txt)
-#        tools/android-reference.sh --app <app>
+#        tools/android-reference.sh --app <app>   (its APK built first: one older than its sources is refused)
 #        tools/android-reference.sh --art <program> [<library>]
 #        tools/android-reference.sh --art-run-tests
 #        tools/android-reference.sh --features
@@ -165,6 +165,21 @@ elif [[ $# -eq 1 && "$1" == --features ]]; then
 elif [[ $# -eq 2 && "$1" == --app ]]; then
   app=$2
   fixtures=()
+  # The script builds no APK: a test app's APK older than a file of its sources would put old code on the device and
+  # take the reference from it, so it stops before the emulator starts.
+  # Only the source folders the app has, and find stops at the first newer file itself: under set -euo pipefail a
+  # missing folder or a pipe into head would end the script without a word.
+  sources=()
+  for folder in "fixtures/java/$app" "fixtures/apps/$app"; do
+    [[ ! -d "$folder" ]] || sources+=("$folder")
+  done
+  if [[ -z "${APK_SET:-}" && -f "build/$app/$app.apk" && ${#sources[@]} -gt 0 ]]; then
+    newer=$(find "${sources[@]}" -type f -newer "build/$app/$app.apk" -print -quit)
+    if [[ -n "$newer" ]]; then
+      echo "build/$app/$app.apk is older than $newer: build it again first." >&2
+      exit 1
+    fi
+  fi
 elif [[ ($# -eq 2 || $# -eq 3) && "$1" == --art ]]; then
   art=$2
   art_library=${3:-}
