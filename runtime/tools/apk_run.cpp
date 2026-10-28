@@ -32,7 +32,8 @@
 // picker (kind 5): up to its maximum of the files, cloned into the data folder's .minato/photos. --pick-create Download answers an ACTION_CREATE_DOCUMENT request by creating the file
 // in --pick-download under the title, --pick-tree an ACTION_OPEN_DOCUMENT_TREE request with that folder (ADR-0057
 // step d). An open request (ADR-0062) is answered as a host that showed it: RESULT_OK 300 ms after the request, with
-// the line "apk-run: open <ID>: <kind>\t<decoded fields>" on stderr, tabs and newlines written out.
+// the line "apk-run: open <ID>: <kind>\t<decoded fields>" on stderr, tabs and newlines written out; with --pick-data a
+// share's files follow, each as the host reads it, "apk-run: open <ID> file <name>: <size> bytes <first bytes>".
 // Without --configuration there is no frame clock, by design (vsync-lag-test posts its own ticks): a Java app's first
 // traversal posts ViewRootImpl's sync barrier, which only a frame removes, so its main Looper then dispatches no post
 // from another thread and no delayed post. A check that needs the main Looper passes a configuration.
@@ -91,6 +92,7 @@
 #include "pick_host.h"
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -427,6 +429,68 @@ std::string one_line(const char *text) {
     return line;
 }
 
+/// With --pick-data, a share's files as the host reads them (ADR-0062): each file the request names, from the data
+/// folder's .minato/share/<ID>, opened through descriptors that follow no link, as guest_interface.h asks of the host,
+/// each on a line "apk-run: open <ID> file <name>: <size> bytes <its first 64 bytes>", tabs and newlines written out
+/// and other bytes outside printable ASCII as \xHH, or "refused" for one that is no regular file. Read before the
+/// answer, after which the guest removes the folder, so a check holds the bytes the share sheet would get.
+void print_shared_files(std::uint64_t id, const std::string &text) {
+    std::vector<std::string> fields;
+    std::istringstream split(text);
+    for (std::string field; std::getline(split, field, '\t');) fields.push_back(field);
+    if (fields.size() < 4 || fields[0] != "4") return;
+    const std::size_t count = std::strtoul(fields[3].c_str(), nullptr, 10);
+    if (fields.size() < 4 + count) return;
+    const std::string request = std::to_string(id);
+    int folder = open(pick_config.data.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    for (const char *name : {".minato", "share", request.c_str()}) {
+        if (folder < 0) break;
+        const int next = openat(folder, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        close(folder);
+        folder = next;
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::string name = decoded_open(fields[4 + index].c_str());
+        const int file =
+            folder < 0 ? -1 : openat(folder, name.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+        struct stat facts {};
+        std::string bytes;
+        bool regular = file >= 0 && fstat(file, &facts) == 0 && S_ISREG(facts.st_mode);
+        char buffer[4096];
+        for (ssize_t got; regular && (got = read(file, buffer, sizeof buffer)) != 0;) {
+            if (got < 0) {
+                regular = false;
+            } else {
+                bytes.append(buffer, static_cast<std::size_t>(got));
+            }
+        }
+        if (file >= 0) close(file);
+        std::string shown;
+        for (const char letter : bytes.substr(0, 64)) {
+            const auto byte = static_cast<unsigned char>(letter);
+            char escaped[5];
+            if (byte == '\t') {
+                shown += "\\t";
+            } else if (byte == '\n') {
+                shown += "\\n";
+            } else if (byte >= 0x20 && byte < 0x7f) {
+                shown += static_cast<char>(byte);
+            } else {
+                std::snprintf(escaped, sizeof escaped, "\\x%02x", byte);
+                shown += escaped;
+            }
+        }
+        if (regular) {
+            std::fprintf(stderr, "apk-run: open %llu file %s: %zu bytes %s\n", static_cast<unsigned long long>(id),
+                         name.c_str(), bytes.size(), shown.c_str());
+        } else {
+            std::fprintf(stderr, "apk-run: open %llu file %s: refused\n", static_cast<unsigned long long>(id),
+                         name.c_str());
+        }
+    }
+    if (folder >= 0) close(folder);
+}
+
 void on_request(void *, int type, std::uint64_t argument, const char *text) {
     if (type == APKRT_REQUEST_EXPORT_MEDIA) {
         // The model of the host's export to Photos (ADR-0057 step e): the handler only takes the file, a thread of its
@@ -457,6 +521,7 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
     if (type == APKRT_REQUEST_OPEN) {
         std::fprintf(stderr, "apk-run: open %llu: %s\n", static_cast<unsigned long long>(argument),
                      one_line(decoded_open(text != nullptr ? text : "").c_str()).c_str());
+        if (!pick_config.data.empty()) print_shared_files(argument, text != nullptr ? text : "");
         answer_open(argument);
         return;
     }

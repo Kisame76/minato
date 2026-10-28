@@ -35,8 +35,9 @@ python3 framework/tests/java_app_run.py open-test io.github.kisame76.minato.test
 # What the host got for each intent (apk-run writes a request's decoded fields on one line, tabs and newlines as \t and
 # \n): a link with a space and a non-ASCII letter, a phone number without its spaces, a map point, a mail with the
 # addresses of the URL and of the extras, a text message, a chooser around a text with an emoji, a share of a file,
-# and of two files whose second name has a slash; the market link resolves to nothing, so no request.
-python3 framework/tests/java_app_run.py --lifecycle start \
+# and of two files whose second name has a slash, each file's bytes as the host reads them from the share folder
+# (--shares: the provider's "the report\n" and "PNG?"); the market link resolves to nothing, so no request.
+python3 framework/tests/java_app_run.py --lifecycle start --shares \
   --in-order 'apk-run: open 1: 1\thttps://example.com/a%20b?q=ü' \
   --in-order 'apk-run: open 2: 1\ttel:+49301234' \
   --in-order 'apk-run: open 3: 1\tmaps://?ll=52.52%2C13.40&q=Berlin' \
@@ -44,7 +45,10 @@ python3 framework/tests/java_app_run.py --lifecycle start \
   --in-order 'apk-run: open 5: 3\tsms:123&body=Hello%20%26%20bye' \
   --in-order 'apk-run: open 6: 4\tSub\tText 😀\t0' \
   --in-order 'apk-run: open 7: 4\t\twith a file\t1\treport.txt\ttext/plain' \
+  --in-order 'apk-run: open 7 file report.txt: 11 bytes the report\n' \
   --in-order 'apk-run: open 8: 4\t\t\t2\treport.txt\ta b_c.png\ttext/plain\timage/png' \
+  --in-order 'apk-run: open 8 file report.txt: 11 bytes the report\n' \
+  --in-order 'apk-run: open 8 file a b_c.png: 4 bytes PNG?' \
   open-start-test io.github.kisame76.minato.test.openstart \
   android.app.Application build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \

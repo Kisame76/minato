@@ -65,7 +65,9 @@ runtime/tools/apk_run.cpp's lines: "<at_ms> <lat> <lon> <accuracy_m> [altitude]"
 With --device-profile pixel|galaxy, the program gets that phone's Build names instead of the host's (ADR-0065).
 
 With --export-dir <folder>, the session's host answers an export request of the app's MediaStore (ADR-0057 step e) by
-copying the finished image or video into that folder, as the iPhone's host adds it to Photos.
+copying the finished image or video into that folder, as the iPhone's host adds it to Photos. With --shares, it reads
+each file of a share request (ADR-0062) as the iPhone's host does and writes it out after the request's line, "apk-run:
+open <ID> file <name>: <size> bytes <first bytes>", for --in-order.
 
 With --pick-save, the session's host answers an ACTION_CREATE_DOCUMENT request as a user who saves into the app's
 Download folder: it creates the file there under the request's title, made unique (ADR-0057 step d). With --pick-tree
@@ -88,7 +90,7 @@ starts' lines count as one log (step c1's context-test).
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
                        [--pick <file>]... [--pick-photo <file>]...
-                       [--pick-save] [--pick-tree <folder>] [--export-dir <folder>]
+                       [--pick-save] [--pick-tree <folder>] [--export-dir <folder>] [--shares]
                        [--sensor-script <file>] [--grant-location fine|coarse|denied] [--location-script <file>]
                        [--device-profile pixel|galaxy] [--status <n>] [--once <line>]...
                        [--env <name>=<value>]... [--split <file>]...
@@ -129,6 +131,7 @@ def main():
     location_script = None
     device_profile = None
     saves = False
+    shares = False
     tree = None
     splits = []
     status = 0
@@ -136,7 +139,7 @@ def main():
     environment = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
                        ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
-                       ["--pick-tree"], ["--export-dir"], ["--sensor-script"], ["--grant-location"],
+                       ["--pick-tree"], ["--export-dir"], ["--shares"], ["--sensor-script"], ["--grant-location"],
                        ["--location-script"], ["--device-profile"], ["--status"], ["--once"], ["--env"], ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
@@ -146,6 +149,8 @@ def main():
             obbs, args = obbs + [args[1]], args[2:]
         elif args[0] == "--pick-save":
             saves, args = True, args[1:]
+        elif args[0] == "--shares":
+            shares, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--export-dir":
             export_dir, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--sensor-script":
@@ -215,7 +220,7 @@ def main():
                        signers=signers, again=again,
                        last=rf"^(?:[VDIWEF]/)?{re.escape(app)}: {re.escape(until or 'done')}$", lifecycle=lifecycle,
                        android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits,
-                       picks=picks, photos=photos, saves=saves, tree=tree, export_dir=export_dir,
+                       picks=picks, photos=photos, saves=saves, tree=tree, export_dir=export_dir, shares=shares,
                        sensor_script=sensor_script, grant_location=grant_location, location_script=location_script,
                        device_profile=device_profile)
         if result is None:

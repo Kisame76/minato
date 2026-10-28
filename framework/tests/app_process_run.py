@@ -327,7 +327,7 @@ def tzdata_module(tzdata, folder):
 def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process, framework_jar,
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
           lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=(), picks=(), photos=(), saves=None, tree=None,
-          export_dir=None, sensor_script=None, grant_location=None, location_script=None,
+          export_dir=None, shares=False, sensor_script=None, grant_location=None, location_script=None,
           device_profile=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
@@ -352,7 +352,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     the data folder's .minato/picks (--pick-file, --pick-download, --pick-data). `photos` are the photos the user
     picks in the photo picker (ADR-0057 step c), cloned into the data folder's .minato/photos (--pick-photo). `saves` (True) answers an ACTION_CREATE_DOCUMENT request by creating the file in the app's
     Download folder, and `tree` (a folder) an ACTION_OPEN_DOCUMENT_TREE request with that folder, copied into Download
-    before the start (ADR-0057 step d; --pick-create, --pick-tree).
+    before the start (ADR-0057 step d; --pick-create, --pick-tree). `shares` (True) has apk-run read each file of a
+    share request (ADR-0062) from the data folder and write it out (--pick-data).
     `environment` are apk-run's --env entries (<name>=<value>) on top of the app's environment, as GuestStart's
     extra entries (the gap scanner's MINATO_GAPSCAN).
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
@@ -466,7 +467,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--mount", f"/data/resource-cache={cache}"]
     if configuration is not None:
         command += ["--configuration", configuration, "--lifecycle", lifecycle or "start"]
-    if picks or photos or saves or tree or export_dir:
+    if picks or photos or saves or tree or export_dir or shares:
         command += ["--pick-data", os.path.join(run, data.lstrip("/"))]
     if picks:
         for pick in picks:
