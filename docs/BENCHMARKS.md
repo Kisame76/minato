@@ -762,3 +762,87 @@ tools/benchmark.sh --scene godot --api vulkan --more godot-vulkan-60-light
 tools/benchmark.sh --scene godot --api gles --more godot-gles-60-light
 python3 tools/bench-summary.py build/benchmark
 ```
+
+## M6: FPS unlock (ADR-0066 step 4, by hand)
+
+ADR-0066 lifts an engine's own frame cap per app. Step 4 measures what the unlock gives on the iPhone with M3's scene
+(ADR-0037), told by `tools/benchmark.sh --cap 30` to hold an engine cap of 30 fps, as Unity does without a
+`targetFrameRate`, and by `--unlock 60|120` to lift it as ADR-0066's wrapper does. Both variants get the same cap and
+unlock through `bench.conf`, so each row compares the APK's pacing at that rate with the native build's; run.csv does
+not record the cap, so these are by-hand settings, not a parity result. The wrapper itself is checked by
+`frame-cap-test` (step 2), whose lines `tools/device-suite.sh` found as expected on the iPhone in the same sitting,
+with no unlock and with `--frame-rate 60` and `120`.
+
+**Result: the unlock reaches 60 and 120 FPS at the native build's frame times with GLES, and at 120 FPS with Vulkan.
+Vulkan at 30 and 60 FPS is open: the native build's own p99 spreads too much for a verdict. A 10-minute run at 120 FPS
+holds its rate; the iPhone warms to "fair", never "serious".** Measured 2026-10-28 from 20:45 to 22:07 on the iPhone
+15 Pro Max (iOS 27), in one Release build of `6a36185`, 60 measured runs, all valid, all at thermal state "nominal".
+
+| Configuration | Cap / unlock | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Verdict |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| gles-120-light | 30 / none | 30.00 | 30.00 | 1.0000 | 41.676 ms | 41.676 ms | 1.0000 | 0.00 / 0.00 % | pass |
+| gles-120-light | 30 / 60 | 60.00 | 59.97 | 0.9994 | 25.006 ms | 25.006 ms | 1.0000 | 0.06 / 0.00 % | pass |
+| gles-120-light | 30 / 120 | 119.97 | 120.00 | 1.0003 | 8.335 ms | 8.335 ms | 1.0000 | 0.00 / 0.00 % | pass |
+| vulkan-120-light | 30 / none | 30.00 | 30.00 | 1.0000 | 37.509 ms | 37.509 ms | 1.0000 | 0.00 / 22.22 % | more runs, open |
+| vulkan-120-light | 30 / 60 | 60.00 | 60.00 | 1.0000 | 16.671 ms | 20.838 ms | 1.2500 | 0.06 / 50.00 % | more runs, open |
+| vulkan-120-light | 30 / 120 | 119.97 | 120.00 | 1.0003 | 8.335 ms | 8.335 ms | 1.0000 | 0.03 / 0.00 % | pass |
+
+Medians by nearest rank over the warm windows of 5 valid runs per variant, as in M3; no warm window had a dropped
+frame. The p50 is the rate's period in every row: 33.341, 16.670 and 8.335 ms.
+
+- *Below 120 FPS the p99 is one or two 120 Hz ticks above the period,* on both sides: with GLES 41.676 ms at 30 FPS
+  and 25.006 ms at 60 FPS in every run; with Vulkan 33.3 to 41.7 ms at 30 FPS and 16.7 to 25.0 ms at 60 FPS, varying
+  from run to run as much in the native build as in the APK. That is the cap's own pacing on a 120 Hz link, not
+  Minato's cost. The two Vulkan rows stay open by decision 8's spread rule and wait for a later sitting's 5 more runs
+  per variant.
+- *CPU time* (median of the runs' p50): with GLES 5.91 / 5.80 ms (native / APK) at 30, 5.92 / 5.81 ms at 60 and
+  3.38 / 4.53 ms at 120 FPS; with Vulkan 4.52 / 4.57, 4.57 / 4.68 and 3.48 / 3.55 ms.
+
+### Ten minutes at 120 FPS (reported)
+
+`gles-120-light`'s APK variant, cap 30 and unlock 120, one run of 600 s (`-benchmarkSeconds 600`), valid. The thermal
+state went from "nominal" to "fair" 67 s after the start and stayed there to the end.
+
+| Minute | FPS | p50 | p99 | Late frames | CPU p50 / p99 |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 119.05 | 8.335 ms | 8.335 ms | 34 | 3.52 / 4.84 ms |
+| 2 | 119.92 | 8.335 ms | 8.335 ms | 4 | 4.50 / 4.88 ms |
+| 3 | 119.92 | 8.335 ms | 8.335 ms | 3 | 3.66 / 4.84 ms |
+| 4 | 119.95 | 8.335 ms | 8.335 ms | 1 | 4.54 / 4.88 ms |
+| 5 | 119.90 | 8.335 ms | 8.335 ms | 3 | 3.46 / 4.86 ms |
+| 6 | 119.78 | 8.335 ms | 8.335 ms | 10 | 4.56 / 4.90 ms |
+| 7 | 119.88 | 8.335 ms | 8.335 ms | 6 | 3.49 / 4.84 ms |
+| 8 | 119.77 | 8.335 ms | 8.335 ms | 11 | 3.41 / 4.86 ms |
+| 9 | 119.88 | 8.335 ms | 8.335 ms | 5 | 3.43 / 4.85 ms |
+| 10 | 119.83 | 8.335 ms | 8.335 ms | 8 | 3.42 / 4.90 ms |
+
+Frame times are the intervals between the frame clock's ticks; a late frame takes more than 1.5 periods (12.5 ms). The
+first minute holds the start. The rate does not fall over the ten minutes, so the iPhone does not throttle this load.
+
+### Limits
+
+- M3's light scene stands in for an engine: the Unity test APK is still "Incompatible" in the library (ADR-0020's
+  remaining x18 classes), so ADR-0066's sitting with it at "As the App Asks", 60 and 120 waits.
+- The heavy load was not measured with an unlock; its discarded first pair at unlock 120 reached thermal state
+  "serious" before the light runs.
+- One build and one sitting; the heat run is one run of the APK variant.
+
+### Reproduce
+
+```bash
+tools/benchmark.sh --api gles --only gles-120-light --cap 30
+tools/benchmark.sh --api gles --only gles-120-light --cap 30 --unlock 60
+tools/benchmark.sh --api gles --only gles-120-light --cap 30 --unlock 120
+tools/benchmark.sh --api vulkan --only vulkan-120-light --cap 30
+tools/benchmark.sh --api vulkan --only vulkan-120-light --cap 30 --unlock 60
+tools/benchmark.sh --api vulkan --only vulkan-120-light --cap 30 --unlock 120
+python3 tools/bench-summary.py build/benchmark-cap30
+python3 tools/bench-summary.py build/benchmark-cap30-unlock60
+python3 tools/bench-summary.py build/benchmark-cap30-unlock120
+tools/device-suite.sh --frame-rate 60
+tools/device-suite.sh --frame-rate 120
+```
+
+`tools/benchmark.sh` runs series only; the ten-minute run was started as its `launch` does, with
+`-runBenchmark gles-120-light-apk-01 -benchmarkSeconds 600 -benchmarkCap 30 -benchmarkUnlock 120`, and its CSVs
+fetched as its `fetch` does.
