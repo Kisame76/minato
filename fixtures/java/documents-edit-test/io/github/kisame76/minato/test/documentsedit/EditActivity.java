@@ -14,7 +14,9 @@ import java.nio.charset.StandardCharsets;
  * ADR-0057's write-back test: an app opens a document with ACTION_OPEN_DOCUMENT, replaces its content through the
  * URI (mode "wt"), closes the stream and reads the document back. On Android the URI is the file itself, so the file
  * in Download holds the new text at once; Minato's document is a clone, and the host writes it back to the user's
- * file (the check compares that file after the run). Logs under the tag documents-edit-test.
+ * file (the check compares that file after the run). After "done" the app ends itself, as a user would leave it, so
+ * that a host that ends the session at the app's finish, the iPhone's, needs no one to quit it. Logs under the tag
+ * documents-edit-test.
  */
 public class EditActivity extends Activity {
     static final String TAG = "documents-edit-test";
@@ -58,6 +60,18 @@ public class EditActivity extends Activity {
         } catch (Exception e) {
             log("failed: " + e);
         }
-        mHandler.postDelayed(() -> log("done"), 2500);   // the host writes a clone back a second after its last change
+        mHandler.postDelayed(() -> {   // the host writes a clone back a second after its last change
+            log("done");
+            finish();
+        }, 2500);
+    }
+
+    // The finish's first step, at once on Android (onDestroy may come much later); the picker's pause is not logged.
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (isFinishing()) {
+            log("paused to finish");
+        }
     }
 }

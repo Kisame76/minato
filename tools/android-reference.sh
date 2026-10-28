@@ -653,9 +653,11 @@ run_app() {
       limit=120
       ;;
     # documents-edit-test (ADR-0057, write-back): its activity opens known.txt, replaces its content through the URI and
-    # reads it back, and ends with "done"; the script then reads the file in Download, which holds the new text.
+    # reads it back, logs "done" and finishes itself, "paused to finish"; the script then reads the file in Download,
+    # which holds the new text.
     documents-edit-test)
-      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EditActivity
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last="paused to finish"
+      activity_class=.EditActivity
       limit=90
       ;;
     # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with

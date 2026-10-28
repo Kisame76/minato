@@ -3,3 +3,4 @@ I/documents-edit-test: result: -1 flags=67
 I/documents-edit-test: wrote
 I/documents-edit-test: read back: edited by app
 I/documents-edit-test: done
+I/documents-edit-test: paused to finish
