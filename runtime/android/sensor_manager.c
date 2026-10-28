@@ -149,13 +149,15 @@ int ASensorEventQueue_setEventRate(ASensorEventQueue* queue, ASensor const* sens
     return (int)syscall(APKRT_NR_SENSOR, APKRT_SENSOR_RATE, &request);
 }
 
-// 1 or 0, a negative errno when the descriptor cannot be polled, as sensor.h allows.
+// 1 when events wait, -1 when none do (Android's libandroid answers -1 whenever the poll's revents is not POLLIN, an
+// empty queue included, as the AVD's sensors-test shows), a negative errno when the descriptor cannot be polled.
 int ASensorEventQueue_hasEvents(ASensorEventQueue* queue) {
     if (queue == NULL) return -EINVAL;
     struct pollfd entry = {queue->fd, POLLIN, 0};
     const int ready = poll(&entry, 1, 0);
     if (ready < 0) return -errno;
-    return ready == 1 && (entry.revents & POLLIN) != 0 ? 1 : 0;
+    if (entry.revents != POLLIN) return -1;
+    return ready == 0 ? 0 : 1;
 }
 
 // The whole ASensorEvent records waiting, up to `count`; 0 when none, a negative errno on a read error.

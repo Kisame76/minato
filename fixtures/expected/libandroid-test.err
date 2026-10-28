@@ -2,7 +2,6 @@ W/libandroid: AThermal_acquireManager: not implemented
 W/libandroid: AThermal_getCurrentThermalStatus: not implemented
 W/libandroid: AThermal_getThermalHeadroom: not implemented
 W/libandroid: APerformanceHint_getManager: not implemented
-W/libandroid: ASensor_getResolution: not implemented
 W/libandroid: ATrace_isEnabled: not implemented
 W/libandroid: ATrace_beginSection: not implemented
 W/libandroid: ATrace_endSection: not implemented
