@@ -657,3 +657,108 @@ tools/benchmark.sh --api gles
 tools/benchmark.sh --api gles31
 python3 tools/bench-summary.py build/benchmark
 ```
+
+## M4 test 2: Godot (ADR-0042)
+
+Test 2 of M4 measures an engine instead of our own scene. `godot-bench`, a Godot 4.7.2 project of ours, is exported
+twice: as Vulkan and GLES APKs, which run in Minato on the Java path (ART in the interpreter, GodotActivity, the APK's
+`libgodot_android.so`), and as the twin, Godot's own iOS template inside the benchmark build, which draws with
+MoltenVK, with EAGL for GLES, or with Godot's Metal renderer. The harness is ADR-0037's, with ADR-0042's changes for
+an engine: the APK's frames are its SurfaceView layer's last drawables, an APK that asks no frame rate is judged by
+its frame times (the no-rate rule), and the GLES pair by `bench.gd`'s frame ticks, since EAGL's layer gives the twin
+no drawables (ADR-0042).
+
+**Result: parity is not decided. The four 120 Hz configurations pass. Both 60 Hz configurations are "undecided"
+after 10 runs per variant, because the twin's own p99 spreads more than decision 8's 5 % (26 % with GLES, 33 % with
+Vulkan); their medians do not show Minato behind the twin.** Measured 2026-10-28 from 17:05 to 20:40 on the iPhone
+15 Pro Max (iOS 27), by cable, in one Release build of `40e4a08`, 100 runs, all valid.
+
+| Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Runs | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| godot-gles-60-light | 60.00 | 60.00 | 1.0000 | 22.859 ms | 17.667 ms | 0.7729 | 0.11 / 26.02 % | 10 | undecided |
+| godot-gles-120-light | 59.97 | 119.97 | 2.0006 | 17.354 ms | 8.916 ms | 0.5138 | 0.06 / 0.52 % | 5 | pass |
+| godot-gles-120-heavy | 60.00 | 119.97 | 1.9994 | 17.325 ms | 8.761 ms | 0.5057 | 0.06 / 1.15 % | 5 | pass |
+| godot-vulkan-60-light | 60.00 | 60.00 | 1.0000 | 25.005 ms | 25.006 ms | 1.0000 | 0.11 / 33.33 % | 10 | undecided |
+| godot-vulkan-120-light | 119.97 | 119.97 | 1.0000 | 8.335 ms | 8.335 ms | 1.0000 | 0.00 / 0.00 % | 5 | pass |
+| godot-vulkan-120-heavy | 119.97 | 119.97 | 1.0000 | 8.335 ms | 8.335 ms | 1.0000 | 0.00 / 0.00 % | 5 | pass |
+
+Medians by nearest rank over the warm windows, as in M3; "Runs" are the valid runs per variant. The 60 Hz
+configurations got decision 8's 5 more runs per variant, and with 10 native runs still spread the verdict is
+"undecided".
+
+- *The 60 Hz p99s fall on ProMotion's steps.* Vulkan: the APK's p99 is 25.006 ms in 10 of 10 runs, the twin's in 7 of
+  10 (16.671 ms in the other 3). GLES: the APK's p99 is 17.64 to 17.71 ms in all 10 runs, the twin's 17.44 to
+  17.45 ms in 4 and 22.86 to 23.38 ms in 6. So at 60 Hz the APK is as steady as the twin with Vulkan and steadier with
+  GLES.
+- *The GLES twin draws at 60 Hz in the 120 Hz configurations* (59.97 and 60.00 FPS, p99 17.3 ms), as ADR-0042's test 4
+  saw once. That is Godot's own iOS build: its GLES path draws through EAGL's layer [verified: the twin's
+  `GDTOpenGLLayer`, ADR-0042 c4.1], while the APK's GLES goes through ANGLE to a `CAMetalLayer` and holds 120 FPS. The
+  cause inside Godot's iOS GLES export is not measured. The two GLES 120 Hz rows pass because the APK is faster, not
+  because both sides are equal.
+- *The heavy load does not load the A17 Pro:* with Godot both sides hold 120 FPS with it, unlike M3's own scene.
+- *Rates:* the twin asks 60 or 120 Hz and gets that link period. The APK asks none, as Godot 4.7.2 does with Swappy off
+  (ADR-0042, the Swappy gap), and runs on the panel's 120 Hz link, paced by `Engine.max_fps`.
+
+### Metal (reported, not judged)
+
+Godot's own Metal renderer has no APK counterpart; ADR-0042 reports it beside the Vulkan APK's runs.
+
+| Configuration | Metal twin FPS | Vulkan APK FPS | Metal twin p99 | Vulkan APK p99 |
+|---|---:|---:|---:|---:|
+| godot-metal-60-light | 59.97 | 60.00 | 16.670 ms | 25.006 ms |
+| godot-metal-120-light | 119.97 | 119.97 | 8.335 ms | 8.335 ms |
+| godot-metal-120-heavy | 119.97 | 119.97 | 8.335 ms | 8.335 ms |
+
+At 60 Hz the Metal twin keeps every frame on 16.67 ms; the Vulkan APK and the Vulkan twin do not (above).
+
+### Cold windows, CPU time and the first frame (reported, not judged)
+
+| Configuration | Variant | Warm p50 | CPU p50 / p99 | Cold FPS | Cold p99 | Cold drops | First frame |
+|---|---|---:|---:|---:|---:|---:|---:|
+| godot-gles-60-light | native | 16.667 ms | 13.08 / 17.27 ms | 60.20 | 19.852 ms | 0 | n/a |
+| godot-gles-60-light | apk | 16.663 ms | 6.12 / 10.29 ms | 60.20 | 17.620 ms | 0 | n/a |
+| godot-gles-120-light | native | 16.695 ms | 17.16 / 17.42 ms | 67.20 | 17.461 ms | 0 | n/a |
+| godot-gles-120-light | apk | 8.336 ms | 9.12 / 12.60 ms | 118.50 | 9.603 ms | 0 | n/a |
+| godot-gles-120-heavy | native | 16.675 ms | 18.01 / 18.65 ms | 67.10 | 17.527 ms | 0 | n/a |
+| godot-gles-120-heavy | apk | 8.338 ms | 9.61 / 10.27 ms | 119.00 | 8.843 ms | 0 | n/a |
+| godot-vulkan-60-light | native | 16.670 ms | 5.04 / 5.66 ms | 54.19 | 25.006 ms | 0 | 1,125 ms |
+| godot-vulkan-60-light | apk | 16.670 ms | 6.86 / 11.77 ms | 51.14 | 25.006 ms | 1 | 1,736 ms |
+| godot-vulkan-120-light | native | 8.335 ms | 8.79 / 9.15 ms | 106.90 | 8.335 ms | 0 | 1,122 ms |
+| godot-vulkan-120-light | apk | 8.335 ms | 10.00 / 14.06 ms | 101.18 | 8.335 ms | 1 | 1,776 ms |
+| godot-vulkan-120-heavy | native | 8.335 ms | 6.91 / 7.96 ms | 113.60 | 8.335 ms | 0 | 475 ms |
+| godot-vulkan-120-heavy | apk | 8.335 ms | 9.78 / 17.17 ms | 107.09 | 8.335 ms | 0 | 1,112 ms |
+| godot-metal-60-light | native | 16.670 ms | 17.44 / 18.00 ms | 54.55 | 16.671 ms | 0 | 998 ms |
+| godot-metal-120-light | native | 8.335 ms | 9.42 / 9.97 ms | 107.97 | 8.335 ms | 0 | 994 ms |
+| godot-metal-120-heavy | native | 8.335 ms | 9.75 / 10.23 ms | 114.82 | 8.335 ms | 0 | 337 ms |
+
+Medians over the valid runs. The cold window is a run's first 10 s.
+
+- *CPU* is what `bench.gd` logs per frame: Godot's process and physics time plus the renderer's frame setup. On the
+  twin's GLES and Metal paths it is close to the frame period, so it holds a wait there [inferred]; compare it within
+  an API only. With Vulkan the APK's main loop takes 1.2 to 2.9 ms more per frame than the twin's at the median, and
+  its p99 is higher.
+- *First frame:* from the variant's start to its first present. The APK's includes ART's start and GodotActivity's
+  Java start in the interpreter; the VM start alone is not split out. The GLES pair is judged on `bench.gd`'s frame
+  ticks (`scene.csv`) on both sides, as the twin's CAEAGLLayer gives no drawables (ADR-0042 d4), hence n/a.
+
+### Limits
+
+- One build and one sitting, with the 60 Hz runs added at its end. 34 of 100 runs ended at thermal state "fair", the
+  rest "nominal"; none went "serious".
+- The verdict compares Godot's iOS export with its Android export in Minato, not Minato with an engine-free baseline.
+  Where the twin is slower (GLES at 120 Hz), the row passes without showing Minato's own cost.
+- No Swappy: the APK runs with frame pacing off (ADR-0042's known gap), so real Godot 4 APKs, which ship with it on,
+  are not covered.
+- Decision 8's spread rule cannot decide a configuration whose native p99 jumps between ProMotion's steps from run to
+  run, as both 60 Hz configurations do here.
+
+### Reproduce
+
+```bash
+tools/benchmark.sh --scene godot --api vulkan
+tools/benchmark.sh --scene godot --api gles
+tools/benchmark.sh --scene godot --api metal
+tools/benchmark.sh --scene godot --api vulkan --more godot-vulkan-60-light
+tools/benchmark.sh --scene godot --api gles --more godot-gles-60-light
+python3 tools/bench-summary.py build/benchmark
+```
