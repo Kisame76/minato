@@ -42,6 +42,19 @@ int main(void) {
         expect(parse(refused[index], &conf) == -1, what);
     }
 
+    // The fill-heavy load (M6's MetalFX plan, step 0): full-screen alpha layers and no meshes; the others as before.
+    expect(parse("load=fill\n", &conf) == 0 && conf.load == BENCH_FILL, "load=fill is taken");
+    expect(parse("load=heavy\n", &conf) == 0 && conf.load == BENCH_HEAVY, "load=heavy is still taken");
+    expect(parse("load=filled\n", &conf) == -1, "load=filled is refused");
+    expect(strcmp(bench_load_name(BENCH_FILL), "fill") == 0, "the fill load's name");
+    expect(bench_meshes(BENCH_GLES, BENCH_FILL) == 0 && bench_meshes(BENCH_VULKAN, BENCH_FILL) == 0,
+           "the fill load has no meshes");
+    expect(bench_fill_layers(BENCH_FILL) > 0, "the fill load has layers");
+    expect(bench_fill_layers(BENCH_LIGHT) == 0 && bench_fill_layers(BENCH_HEAVY) == 0, "light and heavy have none");
+    expect(bench_meshes(BENCH_GLES, BENCH_LIGHT) == 2048 && bench_meshes(BENCH_GLES, BENCH_HEAVY) == 8192 &&
+               bench_meshes(BENCH_VULKAN, BENCH_LIGHT) == 2048 && bench_meshes(BENCH_VULKAN, BENCH_HEAVY) == 8192,
+           "the meshes of light and heavy are unchanged");
+
     int width = 0, height = 0;
     bench_target_size(1290, 2796, 100, &width, &height);
     expect(width == 1290 && height == 2796, "100 % is the window's size");

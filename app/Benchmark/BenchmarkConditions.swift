@@ -30,6 +30,12 @@ enum BenchmarkConditions {
         return scene == .parity && (25...100).contains(scale) ? scale : 100
     }
 
+    /// M6's MetalFX plan, step 0: `-benchmarkLoad fill` runs ADR-0037's scene with the fill-heavy load, a by-hand
+    /// measure; nil without it and for test 2's Godot scene.
+    nonisolated static func loadOverride(for scene: BenchScene) -> String? {
+        scene == .parity && UserDefaults.standard.string(forKey: "benchmarkLoad") == "fill" ? "fill" : nil
+    }
+
     static func maxFPS() -> Int {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first?.maximumFramesPerSecond
             ?? 0

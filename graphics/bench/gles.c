@@ -18,9 +18,10 @@ struct bench_gles {
     EGLint width, height;
     int target_width, target_height;  // the offscreen target's, the window's at scale 100
     float aspect;
-    int meshes, check;
+    int meshes, check, fill_layers;
     int cold;  // 1 once the check frame was drawn before the first frame
-    GLuint background, mesh, particles, post;
+    GLuint background, fill, mesh, particles, post;
+    GLint fill_time, fill_layer;
     GLint background_time, mvp, normal, color, particles_time, particles_aspect;
     GLuint sphere, buffers[2], texture, target, depth, framebuffer;
 };
@@ -47,6 +48,26 @@ static const char background_fragment[] =
     "                                                    sin(u_time * 0.17 + 2.0));\n"
     "    float band = 0.04 * sin(v_uv.y * 24.0 + u_time * 1.7);\n"
     "    color = vec4(mix(vec3(0.02, 0.03, 0.06), top, v_uv.y) + band, 1.0);\n"
+    "}\n";
+
+/* The fill-heavy load's layer (M6's MetalFX plan, step 0), the formula of Vulkan's fill.frag. */
+static const char fill_fragment[] =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform float u_time;\n"
+    "uniform float u_layer;\n"
+    "uniform sampler2D u_texture;\n"
+    "in vec2 v_uv;\n"
+    "out vec4 color;\n"
+    "void main() {\n"
+    "    vec2 uv = v_uv;\n"
+    "    vec3 sum = vec3(0.0);\n"
+    "    for (int i = 0; i < 16; ++i) {\n"
+    "        vec4 texel = textureLod(u_texture, fract(uv * 3.0 + u_layer * 0.13), 0.0);\n"
+    "        uv = fract(uv + texel.rg * 0.07 + 0.013 * float(i) + u_time * 0.01);\n"
+    "        sum += texel.rgb;\n"
+    "    }\n"
+    "    color = vec4(sum * (1.0 / 16.0), 0.3);\n"
     "}\n";
 
 /* The meshes: their texture at one level per mesh, the formula of Vulkan's mesh.frag, which says why. */
@@ -181,11 +202,17 @@ static GLuint program(const char *vertex, const char *fragment) {
 
 static int make_programs(struct bench_gles *scene) {
     scene->background = program(fullscreen_vertex, background_fragment);
+    scene->fill = program(fullscreen_vertex, fill_fragment);
     scene->mesh = program(mesh_vertex, mesh_fragment);
     scene->particles = program(particle_vertex, particle_fragment);
     scene->post = program(fullscreen_vertex, post_fragment);
-    if (scene->background == 0 || scene->mesh == 0 || scene->particles == 0 || scene->post == 0) return -1;
+    if (scene->background == 0 || scene->fill == 0 || scene->mesh == 0 || scene->particles == 0 ||
+        scene->post == 0) {
+        return -1;
+    }
     scene->background_time = glGetUniformLocation(scene->background, "u_time");
+    scene->fill_time = glGetUniformLocation(scene->fill, "u_time");
+    scene->fill_layer = glGetUniformLocation(scene->fill, "u_layer");
     scene->mvp = glGetUniformLocation(scene->mesh, "u_mvp");
     scene->normal = glGetUniformLocation(scene->mesh, "u_normal");
     scene->color = glGetUniformLocation(scene->mesh, "u_color");
@@ -194,6 +221,8 @@ static int make_programs(struct bench_gles *scene) {
     glUseProgram(scene->mesh);
     glUniform1i(glGetUniformLocation(scene->mesh, "u_texture"), 0);
     glUniform1f(glGetUniformLocation(scene->mesh, "u_height"), (float)scene->target_height);
+    glUseProgram(scene->fill);
+    glUniform1i(glGetUniformLocation(scene->fill, "u_texture"), 0);
     glUseProgram(scene->post);
     glUniform1i(glGetUniformLocation(scene->post, "u_scene"), 0);
     return 0;
@@ -268,7 +297,8 @@ static int make_target(struct bench_gles *scene) {
 }
 
 struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType window, const EGLint *surface_attributes,
-                                    int meshes, int check, int scale) {
+                                    int meshes, int check, int scale,
+                                    int fill_layers) {
     struct bench_gles *scene = calloc(1, sizeof *scene);
     if (scene == NULL) return NULL;
     scene->display = display;
@@ -276,6 +306,7 @@ struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType wind
     scene->context = EGL_NO_CONTEXT;
     scene->meshes = meshes;
     scene->check = check;
+    scene->fill_layers = fill_layers;
     static const EGLint config_attributes[] = {EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE,
                                                EGL_WINDOW_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
                                                EGL_ALPHA_SIZE, 8, EGL_NONE};
@@ -338,6 +369,20 @@ static EGLint draw(struct bench_gles *scene, int frame, int cold) {
     glUniform1f(scene->background_time, time);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
+    if (scene->fill_layers > 0) {
+        // Full-screen alpha layers over the background, M6's MetalFX plan, step 0.
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glUseProgram(scene->fill);
+        glBindTexture(GL_TEXTURE_2D, scene->texture);
+        glUniform1f(scene->fill_time, time);
+        for (int layer = 0; layer < scene->fill_layers; ++layer) {
+            glUniform1f(scene->fill_layer, (float)layer);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+        glDisable(GL_BLEND);
+    }
+
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glEnable(GL_CULL_FACE);
@@ -391,8 +436,8 @@ EGLint bench_gles_frame(struct bench_gles *scene, int frame) {
 void bench_gles_stop(struct bench_gles *scene) {
     if (scene == NULL) return;
     if (scene->current) {
-        const GLuint programs[4] = {scene->background, scene->mesh, scene->particles, scene->post};
-        for (int index = 0; index < 4; ++index) glDeleteProgram(programs[index]);
+        const GLuint programs[5] = {scene->background, scene->fill, scene->mesh, scene->particles, scene->post};
+        for (int index = 0; index < 5; ++index) glDeleteProgram(programs[index]);
         const GLuint textures[2] = {scene->texture, scene->target};
         glDeleteTextures(2, textures);
         glDeleteBuffers(2, scene->buffers);

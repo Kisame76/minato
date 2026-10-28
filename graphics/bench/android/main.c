@@ -91,10 +91,11 @@ static void start_scene(ANativeWindow *window) {
     static const char *const extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
     const struct bench_vulkan_platform platform = {vkGetInstanceProcAddr, extensions, 2, NULL, android_surface,
                                                    window};
-    run.scene = bench_vulkan_start(&platform, meshes, run.conf.check, run.conf.scale);
+    run.scene = bench_vulkan_start(&platform, meshes, run.conf.check, run.conf.scale,
+                                      bench_fill_layers(run.conf.load));
 #else
     run.scene = bench_gles_start(eglGetDisplay(EGL_DEFAULT_DISPLAY), window, NULL, meshes, run.conf.check,
-                                  run.conf.scale);
+                                  run.conf.scale, bench_fill_layers(run.conf.load));
 #endif
 }
 

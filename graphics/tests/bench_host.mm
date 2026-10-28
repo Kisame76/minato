@@ -13,7 +13,7 @@
 // CAMetalLayer subclass without a nextDrawable of its own, as Godot's GDTMetalLayer. The recorder attaches to that
 // class, again too, and to no other: not MinatoMetalLayer, a class with its own nextDrawable, a second class or one
 // that is no CAMetalLayer. A second layer of the class draws during the recording, which must not hold its drawable.
-//   graphics-bench-host <gles | vulkan> <light | heavy> <scratch> <libMoltenVK.dylib>
+//   graphics-bench-host <gles | vulkan> <light | heavy | fill> <scratch> <libMoltenVK.dylib>
 //                       [record [-benchmarkRenderQoS <value>] | record-class | -benchmarkQueuePath <value>]
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
     const bool queue_path = argc == 7 && std::strcmp(argv[5], "-benchmarkQueuePath") == 0;
     const bool scaled = argc == 7 && std::strcmp(argv[5], "-benchmarkScale") == 0;
     if (argc != 5 && !(record && (argc == 6 || qos)) && !queue_path && !scaled) {
-        std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy> <scratch> "
+        std::fprintf(stderr, "usage: graphics-bench-host <gles | vulkan> <light | heavy | fill> <scratch> "
                              "<libMoltenVK.dylib> [record [-benchmarkRenderQoS <value>] | record-class | "
                              "-benchmarkScale <percent> | "
                              "-benchmarkQueuePath <value>]\n");

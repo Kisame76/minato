@@ -5,7 +5,8 @@ function(bench_shaders glslc out)
   set(sources "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/shaders")
   set(compiled "")
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-  foreach(shader IN ITEMS fullscreen.vert background.frag mesh.vert mesh.frag particle.vert particle.frag post.frag)
+  foreach(shader IN ITEMS fullscreen.vert background.frag fill.frag mesh.vert mesh.frag particle.vert particle.frag
+                          post.frag)
     set(output "${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader}.inc")
     add_custom_command(OUTPUT "${output}"
       COMMAND "${glslc}" -O -mfmt=c -o "${output}" "${sources}/${shader}"

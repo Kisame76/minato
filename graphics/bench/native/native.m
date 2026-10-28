@@ -89,7 +89,7 @@ static void *render(void *unused) {
         void *const display = (void *)(intptr_t)EGL_DEFAULT_DISPLAY;
         gles = bench_gles_start(eglGetPlatformDisplay(MINATO_EGL_PLATFORM_ANGLE_ANGLE, display, metal),
                                 (EGLNativeWindowType)bench.layer, surface, meshes, bench.conf.check,
-                                bench.conf.scale);
+                                bench.conf.scale, bench_fill_layers(bench.conf.load));
     } else {
         static const char *const extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME,
                                                   VK_EXT_LAYER_SETTINGS_EXTENSION_NAME};
@@ -101,7 +101,8 @@ static void *render(void *unused) {
         if (bench.queue_path) get = bench_queue_path(get);
         const struct bench_vulkan_platform platform = {get, extensions, 3, &settings, metal_surface, bench.layer};
         if (platform.get_instance_proc_addr != NULL) {
-            vulkan = bench_vulkan_start(&platform, meshes, bench.conf.check, bench.conf.scale);
+            vulkan = bench_vulkan_start(&platform, meshes, bench.conf.check, bench.conf.scale,
+                                        bench_fill_layers(bench.conf.load));
         }
     }
 

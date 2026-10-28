@@ -17,7 +17,9 @@
 #include <stdint.h>
 
 enum bench_api { BENCH_GLES, BENCH_VULKAN };
-enum bench_load { BENCH_LIGHT, BENCH_HEAVY };
+/* BENCH_FILL, M6's MetalFX plan, step 0: no meshes, but full-screen alpha layers of long fragment shaders, a load
+   that grows with the pixels (the heavy load is bound by its geometry). */
+enum bench_load { BENCH_LIGHT, BENCH_HEAVY, BENCH_FILL };
 
 /* bench.conf (ADR-0037): ASCII key=value lines. run is the run's ID, rate 60 or 120 Hz, load light or heavy,
    seconds the time to draw from the first frame; check, for tests only, the frame whose CRC the scene logs, at its
@@ -45,6 +47,9 @@ void bench_target_size(int width, int height, int scale, int *target_width, int 
 
 /* N: the meshes and the particles of a load with an API, calibrated on the iPhone in step e) (scene.c). */
 int bench_meshes(enum bench_api api, enum bench_load load);
+
+/* The full-screen layers of a load: 0 for light and heavy, which keep their frames as before. */
+int bench_fill_layers(enum bench_load load);
 
 const char *bench_load_name(enum bench_load load);
 

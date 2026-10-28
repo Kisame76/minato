@@ -139,6 +139,23 @@ def render_scale(args, scratch, plain_by_api):
              f"{refused.stdout.strip()[-300:]}")
 
 
+def fill_load(args, scratch, crcs):
+    """M6's MetalFX plan, step 0: the fill-heavy load (bench.conf load=fill) in the host build, per API: it draws all
+    its frames, frame 1000 has the same CRC when drawn before the first frame and at its place, and it is neither the
+    light load's nor the heavy load's frame. `crcs` maps (api, load) to the CRCs of those loads."""
+    for api in ("gles", "vulkan"):
+        what = f"{api} fill, host build"
+        output = run([args.host, api, "fill", str(scratch / "host"), args.moltenvk], what)
+        check_scene(scratch / "host" / f"{api}-fill" / "scene.csv", what)
+        found = crc(output, what)
+        for load in ("light", "heavy"):
+            if found is not None and found == crcs.get((api, load)):
+                fail(f"{what}: frame 1000 has the {load} load's CRC {found}")
+        scaled = run([args.host, api, "fill", str(scratch / "scale"), args.moltenvk, "-benchmarkScale", "50"],
+                     f"{what} with -benchmarkScale 50")
+        target_of(scaled, 50, f"{what} with -benchmarkScale 50")
+
+
 def queue_path(args, scratch, plain, plain_crc):
     """The Vulkan host build at the light load with -benchmarkQueuePath libvulkan, against `plain`, the output of
     its run without it, which drew frame 1000 with `plain_crc`."""
@@ -237,6 +254,7 @@ def main():
 
     plain = ""
     plain_by_api = {}
+    all_crcs = {}
     for api in ("gles", "vulkan"):
         crcs = {}
         for load in ("light", "heavy"):
@@ -256,10 +274,12 @@ def main():
             if host_crc is not None and guest_crc is not None and host_crc != guest_crc:
                 fail(f"{name}: the CRCs of frame 1000 differ")
             crcs[load] = host_crc
+            all_crcs[(api, load)] = host_crc
         if crcs["light"] is not None and crcs["light"] == crcs["heavy"]:
             fail(f"{api}: the loads drew the same frame 1000")
     queue_path(args, scratch, plain, crcs["light"])
     render_scale(args, scratch, plain_by_api)
+    fill_load(args, scratch, all_crcs)
 
     print(f"{len(failures)} failures" if failures else "PASS: graphics.bench")
     return 1 if failures else 0

@@ -216,7 +216,8 @@ final class BenchmarkRunner {
         let moltenvk = Bundle.main.privateFrameworksURL?.appending(path: "MoltenVK.framework/MoltenVK").path
         var error = [CChar](repeating: 0, count: 512)
         let scale = BenchmarkConditions.renderScale(for: run.configuration.scene)
-        let text = BenchConf.text(for: run, seconds: seconds, scale: scale)
+        let load = BenchmarkConditions.loadOverride(for: run.configuration.scene)
+        let text = BenchConf.text(for: run, seconds: seconds, scale: scale, load: load)
         let started = bench.start(run.configuration.api.rawValue, text,
                                   Unmanaged.passUnretained(layer).toOpaque(), moltenvk, scene.path, &error, error.count)
         guard started == 0 else { return end("the scene did not start: \(MinatoBench.text(error))") }
@@ -349,7 +350,8 @@ final class BenchmarkRunner {
         try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: files.appending(path: "scene.csv"))
         let scale = BenchmarkConditions.renderScale(for: run.configuration.scene)
-        try BenchConf.text(for: run, seconds: seconds, scale: scale)
+        let load = BenchmarkConditions.loadOverride(for: run.configuration.scene)
+        try BenchConf.text(for: run, seconds: seconds, scale: scale, load: load)
             .write(to: files.appending(path: "bench.conf"), atomically: true, encoding: .utf8)
         apkScene = files.appending(path: "scene.csv")
         return entry

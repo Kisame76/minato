@@ -82,8 +82,9 @@ int bench_conf_parse(const char *text, struct bench_conf *conf, char *error, siz
             memcpy(conf->run, value, value_length + 1);
         } else if (strcmp(entry, "rate") == 0 && (strcmp(value, "60") == 0 || strcmp(value, "120") == 0)) {
             conf->rate = value[0] == '6' ? 60 : 120;
-        } else if (strcmp(entry, "load") == 0 && (strcmp(value, "light") == 0 || strcmp(value, "heavy") == 0)) {
-            conf->load = value[0] == 'h' ? BENCH_HEAVY : BENCH_LIGHT;
+        } else if (strcmp(entry, "load") == 0 &&
+                   (strcmp(value, "light") == 0 || strcmp(value, "heavy") == 0 || strcmp(value, "fill") == 0)) {
+            conf->load = value[0] == 'h' ? BENCH_HEAVY : value[0] == 'f' ? BENCH_FILL : BENCH_LIGHT;
         } else if (strcmp(entry, "seconds") == 0 && (parsed = number(value, 1, 3600)) > 0) {
             conf->seconds = (int)parsed;
         } else if (strcmp(entry, "check") == 0 && (parsed = number(value, 0, 1000000)) >= 0) {
@@ -111,11 +112,17 @@ int bench_meshes(enum bench_api api, enum bench_load load) {
     // Decision 7, calibrated on the iPhone 15 Pro Max (ADR-0037 e): the heavy N gives the native build about
     // 90 FPS at 120 Hz (GLES 89, Vulkan 86 in the warm window), and the light N, a quarter, holds 120 Hz.
     static const int meshes[2][2] = {{2048, 8192}, {2048, 8192}};
-    return meshes[api == BENCH_VULKAN][load == BENCH_HEAVY];
+    return load == BENCH_FILL ? 0 : meshes[api == BENCH_VULKAN][load == BENCH_HEAVY];
+}
+
+int bench_fill_layers(enum bench_load load) {
+    // 16 layers of 16 dependent reads: about 256 reads a pixel, set so that the scene is bound by its pixels on the
+    // iPhone at the window's size; the first sitting (M6's MetalFX plan) calibrates it.
+    return load == BENCH_FILL ? 16 : 0;
 }
 
 const char *bench_load_name(enum bench_load load) {
-    return load == BENCH_HEAVY ? "heavy" : "light";
+    return load == BENCH_HEAVY ? "heavy" : load == BENCH_FILL ? "fill" : "light";
 }
 
 float bench_time(int frame) {

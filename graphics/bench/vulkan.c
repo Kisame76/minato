@@ -19,6 +19,9 @@ static const uint32_t fullscreen_vert[] =
 static const uint32_t background_frag[] =
 #include "background.frag.inc"
     ;
+static const uint32_t fill_frag[] =
+#include "fill.frag.inc"
+    ;
 static const uint32_t mesh_vert[] =
 #include "mesh.vert.inc"
     ;
@@ -134,13 +137,18 @@ struct bench_vulkan {
     VkDescriptorPool descriptors;
     VkDescriptorSet texture_set, target_set;
     VkPipelineLayout layout;
-    VkPipeline background, mesh, particles, post;
+    VkPipeline background, fill, mesh, particles, post;
+    int fill_layers;
     struct buffer vertices, indices, readback;
 };
 
 /* The push constants of the background, the particles and the post pass. */
 struct push {
     float time, aspect;
+};
+/* The fill-heavy load's layer: the push constants of fill.frag. */
+struct fill_push {
+    float time, aspect, layer;
 };
 
 static int ok(VkResult result, const char *what) {
@@ -442,7 +450,7 @@ static VkShaderModule shader(const struct bench_vulkan *scene, const uint32_t *c
     return module;
 }
 
-enum kind { kFullScreen, kMesh, kParticles };
+enum kind { kFullScreen, kMesh, kParticles, kFill };
 
 /* A pipeline: a full-screen triangle without tests, the meshes with their vertices, depth and back faces culled,
    or the particles, blended over the depth without writing it. */
@@ -481,10 +489,10 @@ static VkPipeline pipeline(const struct bench_vulkan *scene, const uint32_t *ver
         .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
     const VkPipelineDepthStencilStateCreateInfo depth = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = kind != kFullScreen, .depthWriteEnable = kind == kMesh,
+        .depthTestEnable = kind != kFullScreen && kind != kFill, .depthWriteEnable = kind == kMesh,
         .depthCompareOp = VK_COMPARE_OP_LESS};
     const VkPipelineColorBlendAttachmentState blend = {
-        .blendEnable = kind == kParticles, .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .blendEnable = kind == kParticles || kind == kFill, .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
         .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, .colorBlendOp = VK_BLEND_OP_ADD,
         .srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
         .alphaBlendOp = VK_BLEND_OP_ADD,
@@ -530,10 +538,11 @@ static int make_pipelines(struct bench_vulkan *scene) {
     if (scene->scene_pass == VK_NULL_HANDLE || scene->post_pass == VK_NULL_HANDLE) return -1;
     scene->background =
         pipeline(scene, SPIRV(fullscreen_vert), SPIRV(background_frag), scene->scene_pass, kFullScreen);
+    scene->fill = pipeline(scene, SPIRV(fullscreen_vert), SPIRV(fill_frag), scene->scene_pass, kFill);
     scene->mesh = pipeline(scene, SPIRV(mesh_vert), SPIRV(mesh_frag), scene->scene_pass, kMesh);
     scene->particles = pipeline(scene, SPIRV(particle_vert), SPIRV(particle_frag), scene->scene_pass, kParticles);
     scene->post = pipeline(scene, SPIRV(fullscreen_vert), SPIRV(post_frag), scene->post_pass, kFullScreen);
-    return scene->background != VK_NULL_HANDLE && scene->mesh != VK_NULL_HANDLE &&
+    return scene->background != VK_NULL_HANDLE && scene->fill != VK_NULL_HANDLE && scene->mesh != VK_NULL_HANDLE &&
                    scene->particles != VK_NULL_HANDLE && scene->post != VK_NULL_HANDLE
                ? 0
                : -1;
@@ -677,12 +686,13 @@ static int make_descriptors(struct bench_vulkan *scene) {
 }
 
 struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *platform, int meshes, int check,
-                                        int scale) {
+                                        int scale, int fill_layers) {
     struct bench_vulkan *scene = calloc(1, sizeof *scene);
     if (scene == NULL) return NULL;
     scene->meshes = meshes;
     scene->check = check;
     scene->scale = scale;
+    scene->fill_layers = fill_layers;
     if (start_device(scene, platform) != 0 || make_swapchain(scene) != 0 || make_pipelines(scene) != 0 ||
         make_targets(scene) != 0 || make_contents(scene) != 0 || make_descriptors(scene) != 0) {
         bench_vulkan_stop(scene);
@@ -716,6 +726,18 @@ static void record(const struct bench_vulkan *scene, VkCommandBuffer commands, u
     vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, scene->background);
     vkCmdPushConstants(commands, scene->layout, stages, 0, sizeof push, &push);
     vkCmdDraw(commands, 3, 1, 0, 0);
+
+    if (scene->fill_layers > 0) {
+        // Full-screen alpha layers over the background, M6's MetalFX plan, step 0.
+        vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, scene->fill);
+        vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, scene->layout, 0, 1, &scene->texture_set, 0,
+                                NULL);
+        for (int layer = 0; layer < scene->fill_layers; ++layer) {
+            const struct fill_push layer_push = {push.time, push.aspect, (float)layer};
+            vkCmdPushConstants(commands, scene->layout, stages, 0, sizeof layer_push, &layer_push);
+            vkCmdDraw(commands, 3, 1, 0, 0);
+        }
+    }
 
     vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, scene->mesh);
     const VkDeviceSize zero = 0;
@@ -843,8 +865,8 @@ void bench_vulkan_stop(struct bench_vulkan *scene) {
     if (scene->device != VK_NULL_HANDLE && vkDestroyDevice != NULL) {
         VkDevice device = scene->device;
         vkDeviceWaitIdle(device);
-        const VkPipeline pipelines[4] = {scene->background, scene->mesh, scene->particles, scene->post};
-        for (int index = 0; index < 4; ++index) vkDestroyPipeline(device, pipelines[index], NULL);
+        const VkPipeline pipelines[5] = {scene->background, scene->fill, scene->mesh, scene->particles, scene->post};
+        for (int index = 0; index < 5; ++index) vkDestroyPipeline(device, pipelines[index], NULL);
         vkDestroyPipelineLayout(device, scene->layout, NULL);
         vkDestroyDescriptorPool(device, scene->descriptors, NULL);
         vkDestroyDescriptorSetLayout(device, scene->set_layout, NULL);

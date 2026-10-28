@@ -31,6 +31,19 @@ struct BenchSceneTests {
             """)
     }
 
+    /// M6's MetalFX plan, step 0: a by-hand measure may name the fill-heavy load, which replaces the run's own.
+    @Test func benchConfCanNameTheFillLoad() {
+        let run = BenchRun("vulkan-120-heavy-native-01")!
+        #expect(BenchConf.text(for: run, seconds: 3, load: "fill") == """
+            run=vulkan-120-heavy-native-01
+            rate=120
+            load=fill
+            seconds=3
+
+            """)
+        #expect(BenchConf.text(for: run, load: nil) == BenchConf.text(for: run))
+    }
+
     /// Test 2's done file (ADR-0042 c): "<frames> frames", written after scene.csv.
     @Test func theDoneFileCountsTheFrames() {
         #expect(BenchDone.frames("6240 frames\n") == 6240)
