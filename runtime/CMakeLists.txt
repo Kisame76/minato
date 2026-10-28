@@ -121,6 +121,16 @@ if(APK_HOST_BUILD)
   target_link_libraries(video_decoders_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.video_decoders COMMAND video_decoders_test)
 
+  # ADR-0060 e2d: libmediandk's ISO BMFF parser on the host, with ASan, against Minato's own test files and hostile
+  # ones; the sweep changes and cuts the test files within a time budget, so ctest stays fast.
+  add_executable(mp4_extractor_test tests/mp4_extractor_test.cpp android/mp4_extractor.cpp)
+  target_include_directories(mp4_extractor_test PRIVATE android)
+  target_compile_definitions(mp4_extractor_test PRIVATE "APKRT_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\"")
+  target_link_libraries(mp4_extractor_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.mp4_extractor COMMAND mp4_extractor_test)
+  add_test(NAME runtime.mp4_extractor_sweep COMMAND mp4_extractor_test --sweep 20)
+  set_tests_properties(runtime.mp4_extractor_sweep PROPERTIES TIMEOUT 120)
+
   # The guest's network interfaces and its NETLINK_ROUTE sockets (ADR-0054 step c): the names, the kernel's bytes.
   add_executable(netlink_test tests/netlink_test.cpp)
   target_include_directories(netlink_test PRIVATE src)
