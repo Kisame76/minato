@@ -234,6 +234,20 @@
       "digest": "a90c7cd576e7556bd8d11950a579ec9286f598644276dc37fd2c01aa48697be9"
     },
     {
+      "name": "vixl",
+      "project": "platform/external/vixl",
+      "commit": "b2b1ebaac7714db5e5d9f17f6ac4eee980fea7d8",
+      "license": "BSD-3-Clause",
+      "directories": [
+        "src"
+      ],
+      "files": [
+        "Android.bp",
+        "LICENCE"
+      ],
+      "digest": "da6780e2929d4f635b7588447bcd4bbd989778c832cec10270170117c48315cc"
+    },
+    {
       "name": "fmtlib",
       "project": "platform/external/fmtlib",
       "commit": "360e74bb8ec766ee05e5c4e8956c811391e3e9e5",

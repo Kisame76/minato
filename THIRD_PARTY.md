@@ -128,6 +128,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/external/libcap` | `c2c4eed91fe3` | BSD-3-Clause OR GPL-2.0-only, used under BSD-3-Clause | for ART |
 | `platform/external/tinyxml2` | `d3f5ba7b82e0` | Zlib | XML for ART |
 | `platform/external/cpu_features` | `eca53ba6d2e9` | Apache-2.0 | CPU features for ART |
+| `platform/external/vixl` | `b2b1ebaac771` | BSD-3-Clause | `src/` (aarch32 and aarch64 assemblers and decoders) and `Android.bp`, `LICENCE`: ART's compiler backend, for our own dex2oat (M6 c); `test/`, `examples/`, `tools/` and `benchmarks/` are not fetched |
 | `platform/external/fmtlib` | `360e74bb8ec7` | MIT | formatting, which `libbase` links |
 | `platform/system/libbase` | `68f963c62f7f` | Apache-2.0 | `libbase` |
 | `platform/system/libziparchive` | `13b815f48578` | Apache-2.0 | `libziparchive` (APKs and jars) |
