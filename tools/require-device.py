@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """Exits 0, printing nothing, when the paired physical iOS device, the first one or the one whose identifier, UDID or
-name is given, is connected by cable, and 1 with a message otherwise. The iPhone takes installs and runs only over
-USB, never over the local network (the user's rule of 2026-10-23), so each script that reaches it calls this first.
-It fails closed: a devicectl that fails, JSON it cannot read, a device that is not listed and a transport other than
-"wired" all stop the script. devicectl's JSON v5 has the transport in "properties", the deprecated fields have it
-too, and each one that is there must say "wired".
-Usage: tools/require-cable.py [device name or identifier]"""
+name is given, is reachable by cable or over the local network, and 1 with a message otherwise. The iPhone takes
+installs and runs over USB or the local network (the user's rule of 2026-10-28, which lifted that of 2026-10-23, by
+cable only), still each sitting with the user's OK, so each script that reaches it calls this first. It fails closed:
+a devicectl that fails, JSON it cannot read, a device that is not listed, one that is not paired and a transport
+other than "wired" or "localNetwork" all stop the script. devicectl's JSON v5 has the transport and the pairing in
+"properties", the deprecated fields have them too, and each one that is there must say so. The tunnel's state is not
+asked: devicectl reports it "disconnected" between its calls and connects it at the next.
+Usage: tools/require-device.py [device name or identifier]"""
 import json
 import subprocess
 import sys
 import tempfile
 
+TRANSPORTS = ("wired", "localNetwork")
+
 
 def stop(message):
-    print(f"Stopped, not by cable: {message} The iPhone takes installs and runs only by cable; connect it by cable "
-          "and run this again.", file=sys.stderr)
+    print(f"Stopped, the iPhone is not reachable: {message} Connect it by cable or to this Mac's network, paired, and "
+          "run this again.", file=sys.stderr)
     sys.exit(1)
 
 
@@ -37,12 +41,16 @@ def main():
             continue
         if wanted and wanted not in (device.get("identifier"), hardware.get("udid"), name):
             continue
-        transports = [section["transportType"]
-                      for section in (props.get("connection"), device.get("connectionProperties"))
-                      if isinstance(section, dict) and "transportType" in section]
-        if not transports or any(transport != "wired" for transport in transports):
+        sections = [section for section in (props.get("connection"), device.get("connectionProperties"))
+                    if isinstance(section, dict)]
+        transports = [section["transportType"] for section in sections if "transportType" in section]
+        if not transports or any(transport not in TRANSPORTS for transport in transports):
             over = ", ".join(sorted(set(map(str, transports)))) or "nothing"
             stop(f"{name or device.get('identifier')} is connected over {over}.")
+        pairings = [section["pairingState"] for section in sections if "pairingState" in section]
+        if not pairings or any(pairing != "paired" for pairing in pairings):
+            states = ", ".join(sorted(set(map(str, pairings)))) or "unknown"
+            stop(f"{name or device.get('identifier')} is not paired ({states}).")
         return
     stop(f"no paired iPhone{' ' + repr(wanted) if wanted else ''} is listed.")
 

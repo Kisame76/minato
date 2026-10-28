@@ -128,7 +128,7 @@ if [[ "${1:-}" == "--device" ]]; then
     echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
     exit 1
   fi
-  python3 tools/require-cable.py "$DEVICE_ID" || exit 1 # only by cable, never over the network
+  python3 tools/require-device.py "$DEVICE_ID" || exit 1 # paired, by cable or over the local network
 else
   read -r SIM_UDID SIM_NAME < <(python3 tools/find-simulator.py "${1:-}") || true
   if [[ -z "${SIM_UDID:-}" ]]; then
@@ -136,11 +136,11 @@ else
     exit 1
   fi
 fi
-# Each devicectl call on the iPhone checks first that it is still connected by cable and stops the run when it is
-# not; the message goes to the script's stderr, kept as 3, also where the call's output goes to /dev/null.
+# Each devicectl call on the iPhone checks first that it is still reachable and stops the run when it is not;
+# the message goes to the script's stderr, kept as 3, also where the call's output goes to /dev/null.
 exec 3>&2
 on_device() {
-  python3 tools/require-cable.py "$DEVICE_ID" 2>&3 || exit 1
+  python3 tools/require-device.py "$DEVICE_ID" 2>&3 || exit 1
   xcrun devicectl device "$@"
 }
 if [[ -n "${LIVE_BY_HAND:-}" && "$ON_DEVICE" == no ]]; then

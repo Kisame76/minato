@@ -83,8 +83,8 @@ if [[ -n "$FRAME_RATE" ]]; then
   fi
   set -- frame-cap-test
 fi
-# The iPhone only by cable, never over the network, checked before the builds.
-[[ "$SIMULATOR" == 1 ]] || python3 tools/require-cable.py "$WANTED_DEVICE" || exit 1
+# The iPhone paired and reachable, by cable or over the local network, checked before the builds.
+[[ "$SIMULATOR" == 1 ]] || python3 tools/require-device.py "$WANTED_DEVICE" || exit 1
 RESULTS=build/device-suite
 [[ "$SIMULATOR" == 0 ]] || RESULTS=build/simulator-suite
 [[ "$WITHOUT_INCREASED_MEMORY" == 0 ]] || RESULTS=build/device-suite-without-increased-memory
