@@ -39,6 +39,9 @@ public struct BenchRunRecord: Equatable, Sendable {
     }
 
     public var run: BenchRun
+    /// The load the scene drew when bench.conf gave it another than the configuration's: "fill" under
+    /// -benchmarkLoad fill (M6's MetalFX plan, step 0). run.csv's load column, and the run is not the configuration's.
+    public var drawnLoad: String?
     /// The scene's N for the load.
     public var meshes = 0
     public var requestedRate: Float = 0
@@ -111,7 +114,8 @@ public enum BenchCSV {
         let configuration = record.run.configuration
         let fields: [String] = [
             record.run.description, record.run.variant.rawValue, configuration.api.rawValue, "\(configuration.rate)",
-            configuration.load.rawValue, "\(record.meshes)", "\(record.requestedRate)", "\(record.maxFPS)",
+            record.drawnLoad ?? configuration.load.rawValue, "\(record.meshes)", "\(record.requestedRate)",
+            "\(record.maxFPS)",
             "\(record.linkPeriodMedianNs)", record.thermalStart.rawValue, record.thermalEnd.rawValue,
             record.thermalChanges.map { "\($0.timeNs)=\($0.state.rawValue)" }.joined(separator: "|"),
             flag(record.lowPower), record.batteryState, "\(record.batteryLevel)", record.qos, record.pixelFormat,

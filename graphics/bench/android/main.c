@@ -182,6 +182,9 @@ static void end_run(void) {
     const int written = bench_frames_write(&run.frames, path) == 0;
     bench_log("run %s: %d frames, %d failures%s", run.conf.run, run.frame, run.failures,
               written ? ", scene.csv written" : ", scene.csv not written");
+#ifndef BENCH_APK_VULKAN
+    bench_gles_drain(run.scene);
+#endif
     ANativeActivity_finish(run.app->activity);
 }
 

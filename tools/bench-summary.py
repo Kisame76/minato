@@ -9,7 +9,8 @@
   frames in it. Drawables that share a present time reached the screen at one refresh: one presented frame, and the
   earlier ones count as drops, superseded. Warm-up runs (number 00) are left out.
 - verdict.csv, a row per configuration, on the warm windows of its valid runs. A run is valid when decision 6's
-  rules hold (recomputed from run.csv, and App's own reasons kept) and its present times are plausible: each after
+  rules hold (recomputed from run.csv, and App's own reasons kept), it drew its configuration's load (run.csv's load:
+  load_fill for a run under -benchmarkLoad fill) and its present times are plausible: each after
   its drawable was taken, none before an earlier drawable's, up to the warm window's end. The pair rule: the valid
   runs of both variants have the same drawable size and count, else "pair differs". With fewer than 5 valid runs
   per variant, "incomplete". The noise rule: the native runs' FPS and p99 each spread at most 5 % (max - min over
@@ -157,6 +158,10 @@ class Run:
             own.append("link_period")
         if row["debugger"] == "1":
             own.append("debugger")
+        # M6's MetalFX plan, step 0: a run that drew another load than its configuration's, the fill load under
+        # -benchmarkLoad, is a by-hand measure and never the configuration's.
+        if row["load"] != self.configuration.rsplit("-", 1)[-1]:
+            own.append(f"load_{row['load']}")
         if row["focus_losses"]:
             own.append("focus_loss")
         if self.scripted and self.ticks and self.ticks[-1] < self.ticks[0] + WARM_END_S * S:

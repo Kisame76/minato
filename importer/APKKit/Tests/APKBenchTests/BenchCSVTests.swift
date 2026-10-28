@@ -68,6 +68,24 @@ struct BenchCSVTests {
         #expect(try Self.row(record).hasPrefix("gles31-120-heavy-apk-02,apk,gles31,120,heavy,"))
     }
 
+    /// M6's MetalFX plan, step 0: run.csv's load is the load the scene drew, fill under -benchmarkLoad, so that a fill
+    /// run never counts as its configuration's: it is invalid with the reason load_fill, and the plan reads it so.
+    @Test func aRunNamesTheLoadItDrew() throws {
+        var record = Self.record()
+        record.drawnLoad = "fill"
+        record.meshes = 0
+        let row = try Self.row(record)
+        #expect(row.hasPrefix("vulkan-120-heavy-apk-02,apk,vulkan,120,fill,0,"))
+        #expect(row.hasSuffix(",0,load_fill"))
+        let result = try BenchCSV.result(fromRun: BenchCSV.run(record))
+        #expect(!result.valid)
+        #expect(result.invalidReasons == ["load_fill"])
+        record.drawnLoad = "heavy"
+        record.meshes = 400
+        #expect(try Self.row(record).hasPrefix("vulkan-120-heavy-apk-02,apk,vulkan,120,heavy,400,"))
+        #expect(try BenchCSV.result(fromRun: BenchCSV.run(record)).valid)
+    }
+
     @Test func anInvalidRunCarriesItsReasons() throws {
         var record = Self.record()
         record.debugger = true

@@ -26,6 +26,10 @@ public enum RunValidity {
             reasons.append(linkPeriod)
         }
         if record.debugger { reasons.append(debugger) }
+        // M6's MetalFX plan, step 0: a by-hand load, never the configuration's run.
+        if let load = record.drawnLoad, load != record.run.configuration.load.rawValue {
+            reasons.append("load_\(load)")
+        }
         if !record.focusLosses.isEmpty { reasons.append(focusLoss) }
         let run = record.run, godot = run.configuration.scene == .godot
         // Test 2's script ends with its done file, which counts the rows of its scene.csv (ADR-0042, decision 4).

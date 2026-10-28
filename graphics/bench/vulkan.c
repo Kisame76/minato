@@ -538,12 +538,15 @@ static int make_pipelines(struct bench_vulkan *scene) {
     if (scene->scene_pass == VK_NULL_HANDLE || scene->post_pass == VK_NULL_HANDLE) return -1;
     scene->background =
         pipeline(scene, SPIRV(fullscreen_vert), SPIRV(background_frag), scene->scene_pass, kFullScreen);
-    scene->fill = pipeline(scene, SPIRV(fullscreen_vert), SPIRV(fill_frag), scene->scene_pass, kFill);
+    // The fill load's pipeline only for that load, so the others pay nothing for it.
+    if (scene->fill_layers > 0) {
+        scene->fill = pipeline(scene, SPIRV(fullscreen_vert), SPIRV(fill_frag), scene->scene_pass, kFill);
+    }
     scene->mesh = pipeline(scene, SPIRV(mesh_vert), SPIRV(mesh_frag), scene->scene_pass, kMesh);
     scene->particles = pipeline(scene, SPIRV(particle_vert), SPIRV(particle_frag), scene->scene_pass, kParticles);
     scene->post = pipeline(scene, SPIRV(fullscreen_vert), SPIRV(post_frag), scene->post_pass, kFullScreen);
-    return scene->background != VK_NULL_HANDLE && scene->fill != VK_NULL_HANDLE && scene->mesh != VK_NULL_HANDLE &&
-                   scene->particles != VK_NULL_HANDLE && scene->post != VK_NULL_HANDLE
+    return scene->background != VK_NULL_HANDLE && (scene->fill_layers == 0 || scene->fill != VK_NULL_HANDLE) &&
+                   scene->mesh != VK_NULL_HANDLE && scene->particles != VK_NULL_HANDLE && scene->post != VK_NULL_HANDLE
                ? 0
                : -1;
 }
@@ -701,6 +704,10 @@ struct bench_vulkan *bench_vulkan_start(const struct bench_vulkan_platform *plat
     bench_log("Vulkan: %u x %u, format %d, %u images", scene->extent.width, scene->extent.height, scene->format,
               scene->image_count);
     bench_log("target: %u x %u (%d %%)", scene->target_extent.width, scene->target_extent.height, scale);
+    const VkPipeline pipelines[5] = {scene->background, scene->fill, scene->mesh, scene->particles, scene->post};
+    int built = 0;
+    for (int index = 0; index < 5; ++index) built += pipelines[index] != VK_NULL_HANDLE;
+    bench_log("pipelines: %d", built);
     return scene;
 }
 

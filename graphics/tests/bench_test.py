@@ -5,11 +5,12 @@
 that moved with the ticks rather than the frame index would draw other frames. It passes when both runs pass,
 both logged the same CRC of frame 1000 and a CRC per load differs from the other load's, each run drew frame 1000
 with the same CRC once more before its first frame, while the GPU was cold, and each run's scene.csv has a row
-per frame: the indices 0 to 1079 in order, the ticks rising, the CPU times above 0. It prints
-"skipped:" when a program says so. Then the host build's Vulkan run of the light load again with
--benchmarkQueuePath libvulkan, which gives MoltenVK libvulkan's queue path (ADR-0030 V5): it must draw the same frame
-1000, log a timeline at the count of its submits, at least one per frame, and a slice or more for each fence wait and
-acquire, at least two per frame; the run without it logs no queue path, and another value is refused.
+per frame: the indices 0 to 1079 in order, the ticks rising, the CPU times above 0; each run logs the pipelines its
+scene built, 4, the fill load's only for that load. It prints "skipped:" when a program says so. Then the host
+build's Vulkan run of the light load again with -benchmarkQueuePath libvulkan, which gives MoltenVK libvulkan's queue
+path (ADR-0030 V5): it must draw the same frame 1000, log a timeline at the count of its submits, at least one per
+frame, and a slice or more for each fence wait and acquire, at least two per frame; the run without it logs no queue
+path, and another value is refused. Then the fill load, the render scale and the engine cap (their functions say how).
 
 With --record, ADR-0037 b): graphics.recorder. For each API, both builds draw the light load for 1 s, 120 frames, on
 graphics/host's layer, which records the run; each program checks in-process that the recording holds every drawable
@@ -32,6 +33,7 @@ import sys
 FRAMES = 1080
 CRC = re.compile(r"crc frame 1000: ([0-9a-f]{8})\b")
 COLD = re.compile(r"crc frame 1000 cold: ([0-9a-f]{8})\b")
+PIPELINES = re.compile(r"pipelines: ([0-9]+)$", re.MULTILINE)
 QUEUE_PATH = re.compile(r"queue path libvulkan: ([0-9]+) submits, the timeline at ([0-9]+); ([0-9]+) waits in "
                         r"([0-9]+) slices$", re.MULTILINE)
 
@@ -68,6 +70,14 @@ def crc(output, what):
     elif cold[0] != found[0]:
         fail(f"{what}: frame 1000's CRC {cold[0]} when drawn before the first frame, {found[0]} at its place")
     return found[0]
+
+
+def pipelines(output, what, expected):
+    """The pipelines (GLES: programs) the scene built, as it logs them: 4, and 5 with the fill load's, built only for
+    that load (M6's MetalFX plan, step 0)."""
+    found = PIPELINES.findall(output)
+    if found != [str(expected)]:
+        fail(f"{what}: the scene built {found} pipelines, not [{expected}]")
 
 
 def check_scene(path, what, frames=FRAMES, every=1):
@@ -176,17 +186,28 @@ def capped(args, scratch):
 
 
 def fill_load(args, scratch, crcs):
-    """M6's MetalFX plan, step 0: the fill-heavy load (bench.conf load=fill) in the host build, per API: it draws all
-    its frames, frame 1000 has the same CRC when drawn before the first frame and at its place, and it is neither the
-    light load's nor the heavy load's frame. `crcs` maps (api, load) to the CRCs of those loads."""
+    """M6's MetalFX plan, step 0: the fill-heavy load (bench.conf load=fill) in the host build and as the APK, per API:
+    both draw all their frames, frame 1000 has the same CRC when drawn before the first frame and at its place, the
+    same in both builds, and it is neither the light load's nor the heavy load's frame; both built the fill load's
+    pipeline. `crcs` maps (api, load) to the CRCs of those loads."""
     for api in ("gles", "vulkan"):
         what = f"{api} fill, host build"
         output = run([args.host, api, "fill", str(scratch / "host"), args.moltenvk], what)
         check_scene(scratch / "host" / f"{api}-fill" / "scene.csv", what)
+        pipelines(output, what, 5)
         found = crc(output, what)
         for load in ("light", "heavy"):
             if found is not None and found == crcs.get((api, load)):
                 fail(f"{what}: frame 1000 has the {load} load's CRC {found}")
+        app = f"bench-{api}"
+        guest = run([args.app_test, str(scratch / "guest"), app, args.bench, args.bionic, args.system, args.front,
+                     args.manifests, args.angle, args.moltenvk, "bench:fill"], f"{api} fill, APK")
+        check_scene(scratch / "guest" / app / "data" / "files" / "scene.csv", f"{api} fill, APK")
+        pipelines(guest, f"{api} fill, APK", 5)
+        guest_crc = crc(guest, f"{api} fill, APK")
+        print(f"{api} fill: frame 1000's CRC {found} in the host build, {guest_crc} in the APK", flush=True)
+        if found is not None and guest_crc is not None and found != guest_crc:
+            fail(f"{api} fill: the CRCs of frame 1000 differ")
         scaled = run([args.host, api, "fill", str(scratch / "scale"), args.moltenvk, "-benchmarkScale", "50"],
                      f"{what} with -benchmarkScale 50")
         target_of(scaled, 50, f"{what} with -benchmarkScale 50")
@@ -301,10 +322,12 @@ def main():
             if api == "vulkan" and load == "light":
                 plain = host
             check_scene(scratch / "host" / f"{api}-{load}" / "scene.csv", f"{name}, host build")
+            pipelines(host, f"{name}, host build", 4)
             app = f"bench-{api}"
             guest = run([args.app_test, str(scratch / "guest"), app, args.bench, args.bionic, args.system,
                          args.front, args.manifests, args.angle, args.moltenvk, f"bench:{load}"], f"{name}, APK")
             check_scene(scratch / "guest" / app / "data" / "files" / "scene.csv", f"{name}, APK")
+            pipelines(guest, f"{name}, APK", 4)
             host_crc, guest_crc = crc(host, f"{name}, host build"), crc(guest, f"{name}, APK")
             print(f"{name}: frame 1000's CRC {host_crc} in the host build, {guest_crc} in the APK", flush=True)
             if host_crc is not None and guest_crc is not None and host_crc != guest_crc:

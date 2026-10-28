@@ -3,7 +3,8 @@
 fetches them (App's run.csv and frames.csv), in five sets:
 - windows: cold from the start to 10 s after the first present, warm from 20 s to 50 s after it, each end excluded;
   FPS, p50 and p99 of the frame intervals by nearest rank, drops by their nextDrawable time, the CPU times;
-- validity: each rule of decision 6 broken once, App's own reasons kept, present times checked (after their
+- validity: each rule of decision 6 broken once, App's own reasons kept, a run that drew the fill load (load_fill),
+  present times checked (after their
   drawable, in order; two drawables at one present count once, the earlier as a drop), and the pair rule;
 - a series whose configurations all pass at the limits (95 % of the FPS, 105 % of the p99): parity holds;
 - the verdicts: a failure by FPS and by p99, the noise rule at its limit, beyond it with 5 runs (more runs) and with
@@ -180,6 +181,8 @@ def check_validity(tool, scratch):
         "13": ({"thermal_changes": "1000=fair", "thermal_end": "fair"}, None, ""),
         "14": ({"link_period_median_ns": 0}, None, "link_period"),
         "15": ({}, "shared", ""),
+        # M6's MetalFX plan, step 0: a run that drew the fill load is not its configuration's.
+        "16": ({"load": "fill"}, None, "load_fill"),
     }
     for number, (fields, frames_change, _) in broken.items():
         first = (1000 + int(number) * 100) * S

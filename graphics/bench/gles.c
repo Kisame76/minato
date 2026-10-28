@@ -202,17 +202,16 @@ static GLuint program(const char *vertex, const char *fragment) {
 
 static int make_programs(struct bench_gles *scene) {
     scene->background = program(fullscreen_vertex, background_fragment);
-    scene->fill = program(fullscreen_vertex, fill_fragment);
+    // The fill load's program only for that load, so the others pay nothing for it.
+    if (scene->fill_layers > 0) scene->fill = program(fullscreen_vertex, fill_fragment);
     scene->mesh = program(mesh_vertex, mesh_fragment);
     scene->particles = program(particle_vertex, particle_fragment);
     scene->post = program(fullscreen_vertex, post_fragment);
-    if (scene->background == 0 || scene->fill == 0 || scene->mesh == 0 || scene->particles == 0 ||
-        scene->post == 0) {
+    if (scene->background == 0 || (scene->fill_layers > 0 && scene->fill == 0) || scene->mesh == 0 ||
+        scene->particles == 0 || scene->post == 0) {
         return -1;
     }
     scene->background_time = glGetUniformLocation(scene->background, "u_time");
-    scene->fill_time = glGetUniformLocation(scene->fill, "u_time");
-    scene->fill_layer = glGetUniformLocation(scene->fill, "u_layer");
     scene->mvp = glGetUniformLocation(scene->mesh, "u_mvp");
     scene->normal = glGetUniformLocation(scene->mesh, "u_normal");
     scene->color = glGetUniformLocation(scene->mesh, "u_color");
@@ -221,8 +220,12 @@ static int make_programs(struct bench_gles *scene) {
     glUseProgram(scene->mesh);
     glUniform1i(glGetUniformLocation(scene->mesh, "u_texture"), 0);
     glUniform1f(glGetUniformLocation(scene->mesh, "u_height"), (float)scene->target_height);
-    glUseProgram(scene->fill);
-    glUniform1i(glGetUniformLocation(scene->fill, "u_texture"), 0);
+    if (scene->fill != 0) {
+        scene->fill_time = glGetUniformLocation(scene->fill, "u_time");
+        scene->fill_layer = glGetUniformLocation(scene->fill, "u_layer");
+        glUseProgram(scene->fill);
+        glUniform1i(glGetUniformLocation(scene->fill, "u_texture"), 0);
+    }
     glUseProgram(scene->post);
     glUniform1i(glGetUniformLocation(scene->post, "u_scene"), 0);
     return 0;
@@ -339,6 +342,10 @@ struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType wind
     }
     bench_log("GLES: %d x %d", scene->width, scene->height);
     bench_log("target: %d x %d (%d %%)", scene->target_width, scene->target_height, scale);
+    const GLuint programs[5] = {scene->background, scene->fill, scene->mesh, scene->particles, scene->post};
+    int built = 0;
+    for (int index = 0; index < 5; ++index) built += programs[index] != 0;
+    bench_log("pipelines: %d", built);
     return scene;
 }
 
@@ -431,6 +438,10 @@ EGLint bench_gles_frame(struct bench_gles *scene, int frame) {
         if (result != EGL_SUCCESS) return result;
     }
     return draw(scene, frame, 0);
+}
+
+void bench_gles_drain(struct bench_gles *scene) {
+    if (scene != NULL && scene->current) glFinish();
 }
 
 void bench_gles_stop(struct bench_gles *scene) {

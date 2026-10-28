@@ -21,6 +21,10 @@ struct bench_gles *bench_gles_start(EGLDisplay display, EGLNativeWindowType wind
 /* Draws frame `frame` and swaps: EGL_SUCCESS, or eglSwapBuffers's error. */
 EGLint bench_gles_frame(struct bench_gles *scene, int frame);
 
+/* Waits until the GPU has drawn every frame sent. The APK's run ends with it, so that the window's teardown, which
+   Android wants answered at once, finds no backlog: ANGLE queues the fill load's frames ahead of the GPU. */
+void bench_gles_drain(struct bench_gles *scene);
+
 /* Deletes the scene's objects, its surface and context, and terminates the display. */
 void bench_gles_stop(struct bench_gles *scene);
 
