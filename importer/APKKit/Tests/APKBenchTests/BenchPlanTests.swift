@@ -194,6 +194,35 @@ struct BenchPlanTests {
         #expect(runs.count == 32)
     }
 
+    /// ADR-0066 step 4: one configuration of an API's series, after the API's discarded pair, as the by-hand cap
+    /// and unlock runs need.
+    @Test func oneConfigurationOnly() {
+        let only = BenchConfiguration("vulkan-120-light")!
+        let (runs, end) = Self.play(BenchPlan(only: only))
+        #expect(end == .done)
+        #expect(runs.prefix(6).map(\.description) == [
+            "vulkan-120-heavy-native-00", "vulkan-120-heavy-apk-00", "vulkan-120-light-native-01",
+            "vulkan-120-light-apk-01", "vulkan-120-light-apk-02", "vulkan-120-light-native-02",
+        ])
+        #expect(runs.count == 2 + 10)
+        #expect(runs.dropFirst(2).allSatisfy { $0.configuration == only })
+        let (alone, _) = Self.play(BenchPlan(only: BenchConfiguration("gles31-120-light")!))
+        #expect(alone.map(\.description).prefix(2) == ["gles31-120-heavy-apk-00", "gles31-120-light-apk-01"])
+        #expect(alone.count == 1 + 5)
+        let (more, _) = Self.play(BenchPlan(more: [only], only: only))
+        #expect(more.count == 2 + 20)
+    }
+
+    /// Only a configuration of the scene's series runs alone: another rate or the other scene's has no verdict.
+    @Test func onlyTakesASeriesConfiguration() {
+        #expect(BenchPlan.seriesConfiguration("gles-120-light", scene: .parity) != nil)
+        #expect(BenchPlan.seriesConfiguration("godot-metal-60-light", scene: .godot) != nil)
+        for (bad, scene) in [("gles-90-light", BenchScene.parity), ("gles-60-heavy", .parity),
+                             ("godot-gles-120-light", .parity), ("gles-120-light", .godot), ("gles-120", .parity)] {
+            #expect(BenchPlan.seriesConfiguration(bad, scene: scene) == nil, "\(bad)")
+        }
+    }
+
     /// ADR-0044 d2): bench-gles31, bench-gles's scene on ANGLE's Vulkan backend, runs its APK alone: there is no
     /// native ES 3.1 build, and its numbers are reported beside bench-gles's, not judged (ADR-0044 decision 5).
     @Test func theES31TwinRunsItsAPKAlone() {

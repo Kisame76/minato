@@ -11,6 +11,8 @@
 #   --api <api>          only this API's series: gles, vulkan, or gles31, bench-gles's scene on ANGLE's Vulkan
 #                        backend (ADR-0044 d2)); metal too with --scene godot, the twin's own
 #   --more <config>      5 more runs per variant of a configuration, e.g. gles-120-heavy (decision 8)
+#   --only <config>      only this configuration of its API's series, after the API's discarded pair, e.g.
+#                        gles-120-light (ADR-0066 step 4)
 #   --seconds <n>        a shorter draw time than 52 s, for the Simulator (its graphics are not judged)
 #   --build-check        checks the build setting instead: a Release build without it holds neither
 #                        MinatoBench.framework, the APKs nor the mode; one with it holds all three and
@@ -21,7 +23,8 @@
 # tools/build-graphics-host.sh --release (through tools/deploy.sh and tools/sim.sh); their next
 # Debug run packs the Debug builds again.
 # Usage: tools/benchmark.sh [--simulator] [--device <name or identifier>] [--scene godot] [--api <api>]
-#                           [--more <configuration> ...] [--seconds <n>] [--cap <n> [--unlock 60|120]]
+#                           [--more <configuration> ...] [--only <configuration>] [--seconds <n>]
+#                           [--cap <n> [--unlock 60|120]]
 # --cap gives ADR-0037's scene an engine cap, the targetFrameRate its engine sets (-1 or 1 to 1000), and --unlock the
 # FPS unlock over it (ADR-0066 step 4): a by-hand measure that run.csv does not record, so its results go to a folder
 # of their own, build/benchmark-cap<n>[-unlock<m>].
@@ -198,7 +201,7 @@ while [[ $# -gt 0 ]]; do
     --scene)
       [[ "${2:-}" == godot ]] || { echo "Unknown scene ${2:-}" >&2; exit 2; }
       GODOT=1; PLAN_ARGS+=(--scene godot); shift 2 ;;
-    --api | --more) PLAN_ARGS+=("$1" "$2"); shift 2 ;;
+    --api | --more | --only) PLAN_ARGS+=("$1" "$2"); shift 2 ;;
     --seconds) SECONDS_ARGS=(-benchmarkSeconds "$2"); shift 2 ;;
     --cap) CAP_ARGS+=(-benchmarkCap "$2"); CAP_NAME="-cap$2$CAP_NAME"; shift 2 ;;
     --unlock) CAP_ARGS+=(-benchmarkUnlock "$2"); CAP_NAME="$CAP_NAME-unlock$2"; shift 2 ;;

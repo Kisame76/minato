@@ -15,7 +15,8 @@ import UIKit
 /// first (devicectl's exit code is not reliable for a process that ends this quickly). So nothing
 /// else may write to stdout or stderr: the app shows an empty scene. output/traced says whether
 /// a debugger was attached (1) or not (0): M2's criterion wants the suite to pass without one. After
-/// the status the runtime writes what the run measured to output/measures (ADR-0033 d1).
+/// the status the runtime writes what the run measured to output/measures (ADR-0033 d1). With
+/// -frameRateUnlock 60|120 the program runs with the FPS unlock (ADR-0066 step 4, apkrt_set_frame_rate_unlock).
 ///
 /// The program starts once the app's launch has finished, at its first didBecomeActive, on a thread
 /// of its own (apkrt_start_program): iOS's launch watchdog ends an app that has not finished
@@ -52,7 +53,8 @@ enum FixtureRunner {
         } else if let flag = arguments.firstIndex(of: "-runFixture"), arguments.indices.contains(flag + 1) {
             let test = arguments[flag + 1]
             let signOnDevice = arguments.contains("-signOnDevice")
-            start = { run(test: test, signOnDevice: signOnDevice) }
+            let unlock = arguments.firstIndex(of: "-frameRateUnlock").map { arguments.dropFirst($0 + 1).first ?? "" }
+            start = { run(test: test, signOnDevice: signOnDevice, frameRateUnlock: unlock) }
         } else {
             return false
         }
@@ -65,7 +67,7 @@ enum FixtureRunner {
         return true
     }
 
-    private static func run(test: String, signOnDevice: Bool) {
+    private static func run(test: String, signOnDevice: Bool, frameRateUnlock: String?) {
         let folder = prepare(test: test)
         let dataLocalTmp = folder.appending(path: "data-local-tmp", directoryHint: .isDirectory)
         do {
@@ -101,6 +103,11 @@ enum FixtureRunner {
             containers = convertAndSign([program] + libraries, of: test, from: fixtures, report: output.appending(path: "signing"))
         }
         let container = containers.appending(path: "\(program).dylib").path
+        if let frameRateUnlock {
+            guard let rate = Int32(frameRateUnlock), apkrt_set_frame_rate_unlock(rate) == 0 else {
+                fail("the FPS unlock takes 60 or 120, not \(frameRateUnlock)")
+            }
+        }
         check(apkrt_start_program(container, cStrings(["./\(program)"]), cStrings(environment), &error, error.count),
               error)
     }

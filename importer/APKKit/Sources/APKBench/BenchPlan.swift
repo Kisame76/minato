@@ -156,12 +156,24 @@ public struct BenchPlan: Sendable {
     public var apis: [BenchAPI]
     /// Configurations whose native runs spread more than 5 %: 5 more runs per variant (decision 8).
     public var more: Set<BenchConfiguration>
+    /// One configuration of its API's series alone, after the API's discarded pair (ADR-0066 step 4's by-hand runs).
+    public var only: BenchConfiguration?
 
-    /// Every API of the scene unless `apis` names some.
-    public init(scene: BenchScene = .parity, apis: [BenchAPI]? = nil, more: Set<BenchConfiguration> = []) {
-        self.scene = scene
-        self.apis = apis ?? scene.apis
+    /// Every API of the scene unless `apis` names some, or `only`'s API.
+    public init(scene: BenchScene = .parity, apis: [BenchAPI]? = nil, more: Set<BenchConfiguration> = [],
+                only: BenchConfiguration? = nil) {
+        self.scene = only?.scene ?? scene
+        self.apis = only.map { [$0.api] } ?? apis ?? self.scene.apis
         self.more = more
+        self.only = only
+    }
+
+    /// `description` when it names a configuration of `scene`'s series.
+    public static func seriesConfiguration(_ description: String, scene: BenchScene) -> BenchConfiguration? {
+        guard let configuration = BenchConfiguration(description), configuration.scene == scene,
+            BenchConfiguration.series(of: configuration.api, scene: scene).contains(configuration)
+        else { return nil }
+        return configuration
     }
 
     /// The next run, given the results so far in any order.
@@ -172,7 +184,7 @@ public struct BenchPlan: Sendable {
                 let warmUp = BenchRun(configuration: .warmUp(of: api, scene: scene), variant: variant, number: 0)
                 if !results.contains(where: { $0.run == warmUp }) { return .run(warmUp) }
             }
-            for configuration in BenchConfiguration.series(of: api, scene: scene) {
+            for configuration in only.map({ [$0] }) ?? BenchConfiguration.series(of: api, scene: scene) {
                 let own = results.filter { $0.run.configuration == configuration && !$0.run.isWarmUp }
                 if let mismatch = Self.pairMismatch(own) { return .stop("\(configuration): \(mismatch)") }
                 let valid = own.filter(\.valid).count

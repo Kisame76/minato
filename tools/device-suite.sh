@@ -12,6 +12,8 @@
 #       com.apple.developer.kernel.increased-memory-limit, as a SideStore install with a free account
 #       is (ADR-0012, ADR-0035). Its results go to build/device-suite-without-increased-memory/. The
 #       next tools/deploy.sh installs the app with the entitlement again.
+#   --frame-rate 60|120: frame-cap-test alone with the FPS unlock (ADR-0066 step 4, -frameRateUnlock): its stdout
+#       must be runtime/tests/frame_rate_run.py's lines for that rate. Its results go to <results>-unlock<rate>/.
 # ART's tests (ADR-0033 d2), staged in build/device-art by runtime/tests/device_art.py, which
 # tools/embed-fixtures.sh puts into the bundle, each started with -runART <test>, given 300 s and
 # compared by device_art.py check; the results go to <results>-art/ (-art-debug/ with --debug):
@@ -28,6 +30,7 @@
 # The iPhone must be paired, unlocked and connected, with Developer Mode on (see tools/deploy.sh).
 # Usage: tools/device-suite.sh [--simulator] [--sign-on-device] [--without-increased-memory]
 #                              [--device <name or identifier>] [test ...]
+#        tools/device-suite.sh --frame-rate 60|120 [--simulator] [--device <...>] [frame-cap-test]
 #        tools/device-suite.sh --art | --art-run-tests [--sample] [--debug] [--art-dir <dir>]
 #                              [--simulator] [--without-increased-memory] [--device <...>] [test ...]
 # Results: build/device-suite/<test>/ (build/simulator-suite/ for the Simulator) with stdout,
@@ -46,6 +49,7 @@ ART=""  # the native tests, or ART's: "fixtures" (--art) or "run-tests" (--art-r
 SAMPLE=0
 DEBUG=0
 ART_DIR=""
+FRAME_RATE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --simulator) SIMULATOR=1; shift ;;
@@ -57,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --sample) SAMPLE=1; shift ;;
     --debug) DEBUG=1; shift ;;
     --art-dir) ART_DIR="$(cd "$2" && pwd)"; shift 2 ;;
+    --frame-rate) FRAME_RATE="$2"; shift 2 ;;
     *) break ;;
   esac
 done
@@ -70,6 +75,14 @@ if [[ -z "$ART" && ( "$SAMPLE" == 1 || "$DEBUG" == 1 || -n "$ART_DIR" ) ]] ||
     "and ART's tests have containers signed on the Mac only." >&2
   exit 2
 fi
+if [[ -n "$FRAME_RATE" ]]; then
+  if [[ "$FRAME_RATE" != 60 && "$FRAME_RATE" != 120 ]] || [[ -n "$ART" ]] ||
+     [[ $# -gt 1 ]] || [[ $# -eq 1 && "$1" != frame-cap-test ]]; then
+    echo "--frame-rate takes 60 or 120 and runs frame-cap-test alone." >&2
+    exit 2
+  fi
+  set -- frame-cap-test
+fi
 # The iPhone only by cable, never over the network, checked before the builds.
 [[ "$SIMULATOR" == 1 ]] || python3 tools/require-cable.py "$WANTED_DEVICE" || exit 1
 RESULTS=build/device-suite
@@ -79,11 +92,13 @@ if [[ -n "$ART" ]]; then
   RESULTS+=-art
   [[ "$DEBUG" == 0 ]] || RESULTS+=-debug
 fi
+[[ -z "$FRAME_RATE" ]] || RESULTS+=-unlock$FRAME_RATE
 BUILD_SETTINGS="APK_EMBED_FIXTURES=YES"
 [[ "$WITHOUT_INCREASED_MEMORY" == 0 ]] || BUILD_SETTINGS+=" CODE_SIGN_ENTITLEMENTS="
 [[ -z "$ART_DIR" ]] || BUILD_SETTINGS+=" APK_ART_DIR=$ART_DIR"
 APP_ARGUMENTS=()
-[[ "$SIGN_ON_DEVICE" == 0 ]] || APP_ARGUMENTS=(-signOnDevice)
+[[ "$SIGN_ON_DEVICE" == 0 ]] || APP_ARGUMENTS+=(-signOnDevice)
+[[ -z "$FRAME_RATE" ]] || APP_ARGUMENTS+=(-frameRateUnlock "$FRAME_RATE")
 # How long a test may run: as CTest gives ART's tests on the Mac (runtime/art/run_tests.py).
 TIMEOUT=120
 [[ -z "$ART" ]] || TIMEOUT=300
@@ -219,7 +234,7 @@ mkdir -p "$RESULTS"
 failed=0
 started=$(date +%s)
 for name in "${tests[@]}"; do
-  rm -rf "${RESULTS:?}/$name" "$RESULTS/$name.launch.json" "$RESULTS/$name.console"
+  rm -rf "${RESULTS:?}/$name" "$RESULTS/$name.launch.json" "$RESULTS/$name.console" "$RESULTS/$name.expected"
   begin=$(python3 -c 'import time; print(int(time.time() * 1000))')
   if ! launch "$name"; then
     echo "FAILED   $name: the app did not run it, see $RESULTS/$name.console"
@@ -253,10 +268,15 @@ for name in "${tests[@]}"; do
   # not reliable for a process that ends right after its start.
   status=$(tr -d '\n' <"$RESULTS/$name/status" 2>/dev/null || true)
   expected=fixtures/expected/$name
+  expected_out=$expected.out
+  if [[ -n "$FRAME_RATE" ]]; then
+    expected_out=$RESULTS/$name.expected
+    python3 runtime/tests/frame_rate_run.py --lines "$FRAME_RATE" >"$expected_out"
+  fi
   expected_status=$(field "$name" status)
   measures=$(field "$name" measures)
   problems=""
-  [[ "$measures" == yes ]] || cmp -s "$expected.out" "$RESULTS/$name/stdout" || problems+=" stdout"
+  [[ "$measures" == yes ]] || cmp -s "$expected_out" "$RESULTS/$name/stdout" || problems+=" stdout"
   if [[ -f "$expected.err" ]]; then
     cmp -s "$expected.err" "$RESULTS/$name/stderr" || problems+=" stderr"
   elif [[ -s "$RESULTS/$name/stderr" ]]; then
@@ -288,7 +308,7 @@ for name in "${tests[@]}"; do
     if [[ "$measures" == yes ]]; then
       sed 's/^/    /' "$RESULTS/$name/stdout"
     else
-      diff -u "$expected.out" "$RESULTS/$name/stdout" | sed 's/^/    /' || true
+      diff -u "$expected_out" "$RESULTS/$name/stdout" | sed 's/^/    /' || true
     fi
     if [[ -f "$expected.err" ]]; then
       diff -u "$expected.err" "$RESULTS/$name/stderr" | sed 's/^/    /' || true
@@ -301,6 +321,7 @@ where="in the Simulator"
 [[ "$SIMULATOR" == 1 ]] || where="on the iPhone, $ENTITLEMENT increased-memory-limit"
 how="signed on the Mac (M2a)"
 [[ "$SIGN_ON_DEVICE" == 0 ]] || how="converted and signed by the app (M2b)"
+[[ -z "$FRAME_RATE" ]] || how+=", with the FPS unlock at $FRAME_RATE"
 what="tests"
 if [[ -n "$ART" ]]; then
   what="of ART's tests in its release flavor"

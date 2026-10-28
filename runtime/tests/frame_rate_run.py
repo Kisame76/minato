@@ -13,6 +13,7 @@ dlsym:
 Prints "skipped: ..." while the fixture or the library is not built.
 
 Usage: frame_rate_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work> <expected>
+       frame_rate_run.py --lines 60|120   prints the lines for that rate, for tools/device-suite.sh --frame-rate
 """
 import fcntl
 import os
@@ -43,6 +44,9 @@ def convert(apk_convert, elf, container):
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--lines" and sys.argv[2] in ("60", "120"):
+        print("\n".join(unlocked(int(sys.argv[2]))))
+        return
     if len(sys.argv) != 8:
         raise SystemExit(__doc__)
     fixtures, bionic_lib, bionic_system, apk_convert, apk_run, work, expected = sys.argv[1:]
