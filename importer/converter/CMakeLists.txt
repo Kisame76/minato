@@ -69,6 +69,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(container_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.container COMMAND container_test "${CMAKE_CURRENT_BINARY_DIR}/container_test_scratch")
 
+  # M6 b): the oat file of apk-runner-35's dex2oat (fixtures/oat) as a container; a directory of its own.
+  add_executable(oat_test tests/oat_test.cpp)
+  target_link_libraries(oat_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.oat COMMAND oat_test "${CMAKE_CURRENT_BINARY_DIR}/oat_test_scratch"
+    "${PROJECT_SOURCE_DIR}/fixtures/oat/verify.odex")
+
   # Writes, signs and loads container dylibs, so it needs a directory of its own.
   add_executable(macho_test tests/macho_test.cpp)
   target_link_libraries(macho_test PRIVATE apkconv apk_defaults apk_testing)

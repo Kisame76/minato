@@ -15,7 +15,9 @@
 // /linkerconfig/apex.libraries.config.txt names, for their public libraries, as libnativeloader links it (ADR-0033
 // e2b3).
 // An argument sdk=<version> sets the app's target SDK version, as ART does for an app, through
-// android_set_application_target_sdk_version. An argument +<library> opens the library with RTLD_GLOBAL.
+// android_set_application_target_sdk_version. An argument +<library> opens the library with RTLD_GLOBAL, and !<library>
+// with android_dlopen_ext and ANDROID_DLEXT_FORCE_LOAD (ADR-0053, M6 b)), #<library> with
+// ANDROID_DLEXT_RESERVED_ADDRESS.
 #include <android/dlext.h>
 #include <dlfcn.h>
 #include <stdbool.h>
@@ -145,7 +147,19 @@ int main(int argc, char **argv) {
             continue;
         }
         const char *colon = strchr(argv[index], ':');
-        if (argv[index][0] == '+') {
+        if (argv[index][0] == '!') {
+            // An argument !<library> opens it with android_dlopen_ext and ANDROID_DLEXT_FORCE_LOAD alone, as ART opens
+            // an oat file (oat_file.cc): the flag asks for a load that does not reuse a handle, and is no error.
+            snprintf(shown, sizeof shown, "android_dlopen_ext(%s, FORCE_LOAD)", argv[index] + 1);
+            const android_dlextinfo info = {.flags = ANDROID_DLEXT_FORCE_LOAD};
+            library = android_dlopen_ext(argv[index] + 1, RTLD_NOW, &info);
+        } else if (argv[index][0] == '#') {
+            // An argument #<library> asks android_dlopen_ext for ANDROID_DLEXT_RESERVED_ADDRESS, which the runtime's
+            // loader refuses (a flag it does not honor), so that the mask of the flags it accepts is tested too.
+            snprintf(shown, sizeof shown, "android_dlopen_ext(%s, RESERVED_ADDRESS)", argv[index] + 1);
+            const android_dlextinfo info = {.flags = ANDROID_DLEXT_RESERVED_ADDRESS};
+            library = android_dlopen_ext(argv[index] + 1, RTLD_NOW, &info);
+        } else if (argv[index][0] == '+') {
             snprintf(shown, sizeof shown, "dlopen(%s, RTLD_GLOBAL)", argv[index] + 1);
             library = dlopen(argv[index] + 1, RTLD_NOW | RTLD_GLOBAL);
         } else if (colon == NULL) {

@@ -167,8 +167,10 @@ bool append(char* buffer, size_t size, const char* text) {
 
 void* __loader_android_dlopen_ext(const char* filename, int flags, const android_dlextinfo* extinfo,
                                   const void* caller) {
-  // File descriptors and reserved addresses have no meaning for the runtime's loader.
-  if (extinfo != nullptr && (extinfo->flags & ~ANDROID_DLEXT_USE_NAMESPACE) != 0) {
+  // File descriptors and reserved addresses have no meaning for the runtime's loader. ANDROID_DLEXT_FORCE_LOAD, which
+  // ART passes for every oat file (oat_file.cc), is a plain load: dyld keeps one image per container path, so the
+  // runtime has no second copy to give for it (ADR-0053, M6 b); a distinct image is c)'s, with a copy of the file).
+  if (extinfo != nullptr && (extinfo->flags & ~(ANDROID_DLEXT_USE_NAMESPACE | ANDROID_DLEXT_FORCE_LOAD)) != 0) {
     pending_error = "android_dlopen_ext: extended options are not supported";
     return nullptr;
   }

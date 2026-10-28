@@ -23,3 +23,6 @@ android_set_application_target_sdk_version(22)
 dlopen(/system/lib64/libutils.so): no ns_lib_check
 dlopen(libns-find.so): sees ns_plugin_value
 android_dlopen_ext(libicu.so, @/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64): no ns_lib_check
+android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-plugin.so, FORCE_LOAD): no ns_lib_check
+android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-plugin.so, FORCE_LOAD): no ns_lib_check
+android_dlopen_ext(/data/app/~~AAECAwQFBgcICQoLDA0ODw==/io.github.kisame76.minato.test.ns-EBESExQVFhcYGRobHB0eHw==/lib/arm64/libns-plugin.so, RESERVED_ADDRESS): android_dlopen_ext: extended options are not supported

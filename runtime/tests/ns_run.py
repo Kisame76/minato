@@ -106,6 +106,11 @@ RUNS = [
     ([APP], [f"@{CLASS_LOADER}", f"@{CLASS_LOADER}"]),
     ([], ["/system/lib64/libns-private.so", "libns-find.so", "sdk=22", "/system/lib64/libutils.so", "libns-find.so"]),
     ([ART_ICU], [f"@{APP_CODE}/lib/arm64:libicu.so"]),
+    # ADR-0053 (M6 b)): ART opens an oat file with ANDROID_DLEXT_FORCE_LOAD alone; the flag is accepted, also a second
+    # time for the same file.
+    # A flag the loader does not honor is still refused (RESERVED_ADDRESS), whatever else is accepted.
+    ([APP_PLUGIN], [f"!{APP_CODE}/lib/arm64/libns-plugin.so", f"!{APP_CODE}/lib/arm64/libns-plugin.so",
+                    f"#{APP_CODE}/lib/arm64/libns-plugin.so"]),
 ]
 FOLDERS = list({folder[0]: folder for folders, *_ in RUNS for folder in folders}.values())
 
