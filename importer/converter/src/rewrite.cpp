@@ -579,6 +579,39 @@ bool lone_load_exclusive(std::span<const std::byte> code, std::size_t open) {
     return true;
 }
 
+/// Whether the monitor-live closure of the load-exclusive at `open` (fall-through and direct branches,
+/// until a store-exclusive, CLREX, nested load-exclusive, call or return ends the pairing) reaches a
+/// register branch — a BR or `ret xN` with N != 30, whose target the rewriter cannot follow (ADR-0020
+/// step D guard ii). A window that does not close keeps its blanket refusal when its closure reaches
+/// one, because a use at the branch's unseen target could sit inside a live LL/SC (a jump-table retry
+/// loop), and C6 never follows a register branch to find it.
+bool closure_reaches_register_branch(std::span<const std::byte> code, std::size_t open) {
+    std::unordered_set<std::size_t> visited;
+    std::vector<std::size_t> work{open + 4};
+    while (!work.empty()) {
+        const auto p = work.back();
+        work.pop_back();
+        if (p + 4 > code.size() || !visited.insert(p).second) continue;
+        const auto word = word_at(code, p);
+        if (is_register_branch(word)) return true;
+        // A boundary ends the monitor-live run here: a store-exclusive, CLREX or nested load (the
+        // monitor), or a call or return (the C6 named compiler-convention limit).
+        if (is_store_exclusive(word) || is_clrex(word) || is_load_exclusive(word) || is_register_return(word) ||
+            is_register_call(word) || (word & 0xfc00'0000) == 0x9400'0000) {
+            continue;
+        }
+        const auto displacement = branch_displacement(word);
+        if (displacement) {
+            const auto target = static_cast<std::int64_t>(p) + *displacement;
+            if (target >= 0 && target + 4 <= static_cast<std::int64_t>(code.size())) {
+                work.push_back(static_cast<std::size_t>(target));
+            }
+        }
+        if ((word & 0xfc00'0000) != 0x1400'0000) work.push_back(p + 4);  // fall through unless an unconditional B
+    }
+    return false;
+}
+
 /// Word offsets a non-lone load-exclusive's monitor can still reach (ADR-0020 step C C6). A branch can
 /// carry the monitor past the store-exclusive that would close the load, so this follows control
 /// forward from every non-lone load — fall-through and every direct branch, transitively — marking
@@ -1228,6 +1261,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     std::vector<std::pair<std::size_t, std::size_t>> covered;
     std::vector<std::tuple<std::size_t, std::size_t, const char *>> refused_windows;
     std::vector<std::size_t> lone_loads;  // load-exclusives that pair with no store-exclusive (step C C3)
+    std::vector<std::size_t> unclosed_loads;  // window_unclosed loads whose uses go through C6 (step D)
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         if (!is_load_exclusive(word_at(code, offset))) continue;
         const auto end = exclusive_window_end(code, offset);
@@ -1237,7 +1271,14 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                 continue;
             }
             const auto [last, problem] = unclosed_window(code, offset);
-            refused_windows.emplace_back(offset, last, problem);
+            // ADR-0020 step D: a window that does not close within the cap and whose closure reaches no
+            // register branch has its x18 uses decided by the C6 monitor-escape test below, not blanket-
+            // refused here; a reachable store, register branch or out-of-section edge still refuses one.
+            if (problem == window_unclosed && !closure_reaches_register_branch(code, offset)) {
+                unclosed_loads.push_back(offset);
+            } else {
+                refused_windows.emplace_back(offset, last, problem);
+            }
             continue;
         }
         const char *problem = nullptr;
@@ -1269,6 +1310,9 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         return std::ranges::any_of(covered, [&](const auto &span) { return offset >= span.first && offset <= span.second; });
     };
     const auto is_lone_load = [&](std::size_t offset) { return std::ranges::find(lone_loads, offset) != lone_loads.end(); };
+    const auto is_unclosed_load = [&](std::size_t offset) {
+        return std::ranges::find(unclosed_loads, offset) != unclosed_loads.end();
+    };
     // Whether a jump table target lies inside a relocated window, past its first word (ADR-0020 X2d).
     const auto enters_window = [&](std::uint64_t target) {
         const auto offset = target - address;
@@ -1342,8 +1386,9 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         }
 
         if (is_exclusive(instruction)) {
-            // A lone load-exclusive (step C C3) opens no sequence: its following x18 uses are islands.
-            exclusive_sequence = is_load_exclusive(instruction) && !is_lone_load(offset);
+            // A lone load (step C C3) or a window_unclosed load (step D) opens no blanket sequence: its
+            // following x18 uses are decided one by one (C3 islands them; step D by monitor_escapes).
+            exclusive_sequence = is_load_exclusive(instruction) && !is_lone_load(offset) && !is_unclosed_load(offset);
         } else if (is_clrex(instruction)) {
             exclusive_sequence = false;
         }

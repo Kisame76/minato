@@ -93,11 +93,29 @@ std::uint32_t word(const std::vector<std::byte> &bytes, std::size_t index) {
     return value;
 }
 
+namespace oracle {
+// A brute-force step-D soundness check (defined after the fixtures below): under the real limits scan()
+// must island no x18 use that sits on a live LL/SC path. scan_words() runs it on every fixture (ADR-0020
+// step D, the lead's condition 2).
+struct Toggles {
+    bool call_return;   // ON: a call or return (BL, BLR, RET) ends the monitor path (the C6 limit)
+    bool section_exit;  // ON: the section end, or a branch out of it, pairs nothing (one output section)
+};
+std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base, Toggles t);
+}  // namespace oracle
+
 /// Scans the words from `begin` to `end` as if they sat at `address`.
-apk::rewrite::Findings scan_words(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t address) {
+apk::rewrite::Findings scan_words(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t address,
+                                  std::source_location location = std::source_location::current()) {
     const std::span code(reinterpret_cast<const std::byte *>(begin), 4 * static_cast<std::size_t>(end - begin));
     apk::rewrite::Findings findings;
     apk::rewrite::scan(code, address, findings);
+    // The step-D oracle also runs on every fixture: under the real limits scan() must island no x18 use
+    // on a live LL/SC path (ADR-0020 step D). flags() re-scans with apk::rewrite::scan, not scan_words.
+    if (const auto unsound = oracle::flags(begin, end, address, {true, true}); !unsound.empty()) {
+        apk::testing::fail(location, "the step-D oracle flagged an unsound x18 island at ",
+                           std::format("{:#x}", unsound.front()).c_str());
+    }
     return findings;
 }
 
@@ -511,7 +529,8 @@ TEST(a_lone_load_exclusive_is_not_a_window_and_its_x18_uses_are_islands) {
 // A store-exclusive physically before its paired load-exclusive, reached by a backward branch, is a
 // real LL/SC pair that a forward-only scan would miss (step C C3 review). The load-exclusive must not
 // count as lone: an x18 use between them would be islanded inside a live pair and could livelock. It
-// stays refused (this far pair is C3b), as it was before C3.
+// stays refused: under step D the use goes through the C6 monitor-escape, which follows the backward
+// branch to the store, so it is refused there (not by the window_unclosed blanket, which step D drops).
 TEST(a_store_exclusive_before_its_load_exclusive_by_a_back_edge_is_not_lone) {
     const std::uint32_t code[] = {
         0x1400'0003,  // 0x1000 b 0x100c
@@ -528,7 +547,9 @@ TEST(a_store_exclusive_before_its_load_exclusive_by_a_back_edge_is_not_lone) {
     CHECK(findings.x18_unsupported.size() == 1);
     if (findings.x18_unsupported.size() == 1) {
         CHECK(findings.x18_unsupported[0].address == 0x1010);  // the add x3, x1, x18 stays refused
-        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("does not close") != std::string_view::npos);
+        CHECK(std::string_view(findings.x18_unsupported[0].reason) ==
+              "it lies between a load- and a store-exclusive, where the island's memory accesses could break the "
+              "sequence");
     }
 }
 
@@ -716,12 +737,10 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
 
 // Each window that is not relocated says why, so that one refusal names every cause at once.
 TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
-    std::vector<std::uint32_t> far{0xc85f'7c01, 0x9100'0432};  // ldxr x1, [x0]; add x18, x1, #1
-    far.insert(far.end(), 63, 0xd503'201f);                    // nop
-    far.push_back(0xc802'7c12);                                // stxr w2, x18, [x0]: 65 words after the ldxr (C3b)
     // No longer refused here: a window with no store-exclusive at all (step C C3) and a nested
     // load-exclusive with a clean first run (step C C4) make the first load-exclusive lone, so its
-    // x18 uses island — covered by a_lone_load_exclusive_... and a_nested_load_exclusive_... above.
+    // x18 uses island; and a far pair (C3b, >64 words) now goes through the C6 monitor-escape (step D),
+    // not the window_unclosed blanket — covered by the FA/FB and back-edge tests above.
     const std::uint32_t stack[] = {
         0xc85f'7c01,  // ldxr x1, [x0]
         0x9100'43ff,  // add sp, sp, #16
@@ -785,7 +804,6 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
         {simd_literal, simd_literal + std::size(simd_literal), 2,
          "it lies in an exclusive window a signal can resume, but it holds a pc-relative instruction the island cannot "
          "place for its own address"},
-        {far.data(), far.data() + far.size(), 2, "it lies in an exclusive window that does not close within 64 words"},
         {stack, stack + std::size(stack), 2, "it lies in an exclusive window that moves the stack pointer"},
         {below_sp, below_sp + std::size(below_sp), 2,
          "it lies in an exclusive window that reaches below the stack pointer, where the island keeps its registers"},
@@ -1333,40 +1351,42 @@ TEST(a_monitor_run_to_the_code_end_without_a_store_islands_the_use) {
     CHECK(islanded);
 }
 
-// Rule 2 relaxes a branch to the run's end only when the end re-tags or clears the monitor; a branch
-// to the code's end (which does neither) leaves the load non-lone, so its use stays refused.
-TEST(a_branch_to_the_code_end_keeps_the_outer_load_non_lone) {
+// Step D + C6 decision 2: a window that does not close but whose monitor only reaches the section's
+// end (a branch to the code end, or falling off it) with no store islands its use — an LL/SC never
+// spans a section boundary, so nothing pairs. Before step D the window_unclosed blanket refused it.
+TEST(a_branch_to_the_code_end_islands_the_use_as_no_store_pairs) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0: its run reaches the code's end (no store or clrex)
-        0xb5000049,  // 0x04 cbnz x9, 0x0c       branch to 0x0c == the code's end: it does not close
-        0x91000652,  // 0x08 add x18, x18, #1     the use: L0 is non-lone, so it stays refused
+        0xb5000049,  // 0x04 cbnz x9, 0x0c       branch to 0x0c == the code's end
+        0x91000652,  // 0x08 add x18, x18, #1     the use: no store reachable, so it islands (decision 2)
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
-    bool refused = false;
-    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
-    CHECK(refused);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+    CHECK(findings.x18_unsupported.empty());
+    bool islanded = false;
+    for (const auto &site : findings.sites) if (site.address == 0x1008) islanded = true;
+    CHECK(islanded);
 }
 
-// Lone-load detection has no 64-word cap (unlike exclusive_window_end): it finds the clrex that ends
-// the run even when it is more than 64 words away. A branch PAST that far clrex leaves the load
-// non-lone (rule 2 relaxes only target == the clrex), so the use stays refused. Were the clrex missed
-// — capped out or its detection dropped — the run would reach the code's end and the load look lone.
-TEST(a_branch_past_a_clrex_more_than_64_words_away_keeps_the_load_non_lone) {
+// Step D + C6 decision 2: a window that does not close within 64 words, whose monitor reaches a far
+// clrex (which clears it) or the section end with no store, islands its use. Lone-load detection still
+// has no 64-word cap, but the island outcome no longer depends on it here (a store-free run islands
+// whether the load is lone or window_unclosed); the store-reachable case is covered by the back-edge
+// tests and the brute-force oracle.
+TEST(a_branch_past_a_clrex_more_than_64_words_away_islands_the_use) {
     std::vector<std::uint32_t> code{
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0: its run ends at the clrex 65 words on, at 0x104
         0xb5000829,  // 0x04 cbnz x9, 0x108      branch PAST the clrex (0x108 > end 0x104): leaves the run
-        0x91000652,  // 0x08 add x18, x18, #1     the use: L0 is non-lone, so it stays refused
+        0x91000652,  // 0x08 add x18, x18, #1     the use: no store reachable (the clrex clears), so it islands
     };
     code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x100: 62 nops, pushing the clrex past 64 words
     code.push_back(0xd5033f5f);               // 0x104 clrex: the run's end, 65 words from L0
     code.push_back(0x91000421);               // 0x108 add x1, x1, #1 (the branch target, past the clrex)
     code.push_back(0xd503201f);               // 0x10c nop
     const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
-    bool refused = false;
-    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
-    CHECK(refused);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+    CHECK(findings.x18_unsupported.empty());
+    bool islanded = false;
+    for (const auto &site : findings.sites) if (site.address == 0x1008) islanded = true;
+    CHECK(islanded);
 }
 
 // A store reachable only through a BACKWARD branch from the use still makes the monitor escape: the
@@ -1474,6 +1494,285 @@ TEST(a_ret_to_a_register_other_than_x30_is_an_escape_not_a_return) {
     for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
     CHECK(refused);
     for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+}
+
+// ADR-0020 step D: a window that does not close within 64 words no longer blanket-refuses its x18
+// uses; each one is decided by the C6 monitor-escape test, under the same named call/return limit.
+
+// FA: the use islands when a call (a C6 boundary) precedes any store on its path, so nothing pairs
+// with it. The store is more than 64 words on, so the window does not close (window_unclosed today).
+TEST(an_x18_use_in_an_unclosed_window_islands_when_a_call_precedes_its_store) {
+    std::vector<std::uint32_t> code{
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: a store lies far ahead
+        0x8b120109,  // 0x04 add x9, x8, x18     the use: monitor live, but a call follows before any store
+        0x94000001,  // 0x08 bl .+4              a call: the C6 boundary, nothing pairs across it
+    };
+    code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x104: 62 nops, pushing the store past 64 words
+    code.push_back(0xc80a7c09);               // 0x104 stxr w10, x9, [x0]  not paired with L0 (a call between)
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    bool islanded = false;
+    for (const auto &site : findings.sites) if (site.address == 0x1004) islanded = true;
+    CHECK(islanded);
+}
+
+// FB: the same with the call BEFORE the use. The use then reaches the store with no boundary between,
+// so it escapes and stays refused (the deferred C3b far pair) — now with the C6 reason, not
+// window_unclosed.
+TEST(an_x18_use_after_a_call_in_an_unclosed_window_stays_refused) {
+    std::vector<std::uint32_t> code{
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
+        0x94000001,  // 0x04 bl .+4              a call, before the use
+        0x8b120109,  // 0x08 add x9, x8, x18     the use: reaches the store with no boundary after it
+    };
+    code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x104
+    code.push_back(0xc80a7c09);               // 0x104 stxr w10, x9, [x0]  reachable straight-line from the use
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported)
+        if (use.address == 0x1008) {
+            refused = true;
+            // the C6 escape reason, no longer the window_unclosed blanket
+            CHECK(std::string_view(use.reason).find("does not close") == std::string_view::npos);
+        }
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+}
+
+// FC (guard ii): a window whose monitor closure reaches a register branch keeps its blanket refusal.
+// The branch's targets are invisible to the C6 walk, so a use at one (0x08 here, reachable only
+// through the br, as in a jump-table retry loop) could sit in a live LL/SC. Islanding it would
+// livelock on the device; the whole window stays refused.
+TEST(an_unclosed_window_that_reaches_a_register_branch_stays_refused) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone (the register branch leaves its run)
+        0xd61f0120,  // 0x04 br x9               a register branch in the closure: its targets are unseen
+        0x0b12010a,  // 0x08 add w10, w8, w18    a use reachable only through the br
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+}
+
+// FD: a use whose monitor leaves the scanned section through a direct branch islands — nothing across a
+// section boundary pairs with the load (limit 2, a step-D choice: one output section, lld having merged
+// every .text.* into it). The oracle's section_exit toggle makes this dependence explicit and counted.
+TEST(an_x18_use_that_leaves_the_section_islands_on_the_section_exit_limit) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone (a branch leaves its run)
+        0x8b120109,  // 0x04 add x9, x8, x18     the use: its monitor leaves the section below, pairing nothing
+        0xb5002009,  // 0x08 cbnz x9, 0x408      a branch past the section's end
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());
+    bool islanded = false;
+    for (const auto &site : findings.sites) if (site.address == 0x1004) islanded = true;
+    CHECK(islanded);
+}
+
+// FE: the load-exclusive itself, when it is an x18 use (ldxr x18), stays refused as an exclusive
+// access even under D1 — a non-lone load's island memory could break its LL/SC (unsupported_reason).
+TEST(an_ldxr_x18_in_an_unclosed_window_stays_refused) {
+    std::vector<std::uint32_t> code{
+        0xc85f7c12,  // 0x00 ldxr x18, [x0]      L0 and an x18 use at once, non-lone
+    };
+    code.insert(code.end(), 64, 0xd503201f);  // 0x04..0x104: nops pushing the store past 64 words
+    code.push_back(0xc80a7c12);               // 0x104 stxr w10, x18, [x0]
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1000) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1000);
+}
+
+// FC, two variants that drop guard ii would island: the register branch comes before the x18 use, so the
+// use sits only at the branch's unseen target, inside a window that still reaches its store far ahead.
+// branch_reached_sequence never reaches the use (it stops at the branch), so without guard ii's blanket
+// refusal monitor_escapes would miss it and the use would island into a live LL/SC — a device livelock.
+// A br and a `ret xN` used as an indirect jump are both such branches; the oracle flags each if islanded.
+TEST(an_unclosed_window_whose_register_branch_target_reaches_a_store_stays_refused) {
+    std::vector<std::uint32_t> code{
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
+        0xd61f0120,  // 0x04 br x9               a register branch; its unseen target may re-enter the window
+        0x8b12010a,  // 0x08 add x10, x8, x18    a use only the branch reaches, the store still ahead
+    };
+    code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x100: nops, pushing the store past 64 words
+    code.push_back(0xc80b7c0a);               // 0x104 stxr w11, x10, [x0]  pairs with L0 if the monitor is live
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+}
+
+TEST(an_unclosed_window_whose_ret_used_as_a_branch_reaches_a_store_stays_refused) {
+    std::vector<std::uint32_t> code{
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
+        0xd65f0120,  // 0x04 ret x9              a register branch (ret xN, N != 30), its target unseen
+        0x8b12010a,  // 0x08 add x10, x8, x18    a use only the branch reaches, the store still ahead
+    };
+    code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x100: nops, pushing the store past 64 words
+    code.push_back(0xc80b7c0a);               // 0x104 stxr w11, x10, [x0]
+    const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
+    bool refused = false;
+    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
+    CHECK(refused);
+    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+}
+
+// A brute-force soundness oracle for step D (ADR-0020, the lead's condition 2). Its reachability and
+// escape walks are written apart from scan()'s branch_reached_sequence/monitor_escapes; the instruction
+// classification is the same ISA fact scan uses (the exclusive, CLREX and branch-register masks, which
+// converter.a64_objdump validates over real code), while the branch displacements are decoded here from
+// the Arm tables (C4.1). It looks for a live path LDXR -> islanded x18 site -> STXR over fall-through and
+// direct branches. A register branch (BR, or ret xN with N != 30) is an unfollowable target: a monitor
+// that reaches one may reach a store, and its own target is taken to be any word of the section (guard
+// ii). When a toggle is OFF a section exit or a call/return is treated as "may reach a store" too, so the
+// two load-bearing limits of step D are made visible and counted:
+//   - call_return: ON = a call or return (BL, BLR, RET) ends the monitor path (the C6 compiler limit, FA);
+//   - section_exit: ON = the section end, or a branch out of it, pairs nothing (C6, within one output section).
+// Under both ON the oracle flags no island; with one OFF it flags the islands that rest on that limit.
+namespace oracle {
+constexpr bool obit(std::uint32_t w, unsigned n) { return ((w >> n) & 1u) != 0; }
+constexpr std::uint32_t ofield(std::uint32_t w, unsigned hi, unsigned lo) {
+    return (w >> lo) & ((1u << (hi - lo + 1)) - 1);
+}
+// Load/store exclusive (C4.1): bits 29:23 = 0b0001000 are the register and pair monitor forms, where o1
+// (bit 21) set with the size-high bit (31) clear is CASP, an LSE atomic with no monitor; bits 29:23 =
+// 0b0010010 are LDTXR/STTXR. bit 22 (L) is load versus store.
+constexpr bool o_excl(std::uint32_t w) {
+    if (ofield(w, 29, 23) == 0b0010000u) return !obit(w, 21) || obit(w, 31);
+    return ofield(w, 29, 23) == 0b0010010u;
+}
+constexpr bool o_load_excl(std::uint32_t w) { return o_excl(w) && obit(w, 22); }
+constexpr bool o_store_excl(std::uint32_t w) { return o_excl(w) && !obit(w, 22); }
+// CLREX (C6.2): 1101 0101 0000 0011 0011 CRm 0101 1111, CRm the barrier operand.
+constexpr bool o_clrex(std::uint32_t w) { return (w & 0xffff'f0ffu) == 0xd503'305fu; }
+// Unconditional branch (register) (C4.1.7). RET x30 and the authenticated RETAA/RETAB end a path where
+// compiler code pairs no LL/SC (a safe return); BR and its forms, and ret xN with N != 30 used as an
+// indirect jump, are register branches whose target cannot be followed; BLR and its forms are calls.
+constexpr bool o_reg_return(std::uint32_t w) {
+    return w == 0xd65f'03c0u || w == 0xd65f'0bffu || w == 0xd65f'0fffu;  // RET x30, RETAA, RETAB
+}
+constexpr bool o_reg_call(std::uint32_t w) { return (w & 0xfeff'0000u) == 0xd63f'0000u; }  // BLR and forms
+constexpr bool o_reg_branch(std::uint32_t w) {
+    if ((w & 0xfeff'0000u) == 0xd61f'0000u) return true;            // BR and its forms
+    return (w & 0xfeff'0000u) == 0xd65f'0000u && !o_reg_return(w);  // ret xN with N != 30
+}
+constexpr bool o_bl(std::uint32_t w) { return (w & 0xfc00'0000u) == 0x9400'0000u; }        // BL (a call)
+constexpr bool o_b_uncond(std::uint32_t w) { return (w & 0xfc00'0000u) == 0x1400'0000u; }  // B (no fall-through)
+// The byte displacement of a PC-relative direct branch, else 0 (C4.1), each field sign-extended and
+// scaled by 4: B and BL (imm26); B.cond and BC.cond, told apart only by bit 4 and sharing imm19; CBZ and
+// CBNZ (imm19); TBZ and TBNZ (imm14); and the compare-and-branch CMPBR/CBB/CBH (imm9 at bits 13:5).
+std::int64_t o_disp(std::uint32_t w) {
+    const auto scaled = [](std::uint32_t field, unsigned bits) {
+        return static_cast<std::int64_t>(static_cast<std::int32_t>(field << (32u - bits)) >> (32u - bits)) * 4;
+    };
+    if ((w & 0x7c00'0000u) == 0x1400'0000u) return scaled(ofield(w, 25, 0), 26);  // B, BL
+    if (ofield(w, 31, 24) == 0x54u) return scaled(ofield(w, 23, 5), 19);          // B.cond, BC.cond
+    if (ofield(w, 30, 25) == 0b011010u) return scaled(ofield(w, 23, 5), 19);      // CBZ, CBNZ
+    if (ofield(w, 30, 25) == 0b011011u) return scaled(ofield(w, 18, 5), 14);      // TBZ, TBNZ
+    if (ofield(w, 30, 25) == 0b111010u) return scaled(ofield(w, 13, 5), 9);       // CMPBR, CBB, CBH
+    return 0;
+}
+// Whether, from `from`, a store-exclusive is reachable with the monitor live over fall-through and direct
+// branches. A register branch is an unfollowable target counted as a store; a CLREX or a load clears or
+// re-arms the monitor (a safe boundary); a call or return is safe only while call_return is ON, and a
+// section exit only while section_exit is ON.
+bool reaches_store(const std::uint32_t *code, std::size_t words, std::size_t from, Toggles t) {
+    std::vector<std::size_t> work{from};
+    std::vector<bool> seen(words, false);
+    while (!work.empty()) {
+        const auto p = work.back();
+        work.pop_back();
+        if (p >= words || seen[p]) continue;
+        seen[p] = true;
+        const auto w = code[p];
+        if (o_store_excl(w) || o_reg_branch(w)) return true;  // the pairing store, or an unfollowable target
+        if (o_clrex(w) || o_load_excl(w)) continue;           // monitor cleared or re-armed: a safe boundary
+        if (o_bl(w) || o_reg_call(w) || o_reg_return(w)) {    // a call or a return
+            if (!t.call_return) return true;                  // not trusted to end the pairing (C6 off)
+            continue;                                         // trusted: a safe boundary
+        }
+        if (!o_b_uncond(w)) {  // fall through, unless an unconditional B
+            if (p + 1 >= words) { if (!t.section_exit) return true; }  // off the section's end
+            else work.push_back(p + 1);
+        }
+        if (const auto d = o_disp(w); d != 0) {
+            const auto target = static_cast<std::int64_t>(p) * 4 + d;
+            if (target < 0 || target / 4 >= static_cast<std::int64_t>(words)) {
+                if (!t.section_exit) return true;  // a branch out of the section
+            } else {
+                work.push_back(static_cast<std::size_t>(target / 4));
+            }
+        }
+    }
+    return false;
+}
+// The islanded x18 sites (addresses) that lie on a live path LDXR -> site -> STXR under `t`. For each
+// load-exclusive it walks the words its monitor reaches (fall-through and direct branches); a register
+// branch's target is unseen, so the whole section is then taken to be reachable (guard ii). A site both
+// reached from a load and from which reaches_store() holds is flagged.
+std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base, Toggles t) {
+    const auto words = static_cast<std::size_t>(end - begin);
+    const std::span code(reinterpret_cast<const std::byte *>(begin), 4 * words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, base, findings);  // directly, so scan_words() may call flags() without recursion
+    std::vector<std::size_t> islands;
+    for (const auto &site : findings.sites) {
+        if (site.kind == SiteKind::x18) islands.push_back(static_cast<std::size_t>((site.address - base) / 4));
+    }
+    std::vector<std::uint64_t> flagged;
+    for (std::size_t load = 0; load < words; ++load) {
+        if (!o_load_excl(begin[load])) continue;
+        std::vector<bool> from_load(words, false);
+        std::vector<std::size_t> work{load + 1};  // the monitor is live from the word after the load
+        bool reached_register_branch = false;
+        while (!work.empty()) {
+            const auto p = work.back();
+            work.pop_back();
+            if (p >= words || from_load[p]) continue;
+            from_load[p] = true;
+            const auto w = begin[p];
+            if (o_reg_branch(w)) { reached_register_branch = true; continue; }  // target unseen: see below
+            if (o_store_excl(w) || o_clrex(w) || o_load_excl(w)) continue;      // monitor consumed/cleared/re-armed
+            if (t.call_return && (o_bl(w) || o_reg_call(w) || o_reg_return(w))) continue;  // the C6 call/return limit
+            if (!o_b_uncond(w) && !o_reg_return(w) && p + 1 < words) work.push_back(p + 1);
+            if (const auto d = o_disp(w); d != 0) {
+                const auto target = static_cast<std::int64_t>(p) * 4 + d;
+                if (target >= 0 && target / 4 < static_cast<std::int64_t>(words)) {
+                    work.push_back(static_cast<std::size_t>(target / 4));
+                }
+            }
+        }
+        if (reached_register_branch) from_load.assign(words, true);  // the branch may re-enter any word (guard ii)
+        for (const auto site : islands) {
+            if (from_load[site] && reaches_store(begin, words, site, t)) flagged.push_back(base + 4 * site);
+        }
+    }
+    std::ranges::sort(flagged);
+    flagged.erase(std::ranges::unique(flagged).begin(), flagged.end());
+    return flagged;
+}
+}  // namespace oracle
+
+// With both limits on the oracle finds no unsound island; with one off it flags the island that rests on
+// that limit — FA's on the call/return limit, the section-exit island on limit 2 — so each dependence
+// is visible and counted (the lead's step-D condition 2).
+TEST(the_brute_force_oracle_flags_the_toggle_dependent_islands) {
+    std::vector<std::uint32_t> fa{0xc85f7c08, 0x8b120109, 0x94000001};  // ldxr; add x9,x8,x18; bl
+    fa.insert(fa.end(), 62, 0xd503201f);                                // nops past 64 words
+    fa.push_back(0xc80a7c09);                                           // stxr across the call
+    const std::uint32_t sx[] = {0xc85f7c08, 0x8b120109, 0xb5002009};    // ldxr; add x9,x8,x18; cbnz out of section
+
+    using oracle::flags;
+    const std::vector<std::uint64_t> fa_site{0x1004}, sx_site{0x1004}, none{};
+    CHECK(flags(fa.data(), fa.data() + fa.size(), 0x1000, {true, true}) == none);
+    CHECK(flags(sx, sx + std::size(sx), 0x1000, {true, true}) == none);
+    CHECK(flags(fa.data(), fa.data() + fa.size(), 0x1000, {false, true}) == fa_site);  // rests on call/return
+    CHECK(flags(sx, sx + std::size(sx), 0x1000, {true, false}) == sx_site);  // rests on the section-exit limit
 }
 
 // The relocated island: x18 becomes the scratch everywhere, the guest value is loaded before and
