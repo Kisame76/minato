@@ -30,7 +30,6 @@ android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- an
 android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2 (Grafik)
 android.hardware.camera2.CaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession  # gap: category 3's camera2 (Grafik)
-android.location.ILocationManager <- android.os.SystemClock  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: (Planung) not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.net.IpConfiguration <- android.net.wifi.WifiConfiguration  # gap: (App) Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
@@ -94,3 +93,7 @@ android.os.PermissionEnforcer <- android.app.IAlarmManager  # gap: not taken yet
 android.view.contentcapture.ContentCaptureContext <- android.view.contentcapture.ContentCaptureSession  # stays: content capture is off, no session is ever made (ContentCaptureSession is the API for View's field)
 android.view.contentcapture.ContentCaptureSessionId <- android.view.contentcapture.ContentCaptureSession  # stays: content capture is off, no session is ever made
 android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts
+android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub, which the local vibrator manager service never runs (gap 1, batch 3)
+android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), not taken; the local location service delivers none
+android.location.GnssMeasurementCorrections <- android.location.ILocationManager, android.location.LocationManager  # gap: injectGnssMeasurementCorrections, a system API (ADR-0063 step 1b), not taken
+android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs; no app reflects over a binder interface

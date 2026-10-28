@@ -1,0 +1,8 @@
+I/system-services-test-unpermitted: start
+I/system-services-test-unpermitted: vibrator: android.os.SystemVibrator, the same by class true
+I/system-services-test-unpermitted: vibrator manager: android.os.SystemVibratorManager, the same by name true
+I/system-services-test-unpermitted: default vibrator: android.os.SystemVibrator
+I/system-services-test-unpermitted: vibrate: java.lang.SecurityException
+I/system-services-test-unpermitted: cancel: java.lang.SecurityException
+I/system-services-test-unpermitted: haptic feedback for a long press sent
+I/system-services-test-unpermitted: done

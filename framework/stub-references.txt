@@ -20,9 +20,6 @@ android.os.PermissionEnforcer <- android.app.IAlarmManager  # stays: IAlarmManag
 android.app.time.UnixEpochTime <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
 android.app.timedetector.ITimeDetectorService <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
 android.app.timedetector.ITimeDetectorService$Stub <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
-android.location.ILocationManager <- android.os.SystemClock  # gap: SystemClock.currentGnssTimeClock (API 33)
-android.location.ILocationManager$Stub <- android.os.SystemClock  # gap: SystemClock.currentGnssTimeClock (API 33)
-android.location.LocationTime <- android.os.SystemClock  # gap: SystemClock.currentGnssTimeClock (API 33)
 android.content.pm.IPackageManager <- android.content.pm.PackageManager  # stays: PackageManager's hidden static helpers, which ApplicationPackageManager does not use (b3.5a)
 android.app.PackageDeleteObserver <- android.content.pm.PackageManager  # stays: deleting packages, which ApplicationPackageManager never starts (b3.5a)
 com.android.internal.pm.parsing.PackageInfoCommonUtils <- android.content.pm.PackageManager  # stays: ApplicationPackageManager overrides getPackageArchiveInfo, as decision 7 rejects AOSP's parser (b3.5a)
@@ -129,7 +126,6 @@ android.hardware.input.InputDeviceVibratorManager <- android.hardware.input.Inpu
 android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings (gap 13)
 android.hardware.input.KeyboardLayoutPreviewDrawable <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
 android.hardware.input.PhysicalKeyLayout <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
-android.os.NullVibrator <- android.view.InputDevice  # gap: an input device's vibrator (InputDevice.getVibrator), which a device without one, as Minato's are, gets as NullVibrator; it comes with haptic feedback's Vibrator
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 
@@ -143,8 +139,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
-android.location.ILocationManager <- android.provider.Settings  # gap: Settings.Secure.isLocationProviderEnabled (deprecated), which asks the location service; decision 4's has no provider
-android.location.ILocationManager$Stub <- android.provider.Settings  # gap: as for ILocationManager
 android.os.PermissionEnforcer <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.permission.PermissionManager <- android.content.AttributionSource  # stays: AttributionSource.isTrusted for a source with a token, which only another process's source carries
 com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # gap: a MIME type's icon, as for Icon
@@ -265,3 +259,7 @@ android.view.translation.TranslationResponseValue <- android.view.translation.Vi
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.content.pm.LauncherApps <- android.appwidget.AppWidgetHostView  # stays: a widget host view's click launches the widget's activity through the launcher apps service, and Minato hosts no widget
+android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub and Proxy, which the local vibrator manager service never runs
+android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), which the local location service never delivers
+android.location.GnssMeasurementCorrections <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs
+android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILocationManager's Stub and Proxy, which the local location service never runs

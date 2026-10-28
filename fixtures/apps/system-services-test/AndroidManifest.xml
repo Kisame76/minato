@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of gap 1's batch 3 (the compatibility plan): system services that answered null, each asked as the
+     libraries that call it ask, in an activity whose window is attached (system-services-test). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.systemservices" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.VIBRATE"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.systemservices.ServicesActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

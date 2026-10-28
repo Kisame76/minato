@@ -675,6 +675,14 @@ run_app() {
       activity_class=.EditActivity
       limit=90
       ;;
+    # system-services-test (gap 1's batch 3 of the compatibility plan): its activity asks the services that answered
+    # null in Minato as the libraries do and ends with "done"; nothing to push or tap.
+    # system-services-test-unpermitted is its twin without the VIBRATE permission, from the same sources.
+    system-services-test | system-services-test-unpermitted)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.systemservices.ServicesActivity
+      limit=90
+      ;;
     # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with
     # "done"; the script has red.jpg and blue.jpg in Pictures and in MediaStore, and taps the thumbnails by their
     # descriptions (tools/ui-pick.py), the first is red.jpg.
