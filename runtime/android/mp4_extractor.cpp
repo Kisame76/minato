@@ -1,12 +1,11 @@
 // ADR-0060 e2d: libmediandk's ISO BMFF parser (mp4_extractor.h). The top level is walked on the source, box by box;
 // the moov box is read whole (at most kMaxMovieBytes) and parsed in memory through Span, whose every read is checked
-// against its end, so a box never reaches past the one that holds it. Sample tables are expanded into one Sample per
-// sample, at most kMaxSamples all tracks together; tables that disagree on the count end the track at the shortest
-// one, as Android's SampleTable refuses samples past what all its tables describe.
+// against its end, so a box never reaches past the one that holds it. Sample tables stay where the moov has them
+// (SampleTable); tables that disagree on the count end the track at the shortest one, as Android's SampleTable
+// refuses samples past what all its tables describe.
 #include "mp4_extractor.h"
 
 #include <algorithm>
-#include <array>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -74,11 +73,16 @@ bool next_box(Span& in, uint32_t* type, Span* body) {
     return !body->bad;
 }
 
+uint32_t be32(const uint8_t* bytes) {
+    return static_cast<uint32_t>(bytes[0]) << 24 | static_cast<uint32_t>(bytes[1]) << 16 |
+           static_cast<uint32_t>(bytes[2]) << 8 | static_cast<uint32_t>(bytes[3]);
+}
+
 struct Parser {
     std::vector<Track>* tracks;
     uint64_t source_length;  // the source's: a track's samples of one size never number more than it holds
+    std::shared_ptr<const std::vector<uint8_t>> movie;  // the moov's body, which the tracks' tables point into
     int error = 0;
-    size_t samples_left = kMaxSamples;  // what all tracks together may still make
     bool skip = false;  // the track being read is left out, as Android's verifyTrack leaves it out
 
     int fail(int answer) {
@@ -86,23 +90,19 @@ struct Parser {
         return error;
     }
 
-    // The sample tables of one track, read before they are combined.
+    // Which sample tables one track has, read before they are combined; `size_count` is stsz's count.
     struct Tables {
-        std::vector<uint32_t> sizes;  // stsz/stz2; empty with a constant size
-        uint32_t constant_size = 0;
         uint32_t size_count = 0;
-        std::vector<uint64_t> chunks;                      // stco/co64
-        std::vector<std::array<uint32_t, 2>> chunk_runs;   // stsc: first chunk, samples per chunk
-        std::vector<std::array<uint32_t, 2>> time_runs;    // stts: count, delta
-        std::vector<std::array<int64_t, 2>> offset_runs;   // ctts: count, offset
-        std::vector<uint32_t> syncs;                       // stss, 1-based; `has_syncs` false: all
-        bool has_syncs = false;
-        bool has_sizes = false, has_chunks = false, has_chunk_runs = false, has_times = false, has_offsets = false;
+        bool has_sizes = false, has_chunks = false, has_chunk_runs = false, has_times = false, has_offsets = false,
+             has_syncs = false;
     };
 
     // A count of entries of `entry` bytes each that the body must hold, or false (malformed).
-    static bool fits(const Span& body, uint64_t count, size_t entry) {
-        return count <= body.left() / entry && count <= kMaxSamples;
+    static bool fits(const Span& body, uint64_t count, size_t entry) { return count <= body.left() / entry; }
+
+    // The body's next `count` entries in the movie.
+    SampleTable::Entries entries(const Span& body, uint32_t count) const {
+        return SampleTable::Entries{static_cast<size_t>(body.data + body.at - movie->data()), count};
     }
 
     void read_avcc(Span body, Track& track) {
@@ -244,6 +244,7 @@ struct Parser {
     }
 
     void read_stbl(Span stbl, Track& track, Tables& tables) {
+        SampleTable& table = track.samples;
         uint32_t type = 0;
         Span body;
         // As Android's SampleTable, whose setters refuse a second table of a kind: such a file is malformed.
@@ -258,143 +259,112 @@ struct Parser {
             } else if (type == type_of("stsz")) {
                 if (twice(&tables.has_sizes)) return;
                 body.take(4);
-                tables.constant_size = body.u32();
+                table.constant_size = body.u32();
                 const uint32_t count = body.u32();
                 tables.size_count = count;
-                if (tables.constant_size == 0) {
+                if (table.constant_size == 0) {
                     if (!fits(body, count, 4)) return fail_void(kMalformed);
-                    tables.sizes.resize(count);
-                    for (uint32_t& size : tables.sizes) size = body.u32();
-                } else if (count > kMaxSamples) {
-                    return fail_void(kMalformed);
+                    table.sizes = entries(body, count);
                 }
             } else if (type == type_of("stz2")) {
                 if (twice(&tables.has_sizes)) return;
                 body.take(7);
                 const uint8_t field = body.u8();
                 const uint32_t count = body.u32();
-                if ((field != 4 && field != 8 && field != 16) || count > kMaxSamples ||
+                if ((field != 4 && field != 8 && field != 16) ||
                     static_cast<uint64_t>(count) * field > static_cast<uint64_t>(body.left()) * 8) {
                     return fail_void(kMalformed);
                 }
                 tables.size_count = count;
-                tables.sizes.resize(count);
-                for (uint32_t index = 0; index < count; index++) {
-                    if (field == 4) {
-                        const uint8_t pair = body.data[body.at + index / 2];
-                        tables.sizes[index] = index % 2 == 0 ? pair >> 4 : pair & 0xfu;
-                    } else {
-                        tables.sizes[index] = field == 8 ? body.u8() : body.u16();
-                    }
-                }
+                table.constant_size = 0;
+                table.sizes = entries(body, count);
+                table.size_bits = field;
             } else if (type == type_of("stco") || type == type_of("co64")) {
                 if (twice(&tables.has_chunks)) return;
                 body.take(4);
                 const uint32_t count = body.u32();
                 const size_t entry = type == type_of("stco") ? 4 : 8;
                 if (!fits(body, count, entry)) return fail_void(kMalformed);
-                tables.chunks.resize(count);
-                for (uint64_t& offset : tables.chunks) offset = body.number(entry);
+                table.chunks = entries(body, count);
+                table.chunk_bytes = static_cast<uint32_t>(entry);
             } else if (type == type_of("stsc")) {
                 if (twice(&tables.has_chunk_runs)) return;
                 body.take(4);
                 const uint32_t count = body.u32();
+                // The description index of each run is not read: the first description serves all.
                 if (!fits(body, count, 12)) return fail_void(kMalformed);
-                tables.chunk_runs.resize(count);
-                for (auto& run : tables.chunk_runs) {
-                    run[0] = body.u32();
-                    run[1] = body.u32();
-                    body.take(4);  // the description index: the first description serves all
-                }
+                table.chunk_runs = entries(body, count);
             } else if (type == type_of("stts")) {
                 if (twice(&tables.has_times)) return;
                 body.take(4);
                 const uint32_t count = body.u32();
                 if (!fits(body, count, 8)) return fail_void(kMalformed);
-                tables.time_runs.resize(count);
-                for (auto& run : tables.time_runs) {
-                    run[0] = body.u32();
-                    run[1] = body.u32();
-                }
+                table.time_runs = entries(body, count);
             } else if (type == type_of("ctts")) {
                 if (twice(&tables.has_offsets)) return;
-                body.take(4);  // version and flags: either version's offsets as signed (below)
+                body.take(4);  // version and flags: either version's offsets as signed (SampleTable::at)
                 const uint32_t count = body.u32();
                 if (!fits(body, count, 8)) return fail_void(kMalformed);
-                tables.offset_runs.resize(count);
-                for (auto& run : tables.offset_runs) {
-                    run[0] = body.u32();
-                    const uint32_t offset = body.u32();
-                    // Version 0's offsets are unsigned by the standard and taken as signed by Android and writers.
-                    run[1] = static_cast<int32_t>(offset);
-                }
+                table.offset_runs = entries(body, count);
             } else if (type == type_of("stss")) {
                 if (twice(&tables.has_syncs)) return;
                 body.take(4);
                 const uint32_t count = body.u32();
                 if (!fits(body, count, 4)) return fail_void(kMalformed);
-                tables.syncs.resize(count);
-                for (uint32_t& sync : tables.syncs) sync = body.u32();
+                table.has_syncs = true;
+                table.syncs = entries(body, count);
+                // Entries that do not rise are sorted once, into memory the stss box bounds, so that every lookup
+                // is a binary search and a read through the track never scans the table per sample.
+                const uint8_t* first = movie->data() + table.syncs.at;
+                bool rising = true;
+                for (uint32_t index = 1; index < count && rising; index++) {
+                    rising = be32(first + (index - 1) * 4) <= be32(first + index * 4);
+                }
+                if (!rising) {
+                    table.sorted_syncs.resize(count);
+                    for (uint32_t index = 0; index < count; index++) {
+                        table.sorted_syncs[index] = be32(first + index * 4);
+                    }
+                    std::sort(table.sorted_syncs.begin(), table.sorted_syncs.end());
+                }
             }
             if (body.bad) fail(kMalformed);
         }
         if (stbl.bad) fail(kMalformed);
     }
 
-    // The tables made into samples, as far as all of them describe samples.
+    // The count of samples all tables describe, and the largest sample's size; the tables stay in the movie.
     void combine(Track& track, const Tables& tables) {
         if (!tables.has_sizes || !tables.has_chunks || !tables.has_chunk_runs || !tables.has_times) {
             skip = true;  // as Android's verifyTrack: a track without its sample tables is left out
             return;
         }
-        size_t count = tables.size_count;
-        if (tables.sizes.empty() && tables.constant_size != 0) {
-            count = static_cast<size_t>(std::min<uint64_t>(count, source_length / tables.constant_size));
-        }
+        SampleTable& table = track.samples;
+        table.movie = movie;
+        const uint8_t* base = movie->data();
+        uint64_t count = tables.size_count;
+        if (table.constant_size != 0) count = std::min<uint64_t>(count, source_length / table.constant_size);
         uint64_t timed = 0;
-        for (const auto& run : tables.time_runs) timed += run[0];
-        count = static_cast<size_t>(std::min<uint64_t>(count, timed));
-        // The tracks share one budget, counted before the samples are made.
-        if (count > samples_left) return fail_void(kMalformed);
-        samples_left -= count;
-        track.samples.reserve(count);
-        // Chunks: run r covers chunks chunk_runs[r][0] to the next run's first, each of chunk_runs[r][1] samples.
-        size_t sample = 0;
-        for (size_t run = 0; run < tables.chunk_runs.size() && sample < count; run++) {
-            const uint64_t first = tables.chunk_runs[run][0];
-            const uint64_t end = run + 1 < tables.chunk_runs.size() ? tables.chunk_runs[run + 1][0]
-                                                                    : tables.chunks.size() + 1;
-            const uint32_t per_chunk = tables.chunk_runs[run][1];
-            if (first == 0 || end < first || end > tables.chunks.size() + 1) break;
-            for (uint64_t chunk = first; chunk < end && sample < count; chunk++) {
-                uint64_t offset = tables.chunks[chunk - 1];
-                for (uint32_t in = 0; in < per_chunk && sample < count; in++, sample++) {
-                    const uint32_t size = tables.sizes.empty() ? tables.constant_size : tables.sizes[sample];
-                    track.samples.push_back(Sample{offset, 0, size, 0});
-                    if (offset > std::numeric_limits<uint64_t>::max() - size) return fail_void(kMalformed);
-                    offset += size;
-                    track.largest_sample = std::max(track.largest_sample, size);
-                }
-            }
+        for (uint32_t run = 0; run < table.time_runs.count; run++) timed += be32(base + table.time_runs.at + run * 8);
+        count = std::min(count, timed);
+        // Chunks: run r covers chunks first(r) to the next run's first, each of its samples per chunk; the runs
+        // describe samples as far as they are in order and within the chunk table.
+        uint64_t chunked = 0;
+        for (uint32_t run = 0; run < table.chunk_runs.count && chunked < count; run++) {
+            const uint8_t* entry = base + table.chunk_runs.at + run * 12;
+            const uint64_t first = be32(entry);
+            const uint64_t end = run + 1 < table.chunk_runs.count ? be32(entry + 12) : table.chunks.count + 1ull;
+            if (first == 0 || end < first || end > table.chunks.count + 1ull) break;
+            chunked += (end - first) * be32(entry + 4);  // below 2^64: at most 2^32 chunks of 2^32 samples
         }
-        // Times: stts's deltas, then ctts's offsets for the samples it covers.
-        int64_t decode = 0;
-        size_t index = 0;
-        for (const auto& run : tables.time_runs) {
-            for (uint32_t in = 0; in < run[0] && index < track.samples.size(); in++, index++) {
-                track.samples[index].decode = decode;
-                decode += run[1];
-            }
+        table.samples = static_cast<size_t>(std::min(count, chunked));
+        if (table.constant_size != 0) {
+            track.largest_sample = table.samples == 0 ? 0 : table.constant_size;
+            return;
         }
-        index = 0;
-        for (const auto& run : tables.offset_runs) {
-            for (uint32_t in = 0; in < run[0] && index < track.samples.size(); in++, index++) {
-                track.samples[index].composition_offset = static_cast<int32_t>(run[1]);
-            }
-        }
-        track.sync.assign(track.samples.size(), !tables.has_syncs);
-        for (const uint32_t sync : tables.syncs) {
-            if (sync >= 1 && sync <= track.samples.size()) track.sync[sync - 1] = true;
+        // Read once here, in one pass without memory per sample.
+        for (size_t index = 0; index < table.samples; index++) {
+            track.largest_sample = std::max(track.largest_sample, table.size(index));
         }
     }
 
@@ -533,11 +503,6 @@ struct Parser {
     }
 };
 
-uint32_t be32(const uint8_t* bytes) {
-    return static_cast<uint32_t>(bytes[0]) << 24 | static_cast<uint32_t>(bytes[1]) << 16 |
-           static_cast<uint32_t>(bytes[2]) << 8 | static_cast<uint32_t>(bytes[3]);
-}
-
 // Reads exactly `size` bytes at `offset`, or false.
 bool read_exactly(const Source& source, uint64_t offset, void* data, size_t size) {
     if (offset > source.length || size > source.length - offset) return false;
@@ -583,9 +548,119 @@ int read_brands(const Source& source, uint64_t body, uint64_t size, bool* brande
 
 }  // namespace
 
+uint32_t SampleTable::word(const Entries& entries, size_t index, size_t bytes, size_t field) const {
+    return be32(movie->data() + entries.at + index * bytes + field * 4);
+}
+
+uint32_t SampleTable::size(size_t index) const {
+    if (constant_size != 0) return constant_size;
+    const uint8_t* table = movie->data() + sizes.at;
+    switch (size_bits) {
+        case 4: return index % 2 == 0 ? table[index / 2] >> 4 : table[index / 2] & 0xfu;
+        case 8: return table[index];
+        case 16: return static_cast<uint32_t>(table[index * 2]) << 8 | table[index * 2 + 1];
+        default: return be32(table + index * 4);
+    }
+}
+
+int SampleTable::at(size_t index, Sample* out) const {
+    if (index >= samples) return kMalformed;
+    // The chunk: the runs before the sample's are passed, from the cursor's run or, for an earlier sample, the first.
+    if (index < chunk_cursor_.first) chunk_cursor_ = Cursor{};
+    uint64_t first_chunk = 0, per_chunk = 0;
+    for (;; chunk_cursor_.run++) {
+        // The parse counted samples only as far as the runs are in order, so the sample's run is reached first.
+        const size_t run = chunk_cursor_.run;
+        first_chunk = word(chunk_runs, run, 12, 0);
+        per_chunk = word(chunk_runs, run, 12, 1);
+        const uint64_t end = run + 1 < chunk_runs.count ? word(chunk_runs, run + 1, 12, 0) : chunks.count + 1ull;
+        const uint64_t in_run = (end - first_chunk) * per_chunk;
+        if (index - chunk_cursor_.first < in_run) break;
+        chunk_cursor_.first += in_run;
+    }
+    const uint64_t chunk = first_chunk + (index - chunk_cursor_.first) / per_chunk;
+    const uint64_t chunk_first = chunk_cursor_.first + (chunk - first_chunk) * per_chunk;
+    // Its offset: the chunk's, plus the sizes of the chunk's samples before it, from the last sample found in the
+    // chunk when that one is not after it.
+    uint64_t sample = chunk_first, offset = 0;
+    if (cached_chunk_ == chunk && cached_sample_ >= chunk_first && cached_sample_ <= index) {
+        sample = cached_sample_;
+        offset = cached_offset_;
+    } else {
+        const uint8_t* entry = movie->data() + chunks.at + (chunk - 1) * chunk_bytes;
+        offset = chunk_bytes == 8 ? static_cast<uint64_t>(be32(entry)) << 32 | be32(entry + 4) : be32(entry);
+    }
+    if (constant_size != 0) {
+        uint64_t before = 0;
+        if (__builtin_mul_overflow(index - sample, uint64_t{constant_size}, &before) ||
+            __builtin_add_overflow(offset, before, &offset)) {
+            return kMalformed;
+        }
+    } else {
+        for (; sample < index; sample++) {
+            uint64_t next = 0;
+            if (__builtin_add_overflow(offset, size(sample), &next)) {
+                // The last sample whose offset holds is kept, so that the samples after it fail at once.
+                cached_chunk_ = chunk;
+                cached_sample_ = sample;
+                cached_offset_ = offset;
+                return kMalformed;
+            }
+            offset = next;
+        }
+    }
+    cached_chunk_ = chunk;
+    cached_sample_ = index;
+    cached_offset_ = offset;
+    const uint32_t bytes = size(index);
+    if (offset > std::numeric_limits<uint64_t>::max() - bytes) return kMalformed;
+    // Its decode time: the time runs before its own, then its place in its run.
+    if (index < time_cursor_.first) time_cursor_ = Cursor{};
+    // The sums stay below 2^64: fewer than 2^32 samples (stsz's count), each of a delta below 2^32.
+    for (;; time_cursor_.run++) {
+        const uint64_t many = word(time_runs, time_cursor_.run, 8, 0);
+        if (index - time_cursor_.first < many) break;
+        time_cursor_.start += many * word(time_runs, time_cursor_.run, 8, 1);
+        time_cursor_.first += many;
+    }
+    const uint64_t decode =
+        time_cursor_.start + (index - time_cursor_.first) * word(time_runs, time_cursor_.run, 8, 1);
+    if (decode > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) return kMalformed;
+    // Its composition offset: ctts's for the samples it covers, 0 past them. Version 0's offsets are unsigned by the
+    // standard and taken as signed by Android and writers.
+    if (index < offset_cursor_.first) offset_cursor_ = Cursor{};
+    int32_t composition_offset = 0;
+    for (; offset_cursor_.run < offset_runs.count; offset_cursor_.run++) {
+        const uint64_t many = word(offset_runs, offset_cursor_.run, 8, 0);
+        if (index - offset_cursor_.first < many) {
+            composition_offset = static_cast<int32_t>(word(offset_runs, offset_cursor_.run, 8, 1));
+            break;
+        }
+        offset_cursor_.first += many;
+    }
+    if (out != nullptr) *out = Sample{offset, static_cast<int64_t>(decode), bytes, composition_offset};
+    return 0;
+}
+
+bool SampleTable::is_sync(size_t index) const {
+    if (!has_syncs) return true;
+    if (index >= std::numeric_limits<uint32_t>::max()) return false;
+    const uint32_t wanted = static_cast<uint32_t>(index + 1);
+    if (!sorted_syncs.empty()) return std::binary_search(sorted_syncs.begin(), sorted_syncs.end(), wanted);
+    size_t low = 0, high = syncs.count;
+    while (low < high) {
+        const size_t middle = low + (high - low) / 2;
+        const uint32_t sync = word(syncs, middle, 4, 0);
+        if (sync == wanted) return true;
+        if (sync < wanted) low = middle + 1;
+        else high = middle;
+    }
+    return false;
+}
+
 int parse(const Source& source, std::vector<Track>* tracks) {
     tracks->clear();
-    std::vector<uint8_t> movie;
+    auto movie = std::make_shared<std::vector<uint8_t>>();
     uint64_t offset = 0;
     bool found = false, branded = false, data = false;
     // One box of the top level, on the source: ftyp, mdat, moov, free and others, each skipped by its size but the
@@ -614,11 +689,11 @@ int parse(const Source& source, std::vector<Track>* tracks) {
         data |= type == type_of("mdat");
         if (type == type_of("moov") && !found) {
             try {
-                movie.resize(static_cast<size_t>(size - length));
+                movie->resize(static_cast<size_t>(size - length));
             } catch (const std::bad_alloc&) {
                 return kNoMemory;
             }
-            if (!read_exactly(source, offset + length, movie.data(), movie.size())) return kIo;
+            if (!read_exactly(source, offset + length, movie->data(), movie->size())) return kIo;
             found = true;
         }
         offset += size;
@@ -634,8 +709,8 @@ int parse(const Source& source, std::vector<Track>* tracks) {
     }
     if (!found) return kMalformed;
     try {
-        Parser parser{tracks, source.length};
-        parser.read_moov(Span{movie.data(), movie.size(), 0, false});
+        Parser parser{tracks, source.length, movie};
+        parser.read_moov(Span{movie->data(), movie->size(), 0, false});
         if (parser.error != 0) {
             tracks->clear();
             return parser.error;
@@ -648,10 +723,10 @@ int parse(const Source& source, std::vector<Track>* tracks) {
 }
 
 long output_size(const Track& track, size_t index) {
-    if (index >= track.samples.size()) return kMalformed;
+    if (index >= track.samples.count()) return kMalformed;
     // As MPEG4Source::start: a track whose largest sample plus 20 bytes is above the buffer it allocates is refused.
     if (track.largest_sample > kMaxInputBytes - 20) return kMalformed;
-    const uint32_t size = track.samples[index].size;
+    const uint32_t size = track.samples.size(index);
     // A NAL length of fewer than 4 bytes becomes a 4-byte start code: at most 3 more bytes a unit of one byte or more.
     if (track.nal_length_size == 0 || track.nal_length_size == 4) return static_cast<long>(size);
     const uint64_t units = size / (track.nal_length_size + 1) + 1;
@@ -662,7 +737,8 @@ long read_sample(const Source& source, const Track& track, size_t index, uint8_t
     const long longest = output_size(track, index);
     if (longest < 0) return longest;
     if (capacity < static_cast<size_t>(longest)) return kNoMemory;
-    const Sample& sample = track.samples[index];
+    Sample sample;
+    if (track.samples.at(index, &sample) != 0) return kMalformed;
     if (sample.offset > source.length || sample.size > source.length - sample.offset) return kMalformed;
     if (track.nal_length_size == 0 || track.nal_length_size == 4) {
         if (!read_exactly(source, sample.offset, out, sample.size)) return kIo;
