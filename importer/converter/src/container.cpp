@@ -500,6 +500,20 @@ void refuse_darwin_syscall(const elf::File &file, std::span<const std::byte> elf
                                    more == 0 ? std::string() : std::format(" (and {} more)", more)));
 }
 
+void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_bytes,
+                         const rewrite::Findings &findings) {
+    if (findings.tpidrro_reads.empty()) return;
+    const auto address = findings.tpidrro_reads.front();
+    const auto word = file_bytes_at(file, elf_bytes, address, 4, "instruction");
+    std::uint32_t instruction;
+    std::memcpy(&instruction, word.data(), sizeof instruction);
+    const auto more = findings.tpidrro_reads.size() - 1;
+    throw Incompatible(std::format(
+        "mrs x{}, TPIDRRO_EL0 at {:#x} reads the Darwin TSD base (zero on Android), which a guest could name as an "
+        "exclusive target to clear an x18 island's monitor{}",
+        instruction & 0x1f, address, more == 0 ? std::string() : std::format(" (and {} more)", more)));
+}
+
 void refuse_unsupported_x18(const rewrite::Findings &findings) {
     if (!findings.x18_unsupported.empty()) throw Incompatible(x18_refusal(findings.x18_unsupported));
 }
@@ -546,6 +560,9 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     const auto &findings = scan.findings;
     report.code_bytes = scan.code_bytes;
     refuse_darwin_syscall(file, elf_bytes, findings);
+    // A guest mrs TPIDRRO_EL0 would read the Darwin TSD base, where the x18 islands keep the guest's x18; it could
+    // then name that granule as an exclusive target and clear an island's monitor (ADR-0020 step C, Q2).
+    refuse_tpidrro_read(file, elf_bytes, findings);
     // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a
     // scratch register instead (ADR-0020); a form no island handles makes the file incompatible.
     refuse_unsupported_x18(findings);
@@ -793,6 +810,7 @@ std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
     std::optional<CodeScan> scan;
     if (!attempt([&] { scan = scan_sections(*file, elf_bytes, *sections); })) return reasons;
     attempt([&] { refuse_darwin_syscall(*file, elf_bytes, scan->findings); });
+    attempt([&] { refuse_tpidrro_read(*file, elf_bytes, scan->findings); });
     attempt([&] { refuse_unsupported_x18(scan->findings); });
     // What convert() refuses only after these, in building the container (its size, a place outside the file, the
     // rewriter's and the writer's limits), shows when the tests above found nothing.

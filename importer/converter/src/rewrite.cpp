@@ -16,6 +16,7 @@ namespace {
 constexpr std::uint32_t register_mask = 0xffff'ffe0;
 constexpr std::uint32_t mrs_tpidr_el0 = 0xd53b'd040;
 constexpr std::uint32_t msr_tpidr_el0 = 0xd51b'd040;
+constexpr std::uint32_t mrs_tpidrro_el0_pattern = 0xd53b'd060;  // MRS Xt, TPIDRRO_EL0, register field cleared
 constexpr std::uint32_t svc_mask = 0xffe0'001f;  // keeps the 16-bit immediate out
 constexpr std::uint32_t svc = 0xd400'0001;
 
@@ -224,7 +225,7 @@ std::uint32_t ldur(unsigned rt, unsigned rn, std::int32_t offset) {
 }
 
 std::uint32_t mrs_tpidrro_el0(unsigned rt) {
-    return 0xd53b'd060 | reg(rt, 0);
+    return mrs_tpidrro_el0_pattern | reg(rt, 0);
 }
 
 /// SUB Xd, Xn, Xm.
@@ -1353,8 +1354,17 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     // Whether the scan is between a load-exclusive and the store-exclusive or CLREX that ends it.
     bool exclusive_sequence = false;
     for (std::size_t offset = 0; offset < code.size(); offset += 4) {
-        if (is_covered(offset)) continue;
         const auto instruction = word_at(code, offset);
+        // A guest read of TPIDRRO_EL0 yields the Darwin TSD base, where the x18 islands keep the guest's x18 (slot
+        // 11). It refuses the file wherever it appears: before is_covered, so a read inside a window another
+        // island relocates (which would copy and run it) is caught too; and before the x18 use below, so
+        // `mrs x18, TPIDRRO_EL0` is refused here rather than islanded as an ordinary x18 write. Android never
+        // reads TPIDRRO_EL0, as XNU and Linux leave it zero at EL0.
+        if ((instruction & register_mask) == mrs_tpidrro_el0_pattern) {
+            findings.tpidrro_reads.push_back(address + offset);
+            continue;
+        }
+        if (is_covered(offset)) continue;
         const std::uint64_t at = address + offset;
         const auto rt = static_cast<std::uint8_t>(instruction & 0x1f);
         const auto use = a64::register_use(instruction);

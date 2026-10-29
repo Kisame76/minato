@@ -36,7 +36,7 @@ uint64_t bench_exclusive_x17(uint64_t rounds, uint64_t *cell);
 uint64_t bench_jump_x18(uint64_t rounds, uint64_t *cell);
 uint64_t bench_jump_x17(uint64_t rounds, uint64_t *cell);
 uint64_t bench_thread_pointer(uint64_t rounds, uint64_t *cell);
-uint64_t bench_tpidrro(uint64_t rounds, uint64_t *cell);
+uint64_t bench_native_mrs(uint64_t rounds, uint64_t *cell);
 
 // A function that clang guards with a stack protector: it loads the guard through the thread
 // pointer at its start and compares it before it returns. It reads the thread pointer once and keeps
@@ -90,7 +90,7 @@ static const struct form forms[] = {
     {"x18 CBNZ, not taken", bench_cbnz_not_taken_x18, bench_cbnz_not_taken_x17, 16, false},
     {"x18 LL/SC window: LDXR, ADD, STXR", bench_exclusive_x18, bench_exclusive_x17, 16, false},
     {"x18 jump table: LDRSW, ADD, BR", bench_jump_x18, bench_jump_x17, 4, false},
-    {"thread pointer: mrs x3, TPIDR_EL0", bench_thread_pointer, bench_tpidrro, 16, true},
+    {"thread pointer: mrs x3, TPIDR_EL0", bench_thread_pointer, bench_native_mrs, 16, true},
     {"call of a function with a stack protector", call_guarded, call_unguarded, 1, false},
 };
 

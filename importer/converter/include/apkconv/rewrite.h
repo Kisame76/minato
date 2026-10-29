@@ -85,6 +85,11 @@ struct Findings {
     /// `svc #imm` with imm != 0. Left alone it would run whatever Darwin syscall x16 names (F5), and
     /// Android code has no reason to use one, so the converter refuses such a file.
     std::vector<std::uint64_t> other_syscalls;
+    /// `mrs xN, TPIDRRO_EL0` (any destination, x18 included). It reads the Darwin TSD base, where the x18
+    /// islands keep the guest's x18 (slot 11, ADR-0020). XNU and Linux leave TPIDRRO_EL0 zero at EL0 and Android
+    /// userspace never reads it, so Android code has no reason to; a guest that did could name an island's TSD
+    /// granule as an exclusive target and clear its monitor, so the converter refuses such a file.
+    std::vector<std::uint64_t> tpidrro_reads;
     /// Instructions that read x18, whose value XNU sets to zero at every context switch (F4).
     std::vector<std::uint64_t> x18_reads;
     /// Instructions that write x18 and do not read it.

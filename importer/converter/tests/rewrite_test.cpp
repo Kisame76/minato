@@ -150,6 +150,39 @@ TEST(scan_finds_the_three_patterns_and_nothing_else) {
     CHECK(findings.other_syscalls == std::vector<std::uint64_t>{0x1014});
 }
 
+// A guest mrs TPIDRRO_EL0 reads the Darwin TSD base the x18 islands use as scratch (slot 11). Android never reads
+// it (XNU/Linux leave it zero at EL0), so it is 0 over the corpus; the scan lists it so the converter refuses the
+// file. The destination register is caught too when it is x18: that form writes x18, so without the dedicated
+// check it would be taken for an ordinary x18 write and islanded, reading the real base into the guest's x18.
+TEST(scan_lists_every_tpidrro_read_so_the_file_is_refused) {
+    const std::uint32_t words[] = {
+        0xd53b'd065,  // mrs x5,  TPIDRRO_EL0
+        0xd53b'd072,  // mrs x18, TPIDRRO_EL0 (writes x18: still a read of the base, refuse, not an x18 island)
+    };
+    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, 0x2000, findings);
+    CHECK(findings.tpidrro_reads == (std::vector<std::uint64_t>{0x2000, 0x2004}));
+    CHECK(findings.sites.empty());       // never an x18 island
+    CHECK(findings.x18_writes.empty());  // the x18-destination form is not counted as an x18 write
+}
+
+// A TPIDRRO read inside a load-/store-exclusive window with an x18 use is refused too. The window machinery
+// would otherwise copy the read into a relocated island and run it, handing the guest the TSD base, so the
+// check must fire wherever the read sits, not only on instructions the per-use scan still reaches.
+TEST(a_tpidrro_read_inside_an_exclusive_window_is_still_refused) {
+    const std::uint32_t words[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'0432,  // add x18, x1, #1   (an x18 use: the window is a relocation candidate)
+        0xd53b'd065,  // mrs x5, TPIDRRO_EL0   (inside the window)
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
+    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, 0x3000, findings);
+    CHECK(findings.tpidrro_reads == (std::vector<std::uint64_t>{0x3008}));
+}
+
 TEST(scan_sorts_x18_into_reads_writes_and_register_dumps) {
     const auto size = address_of(ref_x18_end) - address_of(ref_x18);
     const std::span code(reinterpret_cast<const std::byte *>(ref_x18), size);

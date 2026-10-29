@@ -1,6 +1,6 @@
 // The loops of island-bench (ADR-0020 X6). Each form runs several times in a row per round, once
 // as the converter puts it into an island (x18, TPIDR_EL0) and once as a twin that it leaves alone
-// (x17, TPIDRRO_EL0). Every function is
+// (x17; a bare CTR_EL0 read for the thread-pointer form, see bench_native_mrs). Every function is
 //   uint64_t bench_<form>_<variant>(uint64_t rounds, uint64_t *cell)
 // and returns what its form computed, which the C part compares with the twin's. As in x18-test,
 // each function saves the caller's x18 and gives it back at its end: bionic points x18 at the
@@ -219,14 +219,18 @@ function bench_jump_x18
 function bench_jump_x17
     jump_loop x17
 
-// The thread pointer, which the converter puts into an island, and TPIDRRO_EL0, which it leaves
-// alone: the last value read.
+// The thread pointer, which the converter puts into an island. Its native twin is a bare MRS the
+// converter leaves alone, so the form's extra time is the island's cost above one native system-register
+// read. The twin reads DCZID_EL0, the DC ZVA block-size ID register: a read-only EL0 register that both
+// Linux and Darwin (macOS and iOS) allow at EL0, unlike the thread-pointer registers the converter
+// rewrites or refuses, and unlike CTR_EL0, which XNU traps at EL0. The C part never compares the twin's
+// value, only its time.
 function bench_thread_pointer
     rounds  16, mrs x3, tpidr_el0
     mov     x0, x3
     ret
-function bench_tpidrro
-    rounds  16, mrs x3, tpidrro_el0
+function bench_native_mrs
+    rounds  16, mrs x3, dczid_el0
     mov     x0, x3
     ret
 

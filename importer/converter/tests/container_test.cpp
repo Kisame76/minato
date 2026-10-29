@@ -816,6 +816,10 @@ TEST(refuses_what_cannot_run) {
     darwin_syscall.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
     CHECK_THROWS(Incompatible, convert(darwin_syscall), "svc #0x80 at 0x218");
 
+    auto tpidrro_read = static_program();
+    tpidrro_read.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0: reads the Darwin TSD base
+    CHECK_THROWS(Incompatible, convert(tpidrro_read), "TPIDRRO_EL0 at 0x218");
+
     auto register_branch = static_program();
     register_branch.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18: an indirect island now (X2e)
     register_branch.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: still refused, no island follows it
@@ -1063,6 +1067,11 @@ TEST(refusals_name_every_reason_a_file_has) {
     many_svc.put<std::uint32_t>(0x21c, 0xd400'1001);
     CHECK(contains(refusals(many_svc.bytes).at(0), "svc #0x80 at 0x218"));
     CHECK(contains(refusals(many_svc.bytes).at(0), "and 1 more"));
+    auto many_tpidrro = static_program();
+    many_tpidrro.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0
+    many_tpidrro.put<std::uint32_t>(0x21c, 0xd53b'd066);  // mrs x6, TPIDRRO_EL0
+    CHECK(contains(refusals(many_tpidrro.bytes).at(0), "TPIDRRO_EL0 at 0x218"));
+    CHECK(contains(refusals(many_tpidrro.bytes).at(0), "and 1 more"));
     auto two_relocations = static_program();
     two_relocations.dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 16}, {0, 0}});
     two_relocations.put<std::uint64_t>(0x160, 0x200);
