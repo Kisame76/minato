@@ -10,6 +10,7 @@
 #include "check.h"
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -359,6 +360,9 @@ struct Knobs {
     uint32_t stsd_flags = 0;      // each stsd's version and flags
     bool stsd_tail = false;       // 4 bytes in each stsd after its entries
     bool avcc_twice = false;      // a second avcC in the avc1 entry, of another SPS
+    Bytes avcc_body;              // not empty: the avcC's body
+    uint32_t hvcc_boxes = 1;      // hvcC boxes in an hvc1 entry
+    uint16_t hvcc_empty_units = 0;  // not 0: each hvcC's one array is this many units of no bytes
 };
 
 void put32(Bytes &out, uint32_t value) {
@@ -401,7 +405,9 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     const Bytes ftyp = box("ftyp", cat({{'i', 's', 'o', 'm'}, {0, 0, 2, 0}, {'i', 's', 'o', 'm'}}));
     // avcC: version 1, profile 66, compat 0, level 30, length size 4, one SPS and one PPS.
     const uint8_t length_size = static_cast<uint8_t>(0xfc | (knobs.nal_size - 1));
-    const Bytes avcc = box("avcC", {1, 66, 0, 30, length_size, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0, 2, 0x68, 0xce});
+    const Bytes avcc = box("avcC", !knobs.avcc_body.empty() ? knobs.avcc_body
+                                                             : Bytes{1, 66, 0, 30, length_size, 0xe1, 0, 4, 0x67, 66, 0,
+                                                                     30, 1, 0, 2, 0x68, 0xce});
     Bytes entry_body(6, 0);
     put16(entry_body, 1);                       // data reference index
     entry_body.insert(entry_body.end(), 16, 0);  // pre_defined, reserved
@@ -442,13 +448,62 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     esds.insert(esds.end(), descriptor.begin(), descriptor.end());
     const Bytes video_entry = box(knobs.encrypted ? "encv" : "avc1", visual);
     const Bytes audio_entry = box("mp4a", cat({sound, box("esds", esds)}));
+    // hvcC: version 1, Main profile, level 93, NAL length size 4, one array of a VPS (or of units of no bytes).
+    Bytes hvcc_body = {1, 1, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 93, 0xf0, 0, 0xfc, 0xfd, 0xf8, 0xf8, 0, 0, 0x0f, 1, 0x20};
+    const uint16_t units = knobs.hvcc_empty_units != 0 ? knobs.hvcc_empty_units : 1;
+    put16(hvcc_body, units);
+    for (uint16_t unit = 0; unit < units; unit++) {
+        if (knobs.hvcc_empty_units != 0) put16(hvcc_body, 0);
+        else hvcc_body.insert(hvcc_body.end(), {0, 2, 0x40, 1});
+    }
+    Bytes hevc_visual = entry_body;
+    const Bytes hvcc = box("hvcC", hvcc_body);
+    for (uint32_t index = 0; index < knobs.hvcc_boxes; index++) {
+        hevc_visual.insert(hevc_visual.end(), hvcc.begin(), hvcc.end());
+    }
+    // An esds whose DecoderConfigDescriptor is followed by a descriptor of tag 6, not a DecoderSpecificInfo.
+    Bytes odd_decoder = {0x40, 0x15, 0, 0, 0};
+    put32(odd_decoder, 128000);
+    put32(odd_decoder, 96000);
+    odd_decoder.insert(odd_decoder.end(), {6, 1, 2});
+    Bytes odd_esds = full(0);
+    odd_esds.insert(odd_esds.end(), {3, static_cast<uint8_t>(odd_decoder.size() + 5), 0, 1, 0, 4,
+                                     static_cast<uint8_t>(odd_decoder.size())});
+    odd_esds.insert(odd_esds.end(), odd_decoder.begin(), odd_decoder.end());
+    // An stsd entry by name: avc1, hvc1 and mp4a with their avcC, hvcC and esds, without them after a "-"; mp4v and
+    // Opus with the avcC after a "*"; avc1 with an esds of version and flags alone after it ("avc1+e") and mp4v with
+    // the AAC esds ("mp4v+e"); mp4a with its
+    // esds in a QuickTime wave ("mp4a~") or with one of a tag 6 after its config ("mp4a!"); avc1 and hvc1 with a
+    // configuration of no parameter sets ("avc1/0", "hvc1/0"); tx3g and others with none.
+    const auto sample_entry = [&](const std::string &name) {
+        if (name == "avc1") return video_entry;
+        if (name == "mp4a") return audio_entry;
+        if (name == "hvc1") return box("hvc1", hevc_visual);
+        if (name == "mp4v*") return box("mp4v", cat({entry_body, avcc}));
+        if (name == "Opus*") return box("Opus", cat({sound, avcc}));
+        if (name == "avc1+e") return box("avc1", cat({entry_body, avcc, box("esds", full(0))}));
+        if (name == "mp4v+e") return box("mp4v", cat({entry_body, box("esds", esds)}));
+        if (name == "mp4a~") {
+            return box("mp4a", cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}), box("esds", esds)}))}));
+        }
+        if (name == "mp4a!") return box("mp4a", cat({sound, box("esds", odd_esds)}));
+        if (name == "avc1/0") return box("avc1", cat({entry_body, box("avcC", {1, 66, 0, 30, length_size, 0xe0, 0})}));
+        if (name == "hvc1/0") {
+            Bytes empty(hvcc_body.begin(), hvcc_body.begin() + 22);
+            empty.push_back(0);
+            return box("hvc1", cat({entry_body, box("hvcC", empty)}));
+        }
+        const std::string type = name.substr(0, 4);
+        const bool sound_entry = type == "mp4a" || type == "Opus" || type == "samr" || type == "ac-3";
+        return box(type.c_str(), sound_entry ? sound : entry_body);
+    };
     Bytes stsd = box("stsd", cat({full(0), {0, 0, 0, 1}, config.empty() ? video_entry : audio_entry}));
     if (!knobs.stsds.empty()) {
         stsd.clear();
         for (const std::vector<std::string> &names : knobs.stsds) {
             Bytes body = full(knobs.stsd_flags);
             put32(body, knobs.stsd_claim != 0 ? knobs.stsd_claim : static_cast<uint32_t>(names.size()));
-            for (const std::string &name : names) body = cat({body, name == "mp4a" ? audio_entry : video_entry});
+            for (const std::string &name : names) body = cat({body, sample_entry(name)});
             if (knobs.stsd_tail) put32(body, 0);
             stsd = cat({stsd, box("stsd", body)});
         }
@@ -1347,6 +1402,142 @@ TEST(sample_descriptions_read_as_androids) {
         const Bytes pps{0, 0, 0, 1, 0x68, 0xee};
         CHECK(tracks[0].csd1.size == pps.size() && Bytes(tracks[0].csd1.data, tracks[0].csd1.data + 6) == pps);
     }
+}
+
+// As MPEG4Extractor: each entry Android knows names the track's codec in place of the one before (one it does not know
+// leaves it), every avcC, hvcC and esds in the entries stays, the track's final codec needs its own box at the trak's
+// end (verifyTrack), and its NAL length and csd come from that box (MPEG4Source, convertMessageToMetaData), whatever
+// boxes its other entries had (observed: an AAC track after an avc1 entry keeps its AudioSpecificConfig).
+TEST(the_final_codec_and_its_configuration_read_as_androids) {
+    const Bytes sps{0, 0, 0, 1, 0x67, 66, 0, 30}, vps{0, 0, 0, 1, 0x40, 1}, aac{0x12, 0x10};
+    struct Case {
+        std::vector<std::vector<std::string>> stsds;
+        const char *mime;  // nullptr: no track
+        uint32_t nal_length_size;
+        Bytes csd0;
+        int answer = 0;
+    };
+    const Case cases[] = {
+        {{{"avc1", "hvc1-"}}, nullptr, 0, {}},
+        {{{"hvc1", "avc1-"}}, nullptr, 0, {}},
+        {{{"avc1-"}, {"avc1"}}, "video/avc", 2, sps},
+        {{{"avc1-"}, {"mp4a"}}, "audio/mp4a-latm", 0, aac},
+        {{{"mp4a", "mp4v"}}, nullptr, 0, {}},
+        {{{"mp4v", "avc1"}}, "video/avc", 2, sps},
+        {{{"Opus"}, {"mp4a", "avc1"}}, nullptr, 0, {}},
+        {{{"avc1", "zzzz"}}, "video/avc", 2, sps},
+        {{{"avc1", "mp4a"}}, "audio/mp4a-latm", 0, aac},
+        {{{"avc1", "hvc1"}}, "video/hevc", 4, vps},
+        {{{"hvc1", "avc1"}}, "video/avc", 2, sps},
+        {{{"hvc1", "mp4a"}}, "audio/mp4a-latm", 0, aac},
+        {{{"hvc1"}}, "video/hevc", 4, vps},
+        {{{"tx3g"}, {"mp4a", "avc1"}}, "video/avc", 2, sps},
+        {{{"mp4v*", "avc1-"}}, "video/avc", 2, sps},
+        {{{"mp4a-"}}, nullptr, 0, {}},
+        {{{"avc1", "tx3g"}}, "video/avc", 2, sps},
+        {{{"avc1+e"}}, "video/avc", 2, sps},
+        {{{"mp4a~"}}, "audio/mp4a-latm", 0, aac},
+        {{{"mp4a!"}}, nullptr, 0, {}, minato::mp4::kMalformed},
+        {{{"avc1/0"}}, "video/avc", 2, {}},
+        {{{"hvc1/0"}}, "video/hevc", 4, {}},
+        {{{"Opus*", "avc1-"}}, nullptr, 0, {}},
+        {{{"mp4v+e", "mp4a-"}}, "audio/mp4a-latm", 0, aac},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.stsds = test.stsds;
+        knobs.nal_size = 2;  // the avcC's, the hvcC's being 4
+        minato::mp4::Tracks tracks;
+        const int answer = parsed(built_file(knobs), &tracks);
+        const bool kept = answer == 0 && tracks.size() == 1;
+        const bool right = answer == test.answer && tracks.size() == (test.mime == nullptr ? 0u : 1u) &&
+                           (!kept || (text(tracks[0].mime) == test.mime &&
+                                      tracks[0].nal_length_size == test.nal_length_size &&
+                                      bytes(tracks[0].csd0) == test.csd0));
+        CHECK(right);
+        if (right) continue;
+        std::string name;
+        for (const auto &stsd : test.stsds) {
+            name += "[";
+            for (const auto &entry : stsd) name += entry + " ";
+            name += "]";
+        }
+        std::fprintf(stderr, "  %s: answer %d, %zu tracks", name.c_str(), answer, tracks.size());
+        if (kept) {
+            std::fprintf(stderr, ", %s, NAL length %u, csd0 of %zu bytes", text(tracks[0].mime).c_str(),
+                         tracks[0].nal_length_size, tracks[0].csd0.size);
+        }
+        std::fprintf(stderr, "\n");
+    }
+}
+
+// The allocations the process makes while `counting`: ASan's malloc hook, which a realloc that moves calls too.
+std::atomic<size_t> allocations{0};
+std::atomic<bool> counting{false};
+}  // namespace
+
+extern "C" void __sanitizer_malloc_hook(const volatile void *, size_t) {
+    if (counting) allocations++;
+}
+
+namespace {
+
+// One hvcC of one array of as many units of no bytes as the csd holds: the csd made in one allocation, not grown by
+// each unit (which copies it once per unit, quadratic in the units).
+TEST(one_configuration_of_many_units_is_made_in_one_allocation) {
+#if defined(__has_feature) && __has_feature(address_sanitizer)
+    Knobs knobs;
+    knobs.stsds = {{"hvc1"}};
+    knobs.hvcc_empty_units = minato::mp4::kMaxCodecData / 4;
+    const Bytes file = built_file(knobs);
+    minato::mp4::Tracks tracks;
+    allocations = 0;
+    counting = true;
+    const int answer = parsed(file, &tracks);
+    counting = false;
+    CHECK(answer == 0 && tracks.size() == 1 && tracks[0].csd0.size == minato::mp4::kMaxCodecData);
+    CHECK(allocations < 100);
+    if (allocations >= 100) std::fprintf(stderr, "  %zu allocations\n", allocations.load());
+#endif
+}
+
+// One unit more than kMaxCodecData holds: the file is malformed, as Minato bounds a track's csd.
+TEST(a_configuration_past_the_codec_data_bound_is_malformed) {
+    Knobs knobs;
+    knobs.stsds = {{"hvc1"}};
+    knobs.hvcc_empty_units = minato::mp4::kMaxCodecData / 4 + 1;
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(knobs), &tracks) == minato::mp4::kMalformed);
+}
+
+// As convertMetaDataToMessage: every SPS of the avcC into csd-0 and every PPS into csd-1, each after a start code.
+TEST(every_parameter_set_goes_into_the_codec_data) {
+    Knobs knobs;
+    knobs.avcc_body = {1, 66, 0, 30, 0xff, 0xe2, 0, 4, 0x67, 66, 0, 30, 0, 4, 0x67, 66, 0, 31,
+                       2, 0, 2, 0x68, 0xce, 0, 2, 0x68, 0xcf};
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1);
+    if (tracks.size() != 1) return;
+    CHECK(bytes(tracks[0].csd0) == (Bytes{0, 0, 0, 1, 0x67, 66, 0, 30, 0, 0, 0, 1, 0x67, 66, 0, 31}));
+    CHECK(bytes(tracks[0].csd1) == (Bytes{0, 0, 0, 1, 0x68, 0xce, 0, 0, 0, 1, 0x68, 0xcf}));
+}
+
+// Each hvcC replaces the one before, as Android's csd-hevc does: a movie of many, of many units each, parses in time
+// linear in its size, its codec data made once from the last.
+TEST(many_configurations_parse_in_linear_time) {
+    Knobs knobs;
+    knobs.stsds = {{"hvc1"}};
+    knobs.hvcc_boxes = 1000;
+    knobs.hvcc_empty_units = 16000;
+    const Bytes file = built_file(knobs);
+    minato::mp4::Tracks tracks;
+    const auto start = std::chrono::steady_clock::now();
+    const int answer = parsed(file, &tracks);
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    CHECK(answer == 0 && tracks.size() == 1);
+    if (tracks.size() == 1) CHECK(tracks[0].csd0.size == 16000u * 4);
+    CHECK(seconds < 10);  // about 100 s with ASan when each box made the csd again, under 2 s once
+    if (seconds >= 10) std::fprintf(stderr, "  %.2f s\n", seconds);
 }
 
 // The AudioSpecificConfig as MPEG4Extractor's updateAudioTrackInfoFromESDS_MPEG4Audio reads it: the rate by its

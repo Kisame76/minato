@@ -296,6 +296,17 @@ void gapless(AMediaFormat *format, const mp4::Track &track, int64_t duration_us)
     }
 }
 
+// convertMetaDataToMessage's codec data, of the track's own box (the parser's csd): an AVC track's avcC's profile and
+// level, then its SPS as csd-0 and its PPS as csd-1; an HEVC track's hvcC's sets as csd-0, then its profile and
+// level; an AAC track's DecoderSpecificInfo as csd-0, then its profile. Each csd is there when it is empty too.
+void codec_keys(AMediaFormat *format, const mp4::Track &track) {
+    if (is_avc(track)) avc_profile(format, track);
+    AMediaFormat_setBuffer(format, "csd-0", track.csd0.data, track.csd0.size);  // empty for no sets or no info
+    if (is_avc(track)) AMediaFormat_setBuffer(format, "csd-1", track.csd1.data, track.csd1.size);
+    if (is_hevc(track)) hevc_profile(format, track);
+    if (!is_video(track)) aac_profile(format, track);
+}
+
 // A track's format: MPEG4Extractor's keys through convertMetaDataToMessage, in the order Android 15 lists them.
 void track_format(AMediaFormat *format, const mp4::Track &track) {
     const bool video = is_video(track);
@@ -334,18 +345,14 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
             const int64_t rate = (static_cast<int64_t>(track.frame_count) * 1000000 + (duration_us >> 1)) / duration_us;
             AMediaFormat_setInt32(format, "frame-rate", static_cast<int32_t>(rate));
         }
-        if (is_avc(track)) avc_profile(format, track);
-        if (is_hevc(track)) hevc_profile(format, track);
-        if (track.csd0.size > 0) AMediaFormat_setBuffer(format, "csd-0", track.csd0.data, track.csd0.size);
-        if (track.csd1.size > 0) AMediaFormat_setBuffer(format, "csd-1", track.csd1.data, track.csd1.size);
+        codec_keys(format, track);
     } else {
         AMediaFormat_setInt32(format, "channel-count", track.channels);
         AMediaFormat_setInt32(format, "sample-rate", track.sample_rate);
         if (timed) gapless(format, track, duration_us);
         AMediaFormat_setInt32(format, "aac-profile", static_cast<int32_t>(track.audio_object));
         AMediaFormat_setInt32(format, "max-input-size", static_cast<int32_t>(input));
-        if (track.csd0.size > 0) AMediaFormat_setBuffer(format, "csd-0", track.csd0.data, track.csd0.size);
-        aac_profile(format, track);
+        codec_keys(format, track);
     }
 }
 

@@ -117,12 +117,23 @@ struct Parser {
         return error;
     }
 
+    // An esds as ESDS reads it: its DecoderConfigDescriptor's object type and bit rates, and the DecoderSpecificInfo.
+    struct Esds {
+        uint8_t object = 0;
+        uint32_t max_bitrate = 0, avg_bitrate = 0;
+        Span info;  // empty without one
+    };
+
     // Which sample tables one track has, read before they are combined; `size_count` is stsz's count.
     struct Tables {
         uint32_t size_count = 0;
         bool has_sizes = false, has_chunks = false, has_chunk_runs = false, has_times = false, has_offsets = false,
              has_syncs = false;
         bool described = false;  // an stsd named the track's codec
+        // The last avcC, hvcC and esds in the track's sample entries, as MPEG4Extractor keeps them in the track's
+        // csd-avc, csd-hevc and esds, whichever entry they are in.
+        Span avcc, hvcc, esds;
+        bool has_avcc = false, has_hvcc = false, has_esds = false;
     };
 
     // A count of entries of `entry` bytes each that the body must hold, or false (malformed).
@@ -133,39 +144,54 @@ struct Parser {
         return SampleTable::Entries{static_cast<size_t>(body.data + body.at - movie), count};
     }
 
-    // A codec configuration in place of the one before, as MPEG4Extractor's setBuffer of csd-avc or csd-hevc.
-    static void drop_codec_data(Track& track) {
-        free(track.csd0.data);
-        free(track.csd1.data);
-        track.csd0 = Bytes{};
-        track.csd1 = Bytes{};
-    }
+    // A csd of parameter sets, each after a start code, made in one allocation: a configuration's walk runs twice,
+    // once to sum the sets' sizes (at most kMaxCodecData, else the file is malformed) and once to copy them.
+    struct Sets {
+        Bytes& csd;
+        size_t size = 0;
+        bool copying = false;
 
-    void read_avcc(Span body, Track& track) {
-        drop_codec_data(track);
-        keep_config(track, body);
-        body.take(4);  // version, profile, compatibility, level
-        track.nal_length_size = (body.u8() & 3u) + 1;
+        bool put(const Span& set) {
+            static const uint8_t start[] = {0, 0, 0, 1};
+            if (!copying) {
+                if (set.size + 4 > kMaxCodecData - size) return false;
+                size += 4 + set.size;
+                return true;
+            }
+            memcpy(csd.data + csd.size, start, 4);
+            memcpy(csd.data + csd.size + 4, set.data, set.size);
+            csd.size += 4 + set.size;
+            return true;
+        }
+        bool allocate() {
+            copying = true;
+            if (size == 0) return true;
+            csd.data = static_cast<uint8_t*>(malloc(size));
+            return csd.data != nullptr;
+        }
+    };
+
+    // An avcC's SPS into `sps` and PPS into `pps`; false for one that ends inside a set or has too many bytes.
+    static bool walk_avcc(Span body, Sets& sps, Sets& pps) {
+        body.take(5);  // version, profile, compatibility, level, NAL length size
         const uint8_t sps_count = body.u8() & 0x1f;
-        for (uint8_t index = 0; index < sps_count; index++) {
+        for (uint8_t index = 0; index < sps_count && !body.bad; index++) {
             const uint16_t length = body.u16();
             Span set = body.sub(length);
-            if (index == 0 && !set.bad) append_set(track.csd0, set);
+            if (!set.bad && !sps.put(set)) return false;
         }
         const uint8_t pps_count = body.u8();
-        for (uint8_t index = 0; index < pps_count; index++) {
+        for (uint8_t index = 0; index < pps_count && !body.bad; index++) {
             const uint16_t length = body.u16();
             Span set = body.sub(length);
-            if (index == 0 && !set.bad) append_set(track.csd1, set);
+            if (!set.bad && !pps.put(set)) return false;
         }
-        if (body.bad || track.csd0.size == 0) fail(kMalformed);
+        return !body.bad;
     }
 
-    void read_hvcc(Span body, Track& track) {
-        drop_codec_data(track);
-        keep_config(track, body);
-        body.take(21);
-        track.nal_length_size = (body.u8() & 3u) + 1;
+    // An hvcC's VPS, SPS and PPS into `sets`; false as walk_avcc.
+    static bool walk_hvcc(Span body, Sets& sets) {
+        body.take(22);  // to the NAL length size, which MPEG4Source reads
         const uint8_t arrays = body.u8();
         for (uint8_t array = 0; array < arrays && !body.bad; array++) {
             body.u8();  // completeness and the NAL unit type
@@ -173,24 +199,27 @@ struct Parser {
             for (uint16_t index = 0; index < count && !body.bad; index++) {
                 const uint16_t length = body.u16();
                 Span set = body.sub(length);
-                if (!set.bad) append_set(track.csd0, set);  // VPS, SPS and PPS, each after a start code
+                if (!set.bad && !sets.put(set)) return false;
             }
         }
-        if (body.bad || track.csd0.size == 0) fail(kMalformed);
+        return !body.bad;
     }
 
-    void append_set(Bytes& csd, const Span& set) {
-        if (csd.size + 4 + set.size > kMaxCodecData) {
-            fail(kMalformed);
-            return;
-        }
-        auto* grown = static_cast<uint8_t*>(realloc(csd.data, csd.size + 4 + set.size));
-        if (grown == nullptr) return fail_void(kNoMemory);
-        static const uint8_t start[] = {0, 0, 0, 1};
-        memcpy(grown + csd.size, start, 4);
-        memcpy(grown + csd.size + 4, set.data, set.size);
-        csd.data = grown;
-        csd.size += 4 + set.size;
+    // Every SPS of an avcC into csd0 and every PPS into csd1, as convertMetaDataToMessage copies them (none for
+    // none).
+    void split_avcc(const Span& body, Track& track) {
+        Sets sps{track.csd0}, pps{track.csd1};
+        if (!walk_avcc(body, sps, pps)) return fail_void(kMalformed);
+        if (!sps.allocate() || !pps.allocate()) return fail_void(kNoMemory);
+        walk_avcc(body, sps, pps);
+    }
+
+    // An hvcC's VPS, SPS and PPS into csd0 (none for no arrays, as hev1's sets may be in band).
+    void split_hvcc(const Span& body, Track& track) {
+        Sets sets{track.csd0};
+        if (!walk_hvcc(body, sets)) return fail_void(kMalformed);
+        if (!sets.allocate()) return fail_void(kNoMemory);
+        walk_hvcc(body, sets);
     }
 
     // A descriptor's length in ISO 14496-1's variable form, at most four bytes.
@@ -204,41 +233,54 @@ struct Parser {
         return length;
     }
 
-    // esds: ES_Descriptor (3) > DecoderConfigDescriptor (4) > DecoderSpecificInfo (5), the AudioSpecificConfig.
-    void read_esds(Span body, Track& track) {
-        body.take(4);  // version and flags
-        if (body.u8() != 3) return fail_void(kMalformed);
+    // esds: version and flags 0, as MPEG4Extractor's esds asks, then ES_Descriptor (3) > DecoderConfigDescriptor (4) >
+    // DecoderSpecificInfo (5), the only descriptor after the config's 13 bytes; false for one ESDS's InitCheck
+    // refuses.
+    static bool parse_esds(Span body, Esds& esds) {
+        if (body.u32() != 0 || body.u8() != 3) return false;
         Span es = body.sub(descriptor_length(body));
         es.take(2);  // ES_ID
         const uint8_t es_flags = es.u8();
         if (es_flags & 0x80) es.take(2);              // dependsOn_ES_ID
         if (es_flags & 0x40) es.take(es.u8());        // URL
-        if (es_flags & 0x20) es.take(2);              // OCR_ES_Id
-        if (es.u8() != 4) return fail_void(kMalformed);
+        if (es_flags & 0x20) {
+            es.take(2);  // OCR_ES_Id
+            // As ESDS: one "in the wild" has the flag but not the id, the DecoderConfigDescriptor right after.
+            if (!es.bad && (es.left() == 0 || es.data[es.at] != 4) && es.data[es.at - 2] == 4) es.at -= 2;
+        }
+        if (es.u8() != 4) return false;
         Span config = es.sub(descriptor_length(es));
-        const uint8_t object = config.u8();
+        esds.object = config.u8();
         config.take(4);  // stream type, buffer size
-        track.max_bitrate = config.u32();
-        track.avg_bitrate = config.u32();
-        if (object != 0x40 && object != 0x66 && object != 0x67 && object != 0x68) {
+        esds.max_bitrate = config.u32();
+        esds.avg_bitrate = config.u32();
+        if (config.left() > 0) {
+            if (config.u8() != 5) return false;
+            esds.info = config.sub(descriptor_length(config));
+            if (esds.info.bad || esds.info.size > kMaxCodecData) return false;
+        }
+        return !body.bad && !es.bad && !config.bad;
+    }
+
+    // An esds of version and flags 0 in any sample entry stays as the track's, as MPEG4Extractor's esds keeps it; in
+    // an mp4a, its config is the track's, as updateAudioTrackInfoFromESDS_MPEG4Audio reads it (a track of another
+    // object than AAC's is left out).
+    void read_esds(Span body, Track& track, Tables& tables, bool in_mp4a) {
+        Span head = body;
+        if (head.u32() != 0 || head.bad) return fail_void(kMalformed);
+        tables.esds = body;
+        tables.has_esds = true;
+        if (!in_mp4a) return;
+        Esds esds;
+        if (!parse_esds(body, esds)) return fail_void(kMalformed);
+        track.max_bitrate = esds.max_bitrate;
+        track.avg_bitrate = esds.avg_bitrate;
+        if (esds.object != 0x40 && esds.object != 0x66 && esds.object != 0x67 && esds.object != 0x68) {
             track.mime = nullptr;  // not AAC: a track this parser leaves out
             return;
         }
-        if (config.left() > 0 && config.u8() == 5) {
-            Span info = config.sub(descriptor_length(config));
-            if (info.bad || info.size > kMaxCodecData) return fail_void(kMalformed);
-            free(track.csd0.data);
-            track.csd0 = Bytes{};
-            if (info.size > 0) {
-                track.csd0.data = static_cast<uint8_t*>(malloc(info.size));
-                if (track.csd0.data == nullptr) return fail_void(kNoMemory);
-                memcpy(track.csd0.data, info.data, info.size);
-                track.csd0.size = info.size;
-            }
-            const int answer = read_audio_config(track);
-            if (answer != 0) return fail_void(answer);
-        }
-        if (body.bad || es.bad || config.bad) fail(kMalformed);
+        const int answer = read_audio_config(track, esds.info);
+        if (answer != 0) fail(answer);
     }
 
     void fail_void(int answer) { fail(answer); }
@@ -258,12 +300,12 @@ struct Parser {
     // MPEG4Extractor's updateAudioTrackInfoFromESDS_MPEG4Audio on the AudioSpecificConfig: its audio object type, and
     // the sampling rate and channel count in place of the sample entry's; 0, kMalformed or kUnsupported, which fail the
     // file.
-    static int read_audio_config(Track& track) {
+    static int read_audio_config(Track& track, const Span& config) {
         static const int32_t rates[] = {96000, 88200, 64000, 48000, 44100, 32000, 24000,
                                         22050, 16000, 12000, 11025, 8000,  7350};
-        if (track.csd0.size == 0) return 0;  // the sample entry's values stay
-        if (track.csd0.size < 2) return kMalformed;
-        Bits bits{track.csd0.data, track.csd0.size * 8, 0};
+        if (config.size == 0) return 0;  // the sample entry's values stay
+        if (config.size < 2) return kMalformed;
+        Bits bits{config.data, config.size * 8, 0};
         uint32_t object = bits.get(5);
         if (object == 31) object = 32 + bits.get(6);  // the escape
         track.audio_object = object;
@@ -284,7 +326,7 @@ struct Parser {
             if (bits.left() < 4) return kMalformed;
             const uint32_t extension = bits.get(4);
             if (extension == 15) {
-                if (track.csd0.size < 8 || bits.left() < 24) return kMalformed;
+                if (config.size < 8 || bits.left() < 24) return kMalformed;
                 bits.get(24);
             } else if (extension == 13 || extension == 14) {
                 return kMalformed;
@@ -354,7 +396,7 @@ struct Parser {
 
     // As MPEG4Extractor's stsd: version and flags 0; more than one entry in a track an earlier stsd described leaves it
     // out ("only a single type of media per track"); else each entry in turn, the codec of each in place of the one
-    // before, and the entries fill the box. An AVC or HEVC track left without its avcC or hvcC is left out.
+    // before, and the entries fill the box.
     void read_stsd(Span body, Track& track, Tables& tables) {
         if (body.u32() != 0) return fail_void(kMalformed);
         const uint32_t entries = body.u32();
@@ -369,31 +411,45 @@ struct Parser {
             if (!next_box(body, &type, &entry)) return fail_void(kMalformed);
             read_sample_entry(type, entry, track, tables);
         }
-        if (error == 0 && body.left() != 0) return fail_void(kMalformed);
-        const bool coded = track.mime != nullptr && strncmp(track.mime, "video/", 6) == 0;
-        if (coded && track.nal_length_size == 0) skip = true;  // no avcC or hvcC: no codec configuration
+        if (error == 0 && body.left() != 0) fail(kMalformed);
     }
 
+    // As MPEG4Extractor's sample entries: one Android knows names the track's codec in place of the one before
+    // (Minato reads AVC, HEVC and AAC and leaves a track of another out), and the avcC, hvcC and esds among its boxes
+    // and in a QuickTime wave stay as the track's (Tables); one that names no codec (tx3g, whose text track's type
+    // comes from its hdlr) or that Android does not know (avc3 among them) changes nothing. The boxes of ac-3, ec-3,
+    // ac-4 and mett are not read, nor those of Opus and alac, whose entries Android reads to their end itself.
     void read_sample_entry(uint32_t type, Span entry, Track& track, Tables& tables) {
         if (type == type_of("encv") || type == type_of("enca")) return fail_void(kUnsupported);
-        const bool avc = type == type_of("avc1") || type == type_of("avc3");
-        const bool hevc = type == type_of("hvc1") || type == type_of("hev1");
-        if (avc || hevc) {
-            tables.described = true;
+        static constexpr uint32_t visual[] = {
+            type_of("mp4v"), type_of("s263"), type_of("H263"), type_of("h263"), type_of("avc1"),
+            type_of("hvc1"), type_of("hev1"), type_of("dvav"), type_of("dva1"), type_of("dvhe"),
+            type_of("dvh1"), type_of("dav1"), type_of("av01"), type_of("vp09")};
+        static constexpr uint32_t sound[] = {
+            type_of("mp4a"), type_of("samr"), type_of("sawb"), type_of("Opus"), type_of("twos"), type_of("sowt"),
+            type_of("alac"), type_of("fLaC"), type_of(".mp3"), type_of("ms\0U"), type_of("mha1"), type_of("mhm1"),
+            type_of("dtsc"), type_of("dtse"), type_of("dtsh"), type_of("dtsl"), type_of("dtsx")};
+        static constexpr uint32_t other[] = {type_of("ac-3"), type_of("ec-3"), type_of("ac-4"), type_of("mett")};
+        const auto listed = [type](const uint32_t* names, size_t count) {
+            for (size_t index = 0; index < count; index++) {
+                if (names[index] == type) return true;
+            }
+            return false;
+        };
+        const bool is_visual = listed(visual, sizeof visual / sizeof *visual);
+        const bool is_sound = listed(sound, sizeof sound / sizeof *sound);
+        if (!is_visual && !is_sound && !listed(other, sizeof other / sizeof *other)) return;
+        tables.described = true;
+        track.mime = type == type_of("avc1")                               ? "video/avc"
+                     : type == type_of("hvc1") || type == type_of("hev1") ? "video/hevc"
+                     : type == type_of("mp4a")                             ? "audio/mp4a-latm"
+                                                                           : nullptr;
+        if (is_visual) {
             entry.take(24);
             track.width = entry.u16();
             track.height = entry.u16();
             entry.take(50);
-            track.mime = avc ? "video/avc" : "video/hevc";
-            Span part;
-            for (uint32_t inner = 0; next_box(entry, &inner, &part);) {
-                if (inner == type_of("sinf")) return fail_void(kUnsupported);
-                if (avc && inner == type_of("avcC")) read_avcc(part, track);
-                if (hevc && inner == type_of("hvcC")) read_hvcc(part, track);
-            }
-        } else if (type == type_of("mp4a")) {
-            tables.described = true;
-            track.nal_length_size = 0;  // AAC's samples are read as they are
+        } else if (is_sound) {
             entry.take(8);
             const uint16_t version = entry.u16();
             entry.take(6);
@@ -402,14 +458,66 @@ struct Parser {
             track.sample_rate = static_cast<int32_t>(entry.u32() >> 16);
             if (version == 1) entry.take(16);
             if (version == 2) entry.take(36);
-            track.mime = "audio/mp4a-latm";
-            Span part;
-            for (uint32_t inner = 0; next_box(entry, &inner, &part);) {
-                if (inner == type_of("sinf")) return fail_void(kUnsupported);
-                if (inner == type_of("esds")) read_esds(part, track);
+        } else {
+            return;
+        }
+        if (entry.bad) return fail_void(kMalformed);
+        if (type == type_of("Opus") || type == type_of("alac")) return;
+        Span part;
+        for (uint32_t inner = 0; error == 0 && next_box(entry, &inner, &part);) {
+            if (inner == type_of("sinf")) return fail_void(kUnsupported);
+            if (inner == type_of("avcC")) {
+                tables.avcc = part;
+                tables.has_avcc = true;
+            } else if (inner == type_of("hvcC")) {
+                tables.hvcc = part;
+                tables.has_hvcc = true;
+            } else if (inner == type_of("esds")) {
+                read_esds(part, track, tables, type == type_of("mp4a"));
+            } else if (is_sound && inner == type_of("wave")) {
+                // Its esds, whose parent is not the mp4a, leaves the entry's rate and channels as they are.
+                Span wave;
+                for (uint32_t kind = 0; error == 0 && next_box(part, &kind, &wave);) {
+                    if (kind == type_of("esds")) read_esds(wave, track, tables, false);
+                }
+                if (part.bad) fail(kMalformed);
             }
         }
         if (entry.bad) fail(kMalformed);
+    }
+
+    // As verifyTrack at the trak's end: an AVC track needs an avcC, an HEVC track an hvcC and an AAC track an esds, or
+    // it is left out; its NAL length (MPEG4Source), csd and profile's bytes (convertMessageToMetaData, which takes
+    // csd-avc and csd-hevc by the MIME type) come from that box, whatever boxes its other entries had.
+    void configure(Track& track, const Tables& tables) {
+        const bool avc = strcmp(track.mime, "video/avc") == 0, hevc = strcmp(track.mime, "video/hevc") == 0;
+        if (avc ? !tables.has_avcc : hevc ? !tables.has_hvcc : !tables.has_esds) {
+            skip = true;
+            return;
+        }
+        if (avc) {
+            if (tables.avcc.size < 5) return fail_void(kMalformed);
+            track.nal_length_size = (tables.avcc.data[4] & 3u) + 1;
+        } else if (hevc) {
+            if (tables.hvcc.size < 22) return fail_void(kMalformed);
+            track.nal_length_size = (tables.hvcc.data[21] & 3u) + 1;
+        }
+        if (avc) {
+            keep_config(track, tables.avcc);
+            split_avcc(tables.avcc, track);
+        } else if (hevc) {
+            keep_config(track, tables.hvcc);
+            split_hvcc(tables.hvcc, track);
+        } else {
+            Esds esds;  // ESDS's InitCheck, which the format's conversion takes
+            if (!parse_esds(tables.esds, esds)) return fail_void(kMalformed);
+            const Span& info = esds.info;
+            if (info.size == 0) return;
+            track.csd0.data = static_cast<uint8_t*>(malloc(info.size));
+            if (track.csd0.data == nullptr) return fail_void(kNoMemory);
+            memcpy(track.csd0.data, info.data, info.size);
+            track.csd0.size = info.size;
+        }
     }
 
     void read_stbl(Span stbl, Track& track, Tables& tables) {
@@ -658,6 +766,7 @@ struct Parser {
             return false;
         }
         if (has_edits) read_elst(edits, track);
+        if (!skip && error == 0) configure(track, tables);
         if (!skip && error == 0) combine(track, tables);
         return !skip && error == 0;
     }

@@ -68,8 +68,13 @@ public class MediaExtractorApplication extends Application {
         }
     }
 
-    /** The JNI part's lines, those that start with "device " to the device tag. */
+    /**
+     * The JNI part's lines, those that start with "device " to the device tag, with a pause after every 10: liblog
+     * drops a line logd's socket cannot take at once (EAGAIN) and Log.i still answers 1, and the reference run reads
+     * logcat while this test logs hundreds of lines in a row (observed: 171 of 794 lost without the pauses).
+     */
     private static void logNative(String lines) {
+        int count = 0;
         for (String line : lines.split("\n")) {
             if (line.isEmpty()) continue;
             if (line.startsWith("device ")) {
@@ -77,6 +82,15 @@ public class MediaExtractorApplication extends Application {
             } else {
                 Log.i(TAG, line);
             }
+            if (++count % 10 == 0) pause();
+        }
+    }
+
+    private static void pause() {
+        try {
+            Thread.sleep(5);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 }
