@@ -1131,6 +1131,29 @@ TEST(a_device_record_carries_its_name) {
     call(nr_close, {unsigned_of(input.fd)});
 }
 
+TEST(a_device_name_is_utf8_that_java_takes_as_it_is) {
+    const auto input = open_input();
+    apkrt_device_event device{};
+    device.op = APKRT_DEVICE_ADDED;
+    device.device_id = 1001;
+    const auto named = [&](const char *name) {
+        std::memset(device.name, 0, sizeof device.name);
+        std::strcpy(device.name, name);
+        return apkrt_input_post_device(input.id, &device);
+    };
+    CHECK(named("Tastatur \xc3\xa9 \xe6\x97\xa5\xe6\x9c\xac") == 1);  // 2- and 3-byte characters
+    CHECK(named("\xf0\x9f\x98\x80") == 0);                              // U+1F600, a 4-byte form
+    CHECK(named("\xc3") == 0);                                              // a cut sequence
+    CHECK(named("a\xc3(") == 0);                                            // a bad continuation
+    CHECK(named("\x80") == 0);                                              // a continuation byte alone
+    CHECK(named("\xc0\xaf") == 0);                                         // an overlong 2-byte form
+    CHECK(named("\xe0\x80\xaf") == 0);                                     // an overlong 3-byte form
+    CHECK(named("\xed\xa0\x80") == 0);                                     // a surrogate, U+D800
+    CHECK(named("\xe2\x82") == 0);                                          // a 3-byte lead with one byte
+    CHECK(named("\xe2\x82\xac") == 1);                                     // U+20AC
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
 TEST(records_of_all_kinds_arrive_in_the_order_they_were_posted) {
     const auto input = open_input();
     const apkrt_key_event key = key_of(0, 29);

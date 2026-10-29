@@ -57,8 +57,13 @@
 //   swipe:<x1>:<y1>:<x2>:<y2>:<ms>  a finger's swipe from the first place to the second: DOWN, then a MOVE every
 //               period of the session's refresh rate with two samples, the period's middle and its end, on the
 //               line between the places, as UIKit hands the iPhone's coalesced touches, and UP at the second
-//               place <ms> after the DOWN, as `input swipe`'s. With a touch in the list, the start's
-//               INPUT_QUEUE_CREATED names an input channel (apkrt_input_add), else none, as before.
+//               place <ms> after the DOWN, as `input swipe`'s;
+//   hwkey:<code>, device:add, device:remove  (ADR-0068 step 7c2) the same key from a hardware keyboard, device 1000,
+//               and the keyboard's coming and going as a device record "Minato Keyboard" (SOURCE_KEYBOARD);
+//   key:<code>  (ADR-0045 step 7c2) a key of the virtual keyboard, device -1, at Android key code <code>: DOWN and UP
+//               at the same time on the session's input channel, as `input keyevent`'s. With a touch or a key in the
+//               list, the start's INPUT_QUEUE_CREATED names an input channel (apkrt_input_add), else none, as
+//               before.
 // The guest's surfaces (ADR-0043 c4) get windows of their own without a layer (headless_host.h): SURFACE_CREATED for a
 // make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
 // window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
@@ -194,12 +199,34 @@ struct Touch {
     bool swipe = false;
     float x1 = 0, y1 = 0, x2 = 0, y2 = 0;
     int milliseconds = 0;
+    /// A key step (ADR-0045 step 7c2): its Android key code, or -1 for a touch.
+    int key_code = -1;
+    /// A hardware keyboard step (ADR-0068 step 7c2): hwkey:<code> sets `hardware`; device:add and device:remove set
+    /// `device_op` to APKRT_DEVICE_ADDED or _REMOVED, else -1.
+    bool hardware = false;
+    int device_op = -1;
 };
 
-/// `step` as tap:<x>:<y> or swipe:<x1>:<y1>:<x2>:<y2>:<ms> with finite places and <ms> above 0; false for any
-/// other step.
+/// `step` as tap:<x>:<y> or swipe:<x1>:<y1>:<x2>:<y2>:<ms> with finite places and <ms> above 0, or key:<code> with
+/// a code of 0 or more; false for any other step.
 bool parse_touch(const std::string &step, Touch &touch) {
     int used = 0;
+    if (std::sscanf(step.c_str(), "key:%d%n", &touch.key_code, &used) == 1 && used == static_cast<int>(step.size()) &&
+        touch.key_code >= 0) {
+        return true;
+    }
+    used = 0;
+    if (std::sscanf(step.c_str(), "hwkey:%d%n", &touch.key_code, &used) == 1 &&
+        used == static_cast<int>(step.size()) && touch.key_code >= 0) {
+        touch.hardware = true;
+        return true;
+    }
+    touch.key_code = -1;
+    if (step == "device:add" || step == "device:remove") {
+        touch.device_op = step == "device:add" ? APKRT_DEVICE_ADDED : APKRT_DEVICE_REMOVED;
+        return true;
+    }
+    used = 0;
     if (std::sscanf(step.c_str(), "tap:%f:%f%n", &touch.x1, &touch.y1, &used) == 2 &&
         used == static_cast<int>(step.size()) && std::isfinite(touch.x1) && std::isfinite(touch.y1)) {
         touch.swipe = false;
@@ -634,6 +661,9 @@ bool answered(std::uint32_t serial, const char *what) {
     return false;
 }
 
+/// The host's hardware keyboard (ADR-0068 step 7c2): its device ID, above Android's own and the touchscreen's.
+constexpr std::int32_t kHardwareKeyboard = 1000;
+
 // AMOTION_EVENT_ACTION_DOWN, _UP and _MOVE, as guest_interface.h's struct apkrt_motion_event names them.
 constexpr std::int32_t kActionDown = 0, kActionUp = 1, kActionMove = 2;
 
@@ -663,6 +693,32 @@ void post_touch(std::uint64_t input, std::int32_t action, std::int64_t down, std
 /// as its `input swipe`, places on the line by its lerp, with a MOVE every period of `rate` holding two samples.
 void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
     const std::int64_t down = uptime();
+    if (touch.device_op >= 0) {
+        // The session's hardware keyboard: one device, which the host adds and removes.
+        apkrt_device_event device{};
+        device.op = touch.device_op;
+        device.device_id = kHardwareKeyboard;
+        device.sources = 0x101;  // SOURCE_KEYBOARD
+        std::strcpy(device.name, "Minato Keyboard");
+        if (apkrt_input_post_device(input, &device) != 1) {
+            std::fprintf(stderr, "apk-run: the post of a device failed\n");
+        }
+        return;
+    }
+    if (touch.key_code >= 0) {
+        // The virtual keyboard's key (device -1), or the hardware keyboard's, with AINPUT_SOURCE_KEYBOARD, down and up
+        // at once, as `input keyevent`.
+        apkrt_key_event key{};
+        key.down_time = key.event_time = down;
+        key.key_code = touch.key_code;
+        key.device_id = touch.hardware ? kHardwareKeyboard : -1;
+        key.source = 0x101;
+        for (const std::int32_t action : {0, 1}) {
+            key.action = action;
+            if (apkrt_input_post_key(input, &key) != 1) std::fprintf(stderr, "apk-run: the post of a key failed\n");
+        }
+        return;
+    }
     const apkrt_pointer_coords first{touch.x1, touch.y1, 1, 0};
     post_touch(input, kActionDown, down, 1, &down, &first);
     if (!touch.swipe) {

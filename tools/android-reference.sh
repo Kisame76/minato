@@ -1011,7 +1011,10 @@ run_app() {
   if [[ "$app" == key-test ]]; then
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its
     # window once it is done brings the display back, so that the runs after it start in touch mode as before.
-    { wait_for "$app" done && run input tap 645 1398; } || return 1
+    # ADR-0045 step 7c2: three keys from outside the app, KEYCODE_2, KEYCODE_B and KEYCODE_DEL, a second apart once it
+    # logs "channel: ready", as the host sends them through Minato's input channel.
+    { wait_for "$app" "channel: ready" && sleep 1 && run input keyevent 9 && sleep 1 && run input keyevent 30 &&
+      sleep 1 && run input keyevent 67 && wait_for "$app" done && run input tap 645 1398; } || return 1
   fi
   if [[ "$app" == second-windows-test ]]; then
     # ADR-0041 gap 4 (b2): a tap a second after each of the touches part's ready lines, at the places

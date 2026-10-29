@@ -268,15 +268,19 @@ sources_in(input_jni_sources "${SOURCES}/frameworks_base/core/jni"
 # The virtual keyboard's key character map (ADR-0045 step 7c1): Virtual.kcm's text as a C array with its NUL, which the
 # input service's native parses under Android's path (native/android_runtime/android_hardware_input_InputService.cpp),
 # rewritten only when the file changes.
-set(virtual_kcm "${SOURCES}/frameworks_base_keyboards/data/keyboards/Virtual.kcm")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${virtual_kcm}")
-file(READ "${virtual_kcm}" virtual_kcm_hex HEX)
-string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," virtual_kcm_bytes "${virtual_kcm_hex}")
-file(WRITE "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp.new"
-     "// Made by framework/CMakeLists.txt from Virtual.kcm (ADR-0045 step 7c1).\n"
-     "extern const char kVirtualKcm[];\nconst char kVirtualKcm[] = {${virtual_kcm_bytes}0};\n")
-configure_file("${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp.new" "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp"
-               COPYONLY)
+# Generic.kcm is built in the same way (ADR-0068 step 7c2), for the hardware keyboards the host adds.
+foreach(kcm Virtual Generic)
+  string(TOLOWER "${kcm}" kcm_lower)
+  set(kcm_file "${SOURCES}/frameworks_base_keyboards/data/keyboards/${kcm}.kcm")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${kcm_file}")
+  file(READ "${kcm_file}" kcm_hex HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," kcm_bytes "${kcm_hex}")
+  file(WRITE "${CMAKE_BINARY_DIR}/generated/${kcm_lower}_kcm.cpp.new"
+       "// Made by framework/CMakeLists.txt from ${kcm}.kcm (ADR-0045 step 7c1, ADR-0068 step 7c2).\n"
+       "extern const char k${kcm}Kcm[];\nconst char k${kcm}Kcm[] = {${kcm_bytes}0};\n")
+  configure_file("${CMAKE_BINARY_DIR}/generated/${kcm_lower}_kcm.cpp.new"
+                 "${CMAKE_BINARY_DIR}/generated/${kcm_lower}_kcm.cpp" COPYONLY)
+endforeach()
 
 # --- libandroid_runtime.so (ADR-0039 decision 10, b3.3): the natives of framework.jar's classes. AOSP's core/jni
 # files as they stand where they need only libandroidfw, liblog and Bionic's properties; ours (native/android_runtime)
@@ -349,7 +353,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_graphics_SurfaceTexture.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
             native/android_runtime/minato_gles.cpp native/android_runtime/android_hardware_input_InputService.cpp
-            "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp"
+            "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp" "${CMAKE_BINARY_DIR}/generated/generic_kcm.cpp"
             native/android_runtime/android_view_InputChannel.cpp
             native/android_runtime/android_view_InputEventReceiver.cpp
             native/android_runtime/android_os_Parcel.cpp native/android_runtime/minato_parcel.cpp)

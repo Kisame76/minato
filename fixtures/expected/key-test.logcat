@@ -17,4 +17,14 @@ I/key-test: KEYCODE_A: text "1", in touch mode false
 I/key-test: edit: down KEYCODE_DEL, unicode 0x0, device -1
 I/key-test: edit: up KEYCODE_DEL, unicode 0x0, device -1
 I/key-test: KEYCODE_DEL: text "", in touch mode false
+I/key-test: channel: ready
+I/key-test: edit: down KEYCODE_2, unicode 0x32, device -1
+I/key-test: edit: up KEYCODE_2, unicode 0x32, device -1
+I/key-test: channel KEYCODE_2: text "2", in touch mode false
+I/key-test: edit: down KEYCODE_B, unicode 0x62, device -1
+I/key-test: edit: up KEYCODE_B, unicode 0x62, device -1
+I/key-test: channel KEYCODE_B: text "2", in touch mode false
+I/key-test: edit: down KEYCODE_DEL, unicode 0x0, device -1
+I/key-test: edit: up KEYCODE_DEL, unicode 0x0, device -1
+I/key-test: channel KEYCODE_DEL: text "", in touch mode false
 I/key-test: done

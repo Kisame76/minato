@@ -8,7 +8,10 @@
  *     - The touchscreen, id 1, M3's input device (runtime/android/input.cpp:17): a finger's coordinates on the
  *       session's screen, its pressure and its touch and tool sizes, the axes M3's events carry. It has no keys, so
  *       its key character map is empty, as Android's are for such devices (step 7c1).
- *   - registerInputDevicesChangedListener keeps the listener: no device comes or goes yet.
+ *     - A hardware keyboard, when the host says it is there (ADR-0068 step 7c2): the host's device record becomes an
+ *       alphabetic external keyboard with Generic.kcm's map, the one EventHub gives a keyboard that has no map of its
+ *       own, and the listeners are told, as InputReader's device list change tells them.
+ *   - registerInputDevicesChangedListener keeps the listener, which hears of the host's keyboards coming and going.
  *   - The 10 methods that IInputManager.aidl guards with @EnforcePermission check the app's permission and throw
  *     SecurityException with PermissionEnforcer's message without it. Each but BLUETOOTH is a signature permission
  *     (decision 6); getInputDeviceBluetoothAddress then answers null, as for a device that is not a Bluetooth one.
@@ -31,6 +34,9 @@ import android.view.MotionEvent;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodSubtype;
 
+import android.os.RemoteException;
+import android.util.Log;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,12 +49,86 @@ public final class InputService extends IInputManager.Default {
     /** EventHub's descriptor of the virtual keyboard: its identifier's uniqueId, "<virtual>", hashed. */
     private static final String VIRTUAL_KEYBOARD_DESCRIPTOR = "a718a782d34bc767f4689c232d64d527998ea7fd";
 
+    private static final String TAG = "InputService";
+    /** The host's devices (ADR-0068 step 7c2), by the host's ID; their changes are told to the instance, if any. */
+    private static final List<InputDevice> sHostDevices = new ArrayList<>();
+    private static InputService sInstance;
+    private static int sGeneration;
+
     private final Binder mBinder = new Binder();
     private final List<IInputDevicesChangedListener> mListeners = new ArrayList<>();
     private InputDevice[] mDevices;
 
     private InputService() {
         mBinder.attachInterface(this, IInputManager.Stub.DESCRIPTOR);
+        synchronized (sHostDevices) {
+            sInstance = this;
+        }
+    }
+
+    /**
+     * A device record of the host (ADR-0068 step 7c2), on the main thread, from the input channel's receiver: a
+     * keyboard comes (op 0), goes (1) or changes (2).
+     */
+    public static void onHostDevice(int op, int id, int sources, int vendor, int product, String name) {
+        InputService service;
+        synchronized (sHostDevices) {
+            InputDevice known = null;
+            for (int i = sHostDevices.size() - 1; i >= 0; i--) {
+                if (sHostDevices.get(i).getId() == id) {
+                    known = sHostDevices.remove(i);
+                }
+            }
+            // A repeat of a record, which every window's channel may bring, changes nothing; so does the removal of
+            // a device that is not there.
+            if (op == 1 ? known == null : known != null && known.getName().equals(name)
+                    && known.getSources() == sources && known.getVendorId() == vendor
+                    && known.getProductId() == product) {
+                if (known != null) {
+                    sHostDevices.add(known);
+                }
+                return;
+            }
+            if (op != 1) {
+                sHostDevices.add(new InputDevice.Builder()
+                        .setId(id)
+                        .setName(name)
+                        .setDescriptor("minato-host-" + id)
+                        .setSources(sources)
+                        .setVendorId(vendor)
+                        .setProductId(product)
+                        .setGeneration(++sGeneration)
+                        .setExternal(true)
+                        .setKeyboardType(InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+                        .setKeyCharacterMap(nativeKeyboardKeyCharacterMap(id))
+                        .build());
+            }
+            service = sInstance;
+        }
+        if (service != null) {
+            service.devicesChanged();
+        }
+    }
+
+    /** InputReader's device list change: every device's ID and generation, to each listener. */
+    private void devicesChanged() {
+        InputDevice[] devices = devices();
+        int[] idAndGeneration = new int[devices.length * 2];
+        for (int i = 0; i < devices.length; i++) {
+            idAndGeneration[2 * i] = devices[i].getId();
+            idAndGeneration[2 * i + 1] = devices[i].getGeneration();
+        }
+        List<IInputDevicesChangedListener> listeners;
+        synchronized (mListeners) {
+            listeners = new ArrayList<>(mListeners);
+        }
+        for (IInputDevicesChangedListener listener : listeners) {
+            try {
+                listener.onInputDevicesChanged(idAndGeneration);
+            } catch (RemoteException e) {
+                Log.w(TAG, "A listener of the input devices is gone", e);
+            }
+        }
     }
 
     /** ServiceManager's maker for "input": the Binder that carries a new service. */
@@ -155,7 +235,14 @@ public final class InputService extends IInputManager.Default {
         if (mDevices == null) {
             mDevices = new InputDevice[] {virtualKeyboard(), touchscreen()};
         }
-        return mDevices;
+        synchronized (sHostDevices) {
+            InputDevice[] all = new InputDevice[mDevices.length + sHostDevices.size()];
+            System.arraycopy(mDevices, 0, all, 0, mDevices.length);
+            for (int i = 0; i < sHostDevices.size(); i++) {
+                all[mDevices.length + i] = sHostDevices.get(i);
+            }
+            return all;
+        }
     }
 
     /** EventHub's virtual keyboard: KEYBOARD, ALPHAKEY, DPAD and VIRTUAL, which InputReader reports as below. */
@@ -199,4 +286,7 @@ public final class InputService extends IInputManager.Default {
 
     /** The virtual keyboard's key character map, Virtual.kcm's, which libandroid_runtime holds (ADR-0045 step 7c1). */
     private static native KeyCharacterMap nativeVirtualKeyCharacterMap();
+
+    /** A hardware keyboard's key character map, Generic.kcm's, for the device `deviceId` (ADR-0068 step 7c2). */
+    private static native KeyCharacterMap nativeKeyboardKeyCharacterMap(int deviceId);
 }

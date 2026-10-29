@@ -47,6 +47,7 @@
 
 #include <APKRuntime/guest_interface.h>
 
+#include "android_view_KeyEvent.h"
 #include "android_view_MotionEvent.h"
 #include "core_jni_helpers.h"
 #include "minato_input_channel.h"
@@ -95,6 +96,11 @@ struct {
     jclass clazz;
     jmethodID myQueue;
 } gLooperClassInfo;
+
+struct {
+    jclass clazz;
+    jmethodID onHostDevice;
+} gInputServiceClassInfo;
 
 // libandroid's answers for what a record does not carry (runtime/android/input.cpp).
 constexpr int32_t kDeviceId = 1;
@@ -266,7 +272,16 @@ private:
 
     // A record as InputConsumer's messages: each sample of a MOVE, or the record's one event.
     void receive(Round &round, const apkrt_motion_event &record) {
-        // Keys, texts and devices (ADR-0068) are not delivered through this receiver yet: they are dropped.
+        // A key is a KeyEvent for the receiver as it is (ADR-0045 step 7c2); texts and devices (ADR-0068) are not
+        // delivered through this receiver yet: they are dropped.
+        if (record.kind == APKRT_INPUT_KEY) {
+            dispatchKey(round, reinterpret_cast<const apkrt_key_event &>(record));
+            return;
+        }
+        if (record.kind == APKRT_INPUT_DEVICE) {
+            deviceChanged(round.env, reinterpret_cast<const apkrt_device_event &>(record));
+            return;
+        }
         if (record.kind != APKRT_INPUT_MOTION) return;
         if (record.action == AMOTION_EVENT_ACTION_MOVE) {
             for (uint32_t sample = 0; sample < record.sample_count; ++sample) {
@@ -315,6 +330,44 @@ private:
         mBatch.samples.erase(mBatch.samples.begin(), end);
         dispatch(round, AMOTION_EVENT_ACTION_MOVE, sent.downTime, sent.pointerCount, sent.pointerIds,
                  sent.samples.data(), sent.samples.size());
+    }
+
+    // A device the host adds, removes or changes (ADR-0068 step 7c2): the input service of the process hears of it, as
+    // InputReader's device list change tells InputManagerService; the app's listeners hear from that.
+    void deviceChanged(JNIEnv *env, const apkrt_device_event &record) {
+        ScopedLocalRef<jstring> name(env, env->NewStringUTF(record.name));
+        env->CallStaticVoidMethod(gInputServiceClassInfo.clazz, gInputServiceClassInfo.onHostDevice,
+                                  static_cast<jint>(record.op), static_cast<jint>(record.device_id),
+                                  static_cast<jint>(record.sources), static_cast<jint>(record.vendor_id),
+                                  static_cast<jint>(record.product_id), name.get());
+        if (env->ExceptionCheck()) {
+            ALOGE("Exception reporting a device of the host.");
+            env->ExceptionClear();
+        }
+    }
+
+    // A KeyEvent, as InputConsumer's key message makes one, to the receiver's dispatchInputEvent.
+    void dispatchKey(Round &round, const apkrt_key_event &record) {
+        jobject receiver = mDisposed ? nullptr : round.receiver(mReceiverWeakGlobal, mName);
+        if (receiver == nullptr) return;
+        KeyEvent event;
+        event.initialize(InputEvent::nextId(), record.device_id, static_cast<uint32_t>(record.source),
+                         ui::LogicalDisplayId::DEFAULT, INVALID_HMAC, record.action, record.flags, record.key_code,
+                         record.scan_code, record.meta_state, record.repeat_count, record.down_time,
+                         record.event_time);
+        JNIEnv *env = round.env;
+        ScopedLocalRef<jobject> eventObj = android_view_KeyEvent_obtainAsCopy(env, event);
+        if (eventObj.get() == nullptr) {
+            ALOGW("channel '%s' ~ Failed to obtain key event object.", mName.c_str());
+            round.skipCallbacks = true;
+            return;
+        }
+        env->CallVoidMethod(receiver, gInputEventReceiverClassInfo.dispatchInputEvent, static_cast<jint>(++mSeq),
+                            eventObj.get());
+        if (env->ExceptionCheck()) {
+            ALOGE("Exception dispatching key event.");
+            round.skipCallbacks = true;
+        }
     }
 
     // A MotionEvent of `count` samples, the history and then its own, to the receiver's dispatchInputEvent.
@@ -464,6 +517,10 @@ int register_android_view_InputEventReceiver(JNIEnv *env) {
             GetMethodIDOrDie(env, clazz, "dispatchInputEvent", "(ILandroid/view/InputEvent;)V");
     gInputEventReceiverClassInfo.onBatchedInputEventPending =
             GetMethodIDOrDie(env, clazz, "onBatchedInputEventPending", "(I)V");
+    jclass service = FindClassOrDie(env, "android/hardware/input/InputService");
+    gInputServiceClassInfo.clazz = MakeGlobalRefOrDie(env, service);
+    gInputServiceClassInfo.onHostDevice =
+            GetStaticMethodIDOrDie(env, service, "onHostDevice", "(IIIIILjava/lang/String;)V");
     jclass looper = FindClassOrDie(env, "android/os/Looper");
     gLooperClassInfo.clazz = MakeGlobalRefOrDie(env, looper);
     gLooperClassInfo.myQueue = GetStaticMethodIDOrDie(env, looper, "myQueue", "()Landroid/os/MessageQueue;");

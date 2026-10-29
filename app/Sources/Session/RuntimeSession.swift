@@ -413,3 +413,47 @@ final class InputChannelSink: MotionEventSink {
         }
     }
 }
+
+/// The hardware keyboard's device and keys to the guest's input channel (ADR-0068 step 7c2): the first key adds the
+/// device, whose name the channel takes only as BMP UTF-8 within its bytes (`HardwareKeyboard.deviceName`). KeyDelivery
+/// offers the device again until a channel has taken it.
+final class KeyChannelSink: KeyPoster {
+    private lazy var delivery = KeyDelivery(poster: self)
+
+    /// The channel of the guest's input queue, 0 before it has one.
+    var channel: UInt64 {
+        get { delivery.channel }
+        set { delivery.channel = newValue }
+    }
+
+    func post(_ events: [KeyboardEvent]) {
+        delivery.post(events)
+    }
+
+    func postDevice(channel: UInt64, _ device: KeyboardDevice) -> Bool {
+        var record = apkrt_device_event()
+        record.op = Int32(APKRT_DEVICE_ADDED)
+        record.device_id = device.id
+        record.sources = device.sources
+        let name = Array(HardwareKeyboard.deviceName(device.name).utf8CString)
+        withUnsafeMutableBytes(of: &record.name) { bytes in
+            for (index, byte) in name.prefix(bytes.count).enumerated() {
+                bytes[index] = UInt8(bitPattern: byte)
+            }
+        }
+        return apkrt_input_post_device(channel, &record) == 1
+    }
+
+    func postKey(channel: UInt64, _ key: KeyRecord) -> Bool {
+        var record = apkrt_key_event()
+        record.action = key.action
+        record.key_code = key.keyCode
+        record.meta_state = key.metaState
+        record.repeat_count = key.repeatCount
+        record.down_time = key.downTime
+        record.event_time = key.eventTime
+        record.device_id = key.deviceID
+        record.source = key.source
+        return apkrt_input_post_key(channel, &record) == 1
+    }
+}

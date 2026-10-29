@@ -8,7 +8,9 @@
 #   - the virtual keyboard's key character map: what its keys type, a dead key, numbers, labels, matches, the events
 #     that type a string and a parcel round trip (7c1);
 #   - KEYCODE_1, KEYCODE_A and KEYCODE_DEL injected into the window, into an EditText with a DigitsKeyListener, which
-#     takes the digit, refuses the letter and deletes, and the touch mode, which the digit leaves (7c1).
+#     takes the digit, refuses the letter and deletes, and the touch mode, which the digit leaves (7c1);
+#   - KEYCODE_2, KEYCODE_B and KEYCODE_DEL sent by the host through the session's input channel, which type and
+#     refuse the same way (7c2).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/key-check.sh
 set -euo pipefail
@@ -26,7 +28,8 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh key-test >/dev/null
 
-python3 framework/tests/java_app_run.py key-test io.github.kisame76.minato.test.key \
+python3 framework/tests/java_app_run.py --lifecycle start,key:9,key:30,key:67 key-test \
+  io.github.kisame76.minato.test.key \
   io.github.kisame76.minato.test.key.KeyApplication build/art build/bionic/lib build/bionic/system build/hwui/lib \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" build/key-check build/framework-native/app_process64 build/framework/framework.jar \

@@ -569,9 +569,44 @@ extern "C" int apkrt_input_post_text(uint64_t id, const struct apkrt_text_event 
     return post_record(id, event);
 }
 
+/// Whether the NUL-terminated `name` (at most `size` bytes with its NUL) is UTF-8 that Java's JNI takes as it is: no
+/// bad sequence, no overlong form, no surrogate, nothing above U+FFFF (the 4-byte forms JNI wants as surrogate pairs)
+/// and no NUL inside.
+static bool jni_safe_name(const char *name, std::size_t size) {
+    const auto *bytes = reinterpret_cast<const unsigned char *>(name);
+    const void *end = std::memchr(name, 0, size);
+    if (end == nullptr) return false;
+    const std::size_t length = static_cast<std::size_t>(static_cast<const char *>(end) - name);
+    for (std::size_t at = 0; at < length;) {
+        const unsigned char lead = bytes[at];
+        std::size_t more = 0;
+        std::uint32_t code = lead;
+        if (lead < 0x80) {
+            ++at;
+            continue;
+        } else if (lead >= 0xc2 && lead <= 0xdf) {
+            more = 1;
+            code = lead & 0x1fu;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            more = 2;
+            code = lead & 0x0fu;
+        } else {
+            return false;  // a continuation byte, an overlong 2-byte lead, or a 4-byte form
+        }
+        if (at + more >= length) return false;
+        for (std::size_t i = 1; i <= more; ++i) {
+            if ((bytes[at + i] & 0xc0u) != 0x80u) return false;
+            code = (code << 6) | (bytes[at + i] & 0x3fu);
+        }
+        if ((more == 2 && code < 0x800) || (code >= 0xd800 && code <= 0xdfff)) return false;
+        at += more + 1;
+    }
+    return true;
+}
+
 extern "C" int apkrt_input_post_device(uint64_t id, const struct apkrt_device_event *device) {
     if (device == nullptr || device->op < 0 || device->op >= APKRT_DEVICE_OPS || device->device_id < 1 ||
-        std::memchr(device->name, 0, sizeof device->name) == nullptr) {
+        !jni_safe_name(device->name, sizeof device->name)) {
         return 0;
     }
     apkrt_device_event record = *device;

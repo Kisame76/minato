@@ -29,6 +29,8 @@ struct GameModeView: View {
             Task { @MainActor in session.windowLaidOut(pixels) }
         }, onTouches: { phase, changes, scale in
             session.touched(phase, changes, scale: scale)
+        }, onKeys: { phase, presses in
+            session.keyed(phase, presses)
         })
             .ignoresSafeArea()
             .overlay(alignment: .top) {

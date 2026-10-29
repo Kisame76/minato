@@ -940,8 +940,10 @@ struct apkrt_device_event {
     uint32_t kind;        // APKRT_INPUT_DEVICE
     int32_t vendor_id;
     int32_t product_id;
-    char name[64];        // UTF-8 with its NUL
+    char name[64];        // UTF-8 with its NUL: valid, nothing above U+FFFF, no NUL inside (Java takes it as it is)
 };
+// The host posts a device record to one channel, the first window's, and the guest ignores a record that repeats the
+// device it has.
 
 /// vsync_connect, AChoreographer's, once per instance: a new vsync channel. Returns its guest descriptor
 /// (close-on-exec), readable while the channel holds a tick it asked for or a period it has not read; -EMFILE

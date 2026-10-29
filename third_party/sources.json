@@ -625,9 +625,10 @@
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
       "license": "Apache-2.0",
       "files": [
+        "data/keyboards/Generic.kcm",
         "data/keyboards/Virtual.kcm"
       ],
-      "digest": "39f2aadeac8ed432323fcfb509d97c437aaeee59365ba98e01df361c24ecc4b3"
+      "digest": "bfebf0c15f6dcc8f9c5cf1b8b35aba939df1de8951ecff6ce7c83dac9371b11a"
     },
     {
       "name": "frameworks_native_keys",

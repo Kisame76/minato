@@ -1,0 +1,8 @@
+I/keyboard-test: ready: devices -1 1
+I/keyboard-test: added: Minato Keyboard, sources 0x101, keyboard type 2, external true, map's keyboard type 4, A 0x61, Shift+A 0x41, BUTTON_X falls back to KEYCODE_DEL
+I/keyboard-test: devices: -1 1 1000
+I/keyboard-test: key 1 KEYCODE_H: text "h", device 1000 known, source 0x101
+I/keyboard-test: key 2 KEYCODE_I: text "hi", device 1000 known, source 0x101
+I/keyboard-test: key 3 KEYCODE_DEL: text "h", device 1000 known, source 0x101
+I/keyboard-test: removed: known false, devices -1 1
+I/keyboard-test: done

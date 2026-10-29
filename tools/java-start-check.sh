@@ -65,6 +65,13 @@
 #              that took and what the certificate hand-over says
 #   LOGS       a folder that keeps each start's guest log and stdout, <app>-<start>.log and .out, and a screenshot
 #              <app>-<start>.png of a start that failed, which shows an alert's text
+#   KEYS       set: only key-test runs (ADR-0068 step 7c2); the typing is the operator's, as simctl sends no keys:
+#              the script waits for the app's "channel: ready", says what to type, and waits for its "done" (three key
+#              ups). Type 2, b and Delete with the Mac keyboard into the Simulator's window; the iOS Simulator tool
+#              reaches it too, but sends hardware keys for Delete, Return and the arrows only, and its text action is
+#              a paste (Cmd+V). Up to "channel: ready" the log must be Android 15's; the typed keys are not compared
+#              with Android's, since they may be any, but each must come from the hardware keyboard, device 1000, where
+#              Android's adb input is the virtual keyboard, -1.
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
@@ -152,6 +159,11 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-window-test io.github.kisame76.minato.test.mediawindow")
 # ADR-0043's test 1 on the iPhone only: its views' bounds are the iPhone 15 Pro Max's screen's, as the AVD's are.
 [[ "$ON_DEVICE" == no ]] || APPS+=("views-test io.github.kisame76.minato.test.views")
+# KEYS: key-test alone (ADR-0068 step 7c2), whose keys come from the operator's hands.
+if [[ -n "${KEYS:-}" ]]; then
+  APPS+=("key-test io.github.kisame76.minato.test.key")
+  ONLY=key-test
+fi
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -940,6 +952,59 @@ for line in lines[-40:]:
 sys.exit(1)
 EOF
 done
+
+# KEYS: key-test (ADR-0068 step 7c2) starts, logs "channel: ready" after the keys it injects itself, and takes the three
+# keys the operator types, 2, b and Delete, from the Simulator's hardware keyboard path; then "done".
+if [[ -n "${KEYS:-}" ]]; then
+  if begin_start key-test io.github.kisame76.minato.test.key 1; then
+    if await_line guest-log '^I/key-test: channel: ready$' 300; then
+      echo "type    now, in the Simulator's window: 2, then b, then Delete (the Mac keyboard path)"
+      if await_line guest-log '^I/key-test: done$' 300; then
+        ok "  the three keys arrived, $(seconds "$SEEN" "$(now)") s ago"
+        sleep 2
+      else
+        failed_line "no keys within 300 s" key-test-1
+      fi
+    else
+      failed_line 'no "channel: ready"' key-test-1
+    fi
+  fi
+  end_start key-test 1
+  python3 - "$WORK/key-test-1.log" fixtures/expected/key-test.logcat "$WORK" <<'EOF' || failures=$((failures + 1))
+import re
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+path, expected, work = sys.argv[1:]
+lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+ready = next((i for i, line in enumerate(lines) if line.endswith("key-test: channel: ready")), len(lines))
+# Up to "channel: ready" the log must be Android 15's: the map and the keys the app injects itself.
+failed = 0
+try:
+    compare_log("key-test", subprocess.CompletedProcess([], 0, "", "\n".join(lines) + "\n"), expected, {},
+                until="channel: ready")
+except SystemExit as exit_:
+    failed = exit_.code or 1
+# After it come the keys the operator typed, whichever they are: each one of the Simulator's hardware keyboard, which
+# the app sees as the host's device 1000 (Android's virtual keyboard is -1), as a down and an up, and the app's "done".
+typed = lines[ready + 1:]
+edits = [line for line in typed if re.search(r"key-test: edit: (down|up) ", line)]
+wrong = [line for line in edits if not line.endswith(", device 1000")]
+channel = [line for line in typed if re.search(r"key-test: channel KEYCODE_", line)]
+if len(channel) >= 3 and edits and not wrong and any(line.endswith("key-test: done") for line in typed):
+    print(f"ok      {len(edits)} key lines from the hardware keyboard, device 1000, and {len(channel)} typed results")
+    for line in typed:
+        print(f"        typed: {line}")
+else:
+    print("FAIL    the typed keys: expected 3 or more key results, all from device 1000, then done")
+    for line in typed:
+        print(f"      | {line}")
+    failed = 1
+sys.exit(failed)
+EOF
+fi
 
 echo "java start check: $failures failed"
 exit $((failures > 0))

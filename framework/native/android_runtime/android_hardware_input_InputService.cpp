@@ -14,13 +14,15 @@
 #include "android_view_KeyCharacterMap.h"
 #include "core_jni_helpers.h"
 
-// Virtual.kcm's text with its terminating NUL (framework/CMakeLists.txt).
+// Virtual.kcm's and Generic.kcm's texts with their terminating NUL (framework/CMakeLists.txt).
 extern const char kVirtualKcm[];
+extern const char kGenericKcm[];
 
 namespace android {
 namespace {
 
 constexpr const char *kVirtualKcmPath = "/system/usr/keychars/Virtual.kcm";
+constexpr const char *kGenericKcmPath = "/system/usr/keychars/Generic.kcm";
 
 jobject NativeVirtualKeyCharacterMap(JNIEnv *env, jclass) {
     base::Result<std::shared_ptr<KeyCharacterMap>> map =
@@ -33,9 +35,24 @@ jobject NativeVirtualKeyCharacterMap(JNIEnv *env, jclass) {
     return android_view_KeyCharacterMap_create(env, VIRTUAL_KEYBOARD_ID, std::make_unique<KeyCharacterMap>(**map));
 }
 
+// A hardware keyboard's map (ADR-0068 step 7c2): Generic.kcm, which EventHub loads for a keyboard without a map of
+// its own.
+jobject NativeKeyboardKeyCharacterMap(JNIEnv *env, jclass, jint deviceId) {
+    base::Result<std::shared_ptr<KeyCharacterMap>> map =
+            KeyCharacterMap::loadContents(kGenericKcmPath, kGenericKcm, KeyCharacterMap::Format::BASE);
+    if (!map.ok()) {
+        jniThrowExceptionFmt(env, "java/lang/IllegalStateException", "%s: %s", kGenericKcmPath,
+                             map.error().message().c_str());
+        return nullptr;
+    }
+    return android_view_KeyCharacterMap_create(env, deviceId, std::make_unique<KeyCharacterMap>(**map));
+}
+
 const JNINativeMethod gMethods[] = {
         {"nativeVirtualKeyCharacterMap", "()Landroid/view/KeyCharacterMap;",
          reinterpret_cast<void *>(NativeVirtualKeyCharacterMap)},
+        {"nativeKeyboardKeyCharacterMap", "(I)Landroid/view/KeyCharacterMap;",
+         reinterpret_cast<void *>(NativeKeyboardKeyCharacterMap)},
 };
 
 }  // namespace

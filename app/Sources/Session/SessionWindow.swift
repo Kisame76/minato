@@ -119,6 +119,9 @@ final class SessionLayersView: UIView {
     var onTopEdgeSwipe: () -> Void = {}
     /// Runs for every touch callback, with the touches that changed and the window's pixels per point.
     var onTouches: (TouchPhase, [TouchChange], Double) -> Void = { _, _, _ in }
+    /// Runs for the presses of a hardware keyboard's keys (ADR-0068 step 7c2): down or up, or cancelled, with the
+    /// keys that Android has a code for; the presses it does not know go on to UIKit.
+    var onKeys: (KeyPhase, [HardwareKeyPress]) -> Void = { _, _ in }
     private var swipeOpenedMenu = false
 
     override init(frame: CGRect) {
@@ -143,6 +146,43 @@ final class SessionLayersView: UIView {
         super.layoutSubviews()
         hostView.frame = bounds
         surfaces.laidOut()
+    }
+
+    // The keys of a hardware keyboard go to the first responder: the session's view, while it is in a window.
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { becomeFirstResponder() }
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = handKeys(.down, presses)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = handKeys(.up, presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = handKeys(.cancelled, presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    /// Hands the presses that have a hardware key and an Android code for it to the guest, in the order of their
+    /// times; returns the others, which are UIKit's (the Globe key, the system's shortcuts).
+    private func handKeys(_ phase: KeyPhase, _ presses: Set<UIPress>) -> Set<UIPress> {
+        var rest = presses
+        let keys = presses.compactMap { press -> HardwareKeyPress? in
+            guard let key = press.key,
+                  HardwareKeyboard.androidKeyCode(forHIDUsage: key.keyCode.rawValue) != nil else { return nil }
+            rest.remove(press)
+            return HardwareKeyPress(usage: key.keyCode.rawValue, timestamp: press.timestamp)
+        }.sorted { $0.timestamp < $1.timestamp }
+        if !keys.isEmpty { onKeys(phase, keys) }
+        return rest
     }
 
     /// Only a pan that starts at the top edge and goes down is the menu's swipe; the view spans the
@@ -353,6 +393,8 @@ struct MetalLayerView: UIViewRepresentable {
     var onLayout: (CGSize) -> Void
     /// A touch callback, with the window's pixels per point (ADR-0036, decision 3).
     var onTouches: (TouchPhase, [TouchChange], Double) -> Void
+    /// A hardware keyboard's presses (ADR-0068 step 7c2).
+    var onKeys: (KeyPhase, [HardwareKeyPress]) -> Void = { _, _ in }
 
     func makeUIView(context: Context) -> SessionLayersView {
         let view = SessionLayersView(frame: .zero)
@@ -365,6 +407,7 @@ struct MetalLayerView: UIViewRepresentable {
         view.onTopEdgeSwipe = onTopEdgeSwipe
         view.hostView.onLayout = onLayout
         view.onTouches = onTouches
+        view.onKeys = onKeys
     }
 }
 

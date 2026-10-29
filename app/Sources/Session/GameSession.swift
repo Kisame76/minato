@@ -64,6 +64,9 @@ final class GameSession {
     /// The guest's touches (ADR-0036, decision 3), and where they go.
     @ObservationIgnored private var touches = TouchTranslator(scale: 1)
     @ObservationIgnored private let motionSink = InputChannelSink()
+    /// The hardware keyboard's keys (ADR-0068 step 7c2), and where they go.
+    @ObservationIgnored private var keyboard = HardwareKeyboard()
+    @ObservationIgnored private let keySink = KeyChannelSink()
     /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers; there
     /// once the session opens, since it runs a thread of its own.
     @ObservationIgnored private var frameClock: DisplayLinkClock?
@@ -540,6 +543,22 @@ final class GameSession {
         #endif
         touches.scale = scale
         post(touches.translate(phase, changes))
+    }
+
+    /// A press callback of a hardware keyboard's keys, on the main thread.
+    func keyed(_ phase: KeyPhase, _ presses: [HardwareKeyPress]) {
+        let events: [KeyboardEvent]
+        switch phase {
+        case .down, .up:
+            events = presses.flatMap {
+                keyboard.press(usage: $0.usage, down: phase == .down, time: HardwareKeyboard.nanoseconds($0.timestamp))
+            }
+        case .cancelled:
+            events = keyboard.releaseAll(time: HardwareKeyboard.nanoseconds(presses.last?.timestamp ?? 0))
+        }
+        guard !events.isEmpty else { return }
+        keySink.channel = bridge.inputChannel ?? 0
+        keySink.post(events)
     }
 
     private func post(_ events: [MotionEvent]) {

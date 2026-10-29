@@ -220,10 +220,11 @@ The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched
 |---|---|---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/etc/platform.xml` | 18,104 | `4f1139ad764d74f3…` |
 
-The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework` on your go in the Planung chat (`build/sources/frameworks_base_keyboards`, digest `39f2aade…c4b3`). framework/CMakeLists.txt builds it into libandroid_runtime as a C array, which the input service parses under Android's path /system/usr/keychars/Virtual.kcm; nothing ships it as a file.
+The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework` on your go in the Planung chat (`build/sources/frameworks_base_keyboards`, digest `bfebf0c1…b11a` since ADR-0068 step 7c2, which added Generic.kcm, the map of a hardware keyboard, on the same standing rule for AOSP sources; the Planung chat's report gave its size). framework/CMakeLists.txt builds both into libandroid_runtime as C arrays, which the input service parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; nothing ships them as files.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Generic.kcm` | 15,940 | `4710a130708720a6…` |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Virtual.kcm` | 15,716 | `6356265ec24b7eb2…` |
 
 SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set framework` on your go of 2026-10-07 in the chat Formate (`build/sources/sqlite`, the entry `sqlite`, digest `6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships it in its guest system, with these texts under "Framework sources". libandroid_runtime.so's database natives (`core/jni`'s `android_database_*.cpp`, unchanged) link it, and framework.jar takes `core/java/android/database/sqlite` unchanged.
