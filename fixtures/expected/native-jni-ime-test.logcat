@@ -1,0 +1,40 @@
+I/native-jni-ime-test: window created: 1290 x 2796
+I/native-jni-ime-test: ready
+I/native-jni-ime-test: activity: android.app.NativeActivity
+I/native-jni-ime-test: getSystemService(input_method): android.view.inputmethod.InputMethodManager
+I/native-jni-ime-test: getWindow: com.android.internal.policy.PhoneWindow
+I/native-jni-ime-test: getDecorView: com.android.internal.policy.DecorView
+I/native-jni-ime-test: showSoftInput(decorView, SHOW_FORCED): false
+I/native-jni-ime-test: at the focus: isActive(decorView) 0, isActive() 0, isAcceptingText 0
+I/native-jni-ime-test: content view: android.app.NativeActivity$NativeContentView, isActive 0
+I/native-jni-ime-test: showSoftInput(contentView, SHOW_FORCED): 0
+I/native-jni-ime-test: decorView.requestFocus: 1
+I/native-jni-ime-test: after half a second: isActive(decorView) 1, isActive() 1, isAcceptingText 0
+I/native-jni-ime-test: showSoftInput(decorView, SHOW_FORCED) again: 1
+I/native-jni-ime-test: key down H, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key up H, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key down SHIFT_LEFT, meta 0x41, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key down H, meta 0x41, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key up H, meta 0x41, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key up SHIFT_LEFT, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key multiple UNKNOWN, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key multiple UNKNOWN, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key down DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: key up DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: key up ENTER, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key up ENTER, meta 0x0, flags 0x0, repeat 0, source 0x101
+I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x16, repeat 0, source 0x0
+I/native-jni-ime-test: key up ENTER, meta 0x0, flags 0x16, repeat 0, source 0x0
+I/native-jni-ime-test: soft input done: 16 key events
+I/native-jni-ime-test: hideSoftInputFromWindow: true
+I/native-jni-ime-test: pre-dispatched
+I/native-jni-ime-test: key down B, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: pre-dispatched
+I/native-jni-ime-test: key up B, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: pre-dispatched
+I/native-jni-ime-test: key down DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: pre-dispatched
+I/native-jni-ime-test: key up DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: done

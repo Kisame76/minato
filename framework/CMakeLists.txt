@@ -353,6 +353,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_graphics_HardwareRenderer.cpp
             native/android_runtime/android_graphics_SurfaceTexture.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
+            native/android_runtime/android_app_NativeActivity.cpp
             native/android_runtime/minato_gles.cpp native/android_runtime/android_hardware_input_InputService.cpp
             "${CMAKE_BINARY_DIR}/generated/virtual_kcm.cpp" "${CMAKE_BINARY_DIR}/generated/generic_kcm.cpp"
             native/android_runtime/android_view_InputChannel.cpp

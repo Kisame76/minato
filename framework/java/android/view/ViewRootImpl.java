@@ -107,6 +107,17 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     protected final ViewFrameInfo mViewFrameInfo = null;
     /** The window's surface, on the session's host window from NATIVE_WINDOW_CREATED to its DESTROYED (c3). */
     public final Surface mSurface = new Surface();
+    /**
+     * As AOSP's: the callback that took the window's surface (NativeActivity's, DecorView.willYouTakeTheSurface;
+     * ADR-0069 step 2) and its holder, null for a window whose tree draws; whether the callback was told of the
+     * surface, and the size it was told last.
+     */
+    SurfaceHolder.Callback2 mSurfaceHolderCallback;
+    private TakenSurfaceHolder mSurfaceHolder;
+    private boolean mTakenSurfaceCreated;
+    private boolean mTakenSurfaceCreating;
+    private int mTakenWidth = -1;
+    private int mTakenHeight = -1;
     int mCurScrollY;
     /** As AOSP's: what the next draw redraws, in the window's pixels; invalidateRectOnScreen unions into it. */
     final Rect mDirty = new Rect();
@@ -426,6 +437,12 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             // As AOSP's: what the app asked of the decor view's pending controller goes to the window's.
             if (view instanceof DecorView) {
                 ((DecorView) view).providePendingInsetsController().replayAndAttach(mInsetsController);
+                // As AOSP's: a window whose surface a callback takes gives it the surface, and its tree draws nothing.
+                mSurfaceHolderCallback = ((DecorView) view).willYouTakeTheSurface();
+                if (mSurfaceHolderCallback != null) {
+                    mSurfaceHolder = new TakenSurfaceHolder();
+                    mSurfaceHolder.addCallback(mSurfaceHolderCallback);
+                }
             }
             view.assignParent(this);
         }
@@ -728,6 +745,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mHostWindow = id;
             mDrawnSinceHostWindow = false;
             if (id != 0) {
+                takenSurfaceDestroyed();
                 try {
                     mSurface.transferFrom(WindowSurface.create(id, width, height));
                     setBuffersFormat();
@@ -752,6 +770,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 for (WindowSurfaceCallback callback : mWindowSurfaceCallbacks.toArray(new WindowSurfaceCallback[0])) {
                     callback.windowSurfaceDestroyed();
                 }
+                takenSurfaceDestroyed();
                 mSurface.release();
             }
         }
@@ -808,9 +827,146 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (mAttachInfo.mDisplayState == Display.STATE_OFF || mView == null) {
             return false;
         }
+        if (mSurfaceHolder != null) {
+            return drawTakenSurface();
+        }
         final boolean fullRedrawNeeded = mFullRedrawNeeded;
         mFullRedrawNeeded = false;
         return draw(fullRedrawNeeded);
+    }
+
+    /**
+     * A taken surface's draw (ADR-0069 step 2), as AOSP's performTraversals and performDraw tell its callbacks: once
+     * the window has a surface, surfaceCreated, then surfaceChanged with the window's format and size whenever the
+     * size is new, then surfaceRedrawNeeded for a full redraw (the first, a new surface's or size's, the host's
+     * REDRAW_NEEDED), which counts as the window's draw. The tree draws nothing.
+     */
+    private boolean drawTakenSurface() {
+        if (!mSurface.isValid()) {
+            return false;
+        }
+        final boolean fullRedrawNeeded = mFullRedrawNeeded;
+        mFullRedrawNeeded = false;
+        final SurfaceHolder.Callback[] callbacks = mSurfaceHolder.callbacks();
+        if (!mTakenSurfaceCreated) {
+            mTakenSurfaceCreated = true;
+            mTakenSurfaceCreating = true;
+            for (SurfaceHolder.Callback callback : callbacks) {
+                callback.surfaceCreated(mSurfaceHolder);
+            }
+        }
+        if (mWidth != mTakenWidth || mHeight != mTakenHeight) {
+            mTakenWidth = mWidth;
+            mTakenHeight = mHeight;
+            for (SurfaceHolder.Callback callback : callbacks) {
+                callback.surfaceChanged(mSurfaceHolder, mWindowAttributes.format, mWidth, mHeight);
+            }
+        }
+        mTakenSurfaceCreating = false;
+        if (!fullRedrawNeeded) {
+            return false;
+        }
+        for (SurfaceHolder.Callback callback : callbacks) {
+            if (callback instanceof SurfaceHolder.Callback2) {
+                ((SurfaceHolder.Callback2) callback).surfaceRedrawNeeded(mSurfaceHolder);
+            }
+        }
+        return true;
+    }
+
+    /** As AOSP's when the surface goes: a taken surface's callbacks hear surfaceDestroyed first. */
+    private void takenSurfaceDestroyed() {
+        if (mSurfaceHolder == null || !mTakenSurfaceCreated) {
+            return;
+        }
+        mTakenSurfaceCreated = false;
+        mTakenWidth = -1;
+        mTakenHeight = -1;
+        for (SurfaceHolder.Callback callback : mSurfaceHolder.callbacks()) {
+            callback.surfaceDestroyed(mSurfaceHolder);
+        }
+    }
+
+    /**
+     * As AOSP's TakenSurfaceHolder on BaseSurfaceHolder: the window's surface for the callback that took it. Its size
+     * is the window's, which the host's window decides, so the size requests change nothing; its format is the
+     * window's.
+     */
+    private final class TakenSurfaceHolder implements SurfaceHolder {
+        private final ArrayList<Callback> mCallbacks = new ArrayList<>();
+
+        Callback[] callbacks() {
+            return mCallbacks.toArray(new Callback[0]);
+        }
+
+        @Override
+        public void addCallback(Callback callback) {
+            if (!mCallbacks.contains(callback)) {
+                mCallbacks.add(callback);
+            }
+        }
+
+        @Override
+        public void removeCallback(Callback callback) {
+            mCallbacks.remove(callback);
+        }
+
+        @Override
+        public boolean isCreating() {
+            return mTakenSurfaceCreating;
+        }
+
+        @Override
+        public void setType(int type) {
+        }
+
+        @Override
+        public void setFixedSize(int width, int height) {
+        }
+
+        @Override
+        public void setSizeFromLayout() {
+        }
+
+        @Override
+        public void setFormat(int format) {
+            // As AOSP's: through the window, whose attributes come back here as an update.
+            ((DecorView) mView).setSurfaceFormat(format);
+        }
+
+        @Override
+        public void setKeepScreenOn(boolean screenOn) {
+        }
+
+        @Override
+        public Canvas lockCanvas() {
+            return lockCanvas(null);
+        }
+
+        @Override
+        public Canvas lockCanvas(Rect dirty) {
+            try {
+                return mSurface.lockCanvas(dirty);
+            } catch (Surface.OutOfResourcesException e) {
+                Log.e(TAG, "OutOfResourcesException locking the taken surface", e);
+                return null;
+            }
+        }
+
+        @Override
+        public void unlockCanvasAndPost(Canvas canvas) {
+            mSurface.unlockCanvasAndPost(canvas);
+        }
+
+        @Override
+        public Rect getSurfaceFrame() {
+            return new Rect(0, 0, mWidth, mHeight);
+        }
+
+        @Override
+        public Surface getSurface() {
+            return mSurface;
+        }
     }
 
     /**
@@ -1035,6 +1191,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 mView = null;
                 mAttachInfo.mRootView = null;
             }
+            takenSurfaceDestroyed();
             mSurface.release();
             mAdded = false;
             unscheduleTraversals();

@@ -637,6 +637,8 @@ frameworks_base/core/java/com/android/internal/os/SafeZipPathValidatorCallback.j
 # fragments and loaders (with android.content's Loader, whose listeners LoaderManager's records implement), and
 # AppDetailsActivity in place of b3.5a's interim one.
 frameworks_base/core/java/android/app/Activity.java
+# NativeActivity on the Java path (ADR-0069 step 2): its natives are framework/native's android_app_NativeActivity.cpp.
+frameworks_base/core/java/android/app/NativeActivity.java
 frameworks_base/core/java/android/app/Dialog.java
 frameworks_base/core/java/android/view/DragEvent.java
 frameworks_base/core/java/android/view/GhostView.java

@@ -19,6 +19,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.PendingInsetsController;
+import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -282,5 +283,18 @@ public class DecorView extends FrameLayout {
     /** ViewRootImpl.setView's, as AOSP's RootViewSurfaceTaker gives it. */
     public PendingInsetsController providePendingInsetsController() {
         return mPendingInsetsController;
+    }
+
+    /**
+     * ViewRootImpl.setView's, as AOSP's RootViewSurfaceTaker gives it: the callback that takes the window's surface
+     * (NativeActivity's, Window.takeSurface; ADR-0069 step 2), for the window's own decor only.
+     */
+    public SurfaceHolder.Callback2 willYouTakeTheSurface() {
+        return mFeatureId < 0 ? mWindow.mTakeSurfaceCallback : null;
+    }
+
+    /** As AOSP's RootViewSurfaceTaker.setSurfaceFormat: a taken surface's format is the window's (Window.setFormat). */
+    public void setSurfaceFormat(int format) {
+        mWindow.setFormat(format);
     }
 }
