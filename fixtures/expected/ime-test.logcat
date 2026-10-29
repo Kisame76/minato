@@ -1,0 +1,22 @@
+I/ime-test: editor: inputType 0x1, imeOptions 0x10000002, capsMode 0, selection 0,0, hint "hint", package io.github.kisame76.minato.test.ime, fieldId -1
+I/ime-test: isActive true, isAcceptingText true
+I/ime-test: showSoftInput true
+I/ime-test: call setComposingText "h" 1 -> true
+I/ime-test:   text "h", selection 1,1, composing 0,1
+I/ime-test: call setComposingText "he" 1 -> true
+I/ime-test:   text "he", selection 2,2, composing 0,2
+I/ime-test: call commitText "hello" 1 -> true
+I/ime-test:   text "hello", selection 5,5, composing -1,-1
+I/ime-test: call deleteSurroundingText 1,0 -> true
+I/ime-test:   text "hell", selection 4,4, composing -1,-1
+I/ime-test: editor action 2, event none
+I/ime-test: call performEditorAction 2 -> true
+I/ime-test:   text "hell", selection 4,4, composing -1,-1
+I/ime-test: editor action 2, event key
+I/ime-test: call sendKeyEvent KEYCODE_DEL down -> false
+I/ime-test:   text "hell", selection 4,4, composing -1,-1
+I/ime-test: call sendKeyEvent KEYCODE_DEL up -> false
+I/ime-test:   text "hel", selection 3,3, composing -1,-1
+I/ime-test: isAcceptingText true
+I/ime-test: final text "hel"
+I/ime-test: done

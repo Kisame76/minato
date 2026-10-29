@@ -293,6 +293,23 @@ jint SessionRequestPermissionCancel(JNIEnv *, jclass, jlong id) {
                                                                                                          : 0;
 }
 
+// APKRT_REQUEST_IME (ADR-0068 part 1): the text of an input method request by address and the connection's serial;
+// 0, or the negative errno.
+jint SessionRequestIme(JNIEnv *env, jclass, jlong serial, jbyteArray text) {
+    if (text == nullptr) return -EINVAL;
+    const jsize length = env->GetArrayLength(text);
+    std::vector<char> bytes(static_cast<size_t>(length) + 1, '\0');
+    env->GetByteArrayRegion(text, 0, length, reinterpret_cast<jbyte *>(bytes.data()));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -EFAULT;
+    }
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, reinterpret_cast<uintptr_t>(bytes.data()),
+                   static_cast<uint64_t>(serial)) < 0
+                   ? -errno
+                   : 0;
+}
+
 // The battery (gap 1 of the compatibility plan): APKRT_NR_BATTERY's GET, the host's level | state << 32, or the
 // negative errno (-ENODATA before the host's first value).
 jlong Battery(JNIEnv *, jclass) {
@@ -393,6 +410,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRequestOpenCancel", "(J)I", reinterpret_cast<void *>(SessionRequestOpenCancel)},
         {"nativeSessionRequestPermission", "(J[B)I", reinterpret_cast<void *>(SessionRequestPermission)},
         {"nativeSessionRequestPermissionCancel", "(J)I", reinterpret_cast<void *>(SessionRequestPermissionCancel)},
+        {"nativeSessionRequestIme", "(J[B)I", reinterpret_cast<void *>(SessionRequestIme)},
         {"nativeLocationStart", "(II)I", reinterpret_cast<void *>(LocationStart)},
         {"nativeLocationGrant", "(I)I", reinterpret_cast<void *>(LocationGrant)},
         {"nativeLocationStop", "()I", reinterpret_cast<void *>(LocationStop)},

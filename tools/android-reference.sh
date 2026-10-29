@@ -223,7 +223,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
-  "$app" == title-test ]]; then
+  "$app" == title-test || "$app" == ime-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -447,6 +447,10 @@ input_methods_back() {
   echo "Input methods back: $(run ime list -s | tr -d '\r' | tr '\n' ' ')(default" \
     "$(run settings get secure default_input_method | tr -d '\r')); disabled packages:" \
     "$(run pm list packages -d | tr -d '\r' | sed 's/^package://' | tr '\n' ' ')"
+}
+
+ime_test_off() {
+  run ime disable io.github.kisame76.minato.test.ime/.FixtureInputMethod >/dev/null 2>&1 || true
 }
 
 # Test 2's Godot APKs (ADR-0042 a): their lines under Godot's tag, split into bench.gd's "godot-bench:" lines, which
@@ -809,6 +813,11 @@ run_app() {
     text-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TextActivity
       ;;
+    # ime-test (ADR-0068 step 2a): its own launcher activity, whose field the fixture input method types into; it ends
+    # with "done" after the last key's release.
+    ime-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ImeActivity
+      ;;
     # surface-test (ADR-0043 step c4): its own launcher activity, whose GLSurfaceView draws its fixed frames after the
     # window's first focus, then a Button over it, which ends with "done" at its first draw.
     surface-test)
@@ -853,6 +862,12 @@ run_app() {
   # A ring for a long log (media-extractor-test's about 600 lines) beside the system's own lines.
   run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
+  if [[ "$app" == ime-test ]]; then
+    # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
+    # with the exit trap.
+    run ime enable "$package/.FixtureInputMethod" >/dev/null
+    run ime set "$package/.FixtureInputMethod" >/dev/null
+  fi
   if [[ "$AVD" == apk-runner-35-iphone-gesture ]]; then
     # Gesture navigation's overlay, and the screen on past the keyguard, so that the window takes focus.
     run cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural >/dev/null
@@ -1272,6 +1287,13 @@ if [[ -n "$app" ]]; then
   if [[ "$app" == text-test || "$app" == key-test ]]; then
     trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods_off
+  fi
+  # ime-test (ADR-0068 step 2a) types through the fixture input method it installs: the image's input methods and its
+  # default are put back at every exit, as for text-test, and the fixture's own is switched off.
+  if [[ "$app" == ime-test ]]; then
+    trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
+    input_methods=$(run ime list -s | tr -d '\r')
+    default_input_method=$(run settings get secure default_input_method | tr -d '\r')
   fi
   run_app
   exit $?

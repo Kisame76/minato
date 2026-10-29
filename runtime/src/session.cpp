@@ -721,6 +721,54 @@ long permission_cancel(std::uint64_t id) {
     return 0;
 }
 
+// APKRT_REQUEST_IME (ADR-0068, part 1): the guest tells the host which view takes text and whether its keyboard is
+// wanted. The host parses the text, so the runtime checks it whole first, as a pick's; no answer ends the request, the
+// host's text records are the answers, and they carry the serial.
+constexpr std::size_t ime_text_limit = 512;  // "start\t..." with a hint cut to fit, and the NUL
+std::recursive_mutex ime_handler_lock;
+
+/// Whether `text` holds only an optional '-' and decimal digits, between 1 and 11 of them.
+bool ime_number(std::string_view text) {
+    if (!text.empty() && text.front() == '-') text.remove_prefix(1);
+    if (text.empty() || text.size() > 10) return false;
+    for (const char digit : text) {
+        if (digit < '0' || digit > '9') return false;
+    }
+    return true;
+}
+
+/// Whether `text` is "start" and six numbers and the hint, each after a tab: inputType, imeOptions, capsMode,
+/// selStart, selEnd, fieldId. The hint is the rest, which may hold tabs.
+bool valid_ime_start(std::string_view text) {
+    if (text.substr(0, 6) != "start\t") return false;
+    text.remove_prefix(6);
+    for (int field = 0; field < 6; ++field) {
+        const std::size_t tab = text.find('\t');
+        if (tab == std::string_view::npos || !ime_number(text.substr(0, tab))) return false;
+        text.remove_prefix(tab + 1);
+    }
+    return true;
+}
+
+/// APKRT_REQUEST_IME: the text at `address` read through a checked copy, checked whole, and handed to the host's
+/// request handler with the serial. 0, or -EFAULT without text or when it cannot be read, -EINVAL for a text of
+/// ime_text_limit bytes or more, one that is not start, show, hide or stop in the form above, or a serial of 0 for all
+/// but hide.
+long ime(std::uint64_t address, std::uint64_t serial) {
+    if (address == 0) return -linux_errno::efault;
+    char text[ime_text_limit];
+    const long length = copy_guest_text(text, address, ime_text_limit);
+    if (length < 0) return length;                                                 // -EFAULT: a byte unreadable
+    if (length >= static_cast<long>(ime_text_limit)) return -linux_errno::einval;  // no NUL within the limit
+    const std::string_view view(text, static_cast<std::size_t>(length));
+    const bool hide = view == "hide";
+    if (!hide && view != "show" && view != "stop" && !valid_ime_start(view)) return -linux_errno::einval;
+    if (!hide && serial == 0) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(ime_handler_lock);
+    report(APKRT_REQUEST_IME, serial, text);
+    return 0;
+}
+
 /// APKRT_REQUEST_WINDOW: the request at `address` checked, its buffer's size and opacity set, a place's type, parent,
 /// group and format the make's, and handed to the host's window handler. 0, or the negative errno (guest_interface.h).
 long window(std::uint64_t address) {
@@ -930,6 +978,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return permission(a0, a1);
         case APKRT_REQUEST_PERMISSION_CANCEL:
             return permission_cancel(a0);
+        case APKRT_REQUEST_IME:
+            return ime(a0, a1);
         default:
             return -linux_errno::einval;
     }

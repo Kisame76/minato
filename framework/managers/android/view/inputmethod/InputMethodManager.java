@@ -8,15 +8,26 @@
 // say yes to a show or hide of the served view, as the AVD without one does; no input method binds, so the lists are
 // empty and no connection is active. One manager per process, as AOSP's forContext keeps one per display (1595-1630),
 // and Minato has one display.
+//
+// The input method is the host's keyboard (ADR-0068 part 1): the manager tells the host with APKRT_REQUEST_IME which
+// view is served (start, with the EditorInfo), when its keyboard is wanted (show), not wanted (hide) and when the view
+// is served no more (stop), and the host answers with text records, which onHostText turns into calls on the served
+// view's InputConnection, as an input method service's would be. Every connection has a serial, and a record for
+// another serial is dropped, so that an edit meant for a view that has since lost the focus reaches no other.
+import android.app.ActivityThread;
 import android.content.Context;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.os.UserHandle;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewRootImpl;
 import android.view.WindowManager;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,6 +42,8 @@ class InputMethodManager {
     private boolean mServedConnecting;
     private EditorInfo mCurrentEditorInfo;
     private ServedConnection mServedInputConnection;
+    // The serial of the last connection the host was told of; 0 before the first. The host's records name one.
+    private long mLastSerial;
 
     private InputMethodManager() {
     }
@@ -44,9 +57,11 @@ class InputMethodManager {
         private final Handler mHandler;
         private final View mView;
         private final AtomicBoolean mDeactivateRequested = new AtomicBoolean(false);
+        final long mSerial;
 
-        ServedConnection(InputConnection connection, Looper looper, View view) {
+        ServedConnection(InputConnection connection, Looper looper, View view, long serial) {
             mConnection = connection;
+            mSerial = serial;
             mHandler = new Handler(looper);
             mView = view;
         }
@@ -68,6 +83,81 @@ class InputMethodManager {
             });
         }
 
+        /**
+         * A text record of the host (APKRT_TEXT_*): the call an input method makes, on the connection's thread. A
+         * deleteSurroundingText of one character widens to a pair when the character is half of a surrogate pair, as
+         * the input method does on its side (LatinIME's RichInputConnection), since the host has no copy of the text.
+         */
+        void hostText(int op, int arg0, int arg1, String text) {
+            dispatch(() -> {
+                if (mDeactivateRequested.get()) {
+                    return;
+                }
+                switch (op) {
+                    case TEXT_COMMIT:
+                        mConnection.commitText(text, arg0);
+                        break;
+                    case TEXT_SET_COMPOSING:
+                        mConnection.setComposingText(text, arg0);
+                        break;
+                    case TEXT_FINISH_COMPOSING:
+                        mConnection.finishComposingText();
+                        break;
+                    case TEXT_DELETE_SURROUNDING:
+                        mConnection.deleteSurroundingText(widened(arg0, true), widened(arg1, false));
+                        break;
+                    case TEXT_SET_SELECTION:
+                        mConnection.setSelection(arg0, arg1);
+                        break;
+                    case TEXT_SET_COMPOSING_REGION:
+                        mConnection.setComposingRegion(arg0, arg1);
+                        break;
+                    case TEXT_PERFORM_ACTION:
+                        mConnection.performEditorAction(arg0);
+                        break;
+                    case TEXT_SEND_KEY:
+                        sendKey(arg0);
+                        break;
+                    default:
+                        break;
+                }
+            });
+        }
+
+        /** `length` code units before or after the cursor, two when the one is half of a surrogate pair. */
+        private int widened(int length, boolean before) {
+            if (length != 1) {
+                return length;
+            }
+            final CharSequence around = before ? mConnection.getTextBeforeCursor(2, 0)
+                    : mConnection.getTextAfterCursor(2, 0);
+            if (around != null && around.length() == 2
+                    && Character.isSurrogatePair(around.charAt(0), around.charAt(1))) {
+                return 2;
+            }
+            return length;
+        }
+
+        /**
+         * A key of the soft keyboard: its DOWN and UP, as LatinIME's sendDownUpKeyEvent makes them. Each is a call of
+         * its own from the input method, so each is a message of its own on the connection's thread, and the DOWN
+         * is handled before the UP is sent.
+         */
+        private void sendKey(int keyCode) {
+            final long now = SystemClock.uptimeMillis();
+            sendKeyEvent(now, KeyEvent.ACTION_DOWN, keyCode);
+            mHandler.post(() -> {
+                if (!mDeactivateRequested.get()) {
+                    sendKeyEvent(now, KeyEvent.ACTION_UP, keyCode);
+                }
+            });
+        }
+
+        private void sendKeyEvent(long time, int action, int keyCode) {
+            mConnection.sendKeyEvent(new KeyEvent(time, time, action, keyCode, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                    0, KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
+        }
+
         /** As AOSP's (356-402): the connection closes, then its view hears of it on the view's thread. */
         void deactivate() {
             if (mDeactivateRequested.getAndSet(true)) {
@@ -85,6 +175,56 @@ class InputMethodManager {
                 }
             });
         }
+    }
+
+    // APKRT_TEXT_* (guest_interface.h).
+    private static final int TEXT_COMMIT = 0;
+    private static final int TEXT_SET_COMPOSING = 1;
+    private static final int TEXT_FINISH_COMPOSING = 2;
+    private static final int TEXT_DELETE_SURROUNDING = 3;
+    private static final int TEXT_SET_SELECTION = 4;
+    private static final int TEXT_SET_COMPOSING_REGION = 5;
+    private static final int TEXT_PERFORM_ACTION = 6;
+    private static final int TEXT_SEND_KEY = 7;
+    // The longest request the runtime takes, less its NUL.
+    private static final int REQUEST_BYTES = 511;
+
+    /**
+     * @hide The input event receiver's: a text record of the host, for the connection with `serial`. It is dropped
+     * unless that connection is the served one now.
+     */
+    public static void onHostText(int op, int arg0, int arg1, long serial, byte[] text) {
+        final ServedConnection served = sInstance.mServedInputConnection;
+        if (served == null || served.mSerial != serial) {
+            return;
+        }
+        served.hostText(op, arg0, arg1, new String(text, StandardCharsets.UTF_8));
+    }
+
+    /** APKRT_REQUEST_IME: what the host should know of the served view; the host's answer is its text records. */
+    private static void requestIme(long serial, String text) {
+        ActivityThread.requestIme(serial, text);
+    }
+
+    /** The "start" request of an editor: its numbers and its hint, cut at a character so that the request fits. */
+    private static String startRequest(EditorInfo info) {
+        final StringBuilder request = new StringBuilder("start\t").append(info.inputType).append('\t')
+                .append(info.imeOptions).append('\t').append(info.initialCapsMode).append('\t')
+                .append(info.initialSelStart).append('\t').append(info.initialSelEnd).append('\t')
+                .append(info.fieldId).append('\t');
+        int bytes = request.toString().getBytes(StandardCharsets.UTF_8).length;
+        final CharSequence hint = info.hintText;
+        for (int i = 0; hint != null && i < hint.length();) {
+            final int point = Character.codePointAt(hint, i);
+            final int size = new String(Character.toChars(point)).getBytes(StandardCharsets.UTF_8).length;
+            if (point == 0 || bytes + size > REQUEST_BYTES) {
+                break;
+            }
+            request.appendCodePoint(point);
+            bytes += size;
+            i += Character.charCount(point);
+        }
+        return request.toString();
     }
 
     /** @hide View's: the annotation of its handwriting delegation flags. */
@@ -239,10 +379,7 @@ class InputMethodManager {
         }
         mCurrentEditorInfo = editorInfo;
         mServedConnecting = false;
-        if (mServedInputConnection != null) {
-            mServedInputConnection.deactivate();
-            mServedInputConnection = null;
-        }
+        endServedConnection();
         if (connection != null) {
             Handler connectionHandler = null;
             try {
@@ -251,7 +388,9 @@ class InputMethodManager {
                 // As AOSP's: an app's InputConnection from before getHandler.
             }
             mServedInputConnection = new ServedConnection(connection,
-                    connectionHandler != null ? connectionHandler.getLooper() : handler.getLooper(), view);
+                    connectionHandler != null ? connectionHandler.getLooper() : handler.getLooper(), view,
+                    ++mLastSerial);
+            requestIme(mServedInputConnection.mSerial, startRequest(editorInfo));
         }
         return true;
     }
@@ -263,10 +402,17 @@ class InputMethodManager {
             mServedView = null;
             mServedConnecting = false;
             mCurrentEditorInfo = null;
-            if (mServedInputConnection != null) {
-                mServedInputConnection.deactivate();
-                mServedInputConnection = null;
-            }
+            endServedConnection();
+        }
+    }
+
+    /** The served connection closes and the host hears that the view is served no more. */
+    private void endServedConnection() {
+        if (mServedInputConnection != null) {
+            final long serial = mServedInputConnection.mSerial;
+            mServedInputConnection.deactivate();
+            mServedInputConnection = null;
+            requestIme(serial, "stop");
         }
     }
 
@@ -276,6 +422,23 @@ class InputMethodManager {
             return null;
         }
         return mServedView != null ? mServedView.getContext() : null;
+    }
+
+    /**
+     * @hide BaseInputConnection's, as AOSP's (2335-2355): a key the input method sends goes to the target view's
+     * window, or the served view's, as a key from the input method.
+     */
+    public void dispatchKeyEventFromInputMethod(View targetView, KeyEvent event) {
+        ViewRootImpl viewRootImpl = targetView != null ? targetView.getViewRootImpl() : null;
+        if (viewRootImpl == null) {
+            final View servedView = getServedView();
+            if (servedView != null) {
+                viewRootImpl = servedView.getViewRootImpl();
+            }
+        }
+        if (viewRootImpl != null) {
+            viewRootImpl.dispatchKeyFromIme(event);
+        }
     }
 
     /** @hide EditableInputConnection's: what an input method asks of the cursor's place, which none does. */
@@ -300,7 +463,11 @@ class InputMethodManager {
 
     public boolean showSoftInput(View view, int flags, android.os.ResultReceiver resultReceiver) {
         checkFocus();
-        return hasServedByInputMethod(view);
+        final boolean served = hasServedByInputMethod(view);
+        if (served && mServedInputConnection != null) {
+            requestIme(mServedInputConnection.mSerial, "show");
+        }
+        return served;
     }
 
     public boolean hideSoftInputFromWindow(IBinder windowToken, int flags) {
@@ -310,13 +477,26 @@ class InputMethodManager {
     public boolean hideSoftInputFromWindow(IBinder windowToken, int flags, android.os.ResultReceiver resultReceiver) {
         checkFocus();
         final View servedView = getServedView();
-        return servedView != null && servedView.getWindowToken() == windowToken;
+        final boolean served = servedView != null && servedView.getWindowToken() == windowToken;
+        if (served) {
+            hideRequest();
+        }
+        return served;
     }
 
     /** @hide TextView's and Editor's. */
     public boolean hideSoftInputFromView(View view, int flags) {
         checkFocus();
-        return hasServedByInputMethod(view);
+        final boolean served = hasServedByInputMethod(view);
+        if (served) {
+            hideRequest();
+        }
+        return served;
+    }
+
+    /** The keyboard is not wanted: the host hears it with the live serial, or 0 without a connection. */
+    private void hideRequest() {
+        requestIme(mServedInputConnection != null ? mServedInputConnection.mSerial : 0, "hide");
     }
 
     public boolean isActive() {

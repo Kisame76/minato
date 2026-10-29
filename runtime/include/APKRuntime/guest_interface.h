@@ -414,6 +414,17 @@ enum apkrt_request_type {
     APKRT_REQUEST_PERMISSION_CANCEL,  // guest only: a0 the ID of a permission request that waits and the guest no
                                    // longer wants; the host gets the ID and drops its sheet, no answer. -EINVAL for ID
                                    // 0, -ENOENT for an ID that does not wait
+    APKRT_REQUEST_IME,             // guest only (ADR-0068, part 1): a0 the address of NUL-terminated text, a1 the
+                                   // connection's serial. The host gets the serial as `argument` and the text:
+                                   // "start\t<inputType>\t<imeOptions>\t<capsMode>\t<selStart>\t<selEnd>\t<fieldId>
+                                   // \t<hint>" (the numbers decimal, the hint last, cut by the guest to fit) when a
+                                   // view that takes text is served with a new connection (a1 not 0, a fresh one each
+                                   // time), "show" and "stop" (a1 the live serial, not 0: the keyboard is wanted, the
+                                   // view is no longer served) and "hide" (a1 the live serial or 0: the keyboard is
+                                   // not wanted). The host answers with text records for that serial
+                                   // (APKRT_TEXT_*), which the guest drops once the serial is not the live one. No
+                                   // answer ends the request. The runtime refuses -EINVAL any other text or a serial
+                                   // of 0 where one is needed, a text of 512 bytes or more, -EFAULT an unreadable one
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)
@@ -943,7 +954,8 @@ struct apkrt_key_event {
 #define APKRT_TEXT_SET_SELECTION 4      // setSelection(arg0 = start, arg1 = end)
 #define APKRT_TEXT_SET_COMPOSING_REGION 5  // setComposingRegion(arg0 = start, arg1 = end)
 #define APKRT_TEXT_PERFORM_ACTION 6     // performEditorAction(arg0 = IME_ACTION_*)
-#define APKRT_TEXT_OPS 7
+#define APKRT_TEXT_SEND_KEY 7           // sendKeyEvent: a DOWN and an UP of key code arg0, from the soft keyboard
+#define APKRT_TEXT_OPS 8
 
 /// A text edit of the host's keyboard, for the connection with `serial`: the host takes the serial from the
 /// editor it was told of, so that a record for a connection that has since changed is dropped by the guest.

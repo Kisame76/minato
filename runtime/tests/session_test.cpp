@@ -691,6 +691,51 @@ TEST(a_permission_cancel_reaches_the_host_only_while_it_waits) {
     CHECK(take_requests().empty());
 }
 
+TEST(an_ime_request_reaches_the_handler_with_its_serial_and_text) {
+    take_requests();
+    static const char start[] = "start\t1\t268435458\t0\t0\t0\t-1\thint\twith a tab";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address(start), 7) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address("show"), 7) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address("hide"), 7) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address("hide"), 0) == 0);  // no connection
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address("stop"), 7) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 5);
+    if (seen.size() != 5) return;
+    CHECK(seen[0].type == APKRT_REQUEST_IME && seen[0].argument == 7 && seen[0].had_text && seen[0].text == start);
+    CHECK(seen[1].text == "show" && seen[2].text == "hide" && seen[2].argument == 7);
+    CHECK(seen[3].text == "hide" && seen[3].argument == 0 && seen[4].text == "stop" && seen[4].argument == 7);
+    CHECK(seen[0].thread == ::pthread_self() && seen[0].runtime_signal_blocked);
+}
+
+// The host parses the text, so the runtime checks it whole and a serial where one is needed.
+TEST(a_malformed_ime_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    const auto ask = [](const std::string &text, std::uint64_t serial = 3) {
+        return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address(text.c_str()), serial);
+    };
+    CHECK(ask("start\t1\t2\t3\t4\t5\t6\t") == 0);  // an empty hint
+    CHECK(ask("start\t-1\t-2\t0\t0\t0\t0\thint") == 0);
+    CHECK(ask("start\t1\t2\t3\t4\t5\t6\t" + std::string(480, 'x')) == 0);
+    take_requests();
+    CHECK(ask("") == -einval);
+    CHECK(ask("shown") == -einval);
+    CHECK(ask("show\t") == -einval);
+    CHECK(ask("start") == -einval);
+    CHECK(ask("start\t1\t2\t3\t4\t5\t6") == -einval);       // no tab before a hint
+    CHECK(ask("start\t1\t2\t3\t4\t5\thint") == -einval);     // five numbers
+    CHECK(ask("start\ta\t2\t3\t4\t5\t6\t") == -einval);     // not a number
+    CHECK(ask("start\t1\t\t3\t4\t5\t6\t") == -einval);      // an empty number
+    CHECK(ask("start\t-\t2\t3\t4\t5\t6\t") == -einval);     // a sign alone
+    CHECK(ask("start\t12345678901\t2\t3\t4\t5\t6\t") == -einval);  // eleven digits
+    CHECK(ask("start\t1\t2\t3\t4\t5\t6\t" + std::string(520, 'x')) == -einval);  // too long
+    CHECK(ask("start\t1\t2\t3\t4\t5\t6\t", 0) == -einval);  // a start needs a serial
+    CHECK(ask("show", 0) == -einval);
+    CHECK(ask("stop", 0) == -einval);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, 0, 3) == -efault);
+    CHECK(take_requests().empty());
+}
+
 TEST(a_permission_answer_records_the_grant_and_frees_the_id) {
     take_requests();
     apkrt::permissions::reset();

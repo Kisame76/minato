@@ -176,8 +176,8 @@ typedef void (*apkrt_end_handler)(void *context, int status);
 /// window has none, as a new Surface on Android. APKRT_REQUEST_WINDOW_OPAQUE comes with `argument` 1 or 0 when
 /// the window's opacity changes: the runtime keeps the window's format, so APKRT_REQUEST_WINDOW_FORMAT never
 /// comes here, and the session starts opaque without a report. `text` is NULL for all but START_FAILED, PICK,
-/// EXPORT_MEDIA and OPEN (guest_interface.h), and lives only until the handler returns: OPEN's is a buffer the
-/// runtime frees then, so a handler that keeps a text copies it. The
+/// EXPORT_MEDIA, OPEN, PERMISSION and IME (guest_interface.h), and lives only until the handler returns: OPEN's is a
+/// buffer the runtime frees then, so a handler that keeps a text copies it. The
 /// KEEP_SCREEN_ON reports come in the order of the changes, so on and off alternate, and so do the
 /// WINDOW_OPAQUE reports. The
 /// handler runs with the runtime signal blocked, on that thread's stack, which the guest chose and which

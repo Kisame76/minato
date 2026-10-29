@@ -2496,6 +2496,18 @@ public final class ActivityThread {
     }
 
     /**
+     * @hide InputMethodManager's (ADR-0068 part 1): APKRT_REQUEST_IME, the served view's start, show, hide and stop for
+     * the host's keyboard; 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestIme(long serial, String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestIme(serial, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
      * @hide SystemPermissionActivity's: the request `id` is not wanted any more; the host drops its sheet, no
      * answer.
      */
@@ -2770,6 +2782,8 @@ public final class ActivityThread {
     private static native int nativeSessionRequestPermission(long id, byte[] text);
 
     private static native int nativeSessionRequestPermissionCancel(long id);
+
+    private static native int nativeSessionRequestIme(long serial, byte[] text);
 
     private static native int nativeLocationStart(int accuracy, int distanceM);
 

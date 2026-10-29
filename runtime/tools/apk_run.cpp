@@ -60,6 +60,12 @@
 //               place <ms> after the DOWN, as `input swipe`'s;
 //   hwkey:<code>, device:add, device:remove  (ADR-0068 step 7c2) the same key from a hardware keyboard, device 1000,
 //               and the keyboard's coming and going as a device record "Minato Keyboard" (SOURCE_KEYBOARD);
+//   text:<op>:<arg0>:<arg1>:<text>  (ADR-0068 part 1, soft keyboard) a text record of the host's keyboard, as the App
+//               posts it (APKRT_TEXT_*; the text is the rest of the step, UTF-8 as it is), for the connection of the
+//               last "start" the guest's IME request made, which the guest's requests print as "apk-run: ime <serial>:
+//               <text>" on stderr; the step waits up to five seconds for that start. With a text in the list the
+//               start's INPUT_QUEUE_CREATED names an input channel; stext: is the same for the connection before
+//               that one, whose records the guest must drop;
 //   key:<code>  (ADR-0045 step 7c2) a key of the virtual keyboard, device -1, at Android key code <code>: DOWN and UP
 //               at the same time on the session's input channel, as `input keyevent`'s. With a touch or a key in the
 //               list, the start's INPUT_QUEUE_CREATED names an input channel (apkrt_input_add), else none, as
@@ -210,12 +216,31 @@ struct Touch {
     /// `device_op` to APKRT_DEVICE_ADDED or _REMOVED, else -1.
     bool hardware = false;
     int device_op = -1;
+    /// A text step (ADR-0068 part 1): text:<op>:<arg0>:<arg1>:<text> sets `text_op` (else -1), the arguments and the
+    /// text.
+    int text_op = -1;
+    int text_arg0 = 0, text_arg1 = 0;
+    /// stext: the same, for the connection before the last one: its serial is one less, which the guest drops.
+    bool text_stale = false;
+    std::string text;
 };
 
 /// `step` as tap:<x>:<y> or swipe:<x1>:<y1>:<x2>:<y2>:<ms> with finite places and <ms> above 0, or key:<code> with
-/// a code of 0 or more; false for any other step.
+/// a code of 0 or more, or text:<op>:<arg0>:<arg1>:<text> with a known op; false for any other step.
 bool parse_touch(const std::string &step, Touch &touch) {
     int used = 0;
+    if (step.compare(0, 6, "stext:") == 0 && parse_touch(step.substr(1), touch)) {
+        touch.text_stale = true;
+        return true;
+    }
+    if (std::sscanf(step.c_str(), "text:%d:%d:%d:%n", &touch.text_op, &touch.text_arg0, &touch.text_arg1, &used) == 3 &&
+        used > 0 && touch.text_op >= 0 && touch.text_op < APKRT_TEXT_OPS &&
+        step.size() - static_cast<std::size_t>(used) <= APKRT_TEXT_BYTES) {
+        touch.text = step.substr(static_cast<std::size_t>(used));
+        return true;
+    }
+    touch.text_op = -1;
+    used = 0;
     if (std::sscanf(step.c_str(), "key:%d%n", &touch.key_code, &used) == 1 && used == static_cast<int>(step.size()) &&
         touch.key_code >= 0) {
         return true;
@@ -532,7 +557,17 @@ void print_shared_files(std::uint64_t id, const std::string &text) {
     if (folder >= 0) close(folder);
 }
 
+/// The serial of the last IME "start" request (ADR-0068 part 1), which the text steps address; 0 before the first.
+std::atomic<std::uint64_t> ime_serial{0};
+
 void on_request(void *, int type, std::uint64_t argument, const char *text) {
+    if (type == APKRT_REQUEST_IME) {
+        const std::string request = text != nullptr ? text : "";
+        std::fprintf(stderr, "apk-run: ime %llu: %s\n", static_cast<unsigned long long>(argument),
+                     one_line(request.c_str()).c_str());
+        if (request.compare(0, 5, "start") == 0) ime_serial.store(argument);
+        return;
+    }
     if (type == APKRT_REQUEST_EXPORT_MEDIA) {
         // The model of the host's export to Photos (ADR-0057 step e): the handler only takes the file, a thread of its
         // own copies it into --export-dir, so that the guest and the other requests are not held up.
@@ -707,6 +742,20 @@ void post_touch(std::uint64_t input, std::int32_t action, std::int64_t down, std
 /// as its `input swipe`, places on the line by its lerp, with a MOVE every period of `rate` holding two samples.
 void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
     const std::int64_t down = uptime();
+    if (touch.text_op >= 0) {
+        for (int waited = 0; ime_serial.load() == 0 && waited < 500; ++waited) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        apkrt_text_event event{};
+        event.op = touch.text_op;
+        event.arg0 = touch.text_arg0;
+        event.arg1 = touch.text_arg1;
+        event.serial = static_cast<std::int64_t>(ime_serial.load()) - (touch.text_stale ? 1 : 0);
+        event.length = static_cast<std::uint32_t>(touch.text.size());
+        std::memcpy(event.text, touch.text.data(), touch.text.size());
+        if (apkrt_input_post_text(input, &event) != 1) std::fprintf(stderr, "apk-run: the post of a text failed\n");
+        return;
+    }
     if (touch.device_op >= 0) {
         // The session's hardware keyboard: one device, which the host adds and removes.
         apkrt_device_event device{};

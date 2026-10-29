@@ -102,6 +102,11 @@ struct {
     jmethodID onHostDevice;
 } gInputServiceClassInfo;
 
+struct {
+    jclass clazz;
+    jmethodID onHostText;
+} gInputMethodManagerClassInfo;
+
 // libandroid's answers for what a record does not carry (runtime/android/input.cpp).
 constexpr int32_t kDeviceId = 1;
 constexpr uint32_t kSource = AINPUT_SOURCE_TOUCHSCREEN;
@@ -272,8 +277,12 @@ private:
 
     // A record as InputConsumer's messages: each sample of a MOVE, or the record's one event.
     void receive(Round &round, const apkrt_motion_event &record) {
-        // A key is a KeyEvent for the receiver as it is (ADR-0045 step 7c2); texts and devices (ADR-0068) are not
-        // delivered through this receiver yet: they are dropped.
+        // A key is a KeyEvent for the receiver as it is (ADR-0045 step 7c2); a text edit is the input method
+        // manager's (ADR-0068 part 1) and a device the input service's.
+        if (record.kind == APKRT_INPUT_TEXT) {
+            textEdited(round.env, reinterpret_cast<const apkrt_text_event &>(record));
+            return;
+        }
         if (record.kind == APKRT_INPUT_KEY) {
             dispatchKey(round, reinterpret_cast<const apkrt_key_event &>(record));
             return;
@@ -342,6 +351,26 @@ private:
                                   static_cast<jint>(record.product_id), name.get());
         if (env->ExceptionCheck()) {
             ALOGE("Exception reporting a device of the host.");
+            env->ExceptionClear();
+        }
+    }
+
+    // A text edit of the host's keyboard (ADR-0068 part 1): the input method manager turns it into a call on the
+    // served view's connection. The text goes as UTF-8 bytes, which Java decodes: JNI's own strings are modified UTF-8.
+    void textEdited(JNIEnv *env, const apkrt_text_event &record) {
+        const uint32_t length = std::min<uint32_t>(record.length, APKRT_TEXT_BYTES);
+        ScopedLocalRef<jbyteArray> text(env, env->NewByteArray(static_cast<jsize>(length)));
+        if (text.get() == nullptr) {
+            env->ExceptionClear();
+            return;
+        }
+        env->SetByteArrayRegion(text.get(), 0, static_cast<jsize>(length),
+                                reinterpret_cast<const jbyte *>(record.text));
+        env->CallStaticVoidMethod(gInputMethodManagerClassInfo.clazz, gInputMethodManagerClassInfo.onHostText,
+                                  static_cast<jint>(record.op), static_cast<jint>(record.arg0),
+                                  static_cast<jint>(record.arg1), static_cast<jlong>(record.serial), text.get());
+        if (env->ExceptionCheck()) {
+            ALOGE("Exception delivering a text of the host.");
             env->ExceptionClear();
         }
     }
@@ -521,6 +550,10 @@ int register_android_view_InputEventReceiver(JNIEnv *env) {
     gInputServiceClassInfo.clazz = MakeGlobalRefOrDie(env, service);
     gInputServiceClassInfo.onHostDevice =
             GetStaticMethodIDOrDie(env, service, "onHostDevice", "(IIIIILjava/lang/String;)V");
+    jclass methodManager = FindClassOrDie(env, "android/view/inputmethod/InputMethodManager");
+    gInputMethodManagerClassInfo.clazz = MakeGlobalRefOrDie(env, methodManager);
+    gInputMethodManagerClassInfo.onHostText =
+            GetStaticMethodIDOrDie(env, methodManager, "onHostText", "(IIIJ[B)V");
     jclass looper = FindClassOrDie(env, "android/os/Looper");
     gLooperClassInfo.clazz = MakeGlobalRefOrDie(env, looper);
     gLooperClassInfo.myQueue = GetStaticMethodIDOrDie(env, looper, "myQueue", "()Landroid/os/MessageQueue;");
