@@ -865,6 +865,11 @@ jclass global_class(JNIEnv *env, const char *name) {
 
 }  // namespace
 
+// The format as the tag's Map<String, Object>, for MediaExtractor's natives (android_media_MediaExtractor.cpp).
+jobject media_format_to_map(JNIEnv *env, AMediaFormat *format) {
+    return map_of(env, format);
+}
+
 int register_android_media_MediaCodec(JNIEnv *env) {
     gFields.bufferInfoClass = global_class(env, "android/media/MediaCodec$BufferInfo");
     gFields.bufferInfoConstructor = GetMethodIDOrDie(env, gFields.bufferInfoClass, "<init>", "()V");

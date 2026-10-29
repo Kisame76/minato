@@ -48,7 +48,8 @@
 # package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
 # refusal of a new one, and the exit reasons.
 # media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
-# media-extractor-test (ADR-0060 e2d part 2a) is one too: the NDK's AMediaExtractor on Minato's own mp4 files.
+# media-extractor-test (ADR-0060 e2d parts 2a and 2b) is one too: the NDK's AMediaExtractor and
+# android.media.MediaExtractor on Minato's own mp4 files.
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
 # performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD

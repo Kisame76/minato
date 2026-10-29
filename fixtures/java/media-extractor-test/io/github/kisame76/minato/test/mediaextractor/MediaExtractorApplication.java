@@ -13,11 +13,13 @@ import java.io.InputStream;
 
 /**
  * ADR-0060 e2d's test of the NDK's AMediaExtractor, on Minato's own mp4 files (tools/make-mp4-sample.sh: baseline.mp4
- * with an AAC track and main.mp4 with B-frames, in its assets). From Application.attachBaseContext, for each file, the
- * JNI library opens it from the APK's asset as a file descriptor with an offset and a length, from a copy in the app's
- * files by its path, and from its bytes through an AMediaDataSource, and logs its tracks' formats, every sample, seeks
- * in each mode, the refusals and files it cannot take (jni/media_extractor_test.c says which). It logs with the tag
- * media-extractor-test and ends with "done".
+ * with an AAC track and main.mp4 with B-frames, in its assets). On a thread that Application.attachBaseContext starts,
+ * for each file, the JNI library opens it from the APK's asset as a file descriptor with an offset and a length, from a
+ * copy in the app's files by its path, and from its bytes through an AMediaDataSource, and logs its tracks' formats,
+ * every sample, seeks
+ * in each mode, the refusals and files it cannot take (jni/media_extractor_test.c says which); then
+ * android.media.MediaExtractor does the same from Java (ADR-0060 e2d part 2b, JavaExtractor says which). It logs with
+ * the tag media-extractor-test and ends with "done".
  */
 public class MediaExtractorApplication extends Application {
     private static final String TAG = "media-extractor-test";
@@ -32,6 +34,11 @@ public class MediaExtractorApplication extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+        // On a thread of its own: the Java half's sources take longer than Android lets an app's start take.
+        new Thread(() -> test(base), "media-extractor-test").start();
+    }
+
+    private static void test(Context base) {
         try {
             for (String name : new String[] {"baseline", "main"}) {
                 try (AssetFileDescriptor asset = base.getAssets().openFd(name + ".mp4")) {
@@ -42,6 +49,7 @@ public class MediaExtractorApplication extends Application {
                     }
                     logNative(extract(name, asset.getParcelFileDescriptor().getFd(), asset.getStartOffset(),
                             asset.getLength(), copy.getPath(), bytes));
+                    logNative(JavaExtractor.extract(base, name, asset, copy, bytes));
                 }
             }
         } catch (Throwable t) {

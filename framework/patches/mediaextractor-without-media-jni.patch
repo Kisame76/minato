@@ -1,0 +1,39 @@
+Minato's patch to frameworks/base's media/java/android/media/MediaExtractor.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0060 e2d part 2b: the static initializer loads no libmedia_jni, and a path takes no http service.
+
+Why: as MediaCodec's (mediacodec-without-media-jni.patch), its natives are libandroid_runtime's
+(framework/native/android_runtime/android_media_MediaExtractor.cpp), registered when the process starts. Minato has no
+http service for media (MediaHTTPService and IMediaHTTPService are not taken), so a path goes to the natives without
+one, as Android's does for a path that is not an http or https URL; an http or https URL then fails as Android's
+DataSourceFactory fails without a service ("Invalid http service!"), with the IOException setDataSource throws for any
+source that does not open (a named limit, ADR-0060 e2d).
+
+--- a/media/java/android/media/MediaExtractor.java
++++ b/media/java/android/media/MediaExtractor.java
+@@ -171,7 +171,7 @@
+         }
+ 
+         nativeSetDataSource(
+-                MediaHTTPService.createHttpServiceBinderIfNecessary(path),
++                null /* Minato: no http service, MediaHTTPService.createHttpServiceBinderIfNecessary(path) */,
+                 path,
+                 keys,
+                 values);
+@@ -200,7 +200,7 @@
+      */
+     public final void setDataSource(@NonNull String path) throws IOException {
+         nativeSetDataSource(
+-                MediaHTTPService.createHttpServiceBinderIfNecessary(path),
++                null /* Minato: no http service, MediaHTTPService.createHttpServiceBinderIfNecessary(path) */,
+                 path,
+                 null,
+                 null);
+@@ -803,7 +803,7 @@
+     private native final void native_finalize();
+ 
+     static {
+-        System.loadLibrary("media_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_MediaExtractor.cpp), registered at the start.
+         native_init();
+     }
+ 

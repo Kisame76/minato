@@ -208,6 +208,162 @@ I/media-extractor-test: custom baseline without durations track 1 track-id: int3
 I/media-extractor-test: custom baseline without durations track 1 max-input-size: int32 207
 I/media-extractor-test: custom baseline without durations track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
 I/media-extractor-test: custom baseline no movie, then the fd: status -10000 then 0, 2 tracks, the refused source closed 0 times
+I/media-extractor-test: java baseline: tracks before a source 0, sample time -1, track -1
+I/media-extractor-test: java baseline: 2 tracks
+I/media-extractor-test: java baseline track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline track 0 display-height: int 180
+I/media-extractor-test: java baseline track 0 display-width: int 320
+I/media-extractor-test: java baseline track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline track 0 frame-count: int 30
+I/media-extractor-test: java baseline track 0 frame-rate: int 30
+I/media-extractor-test: java baseline track 0 height: int 180
+I/media-extractor-test: java baseline track 0 language: string und
+I/media-extractor-test: java baseline track 0 level: int 16
+I/media-extractor-test: java baseline track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline track 0 mime: string video/avc
+I/media-extractor-test: java baseline track 0 profile: int 1
+I/media-extractor-test: java baseline track 0 track-id: int 1
+I/media-extractor-test: java baseline track 0 width: int 320
+I/media-extractor-test: java baseline track 1 aac-profile: int 2
+I/media-extractor-test: java baseline track 1 bitrate: int 64000
+I/media-extractor-test: java baseline track 1 channel-count: int 1
+I/media-extractor-test: java baseline track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline track 1 language: string und
+I/media-extractor-test: java baseline track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline track 1 max-input-size: int 207
+I/media-extractor-test: java baseline track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline track 1 profile: int 2
+I/media-extractor-test: java baseline track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline track 1 track-id: int 2
+I/media-extractor-test: java baseline sample 0: track 1, time -47891, flags 1, size 4/4, position 0, limit 4, crc c2d0308a
+I/media-extractor-test: java baseline sample 1: track 1, time -24671, flags 1, size 150/150, position 0, limit 150, crc 03f0d02b
+I/media-extractor-test: java baseline sample 2: track 1, time -1451, flags 1, size 126/126, position 0, limit 126, crc 7c9348fb
+I/media-extractor-test: java baseline sample 3: track 0, time 0, flags 1, size 872/872, position 0, limit 872, crc 6d1a2351
+I/media-extractor-test: java baseline sample 4: track 1, time 21768, flags 1, size 81/81, position 0, limit 81, crc edcbe5d5
+I/media-extractor-test: java baseline sample 5: track 0, time 33333, flags 0, size 955/955, position 0, limit 955, crc 972ffabb
+I/media-extractor-test: java baseline sample 6: track 1, time 44988, flags 1, size 95/95, position 0, limit 95, crc 2d756928
+I/media-extractor-test: java baseline sample 7: track 0, time 66666, flags 0, size 514/514, position 0, limit 514, crc 7e2b3dfd
+I/media-extractor-test: java baseline sample 8: track 1, time 68208, flags 1, size 75/75, position 0, limit 75, crc 24801338
+I/media-extractor-test: java baseline sample 9: track 1, time 91428, flags 1, size 92/92, position 0, limit 92, crc 2bb1d273
+I/media-extractor-test: java baseline sample 10: track 0, time 100000, flags 0, size 532/532, position 0, limit 532, crc 0ffe4ba5
+I/media-extractor-test: java baseline sample 11: track 1, time 114648, flags 1, size 96/96, position 0, limit 96, crc 525ed2fb
+I/media-extractor-test: java baseline sample 12: track 0, time 133333, flags 0, size 354/354, position 0, limit 354, crc 68d80550
+I/media-extractor-test: java baseline sample 13: track 1, time 137868, flags 1, size 101/101, position 0, limit 101, crc 3cacd852
+I/media-extractor-test: java baseline sample 14: track 1, time 161088, flags 1, size 97/97, position 0, limit 97, crc 64a11871
+I/media-extractor-test: java baseline sample 15: track 0, time 166666, flags 0, size 362/362, position 0, limit 362, crc a0257393
+I/media-extractor-test: java baseline sample 16: track 1, time 184308, flags 1, size 84/84, position 0, limit 84, crc f2e3cadb
+I/media-extractor-test: java baseline sample 17: track 0, time 200000, flags 0, size 345/345, position 0, limit 345, crc f35dae3d
+I/media-extractor-test: java baseline sample 18: track 1, time 207528, flags 1, size 100/100, position 0, limit 100, crc 9fb81f34
+I/media-extractor-test: java baseline sample 19: track 1, time 230748, flags 1, size 78/78, position 0, limit 78, crc 2e4183af
+I/media-extractor-test: java baseline sample 20: track 0, time 233333, flags 0, size 299/299, position 0, limit 299, crc 52f8ce4a
+I/media-extractor-test: java baseline sample 21: track 1, time 253968, flags 1, size 112/112, position 0, limit 112, crc 7379548c
+I/media-extractor-test: java baseline sample 22: track 0, time 266666, flags 0, size 287/287, position 0, limit 287, crc 5b8efbf0
+I/media-extractor-test: java baseline sample 23: track 1, time 277188, flags 1, size 77/77, position 0, limit 77, crc 11878ce4
+I/media-extractor-test: java baseline sample 24: track 0, time 300000, flags 0, size 315/315, position 0, limit 315, crc 8b46f3a2
+I/media-extractor-test: java baseline sample 25: track 1, time 300408, flags 1, size 106/106, position 0, limit 106, crc fe42123f
+I/media-extractor-test: java baseline sample 26: track 1, time 323628, flags 1, size 97/97, position 0, limit 97, crc 92d8ae30
+I/media-extractor-test: java baseline sample 27: track 0, time 333333, flags 0, size 262/262, position 0, limit 262, crc 666674b7
+I/media-extractor-test: java baseline sample 28: track 1, time 346848, flags 1, size 95/95, position 0, limit 95, crc 9a16fb53
+I/media-extractor-test: java baseline sample 29: track 0, time 366666, flags 0, size 259/259, position 0, limit 259, crc 5db609df
+I/media-extractor-test: java baseline sample 30: track 1, time 370068, flags 1, size 112/112, position 0, limit 112, crc 06227b6a
+I/media-extractor-test: java baseline sample 31: track 1, time 393287, flags 1, size 90/90, position 0, limit 90, crc 2d6ddccf
+I/media-extractor-test: java baseline sample 32: track 0, time 400000, flags 0, size 260/260, position 0, limit 260, crc f82898e3
+I/media-extractor-test: java baseline sample 33: track 1, time 416507, flags 1, size 111/111, position 0, limit 111, crc ddf57c23
+I/media-extractor-test: java baseline sample 34: track 0, time 433333, flags 0, size 239/239, position 0, limit 239, crc a6d9afc6
+I/media-extractor-test: java baseline sample 35: track 1, time 439727, flags 1, size 81/81, position 0, limit 81, crc 235b5222
+I/media-extractor-test: java baseline sample 36: track 1, time 462947, flags 1, size 104/104, position 0, limit 104, crc e0cd53eb
+I/media-extractor-test: java baseline sample 37: track 0, time 466666, flags 0, size 283/283, position 0, limit 283, crc 38e2f06e
+I/media-extractor-test: java baseline sample 38: track 1, time 486167, flags 1, size 97/97, position 0, limit 97, crc 6973a2f9
+I/media-extractor-test: java baseline sample 39: track 0, time 500000, flags 1, size 1453/1453, position 0, limit 1453, crc 201f9590
+I/media-extractor-test: java baseline sample 40: track 1, time 509387, flags 1, size 115/115, position 0, limit 115, crc 36cd8099
+I/media-extractor-test: java baseline sample 41: track 1, time 532607, flags 1, size 103/103, position 0, limit 103, crc e9a13106
+I/media-extractor-test: java baseline sample 42: track 0, time 533333, flags 0, size 646/646, position 0, limit 646, crc 565c1bad
+I/media-extractor-test: java baseline sample 43: track 1, time 555827, flags 1, size 101/101, position 0, limit 101, crc f5518b60
+I/media-extractor-test: java baseline sample 44: track 0, time 566666, flags 0, size 320/320, position 0, limit 320, crc b6405101
+I/media-extractor-test: java baseline sample 45: track 1, time 579047, flags 1, size 104/104, position 0, limit 104, crc 2f28a439
+I/media-extractor-test: java baseline sample 46: track 0, time 600000, flags 0, size 265/265, position 0, limit 265, crc cdaa2335
+I/media-extractor-test: java baseline sample 47: track 1, time 602267, flags 1, size 98/98, position 0, limit 98, crc 84f1b28c
+I/media-extractor-test: java baseline sample 48: track 1, time 625487, flags 1, size 114/114, position 0, limit 114, crc bdc67582
+I/media-extractor-test: java baseline sample 49: track 0, time 633333, flags 0, size 276/276, position 0, limit 276, crc 82517745
+I/media-extractor-test: java baseline sample 50: track 1, time 648707, flags 1, size 108/108, position 0, limit 108, crc e7bf8d0e
+I/media-extractor-test: java baseline sample 51: track 0, time 666666, flags 0, size 317/317, position 0, limit 317, crc 740d6433
+I/media-extractor-test: java baseline sample 52: track 1, time 671927, flags 1, size 105/105, position 0, limit 105, crc c68557e0
+I/media-extractor-test: java baseline sample 53: track 1, time 695147, flags 1, size 117/117, position 0, limit 117, crc 8d4ce551
+I/media-extractor-test: java baseline sample 54: track 0, time 700000, flags 0, size 262/262, position 0, limit 262, crc 03473726
+I/media-extractor-test: java baseline sample 55: track 1, time 718367, flags 1, size 97/97, position 0, limit 97, crc 3d2b9f5c
+I/media-extractor-test: java baseline sample 56: track 0, time 733333, flags 0, size 297/297, position 0, limit 297, crc 34fba54e
+I/media-extractor-test: java baseline sample 57: track 1, time 741587, flags 1, size 102/102, position 0, limit 102, crc 1d09af5f
+I/media-extractor-test: java baseline sample 58: track 1, time 764807, flags 1, size 92/92, position 0, limit 92, crc 9704f218
+I/media-extractor-test: java baseline sample 59: track 0, time 766666, flags 0, size 285/285, position 0, limit 285, crc 76e0a164
+I/media-extractor-test: java baseline sample 60: track 1, time 788027, flags 1, size 115/115, position 0, limit 115, crc 32f516fc
+I/media-extractor-test: java baseline sample 61: track 0, time 800000, flags 0, size 257/257, position 0, limit 257, crc d80f36ad
+I/media-extractor-test: java baseline sample 62: track 1, time 811247, flags 1, size 104/104, position 0, limit 104, crc 8fe8bccc
+I/media-extractor-test: java baseline sample 63: track 0, time 833333, flags 0, size 294/294, position 0, limit 294, crc 9783ff97
+I/media-extractor-test: java baseline sample 64: track 1, time 834467, flags 1, size 109/109, position 0, limit 109, crc b594c3ee
+I/media-extractor-test: java baseline sample 65: track 1, time 857687, flags 1, size 108/108, position 0, limit 108, crc f22ecd57
+I/media-extractor-test: java baseline sample 66: track 0, time 866666, flags 0, size 236/236, position 0, limit 236, crc bb46500c
+I/media-extractor-test: java baseline sample 67: track 1, time 880907, flags 1, size 103/103, position 0, limit 103, crc 3781dfb0
+I/media-extractor-test: java baseline sample 68: track 0, time 900000, flags 0, size 225/225, position 0, limit 225, crc d50ffdfc
+I/media-extractor-test: java baseline sample 69: track 1, time 904126, flags 1, size 114/114, position 0, limit 114, crc eff9dae4
+I/media-extractor-test: java baseline sample 70: track 1, time 927346, flags 1, size 99/99, position 0, limit 99, crc d35e8e6a
+I/media-extractor-test: java baseline sample 71: track 0, time 933333, flags 0, size 243/243, position 0, limit 243, crc 70cf1b9d
+I/media-extractor-test: java baseline sample 72: track 1, time 950566, flags 1, size 172/172, position 0, limit 172, crc 1364d19b
+I/media-extractor-test: java baseline sample 73: track 0, time 966666, flags 0, size 238/238, position 0, limit 238, crc d11500da
+I/media-extractor-test: java baseline sample 74: track 1, time 973786, flags 1, size 187/187, position 0, limit 187, crc da05a8a2
+I/media-extractor-test: java baseline sample 75: track 1, time 997006, flags 1, size 4/4, position 0, limit 4, crc f953a8c1
+I/media-extractor-test: java baseline: 76 samples
+I/media-extractor-test: java baseline: after the samples: advance false, time -1, track -1, size -1, flags -1, read -1
+I/media-extractor-test: java baseline: seek previous -500000: end
+I/media-extractor-test: java baseline: seek previous 0: 1@-1451 0@0 1@21768
+I/media-extractor-test: java baseline: seek previous 200000: 0@0 0@33333 0@66666
+I/media-extractor-test: java baseline: seek previous 433333: 0@0 0@33333 0@66666
+I/media-extractor-test: java baseline: seek previous 450000: 0@0 0@33333 0@66666
+I/media-extractor-test: java baseline: seek previous 966667: 0@500000 0@533333 0@566666
+I/media-extractor-test: java baseline: seek previous 2000000: 0@500000 0@533333 0@566666
+I/media-extractor-test: java baseline: seek next -500000: 0@600000 0@633333 0@666666
+I/media-extractor-test: java baseline: seek next 0: 0@0 1@21768 0@33333
+I/media-extractor-test: java baseline: seek next 200000: 1@207528 1@230748 1@253968
+I/media-extractor-test: java baseline: seek next 433333: 1@439727 1@462947 1@486167
+I/media-extractor-test: java baseline: seek next 450000: 1@462947 1@486167 0@500000
+I/media-extractor-test: java baseline: seek next 966667: 1@973786 1@997006
+I/media-extractor-test: java baseline: seek next 2000000: end
+I/media-extractor-test: java baseline: seek closest -500000: end
+I/media-extractor-test: java baseline: seek closest 0: 1@-1451 0@0 1@21768
+I/media-extractor-test: java baseline: seek closest 200000: 0@0 0@33333 0@66666
+I/media-extractor-test: java baseline: seek closest 433333: 1@439727 1@462947 1@486167
+I/media-extractor-test: java baseline: seek closest 450000: 1@439727 1@462947 1@486167
+I/media-extractor-test: java baseline: seek closest 966667: 0@500000 0@533333 0@566666
+I/media-extractor-test: java baseline: seek closest 2000000: 0@500000 0@533333 0@566666
+I/media-extractor-test: java baseline: first sample into a direct buffer at 3: 126, position 3, limit 129, crc 7c9348fb
+I/media-extractor-test: java baseline: cached duration -1, cache at its end true, crypto info false, DRM null, pssh null, presentations 0, CAS null
+I/media-extractor-test: java baseline metrics _key: String extractor
+I/media-extractor-test: java baseline metrics android.media.mediaextractor.entry: String sdk
+I/media-extractor-test: java baseline metrics android.media.mediaextractor.fmt: String MPEG4Extractor
+I/media-extractor-test: java baseline metrics android.media.mediaextractor.mime: String video/mp4
+I/media-extractor-test: java baseline metrics android.media.mediaextractor.ntrk: Integer 2
+I/media-extractor-test: java baseline: track format 2: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: select 2: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: unselect 2: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: seek mode 3: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: seek mode -1: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: read into 1 byte: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: read at 20 of 16 bytes: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline: a second source: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java baseline: after release: java.lang.IllegalStateException
+I/media-extractor-test: java baseline fd: 2 tracks, 76 samples, the same as from the asset
+I/media-extractor-test: java baseline path: 2 tracks, 76 samples, the same as from the asset
+I/media-extractor-test: java baseline file URL: 2 tracks, 76 samples, the same as from the asset
+I/media-extractor-test: java baseline file Uri: 2 tracks, 76 samples, the same as from the asset
+I/media-extractor-test: java baseline missing path: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java baseline http: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java baseline data source: 2 tracks, 76 samples, the same as from the asset
+I/media-extractor-test: java baseline data source: closed 1 times
+I/media-extractor-test: java baseline data source no movie: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java baseline data source no movie: closed 2 times
 I/media-extractor-test: fd main: status 0
 I/media-extractor-test: fd main: 1 tracks, cached duration -1
 I/media-extractor-test: fd main file mime: string video/mp4
@@ -326,4 +482,100 @@ I/media-extractor-test: custom main without durations track 0 csd-0: buffer 14 b
 I/media-extractor-test: custom main without durations track 0 csd-1: buffer 8 bytes, crc 00f3767d
 I/media-extractor-test: custom main without durations track 0 frame-count: int32 30
 I/media-extractor-test: custom main no movie, then the fd: status -10000 then 0, 1 tracks, the refused source closed 0 times
+I/media-extractor-test: java main: tracks before a source 0, sample time -1, track -1
+I/media-extractor-test: java main: 1 tracks
+I/media-extractor-test: java main track 0 csd-0: buffer 14 bytes, crc db387358
+I/media-extractor-test: java main track 0 csd-1: buffer 8 bytes, crc 00f3767d
+I/media-extractor-test: java main track 0 display-height: int 180
+I/media-extractor-test: java main track 0 display-width: int 320
+I/media-extractor-test: java main track 0 durationUs: long 1000000
+I/media-extractor-test: java main track 0 frame-count: int 30
+I/media-extractor-test: java main track 0 frame-rate: int 30
+I/media-extractor-test: java main track 0 height: int 180
+I/media-extractor-test: java main track 0 language: string und
+I/media-extractor-test: java main track 0 level: int 16
+I/media-extractor-test: java main track 0 max-input-size: int 983
+I/media-extractor-test: java main track 0 mime: string video/avc
+I/media-extractor-test: java main track 0 profile: int 2
+I/media-extractor-test: java main track 0 track-id: int 1
+I/media-extractor-test: java main track 0 width: int 320
+I/media-extractor-test: java main sample 0: track 0, time 0, flags 1, size 540/540, position 0, limit 540, crc eef35c70
+I/media-extractor-test: java main sample 1: track 0, time 133333, flags 0, size 650/650, position 0, limit 650, crc e76f0499
+I/media-extractor-test: java main sample 2: track 0, time 66666, flags 0, size 451/451, position 0, limit 451, crc 0b571992
+I/media-extractor-test: java main sample 3: track 0, time 33333, flags 0, size 194/194, position 0, limit 194, crc ecae732a
+I/media-extractor-test: java main sample 4: track 0, time 100000, flags 0, size 284/284, position 0, limit 284, crc 01ce5c2b
+I/media-extractor-test: java main sample 5: track 0, time 266666, flags 0, size 410/410, position 0, limit 410, crc 8f7de52d
+I/media-extractor-test: java main sample 6: track 0, time 200000, flags 0, size 304/304, position 0, limit 304, crc ca0eec67
+I/media-extractor-test: java main sample 7: track 0, time 166666, flags 0, size 162/162, position 0, limit 162, crc 6098fb56
+I/media-extractor-test: java main sample 8: track 0, time 233333, flags 0, size 160/160, position 0, limit 160, crc 8524226a
+I/media-extractor-test: java main sample 9: track 0, time 333333, flags 0, size 298/298, position 0, limit 298, crc ec8c1e29
+I/media-extractor-test: java main sample 10: track 0, time 300000, flags 0, size 167/167, position 0, limit 167, crc 595b918d
+I/media-extractor-test: java main sample 11: track 0, time 400000, flags 0, size 274/274, position 0, limit 274, crc a9fb109e
+I/media-extractor-test: java main sample 12: track 0, time 366666, flags 0, size 146/146, position 0, limit 146, crc d1529e0d
+I/media-extractor-test: java main sample 13: track 0, time 466666, flags 0, size 244/244, position 0, limit 244, crc d9526999
+I/media-extractor-test: java main sample 14: track 0, time 433333, flags 0, size 122/122, position 0, limit 122, crc e02c3ef0
+I/media-extractor-test: java main sample 15: track 0, time 500000, flags 1, size 963/963, position 0, limit 963, crc 0c04e12d
+I/media-extractor-test: java main sample 16: track 0, time 566666, flags 0, size 496/496, position 0, limit 496, crc a6dfcd9b
+I/media-extractor-test: java main sample 17: track 0, time 533333, flags 0, size 171/171, position 0, limit 171, crc 87c77cb7
+I/media-extractor-test: java main sample 18: track 0, time 633333, flags 0, size 272/272, position 0, limit 272, crc 934e3667
+I/media-extractor-test: java main sample 19: track 0, time 600000, flags 0, size 52/52, position 0, limit 52, crc f54494b0
+I/media-extractor-test: java main sample 20: track 0, time 766666, flags 0, size 284/284, position 0, limit 284, crc f0a9dca6
+I/media-extractor-test: java main sample 21: track 0, time 700000, flags 0, size 215/215, position 0, limit 215, crc f717719e
+I/media-extractor-test: java main sample 22: track 0, time 666666, flags 0, size 155/155, position 0, limit 155, crc feaa110b
+I/media-extractor-test: java main sample 23: track 0, time 733333, flags 0, size 145/145, position 0, limit 145, crc d5f99ae0
+I/media-extractor-test: java main sample 24: track 0, time 900000, flags 0, size 208/208, position 0, limit 208, crc 368d0935
+I/media-extractor-test: java main sample 25: track 0, time 833333, flags 0, size 195/195, position 0, limit 195, crc 5089af69
+I/media-extractor-test: java main sample 26: track 0, time 800000, flags 0, size 54/54, position 0, limit 54, crc adc21089
+I/media-extractor-test: java main sample 27: track 0, time 866666, flags 0, size 141/141, position 0, limit 141, crc d086a1d4
+I/media-extractor-test: java main sample 28: track 0, time 933333, flags 1, size 875/875, position 0, limit 875, crc 44a6e999
+I/media-extractor-test: java main sample 29: track 0, time 966666, flags 0, size 462/462, position 0, limit 462, crc c7d23e43
+I/media-extractor-test: java main: 30 samples
+I/media-extractor-test: java main: after the samples: advance false, time -1, track -1, size -1, flags -1, read -1
+I/media-extractor-test: java main: seek previous -500000: end
+I/media-extractor-test: java main: seek previous 0: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek previous 200000: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek previous 433333: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek previous 450000: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek previous 966667: 0@933333 0@966666
+I/media-extractor-test: java main: seek previous 2000000: 0@933333 0@966666
+I/media-extractor-test: java main: seek next -500000: end
+I/media-extractor-test: java main: seek next 0: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek next 200000: 0@500000 0@566666 0@533333
+I/media-extractor-test: java main: seek next 433333: 0@500000 0@566666 0@533333
+I/media-extractor-test: java main: seek next 450000: 0@500000 0@566666 0@533333
+I/media-extractor-test: java main: seek next 966667: end
+I/media-extractor-test: java main: seek next 2000000: end
+I/media-extractor-test: java main: seek closest -500000: end
+I/media-extractor-test: java main: seek closest 0: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek closest 200000: 0@0 0@133333 0@66666
+I/media-extractor-test: java main: seek closest 433333: 0@500000 0@566666 0@533333
+I/media-extractor-test: java main: seek closest 450000: 0@500000 0@566666 0@533333
+I/media-extractor-test: java main: seek closest 966667: 0@933333 0@966666
+I/media-extractor-test: java main: seek closest 2000000: 0@933333 0@966666
+I/media-extractor-test: java main: first sample into a direct buffer at 3: 540, position 3, limit 543, crc eef35c70
+I/media-extractor-test: java main: cached duration -1, cache at its end true, crypto info false, DRM null, pssh null, presentations 0, CAS null
+I/media-extractor-test: java main metrics _key: String extractor
+I/media-extractor-test: java main metrics android.media.mediaextractor.entry: String sdk
+I/media-extractor-test: java main metrics android.media.mediaextractor.fmt: String MPEG4Extractor
+I/media-extractor-test: java main metrics android.media.mediaextractor.mime: String video/mp4
+I/media-extractor-test: java main metrics android.media.mediaextractor.ntrk: Integer 1
+I/media-extractor-test: java main: track format 1: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: select 1: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: unselect 1: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: seek mode 3: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: seek mode -1: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: read into 1 byte: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: read at 20 of 16 bytes: java.lang.IllegalArgumentException
+I/media-extractor-test: java main: a second source: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java main: after release: java.lang.IllegalStateException
+I/media-extractor-test: java main fd: 1 tracks, 30 samples, the same as from the asset
+I/media-extractor-test: java main path: 1 tracks, 30 samples, the same as from the asset
+I/media-extractor-test: java main file URL: 1 tracks, 30 samples, the same as from the asset
+I/media-extractor-test: java main file Uri: 1 tracks, 30 samples, the same as from the asset
+I/media-extractor-test: java main missing path: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java main http: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java main data source: 1 tracks, 30 samples, the same as from the asset
+I/media-extractor-test: java main data source: closed 1 times
+I/media-extractor-test: java main data source no movie: java.io.IOException: Failed to instantiate extractor.
+I/media-extractor-test: java main data source no movie: closed 2 times
 I/media-extractor-test: done

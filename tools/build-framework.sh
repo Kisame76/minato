@@ -153,8 +153,8 @@ python3 tools/managergen/managergen.py \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
 # Our managers from the public API (steps c2c1, c2c2, c2c3 and ADR-0045's storage and app ops step; gap 1's audio and
 # connectivity with the Connectivity module's network classes; the Unity test APK probe's TrafficStats and gap 13's
-# AudioTrack and AudioDeviceInfo; android.media's absent hardware: DRM, codec lists, retriever, extractor, image
-# reader and the TV input manager), logged once where
+# AudioTrack and AudioDeviceInfo; android.media's absent hardware: DRM, codec lists, retriever, image reader and the
+# TV input manager), logged once where
 # framework/managers' hand files do not answer.
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
@@ -165,7 +165,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.view.textclassifier.TextClassificationManager --class android.media.AudioManager \
   --class android.media.AudioTrack --class android.media.AudioDeviceInfo \
   --class android.media.MediaDrm --class android.media.MediaCrypto \
-  --class android.media.MediaMetadataRetriever --class android.media.MediaExtractor \
+  --class android.media.MediaMetadataRetriever \
   --class android.media.tv.TvInputManager \
   --class android.media.VolumeShaper --class android.media.MediaDescrambler \
   --class android.media.MediaCas \

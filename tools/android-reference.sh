@@ -548,12 +548,16 @@ run_app() {
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \
       | preferences-test | service-exceptions-test | network-security-test | network-security-config-test \
       | noted-app-op-test | app-services-test | image-reader-test | autocomplete-test | bound-services-test | package-answers-test \
-      | image-writer-test | media-codec-test | media-extractor-test | open-test | sensors-java-test \
-      | location-manager-test \
+      | image-writer-test | media-codec-test | open-test | sensors-java-test | location-manager-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | device-profile-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
+      ;;
+    media-extractor-test)
+      # Both files through the NDK's and Java's sources take about a minute on the emulator.
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      mask=yes limit=120
       ;;
     permission-request-test | permission-request-test-fine)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
