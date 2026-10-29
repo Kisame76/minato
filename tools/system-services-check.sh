@@ -7,7 +7,8 @@
 # --app system-services-test): the vibrator and its manager, a vibration and a view's haptic feedback, the UI mode,
 # captioning, media metrics, autofill and shortcut managers; what differs by device is shown only. Then its twin
 # system-services-test-unpermitted, the same sources without the VIBRATE permission, whose vibration and cancel the
-# vibrator service refuses (fixtures/expected/<app>.logcat each).
+# vibrator service refuses (fixtures/expected/<app>.logcat each). Neither may log an unwritten method of Vibrator or
+# VibratorManager, which are AOSP's.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/system-services-check.sh
 set -euo pipefail
@@ -28,7 +29,7 @@ failed=0
 for app in system-services-test system-services-test-unpermitted; do
   tools/build-java-test-app.sh "$app" >/dev/null
   package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "fixtures/apps/$app/AndroidManifest.xml" | head -n 1)
-  python3 framework/tests/java_app_run.py --lifecycle start "$app" "$package" \
+  python3 framework/tests/java_app_run.py --lifecycle start --never "Unwritten: android.os.Vibrator" "$app" "$package" \
     android.app.Application build/art build/bionic/lib build/bionic/system \
     build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
     "$NATIVE/runtime/apk-run" "build/system-services-check/$app" build/framework-native/app_process64 \

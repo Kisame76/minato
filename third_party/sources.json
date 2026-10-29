@@ -754,6 +754,19 @@
         "src/org/ccil/cowan/tagsoup/XMLWriter.java"
       ],
       "digest": "0b41896922dd34f1fac9fc770521f01e03f1d4564461173e22a3f8937262e428"
+    },
+    {
+      "name": "hardware_interfaces_vibrator",
+      "project": "platform/hardware/interfaces",
+      "commit": "488942f82bd1bc9ad1cb65a02c71421dc3a6a3d6",
+      "license": "Apache-2.0",
+      "directories": [
+        "vibrator/aidl/android"
+      ],
+      "files": [
+        "vibrator/aidl/Android.bp"
+      ],
+      "digest": "398c80a3e18136c389344bab92e08c6af6e0b72d9072a960b64e7d18be72c7ae"
     }
   ],
   "angle": {

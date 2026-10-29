@@ -2,6 +2,7 @@ I/system-services-test: start
 I/system-services-test: vibrator: android.os.SystemVibrator, the same by class true
 I/system-services-test: vibrator manager: android.os.SystemVibratorManager, the same by name true
 I/system-services-test: default vibrator: android.os.SystemVibrator
+I/system-services-test: 2 effects, 2 primitives, 2 durations; all effects as each effect's true, all primitives as each primitive's true
 I/system-services-test: vibrated
 I/system-services-test: cancelled
 I/system-services-test: haptic feedback for a long press sent

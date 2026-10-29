@@ -2013,9 +2013,32 @@ frameworks_base/core/java/com/android/internal/logging/EventLogTags.logtags
 # CombinedVibration, what VibratorManager.vibrate takes; LightState and LightsRequest, a light's state and a session's
 # request; PlaybackState with its CustomAction, a media session's playback state, which MediaController reports.
 frameworks_base/core/java/android/os/CombinedVibration.java
-# Gap 1's batch 3 (App, 2026-10-28): the vibrator manager service's interface, which our SystemVibratorManager asks
-# of the local service (android.os.VibratorManagerService).
+# Gap 1's batch 3 (App, 2026-10-28 and 29): the vibrator and its manager, AOSP's SystemVibrator and
+# SystemVibratorManager over the local vibrator manager service (android.os.VibratorManagerService), with Vibrator,
+# VibratorManager, NullVibrator, VibrationAttributes, the vibrators' info and config, and the vibrator HAL's AIDL
+# (hardware/interfaces' vibrator), whose IVibrator's constants and Braking VibratorInfo reads.
 frameworks_base/core/java/android/os/IVibratorManagerService.aidl
+frameworks_base/core/java/android/os/Vibrator.java
+frameworks_base/core/java/android/os/VibratorManager.java
+frameworks_base/core/java/android/os/SystemVibrator.java
+frameworks_base/core/java/android/os/SystemVibratorManager.java
+frameworks_base/core/java/android/os/NullVibrator.java
+frameworks_base/core/java/android/os/VibrationAttributes.java
+frameworks_base/core/java/android/os/VibratorInfo.java
+frameworks_base/core/java/android/os/vibrator/MultiVibratorInfo.java
+frameworks_base/core/java/android/os/vibrator/VibrationConfig.java
+frameworks_base/core/java/android/os/vibrator/VibratorFrequencyProfile.java
+frameworks_base/core/java/android/os/vibrator/VibratorInfoFactory.java
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/ActivePwle.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/Braking.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/BrakingPwle.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/CompositeEffect.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/CompositePrimitive.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/Effect.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/EffectStrength.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/IVibrator.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/IVibratorCallback.aidl
+hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/PrimitivePwle.aidl
 # Gap 1's batch 3 (App, 2026-10-29): UiModeManager, which AppCompat's night mode, media3's Util.isTv and Material's
 # ColorContrast ask, over the local UI mode service (android.app.LocalUiModeManager), with its interfaces and the
 # IpcDataCache of its night mode (enable_night_mode_binder_cache).

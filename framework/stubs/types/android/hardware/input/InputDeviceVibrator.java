@@ -20,4 +20,13 @@ public final class InputDeviceVibrator extends android.os.Vibrator {
     public void cancel() {
         throw new RuntimeException("stub");
     }
+
+    public void cancel(int usageFilter) {
+        throw new RuntimeException("stub");
+    }
+
+    public void vibrate(int uid, String opPkg, android.os.VibrationEffect vibe, String reason,
+            android.os.VibrationAttributes attributes) {
+        throw new RuntimeException("stub");
+    }
 }

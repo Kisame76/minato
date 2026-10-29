@@ -96,6 +96,13 @@ public class Binder implements IBinder {
         mDescriptor = descriptor;
     }
 
+    /**
+     * @hide A @VintfStability interface's Stub marks its binder (the vibrator HAL's AIDL, gap 1's batch 3); a
+     * stability that libbinder checks between partitions, of which the one process has none.
+     */
+    public final void markVintfStability() {
+    }
+
     @Override
     public String getInterfaceDescriptor() {
         return mDescriptor;

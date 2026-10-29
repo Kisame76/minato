@@ -36,6 +36,9 @@ run's extra entries (the gap scanner's MINATO_GAPSCAN=1).
 With --once <line>, once or more, the process's log must hold this line exactly once: a line logged once however
 often its cause comes, such as ART's log of a failed resolution (minato-resolve).
 
+With --never <text>, once or more, no line of the process's log may hold this text: a class's methods that must all
+be written, which the managers' generator logs once each as "Unwritten: <class>.<method>" (ADR-0045 decision 3).
+
 With --status <n>, the run must end by itself with status n, where every other run ends with 0: an app whose exception
 no thread catches ends with SIGKILL from Android's handler, 137 (128 + 9) through apk-run's session (ADR-0039,
 crash-test).
@@ -92,7 +95,7 @@ Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <s
                        [--pick <file>]... [--pick-photo <file>]...
                        [--pick-save] [--pick-tree <folder>] [--export-dir <folder>] [--shares]
                        [--sensor-script <file>] [--grant-location fine|coarse|denied] [--location-script <file>]
-                       [--device-profile pixel|galaxy] [--status <n>] [--once <line>]...
+                       [--device-profile pixel|galaxy] [--status <n>] [--once <line>]... [--never <text>]...
                        [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
@@ -136,11 +139,13 @@ def main():
     splits = []
     status = 0
     once = []
+    never = []
     environment = []
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
                        ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
                        ["--pick-tree"], ["--export-dir"], ["--shares"], ["--sensor-script"], ["--grant-location"],
-                       ["--location-script"], ["--device-profile"], ["--status"], ["--once"], ["--env"], ["--split"]):
+                       ["--location-script"], ["--device-profile"], ["--status"], ["--once"], ["--never"], ["--env"],
+                       ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--android-id":
@@ -175,6 +180,8 @@ def main():
             environment, args = environment + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--once":
             once, args = once + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--never":
+            never, args = never + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--status":
             status, args = int(args[1]), args[2:]
         elif args[0] == "--drawn":
@@ -246,6 +253,12 @@ def main():
         print("FAIL: the process's log must hold these lines once:")
         for line, count in counts:
             print(f"  {count} times: {line}")
+        sys.exit(1)
+    logged = [line for line in result.stderr.splitlines() if any(text in line for text in never)]
+    if logged:
+        print("FAIL: the process's log holds lines it must not hold:")
+        for line in logged:
+            print(f"  {line}")
         sys.exit(1)
     if expected.endswith(".logcat"):
         marks = certificate_mask.marks(apk_inspect, apk) if apk_inspect else {}

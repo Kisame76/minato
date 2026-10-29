@@ -32,9 +32,10 @@ import java.util.List;
  * <ul>
  *   <li>the vibrator, by name and by class, and the vibrator manager: their classes, the same object by name and by
  *       class, a one-shot vibration and its cancel with the VIBRATE permission, and a view's haptic feedback for a long
- *       press, which View sends to the vibrator itself (use_vibrator_haptic_feedback). Whether the device has a
- *       vibrator, its amplitude control, its IDs and the haptic feedback's answer differ by device and are shown on
- *       the device tag.
+ *       press, which View sends to the vibrator itself (use_vibrator_haptic_feedback), and the answers for all of
+ *       two effects and two primitives against those for each. Whether the device has a vibrator, its amplitude
+ *       control, its IDs, the effects, primitives and frequencies it supports and the haptic feedback's answer differ
+ *       by device and are shown on the device tag.
  *   <li>the UI mode manager, from the application's context as media3's Util.isTv and AppCompat's night mode ask it:
  *       its class, the same object by class, the current mode type, the night mode as the configuration has it, and
  *       the contrast Material's ColorContrast reads. The night mode itself follows the device's dark theme and is shown
@@ -122,6 +123,7 @@ public class ServicesActivity extends Activity {
         Log.i(mTag, "default vibrator: " + name(manager.getDefaultVibrator()));
         Log.i(mDevice, "has vibrator " + vibrator.hasVibrator() + ", amplitude control "
                 + vibrator.hasAmplitudeControl() + ", vibrator IDs " + manager.getVibratorIds().length);
+        capabilities(vibrator);
         try {
             vibrator.vibrate(VibrationEffect.createOneShot(20, VibrationEffect.DEFAULT_AMPLITUDE));
             Log.i(mTag, "vibrated");
@@ -134,6 +136,42 @@ public class ServicesActivity extends Activity {
         } catch (SecurityException e) {
             Log.i(mTag, "cancel: " + e.getClass().getName());
         }
+    }
+
+    /**
+     * The vibrator's effects and primitives as games ask them before a haptic: what it supports differs by device, and
+     * Vibrator's answers for all of them follow its answers for each.
+     */
+    private void capabilities(Vibrator vibrator) {
+        final int[] effects = {VibrationEffect.EFFECT_CLICK, VibrationEffect.EFFECT_TICK};
+        final int[] primitives =
+                {VibrationEffect.Composition.PRIMITIVE_CLICK, VibrationEffect.Composition.PRIMITIVE_TICK};
+        final int[] effectsSupported = vibrator.areEffectsSupported(effects);
+        final boolean[] primitivesSupported = vibrator.arePrimitivesSupported(primitives);
+        final int[] durations = vibrator.getPrimitiveDurations(primitives);
+        Log.i(mDevice, "effects " + Arrays.toString(effectsSupported) + ", primitives "
+                + Arrays.toString(primitivesSupported) + ", durations " + Arrays.toString(durations)
+                + ", resonant frequency " + vibrator.getResonantFrequency() + ", Q factor " + vibrator.getQFactor()
+                + ", ID " + vibrator.getId());
+        // Vibrator.areAllEffectsSupported's rule: no if one is not supported, else unknown if one is unknown.
+        int all = Vibrator.VIBRATION_EFFECT_SUPPORT_YES;
+        for (int support : effectsSupported) {
+            if (support == Vibrator.VIBRATION_EFFECT_SUPPORT_NO) {
+                all = support;
+                break;
+            }
+            if (support != Vibrator.VIBRATION_EFFECT_SUPPORT_YES) {
+                all = Vibrator.VIBRATION_EFFECT_SUPPORT_UNKNOWN;
+            }
+        }
+        boolean allPrimitives = true;
+        for (boolean supported : primitivesSupported) {
+            allPrimitives &= supported;
+        }
+        Log.i(mTag, effectsSupported.length + " effects, " + primitivesSupported.length + " primitives, "
+                + durations.length + " durations; all effects as each effect's "
+                + (vibrator.areAllEffectsSupported(effects) == all) + ", all primitives as each primitive's "
+                + (vibrator.areAllPrimitivesSupported(primitives) == allPrimitives));
     }
 
     /** A view's haptic feedback, which View sends to the vibrator service itself. */

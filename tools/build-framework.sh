@@ -77,11 +77,14 @@ for path in "${taken[@]}"; do
   if [[ "$name" == *.aidl ]]; then
     # media's root only for its own files (the media metrics', gap 1's batch 3): for IDisplayManager's import,
     # aidl-imports declares IMediaProjection, which media's root would give twice.
-    media=()
-    [[ "$path" == frameworks_base_types/media/* ]] && media=(-I"$SOURCES/frameworks_base_types/media/java")
+    roots=()
+    [[ "$path" == frameworks_base_types/media/* ]] && roots=(-I"$SOURCES/frameworks_base_types/media/java")
+    # The vibrator HAL's AIDL (gap 1's batch 3) from its own root, at its VINTF stability.
+    [[ "$path" == hardware_interfaces_vibrator/* ]] &&
+      roots=(-I"$SOURCES/hardware_interfaces_vibrator/vibrator/aidl" --structured --stability=vintf)
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
       -I"$SOURCES/frameworks_base_types/apex/jobscheduler/framework/java" -I"$SOURCES/location_java/location/java" \
-      ${media[@]+"${media[@]}"} -Iframework/aidl-imports -o "$GEN/aidl" "$source"
+      ${roots[@]+"${roots[@]}"} -Iframework/aidl-imports -o "$GEN/aidl" "$source"
     continue
   fi
   if [[ "$name" == *.logtags ]]; then
@@ -170,7 +173,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.media.VolumeShaper --class android.media.MediaDescrambler \
   --class android.media.MediaCas \
   --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
-  --class android.telephony.TelephonyCallback --class android.os.Vibrator \
+  --class android.telephony.TelephonyCallback \
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
   --class android.media.session.MediaController --class android.widget.Toolbar --class android.app.VoiceInteractor \
   --class android.window.SplashScreen \
@@ -183,7 +186,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.telephony.PreciseDataConnectionState --class android.telephony.TelephonyDisplayInfo \
   --class android.media.session.MediaSession --class android.hardware.lights.LightsManager \
   --class android.media.session.MediaSessionManager \
-  --class android.os.VibratorManager --class android.net.wifi.WifiInfo --class android.net.wifi.WifiConfiguration \
+  --class android.net.wifi.WifiInfo --class android.net.wifi.WifiConfiguration \
   --class android.net.wifi.hotspot2.PasspointConfiguration --class android.net.wifi.SoftApConfiguration \
   --class android.net.wifi.WifiNetworkSpecifier --class android.net.wifi.WifiNetworkSuggestion \
   --class android.net.wifi.WifiSsid --class android.net.wifi.WpsInfo \
@@ -195,7 +198,6 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.net.IpSecManager \
   --class android.net.ProxyInfo \
   --class android.net.SocketKeepalive \
-  --class android.os.VibrationAttributes \
   --class android.service.notification.ZenPolicy \
   --class android.telecom.PhoneAccountHandle \
   --class android.telephony.IccOpenLogicalChannelResponse \
