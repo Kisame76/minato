@@ -452,6 +452,28 @@ if(APK_HOST_BUILD)
         --nterp --upper-half)
     set_tests_properties(runtime.art_hello_nterp_upper_half${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
       TIMEOUT 400)
+    # The same programs compiled (M6 c2, ADR-0053 patch 0009): our dex2oat makes the oat of each with
+    # --compiler-filter=speed, ART loads it as a container and runs the compiled methods, with what the interpreter
+    # prints: art-hello and nterp-test in the default window, art-hello in the upper half, nterp-test under CMS.
+    # codec-test and stress-test need the intrinsics (the next patch).
+    foreach(compiled_run IN ITEMS "art-hello" "nterp-test" "art-hello|--upper-half" "nterp-test|--gc|CMS")
+      string(REPLACE "|" ";" compiled_args "${compiled_run}")
+      list(POP_FRONT compiled_args compiled_program)
+      string(REPLACE "-" "_" compiled_name "${compiled_program}")
+      if("--upper-half" IN_LIST compiled_args)
+        set(compiled_name "${compiled_name}_upper_half")
+      elseif(compiled_args)
+        set(compiled_name "${compiled_name}_cms")
+      endif()
+      add_test(NAME runtime.${compiled_name}_compiled${suffix}
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+          "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+          $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+          "${APK_ART_DIR}/test/${compiled_program}.jar" Main
+          "${PROJECT_SOURCE_DIR}/fixtures/expected/${compiled_program}.out" ${flag} --compiled ${compiled_args})
+      set_tests_properties(runtime.${compiled_name}_compiled${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+        TIMEOUT 600)
+    endforeach()
     foreach(nterp_mode IN ITEMS "" "_upper_half" "_cms")
       set(nterp_args --offsets)
       if(nterp_mode STREQUAL "_upper_half")
@@ -503,6 +525,15 @@ if(APK_HOST_BUILD)
         $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${APK_ART_DIR}/test/art-hello.jar"
         $<TARGET_FILE:oat_test> ${flag})
     set_tests_properties(runtime.dex2oat_verify${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
+    # Two dex2oat calls side by side, in one work folder, as CTest starts the compiled tests and dex2oat_verify, make
+    # the odex of their own jar (runtime/tests/dex2oat_parallel.py).
+    add_test(NAME runtime.dex2oat_parallel${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/dex2oat_parallel.py" "${APK_ART_DIR}"
+        "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+        "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
+        $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${APK_ART_DIR}/test/art-hello.jar"
+        "${APK_ART_DIR}/test/nterp-test.jar" ${flag})
+    set_tests_properties(runtime.dex2oat_parallel${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
     # ART's tests in the app (ADR-0033 d): the stage that tools/embed-fixtures.sh puts into fixture builds, with the
     # Java fixtures and the run-tests' sample, run on the Mac as the app's ART mode runs it
     # (runtime/tests/device_art.py).

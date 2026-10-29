@@ -34,30 +34,30 @@ F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::Ha
 F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::HandleBinaryOp#2 nop __ Sub(dst, lhs, rhs);
 F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitDataProcWithShifterOp#1 nop __ Add(out, left, right_operand);
 F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitDataProcWithShifterOp#2 nop __ Sub(out, left, right_operand);
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddress#1 decode __ Add(OutputRegister(instruction),
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddressIndex#1 decode __ Add(OutputRegister(instruction), index_reg, offset);
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddressIndex#2 decode __ Add(OutputRegister(instruction), offset_reg, Operand(index_reg, LSL, shift));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddress#1 derived __ Add(OutputRegister(instruction),
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddressIndex#1 derived __ Add(OutputRegister(instruction), index_reg, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddressIndex#2 derived __ Add(OutputRegister(instruction), offset_reg, Operand(index_reg, LSL, shift));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 decode MemOperand source = HeapOperand(obj);
 M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 decode __ Ldr(length, MemOperand(obj.X(), adjusted_offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#2 decode __ Ldr(length, HeapOperand(obj, count_offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#3 decode HeapOperand(obj, offset + Int64FromLocation(index)));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#4 decode HeapOperand(obj, offset + (Int64FromLocation(index) << 1)));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#5 decode source = HeapOperand(obj, offset);
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 decode __ Add(temp, obj, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 derived __ Add(temp, obj, offset);
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#6 decode HeapOperand(temp, XRegisterFrom(index), LSL, 0));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#7 decode HeapOperand(temp, XRegisterFrom(index), LSL, 1));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#8 decode source = HeapOperand(temp, XRegisterFrom(index), LSL, DataType::SizeShift(type));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayLength#1 decode __ Ldr(out, HeapOperand(InputRegisterAt(instruction, 0), offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#1 decode MemOperand destination = HeapOperand(array);
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#2 decode destination = HeapOperand(array, offset);
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#1 decode __ Add(temp_dest, array, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#1 derived __ Add(temp_dest, array, offset);
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#3 decode destination = HeapOperand(temp_dest,
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#4 decode __ Ldr(temp, HeapOperand(array, class_offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#5 decode __ Ldr(temp, HeapOperand(temp, component_offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#6 decode __ Ldr(temp2, HeapOperand(Register(value), class_offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#7 decode __ Ldr(temp, HeapOperand(temp, super_offset));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#8 decode destination = HeapOperand(array, offset);
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#2 decode __ Add(temp_base, array, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#2 derived __ Add(temp_base, array, offset);
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#9 decode destination = HeapOperand(temp_base,
 F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateIntDivForPower2Denom#1 nop __ Add(out, dividend, Operand(dividend, LSR, bits - 1));
 F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateIntDivForPower2Denom#2 nop __ Add(temp, dividend, abs_imm - 1);
@@ -87,7 +87,7 @@ M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::Vi
 M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateStaticOrDirectCall#1 raw __ Ldr(lr, MemOperand(XRegisterFrom(callee_method), offset.Int32Value()));
 M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateStaticOrDirectCall#2 raw __ Ldr(lr, MemOperand(XRegisterFrom(callee_method), offset.Int32Value()));
 H compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#1 decode __ Ldr(temp.W(), HeapOperandFrom(LocationFrom(receiver), class_offset));
-M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#1 raw __ Ldr(temp, MemOperand(temp, method_offset));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#1 decode __ Ldr(temp, MemOperand(temp, method_offset));
 M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#2 raw __ Ldr(lr, MemOperand(temp, entry_point.SizeValue()));
 M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::EmitLdrOffsetPlaceholder#1 raw __ ldr(out, MemOperand(base, /* offset placeholder */ 0));
 H compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateImplicitNullCheck#1 decode __ Ldr(wzr, HeapOperandFrom(obj, Offset(0)));
@@ -110,7 +110,7 @@ M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::Vi
 M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitClassTableGet#3 raw MemOperand(XRegisterFrom(locations->Out()), method_offset));
 M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 decode return MemOperand(base.X(), InputRegisterAt(instruction, 1).X());
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 decode return HeapOperand(base, offset);
-F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 decode __ Add(*scratch, base, Operand(WRegisterFrom(index), LSL, shift));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 derived __ Add(*scratch, base, Operand(WRegisterFrom(index), LSL, shift));
 H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#2 decode return HeapOperand(*scratch, offset);
 M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecSVEAddress#1 decode return SVEMemOperand(base.X(), XRegisterFrom(index), LSL, shift);
 F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecSVEAddress#1 decode __ Add(*scratch, base, offset);

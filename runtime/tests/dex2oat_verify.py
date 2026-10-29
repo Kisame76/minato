@@ -88,25 +88,27 @@ def main():
     work = os.path.abspath(work)
     result, produced = dex2oat_make.make_odex(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar,
                                               "/data/local/tmp/app.jar", debug)
-    odex_path = os.path.join(produced, "app.odex")
-    if result.returncode != 0 or not os.path.exists(odex_path) or os.path.getsize(odex_path) == 0 \
-            or not os.path.exists(os.path.join(produced, "app.vdex")) \
-            or os.path.getsize(os.path.join(produced, "app.vdex")) == 0:
-        print(f"{program} exited with {result.returncode} and wrote no odex and vdex\n{result.stderr[-3000:]}")
-        return 1
-    with open(odex_path, "rb") as handle:
-        failure = check_odex(handle.read(), art)
-    if failure:
-        print(f"{program}'s odex: {failure}")
-        return 1
-    converted = subprocess.run([oat_test, os.path.join(work, "oat-test-debug" if debug else "oat-test"), odex_path],
-                               capture_output=True, text=True, timeout=300)
-    if converted.returncode != 0:
-        print(f"oat_test does not accept {program}'s odex:\n{converted.stdout}{converted.stderr}")
-        return 1
-    print(f"{program} writes a verify oat that ART accepts for these boot jars and that converts and loads")
-    return 0
-
+    try:
+        odex_path = os.path.join(produced, "app.odex")
+        if result.returncode != 0 or not os.path.exists(odex_path) or os.path.getsize(odex_path) == 0 \
+                or not os.path.exists(os.path.join(produced, "app.vdex")) \
+                or os.path.getsize(os.path.join(produced, "app.vdex")) == 0:
+            print(f"{program} exited with {result.returncode} and wrote no odex and vdex\n{result.stderr[-3000:]}")
+            return 1
+        with open(odex_path, "rb") as handle:
+            failure = check_odex(handle.read(), art)
+        if failure:
+            print(f"{program}'s odex: {failure}")
+            return 1
+        converted = subprocess.run([oat_test, os.path.join(work, "oat-test-debug" if debug else "oat-test"), odex_path],
+                                   capture_output=True, text=True, timeout=300)
+        if converted.returncode != 0:
+            print(f"oat_test does not accept {program}'s odex:\n{converted.stdout}{converted.stderr}")
+            return 1
+        print(f"{program} writes a verify oat that ART accepts for these boot jars and that converts and loads")
+        return 0
+    finally:
+        dex2oat_make.discard(produced)
 
 if __name__ == "__main__":
     sys.exit(main())

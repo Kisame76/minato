@@ -7,13 +7,15 @@ expected-stdout.txt and expected-stderr.txt, or Android 15's own output (fixture
 compared without the lines of the guest's logger, which on Android go to logcat.
 The list must hold exactly the subset of run_tests.py's rules. --sample runs the tests the list marks "sample",
 otherwise the named tests or all but the "out" ones. --debug runs ART's debug flavor, --gc <collector> adds
--Xgc:<collector>, --jobs runs that many tests side by side (one by default), --times <file> writes each test's
-seconds. The run folder of a failed test stays in <work>/run-tests.
+-Xgc:<collector>, --compiled makes each jar's oat with our dex2oat at --compiler-filter=speed and runs the test
+with it under nterp (M6 c2; it needs MINATO_ART_NTERP=1 for the arguments), --jobs runs that many tests side by
+side (one by default), --times <file> writes each test's seconds. The run folder of a failed test stays in
+<work>/run-tests.
 Prints "skipped: ..." while dalvikvm, the boot jars' classes, the JDK, D8, the run-tests' sources, the guest
 system's list of public libraries or the graphics front libs, which every VM start preloads, are missing.
 
 Usage: art_run_tests.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <root>
-                        [--sample] [--debug] [--gc <collector>] [--jobs <n>] [--times <file>] [<test>...]
+                        [--sample] [--debug] [--compiled] [--gc <collector>] [--jobs <n>] [--times <file>] [<test>...]
 <root> is the repository, with build/sources, build/tools/jdk-17 and fixtures.
 """
 import concurrent.futures
@@ -29,6 +31,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "art"))
 import art_run  # noqa: E402
+import dex2oat_make  # noqa: E402
 import run_tests  # noqa: E402
 
 # A line of the guest's logger on stderr: "<priority>/<tag>: <message>" (bionic's liblog.cpp).
@@ -47,6 +50,34 @@ def differences(name, wanted, got, lines=12):
     diff = list(difflib.unified_diff(wanted.splitlines(), got.splitlines(), f"{name} expected", f"{name} printed",
                                      lineterm="", n=1))
     return diff[:lines] + ([f"... {len(diff) - lines} more lines"] if len(diff) > lines else [])
+
+
+def make_oats(test, setting, run, host_location, location):
+    """The oat of each jar of `test` made with our dex2oat at --compiler-filter=speed, in oat/arm64 next to the jars
+    as ART looks for it, and the containers that --libraries gives ART's dlopen as those odex files; (failure or None,
+    apk-run's arguments)."""
+    work, debug = setting["work"], setting["debug"]
+    oat = os.path.join(host_location, "oat", "arm64")
+    containers = os.path.join(work, "oat-containers", test + ("-debug" if debug else ""))
+    shutil.rmtree(containers, ignore_errors=True)
+    os.makedirs(oat)
+    os.makedirs(containers)
+    for name in run_tests.jar_names(setting["tests"], test):
+        stem = os.path.splitext(name)[0]
+        result, produced = dex2oat_make.make_odex(
+            setting["art"], setting["bionic_lib"], setting["bionic_system"], setting["icu_data"],
+            setting["apk_convert"], setting["apk_run"], work, os.path.join(host_location, name),
+            f"{location}/{name}", debug, "speed")
+        try:
+            if result.returncode != 0:
+                return f"{test}: dex2oat of {name} exited with {result.returncode}", []
+            shutil.copy(os.path.join(produced, "app.odex"), os.path.join(oat, stem + ".odex"))
+            shutil.copy(os.path.join(produced, "app.vdex"), os.path.join(oat, stem + ".vdex"))
+        finally:
+            dex2oat_make.discard(produced)
+        art_run.convert(setting["apk_convert"], os.path.join(oat, stem + ".odex"),
+                        os.path.join(containers, stem + ".odex.dylib"))
+    return None, ["--libraries", f"{location}/oat/arm64={containers}"]
 
 
 def run_test(test, reference, setting):
@@ -68,9 +99,14 @@ def run_test(test, reference, setting):
             os.fsync(descriptor)
             os.close(descriptor)
     boot_class_path = ":".join(f"{art_run.ART_ROOT}/javalib/{name}.jar" for name in art_run.BOOT_JARS)
+    libraries = []
+    if setting["compiled"]:
+        oat_failure, libraries = make_oats(test, setting, run, host_location, location)
+        if oat_failure:
+            return [oat_failure], 0.0
     command = art_run.apk_run_command(
         setting["apk_run"], setting["art"], setting["bionic_system"], work, setting["art_lib64"], run,
-        run_tests.dalvikvm_arguments(tests, test, boot_class_path, debug, extra), cwd=location,
+        run_tests.dalvikvm_arguments(tests, test, boot_class_path, debug, extra), cwd=location, jni=libraries,
         environment=[f"ANDROID_DATA={location}", f"DEX_LOCATION={location}"])
     started = time.monotonic()
     try:
@@ -100,7 +136,7 @@ def run_test(test, reference, setting):
 
 def main():
     arguments = sys.argv[1:]
-    flags = {flag for flag in ("--sample", "--debug") if flag in arguments}
+    flags = {flag for flag in ("--sample", "--debug", "--compiled") if flag in arguments}
     arguments = [argument for argument in arguments if argument not in flags]
     values = {}
     for option in ("--gc", "--jobs", "--times"):
@@ -161,7 +197,8 @@ def main():
     extra = [f"-Xgc:{values['--gc']}"] if "--gc" in values else []
     setting = {"tests": tests, "work": os.path.abspath(work), "debug": debug, "extra": extra, "root": root,
                "art": art, "bionic_system": bionic_system, "icu_data": icu_data, "apk_run": apk_run,
-               "art_lib64": art_run.convert_guest(art, bionic_lib, apk_convert, work, debug)}
+               "art_lib64": art_run.convert_guest(art, bionic_lib, apk_convert, work, debug),
+               "compiled": "--compiled" in flags, "bionic_lib": bionic_lib, "apk_convert": apk_convert}
     failures = [[f"{test}: the build failed:"] + error.splitlines()[:12] for test, error in sorted(errors.items())]
     times = {}
     with concurrent.futures.ThreadPoolExecutor(max(1, jobs)) as pool:
@@ -175,6 +212,7 @@ def main():
         with open(values["--times"], "w") as file:
             file.writelines(f"{test} {times[test]:.2f}\n" for test in sorted(times))
     how = ("the sample" if "--sample" in flags else "the run-tests") + (" in the debug flavor" if debug else "") + (
+        " compiled" if "--compiled" in flags else "") + (
         f" with {extra[0]}" if extra else "")
     if failures:
         for failure in sorted(failures):

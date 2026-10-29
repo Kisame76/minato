@@ -1,0 +1,498 @@
+Minato (M6 c2, ADR-0053): the optimizing compiler's arm64 code generator decodes references. A reference is the low
+32 bits of the object's address in the heap window (heap_window.h), so a reference that only sits in a W register must
+become an address before a memory operand uses it: DecodeReference (orr xN, x20, xN, the window's base in x20, in
+place and harmless on an address; null becomes B, the guard page, which gives an implicit null check its fault), as
+nterp does (patch 0008). The card mark indexes the card table by the address (B | reference).
+ - every HeapOperand use of the code generator decodes its base (DecodedHeapOperand); the hand-built operands do too
+   (the vtable and imt loads from a class, ClassTableGet, the array length of a compressed string, the vector
+   addresses);
+ - the allocation stubs' fast paths (rosalloc and TLAB) read the class in x0, which only compiled code passes: they
+   decode it first (w0 stays the reference for the class store);
+ - runtime/art/codec-sites.txt lists every place; tools/art-codec-sites.py checks it. GenerateVirtualCall's
+   vtable load was marked raw there and is a decode.
+
+--- a/art/compiler/optimizing/code_generator_arm64.h
++++ b/art/compiler/optimizing/code_generator_arm64.h
+@@ -79,7 +79,7 @@
+ 
+ // Thread Register.
+ const vixl::aarch64::Register tr = vixl::aarch64::x19;
+-// Marking Register.
++// Marking Register. Minato (ADR-0053 M6): without read barriers it holds the heap window's base B (patch 0007).
+ const vixl::aarch64::Register mr = vixl::aarch64::x20;
+ // Implicit suspend check register.
+ const vixl::aarch64::Register kImplicitSuspendCheckRegister = vixl::aarch64::x21;
+@@ -122,6 +122,43 @@
+                                                           vixl::aarch64::d8.GetCode(),
+                                                           vixl::aarch64::d15.GetCode());
+ Location ARM64ReturnLocation(DataType::Type return_type);
++
++// Minato (ADR-0053 M6 c2): a heap reference in a W register is the low 32 bits of the object's address, so a memory
++// operand needs the window's base B, which x20 holds. The decode is `orr xN, x20, xN`, in place: harmless on an
++// address, null becomes B (the guard page of patch 0006, which gives an implicit null check its fault), and the W
++// register, which is all that a reference use reads, stays what it was. nterp does the same (patch 0008).
++inline void DecodeReference(vixl::aarch64::MacroAssembler* masm, const vixl::aarch64::Register& ref) {
++  DCHECK(ref.IsW() || ref.IsX());
++  masm->Orr(ref.X(), mr, ref.X());
++}
++
++inline vixl::aarch64::MemOperand DecodedHeapOperand(vixl::aarch64::MacroAssembler* masm,
++                                                    const vixl::aarch64::Register& base,
++                                                    size_t offset = 0) {
++  DecodeReference(masm, base);
++  return helpers::HeapOperand(base, offset);
++}
++
++inline vixl::aarch64::MemOperand DecodedHeapOperand(vixl::aarch64::MacroAssembler* masm,
++                                                    const vixl::aarch64::Register& base,
++                                                    const vixl::aarch64::Register& regoffset,
++                                                    vixl::aarch64::Shift shift = vixl::aarch64::LSL,
++                                                    unsigned shift_amount = 0) {
++  DecodeReference(masm, base);
++  return helpers::HeapOperand(base, regoffset, shift, shift_amount);
++}
++
++inline vixl::aarch64::MemOperand DecodedHeapOperand(vixl::aarch64::MacroAssembler* masm,
++                                                    const vixl::aarch64::Register& base,
++                                                    Offset offset) {
++  return DecodedHeapOperand(masm, base, offset.SizeValue());
++}
++
++inline vixl::aarch64::MemOperand DecodedHeapOperandFrom(vixl::aarch64::MacroAssembler* masm,
++                                                        Location location,
++                                                        Offset offset) {
++  return DecodedHeapOperand(masm, helpers::RegisterFrom(location, DataType::Type::kReference), offset);
++}
+ 
+ #define UNIMPLEMENTED_INTRINSIC_LIST_ARM64(V) \
+   V(IntegerRemainderUnsigned)                 \
+--- a/art/compiler/optimizing/code_generator_arm64.cc
++++ b/art/compiler/optimizing/code_generator_arm64.cc
+@@ -1350,7 +1350,7 @@
+     // We don't emit a read barrier here to save on code size. We rely on the
+     // resolution trampoline to do a suspend check before re-entering this code.
+     __ Ldr(temp1, MemOperand(kArtMethodRegister, ArtMethod::DeclaringClassOffset().Int32Value()));
+-    __ Ldrb(temp2, HeapOperand(temp1, kClassStatusByteOffset));
++    __ Ldrb(temp2, DecodedHeapOperand(GetVIXLAssembler(), temp1, kClassStatusByteOffset));
+     __ Cmp(temp2, kShiftedVisiblyInitializedValue);
+     __ B(hs, &frame_entry_label_);
+ 
+@@ -1364,7 +1364,7 @@
+     __ Cmp(temp2, kShiftedInitializingValue);
+     __ B(lo, &resolution);
+ 
+-    __ Ldr(temp1, HeapOperand(temp1, mirror::Class::ClinitThreadIdOffset().Int32Value()));
++    __ Ldr(temp1, DecodedHeapOperand(GetVIXLAssembler(), temp1, mirror::Class::ClinitThreadIdOffset().Int32Value()));
+     __ Ldr(temp2, MemOperand(tr, Thread::TidOffset<kArm64PointerSize>().Int32Value()));
+     __ Cmp(temp1, temp2);
+     __ B(eq, &frame_entry_label_);
+@@ -1530,8 +1530,10 @@
+   Register temp = temps.AcquireW();  // Index within the CardTable - 32bit.
+   // Load the address of the card table into `card`.
+   __ Ldr(card, MemOperand(tr, Thread::CardTableOffset<kArm64PointerSize>().Int32Value()));
+-  // Calculate the offset (in the card table) of the card corresponding to `object`.
+-  __ Lsr(temp, object, gc::accounting::CardTable::kCardShift);
++  // Calculate the offset (in the card table) of the card corresponding to `object`: the card table is indexed by the
++  // object's address, which is B | the reference.
++  __ Orr(temp.X(), mr, object.X());
++  __ Lsr(temp.X(), temp.X(), gc::accounting::CardTable::kCardShift);
+   // Write the `art::gc::accounting::CardTable::kCardDirty` value into the
+   // `object`'s card.
+   //
+@@ -1555,8 +1557,9 @@
+   vixl::aarch64::Label done;
+   // Load the address of the card table into `card`.
+   __ Ldr(card, MemOperand(tr, Thread::CardTableOffset<kArm64PointerSize>().Int32Value()));
+-  // Calculate the offset (in the card table) of the card corresponding to `object`.
+-  __ Lsr(temp, object, gc::accounting::CardTable::kCardShift);
++  // Calculate the offset (in the card table) of the card corresponding to `object` (its address, as in MarkGCCard).
++  __ Orr(temp.X(), mr, object.X());
++  __ Lsr(temp.X(), temp.X(), gc::accounting::CardTable::kCardShift);
+   // assert (!clean || !self->is_gc_marking)
+   __ Ldrb(temp, MemOperand(card, temp.X()));
+   static_assert(gc::accounting::CardTable::kCardClean == 0);
+@@ -2080,7 +2083,7 @@
+   // size, load only the high byte of the field and compare with 0xf0.
+   // Note: The same code size could be achieved with LDR+MNV(asr #24)+CBNZ but benchmarks
+   // show that this pattern is slower (tested on little cores).
+-  __ Ldrb(temp, HeapOperand(class_reg, kClassStatusByteOffset));
++  __ Ldrb(temp, DecodedHeapOperand(GetVIXLAssembler(), class_reg, kClassStatusByteOffset));
+   __ Cmp(temp, kShiftedVisiblyInitializedValue);
+   __ B(lo, slow_path->GetEntryLabel());
+   __ Bind(slow_path->GetExitLabel());
+@@ -2095,10 +2098,10 @@
+ 
+   if (mask_bits == 16u) {
+     // Load only the bitstring part of the status word.
+-    __ Ldrh(temp, HeapOperand(temp, mirror::Class::StatusOffset()));
++    __ Ldrh(temp, DecodedHeapOperand(GetVIXLAssembler(), temp, mirror::Class::StatusOffset()));
+   } else {
+     // /* uint32_t */ temp = temp->status_
+-    __ Ldr(temp, HeapOperand(temp, mirror::Class::StatusOffset()));
++    __ Ldr(temp, DecodedHeapOperand(GetVIXLAssembler(), temp, mirror::Class::StatusOffset()));
+     // Extract the bitstring bits.
+     __ Ubfx(temp, temp, 0, mask_bits);
+   }
+@@ -2260,7 +2263,7 @@
+   DCHECK_EQ(DataType::Size(field_info.GetFieldType()), DataType::Size(instruction->GetType()));
+   DataType::Type load_type = instruction->GetType();
+   MemOperand field =
+-      HeapOperand(InputRegisterAt(instruction, receiver_input), field_info.GetFieldOffset());
++      DecodedHeapOperand(GetVIXLAssembler(), InputRegisterAt(instruction, receiver_input), field_info.GetFieldOffset());
+ 
+   if (load_type == DataType::Type::kReference && codegen_->EmitBakerReadBarrier()) {
+     // Object FieldGet with Baker's read barrier case.
+@@ -2344,11 +2347,15 @@
+ 
+     if (field_info.IsVolatile()) {
+       codegen_->StoreRelease(
+-          instruction, field_type, source, HeapOperand(obj, offset), /* needs_null_check= */ true);
++          instruction,
++          field_type,
++          source,
++          DecodedHeapOperand(GetVIXLAssembler(), obj, offset),
++          /* needs_null_check= */ true);
+     } else {
+       // Ensure that between store and MaybeRecordImplicitNullCheck there are no pools emitted.
+       EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+-      codegen_->Store(field_type, source, HeapOperand(obj, offset));
++      codegen_->Store(field_type, source, DecodedHeapOperand(GetVIXLAssembler(), obj, offset));
+       codegen_->MaybeRecordImplicitNullCheck(instruction);
+     }
+   }
+@@ -2799,9 +2806,10 @@
+           int64_t adjusted_offset =
+               static_cast<int64_t>(count_offset) - static_cast<int64_t>(offset);
+           // Note that `adjusted_offset` is negative, so this will be a LDUR.
++          DecodeReference(GetVIXLAssembler(), obj);
+           __ Ldr(length, MemOperand(obj.X(), adjusted_offset));
+         } else {
+-          __ Ldr(length, HeapOperand(obj, count_offset));
++          __ Ldr(length, DecodedHeapOperand(GetVIXLAssembler(), obj, count_offset));
+         }
+         codegen_->MaybeRecordImplicitNullCheck(instruction);
+       }
+@@ -2813,15 +2821,15 @@
+                       "Expecting 0=compressed, 1=uncompressed");
+         __ Tbnz(length.W(), 0, &uncompressed_load);
+         __ Ldrb(Register(OutputCPURegister(instruction)),
+-                HeapOperand(obj, offset + Int64FromLocation(index)));
++                DecodedHeapOperand(GetVIXLAssembler(), obj, offset + Int64FromLocation(index)));
+         __ B(&done);
+         __ Bind(&uncompressed_load);
+         __ Ldrh(Register(OutputCPURegister(instruction)),
+-                HeapOperand(obj, offset + (Int64FromLocation(index) << 1)));
++                DecodedHeapOperand(GetVIXLAssembler(), obj, offset + (Int64FromLocation(index) << 1)));
+         __ Bind(&done);
+       } else {
+         offset += Int64FromLocation(index) << DataType::SizeShift(type);
+-        source = HeapOperand(obj, offset);
++        source = DecodedHeapOperand(GetVIXLAssembler(), obj, offset);
+       }
+     } else {
+       Register temp = temps.AcquireSameSizeAs(obj);
+@@ -2843,14 +2851,14 @@
+                       "Expecting 0=compressed, 1=uncompressed");
+         __ Tbnz(length.W(), 0, &uncompressed_load);
+         __ Ldrb(Register(OutputCPURegister(instruction)),
+-                HeapOperand(temp, XRegisterFrom(index), LSL, 0));
++                DecodedHeapOperand(GetVIXLAssembler(), temp, XRegisterFrom(index), LSL, 0));
+         __ B(&done);
+         __ Bind(&uncompressed_load);
+         __ Ldrh(Register(OutputCPURegister(instruction)),
+-                HeapOperand(temp, XRegisterFrom(index), LSL, 1));
++                DecodedHeapOperand(GetVIXLAssembler(), temp, XRegisterFrom(index), LSL, 1));
+         __ Bind(&done);
+       } else {
+-        source = HeapOperand(temp, XRegisterFrom(index), LSL, DataType::SizeShift(type));
++        source = DecodedHeapOperand(GetVIXLAssembler(), temp, XRegisterFrom(index), LSL, DataType::SizeShift(type));
+       }
+     }
+     if (!maybe_compressed_char_at) {
+@@ -2886,7 +2894,7 @@
+   {
+     // Ensure that between load and MaybeRecordImplicitNullCheck there are no pools emitted.
+     EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+-    __ Ldr(out, HeapOperand(InputRegisterAt(instruction, 0), offset));
++    __ Ldr(out, DecodedHeapOperand(GetVIXLAssembler(), InputRegisterAt(instruction, 0), offset));
+     codegen_->MaybeRecordImplicitNullCheck(instruction);
+   }
+   // Mask out compression flag from String's array length.
+@@ -2939,7 +2947,7 @@
+     UseScratchRegisterScope temps(masm);
+     if (index.IsConstant()) {
+       offset += Int64FromLocation(index) << DataType::SizeShift(value_type);
+-      destination = HeapOperand(array, offset);
++      destination = DecodedHeapOperand(GetVIXLAssembler(), array, offset);
+     } else {
+       Register temp_dest = temps.AcquireSameSizeAs(array);
+       if (instruction->GetArray()->IsIntermediateAddress()) {
+@@ -2954,7 +2962,7 @@
+       } else {
+         __ Add(temp_dest, array, offset);
+       }
+-      destination = HeapOperand(temp_dest,
++      destination = DecodedHeapOperand(GetVIXLAssembler(), temp_dest,
+                                 XRegisterFrom(index),
+                                 LSL,
+                                 DataType::SizeShift(value_type));
+@@ -3020,15 +3028,15 @@
+         {
+           // Ensure that between load and MaybeRecordImplicitNullCheck there are no pools emitted.
+           EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+-          __ Ldr(temp, HeapOperand(array, class_offset));
++          __ Ldr(temp, DecodedHeapOperand(GetVIXLAssembler(), array, class_offset));
+           codegen_->MaybeRecordImplicitNullCheck(instruction);
+         }
+         GetAssembler()->MaybeUnpoisonHeapReference(temp);
+ 
+         // /* HeapReference<Class> */ temp = temp->component_type_
+-        __ Ldr(temp, HeapOperand(temp, component_offset));
++        __ Ldr(temp, DecodedHeapOperand(GetVIXLAssembler(), temp, component_offset));
+         // /* HeapReference<Class> */ temp2 = value->klass_
+-        __ Ldr(temp2, HeapOperand(Register(value), class_offset));
++        __ Ldr(temp2, DecodedHeapOperand(GetVIXLAssembler(), Register(value), class_offset));
+         // If heap poisoning is enabled, no need to unpoison `temp`
+         // nor `temp2`, as we are comparing two poisoned references.
+         __ Cmp(temp, temp2);
+@@ -3041,7 +3049,7 @@
+           GetAssembler()->MaybeUnpoisonHeapReference(temp);
+ 
+           // /* HeapReference<Class> */ temp = temp->super_class_
+-          __ Ldr(temp, HeapOperand(temp, super_offset));
++          __ Ldr(temp, DecodedHeapOperand(GetVIXLAssembler(), temp, super_offset));
+           // If heap poisoning is enabled, no need to unpoison
+           // `temp`, as we are comparing against null below.
+           __ Cbnz(temp, slow_path->GetEntryLabel());
+@@ -3079,11 +3087,11 @@
+ 
+     if (index.IsConstant()) {
+       offset += Int64FromLocation(index) << DataType::SizeShift(value_type);
+-      destination = HeapOperand(array, offset);
++      destination = DecodedHeapOperand(GetVIXLAssembler(), array, offset);
+     } else {
+       Register temp_base = temps.AcquireSameSizeAs(array);
+       __ Add(temp_base, array, offset);
+-      destination = HeapOperand(temp_base,
++      destination = DecodedHeapOperand(GetVIXLAssembler(), temp_base,
+                                 XRegisterFrom(index),
+                                 LSL,
+                                 DataType::SizeShift(value_type));
+@@ -4309,7 +4317,7 @@
+                                        read_barrier_option);
+       // If `out` is null, we use it for the result, and jump to `done`.
+       __ Cbz(out, &done);
+-      __ Ldrh(out, HeapOperand(out, primitive_offset));
++      __ Ldrh(out, DecodedHeapOperand(GetVIXLAssembler(), out, primitive_offset));
+       static_assert(Primitive::kPrimNot == 0, "Expected 0 for kPrimNot");
+       __ Cbnz(out, &zero);
+       __ Bind(&exact_check);
+@@ -4359,18 +4367,18 @@
+       Register temp = temps.AcquireW();
+       Register temp2 = temps.AcquireW();
+       // /* HeapReference<Class> */ temp = obj->klass_
+-      __ Ldr(temp, HeapOperand(obj, class_offset));
++      __ Ldr(temp, DecodedHeapOperand(GetVIXLAssembler(), obj, class_offset));
+       GetAssembler()->MaybeUnpoisonHeapReference(temp);
+       // /* HeapReference<Class> */ temp = temp->iftable_
+-      __ Ldr(temp, HeapOperand(temp, iftable_offset));
++      __ Ldr(temp, DecodedHeapOperand(GetVIXLAssembler(), temp, iftable_offset));
+       GetAssembler()->MaybeUnpoisonHeapReference(temp);
+       // Load the size of the `IfTable`. The `Class::iftable_` is never null.
+-      __ Ldr(out, HeapOperand(temp, array_length_offset));
++      __ Ldr(out, DecodedHeapOperand(GetVIXLAssembler(), temp, array_length_offset));
+       // Loop through the `IfTable` and check if any class matches.
+       vixl::aarch64::Label loop;
+       __ Bind(&loop);
+       __ Cbz(out, &done);  // If taken, the result in `out` is already 0 (false).
+-      __ Ldr(temp2, HeapOperand(temp, object_array_data_offset));
++      __ Ldr(temp2, DecodedHeapOperand(GetVIXLAssembler(), temp, object_array_data_offset));
+       GetAssembler()->MaybeUnpoisonHeapReference(temp2);
+       // Go to next interface.
+       __ Add(temp, temp, 2 * kHeapReferenceSize);
+@@ -4597,7 +4605,7 @@
+       __ Cbz(temp, type_check_slow_path->GetEntryLabel());
+       // Otherwise, the object is indeed an array. Further check that this component type is not a
+       // primitive type.
+-      __ Ldrh(temp, HeapOperand(temp, primitive_offset));
++      __ Ldrh(temp, DecodedHeapOperand(GetVIXLAssembler(), temp, primitive_offset));
+       static_assert(Primitive::kPrimNot == 0, "Expected 0 for kPrimNot");
+       __ Cbnz(temp, type_check_slow_path->GetEntryLabel());
+       break;
+@@ -4631,12 +4639,13 @@
+                                        maybe_temp2_loc,
+                                        kWithoutReadBarrier);
+       // Load the size of the `IfTable`. The `Class::iftable_` is never null.
+-      __ Ldr(WRegisterFrom(maybe_temp2_loc), HeapOperand(temp.W(), array_length_offset));
++      __ Ldr(WRegisterFrom(maybe_temp2_loc), DecodedHeapOperand(GetVIXLAssembler(), temp.W(), array_length_offset));
+       // Loop through the iftable and check if any class matches.
+       vixl::aarch64::Label start_loop;
+       __ Bind(&start_loop);
+       __ Cbz(WRegisterFrom(maybe_temp2_loc), type_check_slow_path->GetEntryLabel());
+-      __ Ldr(WRegisterFrom(maybe_temp3_loc), HeapOperand(temp.W(), object_array_data_offset));
++      __ Ldr(WRegisterFrom(maybe_temp3_loc),
++             DecodedHeapOperand(GetVIXLAssembler(), temp.W(), object_array_data_offset));
+       GetAssembler()->MaybeUnpoisonHeapReference(WRegisterFrom(maybe_temp3_loc));
+       // Go to next interface.
+       __ Add(temp, temp, 2 * kHeapReferenceSize);
+@@ -4750,13 +4759,13 @@
+     {
+       EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+       // /* HeapReference<Class> */ temp = temp->klass_
+-      __ Ldr(temp.W(), HeapOperand(temp.W(), class_offset));
++      __ Ldr(temp.W(), DecodedHeapOperand(GetVIXLAssembler(), temp.W(), class_offset));
+       codegen_->MaybeRecordImplicitNullCheck(invoke);
+     }
+   } else {
+     EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+     // /* HeapReference<Class> */ temp = receiver->klass_
+-    __ Ldr(temp.W(), HeapOperandFrom(receiver, class_offset));
++    __ Ldr(temp.W(), DecodedHeapOperandFrom(GetVIXLAssembler(), receiver, class_offset));
+     codegen_->MaybeRecordImplicitNullCheck(invoke);
+   }
+ 
+@@ -4793,6 +4802,7 @@
+         invoke->GetHiddenArgumentLoadKind(), Location::RegisterLocation(ip1.GetCode()), invoke);
+   }
+ 
++  DecodeReference(masm, temp);  // the class
+   __ Ldr(temp,
+       MemOperand(temp, mirror::Class::ImtPtrOffset(kArm64PointerSize).Uint32Value()));
+   uint32_t method_offset = static_cast<uint32_t>(ImTable::OffsetOfElement(
+@@ -5048,7 +5058,7 @@
+     // Ensure that between load and MaybeRecordImplicitNullCheck there are no pools emitted.
+     EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+     // /* HeapReference<Class> */ temp = receiver->klass_
+-    __ Ldr(temp.W(), HeapOperandFrom(LocationFrom(receiver), class_offset));
++    __ Ldr(temp.W(), DecodedHeapOperandFrom(GetVIXLAssembler(), LocationFrom(receiver), class_offset));
+     MaybeRecordImplicitNullCheck(invoke);
+   }
+   // Instead of simply (possibly) unpoisoning `temp` here, we should
+@@ -5064,6 +5074,7 @@
+   MaybeGenerateInlineCacheCheck(invoke, temp);
+ 
+   // temp = temp->GetMethodAt(method_offset);
++  DecodeReference(GetVIXLAssembler(), temp);  // the class
+   __ Ldr(temp, MemOperand(temp, method_offset));
+   // lr = temp->GetEntryPoint();
+   __ Ldr(lr, MemOperand(temp, entry_point.SizeValue()));
+@@ -6043,7 +6054,7 @@
+     // Ensure that between load and RecordPcInfo there are no pools emitted.
+     EmissionCheckScope guard(GetVIXLAssembler(), kMaxMacroInstructionSizeInBytes);
+     Location obj = instruction->GetLocations()->InAt(0);
+-    __ Ldr(wzr, HeapOperandFrom(obj, Offset(0)));
++    __ Ldr(wzr, DecodedHeapOperandFrom(GetVIXLAssembler(), obj, Offset(0)));
+     RecordPcInfo(instruction, instruction->GetDexPc());
+   }
+ }
+@@ -6735,13 +6746,13 @@
+       Register temp_reg = RegisterFrom(maybe_temp, type);
+       __ Mov(temp_reg, out_reg);
+       // /* HeapReference<Object> */ out = *(out + offset)
+-      __ Ldr(out_reg, HeapOperand(out_reg, offset));
++      __ Ldr(out_reg, DecodedHeapOperand(GetVIXLAssembler(), out_reg, offset));
+       codegen_->GenerateReadBarrierSlow(instruction, out, out, maybe_temp, offset);
+     }
+   } else {
+     // Plain load with no read barrier.
+     // /* HeapReference<Object> */ out = *(out + offset)
+-    __ Ldr(out_reg, HeapOperand(out_reg, offset));
++    __ Ldr(out_reg, DecodedHeapOperand(GetVIXLAssembler(), out_reg, offset));
+     GetAssembler()->MaybeUnpoisonHeapReference(out_reg);
+   }
+ }
+@@ -6771,13 +6782,13 @@
+     } else {
+       // Load with slow path based read barrier.
+       // /* HeapReference<Object> */ out = *(obj + offset)
+-      __ Ldr(out_reg, HeapOperand(obj_reg, offset));
++      __ Ldr(out_reg, DecodedHeapOperand(GetVIXLAssembler(), obj_reg, offset));
+       codegen_->GenerateReadBarrierSlow(instruction, out, out, obj, offset);
+     }
+   } else {
+     // Plain load with no read barrier.
+     // /* HeapReference<Object> */ out = *(obj + offset)
+-    __ Ldr(out_reg, HeapOperand(obj_reg, offset));
++    __ Ldr(out_reg, DecodedHeapOperand(GetVIXLAssembler(), obj_reg, offset));
+     GetAssembler()->MaybeUnpoisonHeapReference(out_reg);
+   }
+ }
+@@ -7146,11 +7157,13 @@
+   if (instruction->GetTableKind() == HClassTableGet::TableKind::kVTable) {
+     uint32_t method_offset = mirror::Class::EmbeddedVTableEntryOffset(
+         instruction->GetIndex(), kArm64PointerSize).SizeValue();
++    DecodeReference(GetVIXLAssembler(), XRegisterFrom(locations->InAt(0)));
+     __ Ldr(XRegisterFrom(locations->Out()),
+            MemOperand(XRegisterFrom(locations->InAt(0)), method_offset));
+   } else {
+     uint32_t method_offset = static_cast<uint32_t>(ImTable::OffsetOfElement(
+         instruction->GetIndex(), kArm64PointerSize));
++    DecodeReference(GetVIXLAssembler(), XRegisterFrom(locations->InAt(0)));
+     __ Ldr(XRegisterFrom(locations->Out()), MemOperand(XRegisterFrom(locations->InAt(0)),
+         mirror::Class::ImtPtrOffset(kArm64PointerSize).Uint32Value()));
+     __ Ldr(XRegisterFrom(locations->Out()),
+@@ -7169,6 +7182,7 @@
+ 
+   if (instruction->InputAt(1)->IsIntermediateAddressIndex()) {
+     DCHECK(!is_string_char_at);
++    DecodeReference(GetVIXLAssembler(), base);
+     return MemOperand(base.X(), InputRegisterAt(instruction, 1).X());
+   }
+ 
+@@ -7183,11 +7197,11 @@
+ 
+   if (index.IsConstant()) {
+     offset += Int64FromLocation(index) << shift;
+-    return HeapOperand(base, offset);
++    return DecodedHeapOperand(GetVIXLAssembler(), base, offset);
+   } else {
+     *scratch = temps_scope->AcquireSameSizeAs(base);
+     __ Add(*scratch, base, Operand(WRegisterFrom(index), LSL, shift));
+-    return HeapOperand(*scratch, offset);
++    return DecodedHeapOperand(GetVIXLAssembler(), *scratch, offset);
+   }
+ }
+ 
+@@ -7210,11 +7224,13 @@
+   size_t shift = ComponentSizeShiftWidth(size);
+ 
+   if (instruction->InputAt(0)->IsIntermediateAddress()) {
++    DecodeReference(GetVIXLAssembler(), base);
+     return SVEMemOperand(base.X(), XRegisterFrom(index), LSL, shift);
+   }
+ 
+   *scratch = temps_scope->AcquireSameSizeAs(base);
+   __ Add(*scratch, base, offset);
++  DecodeReference(GetVIXLAssembler(), *scratch);
+   return SVEMemOperand(scratch->X(), XRegisterFrom(index), LSL, shift);
+ }
+ 
+--- a/art/compiler/optimizing/code_generator_vector_arm64_neon.cc
++++ b/art/compiler/optimizing/code_generator_vector_arm64_neon.cc
+@@ -1442,7 +1442,7 @@
+                       "Expecting 0=compressed, 1=uncompressed");
+         uint32_t count_offset = mirror::String::CountOffset().Uint32Value();
+         Register length = temps.AcquireW();
+-        __ Ldr(length, HeapOperand(InputRegisterAt(instruction, 0), count_offset));
++        __ Ldr(length, DecodedHeapOperand(GetVIXLAssembler(), InputRegisterAt(instruction, 0), count_offset));
+         __ Tbnz(length.W(), 0, &uncompressed_load);
+         temps.Release(length);  // no longer needed
+         // Zero extend 8 compressed bytes into 8 chars.
+--- a/art/runtime/arch/arm64/quick_entrypoints_arm64.S
++++ b/art/runtime/arch/arm64/quick_entrypoints_arm64.S
+@@ -1257,6 +1257,7 @@
+     // Fast path rosalloc allocation.
+     // x0: type, xSELF(x19): Thread::Current
+     // x1-x7: free.
++    DECODE_REF x0                                             // the class's address; w0 is the reference still
+     ldr    x3, [xSELF, #THREAD_LOCAL_ALLOC_STACK_TOP_OFFSET]  // Check if the thread local
+                                                               // allocation stack has room.
+                                                               // ldp won't work due to large offset.
+@@ -1364,6 +1365,7 @@
+ // If isInitialized=1 then the compiler assumes the object's class has already been initialized.
+ // If isInitialized=0 the compiler can only assume it's been at least resolved.
+ .macro ALLOC_OBJECT_TLAB_FAST_PATH_RESOLVED slowPathLabel isInitialized
++    DECODE_REF x0                                             // the class's address; w0 is the reference still
+     ldr    x4, [xSELF, #THREAD_LOCAL_POS_OFFSET]
+     ldr    x5, [xSELF, #THREAD_LOCAL_END_OFFSET]
+     ldr    w7, [x0, #MIRROR_CLASS_OBJECT_SIZE_ALLOC_FAST_PATH_OFFSET]  // Load the object size (x7).

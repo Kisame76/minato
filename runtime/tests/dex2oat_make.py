@@ -12,29 +12,31 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import art_run  # noqa: E402
 
 
 def make_odex(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, dex_file, dex_location,
-              debug=False):
-    """Runs dex2oat on `dex_file` as `dex_location`; (CompletedProcess, the run folder's data/local/tmp). The odex is
-    app.odex and the vdex app.vdex there."""
+              debug=False, compiler_filter="verify"):
+    """Runs dex2oat on `dex_file` as `dex_location` with --compiler-filter=`compiler_filter`; (CompletedProcess, the
+    run folder's data/local/tmp). The odex is app.odex and the vdex app.vdex there. Each call has a run folder of its
+    own, so calls side by side do not meet; discard() removes it."""
     program = "dex2oatd" if debug else "dex2oat"
     work = os.path.abspath(work)
     art_lib64 = art_run.convert_guest(art, bionic_lib, apk_convert, work, debug)
     container = os.path.join(work, "bin", f"{program}-64.dylib")
     with art_run.convert_lock(work):
         art_run.convert(apk_convert, os.path.join(art, "bin", program), container)
-    run = os.path.join(work, "dex2oat-verify-run-debug" if debug else "dex2oat-verify-run")
+    run = tempfile.mkdtemp(prefix="dex2oat-run-", dir=work)
     art_run.make_run_folder(run, icu_data, bionic_system)
     produced = os.path.join(run, "data", "local", "tmp")
     shutil.copy(dex_file, os.path.join(produced, "app.jar"))
     boot_class_path = ":".join(f"{art_run.ART_ROOT}/javalib/{name}.jar" for name in art_run.BOOT_JARS)
     arguments = ["--dex-file=/data/local/tmp/app.jar", f"--dex-location={dex_location}",
                  "--oat-file=/data/local/tmp/app.odex", "--oat-location=/data/local/tmp/app.odex",
-                 "--instruction-set=arm64", "--compiler-filter=verify", "--base=0x70000000",
+                 "--instruction-set=arm64", f"--compiler-filter={compiler_filter}", "--base=0x70000000",
                  "--runtime-arg", f"-Xbootclasspath:{boot_class_path}",
                  "--runtime-arg", f"-Xbootclasspath-locations:{boot_class_path}", "--runtime-arg", "-Xnoimage-dex2oat"]
     command = art_run.apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments)
@@ -42,6 +44,11 @@ def make_odex(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, wo
     command[at + 1:at + 3] = [f"{art_run.ART_ROOT}/bin/dex2oat64", container]
     result = subprocess.run(command, capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
     return result, produced
+
+
+def discard(produced):
+    """Removes the run folder of the make_odex() call that returned `produced`."""
+    shutil.rmtree(os.path.dirname(os.path.dirname(os.path.dirname(produced))), ignore_errors=True)
 
 
 def main():
@@ -56,6 +63,7 @@ def main():
         return 1
     shutil.copy(os.path.join(produced, "app.odex"), out + ".odex")
     shutil.copy(os.path.join(produced, "app.vdex"), out + ".vdex")
+    discard(produced)
     return 0
 
 

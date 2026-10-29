@@ -265,6 +265,30 @@ def nativeloader_failure(stderr, reference):
     return f"libnativeloader names other namespaces than {os.path.basename(reference)}: [{' | '.join(seen)}]"
 
 
+def compiled_oat(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, run, jar, debug):
+    """The oat of `jar` that our dex2oat makes with --compiler-filter=speed (M6 c2), next to the jar in the run folder
+    as ART looks for it (oat/arm64/<name>.odex and .vdex), and its container, which --libraries gives ART's dlopen as
+    that odex; returns apk-run's arguments for it."""
+    import dex2oat_make
+    name = os.path.splitext(os.path.basename(jar))[0]
+    result, produced = dex2oat_make.make_odex(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar,
+                                              f"/data/local/tmp/{os.path.basename(jar)}", debug, "speed")
+    if result.returncode != 0:
+        raise SystemExit(f"dex2oat exited with {result.returncode}\n{result.stderr[-3000:]}")
+    oat = os.path.join(run, "data", "local", "tmp", "oat", "arm64")
+    os.makedirs(oat)
+    shutil.copy(os.path.join(produced, "app.odex"), os.path.join(oat, f"{name}.odex"))
+    shutil.copy(os.path.join(produced, "app.vdex"), os.path.join(oat, f"{name}.vdex"))
+    dex2oat_make.discard(produced)
+    containers = os.path.join(work, "oat-" + os.path.basename(run))
+    os.makedirs(containers, exist_ok=True)
+    container = os.path.join(containers, f"{name}.odex.dylib")
+    if os.path.exists(container):
+        os.unlink(container)
+    convert(apk_convert, os.path.join(oat, f"{name}.odex"), container)
+    return ["--libraries", f"/data/local/tmp/oat/arm64={containers}"]
+
+
 def main():
     arguments = sys.argv[1:]
     debug = "--debug" in arguments
@@ -273,10 +297,11 @@ def main():
     conscrypt = "--conscrypt" in arguments
     stress = "--stress" in arguments
     nterp = "--nterp" in arguments
+    compiled = "--compiled" in arguments
     added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
     arguments = [argument for argument in arguments
                  if argument not in ("--debug", "--offsets", "--upper-half", "--conscrypt", "--okhttp",
-                                     "--bouncycastle", "--stress", "--nterp")]
+                                     "--bouncycastle", "--stress", "--nterp", "--compiled")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -333,8 +358,10 @@ def main():
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
-    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None, collector, nterp)
+    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None, collector, nterp or compiled)
     jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"] if library is not None else []
+    if compiled:
+        jni += compiled_oat(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, run, jar, debug)
     command = apk_run_command(apk_run, art, bionic_system, work, art_lib64, run,
                               options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni,
                               conscrypt=conscrypt,
