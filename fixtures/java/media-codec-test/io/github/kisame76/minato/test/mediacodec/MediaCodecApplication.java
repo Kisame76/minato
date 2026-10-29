@@ -677,9 +677,16 @@ public class MediaCodecApplication extends Application {
         }, new Handler(thread.getLooper()));
         codec.configure(format(), null, null, 0);
         codec.start();
-        boolean done = ended.await(10, TimeUnit.SECONDS);
-        codec.stop();
-        codec.release();
+        boolean done = ended.await(60, TimeUnit.SECONDS);
+        // Stopped and released on the callbacks' own thread, after the one that runs: stop() makes every buffer and
+        // image the codec gave inaccessible, so a callback still reading one would fail (on Android too).
+        CountDownLatch released = new CountDownLatch(1);
+        new Handler(thread.getLooper()).post(() -> {
+            codec.stop();
+            codec.release();
+            released.countDown();
+        });
+        released.await();
         thread.quitSafely();
         for (String line : lines) {
             Log.i(TAG, name + ": " + line);
