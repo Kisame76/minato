@@ -1321,6 +1321,15 @@ if [[ -n "$app" ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods=$(run ime list -s | tr -d '\r')
     default_input_method=$(run settings get secure default_input_method | tr -d '\r')
+    # An interrupted text-test or key-test leaves the image's input method package disabled, and input_methods_back
+    # here has no package to enable again: the run would go through without noticing, so it stops.
+    left_off=$(run pm list packages -d | tr -d '\r' | sed 's/^package://' | grep -i inputmethod || true)
+    if [[ -n "$left_off" || -z "$input_methods" ]]; then
+      echo "An earlier run left the input method off (disabled: ${left_off:-none}, enabled: none or" \
+        "${input_methods:-none}). Put it back first: pm default-state --user 0 ${STOCK_INPUT_METHOD%%/*}," \
+        "ime enable $STOCK_INPUT_METHOD, ime set $STOCK_INPUT_METHOD." >&2
+      exit 1
+    fi
   fi
   run_app
   exit $?
