@@ -223,7 +223,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
-  "$app" == title-test || "$app" == ime-test ]]; then
+  "$app" == title-test || "$app" == ime-test || "$app" == native-ime-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -451,6 +451,7 @@ input_methods_back() {
 
 ime_test_off() {
   run ime disable io.github.kisame76.minato.test.ime/.FixtureInputMethod >/dev/null 2>&1 || true
+  run ime disable io.github.kisame76.minato.test.nativeime/.FixtureInputMethod >/dev/null 2>&1 || true
 }
 
 # Test 2's Godot APKs (ADR-0042 a): their lines under Godot's tag, split into bench.gd's "godot-bench:" lines, which
@@ -824,6 +825,12 @@ run_app() {
     ime-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ImeActivity
       ;;
+    # native-ime-test (ADR-0068 step 2e): a NativeActivity that asks for the keyboard, which Android 15 ignores, so its
+    # fixture input method never starts; after its "soft input done" the script sends B and DEL as keys from outside,
+    # and the DEL's release ends it with "done".
+    native-ime-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      ;;
     # surface-test (ADR-0043 step c4): its own launcher activity, whose GLSurfaceView draws its fixed frames after the
     # window's first focus, then a Button over it, which ends with "done" at its first draw.
     surface-test)
@@ -868,7 +875,7 @@ run_app() {
   # A ring for a long log (media-extractor-test's about 600 lines) beside the system's own lines.
   run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
-  if [[ "$app" == ime-test ]]; then
+  if [[ "$app" == ime-test || "$app" == native-ime-test ]]; then
     # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
     # with the exit trap.
     run ime enable "$package/.FixtureInputMethod" >/dev/null
@@ -1055,6 +1062,12 @@ run_app() {
     run rm -f /sdcard/Pictures/red.jpg /sdcard/Pictures/blue.jpg
     [[ "$picks" == ok ]] || return 1
   fi
+  if [[ "$app" == native-ime-test ]]; then
+    # ADR-0068 step 2e: KEYCODE_B and KEYCODE_DEL a second apart once the soft keyboard's part is done, as the host
+    # sends a hardware keyboard's keys through Minato's input channel.
+    { wait_for "$app" "soft input done" 20 && sleep 1 && run input keyevent 30 && sleep 1 && run input keyevent 67; } ||
+      return 1
+  fi
   if [[ "$app" == key-test ]]; then
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its
     # window once it is done brings the display back, so that the runs after it start in touch mode as before.
@@ -1202,6 +1215,12 @@ run_app() {
     app_lines "$tag" | grep -F ": $app: " >"$RESULTS/$app.logcat" || true
   fi
   app_lines "$app-device" >"$RESULTS/$app-device.logcat"
+  # native-ime-test's fixture input method logs its calls and their answers under a tag of its own, shown only.
+  [[ "$app" != native-ime-test ]] || app_lines "$app-reference" >"$RESULTS/$app-reference.logcat"
+  # And what the app's input method manager said about the view it was asked to show the keyboard for, shown only.
+  if [[ "$app" == native-ime-test ]]; then
+    app_lines InputMethodManager | grep -i soft >>"$RESULTS/$app-reference.logcat" || true
+  fi
   [[ "$app" != obb-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
   if [[ "$app" == canvas-test ]]; then
     # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
@@ -1269,6 +1288,7 @@ run_app() {
     return 1
   fi
   sed 's/^/    /' "$RESULTS/$app-device.logcat"
+  [[ "$app" != native-ime-test ]] || sed 's/^/    /' "$RESULTS/$app-reference.logcat"
 }
 
 if [[ -n "$features" ]]; then
@@ -1294,9 +1314,10 @@ if [[ -n "$app" ]]; then
     trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods_off
   fi
-  # ime-test (ADR-0068 step 2a) types through the fixture input method it installs: the image's input methods and its
-  # default are put back at every exit, as for text-test, and the fixture's own is switched off.
-  if [[ "$app" == ime-test ]]; then
+  # ime-test (ADR-0068 step 2a) types through the fixture input method it installs, and native-ime-test (step 2e)
+  # installs one too: the image's input methods and its default are put back at every exit, as for text-test, and the
+  # fixture's own is switched off.
+  if [[ "$app" == ime-test || "$app" == native-ime-test ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods=$(run ime list -s | tr -d '\r')
     default_input_method=$(run settings get secure default_input_method | tr -d '\r')

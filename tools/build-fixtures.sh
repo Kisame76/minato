@@ -30,6 +30,8 @@ for manifest in fixtures/apps/*/AndroidManifest.xml; do
   [[ -e "$manifest" ]] || continue
   app=$(basename "$(dirname "$manifest")")
   [[ -f "$build/bin/lib$app.so" ]] || continue
+  # An app with Java beside its library (native-ime-test's input method) is packed by tools/build-java-test-app.sh.
+  [[ ! -d "fixtures/java/$app" ]] || continue
   assets=()
   [[ ! -d "fixtures/apps/$app/assets" ]] || assets=(--assets "fixtures/apps/$app/assets")
   tools/make-apk.sh --manifest "$manifest" --lib "$build/bin/lib$app.so" ${assets[@]+"${assets[@]}"} \

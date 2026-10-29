@@ -674,6 +674,21 @@ if(APK_HOST_BUILD)
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
     "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt")
   set_tests_properties(runtime.input PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # ADR-0068 step 2e's native-ime-test: the same host posts a text, which a NativeActivity's view does not take, and the
+  # hardware keyboard's keys, and compares the log with Android 15's (fixtures/expected/native-ime-test.logcat).
+  add_executable(native_ime_test tests/native_ime_test.cpp)
+  target_link_libraries(native_ime_test PRIVATE app_host)
+  # Its variant "single" takes one event per looper callback and ends B's down in its predispatch.
+  foreach(case IN ITEMS "" single)
+    set(name runtime.native-ime)
+    if(case)
+      set(name runtime.native-ime.${case})
+    endif()
+    add_test(NAME ${name} COMMAND native_ime_test "${CMAKE_CURRENT_BINARY_DIR}/native_ime_test_scratch"
+      "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+      "${PROJECT_SOURCE_DIR}/build/native-ime-test/native-ime-test.apk" ${case})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  endforeach()
   # ADR-0038's test 3 (step c): the same host turns rotation-test to landscape and back as the App does, with the
   # window's new size, and compares the log with Android 15's (fixtures/expected/rotation-test.logcat).
   add_executable(rotation_test tests/rotation_test.cpp)

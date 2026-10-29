@@ -1,5 +1,7 @@
-// AInputEvent_* and AMotionEvent_* of libandroid.so (ADR-0036, decision 3), on the records of the input queue
-// (internal.h). Every event is a motion event of the touchscreen from one device, each pointer a finger. What a
+// AInputEvent_*, AMotionEvent_* and AKeyEvent_* of libandroid.so (ADR-0036, decision 3), on the records of the input
+// queue (internal.h). A key (ADR-0068 step 2e) gives its record's fields; its source is 0, as Android 15's
+// NativeActivity reports a key's (native-ime-test on the AVD, where Java's KeyEvent of the same key has 0x101). Every
+// other event is a motion event of the touchscreen from one device, each pointer a finger. What a
 // record does not carry is fixed: no flags, meta state, buttons, edge flags, classification or action button,
 // no offset, a precision of 1, the touch minor and the tool's sizes as the touch major, size and orientation 0.
 // The raw places are the places, since the window fills the screen. An index past the pointers or the samples
@@ -18,6 +20,10 @@ constexpr int32_t kDevice = 1;
 
 [[noreturn]] void fatal(const char *getter, const char *which, size_t index) {
     __android_log_assert(nullptr, "Input", "%s: Invalid %s index %zu", getter, which, index);
+}
+
+bool is_key(const AInputEvent *event) {
+    return event->motion.kind == APKRT_INPUT_KEY;
 }
 
 size_t own_sample(const AInputEvent *event) {
@@ -53,16 +59,48 @@ float axis_value(const apkrt_pointer_coords &at, int32_t axis) {
 
 extern "C" {
 
-int32_t AInputEvent_getType(const AInputEvent *) {
-    return AINPUT_EVENT_TYPE_MOTION;
+int32_t AInputEvent_getType(const AInputEvent *event) {
+    return is_key(event) ? AINPUT_EVENT_TYPE_KEY : AINPUT_EVENT_TYPE_MOTION;
 }
 
-int32_t AInputEvent_getDeviceId(const AInputEvent *) {
-    return kDevice;
+int32_t AInputEvent_getDeviceId(const AInputEvent *event) {
+    return is_key(event) ? event->key.device_id : kDevice;
 }
 
-int32_t AInputEvent_getSource(const AInputEvent *) {
-    return AINPUT_SOURCE_TOUCHSCREEN;
+int32_t AInputEvent_getSource(const AInputEvent *event) {
+    return is_key(event) ? 0 : AINPUT_SOURCE_TOUCHSCREEN;
+}
+
+int32_t AKeyEvent_getAction(const AInputEvent *key_event) {
+    return key_event->key.action;
+}
+
+int32_t AKeyEvent_getFlags(const AInputEvent *key_event) {
+    return key_event->key.flags;
+}
+
+int32_t AKeyEvent_getKeyCode(const AInputEvent *key_event) {
+    return key_event->key.key_code;
+}
+
+int32_t AKeyEvent_getScanCode(const AInputEvent *key_event) {
+    return key_event->key.scan_code;
+}
+
+int32_t AKeyEvent_getMetaState(const AInputEvent *key_event) {
+    return key_event->key.meta_state;
+}
+
+int32_t AKeyEvent_getRepeatCount(const AInputEvent *key_event) {
+    return key_event->key.repeat_count;
+}
+
+int64_t AKeyEvent_getDownTime(const AInputEvent *key_event) {
+    return key_event->key.down_time;
+}
+
+int64_t AKeyEvent_getEventTime(const AInputEvent *key_event) {
+    return key_event->key.event_time;
 }
 
 int32_t AMotionEvent_getAction(const AInputEvent *motion_event) {

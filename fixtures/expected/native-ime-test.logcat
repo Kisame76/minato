@@ -1,0 +1,14 @@
+I/native-ime-test: ready
+I/native-ime-test: showSoftInput 0
+I/native-ime-test: no keys: showSoftInput forced
+I/native-ime-test: soft input done: 0 key events
+I/native-ime-test: hideSoftInput 0
+I/native-ime-test: pre-dispatched
+I/native-ime-test: key down B, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-ime-test: pre-dispatched
+I/native-ime-test: key up B, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-ime-test: pre-dispatched
+I/native-ime-test: key down DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-ime-test: pre-dispatched
+I/native-ime-test: key up DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-ime-test: done

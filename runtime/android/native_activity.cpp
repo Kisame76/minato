@@ -2,7 +2,9 @@
 // main thread, which then calls Java; here the runtime reports them to the host at once (session_request):
 // ANativeActivity_finish asks for the quit sequence, and the runtime keeps the window flags and tells the host
 // when AWINDOW_FLAG_KEEP_SCREEN_ON changes, and keeps the window's format and tells the host when the window's
-// opacity changes. M3 has no keyboard, so the other two only log, once each.
+// opacity changes. The soft keyboard's two do nothing, as on Android 15, whose input method manager ignores them for
+// NativeActivity's view, which is never the served one ("is not served"; ADR-0068 step 2e, native-ime-test on the
+// AVD); they log once each.
 #include <android/log.h>
 #include <android/native_activity.h>
 #include <unistd.h>
@@ -37,12 +39,12 @@ void ANativeActivity_setWindowFormat(ANativeActivity *, int32_t format) {
 
 void ANativeActivity_showSoftInput(ANativeActivity *, uint32_t) {
     static char logged;
-    log_once(&logged, "ANativeActivity_showSoftInput: no keyboard in M3");
+    log_once(&logged, "ANativeActivity_showSoftInput: ignored, as on Android 15: the activity's view is not served");
 }
 
 void ANativeActivity_hideSoftInput(ANativeActivity *, uint32_t) {
     static char logged;
-    log_once(&logged, "ANativeActivity_hideSoftInput: no keyboard in M3");
+    log_once(&logged, "ANativeActivity_hideSoftInput: ignored, as on Android 15: the activity's view is not served");
 }
 
 }  // extern "C"

@@ -272,6 +272,13 @@ add_library(window-test SHARED apps/window-test/main.c)
 target_compile_options(window-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(window-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
 target_link_libraries(window-test PRIVATE native_app_glue nativewindow)
+# native-ime-test (ADR-0068 step 2e): a NativeActivity without native_app_glue that asks for the soft keyboard, which
+# Android 15 ignores, and logs the keys of its input queue. Its source is in fixtures/java, beside the fixture input
+# method that tools/build-java-test-app.sh adds to the APK for the Android reference.
+add_library(native-ime-test SHARED java/native-ime-test/jni/native_ime_test.c)
+target_compile_options(native-ime-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(native-ime-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(native-ime-test PRIVATE android log)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

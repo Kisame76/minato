@@ -73,10 +73,11 @@
 #              with Android's, since they may be any, but each must come from the hardware keyboard, device 1000, where
 #              Android's adb input is the virtual keyboard, -1.
 #   IME        set: only ime-test runs (ADR-0068 step 2c); the typing is the operator's on UIKit's keyboard, which must
-#              show (the Simulator's I/O > Keyboard > Connect Hardware Keyboard off): the script waits for the app's
-#              "showSoftInput true" and the session's "keyboard show", says what to type, and waits for the editor's
-#              action. Up to "showSoftInput true" the log must be Android 15's; then come the host's records: h and i
-#              committed, the delete as deleteSurroundingText 1,0, and Go as performEditorAction 2, leaving "h"
+#              show (in the Simulator I/O > Keyboard > Connect Hardware Keyboard off, on the iPhone no hardware
+#              keyboard connected): the script waits for the app's "showSoftInput true" and the session's "keyboard
+#              show", says what to type, and waits for the editor's action. Up to "showSoftInput true" the log must
+#              be Android 15's; then come the host's records: h and i committed, the delete as
+#              deleteSurroundingText 1,0, and Go as performEditorAction 2, leaving "h"
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
@@ -1023,7 +1024,7 @@ if [[ -n "${IME:-}" ]]; then
     if await_line guest-log '^I/ime-test: showSoftInput true$' 300; then
       if await_event 'keyboard show\(' 20; then
         ok "  UIKit's keyboard shows"
-        echo "type    now, on the Simulator's keyboard: h, i, Delete, then Go"
+        echo "type    now, on the on-screen keyboard: h, i, Delete, then Go"
         if await_line guest-log '^I/ime-test: call performEditorAction 2 ' 300; then
           ok "  the editor's action arrived, $(seconds "$SEEN" "$(now)") s ago"
           sleep 2

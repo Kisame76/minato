@@ -46,8 +46,9 @@ LIBRARIES = {
             "AAsset_*", "AAssetDir_*", "AAssetManager_open", "AAssetManager_openDir", "AAssetManager_fromJava",
             # the requests (native_activity.cpp)
             "ANativeActivity_*",
-            # the input queue on the input channel (input_queue.cpp) and its motion events (input.cpp, ADR-0036)
-            "AInputQueue_*", "AInputEvent_*", "AMotionEvent_*",
+            # the input queue on the input channel (input_queue.cpp), its motion events (input.cpp, ADR-0036) and
+            # keys (ADR-0068 step 2e)
+            "AInputQueue_*", "AInputEvent_*", "AMotionEvent_*", "AKeyEvent_*",
             # the choreographer on the vsync channel (choreographer.cpp, ADR-0036)
             "AChoreographer_*", "AChoreographerFrameCallbackData_*",
             # forwarded to libnativewindow (window_forwards.c)
@@ -80,7 +81,7 @@ LIBRARIES = {
         ],
         # M3 has no resource matching. Input's Java side waits for Java (M4).
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
-                    "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava"],
+                    "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava", "AKeyEvent_fromJava"],
         "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete",
                     "minato_AConfiguration_fromSession", "minato_ASensor_getInfo", "minato_ASensorManager_createQueue",
                     "minato_ASensorEventQueue_getFd", "minato_ASensorEventQueue_flush"],
@@ -204,10 +205,6 @@ VALUES = {
     "AFont_isItalic": "0",
     # Hardware buffers in parcels, which need Binder: INVALID_OPERATION (ADR-0058 a) writes the rest)
     "AHardwareBuffer_readFromParcel": "-ENOSYS", "AHardwareBuffer_writeToParcel": "-ENOSYS",  # STATUS_INVALID_OPERATION
-    # Key events: M3 has none (ADR-0036, decision 3)
-    "AKeyEvent_getAction": "0", "AKeyEvent_getDownTime": "0", "AKeyEvent_getEventTime": "0", "AKeyEvent_getFlags": "0",
-    "AKeyEvent_getKeyCode": "0", "AKeyEvent_getMetaState": "0", "AKeyEvent_getRepeatCount": "0",
-    "AKeyEvent_getScanCode": "0",
     # Windows in parcels: INVALID_OPERATION
     "ANativeWindow_readFromParcel": "-ENOSYS", "ANativeWindow_writeToParcel": "-ENOSYS",
     # OBBs

@@ -20,9 +20,17 @@ void minato_looper_send(ALooper *looper, int64_t uptime, void (*handler)(void *d
 void minato_looper_remove(ALooper *looper, void *data);
 
 /// An event of an input queue (input_queue.cpp), which input.cpp's getters read: the record input_read gives
-/// (ADR-0036, decision 3).
+/// (ADR-0036, decision 3), a motion event or, since ADR-0068 step 2e, a key, as its kind says.
 struct AInputEvent {
-    struct apkrt_motion_event motion;
+    union {
+        struct apkrt_motion_event motion;
+        struct apkrt_key_event key;
+    };
+    struct AInputEvent *next;  // the queue's, while a key waits for its delivery after the predispatch
 };
+
+/// Android's AKEY_EVENT_FLAG_PREDISPATCH (Input.h), which the NDK does not name: a key's first delivery, before the
+/// input method's stage.
+#define MINATO_KEY_FLAG_PREDISPATCH 0x20000000
 
 #endif
