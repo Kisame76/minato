@@ -17,4 +17,9 @@ I/system-services-test-unpermitted: media metrics manager: android.media.metrics
 I/system-services-test-unpermitted: playback session: android.media.metrics.PlaybackSession, its ID none false, 16 characters
 I/system-services-test-unpermitted: playback state reported
 I/system-services-test-unpermitted: playback session closed
+I/system-services-test-unpermitted: autofill manager: android.view.autofill.AutofillManager, the same by name true
+I/system-services-test-unpermitted: autofill enabled false, enabled services false, service null, field classification false
+I/system-services-test-unpermitted: autofill callback registered
+I/system-services-test-unpermitted: autofill told of the view's entry, change and exit, asked, committed and cancelled
+I/system-services-test-unpermitted: autofill callback unregistered
 I/system-services-test-unpermitted: done

@@ -16,6 +16,7 @@ import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
+import android.view.autofill.AutofillManager;
 
 /**
  * Gap 1's batch 3 (the compatibility plan): system services that answered null in Minato, each asked as the libraries
@@ -34,6 +35,10 @@ import android.view.accessibility.CaptioningManager;
  *       object by class, whether captions are on, their locale, font scale and the user's caption style;
  *   <li>the media metrics manager as media3's MediaMetricsListener asks it: its class, the same object by class, a
  *       playback session, a state event reported to it and its close. The session's ID, random, is on the device tag.
+ *   <li>the autofill manager as Compose's AndroidAutofill uses it, which throws where a context gives none: its class,
+ *       the same object by name, whether autofill is on, a callback registered and unregistered, and a view's
+ *       entry, value change and exit, a request, a commit and a cancel sent to it. Whether the device supports
+ *       autofill, which needs its autofill service, is on the device tag.
  * </ul>
  * A missing class shows as a NoClassDefFoundError line where media3 would meet it, the cast of getSystemService's
  * answer, so that the log tells whether media3 gets past it.
@@ -79,6 +84,7 @@ public class ServicesActivity extends Activity {
         } catch (NoClassDefFoundError e) {
             Log.i(mTag, "media metrics: " + e.getClass().getName());
         }
+        autofill();
         Log.i(mTag, "done");
     }
 
@@ -182,5 +188,34 @@ public class ServicesActivity extends Activity {
         Log.i(mTag, "playback state reported");
         session.close();
         Log.i(mTag, "playback session closed");
+    }
+
+    /** The autofill manager as Compose's AndroidAutofill uses it, from the view's context. */
+    private void autofill() {
+        final Context context = mView.getContext();
+        final AutofillManager manager = context.getSystemService(AutofillManager.class);
+        Log.i(mTag, "autofill manager: " + name(manager) + ", the same by name "
+                + (manager == context.getSystemService(Context.AUTOFILL_MANAGER_SERVICE)));
+        if (manager == null) {
+            return;
+        }
+        Log.i(mDevice, "autofill supported " + manager.isAutofillSupported());
+        Log.i(mTag, "autofill enabled " + manager.isEnabled() + ", enabled services "
+                + manager.hasEnabledAutofillServices() + ", service "
+                + manager.getAutofillServiceComponentName() + ", field classification "
+                + manager.isFieldClassificationEnabled());
+        final AutofillManager.AutofillCallback callback = new AutofillManager.AutofillCallback() {
+        };
+        manager.registerCallback(callback);
+        Log.i(mTag, "autofill callback registered");
+        manager.notifyViewEntered(mView);
+        manager.notifyValueChanged(mView);
+        manager.notifyViewExited(mView);
+        manager.requestAutofill(mView);
+        manager.commit();
+        manager.cancel();
+        Log.i(mTag, "autofill told of the view's entry, change and exit, asked, committed and cancelled");
+        manager.unregisterCallback(callback);
+        Log.i(mTag, "autofill callback unregistered");
     }
 }

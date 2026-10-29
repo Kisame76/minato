@@ -4,8 +4,8 @@
  * once per call where the tag's fetcher is static (the input method manager's forContext). It replaces ContextImpl's
  * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
  * power, audio and connectivity services, with power exemptions, which PowerManager asks, the notification service
- * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode, captioning and media
- * metrics managers (batch 3). A name or class without an entry is logged once and gives null, as the tag's
+ * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode, captioning, media
+ * metrics and autofill managers (batch 3). A name or class without an entry is logged once and gives null, as the tag's
  * onServiceNotFound does; so does a service whose local binder the table lacks (ServiceNotFoundException). AOSP's
  * registry would load the mainline modules' classes and register 141 services; batches 2 and 3 add the rest.
  */
@@ -53,6 +53,7 @@ import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.CaptioningManager;
+import android.view.autofill.AutofillManager;
 import android.view.inputmethod.InputMethodManager;
 
 import com.android.internal.policy.PhoneLayoutInflater;
@@ -150,6 +151,9 @@ final class SystemServiceRegistry {
         // Batch 3: as the tag's; the captioning manager reads the captions' settings itself.
         cached(Context.CAPTIONING_SERVICE, CaptioningManager.class,
                 ctx -> new CaptioningManager(ctx.getOuterContext()));
+        // Batch 3: as the tag's where the device has no autofill service.
+        cached(Context.AUTOFILL_MANAGER_SERVICE, AutofillManager.class,
+                ctx -> new AutofillManager(ctx.getOuterContext()));
         // Batch 3: as the tag's, over the local media metrics service.
         cached(Context.MEDIA_METRICS_SERVICE, MediaMetricsManager.class, ctx -> new MediaMetricsManager(
                 IMediaMetricsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.MEDIA_METRICS_SERVICE)),
