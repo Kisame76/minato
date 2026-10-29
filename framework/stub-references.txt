@@ -266,3 +266,4 @@ android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILo
 android.os.PermissionEnforcer <- android.app.IUiModeManager  # stays: IUiModeManager's Stub and Proxy, which the local UI mode service never runs
 com.android.internal.util.function.pooled.PooledLambda <- android.app.UiModeManager  # stays: a projection state listener's call, which the local UI mode service never makes (its listeners need READ_PROJECTION_STATE, a system permission)
 com.android.internal.util.function.pooled.PooledRunnable <- android.app.UiModeManager  # stays: as for PooledLambda
+android.content.pm.AppSearchShortcutInfo <- android.content.pm.ShortcutInfo  # gap: ShortcutInfo.createFromGenericDocument (API 31), an AppSearch document's shortcut; Minato has no AppSearch

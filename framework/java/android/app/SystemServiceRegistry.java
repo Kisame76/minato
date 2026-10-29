@@ -5,9 +5,10 @@
  * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
  * power, audio and connectivity services, with power exemptions, which PowerManager asks, the notification service
  * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode, captioning, media
- * metrics and autofill managers (batch 3). A name or class without an entry is logged once and gives null, as the tag's
- * onServiceNotFound does; so does a service whose local binder the table lacks (ServiceNotFoundException). AOSP's
- * registry would load the mainline modules' classes and register 141 services; batches 2 and 3 add the rest.
+ * metrics, autofill and shortcut managers (batch 3). A name or class without an entry is logged once and gives null,
+ * as the tag's onServiceNotFound does; so does a service whose local binder the table lacks
+ * (ServiceNotFoundException). AOSP's registry would load the mainline modules' classes and register 141 services;
+ * batches 2 and 3 add the rest.
  */
 package android.app;
 
@@ -20,6 +21,7 @@ import android.app.job.JobScheduler;
 import android.appwidget.AppWidgetManager;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.pm.ShortcutManager;
 import android.content.res.Resources;
 import android.hardware.SystemSensorManager;
 import android.hardware.camera2.CameraManager;
@@ -154,6 +156,8 @@ final class SystemServiceRegistry {
         // Batch 3: as the tag's where the device has no autofill service.
         cached(Context.AUTOFILL_MANAGER_SERVICE, AutofillManager.class,
                 ctx -> new AutofillManager(ctx.getOuterContext()));
+        // Batch 3: as the tag's, over the local shortcut service.
+        cached(Context.SHORTCUT_SERVICE, ShortcutManager.class, ctx -> new ShortcutManager(ctx.getOuterContext()));
         // Batch 3: as the tag's, over the local media metrics service.
         cached(Context.MEDIA_METRICS_SERVICE, MediaMetricsManager.class, ctx -> new MediaMetricsManager(
                 IMediaMetricsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.MEDIA_METRICS_SERVICE)),

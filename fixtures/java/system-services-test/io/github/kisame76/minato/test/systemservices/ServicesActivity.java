@@ -3,8 +3,12 @@ package io.github.kisame76.minato.test.systemservices;
 import android.app.Activity;
 import android.app.UiModeManager;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.content.res.Configuration;
 import android.media.metrics.LogSessionId;
+import android.net.Uri;
 import android.media.metrics.MediaMetricsManager;
 import android.media.metrics.PlaybackSession;
 import android.media.metrics.PlaybackStateEvent;
@@ -17,6 +21,10 @@ import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
 import android.view.autofill.AutofillManager;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Gap 1's batch 3 (the compatibility plan): system services that answered null in Minato, each asked as the libraries
@@ -39,6 +47,10 @@ import android.view.autofill.AutofillManager;
  *       the same object by name, whether autofill is on, a callback registered and unregistered, and a view's
  *       entry, value change and exit, a request, a commit and a cancel sent to it. Whether the device supports
  *       autofill, which needs its autofill service, is on the device tag.
+ *   <li>the shortcut manager as androidx's ShortcutManagerCompat uses it: its class, the same object by name, its
+ *       limits, and dynamic shortcuts set, added, pushed, removed, used and updated, each list as the manager gives
+ *       it back (ID, label, rank, activity), and what it refuses: more than its maximum and a shortcut without a
+ *       label. Whether the launcher pins shortcuts and the icons' size in pixels differ by device.
  * </ul>
  * A missing class shows as a NoClassDefFoundError line where media3 would meet it, the cast of getSystemService's
  * answer, so that the log tells whether media3 gets past it.
@@ -85,6 +97,11 @@ public class ServicesActivity extends Activity {
             Log.i(mTag, "media metrics: " + e.getClass().getName());
         }
         autofill();
+        try {
+            shortcuts();
+        } catch (NoClassDefFoundError e) {
+            Log.i(mTag, "shortcuts: " + e.getClass().getName());
+        }
         Log.i(mTag, "done");
     }
 
@@ -217,5 +234,70 @@ public class ServicesActivity extends Activity {
         Log.i(mTag, "autofill told of the view's entry, change and exit, asked, committed and cancelled");
         manager.unregisterCallback(callback);
         Log.i(mTag, "autofill callback unregistered");
+    }
+
+    private ShortcutInfo shortcut(String id, String label) {
+        return new ShortcutInfo.Builder(this, id).setShortLabel(label)
+                .setIntent(new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.org/" + id))).build();
+    }
+
+    /** The dynamic shortcuts as the manager gives them back: ID, label, rank and activity of each. */
+    private void logShortcuts(ShortcutManager manager, String what) {
+        final StringBuilder line = new StringBuilder("shortcuts " + what + ":");
+        for (ShortcutInfo info : manager.getDynamicShortcuts()) {
+            line.append(' ').append(info.getId()).append('/').append(info.getShortLabel()).append('/')
+                    .append(info.getRank()).append('/').append(info.isDynamic() ? "dynamic" : "not dynamic")
+                    .append('/').append(info.getActivity() == null ? "null" : info.getActivity().getClassName());
+        }
+        Log.i(mTag, line.toString());
+    }
+
+    /** The shortcut manager as androidx's ShortcutManagerCompat uses it. */
+    private void shortcuts() {
+        final ShortcutManager manager = getSystemService(ShortcutManager.class);
+        Log.i(mTag, "shortcut manager: " + name(manager) + ", the same by name "
+                + (manager == getSystemService(Context.SHORTCUT_SERVICE)));
+        if (manager == null) {
+            return;
+        }
+        final float density = getResources().getDisplayMetrics().density;
+        Log.i(mDevice, "pinning supported " + manager.isRequestPinShortcutSupported() + ", icons at most "
+                + manager.getIconMaxWidth() + " x " + manager.getIconMaxHeight() + " pixels");
+        Log.i(mTag, "shortcuts at most " + manager.getMaxShortcutCountPerActivity() + " per activity, rate limiting "
+                + manager.isRateLimitingActive() + ", icons at most " + Math.round(manager.getIconMaxWidth() / density)
+                + " x " + Math.round(manager.getIconMaxHeight() / density) + " dp, manifest "
+                + manager.getManifestShortcuts().size() + ", pinned " + manager.getPinnedShortcuts().size());
+        Log.i(mTag, "set "
+                + manager.setDynamicShortcuts(Arrays.asList(shortcut("one", "One"), shortcut("two", "Two"))));
+        logShortcuts(manager, "set");
+        Log.i(mTag, "added " + manager.addDynamicShortcuts(Arrays.asList(shortcut("three", "Three"))));
+        logShortcuts(manager, "added");
+        manager.pushDynamicShortcut(shortcut("four", "Four"));
+        logShortcuts(manager, "pushed");
+        manager.removeDynamicShortcuts(Arrays.asList("one"));
+        logShortcuts(manager, "removed");
+        manager.reportShortcutUsed("two");
+        Log.i(mTag, "updated " + manager.updateShortcuts(Arrays.asList(shortcut("two", "Second"))));
+        logShortcuts(manager, "updated");
+        final List<ShortcutInfo> many = new ArrayList<>();
+        for (int i = 0; i <= manager.getMaxShortcutCountPerActivity(); i++) {
+            many.add(shortcut("many" + i, "Many " + i));
+        }
+        try {
+            manager.setDynamicShortcuts(many);
+            Log.i(mTag, "set one more than the maximum");
+        } catch (IllegalArgumentException e) {
+            Log.i(mTag, "one more than the maximum: " + e.getClass().getName());
+        }
+        try {
+            manager.addDynamicShortcuts(Arrays.asList(new ShortcutInfo.Builder(this, "unlabelled")
+                    .setIntent(new Intent(Intent.ACTION_VIEW)).build()));
+            Log.i(mTag, "added a shortcut without a label");
+        } catch (IllegalArgumentException e) {
+            Log.i(mTag, "a shortcut without a label: " + e.getClass().getName());
+        }
+        logShortcuts(manager, "after the refusals");
+        manager.removeAllDynamicShortcuts();
+        logShortcuts(manager, "all removed");
     }
 }

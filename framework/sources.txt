@@ -2040,6 +2040,14 @@ frameworks_base_types/media/java/android/media/metrics/NetworkEvent.java
 frameworks_base_types/media/java/android/media/metrics/TrackChangeEvent.java
 frameworks_base_types/media/java/android/media/metrics/EditingEndedEvent.java
 frameworks_base_types/media/java/android/media/metrics/MediaItemInfo.java
+# Gap 1's batch 3 (App, 2026-10-29): ShortcutManager, which androidx's ShortcutManagerCompat asks, over the local
+# shortcut service (android.content.pm.LocalShortcutService), with ShortcutInfo, the interface, and AndroidFuture,
+# whose futures carry the answers of a pin request and a result intent.
+frameworks_base/core/java/android/content/pm/ShortcutManager.java
+frameworks_base/core/java/android/content/pm/ShortcutInfo.java
+frameworks_base/core/java/android/content/pm/IShortcutService.aidl
+frameworks_base/core/java/com/android/internal/infra/AndroidFuture.java
+frameworks_base/core/java/com/android/internal/infra/IAndroidFuture.aidl
 frameworks_base/core/java/android/hardware/lights/LightState.java
 frameworks_base/core/java/android/hardware/lights/LightsRequest.java
 frameworks_base_types/media/java/android/media/session/PlaybackState.java

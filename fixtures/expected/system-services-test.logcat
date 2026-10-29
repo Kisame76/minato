@@ -22,4 +22,18 @@ I/system-services-test: autofill enabled false, enabled services false, service 
 I/system-services-test: autofill callback registered
 I/system-services-test: autofill told of the view's entry, change and exit, asked, committed and cancelled
 I/system-services-test: autofill callback unregistered
+I/system-services-test: shortcut manager: android.content.pm.ShortcutManager, the same by name true
+I/system-services-test: shortcuts at most 15 per activity, rate limiting false, icons at most 96 x 96 dp, manifest 0, pinned 0
+I/system-services-test: set true
+I/system-services-test: shortcuts set: two/Two/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity one/One/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test: added true
+I/system-services-test: shortcuts added: three/Three/2/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity two/Two/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity one/One/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test: shortcuts pushed: three/Three/3/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity four/Four/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity two/Two/2/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity one/One/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test: shortcuts removed: three/Three/2/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity four/Four/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity two/Two/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test: updated true
+I/system-services-test: shortcuts updated: three/Three/2/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity four/Four/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity two/Second/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test: one more than the maximum: java.lang.IllegalArgumentException
+I/system-services-test: a shortcut without a label: java.lang.IllegalArgumentException
+I/system-services-test: shortcuts after the refusals: three/Three/2/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity four/Four/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity two/Second/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test: shortcuts all removed:
 I/system-services-test: done
