@@ -287,6 +287,8 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_OPEN_CANCEL.rawValue: .openCancel(id: argument)
         case APKRT_REQUEST_PICK.rawValue: .pick(id: argument, text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_PICK_CANCEL.rawValue: .pickCancel(id: argument)
+        case APKRT_REQUEST_IME.rawValue:
+            .ime(serial: Int64(bitPattern: argument), text: text.map { String(cString: $0) } ?? "")
         default: nil
         }
     }
@@ -455,5 +457,32 @@ final class KeyChannelSink: KeyPoster {
         record.device_id = key.deviceID
         record.source = key.source
         return apkrt_input_post_key(channel, &record) == 1
+    }
+}
+
+/// The soft keyboard's text records to the guest's input channel (ADR-0068 step 2c). A record the channel refuses (no
+/// channel yet, or a full one) is dropped, as a key is: the guest cannot merge edits.
+final class TextChannelSink {
+    /// The channel of the guest's input queue, 0 before it has one.
+    var channel: UInt64 = 0
+
+    func post(_ records: [TextRecord]) {
+        guard channel != 0 else { return }
+        for text in records {
+            var record = apkrt_text_event()
+            record.op = switch text.op {
+            case .commit: Int32(APKRT_TEXT_COMMIT)
+            case .deleteSurrounding: Int32(APKRT_TEXT_DELETE_SURROUNDING)
+            case .performAction: Int32(APKRT_TEXT_PERFORM_ACTION)
+            case .sendKey: Int32(APKRT_TEXT_SEND_KEY)
+            }
+            record.arg0 = text.arg0
+            record.arg1 = text.arg1
+            record.serial = text.serial
+            let bytes = Array(text.text.utf8.prefix(Int(APKRT_TEXT_BYTES)))
+            record.length = UInt32(bytes.count)
+            withUnsafeMutableBytes(of: &record.text) { $0.copyBytes(from: bytes) }
+            _ = apkrt_input_post_text(channel, &record)
+        }
     }
 }

@@ -114,6 +114,8 @@ final class SessionLayersView: UIView {
     static let swipeDistance: CGFloat = 60
 
     let hostView = MetalLayerHostView(frame: .zero)
+    /// The guest's soft keyboard (ADR-0068 step 2c): first responder while the guest's editor wants UIKit's keyboard.
+    let textView = SoftKeyboardView(frame: .zero)
     private(set) lazy var surfaces = SurfaceLayers(backdrop: layer, windowLayer: hostView.metalLayer)
     /// Runs once per swipe that opens the menu.
     var onTopEdgeSwipe: () -> Void = {}
@@ -127,6 +129,7 @@ final class SessionLayersView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(hostView)
+        addSubview(textView)
         isMultipleTouchEnabled = true
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swipe.maximumNumberOfTouches = 1
@@ -148,7 +151,8 @@ final class SessionLayersView: UIView {
         surfaces.laidOut()
     }
 
-    // The keys of a hardware keyboard go to the first responder: the session's view, while it is in a window.
+    // The keys of a hardware keyboard go to the first responder: the session's view, while it is in a window, or its
+    // text view while the guest's editor has UIKit's keyboard, which hands them here.
     override var canBecomeFirstResponder: Bool { true }
 
     override func didMoveToWindow() {
@@ -384,6 +388,142 @@ final class SurfaceLayers {
     }
 }
 
+/// The host's view of the guest's input method (ADR-0068 step 2c): an invisible UIKeyInput in the session's view that
+/// becomes first responder when the guest shows its keyboard, so UIKit shows its own with the editor's traits, and
+/// hands what it types on. A hardware keyboard's presses stay keys, as on Android, where they reach the focused
+/// view as KeyEvents: the view gives them to the session's view. The pads without a return key get a bar with the
+/// editor's action.
+final class SoftKeyboardView: UIView, UIKeyInput {
+    /// Typed text, the delete key, and the return key or the bar's button.
+    var onInsert: (String) -> Void = { _ in }
+    var onDelete: () -> Void = {}
+    var onReturn: () -> Void = {}
+    /// UIKit took the keyboard away without the guest asking (an iPad's dismiss key, another first responder).
+    var onDismissed: () -> Void = {}
+
+    var keyboardType: UIKeyboardType = .default
+    var returnKeyType: UIReturnKeyType = .default
+    var autocapitalizationType: UITextAutocapitalizationType = .none
+    var autocorrectionType: UITextAutocorrectionType = .no
+    var spellCheckingType: UITextSpellCheckingType = .no
+    // Android's keyboards type what the key shows.
+    var smartQuotesType: UITextSmartQuotesType = .no
+    var smartDashesType: UITextSmartDashesType = .no
+    var smartInsertDeleteType: UITextSmartInsertDeleteType = .no
+    var isSecureTextEntry = false
+    var hasText = true
+
+    /// While the guest's editor wants the keyboard: UIKit may give the view the focus back (after a sheet).
+    private var active = false
+    private var resigning = false
+    private var bar: UIToolbar?
+
+    override var canBecomeFirstResponder: Bool { active }
+    override var inputAccessoryView: UIView? { bar }
+
+    func show(_ traits: KeyboardTraits) {
+        apply(traits)
+        active = true
+        // Still up after a release (a tap on the focused field): the new editor's traits only.
+        if isFirstResponder { reloadInputViews() } else { becomeFirstResponder() }
+    }
+
+    /// New traits while shown (the guest restarted the input).
+    func update(_ traits: KeyboardTraits) {
+        apply(traits)
+        reloadInputViews()
+    }
+
+    /// The guest hid its keyboard: the session's view takes the hardware keys again.
+    func hide() {
+        active = false
+        resigning = true
+        _ = resignFirstResponder()
+        resigning = false
+        superview?.becomeFirstResponder()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned, !resigning { onDismissed() }
+        return resigned
+    }
+
+    func insertText(_ text: String) {
+        hasText = true
+        onInsert(text)
+    }
+
+    func deleteBackward() {
+        onDelete()
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard let superview else { return super.pressesBegan(presses, with: event) }
+        superview.pressesBegan(presses, with: event)
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard let superview else { return super.pressesEnded(presses, with: event) }
+        superview.pressesEnded(presses, with: event)
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard let superview else { return super.pressesCancelled(presses, with: event) }
+        superview.pressesCancelled(presses, with: event)
+    }
+
+    private func apply(_ traits: KeyboardTraits) {
+        keyboardType = switch traits.kind {
+        case .standard: .default
+        case .ascii: .asciiCapable
+        case .url: .URL
+        case .email: .emailAddress
+        case .numberPad: .numberPad
+        case .decimalPad: .decimalPad
+        case .numbersAndPunctuation: .numbersAndPunctuation
+        case .phonePad: .phonePad
+        }
+        returnKeyType = switch traits.returnKey {
+        case .standard: .default
+        case .go: .go
+        case .search: .search
+        case .send: .send
+        case .next: .next
+        case .done: .done
+        }
+        autocapitalizationType = switch traits.capitalization {
+        case .none: .none
+        case .words: .words
+        case .sentences: .sentences
+        case .characters: .allCharacters
+        }
+        autocorrectionType = traits.corrects ? .default : .no
+        spellCheckingType = traits.corrects ? .default : .no
+        isSecureTextEntry = traits.secure
+        hasText = !traits.cursorAtStart
+        bar = traits.needsActionBar ? actionBar(traits.returnKey) : nil
+    }
+
+    /// A bar with the return key's action, at the right as the return key is.
+    private func actionBar(_ returnKey: ReturnKeyKind) -> UIToolbar {
+        let title = switch returnKey {
+        case .standard: "Return"
+        case .go: "Go"
+        case .search: "Search"
+        case .send: "Send"
+        case .next: "Next"
+        case .done: "Done"
+        }
+        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+        let button = UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.onReturn() })
+        button.style = .prominent
+        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), button]
+        bar.sizeToFit()
+        return bar
+    }
+}
+
 struct MetalLayerView: UIViewRepresentable {
     /// The view's layers, once, as the view is made: the window's, and the SurfaceViews' beside it.
     var onLayer: (CAMetalLayer, SurfaceLayers) -> Void
@@ -395,11 +535,14 @@ struct MetalLayerView: UIViewRepresentable {
     var onTouches: (TouchPhase, [TouchChange], Double) -> Void
     /// A hardware keyboard's presses (ADR-0068 step 7c2).
     var onKeys: (KeyPhase, [HardwareKeyPress]) -> Void = { _, _ in }
+    /// The soft keyboard's view, once, as the view is made (ADR-0068 step 2c).
+    var onTextView: (SoftKeyboardView) -> Void = { _ in }
 
     func makeUIView(context: Context) -> SessionLayersView {
         let view = SessionLayersView(frame: .zero)
         updateUIView(view, context: context)
         onLayer(view.hostView.metalLayer, view.surfaces)
+        onTextView(view.textView)
         return view
     }
 

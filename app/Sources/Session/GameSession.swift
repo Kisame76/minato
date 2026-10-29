@@ -67,6 +67,11 @@ final class GameSession {
     /// The hardware keyboard's keys (ADR-0068 step 7c2), and where they go.
     @ObservationIgnored private var keyboard = HardwareKeyboard()
     @ObservationIgnored private let keySink = KeyChannelSink()
+    /// The guest's input method on UIKit's keyboard (ADR-0068 step 2c): its editor, the view that has the keyboard, and
+    /// where the typed text goes.
+    @ObservationIgnored private var softKeyboard = SoftKeyboard()
+    @ObservationIgnored private weak var textView: SoftKeyboardView?
+    @ObservationIgnored private let textSink = TextChannelSink()
     /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers; there
     /// once the session opens, since it runs a thread of its own.
     @ObservationIgnored private var frameClock: DisplayLinkClock?
@@ -178,6 +183,7 @@ final class GameSession {
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         backgroundObserver = nil
         battery.stop()
+        if softKeyboard.isShown { textView?.hide() }
         frameRateTask?.cancel()
         frameRateTask = nil
         frameClock?.run(false)
@@ -219,6 +225,24 @@ final class GameSession {
         benchmark?.layer(layer)
         surfaces.onAdd = { [weak self] in self?.benchmark?.surface($0) }
         #endif
+    }
+
+    /// The soft keyboard's view, once, as the session's view is made (ADR-0068 step 2c).
+    func attach(_ textView: SoftKeyboardView) {
+        self.textView = textView
+        textView.onInsert = { [weak self] text in
+            guard let self else { return }
+            type(softKeyboard.insert(text))
+        }
+        textView.onDelete = { [weak self] in
+            guard let self else { return }
+            type(softKeyboard.deleteBackward())
+        }
+        textView.onReturn = { [weak self] in
+            guard let self else { return }
+            type(softKeyboard.returnKey())
+        }
+        textView.onDismissed = { [weak self] in self?.keyboardDismissed() }
     }
 
     /// The window was laid out: the size the guest starts with, and the next window's; while the guest has a
@@ -495,6 +519,8 @@ final class GameSession {
         SessionCheck.event("menu closed")
         #endif
         deliver(.menuClosed)
+        // A sheet may have taken the keyboard's focus.
+        if softKeyboard.isShown, let textView, !textView.isFirstResponder { textView.becomeFirstResponder() }
     }
 
     /// "Show FPS" or "Hide FPS" in the menu.
@@ -606,7 +632,47 @@ final class GameSession {
             picks.requested(id: id, text: text)
         case .pickCancel(let id):
             picks.cancelled(id: id)
+        case .ime(let serial, let text):
+            imeRequested(serial: serial, text: text)
         }
+    }
+
+    /// The guest's input method (ADR-0068 step 2c): UIKit's keyboard follows its served editor.
+    private func imeRequested(serial: Int64, text: String) {
+        guard let request = ImeRequest(text: text, serial: serial), let command = softKeyboard.handle(request) else {
+            return
+        }
+        #if DEBUG
+        SessionCheck.event("keyboard \(command)")
+        #endif
+        switch command {
+        case .show(let traits): textView?.show(traits)
+        case .update(let traits): textView?.update(traits)
+        case .hide: textView?.hide()
+        case .release:
+            // A restart's start comes within this, so the keyboard stays up through it (SoftKeyboard).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self, softKeyboard.releaseExpired() else { return }
+                textView?.hide()
+            }
+        }
+    }
+
+    /// UIKit took the keyboard away on its own: an iPad's dismiss key. The menu's sheet and the background give it back
+    /// afterwards, so they change nothing.
+    private func keyboardDismissed() {
+        guard !menuIsOpen, UIApplication.shared.applicationState == .active, softKeyboard.isShown else { return }
+        softKeyboard.userHid()
+        textView?.hide()
+        #if DEBUG
+        SessionCheck.event("keyboard dismissed")
+        #endif
+    }
+
+    private func type(_ records: [TextRecord]) {
+        guard !records.isEmpty else { return }
+        textSink.channel = bridge.inputChannel ?? 0
+        textSink.post(records)
     }
 
     /// The answer to a pick request (ADR-0057): the number of files the manifest names, nil for a cancel.

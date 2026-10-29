@@ -70,6 +70,9 @@ public enum SessionRequest: Sendable, Equatable {
     case pick(id: UInt64, text: String)
     /// The guest no longer wants pick request `id`.
     case pickCancel(id: UInt64)
+    /// The guest's input method tells the host about the served editor (ADR-0068 step 2b): the connection's serial and
+    /// the request's text (ImeRequest).
+    case ime(serial: Int64, text: String)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {

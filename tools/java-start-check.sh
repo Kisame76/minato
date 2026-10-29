@@ -72,6 +72,11 @@
 #              a paste (Cmd+V). Up to "channel: ready" the log must be Android 15's; the typed keys are not compared
 #              with Android's, since they may be any, but each must come from the hardware keyboard, device 1000, where
 #              Android's adb input is the virtual keyboard, -1.
+#   IME        set: only ime-test runs (ADR-0068 step 2c); the typing is the operator's on UIKit's keyboard, which must
+#              show (the Simulator's I/O > Keyboard > Connect Hardware Keyboard off): the script waits for the app's
+#              "showSoftInput true" and the session's "keyboard show", says what to type, and waits for the editor's
+#              action. Up to "showSoftInput true" the log must be Android 15's; then come the host's records: h and i
+#              committed, the delete as deleteSurroundingText 1,0, and Go as performEditorAction 2, leaving "h"
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
@@ -163,6 +168,11 @@ GODOT_TEST=${GODOT_TEST-yes}
 if [[ -n "${KEYS:-}" ]]; then
   APPS+=("key-test io.github.kisame76.minato.test.key")
   ONLY=key-test
+fi
+# IME: ime-test alone (ADR-0068 step 2c), whose text comes from the operator's taps on UIKit's keyboard.
+if [[ -n "${IME:-}" ]]; then
+  APPS+=("ime-test io.github.kisame76.minato.test.ime")
+  ONLY=ime-test
 fi
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
@@ -1004,6 +1014,57 @@ else:
     failed = 1
 sys.exit(failed)
 EOF
+fi
+
+# IME: ime-test (ADR-0068 step 2c) starts with its field focused and asks for the keyboard; UIKit's must come, and the
+# operator types h, i, Delete and Go on it. The app's own timeout ends its run after 10 s, but every call is logged.
+if [[ -n "${IME:-}" ]]; then
+  if begin_start ime-test io.github.kisame76.minato.test.ime 1; then
+    if await_line guest-log '^I/ime-test: showSoftInput true$' 300; then
+      if await_event 'keyboard show\(' 20; then
+        ok "  UIKit's keyboard shows"
+        echo "type    now, on the Simulator's keyboard: h, i, Delete, then Go"
+        if await_line guest-log '^I/ime-test: call performEditorAction 2 ' 300; then
+          ok "  the editor's action arrived, $(seconds "$SEEN" "$(now)") s ago"
+          sleep 2
+        else
+          failed_line "no Go within 300 s" ime-test-1
+        fi
+      else
+        failed_line "no keyboard within 20 s" ime-test-1
+      fi
+    else
+      failed_line 'no "showSoftInput true"' ime-test-1
+    fi
+  fi
+  end_start ime-test 1
+  python3 - "$WORK/ime-test-1.log" fixtures/expected/ime-test.logcat <<'PY' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+path, expected = sys.argv[1:]
+lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+# Up to "showSoftInput true" the log must be Android 15's: the editor and the manager's answers.
+failed = 0
+try:
+    compare_log("ime-test", subprocess.CompletedProcess([], 0, "", "\n".join(lines) + "\n"), expected, {},
+                until="showSoftInput true")
+except SystemExit as exit_:
+    failed = exit_.code or 1
+calls = [line.split("ime-test: ", 1)[1] for line in lines if "ime-test: call " in line]
+wanted = ['call commitText "h" 1 -> true', 'call commitText "i" 1 -> true', "call deleteSurroundingText 1,0 -> true",
+          "call performEditorAction 2 -> true"]
+if calls == wanted:
+    print("ok      the host's records reached the connection: " + ", ".join(call[5:].split(" ->")[0] for call in calls))
+else:
+    print("FAIL    the connection's calls: expected " + "; ".join(wanted))
+    for line in lines:
+        print(f"      | {line}")
+    failed = 1
+sys.exit(failed)
+PY
 fi
 
 echo "java start check: $failures failed"
