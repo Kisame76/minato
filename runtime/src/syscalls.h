@@ -256,6 +256,9 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
                 std::uint64_t new_length, int flags, std::uint64_t new_address);
 long sys_mprotect(std::uint64_t address, std::uint64_t length, int protection);
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice);
+/// msync with Linux's flags and checks (mm/msync.c): EINVAL for an unknown flag, for MS_ASYNC with MS_SYNC and for an
+/// unaligned start, ENOMEM for a range that is not all mapped.
+long sys_msync(std::uint64_t address, std::uint64_t length, int flags);
 
 namespace memory {
 /// The munmap that sys_munmap deferred for a guest thread's own stack, once the thread is off it (threads.cpp).

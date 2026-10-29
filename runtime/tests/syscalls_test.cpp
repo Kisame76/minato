@@ -53,6 +53,7 @@ constexpr std::uint64_t nr_munmap = 215;
 constexpr std::uint64_t nr_mremap = 216;
 constexpr std::uint64_t nr_mmap = 222;
 constexpr std::uint64_t nr_mprotect = 226;
+constexpr std::uint64_t nr_msync = 227;
 constexpr std::uint64_t nr_madvise = 233;
 constexpr std::uint64_t nr_rt_sigaction = 134;
 constexpr std::uint64_t nr_rt_sigprocmask = 135;
@@ -164,6 +165,25 @@ TEST(madvise_dontneed_reads_back_as_zero) {
     const auto *bytes = reinterpret_cast<const std::uint8_t *>(address);
     CHECK(bytes[0] == 0 && bytes[page] == 0 && bytes[2 * page - 1] == 0);
     CHECK(call(nr_munmap, {address, 2 * page}) == 0);
+}
+
+TEST(msync_follows_linux_flags_and_errors) {
+    // dex2oat syncs the vdex it maps (MemMap::Sync). Linux's mm/msync.c: EINVAL for an unknown flag, for MS_ASYNC with
+    // MS_SYNC and for an unaligned start, ENOMEM for a range that is not all mapped. Darwin's MS_SYNC is not 4.
+    constexpr std::uint64_t ms_async = 1, ms_invalidate = 2, ms_sync = 4;
+    const auto address = map_anonymous_pages(2);
+    CHECK(call(nr_msync, {address, 2 * page, ms_sync}) == 0);
+    CHECK(call(nr_msync, {address, 2 * page, ms_async}) == 0);
+    CHECK(call(nr_msync, {address, page, ms_sync | ms_invalidate}) == 0);
+    CHECK(call(nr_msync, {address, page, 0}) == 0);
+    CHECK(call(nr_msync, {address, page, 8}) == -einval);
+    CHECK(call(nr_msync, {address, page, ms_async | ms_sync}) == -einval);
+    CHECK(call(nr_msync, {address + 1, page, ms_sync}) == -einval);
+    CHECK(call(nr_msync, {address, 0, ms_sync}) == 0);
+    CHECK(call(nr_munmap, {address + page, page}) == 0);
+    CHECK(call(nr_msync, {address, 2 * page, ms_sync}) == -enomem);  // the second page is gone
+    CHECK(call(nr_msync, {address, page, ms_sync}) == 0);
+    CHECK(call(nr_munmap, {address, page}) == 0);
 }
 
 TEST(madvise_accepts_fork_advice_and_refuses_unknown_advice) {

@@ -5,8 +5,9 @@ puts the base in front (base/heap_window.h), inline. The debug flavor checks tha
 address lies in the window, past its first page, and is aligned. Places that convert without PtrCompression
 convert the same way: the forwarding address in the lock word, the class table's slots, the comparisons of a vreg
 with its reference of the interpreter and of the method handles, the receiver that the proxy stub passes in a
-register, the locks that stack walks read from reference vregs, the string builder's arguments and ObjPtr's
-poisoning in the debug flavor. The debug flavor's dead markers (0xdead10c0, 0xdead4a5c) are no objects and keep their bits as they are.
+register, the locks that stack walks read from reference vregs, the string builder's arguments, the unstarted
+runtime's JNI handler arguments (the reference args[] dex2oat passes a native method in a class's <clinit>) and
+ObjPtr's poisoning in the debug flavor. The debug flavor's dead markers (0xdead10c0, 0xdead4a5c) are no objects and keep their bits as they are.
 
 --- a/art/runtime/mirror/object_reference.h
 +++ b/art/runtime/mirror/object_reference.h
@@ -247,3 +248,130 @@ poisoning in the debug flavor. The debug flavor's dead markers (0xdead10c0, 0xde
      }
    }
  }
+--- a/art/runtime/interpreter/unstarted_runtime.cc
++++ b/art/runtime/interpreter/unstarted_runtime.cc
+@@ -31,6 +31,7 @@
+ #include "art_method-inl.h"
+ #include "base/casts.h"
+ #include "base/hash_map.h"
++#include "base/heap_window.h"  // Minato (ADR-0033): decode the Jni handlers' args[] references.
+ #include "base/macros.h"
+ #include "base/os.h"
+ #include "base/pointer_size.h"
+@@ -651,7 +652,7 @@
+   }
+ 
+   uint32_t args[1];
+-  args[0] = reinterpret_cast32<uint32_t>(h_array.Get());
++  args[0] = HeapWindowEncode(reinterpret_cast<uintptr_t>(h_array.Get()));
+   EnterInterpreterFromInvoke(self, constructor, h_obj.Get(), args, nullptr);
+ 
+   if (self->IsExceptionPending()) {
+@@ -1890,7 +1891,7 @@
+     JValue* result) {
+   int32_t length = args[1];
+   DCHECK_GE(length, 0);
+-  ObjPtr<mirror::Object> element_class = reinterpret_cast32<mirror::Object*>(args[0])->AsClass();
++  ObjPtr<mirror::Object> element_class = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]))->AsClass();
+   if (element_class == nullptr) {
+     AbortTransactionOrFail(self, "VMRuntime.newUnpaddedArray with null element_class.");
+     return;
+@@ -2013,7 +2014,7 @@
+                                                    mirror::Object* receiver,
+                                                    uint32_t* args,
+                                                    JValue* result) {
+-  ObjPtr<mirror::Object> rhs = reinterpret_cast32<mirror::Object*>(args[0]);
++  ObjPtr<mirror::Object> rhs = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]));
+   if (rhs == nullptr) {
+     AbortTransactionOrFail(self, "String.compareTo with null object.");
+     return;
+@@ -2030,7 +2031,7 @@
+   Handle<mirror::String> h_receiver(hs.NewHandle(
+       reinterpret_cast<mirror::String*>(receiver)->AsString()));
+   Handle<mirror::ByteArray> h_buffer(hs.NewHandle(
+-      reinterpret_cast<mirror::ByteArray*>(args[0])->AsByteArray()));
++      reinterpret_cast<mirror::ByteArray*>(HeapWindowDecode(args[0]))->AsByteArray()));
+   int32_t index = static_cast<int32_t>(args[1]);
+   h_receiver->FillBytesLatin1(h_buffer, index);
+ }
+@@ -2044,7 +2045,7 @@
+   Handle<mirror::String> h_receiver(hs.NewHandle(
+       reinterpret_cast<mirror::String*>(receiver)->AsString()));
+   Handle<mirror::ByteArray> h_buffer(hs.NewHandle(
+-      reinterpret_cast<mirror::ByteArray*>(args[0])->AsByteArray()));
++      reinterpret_cast<mirror::ByteArray*>(HeapWindowDecode(args[0]))->AsByteArray()));
+   int32_t index = static_cast<int32_t>(args[1]);
+   h_receiver->FillBytesUTF16(h_buffer, index);
+ }
+@@ -2063,8 +2064,8 @@
+                                                          uint32_t* args,
+                                                          JValue* result) {
+   StackHandleScope<2> hs(self);
+-  auto h_class(hs.NewHandle(reinterpret_cast<mirror::Class*>(args[0])->AsClass()));
+-  auto h_dimensions(hs.NewHandle(reinterpret_cast<mirror::IntArray*>(args[1])->AsIntArray()));
++  auto h_class(hs.NewHandle(reinterpret_cast<mirror::Class*>(HeapWindowDecode(args[0]))->AsClass()));
++  auto h_dimensions(hs.NewHandle(reinterpret_cast<mirror::IntArray*>(HeapWindowDecode(args[1]))->AsIntArray()));
+   result->SetL(mirror::Array::CreateMultiArray(self, h_class, h_dimensions));
+ }
+ 
+@@ -2078,7 +2079,7 @@
+     ThrowNegativeArraySizeException(length);
+     return;
+   }
+-  ObjPtr<mirror::Class> element_class = reinterpret_cast<mirror::Class*>(args[0])->AsClass();
++  ObjPtr<mirror::Class> element_class = reinterpret_cast<mirror::Class*>(HeapWindowDecode(args[0]))->AsClass();
+   Runtime* runtime = Runtime::Current();
+   ClassLinker* class_linker = runtime->GetClassLinker();
+   ObjPtr<mirror::Class> array_class = class_linker->FindArrayClass(self, element_class);
+@@ -2160,7 +2161,7 @@
+     [[maybe_unused]] mirror::Object* receiver,
+     uint32_t* args,
+     JValue* result) {
+-  ObjPtr<mirror::Object> obj = reinterpret_cast32<mirror::Object*>(args[0]);
++  ObjPtr<mirror::Object> obj = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]));
+   if (obj == nullptr) {
+     AbortTransactionOrFail(self, "Cannot access null object, retry at runtime.");
+     return;
+@@ -2205,7 +2206,7 @@
+     [[maybe_unused]] mirror::Object* receiver,
+     uint32_t* args,
+     JValue* result) {
+-  ObjPtr<mirror::Object> obj = reinterpret_cast32<mirror::Object*>(args[0]);
++  ObjPtr<mirror::Object> obj = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]));
+   if (obj == nullptr) {
+     AbortTransactionOrFail(self, "Unsafe.compareAndSwapIntVolatile with null object.");
+     return;
+@@ -2220,13 +2221,13 @@
+                                                          [[maybe_unused]] mirror::Object* receiver,
+                                                          uint32_t* args,
+                                                          [[maybe_unused]] JValue* result) {
+-  ObjPtr<mirror::Object> obj = reinterpret_cast32<mirror::Object*>(args[0]);
++  ObjPtr<mirror::Object> obj = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]));
+   if (obj == nullptr) {
+     AbortTransactionOrFail(self, "Unsafe.putObject with null object.");
+     return;
+   }
+   jlong offset = (static_cast<uint64_t>(args[2]) << 32) | args[1];
+-  ObjPtr<mirror::Object> new_value = reinterpret_cast32<mirror::Object*>(args[3]);
++  ObjPtr<mirror::Object> new_value = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[3]));
+   Runtime* runtime = Runtime::Current();
+   if (runtime->IsActiveTransaction()) {
+     if (runtime->GetClassLinker()->TransactionWriteConstraint(self, obj) ||
+@@ -2254,7 +2255,7 @@
+     [[maybe_unused]] mirror::Object* receiver,
+     uint32_t* args,
+     JValue* result) {
+-  ObjPtr<mirror::Object> component = reinterpret_cast32<mirror::Object*>(args[0]);
++  ObjPtr<mirror::Object> component = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]));
+   if (component == nullptr) {
+     AbortTransactionOrFail(self, "Unsafe.getArrayBaseOffsetForComponentType with null component.");
+     return;
+@@ -2269,7 +2270,7 @@
+     [[maybe_unused]] mirror::Object* receiver,
+     uint32_t* args,
+     JValue* result) {
+-  ObjPtr<mirror::Object> component = reinterpret_cast32<mirror::Object*>(args[0]);
++  ObjPtr<mirror::Object> component = reinterpret_cast<mirror::Object*>(HeapWindowDecode(args[0]));
+   if (component == nullptr) {
+     AbortTransactionOrFail(self, "Unsafe.getArrayIndexScaleForComponentType with null component.");
+     return;

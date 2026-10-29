@@ -255,6 +255,7 @@ constexpr std::uint64_t mremap = 216;
 constexpr std::uint64_t clone = 220;
 constexpr std::uint64_t mmap = 222;
 constexpr std::uint64_t mprotect = 226;
+constexpr std::uint64_t msync = 227;
 constexpr std::uint64_t madvise = 233;
 constexpr std::uint64_t rt_tgsigqueueinfo = 240;
 constexpr std::uint64_t accept4 = 242;
@@ -688,6 +689,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_mremap(frame, x[0], x[1], x[2], as_int(x[3]), x[4]);
         case nr::mprotect:
             return sys_mprotect(x[0], x[1], as_int(x[2]));
+        case nr::msync:
+            return sys_msync(x[0], x[1], as_int(x[2]));
         case nr::madvise:
             return sys_madvise(x[0], x[1], as_int(x[2]));
         case nr::process_vm_readv:

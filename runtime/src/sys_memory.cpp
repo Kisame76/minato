@@ -459,6 +459,24 @@ long dont_need_by_region(std::uint64_t begin, std::uint64_t end) {
 
 }  // namespace
 
+long sys_msync(std::uint64_t address, std::uint64_t length, int flags) {
+    // include/uapi/asm-generic/mman-common.h; Darwin's MS_SYNC is 0x10, its MS_ASYNC and MS_INVALIDATE are Linux's.
+    constexpr int linux_async = 1, linux_invalidate = 2, linux_sync = 4;
+    if ((flags & ~(linux_async | linux_invalidate | linux_sync)) != 0 ||
+        ((flags & linux_async) != 0 && (flags & linux_sync) != 0)) {
+        return -linux_errno::einval;
+    }
+    int host_flags = flags & (linux_async | linux_invalidate);
+    if ((flags & linux_sync) != 0) host_flags |= MS_SYNC;
+    if ((flags & (linux_async | linux_sync)) == 0) host_flags |= MS_ASYNC;  // Linux accepts neither; Darwin wants one
+    if ((address & (static_cast<std::uint64_t>(::getpagesize()) - 1)) != 0) return -linux_errno::einval;
+    if (length == 0) return 0;
+    const std::lock_guard lock(memory_lock);
+    // Linux answers ENOMEM for a range with a hole, also before it syncs the part that is mapped.
+    if (!inspect(address, address + length).mapped) return -linux_errno::enomem;
+    return result_or_error(::msync(as_pointer<void>(address), length, host_flags));
+}
+
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
     void *const start = as_pointer<void>(address);
     switch (advice) {

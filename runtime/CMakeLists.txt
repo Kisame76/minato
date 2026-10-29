@@ -432,6 +432,16 @@ if(APK_HOST_BUILD)
         "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
         $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" ${flag})
     set_tests_properties(runtime.dex2oat_starts${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # dex2oat writes a verify oat of art-hello.jar, imageless with our boot jars (M6 c1, test 2): the odex is an oat
+    # that ART accepts for them (header, filter, boot class path checksums) and importer/converter's oat_test converts
+    # and loads it.
+    add_test(NAME runtime.dex2oat_verify${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/dex2oat_verify.py" "${APK_ART_DIR}"
+        "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+        "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
+        $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${APK_ART_DIR}/test/art-hello.jar"
+        $<TARGET_FILE:oat_test> ${flag})
+    set_tests_properties(runtime.dex2oat_verify${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
     # ART's tests in the app (ADR-0033 d): the stage that tools/embed-fixtures.sh puts into fixture builds, with the
     # Java fixtures and the run-tests' sample, run on the Mac as the app's ART mode runs it
     # (runtime/tests/device_art.py).
