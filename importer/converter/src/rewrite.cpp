@@ -418,6 +418,16 @@ constexpr const char *inside_exclusive_sequence =
 // Why an exclusive window with x18 inside is not relocated as one island (ADR-0020 X2c), each x18 use in it
 // refused with the cause, so that one refusal names every cause at once.
 constexpr const char *window_unclosed = "it lies in an exclusive window that does not close within 64 words";
+// Step E sizing (ADR-0020 step D guard ii): an unclosed window whose monitor reaches a register branch
+// stays refused, but these name whether every such branch is a jump table in read-only data the rewriter
+// could follow with landing pads (step E could convert the window) or not (the C7-C9 closed ABI). Counts
+// only: the uses stay refused either way, so a re-import's per-reason counts size step E.
+constexpr const char *window_unclosed_jump_table =
+    "it lies in an exclusive window that does not close within 64 words and reaches a jump table in "
+    "read-only data (step E could follow it)";
+constexpr const char *window_unclosed_register_branch =
+    "it lies in an exclusive window that does not close within 64 words and reaches a register branch "
+    "the rewriter cannot follow";
 constexpr const char *window_nested =
     "it lies in an exclusive window that opens another load-exclusive before it closes";
 constexpr const char *window_stack = "it lies in an exclusive window that moves the stack pointer";
@@ -579,21 +589,26 @@ bool lone_load_exclusive(std::span<const std::byte> code, std::size_t open) {
     return true;
 }
 
-/// Whether the monitor-live closure of the load-exclusive at `open` (fall-through and direct branches,
-/// until a store-exclusive, CLREX, nested load-exclusive, call or return ends the pairing) reaches a
-/// register branch — a BR or `ret xN` with N != 30, whose target the rewriter cannot follow (ADR-0020
-/// step D guard ii). A window that does not close keeps its blanket refusal when its closure reaches
-/// one, because a use at the branch's unseen target could sit inside a live LL/SC (a jump-table retry
-/// loop), and C6 never follows a register branch to find it.
-bool closure_reaches_register_branch(std::span<const std::byte> code, std::size_t open) {
+/// The register branches the monitor-live closure of the load-exclusive at `open` reaches (fall-through
+/// and direct branches, until a store-exclusive, CLREX, nested load-exclusive, call or return ends the
+/// pairing) — each a BR or `ret xN` with N != 30, whose target the rewriter cannot follow (ADR-0020
+/// step D guard ii). A window that does not close keeps its blanket refusal when its closure reaches any,
+/// because a use at the branch's unseen target could sit inside a live LL/SC (a jump-table retry loop),
+/// and C6 never follows a register branch to find it. The offsets let the caller name, for step-E sizing,
+/// whether each is a jump table in read-only data it could follow; empty means the closure reaches none.
+std::vector<std::size_t> reached_register_branches(std::span<const std::byte> code, std::size_t open) {
     std::unordered_set<std::size_t> visited;
     std::vector<std::size_t> work{open + 4};
+    std::vector<std::size_t> found;
     while (!work.empty()) {
         const auto p = work.back();
         work.pop_back();
         if (p + 4 > code.size() || !visited.insert(p).second) continue;
         const auto word = word_at(code, p);
-        if (is_register_branch(word)) return true;
+        if (is_register_branch(word)) {
+            found.push_back(p);  // its target is unseen, so do not fall through past it
+            continue;
+        }
         // A boundary ends the monitor-live run here: a store-exclusive, CLREX or nested load (the
         // monitor), or a call or return (the C6 named compiler-convention limit).
         if (is_store_exclusive(word) || is_clrex(word) || is_load_exclusive(word) || is_register_return(word) ||
@@ -609,7 +624,7 @@ bool closure_reaches_register_branch(std::span<const std::byte> code, std::size_
         }
         if ((word & 0xfc00'0000) != 0x1400'0000) work.push_back(p + 4);  // fall through unless an unconditional B
     }
-    return false;
+    return found;
 }
 
 /// Word offsets a non-lone load-exclusive's monitor can still reach (ADR-0020 step C C6). A branch can
@@ -1270,15 +1285,26 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                 lone_loads.push_back(offset);  // not a window: its x18 uses run in ordinary islands (C3)
                 continue;
             }
-            const auto [last, problem] = unclosed_window(code, offset);
+            const auto [last, initial_problem] = unclosed_window(code, offset);
+            const char *problem = initial_problem;
             // ADR-0020 step D: a window that does not close within the cap and whose closure reaches no
             // register branch has its x18 uses decided by the C6 monitor-escape test below, not blanket-
             // refused here; a reachable store, register branch or out-of-section edge still refuses one.
-            if (problem == window_unclosed && !closure_reaches_register_branch(code, offset)) {
-                unclosed_loads.push_back(offset);
-            } else {
-                refused_windows.emplace_back(offset, last, problem);
+            if (problem == window_unclosed) {
+                const auto register_branches = reached_register_branches(code, offset);
+                if (register_branches.empty()) {
+                    unclosed_loads.push_back(offset);
+                    continue;
+                }
+                // Step E sizing: the window stays refused, but name whether every register branch its
+                // closure reaches is a jump table in read-only data (step E could follow it) or not.
+                const bool all_jump_tables = std::ranges::all_of(register_branches, [&](std::size_t rb) {
+                    JumpTable table;
+                    return find_jump_table(code, address, rb, read_only_data, table) == nullptr;
+                });
+                problem = all_jump_tables ? window_unclosed_jump_table : window_unclosed_register_branch;
             }
+            refused_windows.emplace_back(offset, last, problem);
             continue;
         }
         const char *problem = nullptr;

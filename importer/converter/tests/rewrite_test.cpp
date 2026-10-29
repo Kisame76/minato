@@ -1622,6 +1622,58 @@ TEST(an_unclosed_window_whose_ret_used_as_a_branch_reaches_a_store_stays_refused
     for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
 }
 
+// Step E sizing (ADR-0020): a window that does not close and whose closure reaches a register branch
+// stays refused (guard ii), but its reason now names whether that branch is a recognized jump table in
+// read-only data. A re-import's per-reason counts then separate the step-E-eligible windows (the branch
+// is a jump table the rewriter could follow with landing pads) from the C7-C9 ones, with no conversion
+// change here. This window reaches a br x9 the rewriter cannot read as a table -> the register-branch reason.
+TEST(an_unclosed_window_reaching_a_non_jump_table_register_branch_names_the_register_branch) {
+    const std::uint32_t code[] = {
+        0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
+        0xd61f0120,  // 0x04 br x9               a register branch, not a jump table
+        0x0b12010a,  // 0x08 add w10, w8, w18    an x18 use in the window
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    const auto refused = std::ranges::find(findings.x18_unsupported, 0x1008u, &apk::rewrite::Unsupported::address);
+    CHECK(refused != findings.x18_unsupported.end());
+    if (refused != findings.x18_unsupported.end()) {
+        CHECK(std::string_view(refused->reason).find("register branch") != std::string_view::npos);
+        CHECK(std::string_view(refused->reason).find("jump table") == std::string_view::npos);
+    }
+}
+
+// Step E sizing: the same, but the window's closure reaches a br x18 that IS a recognized jump table in
+// read-only data (clang's dispatch, as in SyntheticJumpTable, shifted by the ldxr and the x18 use; table
+// at 0x20040). The use stays refused, but with the jump-table reason: step E could follow the table.
+TEST(an_unclosed_window_reaching_a_recognized_jump_table_names_the_jump_table) {
+    const std::vector<std::uint32_t> code = {
+        0xc85f7c08,  // 0x10000 ldxr x8, [x0]              L0, non-lone (the br leaves its run)
+        0x8b12010a,  // 0x10004 add x10, x8, x18           an x18 use in the window
+        0x71000e5f,  // 0x10008 cmp w18, #3
+        0x540000e8,  // 0x1000c b.hi 0x10028
+        0x90000089,  // 0x10010 adrp x9, 0x20000
+        0x91010129,  // 0x10014 add x9, x9, #0x40
+        0xb8b27932,  // 0x10018 ldrsw x18, [x9, x18, lsl #2]
+        0x8b090252,  // 0x1001c add x18, x18, x9
+        0xd61f0240,  // 0x10020 br x18                      a recognized jump table: step E could follow it
+        0xd503201f,  // 0x10024 nop                         cases 0 and 2
+        0xd65f03c0,  // 0x10028 ret                         cases 1, 3 and the default
+    };
+    const std::vector<std::int32_t> table = {
+        0x10024 - 0x20040, 0x10028 - 0x20040, 0x10024 - 0x20040, 0x10028 - 0x20040};
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(std::as_bytes(std::span(code)), 0x10000, findings,
+                       [&table](std::uint64_t a, std::size_t s) -> std::span<const std::byte> {
+                           if (a < 0x20040 || a + s > 0x20040 + 4 * table.size()) return {};
+                           return std::as_bytes(std::span(table)).subspan(a - 0x20040, s);
+                       });
+    const auto refused = std::ranges::find(findings.x18_unsupported, 0x10004u, &apk::rewrite::Unsupported::address);
+    CHECK(refused != findings.x18_unsupported.end());
+    if (refused != findings.x18_unsupported.end()) {
+        CHECK(std::string_view(refused->reason).find("jump table") != std::string_view::npos);
+    }
+}
+
 // A brute-force soundness oracle for step D (ADR-0020, the lead's condition 2). Its reachability and
 // escape walks are written apart from scan()'s branch_reached_sequence/monitor_escapes; the instruction
 // classification is the same ISA fact scan uses (the exclusive, CLREX and branch-register masks, which
