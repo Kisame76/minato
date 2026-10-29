@@ -668,23 +668,24 @@ an engine: the APK's frames are its SurfaceView layer's last drawables, an APK t
 its frame times (the no-rate rule), and the GLES pair by `bench.gd`'s frame ticks, since EAGL's layer gives the twin
 no drawables (ADR-0042).
 
-**Result: parity is not decided. The four 120 Hz configurations pass. Both 60 Hz configurations are "undecided"
-after 10 runs per variant, because the twin's own p99 spreads more than decision 8's 5 % (26 % with GLES, 33 % with
-Vulkan); their medians do not show Minato behind the twin.** Measured 2026-10-28 from 17:05 to 20:40 on the iPhone
-15 Pro Max (iOS 27), by cable, in one Release build of `40e4a08`, 100 runs, all valid.
+**Result: parity holds in all six configurations.** The four 120 Hz configurations pass. The two 60 Hz
+configurations were "undecided" after 10 runs per variant, because the twin's own p99 spreads more than decision
+8's 5 % (26 % with GLES, 33 % with Vulkan); by decision 8's change of 2026-10-29 (a strict majority of the twin's
+runs agreeing within 5 % meets the guard) both pass on their medians (below). Measured 2026-10-28 from 17:05 to
+20:40 on the iPhone 15 Pro Max (iOS 27), by cable, in one Release build of `40e4a08`, 100 runs, all valid.
 
 | Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Runs | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| godot-gles-60-light | 60.00 | 60.00 | 1.0000 | 22.859 ms | 17.667 ms | 0.7729 | 0.11 / 26.02 % | 10 | undecided |
+| godot-gles-60-light | 60.00 | 60.00 | 1.0000 | 22.859 ms | 17.667 ms | 0.7729 | 0.11 / 26.02 % | 10 | pass (6 of 10) |
 | godot-gles-120-light | 59.97 | 119.97 | 2.0006 | 17.354 ms | 8.916 ms | 0.5138 | 0.06 / 0.52 % | 5 | pass |
 | godot-gles-120-heavy | 60.00 | 119.97 | 1.9994 | 17.325 ms | 8.761 ms | 0.5057 | 0.06 / 1.15 % | 5 | pass |
-| godot-vulkan-60-light | 60.00 | 60.00 | 1.0000 | 25.005 ms | 25.006 ms | 1.0000 | 0.11 / 33.33 % | 10 | undecided |
+| godot-vulkan-60-light | 60.00 | 60.00 | 1.0000 | 25.005 ms | 25.006 ms | 1.0000 | 0.11 / 33.33 % | 10 | pass (7 of 10) |
 | godot-vulkan-120-light | 119.97 | 119.97 | 1.0000 | 8.335 ms | 8.335 ms | 1.0000 | 0.00 / 0.00 % | 5 | pass |
 | godot-vulkan-120-heavy | 119.97 | 119.97 | 1.0000 | 8.335 ms | 8.335 ms | 1.0000 | 0.00 / 0.00 % | 5 | pass |
 
 Medians by nearest rank over the warm windows, as in M3; "Runs" are the valid runs per variant. The 60 Hz
-configurations got decision 8's 5 more runs per variant, and with 10 native runs still spread the verdict is
-"undecided".
+configurations got decision 8's 5 more runs per variant; with 10 native runs still spread, the verdict rests on the
+twin's runs that agree within 5 % ("6 of 10", "7 of 10"), as decision 8's change of 2026-10-29 says.
 
 - *The 60 Hz p99s fall on ProMotion's steps.* Vulkan: the APK's p99 is 25.006 ms in 10 of 10 runs, the twin's in 7 of
   10 (16.671 ms in the other 3). GLES: the APK's p99 is 17.64 to 17.71 ms in all 10 runs, the twin's 17.44 to
@@ -749,8 +750,10 @@ Medians over the valid runs. The cold window is a run's first 10 s.
   Where the twin is slower (GLES at 120 Hz), the row passes without showing Minato's own cost.
 - No Swappy: the APK runs with frame pacing off (ADR-0042's known gap), so real Godot 4 APKs, which ship with it on,
   are not covered.
-- Decision 8's spread rule cannot decide a configuration whose native p99 jumps between ProMotion's steps from run to
-  run, as both 60 Hz configurations do here.
+- Decision 8's first spread rule could not decide a configuration whose native p99 jumps between two levels from run
+  to run, as both 60 Hz configurations do here; its change of 2026-10-29 decides them by the agreeing majority.
+- With Vulkan at 60 Hz the APK's p99 sits on the 25 ms step in all 10 runs, the twin's in 7 (16.67 ms in 3): the
+  medians are equal, but the APK never reached the lower step. A follow-up for M6's frame pacing (Swappy, ADR-0042).
 
 ### Reproduce
 
