@@ -1,0 +1,60 @@
+I/media-player-test-offline: idle: position 0, duration 0, playing false, size 0x0, looping false
+I/media-player-test-offline: idle: start ok, pause ok, stop ok
+I/media-player-test-offline: idle: seek ok, prepare java.lang.IllegalStateException, prepareAsync java.lang.IllegalStateException
+I/media-player-test-offline: idle: tracks java.lang.RuntimeException: failure code: -38, playback params java.lang.IllegalStateException
+I/media-player-test-offline: idle: callbacks [error -38 0]
+I/media-player-test-offline: after reset: start ok, position 0
+I/media-player-test-offline: after reset: callbacks []
+I/media-player-test-offline: after release: playing java.lang.IllegalStateException, start java.lang.IllegalStateException, duration java.lang.IllegalStateException
+I/media-player-test-offline: fd: set ok, set again java.lang.IllegalStateException
+I/media-player-test-offline: fd: prepare ok, callbacks [video size 320x180, prepared]
+I/media-player-test-offline: fd: duration 1068, size 320x180, position 0, playing false, prepare again java.lang.IllegalStateException
+I/media-player-test-offline: fd: 2 tracks
+I/media-player-test-offline: fd track 0: type 1, language und, format none
+I/media-player-test-offline: fd track 1: type 2, language und, format none
+I/media-player-test-offline: fd: selected video 0, audio 1, select 0 ok, deselect 1 java.lang.RuntimeException: failure code: -38
+I/media-player-test-offline: fd metrics keys: [_key, _uid, android.media.mediaplayer.dataSource, android.media.mediaplayer.durationMs, android.media.mediaplayer.playingMs]
+I/media-player-test-offline: fd: seek 0 mode 0 ok, seek complete, position 0
+I/media-player-test-offline: fd: seek 433 mode 0 ok, seek complete, position 433
+I/media-player-test-offline: fd: seek 500 mode 0 ok, seek complete, position 500
+I/media-player-test-offline: fd: seek 0 mode 1 ok, seek complete, position 0
+I/media-player-test-offline: fd: seek 433 mode 1 ok, seek complete, position 433
+I/media-player-test-offline: fd: seek 500 mode 1 ok, seek complete, position 500
+I/media-player-test-offline: fd: seek 0 mode 2 ok, seek complete, position 0
+I/media-player-test-offline: fd: seek 433 mode 2 ok, seek complete, position 433
+I/media-player-test-offline: fd: seek 500 mode 2 ok, seek complete, position 500
+I/media-player-test-offline: fd: seek 0 mode 3 ok, seek complete, position 0
+I/media-player-test-offline: fd: seek 433 mode 3 ok, seek complete, position 433
+I/media-player-test-offline: fd: seek 500 mode 3 ok, seek complete, position 500
+I/media-player-test-offline: fd: surface ok
+I/media-player-test-offline: fd: start ok, playing true
+I/media-player-test-offline: fd: frames some
+I/media-player-test-offline: fd: start again ok, playing true
+I/media-player-test-offline: fd: pause ok, playing false
+I/media-player-test-offline: fd: looping ok true, volume ok, speed 2 ok 2.0, playing true
+I/media-player-test-offline: fd: stop ok, playing false, start ok, seek ok
+I/media-player-test-offline: fd: prepare after stop java.lang.IllegalStateException, duration 0
+I/media-player-test-offline: fd: after reset duration 0, callbacks [error -38 0]
+I/media-player-test-offline: path: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: path async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: file Uri: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: file Uri async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: resource Uri: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: resource Uri async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: FileDescriptor: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: FileDescriptor async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: FileDescriptor at an offset: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: FileDescriptor at an offset async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: MediaDataSource: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: MediaDataSource async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test-offline: missing path: set java.io.FileNotFoundException: /data/user/0/io.github.kisame76.minato.test.mediaplayeroffline/files/baseline.mp4.missing: open failed: ENOENT (No such file or directory), prepare not tried, callbacks [], duration 0
+I/media-player-test-offline: missing path async: set java.io.FileNotFoundException: /data/user/0/io.github.kisame76.minato.test.mediaplayeroffline/files/baseline.mp4.missing: open failed: ENOENT (No such file or directory), prepare java.lang.IllegalStateException, callbacks [], duration 0
+I/media-player-test-offline: no movie: set ok, prepare java.io.IOException: Prepare failed.: status=0x1, callbacks [], duration 0
+I/media-player-test-offline: no movie async: set ok, prepare ok, callbacks [error 1 -2147483648], duration 0
+I/media-player-test-offline: create: a player, duration 1068, playing false
+I/media-player-test-offline: http: set java.io.IOException: setDataSource failed.: status=0x80000000, prepare not tried, callbacks [], duration 0
+I/media-player-test-offline: http async: set java.io.IOException: setDataSource failed.: status=0x80000000, prepare java.lang.IllegalStateException, callbacks [], duration 0
+I/media-player-test-offline: https: set java.io.IOException: setDataSource failed.: status=0x80000000, prepare not tried, callbacks [], duration 0
+I/media-player-test-offline: https async: set java.io.IOException: setDataSource failed.: status=0x80000000, prepare java.lang.IllegalStateException, callbacks [], duration 0
+I/media-player-test-offline: drm: info null, prepare widevine java.lang.IllegalStateException: prepareDrm(): Wrong usage: The player must be prepared and DRM info be retrieved before this call., prepare clearkey java.lang.IllegalStateException: prepareDrm(): Wrong usage: The player must be prepared and DRM info be retrieved before this call., release android.media.MediaPlayer$NoDrmSchemeException: releaseDrm: No active DRM scheme to release.
+I/media-player-test-offline: done

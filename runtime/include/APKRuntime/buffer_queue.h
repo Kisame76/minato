@@ -100,6 +100,9 @@ int minato_BufferQueue_detach(struct minato_BufferQueue *queue, int32_t slot);
    BAD_VALUE); or its cancel, which gives the slot back free without a frame, libgui's cancelBuffer (0, -EINVAL). */
 int minato_ANativeWindow_isQueue(struct ANativeWindow *window);
 int minato_ANativeWindow_dequeue(struct ANativeWindow *window, struct AHardwareBuffer **buffer, int32_t *slot);
+/* dequeue without waiting, for a producer that drops a frame rather than wait for the consumer (a media player's,
+   ADR-0060 e2e1): -EAGAIN while no slot is free, the slots as they were; else dequeue's answers. */
+int minato_ANativeWindow_tryDequeue(struct ANativeWindow *window, struct AHardwareBuffer **buffer, int32_t *slot);
 int minato_ANativeWindow_queue(struct ANativeWindow *window, int32_t slot, int64_t timestamp);
 int minato_ANativeWindow_cancel(struct ANativeWindow *window, int32_t slot);
 

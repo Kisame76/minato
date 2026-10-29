@@ -1,0 +1,58 @@
+Minato's patch to frameworks/base's media/java/android/media/MediaPlayer.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0060 e2e1: the static initializer loads no libmedia_jni, a URL takes no http service, and three parameters lose
+MediaDrm's annotations.
+
+Why: as MediaCodec's and MediaExtractor's (mediacodec-without-media-jni.patch), its natives are libandroid_runtime's
+(framework/native/android_runtime/android_media_MediaPlayer.cpp), registered when the process starts. Minato has no
+http service for media (MediaHTTPService is not taken): the natives check the app's INTERNET permission and its
+network security config for an http or https URL, as MediaPlayerService and MediaHTTPConnection do, and the host's
+player fetches it. MediaDrm is the managers' generated stand-in, which has no KeyType or StringProperty annotation.
+
+--- a/media/java/android/media/MediaPlayer.java
++++ b/media/java/android/media/MediaPlayer.java
+@@ -617,8 +617,7 @@
+     public static final boolean BYPASS_METADATA_FILTER = false;
+ 
+     static {
+-        System.loadLibrary("media_jni");
+-        native_init();
++        native_init();  // Minato: the natives are libandroid_runtime's, registered at the start, no media_jni
+     }
+ 
+     private final static String TAG = "MediaPlayer";
+@@ -1223,7 +1222,7 @@
+         } else if (scheme != null) {
+             // handle non-file sources
+             nativeSetDataSource(
+-                MediaHTTPService.createHttpServiceBinderIfNecessary(path, cookies),
++                null /* Minato: no http service, MediaHTTPService.createHttpServiceBinderIfNecessary(path, cookies) */,
+                 path,
+                 keys,
+                 values);
+@@ -5160,7 +5159,7 @@
+      */
+     @NonNull
+     public MediaDrm.KeyRequest getKeyRequest(@Nullable byte[] keySetId, @Nullable byte[] initData,
+-            @Nullable String mimeType, @MediaDrm.KeyType int keyType,
++            @Nullable String mimeType, /* Minato: @MediaDrm.KeyType */ int keyType,
+             @Nullable Map<String, String> optionalParameters)
+             throws NoDrmSchemeException
+     {
+@@ -5304,7 +5303,7 @@
+      * {@link MediaDrm#PROPERTY_DESCRIPTION}, {@link MediaDrm#PROPERTY_ALGORITHMS}
+      */
+     @NonNull
+-    public String getDrmPropertyString(@NonNull @MediaDrm.StringProperty String propertyName)
++    public String getDrmPropertyString(@NonNull /* Minato: @MediaDrm.StringProperty */ String propertyName)
+             throws NoDrmSchemeException
+     {
+         Log.v(TAG, "getDrmPropertyString: propertyName: " + propertyName);
+@@ -5341,7 +5340,7 @@
+      * {@link MediaDrm#PROPERTY_VENDOR}, {@link MediaDrm#PROPERTY_VERSION},
+      * {@link MediaDrm#PROPERTY_DESCRIPTION}, {@link MediaDrm#PROPERTY_ALGORITHMS}
+      */
+-    public void setDrmPropertyString(@NonNull @MediaDrm.StringProperty String propertyName,
++    public void setDrmPropertyString(@NonNull /* Minato: @MediaDrm.StringProperty */ String propertyName,
+                                      @NonNull String value)
+             throws NoDrmSchemeException
+     {

@@ -82,6 +82,9 @@ for path in "${taken[@]}"; do
     # The vibrator HAL's AIDL (gap 1's batch 3) from its own root, at its VINTF stability.
     [[ "$path" == hardware_interfaces_vibrator/* ]] &&
       roots=(-I"$SOURCES/hardware_interfaces_vibrator/vibrator/aidl" --structured --stability=vintf)
+    # frameworks/av's media AIDL (MediaPlayer's IPlayer, ADR-0060 e2e1) under its own two roots.
+    [[ "$path" == frameworks_av_media_aidl/* ]] && roots=(-I"$SOURCES/frameworks_av_media_aidl/aidl"
+      -I"$SOURCES/frameworks_av_media_aidl/media/libaudioclient/aidl")
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
       -I"$SOURCES/frameworks_base_types/apex/jobscheduler/framework/java" -I"$SOURCES/location_java/location/java" \
       ${roots[@]+"${roots[@]}"} -Iframework/aidl-imports -o "$GEN/aidl" "$source"
@@ -170,7 +173,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.media.MediaDrm --class android.media.MediaCrypto \
   --class android.media.MediaMetadataRetriever \
   --class android.media.tv.TvInputManager \
-  --class android.media.VolumeShaper --class android.media.MediaDescrambler \
+  --class android.media.MediaDescrambler \
   --class android.media.MediaCas \
   --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
   --class android.telephony.TelephonyCallback \

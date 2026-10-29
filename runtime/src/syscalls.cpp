@@ -12,6 +12,7 @@
 #include "guest_context.h"
 #include "hardware_buffers.h"
 #include "video_decoders.h"
+#include "media_players.h"
 #include "sensor_syscalls.h"
 #include "location_syscalls.h"
 #include "battery.h"
@@ -954,6 +955,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return apkrt::hardware_buffers::call(x[0], x[1]);  // ADR-0058 a)
         case APKRT_NR_VIDEO_DECODER:
             return apkrt::video_decoders::call(x[0], x[1]);  // ADR-0060 e2b3
+        case APKRT_NR_MEDIA_PLAYER:
+            return apkrt::media_players::call(x[0], x[1]);  // ADR-0060 e2e1
         case APKRT_NR_SENSOR:
             return apkrt::sensors::call(x[0], x[1]);  // ADR-0061
         case APKRT_NR_LOCATION:

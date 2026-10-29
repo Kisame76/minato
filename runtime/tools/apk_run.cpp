@@ -107,6 +107,8 @@
 #include "headless_host.h"
 #include "pick_host.h"
 
+#include <CoreFoundation/CoreFoundation.h>
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -1302,7 +1304,14 @@ int main(int argc, char **argv) {
     if (apkrt_set_frame_rate_unlock(frame_rate) != 0) return usage();
     if (!location_script.empty()) start_location_feed(location_script);
     watch_clones();
-    apkrt_run_program(container, arguments.data(), variables.data(), error, sizeof error);
+    if (apkrt_start_program(container, arguments.data(), variables.data(), error, sizeof error) == 0) {
+        // The program's end ends the process, or goes to the session's end handler. Until then the main thread runs
+        // its run loop, as the app's does, so that what the host's frameworks queue on the main queue runs: an
+        // AVPlayerItem's status and end (ADR-0060 e2e1). A timer that never fires keeps the run loop from returning.
+        CFRunLoopTimerRef keep = CFRunLoopTimerCreate(nullptr, 1e18, 0, 0, 0, nullptr, nullptr);
+        CFRunLoopAddTimer(CFRunLoopGetMain(), keep, kCFRunLoopDefaultMode);
+        for (;;) CFRunLoopRun();
+    }
     std::fprintf(stderr, "apk-run: %s\n", error);
     if (configured) {
         // The frame clock's thread still posts ticks: no static destructor may run under it, as the session's end

@@ -197,9 +197,12 @@ android.os.PermissionEnforcer <- android.app.INotificationManager  # stays: INot
 android.service.notification.INotificationListener$Stub <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
 android.app.admin.DevicePolicyManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.app.admin.DevicePolicyResourcesManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
-android.media.PlayerBase <- android.app.Notification  # gap: Notification.Builder.setSound(Uri, int), deprecated since API 26, whose stream type check is PlayerBase's
 android.media.RingtoneManager <- android.app.NotificationChannel  # stays: a channel's sound restored from the system's backup (getUncanonicalizedSoundUri)
 android.media.RingtoneManager <- android.preference.RingtonePreference  # gap: RingtonePreference's picker intent (getDefaultUri); the ringtone picker's RingtoneManager and Ringtone are a media service type no step has taken
+android.media.RingtoneManager <- android.media.MediaPlayer  # gap: setDataSource(Context, Uri) of a settings default sound (Settings.System.DEFAULT_RINGTONE_URI and its like), which RingtoneManager resolves to the cached and the actual sound; the ringtone manager is a media service type no step has taken (ADR-0060 e2e1)
+android.media.IAudioService <- android.media.PlayerBase  # stays: a player's calls to the audio service, which Minato has none of: the patched getService throws RemoteException first, which each caller takes (ADR-0060 e2e1)
+com.android.internal.app.IAppOpsService <- android.media.PlayerBase  # stays: baseRelease's stopWatchingMode, under mAppOps != null, a field PlayerBase never assigns at android-15.0.0_r1
+android.companion.virtual.VirtualDeviceManager <- android.media.PlayerBase  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
 android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
 android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump

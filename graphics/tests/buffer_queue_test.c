@@ -28,6 +28,7 @@ static __typeof__(&minato_BufferQueue_acquire) acquire;
 static __typeof__(&minato_BufferQueue_abandon) abandon;
 static __typeof__(&minato_BufferQueue_release) release;
 static __typeof__(&minato_ANativeWindow_dequeue) dequeue;
+static __typeof__(&minato_ANativeWindow_tryDequeue) try_dequeue;
 static __typeof__(&minato_ANativeWindow_queue) queue;
 static __typeof__(&minato_ANativeWindow_cancel) cancel;
 static __typeof__(&minato_BufferQueue_setConsumer) set_consumer;
@@ -70,6 +71,7 @@ static int found(void) {
     FIND(abandon, minato_BufferQueue_abandon);
     FIND(release, minato_BufferQueue_release);
     FIND(dequeue, minato_ANativeWindow_dequeue);
+    FIND(try_dequeue, minato_ANativeWindow_tryDequeue);
     FIND(queue, minato_ANativeWindow_queue);
     FIND(cancel, minato_ANativeWindow_cancel);
     FIND(set_consumer, minato_BufferQueue_setConsumer);
@@ -83,7 +85,7 @@ static int found(void) {
     FIND(attach_and_queue, minato_ANativeWindow_attachAndQueue);
 #undef FIND
     return create != NULL && set_default_size != NULL && acquire != NULL && abandon != NULL && release != NULL &&
-           dequeue != NULL && queue != NULL && cancel != NULL;
+           dequeue != NULL && try_dequeue != NULL && queue != NULL && cancel != NULL;
 }
 
 /* A CPU frame of one color, posted. */
@@ -185,6 +187,10 @@ int main(void) {
 
     // A dequeue waits while every slot is busy: one acquired, one queued, one dequeued.
     printf("dequeue held: %d\n", dequeue(window, &dequeued, &slot));
+    // tryDequeue does not wait (a media player's frame, ADR-0060 e2e1): -EAGAIN, the slots as they were.
+    int32_t tried = -1;
+    printf("tryDequeue while every slot is busy: %d, slot %d\n", try_dequeue(window, &dequeued, &tried) == -EAGAIN,
+           tried);
     pthread_t waiter;
     pthread_create(&waiter, NULL, dequeue_one, window);
     usleep(100 * 1000);

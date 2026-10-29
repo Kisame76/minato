@@ -214,6 +214,14 @@ class AudioManager {
     }
 
     /** A stream's entry; AudioService throws IllegalArgumentException for an invalid stream type, as here. */
+    /**
+     * @hide MediaPlayer's and AudioTrack's routing change (ADR-0060 e2e1): Android's port generation, which no audio
+     * port list here keeps, so it is always AUDIOPORT_GENERATION_INIT's 0.
+     */
+    static int resetAudioPortGeneration() {
+        return 0;
+    }
+
     private static int volume(int[] table, int streamType) {
         if (streamType < 0 || streamType >= table.length) {
             throw new IllegalArgumentException("Bad stream type " + streamType);

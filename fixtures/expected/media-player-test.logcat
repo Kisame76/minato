@@ -1,0 +1,60 @@
+I/media-player-test: idle: position 0, duration 0, playing false, size 0x0, looping false
+I/media-player-test: idle: start ok, pause ok, stop ok
+I/media-player-test: idle: seek ok, prepare java.lang.IllegalStateException, prepareAsync java.lang.IllegalStateException
+I/media-player-test: idle: tracks java.lang.RuntimeException: failure code: -38, playback params java.lang.IllegalStateException
+I/media-player-test: idle: callbacks [error -38 0]
+I/media-player-test: after reset: start ok, position 0
+I/media-player-test: after reset: callbacks []
+I/media-player-test: after release: playing java.lang.IllegalStateException, start java.lang.IllegalStateException, duration java.lang.IllegalStateException
+I/media-player-test: fd: set ok, set again java.lang.IllegalStateException
+I/media-player-test: fd: prepare ok, callbacks [video size 320x180, prepared]
+I/media-player-test: fd: duration 1068, size 320x180, position 0, playing false, prepare again java.lang.IllegalStateException
+I/media-player-test: fd: 2 tracks
+I/media-player-test: fd track 0: type 1, language und, format none
+I/media-player-test: fd track 1: type 2, language und, format none
+I/media-player-test: fd: selected video 0, audio 1, select 0 ok, deselect 1 java.lang.RuntimeException: failure code: -38
+I/media-player-test: fd metrics keys: [_key, _uid, android.media.mediaplayer.dataSource, android.media.mediaplayer.durationMs, android.media.mediaplayer.playingMs]
+I/media-player-test: fd: seek 0 mode 0 ok, seek complete, position 0
+I/media-player-test: fd: seek 433 mode 0 ok, seek complete, position 433
+I/media-player-test: fd: seek 500 mode 0 ok, seek complete, position 500
+I/media-player-test: fd: seek 0 mode 1 ok, seek complete, position 0
+I/media-player-test: fd: seek 433 mode 1 ok, seek complete, position 433
+I/media-player-test: fd: seek 500 mode 1 ok, seek complete, position 500
+I/media-player-test: fd: seek 0 mode 2 ok, seek complete, position 0
+I/media-player-test: fd: seek 433 mode 2 ok, seek complete, position 433
+I/media-player-test: fd: seek 500 mode 2 ok, seek complete, position 500
+I/media-player-test: fd: seek 0 mode 3 ok, seek complete, position 0
+I/media-player-test: fd: seek 433 mode 3 ok, seek complete, position 433
+I/media-player-test: fd: seek 500 mode 3 ok, seek complete, position 500
+I/media-player-test: fd: surface ok
+I/media-player-test: fd: start ok, playing true
+I/media-player-test: fd: frames some
+I/media-player-test: fd: start again ok, playing true
+I/media-player-test: fd: pause ok, playing false
+I/media-player-test: fd: looping ok true, volume ok, speed 2 ok 2.0, playing true
+I/media-player-test: fd: stop ok, playing false, start ok, seek ok
+I/media-player-test: fd: prepare after stop java.lang.IllegalStateException, duration 0
+I/media-player-test: fd: after reset duration 0, callbacks [error -38 0]
+I/media-player-test: path: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: path async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: file Uri: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: file Uri async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: resource Uri: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: resource Uri async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: FileDescriptor: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: FileDescriptor async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: FileDescriptor at an offset: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: FileDescriptor at an offset async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: MediaDataSource: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: MediaDataSource async: set ok, prepare ok, callbacks [video size 320x180, prepared], duration 1068
+I/media-player-test: missing path: set java.io.FileNotFoundException: /data/user/0/io.github.kisame76.minato.test.mediaplayer/files/baseline.mp4.missing: open failed: ENOENT (No such file or directory), prepare not tried, callbacks [], duration 0
+I/media-player-test: missing path async: set java.io.FileNotFoundException: /data/user/0/io.github.kisame76.minato.test.mediaplayer/files/baseline.mp4.missing: open failed: ENOENT (No such file or directory), prepare java.lang.IllegalStateException, callbacks [], duration 0
+I/media-player-test: no movie: set ok, prepare java.io.IOException: Prepare failed.: status=0x1, callbacks [], duration 0
+I/media-player-test: no movie async: set ok, prepare ok, callbacks [error 1 -2147483648], duration 0
+I/media-player-test: create: a player, duration 1068, playing false
+I/media-player-test: http: set ok, prepare java.io.IOException: Prepare failed.: status=0x1, callbacks [], duration 0
+I/media-player-test: http async: set ok, prepare ok, callbacks [error 1 -2147483648], duration 0
+I/media-player-test: https: set ok, prepare java.io.IOException: Prepare failed.: status=0x1, callbacks [], duration 0
+I/media-player-test: https async: set ok, prepare ok, callbacks [error 1 -2147483648], duration 0
+I/media-player-test: drm: info null, prepare widevine java.lang.IllegalStateException: prepareDrm(): Wrong usage: The player must be prepared and DRM info be retrieved before this call., prepare clearkey java.lang.IllegalStateException: prepareDrm(): Wrong usage: The player must be prepared and DRM info be retrieved before this call., release android.media.MediaPlayer$NoDrmSchemeException: releaseDrm: No active DRM scheme to release.
+I/media-player-test: done

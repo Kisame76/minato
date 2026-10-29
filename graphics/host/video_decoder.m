@@ -71,6 +71,7 @@
 #include "minato_graphics.h"
 #include "present_pace.h"
 #include "video_decoder_testing.h"
+#include "video_frames.h"
 #include "video_parameters.h"
 
 /* Linux's errno values, which the guest gets. */
@@ -890,34 +891,34 @@ static int renders_scheduled(void *context, uint64_t deadline) {
 }
 
 /* The image drawn into the target's surface on the GPU, never in the background: 0, -EIO, or -EINVAL. */
-static int draw_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv);
+static int draw_into(VTPixelTransferSessionRef *transfer, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv);
 
 /* The image drawn into the target's surface: 0, -EINVAL for a surface it cannot draw into, or -EIO (also in the
-   background, where iOS allows no GPU work). */
-static int render_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv) {
+   background, where iOS allows no GPU work). A YUV target's copy takes `transfer`, made at its first. */
+static int render_into(VTPixelTransferSessionRef *transfer, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv) {
     if (IOSurfaceGetWidth(surface) > max_texture_side || IOSurfaceGetHeight(surface) > max_texture_side) {
         return -linux_einval;  // hardware_buffer.m makes none, and Metal would end the process at one
     }
     atomic_fetch_add(&renders_in_flight, 1);
     @try {
-        return apkrt_is_background() ? -linux_eio : draw_into(decoder, image, surface, yuv);
+        return apkrt_is_background() ? -linux_eio : draw_into(transfer, image, surface, yuv);
     } @finally {
         atomic_fetch_sub(&renders_in_flight, 1);
     }
 }
 
-static int draw_into(MinatoVideoDecoder *decoder, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv) {
+static int draw_into(VTPixelTransferSessionRef *transfer, CVPixelBufferRef image, IOSurfaceRef surface, BOOL yuv) {
     if (!yuv) return IOSurfaceGetPixelFormat(surface) == 'RGBA' ? convert_into(image, surface) : -linux_einval;
     if (IOSurfaceGetPixelFormat(surface) != '420v' || IOSurfaceGetPlaneCount(surface) != 2) {
         return -linux_einval;  // the description's YUV 420 is graphics/host's NV12 in video range
     }
-    if (decoder->transfer == NULL) VTPixelTransferSessionCreate(NULL, &decoder->transfer);
+    if (*transfer == NULL) VTPixelTransferSessionCreate(NULL, transfer);
     CVPixelBufferRef into = NULL;
-    if (decoder->transfer == NULL ||
+    if (*transfer == NULL ||
         CVPixelBufferCreateWithIOSurface(NULL, surface, NULL, &into) != kCVReturnSuccess) {
         return -linux_eio;
     }
-    const OSStatus status = VTPixelTransferSessionTransferImage(decoder->transfer, image, into);
+    const OSStatus status = VTPixelTransferSessionTransferImage(*transfer, image, into);
     CVPixelBufferRelease(into);
     return status == noErr ? 0 : -linux_eio;
 }
@@ -1050,6 +1051,22 @@ static int present_window(CVPixelBufferRef image, CAMetalLayer *layer, id<CAMeta
     return 0;
 }
 
+int minato_video_frame_render_window(CVPixelBufferRef image, uint64_t window, int64_t time_ns, uint32_t flags,
+                                     uint64_t *cropped_window) {
+    if ((flags & ~window_flags) != 0) return -linux_einval;
+    id layer = (__bridge_transfer id)apkrt_window_layer(window);
+    int32_t width = 0, height = 0;
+    if (layer == nil && apkrt_window_size(window, &width, &height) != 0) return -linux_enodev;
+    if (![layer isKindOfClass:[CAMetalLayer class]]) return -linux_einval;  // a window there without one
+    if (*cropped_window != 0 && *cropped_window != window) give_back_gravity(*cropped_window);
+    *cropped_window = (flags & APKRT_VIDEO_DECODER_CROP) != 0 ? window : 0;
+    return draw_window(image, layer, window, time_ns, flags);
+}
+
+void minato_video_frame_give_back_gravity(uint64_t window) {
+    give_back_gravity(window);
+}
+
 static int render_window(void *context, uint64_t handle, uint64_t token, uint64_t window, int64_t time_ns,
                          uint32_t flags) {
     (void)context;
@@ -1057,17 +1074,10 @@ static int render_window(void *context, uint64_t handle, uint64_t token, uint64_
         @autoreleasepool {
             MinatoVideoDecoder *decoder = find_decoder(handle);
             if (decoder == nil || !decoder->surface) return -linux_einval;
-            MinatoDecodedFrame *frame = take_waiting(decoder, token);
-            if (frame == nil || (flags & ~window_flags) != 0) return -linux_einval;
-            id layer = (__bridge_transfer id)apkrt_window_layer(window);
-            int32_t width = 0, height = 0;
-            if (layer == nil && apkrt_window_size(window, &width, &height) != 0) return -linux_enodev;
-            if (![layer isKindOfClass:[CAMetalLayer class]]) return -linux_einval;  // a window there without one
-            if (decoder->cropped_window != 0 && decoder->cropped_window != window) {
-                give_back_gravity(decoder->cropped_window);
-            }
-            decoder->cropped_window = (flags & APKRT_VIDEO_DECODER_CROP) != 0 ? window : 0;
-            return draw_window(frame->image, layer, window, time_ns, flags);
+            // The frame keeps its image until the render has read it.
+            __attribute__((objc_precise_lifetime)) MinatoDecodedFrame *frame = take_waiting(decoder, token);
+            if (frame == nil) return -linux_einval;
+            return minato_video_frame_render_window(frame->image, window, time_ns, flags, &decoder->cropped_window);
         }
     } @catch (id thrown) {
         return exception_errno(thrown);
@@ -1092,27 +1102,33 @@ int minato_video_decoder_scheduled_for_testing(uint64_t deadline) {
 }
 #endif
 
+int minato_video_frame_render(CVPixelBufferRef image, const struct apkrt_video_target *target,
+                              VTPixelTransferSessionRef *transfer) {
+    const uint32_t format = target != NULL ? target->description.format : 0;
+    const BOOL yuv = format == yuv_420_format;
+    if (target == NULL || target->buffers != minato_graphics_hardware_buffers()->context ||
+        target->description.layers != 1 ||
+        (!yuv && format != rgba_format && format != rgbx_format && format != private_format)) {
+        return -linux_einval;
+    }
+    IOSurfaceRef surface = (IOSurfaceRef)minato_graphics_hardware_buffer_surface(target->handle);
+    if (surface == NULL) return -linux_einval;
+    @try {
+        return render_into(transfer, image, surface, yuv);
+    } @finally {
+        CFRelease(surface);  // also when something on the way throws
+    }
+}
+
 static int render(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target) {
     (void)context;
     @try {
         @autoreleasepool {
             MinatoVideoDecoder *decoder = find_decoder(handle);
             if (decoder == nil || !decoder->surface) return -linux_einval;
-            MinatoDecodedFrame *frame = take_waiting(decoder, token);
-            const uint32_t format = target != NULL ? target->description.format : 0;
-            const BOOL yuv = format == yuv_420_format;
-            if (frame == nil || target == NULL || target->buffers != minato_graphics_hardware_buffers()->context ||
-                target->description.layers != 1 ||
-                (!yuv && format != rgba_format && format != rgbx_format && format != private_format)) {
-                return -linux_einval;
-            }
-            IOSurfaceRef surface = (IOSurfaceRef)minato_graphics_hardware_buffer_surface(target->handle);
-            if (surface == NULL) return -linux_einval;
-            @try {
-                return render_into(decoder, frame->image, surface, yuv);
-            } @finally {
-                CFRelease(surface);  // also when something on the way throws
-            }
+            __attribute__((objc_precise_lifetime)) MinatoDecodedFrame *frame = take_waiting(decoder, token);
+            if (frame == nil) return -linux_einval;
+            return minato_video_frame_render(frame->image, target, &decoder->transfer);
         }
     } @catch (id thrown) {
         return exception_errno(thrown);

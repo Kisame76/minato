@@ -41,6 +41,9 @@ public class AudioSystem {
      * Must be kept in sync with frameworks/base/core/jni/android_media_AudioErrors.h
      */
     /** @hide */
+    public static final int AUDIO_SESSION_ALLOCATE = 0;  // MediaPlayer's (ADR-0060 e2e1)
+
+    /** @hide */
     public static final int SUCCESS            = 0;
     /** @hide */
     public static final int ERROR              = -1;

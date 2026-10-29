@@ -1,0 +1,48 @@
+Minato's patch to frameworks/base's media/java/android/media/PlayerBase.java at android-15.0.0_r1 (Apache-2.0),
+ADR-0060 e2e1: no audio service, and VirtualDeviceParams' two constants written as their values.
+
+Why: Minato has no audio service (IAudioService is a compile-only stub), so getService() throws the RemoteException
+each caller already takes as an unreachable service: the player is not tracked, as AudioService's playback
+configurations are not kept. VirtualDeviceParams is not taken (its virtual sensors and their callbacks are not
+either); PlayerBase reads only POLICY_TYPE_AUDIO (1) and DEVICE_POLICY_DEFAULT (0) from it.
+
+--- a/media/java/android/media/PlayerBase.java
++++ b/media/java/android/media/PlayerBase.java
+@@ -16,8 +16,6 @@
+ 
+ package android.media;
+ 
+-import static android.companion.virtual.VirtualDeviceParams.DEVICE_POLICY_DEFAULT;
+-import static android.companion.virtual.VirtualDeviceParams.POLICY_TYPE_AUDIO;
+ import static android.content.Context.DEVICE_ID_DEFAULT;
+ import static android.media.AudioManager.AUDIO_SESSION_ID_GENERATE;
+ 
+@@ -297,14 +295,10 @@
+         }
+     }
+ 
+-    private static IAudioService getService()
++    private static IAudioService getService() throws RemoteException
+     {
+-        if (sService != null) {
+-            return sService;
+-        }
+-        IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
+-        sService = IAudioService.Stub.asInterface(b);
+-        return sService;
++        // Minato: no audio service tracks players, so each call answers as one that cannot reach it.
++        throw new RemoteException("no audio service");
+     }
+ 
+     /**
+@@ -574,8 +568,8 @@
+         }
+ 
+         VirtualDeviceManager vdm = context.getSystemService(VirtualDeviceManager.class);
+-        if (vdm == null || vdm.getDevicePolicy(deviceId, POLICY_TYPE_AUDIO)
+-                == DEVICE_POLICY_DEFAULT) {
++        // Minato: VirtualDeviceParams' POLICY_TYPE_AUDIO (1) and DEVICE_POLICY_DEFAULT (0), the class not taken.
++        if (vdm == null || vdm.getDevicePolicy(deviceId, 1) == 0) {
+             return AUDIO_SESSION_ID_GENERATE;
+         }
+ 

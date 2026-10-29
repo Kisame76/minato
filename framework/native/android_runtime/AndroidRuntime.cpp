@@ -52,6 +52,7 @@ extern int register_android_media_PublicFormatUtils(JNIEnv *env);
 extern int register_android_media_ImageWriter(JNIEnv *env);
 extern int register_android_media_MediaCodec(JNIEnv *env);
 extern int register_android_media_MediaExtractor(JNIEnv *env);
+extern int register_android_media_MediaPlayer(JNIEnv *env);
 extern int register_android_hardware_camera2_utils_SurfaceUtils(JNIEnv *env);
 extern int register_android_hardware_display_DisplayService(JNIEnv *env);
 extern int register_android_os_MessageQueue(JNIEnv *env);
@@ -149,6 +150,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_view_TextureView, register_android_hardware_SyncFence,
           register_android_media_ImageReader, register_android_media_PublicFormatUtils,
           register_android_media_ImageWriter, register_android_media_MediaCodec, register_android_media_MediaExtractor,
+          register_android_media_MediaPlayer,
           register_android_hardware_camera2_utils_SurfaceUtils,
           register_android_opengl_classes,
           register_android_app_ActivityThread, register_android_animation_PropertyValuesHolder,

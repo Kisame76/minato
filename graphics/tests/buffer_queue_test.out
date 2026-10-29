@@ -15,6 +15,7 @@ dequeue for a cancel: 0
 cancel: 0
 cancel again: -22
 dequeue held: 0
+tryDequeue while every slot is busy: 1, slot -1
 a waiting dequeue after abandon: -19
 lock after abandon: -19
 destroyed after the consumer's release: 0

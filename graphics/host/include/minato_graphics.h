@@ -120,6 +120,16 @@ struct apkrt_video_decoders;
 /* For tests: the functions minato_graphics_set_video_decoders gives the runtime. */
 const struct apkrt_video_decoders *minato_graphics_video_decoders(void);
 
+/* ADR-0060 e2e1: graphics/host's media players (media_player.m), AVPlayer's, which play the guest's MediaPlayer
+   sources: gives them to the runtime (apkrt_set_media_players). minato_graphics_set_providers calls it. Returns 0,
+   or -1 when the runtime refused them. */
+int minato_graphics_set_media_players(void);
+
+struct apkrt_media_players;
+
+/* For tests: the functions minato_graphics_set_media_players gives the runtime. */
+const struct apkrt_media_players *minato_graphics_media_players(void);
+
 /* For b)'s EGL images, e1)'s Vulkan imports and tests: the IOSurfaceRef of one of their handles, retained for the
    caller, who releases it, or NULL for a handle they do not have. */
 void *minato_graphics_hardware_buffer_surface(uint64_t handle);

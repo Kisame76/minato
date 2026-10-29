@@ -11,6 +11,17 @@ import android.os.RemoteException;
 public interface IAudioService extends android.os.IInterface {
     boolean isCameraSoundForced() throws RemoteException;
 
+    // PlayerBase's (ADR-0060 e2e1), which its patch never calls: Minato has no audio service.
+    int trackPlayer(PlayerBase.PlayerIdCard pic) throws RemoteException;
+
+    void playerAttributes(int piid, AudioAttributes attr) throws RemoteException;
+
+    void playerSessionId(int piid, int sessionId) throws RemoteException;
+
+    void playerEvent(int piid, int event, int eventValue) throws RemoteException;
+
+    void releasePlayer(int piid) throws RemoteException;
+
     abstract class Stub extends android.os.Binder implements IAudioService {
         public static IAudioService asInterface(IBinder obj) {
             throw new RuntimeException("stub");

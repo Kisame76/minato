@@ -1892,6 +1892,31 @@ frameworks_base_types/media/java/android/media/Utils.java
 # (framework/native/android_runtime/android_media_MediaExtractor.cpp) on libmediandk's AMediaExtractor.
 frameworks_base_types/media/java/android/media/MediaExtractor.java
 
+# MediaPlayer (ADR-0060 e2e1), AOSP's over natives of ours
+# (framework/native/android_runtime/android_media_MediaPlayer.cpp) on the host's player, with the classes it needs.
+frameworks_base_types/media/java/android/media/MediaPlayer.java
+frameworks_base_types/media/java/android/media/SubtitleController.java
+frameworks_base_types/media/java/android/media/SubtitleTrack.java
+frameworks_base_types/media/java/android/media/MediaTimeProvider.java
+frameworks_base_types/media/java/android/media/PlayerBase.java
+frameworks_base_types/media/java/android/media/Metadata.java
+frameworks_base_types/media/java/android/media/VolumeShaper.java
+frameworks_base_types/media/java/android/media/NativeRoutingEventHandlerDelegate.java
+frameworks_base_types/media/java/android/media/AudioPlaybackConfiguration.java
+frameworks_base_types/media/java/android/media/SRTRenderer.java
+frameworks_base_types/media/java/android/media/WebVttRenderer.java
+frameworks_base/core/java/com/android/internal/widget/SubtitleView.java
+frameworks_base_types/media/java/android/media/PlayerProxy.java
+frameworks_av_media_aidl/media/libaudioclient/aidl/android/media/IPlayer.aidl
+frameworks_av_media_aidl/aidl/android/media/InterpolatorConfig.aidl
+frameworks_av_media_aidl/aidl/android/media/InterpolatorType.aidl
+frameworks_av_media_aidl/aidl/android/media/VolumeShaperConfiguration.aidl
+frameworks_av_media_aidl/aidl/android/media/VolumeShaperConfigurationOptionFlag.aidl
+frameworks_av_media_aidl/aidl/android/media/VolumeShaperConfigurationType.aidl
+frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperation.aidl
+frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperationFlag.aidl
+frameworks_av_media_aidl/aidl/android/media/VolumeShaperState.aidl
+
 # Batch B3b-2 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
 frameworks_base/core/java/android/app/IInstrumentationWatcher.aidl
 frameworks_base/core/java/android/app/IUriGrantsManager.aidl

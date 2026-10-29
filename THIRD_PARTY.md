@@ -233,6 +233,12 @@ The vibrator HAL's AIDL (gap 1 of the compatibility plan, batch 3), fetched by `
 |---|---|---|---|---|
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 | `vibrator/aidl/android` and `vibrator/aidl/Android.bp` | the vibrator HAL's types for framework.jar |
 
+The media server's player AIDL (ADR-0060 e2e1), fetched by `tools/fetch-sources.py --set framework` under your standing rule of 2026-10-11 for AOSP sources, on the lead's go of 2026-10-29 in the Grafik chat (`build/sources/frameworks_av_media_aidl`, the entry `frameworks_av_media_aidl`, digest `bfa32365…6283`; 10 files, 26,040 bytes). tools/build-framework.sh compiles IPlayer and the VolumeShaper and Interpolator types of `android.media` with aidl into framework.jar, whose AOSP PlayerBase and MediaPlayer take them as Android's framework.jar has them; nothing else of frameworks/av ships.
+
+| Project | Commit | License | Files | Use |
+|---|---|---|---|---|
+| `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 (`NOTICE`) | `media/libaudioclient/aidl/android/media/IPlayer.aidl`, eight types of `aidl/android/media` (`InterpolatorConfig`, `InterpolatorType`, `VolumeShaperConfiguration`, `VolumeShaperConfigurationOptionFlag`, `VolumeShaperConfigurationType`, `VolumeShaperOperation`, `VolumeShaperOperationFlag`, `VolumeShaperState`) and `NOTICE` | PlayerBase's IPlayer and its parcelables for framework.jar |
+
 SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set framework` on your go of 2026-10-07 in the chat Formate (`build/sources/sqlite`, the entry `sqlite`, digest `6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships it in its guest system, with these texts under "Framework sources". libandroid_runtime.so's database natives (`core/jni`'s `android_database_*.cpp`, unchanged) link it, and framework.jar takes `core/java/android/database/sqlite` unchanged.
 
 | Project | Commit | License | File | Size | SHA-256 |

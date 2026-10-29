@@ -182,5 +182,7 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     if (minato_graphics_set_video_decoders() != 0) {
         result = part_failed("the video decoders were not set, or their provider of \"scheduled\" found no room");
     }
+    /* The guest's media players (ADR-0060 e2e1), whatever the drivers. */
+    if (minato_graphics_set_media_players() != 0) result = part_failed("the media players were not set");
     return result;
 }

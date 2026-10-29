@@ -495,6 +495,87 @@ struct apkrt_video_decoders {
 /// Returns 0, or -1 when a function is NULL.
 int apkrt_set_video_decoders(const struct apkrt_video_decoders *decoders);
 
+// MARK: - Media players (ADR-0060 e2e1)
+
+/// The runtime's limits on what reaches the host's players (guest_interface.h's media_player): the players of a
+/// process at once, a URL's bytes, a DATA's bytes, the frames that wait for their RENDER or DISCARD at once, the
+/// tracks of a source, and the lifecycle records that wait for room in a player's pipe.
+#define APKRT_MEDIA_PLAYER_MAX_PLAYERS 32u
+#define APKRT_MEDIA_PLAYER_MAX_URL 8192u
+#define APKRT_MEDIA_PLAYER_MAX_DATA (UINT64_C(1) << 20)
+#define APKRT_MEDIA_PLAYER_MAX_WAITING 4u
+#define APKRT_MEDIA_PLAYER_MAX_TRACKS 64u
+#define APKRT_MEDIA_PLAYER_MAX_BACKLOG 64u
+
+/// A player's source as the runtime has checked it: an enum apkrt_media_player_source; FD's descriptor (the
+/// runtime's duplicate, open until the player's destroy has returned), its offset and length within the file; URL's
+/// http or https URL (`url_size` bytes, no NUL, in host memory for the call); CALLBACK's length (-1: unknown).
+struct apkrt_media_player_source_info {
+    uint32_t kind;
+    int fd;
+    int64_t offset, length;
+    const char *url;
+    size_t url_size;
+};
+
+/// What STATUS gives: the position and duration (-1: none) in microseconds, the video's size (0 without video) and
+/// flags (APKRT_MEDIA_PLAYER_PLAYING).
+struct apkrt_media_player_state {
+    int64_t position_us, duration_us;
+    uint32_t width, height, flags;
+};
+
+/// For graphics/host: the guest's media players (ADR-0060 e2e1). The runtime has checked what reaches them and keeps
+/// the IDs; the players see a handle of theirs, never 0. The runtime calls a player's functions one at a time, under
+/// a lock of that player alone, on the calling guest thread; they may block on the host's player, never on the guest
+/// (a CALLBACK source's bytes come from the guest only through READ records and `data`):
+/// - create: 0 with the handle, the player's records going to apkrt_media_player_post with `player`; -ENOMEM;
+/// - source: once, before prepare; the source as above: 0, or -EINVAL for one they do not take;
+/// - prepare: the source loads, after which they post PREPARED (with VIDEO_SIZE before it for a video) or ERROR;
+/// - start, pause: 0;
+/// - seek: to `time_us` by `mode` (MediaPlayer's SEEK_*, 0 to 3), after which they post SEEK_DONE; every frame that
+///   waits stays the guest's to render or discard;
+/// - status: 0 with the state;
+/// - set: a key of enum apkrt_media_player_key with its value, in its range: 0;
+/// - tracks: up to `capacity` records into `tracks` and the source's count of them: 0;
+/// - data: the bytes of the READ of `token` (size 0: the end), or `flags` APKRT_MEDIA_PLAYER_READ_FAILED;
+/// - render, render_window, discard: a FRAME's token as the video decoders' (apkrt_video_decoders);
+/// - destroy: last, once no call on the player runs; every waiting token and the READ end with it.
+/// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A player stays with the functions that made
+/// it, so the context must live as long as the process.
+struct apkrt_media_players {
+    int (*create)(void *context, uint64_t player, uint64_t *handle);
+    int (*source)(void *context, uint64_t handle, const struct apkrt_media_player_source_info *source);
+    int (*prepare)(void *context, uint64_t handle);
+    int (*start)(void *context, uint64_t handle);
+    int (*pause)(void *context, uint64_t handle);
+    int (*seek)(void *context, uint64_t handle, int64_t time_us, uint32_t mode);
+    int (*status)(void *context, uint64_t handle, struct apkrt_media_player_state *state);
+    int (*set)(void *context, uint64_t handle, uint32_t key, uint64_t value);
+    int (*tracks)(void *context, uint64_t handle, struct apkrt_media_player_track *tracks, uint32_t capacity,
+                  uint32_t *count);
+    void (*data)(void *context, uint64_t handle, uint64_t token, const void *bytes, size_t size, uint32_t flags);
+    int (*render)(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target);
+    int (*render_window)(void *context, uint64_t handle, uint64_t token, uint64_t window, int64_t time_ns,
+                         uint32_t flags);
+    void (*discard)(void *context, uint64_t handle, uint64_t token);
+    void (*destroy)(void *context, uint64_t handle);
+    void *context;
+};
+
+/// For graphics/host: sets the media players' functions, which the runtime copies, or takes them away with NULL.
+/// Returns 0, or -1 when a function is NULL.
+int apkrt_set_media_players(const struct apkrt_media_players *players);
+
+/// For graphics/host: one record of `player`'s (create's) to the guest, from any thread, never waiting. The records
+/// keep their order. A FRAME (token not 0 and not one that waits) is written only when no lifecycle record waits and
+/// the pipe has room, and fewer than APKRT_MEDIA_PLAYER_MAX_WAITING wait: else -EAGAIN, and the host drops the frame.
+/// A READ needs no other READ waiting (-EBUSY). Any other record waits in order for room in the pipe, at most
+/// APKRT_MEDIA_PLAYER_MAX_BACKLOG of them (-ENOSPC past them: a guest that does not read). Returns 0; -EBADF for a
+/// player not there or destroyed; -EINVAL for a record that does not hold (its type, reserved not 0, a READ above
+/// APKRT_MEDIA_PLAYER_MAX_DATA or at an offset below 0).
+int apkrt_media_player_post(uint64_t player, const struct apkrt_media_player_event *event);
+
 // MARK: - The frame clock and touches (ADR-0036, decisions 1 to 3)
 //
 // For the app: the ticks of its display link and the motion events of its view go to the guest's vsync and

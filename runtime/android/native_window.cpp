@@ -170,9 +170,11 @@ int64_t monotonic_now() {
     return now.tv_sec * INT64_C(1000000000) + now.tv_nsec;
 }
 
-/// A free slot with a buffer of `width` × `height` in `format`, dequeued: waits for one, takes one whose buffer fits
-/// first, and makes the buffer outside the lock. 0, -ENODEV once abandoned, -ENOMEM.
-int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t format, int32_t* slot_index) {
+/// A free slot with a buffer of `width` × `height` in `format`, dequeued: waits for one (or with `wait` false answers
+/// -EAGAIN while none is free), takes one whose buffer fits first, and makes the buffer outside the lock. 0, -ENODEV
+/// once abandoned, -ENOMEM.
+int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t format, int32_t* slot_index,
+            bool wait = true) {
     pthread_mutex_lock(&queue->lock);
     int found = -1;
     while (!queue->abandoned) {
@@ -185,6 +187,10 @@ int dequeue(minato_BufferQueue* queue, int32_t width, int32_t height, int32_t fo
             if (fits) break;
         }
         if (found >= 0) break;
+        if (!wait) {
+            pthread_mutex_unlock(&queue->lock);
+            return -EAGAIN;
+        }
         pthread_cond_wait(&queue->freed, &queue->lock);
     }
     if (queue->abandoned) {
@@ -323,6 +329,19 @@ Geometry dequeue_geometry(ANativeWindow* window) {
     const Geometry geometry = buffer_geometry(window);
     return {geometry.width != 0 ? geometry.width : now.width, geometry.width != 0 ? geometry.height : now.height,
             geometry.format != 0 ? geometry.format : own_format(window)};
+}
+
+/// minato_ANativeWindow_dequeue and tryDequeue: a slot of the window's queue in its geometry, waiting with `wait`.
+int dequeue_window(ANativeWindow* window, AHardwareBuffer** buffer, int32_t* slot, bool wait) {
+    if (!is_window(window) || window->queue == nullptr || buffer == nullptr || slot == nullptr) return -EINVAL;
+    const Geometry geometry = dequeue_geometry(window);
+    const int result = dequeue(window->queue, geometry.width, geometry.height, geometry.format, slot, wait);
+    if (result == 0) {
+        pthread_mutex_lock(&window->queue->lock);
+        *buffer = window->queue->slots[*slot].buffer;
+        pthread_mutex_unlock(&window->queue->lock);
+    }
+    return result;
 }
 
 }  // namespace
@@ -517,15 +536,11 @@ int minato_ANativeWindow_isQueue(ANativeWindow* window) {
 }
 
 int minato_ANativeWindow_dequeue(ANativeWindow* window, AHardwareBuffer** buffer, int32_t* slot) {
-    if (!is_window(window) || window->queue == nullptr || buffer == nullptr || slot == nullptr) return -EINVAL;
-    const Geometry geometry = dequeue_geometry(window);
-    const int result = dequeue(window->queue, geometry.width, geometry.height, geometry.format, slot);
-    if (result == 0) {
-        pthread_mutex_lock(&window->queue->lock);
-        *buffer = window->queue->slots[*slot].buffer;
-        pthread_mutex_unlock(&window->queue->lock);
-    }
-    return result;
+    return dequeue_window(window, buffer, slot, true);
+}
+
+int minato_ANativeWindow_tryDequeue(ANativeWindow* window, AHardwareBuffer** buffer, int32_t* slot) {
+    return dequeue_window(window, buffer, slot, false);
 }
 
 int minato_ANativeWindow_cancel(ANativeWindow* window, int32_t slot) {

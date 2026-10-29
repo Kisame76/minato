@@ -690,6 +690,120 @@ struct apkrt_video_decoder {
 /// hardware_buffer's.
 #define APKRT_NR_VIDEO_DECODER 4128
 
+// MARK: - Media players (ADR-0060 e2e1)
+//
+// The framework's MediaPlayer plays through the host's player (apkrt_set_media_players in apkrt.h, AVPlayer in
+// graphics/host): the guest keeps MediaPlayer's states and answers (libmedia's mediaplayer.cpp, in
+// android_media_MediaPlayer.cpp), the host loads, plays and seeks. The runtime keeps the process's players by IDs of
+// its own, as the video decoders', and checks every size, address and descriptor before the host acts. What the host
+// tells the guest comes as records on the player's event descriptor, the read end of a pipe the runtime writes and
+// the guest reads on a thread of its own: the source prepared or failed, a seek done, the end, the video's size, a
+// frame to draw, and a callback source's read. No record is dropped: a guest that reads never fills the pipe (the
+// lifecycle records are few, the frames at most APKRT_MEDIA_PLAYER_MAX_WAITING), and the records of one that does not
+// wait in order for the pipe. An http or https source needs the app's INTERNET permission, which the runtime holds
+// (ADR-0054 step c2a); its network security config is the guest's to check, as Android's media server leaves it to
+// the app's process (MediaHTTPConnection): unlike location's, iOS has no network permission of an app's that the
+// runtime could hold the guest to beyond INTERNET.
+
+/// What media_player does, its x0; x1 the address of a struct apkrt_media_player.
+enum apkrt_media_player_op {
+    APKRT_MEDIA_PLAYER_CREATE = 1,  // id and events (the event descriptor: close-on-exec, non-blocking) out
+    APKRT_MEDIA_PLAYER_SOURCE,      // id, kind and its fields in, once, before PREPARE
+    APKRT_MEDIA_PLAYER_PREPARE,     // id: the host loads the source; PREPARED or ERROR follows as a record
+    APKRT_MEDIA_PLAYER_START,       // id
+    APKRT_MEDIA_PLAYER_PAUSE,       // id
+    APKRT_MEDIA_PLAYER_SEEK,        // id, time_us and the mode (value: MediaPlayer's SEEK_*); SEEK_DONE follows
+    APKRT_MEDIA_PLAYER_STATUS,      // id: time_us (the position), duration_us (-1: none), width, height, flags out
+    APKRT_MEDIA_PLAYER_SET,         // id, the key (kind: an enum apkrt_media_player_key) and its value in
+    APKRT_MEDIA_PLAYER_TRACKS,      // id and a buffer (data, size: its capacity) in; the tracks out, size their bytes
+    APKRT_MEDIA_PLAYER_DATA,        // id, the READ's token, its bytes (data, size) and flags in
+    APKRT_MEDIA_PLAYER_RENDER,      // id, a FRAME's token and a hardware buffer's ID (size): the frame drawn
+    APKRT_MEDIA_PLAYER_RENDER_WINDOW,  // id, a FRAME's token, a host window's ID (size), the present time (time_us,
+                                       // 0 for at once) and the scaling (flags): the frame drawn
+    APKRT_MEDIA_PLAYER_DISCARD,     // id and a FRAME's token: the frame goes undrawn
+    APKRT_MEDIA_PLAYER_DESTROY,     // id: the player goes, after the calls on it still running; every waiting
+                                    // FRAME's token and the READ end, the event descriptor's pipe closes
+};
+
+/// SOURCE's kind.
+enum apkrt_media_player_source {
+    APKRT_MEDIA_PLAYER_FD = 1,        // fd (the guest's, which the runtime duplicates), offset and length (-1: to
+                                      // the file's end), within the file's size
+    APKRT_MEDIA_PLAYER_URL = 2,       // an http or https URL (data, size: UTF-8 without a NUL), checked by the guest
+    APKRT_MEDIA_PLAYER_CALLBACK = 3,  // a MediaDataSource of length bytes (-1: unknown), read by READ records
+};
+
+/// SET's key.
+enum apkrt_media_player_key {
+    APKRT_MEDIA_PLAYER_VOLUME = 1,   // value: the left and right volumes as two floats (low and high 32 bits), 0 to 1
+    APKRT_MEDIA_PLAYER_LOOPING = 2,  // value: 0 or 1
+    APKRT_MEDIA_PLAYER_SPEED = 3,    // value: the speed as a float (low 32 bits), 1/8 to 8
+};
+
+/// STATUS's flags.
+#define APKRT_MEDIA_PLAYER_PLAYING 1u
+
+/// DATA's flags: the source failed the read (MediaDataSource.readAt below 0), with no bytes.
+#define APKRT_MEDIA_PLAYER_READ_FAILED 1u
+
+/// TRACKS' records, one per track of the source in its order (64 bytes): MediaPlayer.TrackInfo's type (1 video,
+/// 2 audio, 3 timed text, 4 subtitle, 5 metadata, 0 unknown), the language (ISO 639-2, "und" for none) and the MIME
+/// type, each NUL-terminated within its array.
+struct apkrt_media_player_track {
+    uint32_t type;
+    char language[4];
+    char mime[56];
+};
+
+/// One call's arguments and answers (96 bytes). An operation leaves the fields it does not name alone.
+struct apkrt_media_player {
+    uint64_t id;                   // the runtime's, never 0 and never reused
+    uint32_t kind, flags;          // SOURCE's enum apkrt_media_player_source, SET's key; STATUS's and RENDER_WINDOW's
+    int32_t fd, events;            // SOURCE's descriptor; CREATE's event descriptor
+    uint32_t width, height;        // STATUS's video size (0 without video)
+    uint64_t data, size;           // the guest's bytes: a URL, TRACKS' buffer, DATA's bytes; RENDER's buffer ID
+    int64_t offset, length;        // SOURCE's
+    int64_t time_us, duration_us;  // SEEK's and RENDER_WINDOW's time; STATUS's position and duration
+    uint64_t token;                // DATA's READ, RENDER's, RENDER_WINDOW's and DISCARD's FRAME
+    uint64_t value;                // SET's value, SEEK's mode
+};
+
+/// What the event descriptor gives, one record at a time (32 bytes).
+enum apkrt_media_player_event_type {
+    APKRT_MEDIA_PLAYER_PREPARED = 1,    // the video's width and height (ext1, ext2; 0 without), duration (value, in
+                                        // microseconds; -1: none)
+    APKRT_MEDIA_PLAYER_ERROR = 2,       // MediaPlayer's what and extra (ext1, ext2): a PREPARE's failure, or later
+    APKRT_MEDIA_PLAYER_SEEK_DONE = 3,   // value: the position reached, in microseconds
+    APKRT_MEDIA_PLAYER_COMPLETED = 4,   // the end, without looping
+    APKRT_MEDIA_PLAYER_VIDEO_SIZE = 5,  // the video's width and height (ext1, ext2), changed
+    APKRT_MEDIA_PLAYER_FRAME = 6,       // a frame to draw: its token and time (value, the guest's CLOCK_MONOTONIC in
+                                        // microseconds, when it shows); it waits for its RENDER, RENDER_WINDOW or
+                                        // DISCARD, at most APKRT_MEDIA_PLAYER_MAX_WAITING at once
+    APKRT_MEDIA_PLAYER_READ = 7,        // a CALLBACK source's read of ext1 bytes at offset value: its token, one at a
+                                        // time; DATA answers it (size 0: the end of the source, below 0 never)
+};
+
+struct apkrt_media_player_event {
+    uint32_t type;
+    int32_t ext1, ext2;
+    uint32_t reserved;  // 0
+    int64_t value;
+    uint64_t token;
+};
+
+/// media_player (ADR-0060 e2e1): x0 an enum apkrt_media_player_op, x1 its argument. Returns 0; -ENOSYS without the
+/// host's players; -EFAULT for a struct or bytes the guest cannot read or write; -EINVAL for an unknown op, kind or
+/// key, a SOURCE twice or after PREPARE, a PREPARE without a SOURCE or twice, an fd source's offset or length outside
+/// its file, a URL of 0 bytes, above APKRT_MEDIA_PLAYER_MAX_URL (apkrt.h) or neither http nor https, a seek's time
+/// below 0 or mode above 3, a value outside its key's range, DATA above the READ's size or above
+/// APKRT_MEDIA_PLAYER_MAX_DATA, and RENDER's, RENDER_WINDOW's and DISCARD's as the video decoder's; -EBADF for an ID
+/// that is not there, or no more, and for a SOURCE fd the guest does not have; -EBUSY for a CREATE past
+/// APKRT_MEDIA_PLAYER_MAX_PLAYERS; -EACCES for a URL source of an app without INTERNET (apkrt_set_internet, apkrt.h),
+/// whose sockets answer EPERM; -ENOSPC with the size out for a TRACKS buffer too small. DATA with a token other
+/// than the READ that waits answers -EINVAL: a late answer that lost to a seek or a DESTROY, which the guest drops.
+/// Else the host's answer. The number follows battery's.
+#define APKRT_NR_MEDIA_PLAYER 4132
+
 // MARK: - Sensors (ADR-0061)
 //
 // One syscall carries every sensor operation, as the video decoder's does: x0 the op, x1 the argument. The guest opens
