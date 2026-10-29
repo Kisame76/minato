@@ -90,12 +90,16 @@ role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1).
 second time over the first start's folders, as tools/android-reference.sh starts it again on the AVD, and the two
 starts' lines count as one log (step c1's context-test).
 
+With --odex <file>, the file and its .vdex beside it lie at ART's place for base.apk (oat/arm64/base.odex and .vdex),
+as the odex of an installed app does (M6 c1; runtime/tests/dex2oat_make.py makes one for the code path).
+
 Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <steps>] [--until <text>] [--drawn]
                        [--android-id <16 hex digits>] [--in-order <text>]... [--obb <file>]... [--packs <file>]...
                        [--pick <file>]... [--pick-photo <file>]...
                        [--pick-save] [--pick-tree <folder>] [--export-dir <folder>] [--shares]
                        [--sensor-script <file>] [--grant-location fine|coarse|denied] [--location-script <file>]
-                       [--device-profile pixel|galaxy] [--status <n>] [--once <line>]... [--never <text>]...
+                       [--device-profile pixel|galaxy] [--odex <file>] [--status <n>]
+                       [--once <line>]... [--never <text>]...
                        [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
@@ -133,6 +137,7 @@ def main():
     grant_location = None
     location_script = None
     device_profile = None
+    odex = None
     saves = False
     shares = False
     tree = None
@@ -144,7 +149,8 @@ def main():
     while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
                        ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
                        ["--pick-tree"], ["--export-dir"], ["--shares"], ["--sensor-script"], ["--grant-location"],
-                       ["--location-script"], ["--device-profile"], ["--status"], ["--once"], ["--never"], ["--env"],
+                       ["--location-script"], ["--device-profile"], ["--odex"], ["--status"], ["--once"], ["--never"],
+                       ["--env"],
                        ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
@@ -166,6 +172,8 @@ def main():
             location_script, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--device-profile":
             device_profile, args = args[1], args[2:]
+        elif len(args) > 1 and args[0] == "--odex":
+            odex, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--pick-tree":
             tree, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--pick-photo":
@@ -229,7 +237,7 @@ def main():
                        android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits,
                        picks=picks, photos=photos, saves=saves, tree=tree, export_dir=export_dir, shares=shares,
                        sensor_script=sensor_script, grant_location=grant_location, location_script=location_script,
-                       device_profile=device_profile)
+                       device_profile=device_profile, odex=odex)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)

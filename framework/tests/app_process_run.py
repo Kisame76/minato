@@ -328,7 +328,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
           lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=(), picks=(), photos=(), saves=None, tree=None,
           export_dir=None, shares=False, sensor_script=None, grant_location=None, location_script=None,
-          device_profile=None):
+          device_profile=None, odex=None):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -423,6 +423,13 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 os.chmod(os.path.join(local_testing, os.path.basename(pack)), 0o444)
         shutil.copy(apk, os.path.join(run, app.lstrip("/"), "base.apk"))
         os.chmod(os.path.join(run, app.lstrip("/"), "base.apk"), 0o444)
+        if odex:
+            # An odex and its vdex (<odex minus .odex>.vdex) at ART's place for base.apk (M6 c1, oat-status-test).
+            oat = os.path.join(run, app.lstrip("/"), "oat", "arm64")
+            os.makedirs(oat)
+            for source, name in ((odex, "base.odex"), (os.path.splitext(odex)[0] + ".vdex", "base.vdex")):
+                shutil.copy(source, os.path.join(oat, name))
+                os.chmod(os.path.join(oat, name), 0o444)
         for split in splits:
             shutil.copy(split, os.path.join(run, app.lstrip("/"), os.path.basename(split)))
             os.chmod(os.path.join(run, app.lstrip("/"), os.path.basename(split)), 0o444)

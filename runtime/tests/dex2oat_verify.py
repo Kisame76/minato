@@ -14,13 +14,13 @@ Usage: dex2oat_verify.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-conv
 """
 import os
 import re
-import shutil
 import subprocess
 import sys
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import art_run  # noqa: E402
+import dex2oat_make  # noqa: E402
 
 OATDATA = 0x4000
 OATDEX = 0x8000
@@ -86,24 +86,8 @@ def main():
         print(missing)
         return 0
     work = os.path.abspath(work)
-    art_lib64 = art_run.convert_guest(art, bionic_lib, apk_convert, work, debug)
-    container = os.path.join(work, "bin", f"{program}-64.dylib")
-    with art_run.convert_lock(work):
-        art_run.convert(apk_convert, os.path.join(art, "bin", program), container)
-    run = os.path.join(work, "dex2oat-verify-run-debug" if debug else "dex2oat-verify-run")
-    art_run.make_run_folder(run, icu_data, bionic_system)
-    shutil.copy(jar, os.path.join(run, "data", "local", "tmp", "app.jar"))
-    boot_class_path = ":".join(f"{art_run.ART_ROOT}/javalib/{name}.jar" for name in art_run.BOOT_JARS)
-    arguments = ["--dex-file=/data/local/tmp/app.jar", "--dex-location=/data/local/tmp/app.jar",
-                 "--oat-file=/data/local/tmp/app.odex", "--oat-location=/data/local/tmp/app.odex",
-                 "--instruction-set=arm64", "--compiler-filter=verify", "--base=0x70000000",
-                 "--runtime-arg", f"-Xbootclasspath:{boot_class_path}",
-                 "--runtime-arg", f"-Xbootclasspath-locations:{boot_class_path}", "--runtime-arg", "-Xnoimage-dex2oat"]
-    command = art_run.apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments)
-    at = command.index("--argv0")
-    command[at + 1:at + 3] = [f"{art_run.ART_ROOT}/bin/dex2oat64", container]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
-    produced = os.path.join(run, "data", "local", "tmp")
+    result, produced = dex2oat_make.make_odex(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar,
+                                              "/data/local/tmp/app.jar", debug)
     odex_path = os.path.join(produced, "app.odex")
     if result.returncode != 0 or not os.path.exists(odex_path) or os.path.getsize(odex_path) == 0 \
             or not os.path.exists(os.path.join(produced, "app.vdex")) \
