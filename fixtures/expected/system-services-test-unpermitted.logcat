@@ -9,4 +9,12 @@ I/system-services-test-unpermitted: ui mode manager: android.app.UiModeManager, 
 I/system-services-test-unpermitted: current mode type 1, the configuration's 1
 I/system-services-test-unpermitted: night mode as the configuration's true
 I/system-services-test-unpermitted: contrast 0.0
+I/system-services-test-unpermitted: captioning manager: android.view.accessibility.CaptioningManager, the same by class true
+I/system-services-test-unpermitted: captions enabled false, locale null, font scale 1.0
+I/system-services-test-unpermitted: caption style: foreground ffffffff, background ff000000, window ff, edge type 0, edge ff000000, typeface null
+I/system-services-test-unpermitted: caption style has: foreground true, background true, window true, edge type true, edge true
+I/system-services-test-unpermitted: media metrics manager: android.media.metrics.MediaMetricsManager, the same by class true
+I/system-services-test-unpermitted: playback session: android.media.metrics.PlaybackSession, its ID none false, 16 characters
+I/system-services-test-unpermitted: playback state reported
+I/system-services-test-unpermitted: playback session closed
 I/system-services-test-unpermitted: done

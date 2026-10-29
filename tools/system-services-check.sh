@@ -4,10 +4,10 @@
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and system-services-test (seconds)
 # every time, so it never tests an old binary; then starts the app's activity through app_process and compares its log
 # with Android 15's on apk-runner-35 (fixtures/expected/system-services-test.logcat, from tools/android-reference.sh
-# --app system-services-test): the vibrator and its manager, a vibration and a view's haptic feedback, and the UI mode
-# manager; what differs by device is shown only. Then its twin system-services-test-unpermitted, the same sources
-# without the VIBRATE permission, whose vibration and cancel the vibrator service refuses
-# (fixtures/expected/<app>.logcat each).
+# --app system-services-test): the vibrator and its manager, a vibration and a view's haptic feedback, the UI mode,
+# captioning and media metrics managers; what differs by device is shown only. Then its twin
+# system-services-test-unpermitted, the same sources without the VIBRATE permission, whose vibration and cancel the
+# vibrator service refuses (fixtures/expected/<app>.logcat each).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/system-services-check.sh
 set -euo pipefail

@@ -2020,6 +2020,26 @@ frameworks_base/core/java/android/app/IUiModeManager.aidl
 frameworks_base/core/java/android/app/IUiModeManagerCallback.aidl
 frameworks_base/core/java/android/app/IOnProjectionStateChangedListener.aidl
 frameworks_base/core/java/android/os/IpcDataCache.java
+# Gap 1's batch 3 (App, 2026-10-29): CaptioningManager, which media3's TrackSelectionParameters and SubtitleView ask
+# and which reads the captions' secure settings itself; MediaMetricsManager, whose playback session media3's
+# MediaMetricsListener takes, over the local media metrics service (android.media.metrics.LocalMediaMetricsManager),
+# with its interface, its sessions and the events they report.
+frameworks_base/core/java/android/view/accessibility/CaptioningManager.java
+frameworks_base_types/media/java/android/media/metrics/IMediaMetricsManager.aidl
+frameworks_base_types/media/java/android/media/metrics/MediaMetricsManager.java
+frameworks_base_types/media/java/android/media/metrics/PlaybackSession.java
+frameworks_base_types/media/java/android/media/metrics/RecordingSession.java
+frameworks_base_types/media/java/android/media/metrics/TranscodingSession.java
+frameworks_base_types/media/java/android/media/metrics/EditingSession.java
+frameworks_base_types/media/java/android/media/metrics/BundleSession.java
+frameworks_base_types/media/java/android/media/metrics/Event.java
+frameworks_base_types/media/java/android/media/metrics/PlaybackStateEvent.java
+frameworks_base_types/media/java/android/media/metrics/PlaybackMetrics.java
+frameworks_base_types/media/java/android/media/metrics/PlaybackErrorEvent.java
+frameworks_base_types/media/java/android/media/metrics/NetworkEvent.java
+frameworks_base_types/media/java/android/media/metrics/TrackChangeEvent.java
+frameworks_base_types/media/java/android/media/metrics/EditingEndedEvent.java
+frameworks_base_types/media/java/android/media/metrics/MediaItemInfo.java
 frameworks_base/core/java/android/hardware/lights/LightState.java
 frameworks_base/core/java/android/hardware/lights/LightsRequest.java
 frameworks_base_types/media/java/android/media/session/PlaybackState.java

@@ -4,10 +4,10 @@
  * once per call where the tag's fetcher is static (the input method manager's forContext). It replaces ContextImpl's
  * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
  * power, audio and connectivity services, with power exemptions, which PowerManager asks, the notification service
- * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode manager (batch 3). A name
- * or class without an entry is logged once and gives null, as the tag's onServiceNotFound does; so does a service
- * whose local binder the table lacks (ServiceNotFoundException). AOSP's registry would load the mainline modules'
- * classes and register 141 services; batches 2 and 3 add the rest.
+ * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode, captioning and media
+ * metrics managers (batch 3). A name or class without an entry is logged once and gives null, as the tag's
+ * onServiceNotFound does; so does a service whose local binder the table lacks (ServiceNotFoundException). AOSP's
+ * registry would load the mainline modules' classes and register 141 services; batches 2 and 3 add the rest.
  */
 package android.app;
 
@@ -27,6 +27,8 @@ import android.hardware.SensorManager;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.media.AudioManager;
+import android.media.metrics.IMediaMetricsManager;
+import android.media.metrics.MediaMetricsManager;
 import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
 import android.os.IPowerManager;
@@ -50,6 +52,7 @@ import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.CaptioningManager;
 import android.view.inputmethod.InputMethodManager;
 
 import com.android.internal.policy.PhoneLayoutInflater;
@@ -144,6 +147,13 @@ final class SystemServiceRegistry {
         cached(VIBRATOR_SERVICE, Vibrator.class, ctx -> new SystemVibrator((Context) (Object) ctx));
         // Batch 3: as the tag's, over the local UI mode service.
         cached(Context.UI_MODE_SERVICE, UiModeManager.class, ctx -> new UiModeManager(ctx.getOuterContext()));
+        // Batch 3: as the tag's; the captioning manager reads the captions' settings itself.
+        cached(Context.CAPTIONING_SERVICE, CaptioningManager.class,
+                ctx -> new CaptioningManager(ctx.getOuterContext()));
+        // Batch 3: as the tag's, over the local media metrics service.
+        cached(Context.MEDIA_METRICS_SERVICE, MediaMetricsManager.class, ctx -> new MediaMetricsManager(
+                IMediaMetricsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.MEDIA_METRICS_SERVICE)),
+                ctx.getUserId()));
         // ADR-0063: as AOSP's, over the local location service.
         cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
                 ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));

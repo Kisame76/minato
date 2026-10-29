@@ -75,9 +75,13 @@ for path in "${taken[@]}"; do
   package=$(sed -n 's/^package \([a-zA-Z0-9_.]*\);.*/\1/p' "$source" | head -1)
   name=$(basename "$path")
   if [[ "$name" == *.aidl ]]; then
+    # media's root only for its own files (the media metrics', gap 1's batch 3): for IDisplayManager's import,
+    # aidl-imports declares IMediaProjection, which media's root would give twice.
+    media=()
+    [[ "$path" == frameworks_base_types/media/* ]] && media=(-I"$SOURCES/frameworks_base_types/media/java")
     "$AIDL" --lang=java -I"$SOURCES/frameworks_base/core/java" -I"$SOURCES/frameworks_base_graphics/graphics/java" \
       -I"$SOURCES/frameworks_base_types/apex/jobscheduler/framework/java" -I"$SOURCES/location_java/location/java" \
-      -Iframework/aidl-imports -o "$GEN/aidl" "$source"
+      ${media[@]+"${media[@]}"} -Iframework/aidl-imports -o "$GEN/aidl" "$source"
     continue
   fi
   if [[ "$name" == *.logtags ]]; then

@@ -51,6 +51,24 @@ class AccessibilityManager {
         }
     }
 
+    /**
+     * @hide CaptioningManager's: no system audio captioning runs on Minato, as on a device without the system
+     * captions service, so its UI is off.
+     */
+    public boolean isSystemAudioCaptioningUiEnabled(int userId) {
+        return false;
+    }
+
+    /** @hide CaptioningManager's system API: SET_SYSTEM_AUDIO_CAPTION, which no app holds, refused. */
+    public void setSystemAudioCaptioningEnabled(boolean isEnabled, int userId) {
+        throw new SecurityException("setSystemAudioCaptioningEnabled requires SET_SYSTEM_AUDIO_CAPTION");
+    }
+
+    /** @hide CaptioningManager's system API: SET_SYSTEM_AUDIO_CAPTION, which no app holds, refused. */
+    public void setSystemAudioCaptioningUiEnabled(boolean isEnabled, int userId) {
+        throw new SecurityException("setSystemAudioCaptioningUiEnabled requires SET_SYSTEM_AUDIO_CAPTION");
+    }
+
     /** No accessibility service runs on Minato. */
     public boolean isEnabled() {
         return false;

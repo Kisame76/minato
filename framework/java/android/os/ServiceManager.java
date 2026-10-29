@@ -12,7 +12,7 @@
  * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's (gap 1, batch 1), "user",
  * UserManager's (gap 1, batch 1b), "notification", NotificationManager's (gap 1, batch 2), "jobscheduler",
  * JobScheduler's (gap 9), "alarm", AlarmManager's (batch D 3), "vibrator_manager", the vibrators' (gap 1, batch 3),
- * and "uimode", UiModeManager's (batch 3); App's services join it.
+ * "uimode", UiModeManager's, and "media_metrics", MediaMetricsManager's (batch 3); App's services join it.
  * A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
  */
 package android.os;
@@ -32,6 +32,7 @@ import android.content.ContentService;
 import android.content.Context;
 import android.hardware.display.DisplayService;
 import android.hardware.input.InputService;
+import android.media.metrics.LocalMediaMetricsManager;
 import android.util.Log;
 
 import com.android.internal.compat.PlatformCompatService;
@@ -76,6 +77,7 @@ public final class ServiceManager {
         sMakers.put(Context.URI_GRANTS_SERVICE, LocalUriGrants::newBinder);
         sMakers.put(Context.VIBRATOR_MANAGER_SERVICE, VibratorManagerService::newBinder);
         sMakers.put(Context.UI_MODE_SERVICE, LocalUiModeManager::newBinder);
+        sMakers.put(Context.MEDIA_METRICS_SERVICE, LocalMediaMetricsManager::newBinder);
     }
 
     private ServiceManager() {
