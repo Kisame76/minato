@@ -4,8 +4,11 @@
  * "activity". Registration follows registerReceiverWithFeatureTraced at android-15.0.0_r1: both export flags throw
  * IllegalArgumentException; a receiver of a target SDK of 34 or later must name one of them unless every action of its
  * filter is a protected broadcast of framework-res's manifest, else SecurityException, as the compat change
- * DYNAMIC_RECEIVER_EXPLICIT_EXPORT_REQUIRED (@EnabledSince UPSIDE_DOWN_CAKE) has it; a null receiver only looks up the
- * sticky broadcasts, of which there are none yet. A broadcast reaches the registered filters that match it, by
+ * DYNAMIC_RECEIVER_EXPLICIT_EXPORT_REQUIRED (@EnabledSince UPSIDE_DOWN_CAKE) has it. Registration answers the first
+ * sticky broadcast the filter matches, and a receiver gets each of them at once, as its initial sticky broadcast;
+ * a null receiver only looks them up. The sticky broadcasts are the system's: the battery's ACTION_BATTERY_CHANGED
+ * (LocalBatteryService), kept as the last of its kind, as ActivityManagerService keeps one per filterEquals. A
+ * broadcast reaches the registered filters that match it, by
  * priority and then in registration order, each receiver with its own copy of the intent and of the result: an
  * unordered one at once and assumed delivered, as Android 14's queue does for registered receivers; an ordered one
  * receiver by receiver, the next after the one before finishes (finishReceiver, from the app thread, as
@@ -13,8 +16,9 @@
  * matched. Broadcasts reach the process one after the other, as Android's per-process queue delivers them: one waits
  * while an ordered one before it waits for a receiver. The one app is sender and receiver alike, so exported or not,
  * every filter matches it, and permissions are the app's own. PendingIntents (step d3) are LocalPendingIntents'. Not
- * yet written, each answered as the generated methods are, with a line once and Android's default: sticky
- * broadcasts, broadcast options and app ops, manifest receivers (ADR-0045 decision 5), a PendingIntent's intent, tag
+ * yet written, each answered as the generated methods are, with a line once and Android's default: the app's own
+ * sticky broadcasts, broadcast options and app ops, manifest receivers (ADR-0045 decision 5), a PendingIntent's intent,
+ * tag
  * and target, StrictMode's dropbox, instrumentation and locus contexts that framework.jar also asks the activity
  * manager about. Started and bound services (steps SV2 and SV3) are LocalActiveServices'.
  */
@@ -37,6 +41,7 @@ import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.os.StrictMode;
 import android.os.UserHandle;
 import android.util.Slog;
@@ -67,6 +72,8 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     private final ArrayList<BroadcastFilter> mFilters = new ArrayList<>();
     /** The broadcasts for the process, the first delivering. */
     private final ArrayDeque<Broadcast> mQueue = new ArrayDeque<>();
+    /** The system's sticky broadcasts, one per filterEquals; under mLock. */
+    private final ArrayList<Intent> mStickies = new ArrayList<>();
 
     /** A registered receiver and its filters, as ActivityManagerService's ReceiverList. */
     private static final class ReceiverList {
@@ -104,6 +111,8 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
         boolean mAborted;
         /** The receiver an ordered broadcast waits for, null while it waits for none. */
         ReceiverList mWaitingFor;
+        /** A sticky broadcast a receiver gets as it registers (BroadcastReceiver.isInitialStickyBroadcast). */
+        boolean mInitialSticky;
 
         Broadcast(Intent intent, List<BroadcastFilter> receivers, boolean ordered, IIntentReceiver resultTo, int code,
                 String data, Bundle extras) {
@@ -123,6 +132,11 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     /** ServiceManager's maker for "activity": the Binder that carries a new service. */
     public static IBinder newBinder() {
         return new LocalActivityManagerService();
+    }
+
+    /** The process's service, which ServiceManager's "activity" carries. */
+    static LocalActivityManagerService instance() {
+        return (LocalActivityManagerService) ServiceManager.getService(Context.ACTIVITY_SERVICE);
     }
 
     @Override
@@ -157,12 +171,23 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
                     + "RECEIVER_NOT_EXPORTED should be specified when a receiver "
                     + "isn't being registered exclusively for system broadcasts");
         }
-        // The first matching sticky broadcast: none, as no sticky broadcast is kept yet.
-        Intent sticky = null;
-        if (receiver == null) {
-            return sticky;
+        if (filter.hasAction(Intent.ACTION_BATTERY_CHANGED)) {
+            LocalBatteryService.prepareSticky();
         }
+        Intent sticky;
         synchronized (mLock) {
+            // The matching sticky broadcasts, of which registration answers the first.
+            List<Intent> stickies = new ArrayList<>();
+            for (Intent kept : mStickies) {
+                if (filter.match(kept.getAction(), kept.getType(), kept.getScheme(), kept.getData(),
+                        kept.getCategories(), TAG) >= 0) {
+                    stickies.add(kept);
+                }
+            }
+            sticky = stickies.isEmpty() ? null : new Intent(stickies.get(0));
+            if (receiver == null) {
+                return sticky;
+            }
             ReceiverList list = mReceivers.get(receiver.asBinder());
             if (list == null) {
                 if (mReceivers.size() >= MAX_RECEIVERS_ALLOWED_PER_APP) {
@@ -182,8 +207,40 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
             BroadcastFilter added = new BroadcastFilter(filter, list, requiredPermission);
             list.mFilters.add(added);
             mFilters.add(added);
+            for (Intent kept : stickies) {
+                Broadcast initial = new Broadcast(kept, List.of(added), false, null, -1, null, null);
+                initial.mInitialSticky = true;
+                mQueue.addLast(initial);
+            }
+            if (stickies.isEmpty()) {
+                return sticky;
+            }
         }
+        dispatch();
         return sticky;
+    }
+
+    /**
+     * @hide A broadcast of the system's (LocalBatteryService): as the app's, with the flag ActivityManagerService adds
+     * to every broadcast.
+     */
+    void broadcastFromSystem(Intent intent) {
+        Intent sent = new Intent(intent);
+        sent.addFlags(Intent.FLAG_EXCLUDE_STOPPED_PACKAGES);
+        broadcastIntentWithFeature(null, null, sent, null, null, -1, null, null, null, null, null, -1, null, false,
+                false, UserHandle.myUserId());
+    }
+
+    /** @hide A sticky broadcast of the system's: kept in place of the one it filterEquals, then sent. */
+    void broadcastStickyFromSystem(Intent intent) {
+        Intent sent = new Intent(intent);
+        sent.addFlags(Intent.FLAG_EXCLUDE_STOPPED_PACKAGES);
+        synchronized (mLock) {
+            mStickies.removeIf(sent::filterEquals);
+            mStickies.add(sent);
+        }
+        broadcastIntentWithFeature(null, null, sent, null, null, -1, null, null, null, null, null, -1, null, false,
+                false, UserHandle.myUserId());
     }
 
     /**
@@ -305,14 +362,15 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
         int code = broadcast.mResultCode;
         String data = broadcast.mResultData;
         Bundle extras = broadcast.mResultExtras != null ? new Bundle(broadcast.mResultExtras) : null;
+        boolean sticky = broadcast.mInitialSticky;
         String sender = packageName();
         return () -> {
             try {
                 if (receiver instanceof LoadedApk.ReceiverDispatcher.InnerReceiver) {
                     ((LoadedApk.ReceiverDispatcher.InnerReceiver) receiver).performReceive(intent, code, data, extras,
-                            ordered, false, assumeDelivered, UserHandle.myUserId(), Process.myUid(), sender);
+                            ordered, sticky, assumeDelivered, UserHandle.myUserId(), Process.myUid(), sender);
                 } else {
-                    receiver.performReceive(intent, code, data, extras, ordered, false, UserHandle.myUserId());
+                    receiver.performReceive(intent, code, data, extras, ordered, sticky, UserHandle.myUserId());
                 }
             } catch (RemoteException e) {
                 Slog.w(TAG, "Failure sending broadcast " + intent, e);

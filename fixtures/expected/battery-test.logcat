@@ -1,0 +1,19 @@
+I/battery-test: start
+I/battery-test: sticky: android.intent.action.BATTERY_CHANGED, flags 0x60000010
+I/battery-test: sticky extras: android.os.extra.CHARGING_STATUS:Integer, android.os.extra.CYCLE_COUNT:Integer, battery_low:Boolean, charge_counter:Integer, health:Integer, icon-small:Integer, invalid_charger:Integer, level:Integer, max_charging_current:Integer, max_charging_voltage:Integer, plugged:Integer, present:Boolean, scale:Integer, seq:Integer, status:Integer, technology:String, temperature:Integer, voltage:Integer
+I/battery-test: sticky: level 100, scale 100, status 2, plugged 1, low false
+I/battery-test: battery manager: android.os.BatteryManager, the same by class true
+I/battery-test: capacity 100, status 2, as the sticky's true
+I/battery-test: ready
+I/battery-test: receiver: the sticky one, level 100, scale 100, status 2, plugged 1, low false
+I/battery-test: step 1: level 50, scale 100, status 2, plugged 1, low false
+I/battery-test: step 2: android.intent.action.ACTION_POWER_DISCONNECTED, extras: seq:Integer
+I/battery-test: step 2: level 50, scale 100, status 3, plugged 0, low false
+I/battery-test: step 3: android.intent.action.BATTERY_LOW, extras: seq:Integer
+I/battery-test: step 3: level 10, scale 100, status 3, plugged 0, low true
+I/battery-test: step 4: android.intent.action.ACTION_POWER_CONNECTED, extras: seq:Integer
+I/battery-test: step 4: level 10, scale 100, status 2, plugged 1, low true
+I/battery-test: step 5: android.intent.action.BATTERY_OKAY, extras: seq:Integer
+I/battery-test: step 5: level 50, scale 100, status 2, plugged 1, low false
+I/battery-test: sticky at the end: level 50, scale 100, status 2, plugged 1, low false
+I/battery-test: done

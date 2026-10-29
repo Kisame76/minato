@@ -688,6 +688,13 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.systemservices.ServicesActivity
       limit=90
       ;;
+    # battery-test (gap 1 of the compatibility plan): its activity reads the sticky ACTION_BATTERY_CHANGED and
+    # BatteryManager, logs "ready" and then the battery's broadcasts while the script changes the battery in steps,
+    # and ends with "done".
+    battery-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BatteryActivity
+      limit=120
+      ;;
     # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with
     # "done"; the script has red.jpg and blue.jpg in Pictures and in MediaStore, and taps the thumbnails by their
     # descriptions (tools/ui-pick.py), the first is red.jpg.
@@ -921,6 +928,12 @@ run_app() {
   if [[ -n "${BENCH_CONF:-}" && ("$app" == bench-gles || "$app" == bench-vulkan) ]]; then
     bench_conf_in "$package"
   fi
+  if [[ "$app" == battery-test ]]; then
+    # The battery the run starts with, as apk-run's fixed one: 100 % charging on AC. BatteryService takes each value
+    # as one update and stops reading the emulator's battery until the reset at the end.
+    run dumpsys battery set ac 1 >/dev/null && run dumpsys battery set status 2 >/dev/null &&
+      run dumpsys battery set level 100 >/dev/null || return 1
+  fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   if [[ "$app" == rotation-test ]]; then
     local turned=yes
@@ -931,6 +944,19 @@ run_app() {
     # shellcheck disable=SC2086
     run cmd window user-rotation $rotation >/dev/null
     [[ "$turned" == yes ]] || return 1
+  fi
+  if [[ "$app" == battery-test ]]; then
+    # The battery's steps, two seconds apart once the app is ready: to 50 %, unplugged (AC off, then discharging),
+    # to 10 %, plugged in (AC on, then charging), to 50 % again; then BatteryService reads the emulator's battery
+    # again.
+    local stepped=yes
+    { wait_for "$app" ready && sleep 2 && run dumpsys battery set level 50 >/dev/null && sleep 2 &&
+      run dumpsys battery set ac 0 >/dev/null && sleep 1 && run dumpsys battery set status 3 >/dev/null && sleep 2 &&
+      run dumpsys battery set level 10 >/dev/null && sleep 2 &&
+      run dumpsys battery set ac 1 >/dev/null && sleep 1 && run dumpsys battery set status 2 >/dev/null && sleep 2 &&
+      run dumpsys battery set level 50 >/dev/null; } || stepped=no
+    run dumpsys battery reset >/dev/null
+    [[ "$stepped" == yes ]] || return 1
   fi
   if [[ "$app" == touch-test ]]; then
     # ADR-0045 step 7b2: a tap in the window's middle, then a swipe to the right through it, each a second after

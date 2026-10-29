@@ -73,6 +73,8 @@ final class GameSession {
     @ObservationIgnored private let frameClockSlot = FrameClockSlot()
     /// The guest's audio output (ADR-0036, decision 4).
     @ObservationIgnored let audio = AudioHost(sink: RuntimeAudioSink())
+    /// The iPhone's battery for the guest (the battery, gap 1).
+    @ObservationIgnored private let battery = BatteryHost()
     #if BENCHMARK
     /// A benchmark run's hooks (ADR-0037, decision 3): no menu, FPS label or hint, and the end goes to the run.
     @ObservationIgnored private var benchmark: BenchmarkHooks?
@@ -133,8 +135,8 @@ final class GameSession {
     #endif
 
     /// The session takes over the process once its view is there: it becomes the runtime's session, writes
-    /// the last session's record, and starts its frame clock, its observer of the background and the FPS
-    /// label's sampler. SwiftUI may build a view's state more than once, so init does none of that.
+    /// the last session's record, and starts the battery's reports, its frame clock, its observer of the background
+    /// and the FPS label's sampler. SwiftUI may build a view's state more than once, so init does none of that.
     func open() {
         guard !isOpen else { return }
         isOpen = true
@@ -149,6 +151,7 @@ final class GameSession {
         #else
         SessionEndReport.begin(entry)
         #endif
+        battery.start()
         let clock = DisplayLinkClock(sink: sink)
         frameClock = clock
         frameClockSlot.set(clock)
@@ -174,6 +177,7 @@ final class GameSession {
         isOpen = false
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         backgroundObserver = nil
+        battery.stop()
         frameRateTask?.cancel()
         frameRateTask = nil
         frameClock?.run(false)

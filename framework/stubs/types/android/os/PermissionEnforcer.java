@@ -19,4 +19,8 @@ public class PermissionEnforcer {
     public void enforcePermissionAllOf(String[] permissions, int pid, int uid) {
         throw new RuntimeException("stub");
     }
+
+    public void enforcePermissionAnyOf(String[] permissions, int pid, int uid) {
+        throw new RuntimeException("stub");
+    }
 }

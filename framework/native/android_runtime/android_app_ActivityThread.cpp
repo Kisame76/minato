@@ -293,6 +293,13 @@ jint SessionRequestPermissionCancel(JNIEnv *, jclass, jlong id) {
                                                                                                          : 0;
 }
 
+// The battery (gap 1 of the compatibility plan): APKRT_NR_BATTERY's GET, the host's level | state << 32, or the
+// negative errno (-ENODATA before the host's first value).
+jlong Battery(JNIEnv *, jclass) {
+    const long result = syscall(APKRT_NR_BATTERY, APKRT_BATTERY_GET, 0, 0);
+    return result < 0 ? -errno : static_cast<jlong>(result);
+}
+
 // The location hub (ADR-0063): APKRT_NR_LOCATION's operations, 0 or the negative errno.
 jint LocationStart(JNIEnv *, jclass, jint accuracy, jint distance) {
     apkrt_location_control control = {accuracy, distance};
@@ -392,6 +399,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeLocationCurrent", "(J)I", reinterpret_cast<void *>(LocationCurrent)},
         {"nativeLocationCancel", "(J)I", reinterpret_cast<void *>(LocationCancel)},
         {"nativeLocationFix", "(ZJ[D[J)I", reinterpret_cast<void *>(LocationFix)},
+        {"nativeBattery", "()J", reinterpret_cast<void *>(Battery)},
         {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},

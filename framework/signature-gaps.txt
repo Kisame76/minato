@@ -99,3 +99,13 @@ android.location.GnssMeasurementCorrections <- android.location.ILocationManager
 android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs; no app reflects over a binder interface
 android.os.PermissionEnforcer <- android.app.IUiModeManager  # stays: IUiModeManager's Stub, which the local UI mode service never runs; no app reflects over a binder interface
 android.app.appsearch.GenericDocument <- android.content.pm.ShortcutInfo  # gap: createFromGenericDocument, AppSearch's document (a mainline module's type); Minato has no AppSearch
+android.bluetooth.BluetoothActivityEnergyInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.BluetoothBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.PermissionEnforcer <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.WakeLockStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.connectivity.CellularBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.connectivity.GpsBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.connectivity.WifiActivityEnergyInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.connectivity.WifiBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.os.health.HealthStatsParceler <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.telephony.ModemActivityInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface

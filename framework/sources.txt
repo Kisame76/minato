@@ -2583,3 +2583,10 @@ location_java/location/java/android/location/provider/ProviderRequest.java
 location_java/location/java/android/location/provider/ReverseGeocodeRequest.aidl
 location_java/location/java/android/location/provider/ReverseGeocodeRequest.java
 frameworks_base/core/java/android/location/Location.java
+# The battery (App, 2026-10-29): BatteryManager, over the local battery services (android.app.LocalBatteryService),
+# with the properties' registrar and its BatteryProperty, and the battery stats' interface, whose isCharging and
+# times remaining BatteryManager asks.
+frameworks_base/core/java/android/os/BatteryManager.java
+frameworks_base/core/java/android/os/BatteryProperty.java
+frameworks_base/core/java/android/os/IBatteryPropertiesRegistrar.aidl
+frameworks_base/core/java/com/android/internal/app/IBatteryStats.aidl

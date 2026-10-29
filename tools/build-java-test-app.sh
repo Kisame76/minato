@@ -42,6 +42,8 @@
 # compiles the app against and D8 leaves out, so that the app meets missing classes and members at run time.
 # system-services-test (gap 1 of the compatibility plan, batch 3) is one more, whose activity asks the system services
 # as libraries do; its twin system-services-test-unpermitted requests none of their permissions.
+# battery-test (gap 1 of the compatibility plan) is one more, whose activity reads the battery's sticky broadcast,
+# its changes and BatteryManager.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the
 # Android NDK (ANDROID_NDK, default: r30 in ~/Library/Android/sdk/ndk).

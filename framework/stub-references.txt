@@ -267,3 +267,15 @@ android.os.PermissionEnforcer <- android.app.IUiModeManager  # stays: IUiModeMan
 com.android.internal.util.function.pooled.PooledLambda <- android.app.UiModeManager  # stays: a projection state listener's call, which the local UI mode service never makes (its listeners need READ_PROJECTION_STATE, a system permission)
 com.android.internal.util.function.pooled.PooledRunnable <- android.app.UiModeManager  # stays: as for PooledLambda
 android.content.pm.AppSearchShortcutInfo <- android.content.pm.ShortcutInfo  # gap: ShortcutInfo.createFromGenericDocument (API 31), an AppSearch document's shortcut; Minato has no AppSearch
+android.bluetooth.BluetoothActivityEnergyInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.BatteryUsageStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.BatteryUsageStatsQuery <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.BluetoothBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.PermissionEnforcer <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.WakeLockStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.connectivity.CellularBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.connectivity.GpsBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.connectivity.WifiActivityEnergyInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.connectivity.WifiBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.os.health.HealthStatsParceler <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+android.telephony.ModemActivityInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs

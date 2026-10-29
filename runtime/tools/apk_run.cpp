@@ -63,7 +63,12 @@
 //   key:<code>  (ADR-0045 step 7c2) a key of the virtual keyboard, device -1, at Android key code <code>: DOWN and UP
 //               at the same time on the session's input channel, as `input keyevent`'s. With a touch or a key in the
 //               list, the start's INPUT_QUEUE_CREATED names an input channel (apkrt_input_add), else none, as
-//               before.
+//               before;
+//   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
+//               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
+//               UIDevice side sets it (apkrt_battery_set).
+// The program starts on a fixed battery, 100 % charging, as a phone on its cable: the emulator's battery that
+// Android's reference scripts set (tools/android-reference.sh's battery-test).
 // The guest's surfaces (ADR-0043 c4) get windows of their own without a layer (headless_host.h): SURFACE_CREATED for a
 // make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
 // window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
@@ -243,14 +248,23 @@ bool parse_touch(const std::string &step, Touch &touch) {
     return false;
 }
 
-/// --lifecycle's steps: start first, then background and foreground in turn, and touches after the start or a
-/// foreground; false for any other list.
+/// `step` as battery:<level>:<state> with a level of -1 to 100 and a state of 0 to 3; false for any other step.
+bool parse_battery(const std::string &step, int &level, int &state) {
+    int used = 0;
+    return std::sscanf(step.c_str(), "battery:%d:%d%n", &level, &state, &used) == 2 &&
+           used == static_cast<int>(step.size()) && level >= -1 && level <= 100 &&
+           state >= APKRT_BATTERY_STATE_UNKNOWN && state <= APKRT_BATTERY_STATE_FULL;
+}
+
+/// --lifecycle's steps: start first, then background and foreground in turn, and touches and battery changes after
+/// the start or a foreground; false for any other list.
 bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) {
     std::istringstream list(value);
     std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
     for (std::string step; std::getline(list, step, ',');) {
         Touch touch;
-        if (turns % 2 == 1 && parse_touch(step, touch)) {
+        int level = 0, state = 0;
+        if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state))) {
             steps.push_back(step);
             continue;
         }
@@ -812,6 +826,8 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             apkrt_window_set_gate(window, 1);
             if (!answered(shown, "the start")) return;
             std::fprintf(stderr, "apk-run: the start was answered\n");
+        } else if (int level = 0, state = 0; parse_battery(steps[index], level, state)) {
+            apkrt_battery_set(level, state);
         } else if (Touch touch; parse_touch(steps[index], touch)) {
             if (apk_run_sets_window_buffers() == 0) {
                 buffers.mark();
@@ -1191,6 +1207,10 @@ int main(int argc, char **argv) {
     for (const auto &entry : given) variables.push_back(entry.c_str());
     variables.push_back(nullptr);
 
+    // The fixed battery, before the session as the App's BatteryHost sets it: the guest's first look reads it (GET),
+    // and
+    // only a lifecycle step's change is an event.
+    apkrt_battery_set(100, APKRT_BATTERY_STATE_CHARGING);
     if (configured) {
         // The end handler runs on the guest's thread instead of the process's end: it ends the process as that would.
         session.end = [](void *, int status) {

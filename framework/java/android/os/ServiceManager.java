@@ -12,14 +12,15 @@
  * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's (gap 1, batch 1), "user",
  * UserManager's (gap 1, batch 1b), "notification", NotificationManager's (gap 1, batch 2), "jobscheduler",
  * JobScheduler's (gap 9), "alarm", AlarmManager's (batch D 3), "vibrator_manager", the vibrators' (gap 1, batch 3),
- * "uimode", UiModeManager's, "media_metrics", MediaMetricsManager's, and "shortcut", ShortcutManager's (batch 3);
- * App's services join it.
+ * "uimode", UiModeManager's, "media_metrics", MediaMetricsManager's, and "shortcut", ShortcutManager's (batch 3),
+ * and "batteryproperties" and "batterystats", BatteryManager's (the battery); App's services join it.
  * A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
  */
 package android.os;
 
 import android.app.LocalActivityManagerService;
 import android.app.LocalActivityTaskManager;
+import android.app.LocalBatteryService;
 import android.app.LocalAlarmManager;
 import android.location.LocalLocationManager;
 import android.app.LocalJobScheduler;
@@ -81,6 +82,8 @@ public final class ServiceManager {
         sMakers.put(Context.UI_MODE_SERVICE, LocalUiModeManager::newBinder);
         sMakers.put(Context.MEDIA_METRICS_SERVICE, LocalMediaMetricsManager::newBinder);
         sMakers.put(Context.SHORTCUT_SERVICE, LocalShortcutService::newBinder);
+        sMakers.put("batteryproperties", LocalBatteryService::newPropertiesBinder);
+        sMakers.put(BatteryStats.SERVICE_NAME, LocalBatteryService::newStatsBinder);
     }
 
     private ServiceManager() {

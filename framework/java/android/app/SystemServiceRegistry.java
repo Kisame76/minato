@@ -5,7 +5,8 @@
  * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
  * power, audio and connectivity services, with power exemptions, which PowerManager asks, the notification service
  * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode, captioning, media
- * metrics, autofill and shortcut managers (batch 3). A name or class without an entry is logged once and gives null,
+ * metrics, autofill and shortcut managers (batch 3), and the battery manager. A name or class without an entry is
+ * logged once and gives null,
  * as the tag's onServiceNotFound does; so does a service whose local binder the table lacks
  * (ServiceNotFoundException). AOSP's registry would load the mainline modules' classes and register 141 services;
  * batches 2 and 3 add the rest.
@@ -33,6 +34,9 @@ import android.media.metrics.IMediaMetricsManager;
 import android.media.metrics.MediaMetricsManager;
 import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
+import android.os.BatteryManager;
+import android.os.BatteryStats;
+import android.os.IBatteryPropertiesRegistrar;
 import android.os.IPowerManager;
 import android.os.IThermalService;
 import android.os.IUserManager;
@@ -58,6 +62,7 @@ import android.view.accessibility.CaptioningManager;
 import android.view.autofill.AutofillManager;
 import android.view.inputmethod.InputMethodManager;
 
+import com.android.internal.app.IBatteryStats;
 import com.android.internal.policy.PhoneLayoutInflater;
 import com.android.minato.services.Unwritten;
 
@@ -162,6 +167,10 @@ final class SystemServiceRegistry {
         cached(Context.MEDIA_METRICS_SERVICE, MediaMetricsManager.class, ctx -> new MediaMetricsManager(
                 IMediaMetricsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.MEDIA_METRICS_SERVICE)),
                 ctx.getUserId()));
+        // The battery: as the tag's, over the local battery services.
+        cached(Context.BATTERY_SERVICE, BatteryManager.class, ctx -> new BatteryManager(ctx.getOuterContext(),
+                IBatteryStats.Stub.asInterface(ServiceManager.getServiceOrThrow(BatteryStats.SERVICE_NAME)),
+                IBatteryPropertiesRegistrar.Stub.asInterface(ServiceManager.getServiceOrThrow("batteryproperties"))));
         // ADR-0063: as AOSP's, over the local location service.
         cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
                 ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));

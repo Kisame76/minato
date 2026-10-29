@@ -1179,6 +1179,7 @@ public final class ActivityThread {
     private static final int EVENT_OPEN_RESULT = 25;
     private static final int EVENT_PERMISSION_RESULT = 26;
     private static final int EVENT_LOCATION = 27;
+    private static final int EVENT_BATTERY = 28;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
@@ -1412,6 +1413,9 @@ public final class ActivityThread {
                 break;
             case EVENT_LOCATION:
                 LocalLocationManager.onEvent(event[2], (int) event[3], event[4]);
+                break;
+            case EVENT_BATTERY:
+                LocalBatteryService.onEvent((int) event[2], (int) event[3]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2549,6 +2553,15 @@ public final class ActivityThread {
         return sessionOf() != null && nativeLocationFix(true, 0, doubles, longs) == 1;
     }
 
+    /**
+     * @hide LocalBatteryService's: the host's battery as its level in percent (0xffffffff when unknown) | its state
+     * (APKRT_BATTERY_STATE_*) << 32, or a negative errno, -ENODATA before the host's first value. No session needed:
+     * the value is the runtime's.
+     */
+    public static long battery() {
+        return nativeBattery();
+    }
+
     /** The thread when a session drives it, else null: the requests to the host have no one to answer without. */
     private static ActivityThread sessionOf() {
         final ActivityThread thread = sCurrentActivityThread;
@@ -2770,6 +2783,9 @@ public final class ActivityThread {
 
     /** GET (the fix of `sequence`) or LAST into nine doubles and four longs; 1 filled, 0 none, or a negative errno. */
     private static native int nativeLocationFix(boolean last, long sequence, double[] doubles, long[] longs);
+
+    /** APKRT_NR_BATTERY's GET: level | state << 32, or a negative errno. */
+    private static native long nativeBattery();
     private static native int nativeSessionRequestExportMedia(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
