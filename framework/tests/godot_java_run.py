@@ -15,7 +15,11 @@ Godot instance"), within 2 s of that line, as android-reference.sh waits for the
 the runtime's end handler ends apk-run on a guest's own SIGKILL with 137, 128 and the signal, as a shell shows
 Android's; a process still there is killed by the harness and counts as 0 (app_process_run.run_app).
 
-Usage: godot_java_run.py <app> <package> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data> <apk-convert>
+With --odex <file>, the file and its .vdex beside it lie at ART's place for base.apk, as for java_app_run.py's --odex
+(M6 c1). The run's wall time, from apk-run's start to its end, is printed as "wall: <s> s" (tools/oat-start-measure.sh).
+
+Usage: godot_java_run.py [--odex <file>] <app> <package> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
+                         <apk-convert>
                          <graphics-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
                          <expected>
 """
@@ -23,6 +27,7 @@ import os
 import re
 import signal
 import sys
+import time
 
 from app_process_run import missing, start
 
@@ -40,6 +45,9 @@ LAST = TAG + r"run [^:]+: [0-9]+ frames, [0-9]+ failures$"
 
 def main():
     args = sys.argv[1:]
+    odex = None
+    if args[:1] == ["--odex"] and len(args) > 1:
+        odex, args = args[1], args[2:]
     if len(args) != 15:
         raise SystemExit(__doc__)
     (app, package, art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, graphics_run, work, app_process,
@@ -56,9 +64,11 @@ def main():
     mounts = [("/system/framework/framework-res", folder)]
     if os.path.isfile(os.path.join(PERMISSIONS, "platform.xml")):
         mounts.append(("/system/etc/permissions", PERMISSIONS))
+    began = time.monotonic()
     result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, graphics_run, work, app_process,
                    framework_jar, apk, package, None, mounts=mounts, configuration="1290x2796@3,en-US", last=LAST,
-                   lifecycle=LIFECYCLE)
+                   lifecycle=LIFECYCLE, odex=odex)
+    wall = time.monotonic() - began
     if result is None:
         print("FAIL: no run line within 300 s")
         sys.exit(1)
@@ -71,6 +81,7 @@ def main():
     ended = result.returncode == 128 + signal.SIGKILL
     if ended and got == wanted and ran:
         print(f"{app} logged what Android 15 logs, {len(got)} lines, ran without failures and ended itself")
+        print(f"wall: {wall:.3f} s")
         for line in godot:
             if line not in got:
                 print(f"  device: {line}")
