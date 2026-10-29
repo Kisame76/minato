@@ -40,11 +40,12 @@ sys.path.insert(0, 'framework/tests')
 from app_process_run import code_path
 print(code_path('$apk', '$package') + '/base.apk')")
 echo "power at the start: $(power); load: $(load)"
-began=$(python3 -c "import time; print(time.monotonic())")
+# The wall clock, as two Python processes take the times: time.monotonic() starts near 0 in each on macOS.
+began=$(python3 -c "import time; print(time.time())")
 python3 runtime/tests/dex2oat_make.py build/art build/bionic/lib build/bionic/system \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" "$work/dex2oat" "$apk" "$location" "$work/odex"
-echo "dex2oat: $(python3 -c "import time; print(f'{time.monotonic() - $began:.1f}')") s;" \
+echo "dex2oat: $(python3 -c "import time; print(f'{time.time() - $began:.1f}')") s;" \
   "odex $(stat -f %z "$work/odex.odex") bytes, vdex $(stat -f %z "$work/odex.vdex") bytes"
 
 series() { # series <with|without> <n>
