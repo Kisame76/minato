@@ -61,9 +61,10 @@ import Testing
         poster.takesDevices = true
         var keyboard = HardwareKeyboard()
         _ = keyboard.press(usage: 0x04, down: true, time: 1)
-        delivery.post(keyboard.press(usage: 0x04, down: false, time: 2))
+        delivery.post(keyboard.press(usage: 0x04, down: false, time: 2))  // the up of the dropped down: dropped
+        delivery.post(keyboard.press(usage: 0x05, down: true, time: 3))
 
-        #expect(poster.calls == ["device 1000 on 7", "device 1000 on 7", "device 1000 on 7", "key 29/1 on 7"])
+        #expect(poster.calls == ["device 1000 on 7", "device 1000 on 7", "device 1000 on 7", "key 30/0 on 7"])
     }
 
     @Test func aTakenDeviceIsNotOfferedAgain() {
@@ -87,5 +88,30 @@ import Testing
         delivery.post(keyboard.press(usage: 0x04, down: false, time: 2))
 
         #expect(poster.calls.suffix(2) == ["device 1000 on 9", "key 29/1 on 9"])
+    }
+
+    @Test func theUpOfADroppedDownIsDroppedToo() {
+        let poster = Poster()
+        let delivery = KeyDelivery(poster: poster)
+        var keyboard = HardwareKeyboard()
+        delivery.post(keyboard.press(usage: 0x04, down: true, time: 1))  // no channel yet: dropped
+        delivery.channel = 7
+        delivery.post(keyboard.press(usage: 0x04, down: false, time: 2))  // its up must not arrive alone
+        delivery.post(keyboard.press(usage: 0x05, down: true, time: 3))
+
+        #expect(poster.calls == ["device 1000 on 7", "key 30/0 on 7"])
+    }
+
+    @Test func aRepeatOfADroppedDownIsDroppedToo() {
+        let poster = Poster()
+        let delivery = KeyDelivery(poster: poster)
+        var keyboard = HardwareKeyboard()
+        delivery.post(keyboard.press(usage: 0x04, down: true, time: 1))  // no channel yet: dropped
+        delivery.channel = 7
+        delivery.post(keyboard.press(usage: 0x04, down: true, time: 2))  // a repeat: no first down for the guest
+        delivery.post(keyboard.press(usage: 0x04, down: false, time: 3))
+        delivery.post(keyboard.press(usage: 0x05, down: true, time: 4))
+
+        #expect(poster.calls == ["device 1000 on 7", "key 30/0 on 7"])
     }
 }
