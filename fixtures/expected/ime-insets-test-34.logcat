@@ -1,0 +1,13 @@
+I/ime-insets-test-34: ime inset nonzero, visible true
+I/ime-insets-test-34: resize shown: content resized, ime inset nonzero, field above the visible frame's bottom, inside the content
+I/ime-insets-test-34: ime inset zero, visible false
+I/ime-insets-test-34: resize hidden: content full, ime inset zero, field above the visible frame's bottom, inside the content
+I/ime-insets-test-34: ime inset nonzero, visible true
+I/ime-insets-test-34: pan shown: content full, ime inset nonzero, field below the visible frame's bottom, inside the content
+I/ime-insets-test-34: ime inset zero, visible false
+I/ime-insets-test-34: pan hidden: content full, ime inset zero, field above the visible frame's bottom, inside the content
+I/ime-insets-test-34: ime inset nonzero, visible true
+I/ime-insets-test-34: unspecified shown: content full, ime inset nonzero, field below the visible frame's bottom, inside the content
+I/ime-insets-test-34: ime inset zero, visible false
+I/ime-insets-test-34: unspecified hidden: content full, ime inset zero, field above the visible frame's bottom, inside the content
+I/ime-insets-test-34: done

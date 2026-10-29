@@ -223,7 +223,9 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
-  "$app" == title-test || "$app" == ime-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
+  "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
+  "$app" == ime-fallback-test ||
+  "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -342,6 +344,7 @@ wait_for() {
     sleep 0.5
   done
   echo "$1 did not log \"$2\" within $seconds s." >&2
+  run logcat -d -v tag | grep -F "$1" | tail -n 12 | sed 's/^/  /' >&2
   return 1
 }
 
@@ -451,6 +454,8 @@ input_methods_back() {
 
 ime_test_off() {
   run ime disable io.github.kisame76.minato.test.ime/.FixtureInputMethod >/dev/null 2>&1 || true
+  run ime disable io.github.kisame76.minato.test.imeinsets/.FixtureInputMethod >/dev/null 2>&1 || true
+  run ime disable io.github.kisame76.minato.test.imefallback/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.nativeime/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.nativejniime/.FixtureInputMethod >/dev/null 2>&1 || true
 }
@@ -826,6 +831,16 @@ run_app() {
     ime-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ImeActivity
       ;;
+    # ime-insets-test (ADR-0068 step 2d): an adjustResize window whose fixture keyboard has a fixed height; it shows and
+    # hides the keyboard and logs the IME inset and the content's size after each, then "done".
+    # ime-fallback-test (ADR-0069 step 3): a plain focused view, which the fixture input method types into through the
+    # fallback connection; it ends with "done" after the editor action's key.
+    ime-fallback-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FallbackActivity
+      ;;
+    ime-insets-test | ime-insets-test-34)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ResizeActivity
+      ;;
     # native-ime-test (ADR-0068 step 2e): a NativeActivity that asks for the keyboard, which Android 15 ignores, so its
     # fixture input method never starts; after its "soft input done" the script sends B and DEL as keys from outside,
     # and the DEL's release ends it with "done".
@@ -881,7 +896,8 @@ run_app() {
   # A ring for a long log (media-extractor-test's about 600 lines) beside the system's own lines.
   run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
-  if [[ "$app" == ime-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
+  if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
+    "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
     # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
     # with the exit trap.
     run ime enable "$package/.FixtureInputMethod" >/dev/null
@@ -1324,7 +1340,8 @@ if [[ -n "$app" ]]; then
   # ime-test (ADR-0068 step 2a) types through the fixture input method it installs, and native-ime-test (step 2e)
   # installs one too: the image's input methods and its default are put back at every exit, as for text-test, and the
   # fixture's own is switched off.
-  if [[ "$app" == ime-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
+  if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
+    "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods=$(run ime list -s | tr -d '\r')
     default_input_method=$(run settings get secure default_input_method | tr -d '\r')

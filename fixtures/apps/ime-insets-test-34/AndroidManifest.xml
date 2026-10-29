@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ime-insets-test as an app of target SDK 34, which Android 15 does not lay out edge to edge. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.imeinsets" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="34"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.imeinsets.ResizeActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="adjustResize">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.imeinsets.PanActivity" android:exported="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="adjustPan"/>
+    <activity android:name="io.github.kisame76.minato.test.imeinsets.UnspecifiedActivity" android:exported="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="adjustUnspecified"/>
+    <service android:name="io.github.kisame76.minato.test.imeinsets.FixtureInputMethod" android:exported="true"
+        android:label="@string/ime_name" android:permission="android.permission.BIND_INPUT_METHOD">
+      <intent-filter>
+        <action android:name="android.view.InputMethod"/>
+      </intent-filter>
+      <meta-data android:name="android.view.im" android:resource="@xml/method"/>
+    </service>
+  </application>
+</manifest>

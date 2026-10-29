@@ -1,0 +1,13 @@
+I/ime-insets-test: ime inset nonzero, visible true
+I/ime-insets-test: resize shown: content full, ime inset nonzero, field below the visible frame's bottom, inside the content
+I/ime-insets-test: ime inset zero, visible false
+I/ime-insets-test: resize hidden: content full, ime inset zero, field below the visible frame's bottom, inside the content
+I/ime-insets-test: ime inset nonzero, visible true
+I/ime-insets-test: pan shown: content full, ime inset nonzero, field below the visible frame's bottom, inside the content
+I/ime-insets-test: ime inset zero, visible false
+I/ime-insets-test: pan hidden: content full, ime inset zero, field below the visible frame's bottom, inside the content
+I/ime-insets-test: ime inset nonzero, visible true
+I/ime-insets-test: unspecified shown: content full, ime inset nonzero, field below the visible frame's bottom, inside the content
+I/ime-insets-test: ime inset zero, visible false
+I/ime-insets-test: unspecified hidden: content full, ime inset zero, field below the visible frame's bottom, inside the content
+I/ime-insets-test: done

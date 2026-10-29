@@ -58,6 +58,8 @@ class InputMethodManager {
         private final View mView;
         private final AtomicBoolean mDeactivateRequested = new AtomicBoolean(false);
         final long mSerial;
+        /** The IMM's own BaseInputConnection(imm, false), which a view without a connection is served with. */
+        boolean mFallback;
 
         ServedConnection(InputConnection connection, Looper looper, View view, long serial) {
             mConnection = connection;
@@ -370,9 +372,15 @@ class InputMethodManager {
         final EditorInfo editorInfo = new EditorInfo();
         editorInfo.packageName = view.getContext().getOpPackageName();
         editorInfo.fieldId = view.getId();
-        final InputConnection connection = view.onCreateInputConnection(editorInfo);
+        InputConnection connection = view.onCreateInputConnection(editorInfo);
+        boolean fallback = false;
         if (connection == null) {
+            // As AOSP's service-side mFallbackInputConnection = BaseInputConnection(imm, false) (InputMethodService
+            // 4001-4010 at the tag): a view without a connection is served all the same, and the input method's
+            // calls turn into key events for the served view (ADR-0069 step 3: a NativeActivity's decor view).
             editorInfo.fieldId = 0;
+            connection = new BaseInputConnection(this, false);
+            fallback = true;
         }
         if (getServedView() != view || !mServedConnecting) {
             return false;
@@ -390,6 +398,7 @@ class InputMethodManager {
             mServedInputConnection = new ServedConnection(connection,
                     connectionHandler != null ? connectionHandler.getLooper() : handler.getLooper(), view,
                     ++mLastSerial);
+            mServedInputConnection.mFallback = fallback;
             requestIme(mServedInputConnection.mSerial, startRequest(editorInfo));
         }
         return true;
@@ -516,7 +525,8 @@ class InputMethodManager {
 
     public boolean isAcceptingText() {
         checkFocus();
-        return mServedInputConnection != null;
+        // As AOSP's: the fallback connection lives on the service's side, so the app has none served.
+        return mServedInputConnection != null && !mServedInputConnection.mFallback;
     }
 
     public boolean isFullscreenMode() {
