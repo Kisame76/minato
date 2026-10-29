@@ -429,6 +429,53 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
         --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS)
     set_tests_properties(runtime.art_stress_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    # The same programs under nterp, ART's default interpreter, instead of -Xint (M6 a, ADR-0053 step 3, patch 0008):
+    # art-hello and nterp-test (interface calls, null receivers, monitors) in the default window and in the upper
+    # half, codec-test in the default window, in the upper half and under CMS, and stress-test under CMS. Their output
+    # is the -Xint programs'. The run-tests under nterp need MINATO_ART_NTERP=1 (runtime/tests/art_run_tests.py).
+    foreach(nterp_program IN ITEMS art-hello nterp-test)
+      string(REPLACE "-" "_" nterp_name "${nterp_program}")
+      add_test(NAME runtime.${nterp_name}_nterp${suffix}
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+          "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+          $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+          "${APK_ART_DIR}/test/${nterp_program}.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/${nterp_program}.out"
+          ${flag} --nterp)
+      set_tests_properties(runtime.${nterp_name}_nterp${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+        TIMEOUT 400)
+    endforeach()
+    add_test(NAME runtime.art_hello_nterp_upper_half${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/art-hello.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/art-hello.out" ${flag}
+        --nterp --upper-half)
+    set_tests_properties(runtime.art_hello_nterp_upper_half${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+      TIMEOUT 400)
+    foreach(nterp_mode IN ITEMS "" "_upper_half" "_cms")
+      set(nterp_args --offsets)
+      if(nterp_mode STREQUAL "_upper_half")
+        set(nterp_args --offsets --upper-half)
+      elseif(nterp_mode STREQUAL "_cms")
+        set(nterp_args --offsets --gc CMS)
+      endif()
+      add_test(NAME runtime.art_codec_nterp${nterp_mode}${suffix}
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+          "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+          $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+          "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
+          --nterp --library "${APK_FIXTURES_DIR}/libcodec-test.so" ${nterp_args})
+      set_tests_properties(runtime.art_codec_nterp${nterp_mode}${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+        TIMEOUT 400)
+    endforeach()
+    add_test(NAME runtime.art_stress_nterp_cms${suffix}
+      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
+        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+        "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
+        --nterp --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS)
+    set_tests_properties(runtime.art_stress_nterp_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+      TIMEOUT 400)
     # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, one after another, each printing
     # what Android 15 prints; the whole subset is a check of its own (runtime/tests/art_run_tests.py without
     # --sample). The first run builds the sample's jars, about 0.5 s each.

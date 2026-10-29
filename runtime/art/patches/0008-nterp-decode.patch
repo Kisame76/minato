@@ -1,0 +1,521 @@
+Minato (M6 a step 3, ADR-0053): nterp decodes references. A reference is the low 32 bits of the object's address
+in the heap window (heap_window.h), so a reference that was only loaded must become an address before it is used as
+one: DECODE_REF (orr xN, x20, xN, with the window's base in x20, in place and harmless on an address) after the
+explicit null test; DECODE_REF_OR_NULL where C++ takes the pointer and null must stay null. Encoding costs nothing.
+ - nterp's object, array, invoke and control-flow handlers, its clinit check and its card mark (from the address);
+ - the stubs nterp calls: aput_obj, lock/unlock (fast and slow paths, also the JNI ones), check_instance_of,
+   invoke_polymorphic, the array size computation of the allocation stubs, and the rosalloc fast path, whose free
+   slot's 64-bit next pointer overlaps the new object's lock word (the class store clears it with stp);
+ - C++: ArtMethod::Invoke decodes a reference result (nterp and compiled code return the offset in w0),
+   nterp's filled-new-array, StackVisitor's references and the deoptimization's.
+ - runtime/art/codec-sites.txt lists every place; tools/art-codec-sites.py checks it.
+
+--- a/art/runtime/interpreter/mterp/arm64ng/main.S
++++ b/art/runtime/interpreter/mterp/arm64ng/main.S
+@@ -1425,7 +1425,10 @@
+    .if \is_object
+    cbz     \value, \label
+    ldr     ip, [xSELF, #THREAD_CARD_TABLE_OFFSET]
+-   lsr     wip2, \holder, #CARD_TABLE_CARD_SHIFT
++   // The card table is indexed by the holder's address, not by its reference (M6 a, ADR-0053).
++   mov     wip2, \holder
++   DECODE_REF ip2
++   lsr     ip2, ip2, #CARD_TABLE_CARD_SHIFT
+    strb    wip, [ip, ip2]
+ \label:
+    .endif
+@@ -1615,6 +1618,7 @@
+     // on art_quick_resolution_trampoline to always have a suspend point before
+     // calling back here.
+     ldr wip, [x0, #ART_METHOD_DECLARING_CLASS_OFFSET]
++    DECODE_REF ip
+     ldr wip2, [ip, #MIRROR_CLASS_STATUS_OFFSET]
+     lsr wip2, wip2, #MIRROR_CLASS_STATUS_SHIFT
+     cmp wip2, #MIRROR_CLASS_STATUS_VISIBLY_INITIALIZED
+--- a/art/runtime/interpreter/mterp/arm64ng/object.S
++++ b/art/runtime/interpreter/mterp/arm64ng/object.S
+@@ -6,6 +6,7 @@
+    lsr     w2, wINST, #8               // w2<- A
+    GET_VREG w0, w2                     // w0<- vA (object)
+    cbz     w0, .L${opcode}_resume
++   DECODE_REF x0
+    ldr     w2, [x0, #MIRROR_OBJECT_CLASS_OFFSET]
+    UNPOISON_HEAP_REF w2
+    // Fast path: do a comparison without read barrier.
+@@ -36,6 +37,7 @@
+    UNPOISON_HEAP_REF w3
+    cbnz    w3, 5f
+ 1:
++   DECODE_REF x2
+    ldr     w2, [x2, #MIRROR_CLASS_SUPER_CLASS_OFFSET]
+    UNPOISON_HEAP_REF w2
+    cmp     w1, w2
+@@ -52,6 +54,8 @@
+    b       3b
+ 5:
+    // Class in w1 is an array, w3 is the component type.
++   DECODE_REF x2
++   DECODE_REF x3
+    ldr     w2, [x2, #MIRROR_CLASS_COMPONENT_TYPE_OFFSET]
+    UNPOISON_HEAP_REF w2
+    // Check if object is an array.
+@@ -64,6 +68,7 @@
+    // If the component type is primitive, go slow path.
+    cbnz    w3, 2b
+    // Check if the object is a primitive array.
++   DECODE_REF x2
+    ldrh    w2, [x2, #MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET]
+    cbz     w2, .L${opcode}_resume
+    // Go slow path for throwing the exception.
+@@ -78,6 +83,7 @@
+    lsr     w2, wINST, #12              // w2<- B
+    GET_VREG w0, w2                     // w0<- vB (object)
+    cbz     w0, .L${opcode}_resume
++   DECODE_REF x0
+    ldr     w2, [x0, #MIRROR_OBJECT_CLASS_OFFSET]
+    UNPOISON_HEAP_REF w2
+    // Fast path: do a comparison without read barrier.
+@@ -110,6 +116,7 @@
+    UNPOISON_HEAP_REF w3
+    cbnz    w3, 3f
+ 1:
++   DECODE_REF x2
+    ldr     w2, [x2, #MIRROR_CLASS_SUPER_CLASS_OFFSET]
+    UNPOISON_HEAP_REF w2
+    cmp     w1, w2
+@@ -120,6 +127,8 @@
+    b       .L${opcode}_resume
+ 3:
+    // Class in x1 is an array, x3 is the component type of x1, and x2 is the class of the object.
++   DECODE_REF x2
++   DECODE_REF x3
+    ldr     w2, [x2, #MIRROR_CLASS_COMPONENT_TYPE_OFFSET]
+    UNPOISON_HEAP_REF w2
+    // Check if object is an array.
+@@ -134,6 +143,7 @@
+    // If x1 is a primitive array class, we know the check is false.
+    cbnz    w3, 2b
+    // Check if x2 is a primitive array class.
++   DECODE_REF x2
+    ldrh    w2, [x2, #MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET]
+    cmp     w2, #0
+    cset    w0, eq
+@@ -166,6 +176,7 @@
+    GET_VREG w3, w2                     // w3<- object we're operating on
+    ubfx    w2, wINST, #8, #4           // w2<- A
+    cbz     w3, common_errNullObject    // object was null
++   DECODE_REF x3
+    .if $wide
+    $load   x0, [x3, x0]
+    SET_VREG_WIDE x0, w2                // fp[A] <- value
+@@ -205,6 +216,7 @@
+    GET_VREG w3, w2                     // w3<- object we're operating on
+    ubfx    w2, wINST, #8, #4           // w2<- A
+    cbz     w3, common_errNullObject    // object was null
++   DECODE_REF x3
+    add     x3, x3, x0
+    .if $wide
+    $volatile_load x0, [x3]
+@@ -255,6 +267,7 @@
+    lsr     w2, wINST, #12              // w2<- B
+    GET_VREG w2, w2                     // vB (object we're operating on)
+    cbz w2, common_errNullObject
++   DECODE_REF x2
+    .if $wide
+    $store  x26, [x2, x0]
+    .else
+@@ -291,6 +304,7 @@
+    lsr     w2, wINST, #12              // w2<- B
+    GET_VREG w2, w2                     // vB (object we're operating on)
+    cbz     w2, common_errNullObject
++   DECODE_REF x2
+    add     x3, x2, x0
+    .if $wide
+    $volatile_store x26, [x3]
+@@ -329,6 +343,7 @@
+    ldr     w1, [x0, #ART_FIELD_OFFSET_OFFSET]
+    lsr     w2, wINST, #8               // w2 <- A
+    ldr     w0, [x0, #ART_FIELD_DECLARING_CLASS_OFFSET]
++   DECODE_REF x0
+    TEST_IF_MARKING .L${opcode}_read_barrier
+ .L${opcode}_resume_after_read_barrier:
+    .if $wide
+@@ -372,6 +387,7 @@
+    ldr     w1, [x0, #ART_FIELD_OFFSET_OFFSET]
+    lsr     w2, wINST, #8               // w2 <- A
+    ldr     w0, [x0, #ART_FIELD_DECLARING_CLASS_OFFSET]
++   DECODE_REF x0
+    TEST_IF_MARKING .L${opcode}_slow_path_read_barrier
+ .L${opcode}_slow_path_resume_after_read_barrier:
+    add     x0, x0, x1
+@@ -426,6 +442,7 @@
+ .L${opcode}_resume:
+    ldr     w1, [x0, #ART_FIELD_OFFSET_OFFSET]
+    ldr     w0, [x0, #ART_FIELD_DECLARING_CLASS_OFFSET]
++   DECODE_REF x0
+    TEST_IF_MARKING .L${opcode}_read_barrier
+ .L${opcode}_resume_after_read_barrier:
+    .if $wide
+@@ -462,6 +479,7 @@
+    CLEAR_STATIC_VOLATILE_MARKER x0
+    ldr     w1, [x0, #ART_FIELD_OFFSET_OFFSET]
+    ldr     w0, [x0, #ART_FIELD_DECLARING_CLASS_OFFSET]
++   DECODE_REF x0
+    TEST_IF_MARKING .L${opcode}_slow_path_read_barrier
+ .L${opcode}_slow_path_resume_after_read_barrier:
+    add     x1, x0, x1
+--- a/art/runtime/interpreter/mterp/arm64ng/array.S
++++ b/art/runtime/interpreter/mterp/arm64ng/array.S
+@@ -11,6 +11,7 @@
+     GET_VREG w0, w2                     // w0<- vBB (array object)
+     GET_VREG w1, w3                     // w1<- vCC (requested index)
+     cbz     x0, common_errNullObject    // bail if null array object.
++    DECODE_REF x0
+     ldr     w3, [x0, #MIRROR_ARRAY_LENGTH_OFFSET]    // w3<- arrayObj->length
+     add     x0, x0, w1, uxtw #$shift    // w0<- arrayObj + index*width
+     cmp     w1, w3                      // compare unsigned index, length
+@@ -68,6 +69,7 @@
+     GET_VREG w0, w2                     // w0<- vBB (array object)
+     GET_VREG w1, w3                     // w1<- vCC (requested index)
+     cbz     w0, common_errNullObject    // bail if null
++    DECODE_REF x0
+     ldr     w3, [x0, #MIRROR_ARRAY_LENGTH_OFFSET]     // w3<- arrayObj->length
+     .if !$is_object
+     add     x0, x0, w1, uxtw #$shift    // w0<- arrayObj + index*width
+@@ -119,6 +121,7 @@
+     ubfx    w2, wINST, #8, #4           // w2<- A
+     GET_VREG w0, w1                     // w0<- vB (object ref)
+     cbz     w0, common_errNullObject    // bail if null
++    DECODE_REF x0
+     FETCH_ADVANCE_INST 1                // advance rPC, load rINST
+     ldr     w3, [x0, #MIRROR_ARRAY_LENGTH_OFFSET]    // w3<- array length
+     GET_INST_OPCODE ip                  // extract opcode from rINST
+@@ -134,6 +137,7 @@
+     orr     x0, x0, x1, lsl #16         // x0<- ssssssssBBBBbbbb
+     GET_VREG w1, w3                     // w1<- vAA (array object)
+     add     x0, xPC, x0, lsl #1         // x0<- PC + ssssssssBBBBbbbb*2 (array data off.)
++    DECODE_REF_OR_NULL x1               // the stub's C++ takes the array's address
+     bl      art_quick_handle_fill_data
+     FETCH_ADVANCE_INST 3                // advance rPC, load rINST
+     GET_INST_OPCODE ip                  // extract opcode from rINST
+--- a/art/runtime/interpreter/mterp/arm64ng/control_flow.S
++++ b/art/runtime/interpreter/mterp/arm64ng/control_flow.S
+@@ -183,6 +183,7 @@
+   EXPORT_PC
+   lsr      w2, wINST, #8               // r2<- AA
+   GET_VREG w0, w2                      // r0<- vAA (exception object)
++  DECODE_REF_OR_NULL x0                // the stub's C++ takes the object's address, null throws NPE
+   mov x1, xSELF
+   bl art_quick_deliver_exception
+   brk 0
+--- a/art/runtime/interpreter/mterp/arm64ng/invoke.S
++++ b/art/runtime/interpreter/mterp/arm64ng/invoke.S
+@@ -81,7 +81,9 @@
+    and w1, w1, #0xf
+    .endif
+    GET_VREG w1, w1
+-   // Note: if w1 is null, this will be handled by our SIGSEGV handler.
++   // Note: if w1 is null, this will be handled by our SIGSEGV handler: the decode makes it B, whose page is
++   // the guard page.
++   DECODE_REF x1
+    ldr w2, [x1, #MIRROR_OBJECT_CLASS_OFFSET]
+    UNPOISON_HEAP_REF w2
+    // Test the first two bits of the fetched ArtMethod:
+@@ -91,6 +93,7 @@
+    b.ne 2f
+    ldrh w3, [x26, #ART_METHOD_IMT_INDEX_OFFSET]
+ 1:
++   DECODE_REF x2
+    ldr x2, [x2, #MIRROR_CLASS_IMT_PTR_OFFSET_64]
+    ldr x0, [x2, w3, uxtw #3]
+    .if $range
+@@ -107,6 +110,7 @@
+ 3:
+    lsr w26, w26, #16
+    add w2, w2, #MIRROR_CLASS_VTABLE_OFFSET_64
++   DECODE_REF x2
+    ldr x0, [x2, w26, uxtw #3]
+    .if $range
+    b NterpCommonInvokeInstanceRange
+@@ -156,10 +160,13 @@
+    and w1, w1, #0xf
+    .endif
+    GET_VREG w1, w1
+-   // Note: if w1 is null, this will be handled by our SIGSEGV handler.
++   // Note: if w1 is null, this will be handled by our SIGSEGV handler: the decode makes it B, whose page is
++   // the guard page.
++   DECODE_REF x1
+    ldr w0, [x1, #MIRROR_OBJECT_CLASS_OFFSET]
+    UNPOISON_HEAP_REF w0
+    add w0, w0, #MIRROR_CLASS_VTABLE_OFFSET_64
++   DECODE_REF x0
+    ldr x0, [x0, w2, uxtw #3]
+    b $helper
+ 2:
+--- a/art/runtime/interpreter/mterp/nterp.cc
++++ b/art/runtime/interpreter/mterp/nterp.cc
+@@ -20,6 +20,7 @@
+ #include "nterp.h"
+ 
+ #include "arch/instruction_set.h"
++#include "base/heap_window.h"
+ #include "base/quasi_atomic.h"
+ #include "class_linker-inl.h"
+ #include "dex/dex_instruction_utils.h"
+@@ -661,7 +662,7 @@
+       new_array->AsIntArray()->SetWithoutChecks</* kTransactionActive= */ false>(i, regs[src_reg]);
+     } else {
+       new_array->AsObjectArray<mirror::Object>()->SetWithoutChecks</* kTransactionActive= */ false>(
+-          i, reinterpret_cast<mirror::Object*>(regs[src_reg]));
++          i, reinterpret_cast<mirror::Object*>(HeapWindowDecode(regs[src_reg])));
+     }
+   }
+   return new_array.Ptr();
+--- a/art/runtime/arch/arm64/asm_support_arm64.S
++++ b/art/runtime/arch/arm64/asm_support_arm64.S
+@@ -395,6 +395,22 @@
+     RETURN_OR_DELIVER_PENDING_EXCEPTION_REG xIP0
+ .endm
+ 
++// M6 a (ADR-0053): a reference is an offset in the heap window, x20 holds the window's base B. DECODE_REF turns a
++// zero-extended reference in an X register into the object's address, in place: the register's low 32 bits stay the
++// reference, null becomes B (the guard page, which a load faults on, patch 0006), and an address stays as it is
++// (B | address == address), so it may run on a reference or on a raw pointer alike.
++.macro DECODE_REF reg
++    orr    \reg, x20, \reg
++.endm
++
++// The same for a reference handed to C++ that may be null: null stays 0, which the callee tests. The register must
++// be zero-extended, as a reference loaded into a W register is. Clobbers xIP0.
++.macro DECODE_REF_OR_NULL reg
++    orr    xIP0, x20, \reg
++    cmp    \reg, #0
++    csel   \reg, xzr, xIP0, eq
++.endm
++
+ // Locking is needed for both managed code and JNI stubs.
+ .macro LOCK_OBJECT_FAST_PATH obj, slow_lock, can_be_null
+     // Use scratch registers x8-x11 as temporaries.
+@@ -403,7 +419,8 @@
+         cbz    \obj, \slow_lock
+     .endif
+                                       // Exclusive load/store has no immediate anymore.
+-    add    x8, \obj, #MIRROR_OBJECT_LOCK_WORD_OFFSET
++    orr    x8, x20, \obj                   // the object's address
++    add    x8, x8, #MIRROR_OBJECT_LOCK_WORD_OFFSET
+ 1:
+     ldaxr  w10, [x8]                  // Acquire needed only in most common case.
+     eor    w11, w10, w9               // Prepare the value to store if unlocked
+@@ -436,7 +453,8 @@
+         cbz    \obj, \slow_unlock
+     .endif
+                                       // Exclusive load/store has no immediate anymore.
+-    add    x8, \obj, #MIRROR_OBJECT_LOCK_WORD_OFFSET
++    orr    x8, x20, \obj                   // the object's address
++    add    x8, x8, #MIRROR_OBJECT_LOCK_WORD_OFFSET
+ 1:
+ #ifndef USE_READ_BARRIER
+     ldr    w10, [x8]
+--- a/art/runtime/arch/arm64/quick_entrypoints_arm64.S
++++ b/art/runtime/arch/arm64/quick_entrypoints_arm64.S
+@@ -849,6 +849,7 @@
+     .extern artLockObjectFromCode
+ ENTRY art_quick_lock_object_no_inline
+     // This is also the slow path for art_quick_lock_object.
++    DECODE_REF_OR_NULL x0             // C++ takes the object's address
+     SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case we block
+     mov    x1, xSELF                  // pass Thread::Current
+     bl     artLockObjectFromCode      // (Object* obj, Thread*)
+@@ -874,6 +875,7 @@
+     .extern artUnlockObjectFromCode
+ ENTRY art_quick_unlock_object_no_inline
+     // This is also the slow path for art_quick_unlock_object.
++    DECODE_REF_OR_NULL x0             // C++ takes the object's address
+     SETUP_SAVE_REFS_ONLY_FRAME        // save callee saves in case exception allocation triggers GC
+     mov    x1, xSELF                  // pass Thread::Current
+     bl     artUnlockObjectFromCode    // (Object* obj, Thread*)
+@@ -891,6 +893,8 @@
+ ENTRY art_quick_check_instance_of
+     // Type check using the bit string passes null as the target class. In that case just throw.
+     cbz x1, .Lthrow_class_cast_exception_for_bitstring_check
++    DECODE_REF_OR_NULL x0             // C++ takes addresses
++    DECODE_REF x1
+ 
+     // Store arguments and link register
+     // Stack needs to be 16B aligned on calls.
+@@ -1002,7 +1006,9 @@
+ #endif  // USE_READ_BARRIER
+ 
+ ENTRY art_quick_aput_obj
++    DECODE_REF x0                     // the array's address (null faults at B, in the guard page)
+     cbz x2, .Laput_obj_null
++    DECODE_REF x2                     // the value's address
+ #if defined(USE_READ_BARRIER) && !defined(USE_BAKER_READ_BARRIER)
+     READ_BARRIER_SLOW x3, w3, x0, MIRROR_OBJECT_CLASS_OFFSET
+     READ_BARRIER_SLOW x3, w3, x3, MIRROR_CLASS_COMPONENT_TYPE_OFFSET
+@@ -1013,6 +1019,7 @@
+ #endif  // USE_READ_BARRIER
+     ldr w3, [x0, #MIRROR_OBJECT_CLASS_OFFSET]          // Heap reference = 32b; zero-extends to x3.
+     UNPOISON_HEAP_REF w3
++    DECODE_REF x3
+     ldr w3, [x3, #MIRROR_CLASS_COMPONENT_TYPE_OFFSET]  // Heap reference = 32b; zero-extends to x3.
+     UNPOISON_HEAP_REF w3
+     ldr w4, [x2, #MIRROR_OBJECT_CLASS_OFFSET]          // Heap reference = 32b; zero-extends to x4.
+@@ -1040,8 +1047,10 @@
+     SAVE_TWO_REGS x2, xLR, 16
+ 
+     // Call runtime code
+-    mov x0, x3              // Heap reference, 32b, "uncompress" = do nothing, already zero-extended
+-    mov x1, x4              // Heap reference, 32b, "uncompress" = do nothing, already zero-extended
++    mov x0, x3
++    DECODE_REF x0           // C++ takes the classes' addresses
++    mov x1, x4
++    DECODE_REF x1
+     bl artIsAssignableFromCode
+ 
+     // Check for exception
+@@ -1289,7 +1298,12 @@
+ #error "Class pointer needs to overwrite next pointer."
+ #endif
+     POISON_HEAP_REF w0
+-    str    w0, [x3, #MIRROR_OBJECT_CLASS_OFFSET]
++    // Minato (M6 a, ADR-0053): the slot's next pointer is 64 bits at the object's start, and its high half, the
++    // window's base, is the lock word: the class store clears the lock word with it.
++#if MIRROR_OBJECT_LOCK_WORD_OFFSET != MIRROR_OBJECT_CLASS_OFFSET + 4
++#error "The lock word must follow the class."
++#endif
++    stp    w0, wzr, [x3, #MIRROR_OBJECT_CLASS_OFFSET]
+                                                               // Push the new object onto the thread
+                                                               // local allocation stack and
+                                                               // increment the thread local
+@@ -1475,8 +1489,10 @@
+ .macro COMPUTE_ARRAY_SIZE_UNKNOWN \
+         xClass, wClass, xCount, wCount, xTemp0, wTemp0, xTemp1, wTemp1, xTemp2, wTemp2
+     // Array classes are never finalizable or uninitialized, no need to check.
++    DECODE_REF \xClass
+     ldr    \wTemp0, [\xClass, #MIRROR_CLASS_COMPONENT_TYPE_OFFSET] // Load component type
+     UNPOISON_HEAP_REF \wTemp0
++    DECODE_REF \xTemp0
+     ldr    \wTemp0, [\xTemp0, #MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET]
+     lsr    \xTemp0, \xTemp0, #PRIMITIVE_TYPE_SIZE_SHIFT_SHIFT // Component size shift is in high 16
+                                                               // bits.
+@@ -2384,6 +2400,7 @@
+ ENTRY art_quick_invoke_polymorphic
+     SETUP_SAVE_REFS_AND_ARGS_FRAME      // Save callee saves in case allocation triggers GC.
+     mov     x0, x1                      // x0 := receiver
++    DECODE_REF x0                       // C++ takes the receiver's address
+     mov     x1, xSELF                   // x1 := Thread::Current()
+     mov     x2, sp                      // x2 := SP
+     bl      artInvokePolymorphic        // artInvokePolymorphic(receiver, thread, save_area)
+--- a/art/runtime/arch/arm64/jni_entrypoints_arm64.S
++++ b/art/runtime/arch/arm64/jni_entrypoints_arm64.S
+@@ -413,6 +413,7 @@
+     str    lr, [sp, #(ALL_ARGS_SIZE + /*padding*/ 8)]
+     .cfi_rel_offset lr, ALL_ARGS_SIZE + /*padding*/ 8
+     // Call `artLockObjectFromCode()`.
++    DECODE_REF x15                    // C++ takes the object's address
+     mov    x0, x15                    // Pass the object to lock.
+     mov    x1, xSELF                  // Pass Thread::Current().
+     bl     artLockObjectFromCode      // (Object* obj, Thread*)
+@@ -456,4 +457,20 @@
+      *     Return registers r0 and d0 need to be preserved.
+      */
+     // This is also the slow path for art_jni_unlock_object.
+-JNI_SAVE_RETURN_VALUE_TRAMPOLINE art_jni_unlock_object_no_inline, artJniUnlockObject, x15, xSELF
++    .extern artJniUnlockObject
++ENTRY art_jni_unlock_object_no_inline
++    // As JNI_SAVE_RETURN_VALUE_TRAMPOLINE, with the object decoded for C++ (M6 a, ADR-0053).
++    DECODE_REF x15
++    stp    x0, lr, [sp, #-32]!
++    .cfi_adjust_cfa_offset 32
++    .cfi_rel_offset lr, 8
++    str    d0, [sp, #16]
++    mov    x0, x15                             // Pass the object to unlock.
++    mov    x1, xSELF                           // Pass Thread::Current().
++    bl     artJniUnlockObject                  // Call artJniUnlockObject(...).
++    ldr    d0, [sp, #16]
++    ldp    x0, lr, [sp], #32
++    .cfi_adjust_cfa_offset -32
++    .cfi_restore lr
++    ret
++END art_jni_unlock_object_no_inline
+--- a/art/runtime/art_method.cc
++++ b/art/runtime/art_method.cc
+@@ -23,6 +23,7 @@
+ 
+ #include "arch/context.h"
+ #include "art_method-inl.h"
++#include "base/heap_window.h"
+ #include "base/pointer_size.h"
+ #include "base/stl_util.h"
+ #include "class_linker-inl.h"
+@@ -38,6 +39,7 @@
+ #include "gc/accounting/card_table-inl.h"
+ #include "hidden_api.h"
+ #include "interpreter/interpreter.h"
++#include "jvalue-inl.h"
+ #include "jit/jit.h"
+ #include "jit/jit_code_cache.h"
+ #include "jit/profiling_info.h"
+@@ -422,6 +424,11 @@
+         (*art_quick_invoke_stub)(this, args, args_size, self, result, shorty);
+       } else {
+         (*art_quick_invoke_static_stub)(this, args, args_size, self, result, shorty);
++      }
++      // Minato (M6 a, ADR-0053): nterp and compiled code return a reference as its offset in w0, which the stub
++      // stores as it is; the JValue holds the object's address.
++      if (result != nullptr && shorty[0] == 'L') {
++        result->SetL(reinterpret_cast<mirror::Object*>(HeapWindowDecode(static_cast<uint32_t>(result->GetJ()))));
+       }
+       if (UNLIKELY(self->GetException() == Thread::GetDeoptimizationException())) {
+         // Unusual case where we were running generated code and an
+--- a/art/runtime/stack.cc
++++ b/art/runtime/stack.cc
+@@ -21,6 +21,7 @@
+ 
+ #include "arch/context.h"
+ #include "art_method-inl.h"
++#include "base/heap_window.h"
+ #include "base/callee_save_type.h"
+ #include "base/hex_dump.h"
+ #include "base/pointer_size.h"
+@@ -200,7 +201,7 @@
+       if (!GetVReg(m, reg, kReferenceVReg, &value)) {
+         return nullptr;
+       }
+-      return reinterpret_cast<mirror::Object*>(value);
++      return reinterpret_cast<mirror::Object*>(HeapWindowDecode(value));
+     }
+   }
+ }
+@@ -268,9 +269,9 @@
+     }
+     if (kind == kReferenceVReg) {
+       // Perform a read barrier in case we are in a different thread and GC is ongoing.
+-      mirror::Object* out = reinterpret_cast<mirror::Object*>(static_cast<uintptr_t>(*val));
++      mirror::Object* out = reinterpret_cast<mirror::Object*>(HeapWindowDecode(static_cast<uint32_t>(*val)));
+       uintptr_t ptr_out = reinterpret_cast<uintptr_t>(GcRoot<mirror::Object>(out).Read());
+-      DCHECK_LT(ptr_out, std::numeric_limits<uint32_t>::max());
++      DCHECK(ptr_out == 0u || HeapWindowHolds(ptr_out, kObjectAlignment));  // the low 32 bits are the reference
+       *val = static_cast<uint32_t>(ptr_out);
+     }
+     return result;
+--- a/art/runtime/quick_exception_handler.cc
++++ b/art/runtime/quick_exception_handler.cc
+@@ -22,6 +22,7 @@
+ 
+ #include "arch/context.h"
+ #include "art_method-inl.h"
++#include "base/heap_window.h"
+ #include "base/array_ref.h"
+ #include "base/globals.h"
+ #include "base/logging.h"  // For VLOG_IS_ON.
+@@ -659,7 +660,7 @@
+         }
+       }
+       if (is_reference) {
+-        new_frame->SetVRegReference(vreg, reinterpret_cast<mirror::Object*>(value));
++        new_frame->SetVRegReference(vreg, reinterpret_cast<mirror::Object*>(HeapWindowDecode(value)));
+       } else {
+         new_frame->SetVReg(vreg, value);
+       }

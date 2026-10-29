@@ -254,7 +254,8 @@ def dalvikvm_arguments(tests, test, boot_class_path, debug=False, extra=()):
     return list(extra) + run_options(tests, test).get("runtime_option", []) + [
         "-XX:SlowDebug=true", "-XjdwpProvider:none", f"-Xbootclasspath:{boot_class_path}",
         f"-Xbootclasspath-locations:{boot_class_path}", "-Xnoimage-dex2oat", "-Xnorelocate", "-Xjnigreflimit:512",
-        "-Xcheck:jni", "-Xint", "-Xusejit:false", "-Ximage:/system/non-existent/boot.art",
+        "-Xcheck:jni", *(() if os.environ.get("MINATO_ART_NTERP") else ("-Xint",)), "-Xusejit:false",
+        "-Ximage:/system/non-existent/boot.art",
         "-Djava.io.tmpdir=/data/local/tmp", "-XX:DumpNativeStackOnSigQuit:false",
         "-cp", ":".join(classpath), "Main", "arttestd" if debug else "arttest"]
 

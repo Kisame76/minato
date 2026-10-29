@@ -1,0 +1,11 @@
+a
+hello a
+hello b x3
+Thing(a)
+hashCode: ok
+equals: ok
+getClass: ok
+null default method: ok
+null interface method: ok
+null Object method: ok
+synchronized: ok

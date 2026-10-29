@@ -27,6 +27,7 @@ bouncycastle.jar from ART's javalib after core-libart, in that order, as Android
 --nativeloader checks libnativeloader's lines that name a namespace, where it loads each JNI library and which
 namespace it configures for a class loader: they must be Android 15's lines of logcat in <reference>, which
 tools/android-reference.sh --art writes (ADR-0040 test 4).
+--nterp runs nterp, ART's default interpreter, where --nterp is absent -Xint runs the switch interpreter (M6 a).
 --stress checks the line "stress-test stats: ..." that stress-test writes to stderr (ADR-0033 test 4): at least one
 of its signals must have been handled while the main thread collected, so that the run covered a signal handler
 during ART's stop-the-world.
@@ -183,15 +184,18 @@ def apk_run_command(apk_run, art, bionic_system, work, art_lib64, run, arguments
                       os.path.join(work, "bin", "dalvikvm64.dylib")] + list(arguments)
 
 
-def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False, collector=None):
+def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False, collector=None, nterp=False):
     """dalvikvm's options of decision 11: the interpreter only, no boot image, the boot jars, with the jars of
     `added_jars` after core-libart and Conscrypt's last with `conscrypt`; ART's JNI checks in the debug flavor,
-    java.library.path for a program with a JNI library in /data/local/tmp, and -Xgc: with a `collector`."""
+    java.library.path for a program with a JNI library in /data/local/tmp, and -Xgc: with a `collector`. With `nterp`
+    the interpreter is nterp, ART's default: no -Xint (M6 a, patch 0008)."""
     boot_jars = BOOT_JARS[:2] + list(added_jars) + BOOT_JARS[2:]
     boot_class_path = ":".join([f"{ART_ROOT}/javalib/{name}.jar" for name in boot_jars]
                                + ([f"{CONSCRYPT_ROOT}/javalib/conscrypt.jar"] if conscrypt else []))
-    options = ["-Xint", "-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
+    options = ["-Xusejit:false", "-Xnoimage-dex2oat", f"-Xbootclasspath:{boot_class_path}",
                f"-Xbootclasspath-locations:{boot_class_path}", "-XjdwpProvider:none"]
+    if not nterp:
+        options = ["-Xint"] + options
     if debug:
         options = ["-Xcheck:jni"] + options
     if library:
@@ -268,10 +272,11 @@ def main():
     upper_half = "--upper-half" in arguments
     conscrypt = "--conscrypt" in arguments
     stress = "--stress" in arguments
+    nterp = "--nterp" in arguments
     added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
     arguments = [argument for argument in arguments
                  if argument not in ("--debug", "--offsets", "--upper-half", "--conscrypt", "--okhttp",
-                                     "--bouncycastle", "--stress")]
+                                     "--bouncycastle", "--stress", "--nterp")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -328,7 +333,7 @@ def main():
     if library is not None:
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
-    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None, collector)
+    options = dalvikvm_options(debug, conscrypt, added_jars, library is not None, collector, nterp)
     jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"] if library is not None else []
     command = apk_run_command(apk_run, art, bionic_system, work, art_lib64, run,
                               options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni,

@@ -1,0 +1,467 @@
+# ART's arm64 compiler and stubs: where a heap reference becomes an address (tools/art-codec-sites.py).
+F compiler/optimizing/code_generator_arm64.cc::JumpTableARM64::EmitTable#1 nop __ Add(index_reg, index_reg, Operand(offset_));
+M compiler/optimizing/code_generator_arm64.cc::JumpTableARM64::EmitTable#1 raw MemOperand(profiling_info_, ProfilingInfo::BaselineHotnessCountOffset().Int32Value()));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateMethodEntryExitHook#1 raw __ Ldrb(value, MemOperand(addr, 0));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateMethodEntryExitHook#2 raw __ ComputeAddress(addr, MemOperand(addr, index, LSL, TIMES_8));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateMethodEntryExitHook#1 raw __ ComputeAddress(addr, MemOperand(addr, index, LSL, TIMES_8));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateMethodEntryExitHook#3 raw __ Str(tmp, MemOperand(addr, kMethodOffsetInBytes));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateMethodEntryExitHook#4 raw __ Str(tmp, MemOperand(addr, kTimestampOffsetInBytes));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeIncrementHotness#1 raw __ Ldrh(counter, MemOperand(method, ArtMethod::HotnessCountOffset().Int32Value()));
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeIncrementHotness#1 nop __ Add(counter, counter, -1);
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeIncrementHotness#2 raw __ Strh(counter, MemOperand(method, ArtMethod::HotnessCountOffset().Int32Value()));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeIncrementHotness#3 raw __ Ldrh(counter, MemOperand(lr, ProfilingInfo::BaselineHotnessCountOffset().Int32Value()));
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeIncrementHotness#2 nop __ Add(counter, counter, -1);
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeIncrementHotness#4 raw __ Strh(counter, MemOperand(lr, ProfilingInfo::BaselineHotnessCountOffset().Int32Value()));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFrameEntry#1 raw __ Ldr(temp1, MemOperand(kArtMethodRegister, ArtMethod::DeclaringClassOffset().Int32Value()));
+H compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFrameEntry#1 decode __ Ldrb(temp2, HeapOperand(temp1, kClassStatusByteOffset));
+H compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFrameEntry#2 decode __ Ldr(temp1, HeapOperand(temp1, mirror::Class::ClinitThreadIdOffset().Int32Value()));
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFrameEntry#1 raw __ Sub(temp, sp, static_cast<int32_t>(GetStackOverflowReservedBytes(InstructionSet::kArm64)));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFrameEntry#2 raw __ ldr(wzr, MemOperand(temp, 0));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MarkGCCard#1 raw __ Strb(card, MemOperand(card, temp.X()));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::CheckGCCardIsValid#1 raw __ Ldrb(temp, MemOperand(card, temp.X()));
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::LoadAcquire#1 derived __ Add(temp_base, src.GetBaseRegister(), OperandFromMemOperand(src));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::LoadAcquire#1 derived MemOperand base = MemOperand(temp_base);
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::StoreRelease#1 derived __ Add(temp_base, dst.GetBaseRegister(), op);
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::StoreRelease#1 derived MemOperand base = MemOperand(temp_base);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateClassInitializationCheck#1 decode __ Ldrb(temp, HeapOperand(class_reg, kClassStatusByteOffset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateBitstringTypeCheckCompare#1 decode __ Ldrh(temp, HeapOperand(temp, mirror::Class::StatusOffset()));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateBitstringTypeCheckCompare#2 decode __ Ldr(temp, HeapOperand(temp, mirror::Class::StatusOffset()));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateSuspendCheck#1 raw __ Ldr(kImplicitSuspendCheckRegister, MemOperand(kImplicitSuspendCheckRegister));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::HandleFieldGet#1 decode HeapOperand(InputRegisterAt(instruction, receiver_input), field_info.GetFieldOffset());
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::HandleFieldSet#1 decode instruction, field_type, source, HeapOperand(obj, offset), /* needs_null_check= */ true);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::HandleFieldSet#2 decode codegen_->Store(field_type, source, HeapOperand(obj, offset));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::HandleBinaryOp#1 nop __ Add(dst, lhs, rhs);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::HandleBinaryOp#2 nop __ Sub(dst, lhs, rhs);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitDataProcWithShifterOp#1 nop __ Add(out, left, right_operand);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitDataProcWithShifterOp#2 nop __ Sub(out, left, right_operand);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddress#1 decode __ Add(OutputRegister(instruction),
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddressIndex#1 decode __ Add(OutputRegister(instruction), index_reg, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIntermediateAddressIndex#2 decode __ Add(OutputRegister(instruction), offset_reg, Operand(index_reg, LSL, shift));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 decode MemOperand source = HeapOperand(obj);
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 decode __ Ldr(length, MemOperand(obj.X(), adjusted_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#2 decode __ Ldr(length, HeapOperand(obj, count_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#3 decode HeapOperand(obj, offset + Int64FromLocation(index)));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#4 decode HeapOperand(obj, offset + (Int64FromLocation(index) << 1)));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#5 decode source = HeapOperand(obj, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#1 decode __ Add(temp, obj, offset);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#6 decode HeapOperand(temp, XRegisterFrom(index), LSL, 0));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#7 decode HeapOperand(temp, XRegisterFrom(index), LSL, 1));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayGet#8 decode source = HeapOperand(temp, XRegisterFrom(index), LSL, DataType::SizeShift(type));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArrayLength#1 decode __ Ldr(out, HeapOperand(InputRegisterAt(instruction, 0), offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#1 decode MemOperand destination = HeapOperand(array);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#2 decode destination = HeapOperand(array, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#1 decode __ Add(temp_dest, array, offset);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#3 decode destination = HeapOperand(temp_dest,
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#4 decode __ Ldr(temp, HeapOperand(array, class_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#5 decode __ Ldr(temp, HeapOperand(temp, component_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#6 decode __ Ldr(temp2, HeapOperand(Register(value), class_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#7 decode __ Ldr(temp, HeapOperand(temp, super_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#8 decode destination = HeapOperand(array, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#2 decode __ Add(temp_base, array, offset);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitArraySet#9 decode destination = HeapOperand(temp_base,
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateIntDivForPower2Denom#1 nop __ Add(out, dividend, Operand(dividend, LSR, bits - 1));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateIntDivForPower2Denom#2 nop __ Add(temp, dividend, abs_imm - 1);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateIncrementNegativeByOne#1 nop __ Add(out, in, Operand(in, LSR, in.GetSizeInBits() - 1));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateInt64UnsignedDivRemWithAnyPositiveConstant#1 nop __ Add(temp, temp, dividend);
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIf#1 raw __ Ldrh(counter, MemOperand(temp, condition, LSL, 1));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIf#1 nop __ Add(counter, counter, 1);
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitIf#2 raw __ Strh(counter, MemOperand(temp, condition, LSL, 1));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#1 decode __ Ldrh(out, HeapOperand(out, primitive_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#2 decode __ Ldr(temp, HeapOperand(obj, class_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#3 decode __ Ldr(temp, HeapOperand(temp, iftable_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#4 decode __ Ldr(out, HeapOperand(temp, array_length_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#5 decode __ Ldr(temp2, HeapOperand(temp, object_array_data_offset));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#1 nop __ Add(temp, temp, 2 * kHeapReferenceSize);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInstanceOf#2 nop __ Sub(out, out, 2);
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitCheckCast#1 decode __ Ldrh(temp, HeapOperand(temp, primitive_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitCheckCast#2 decode __ Ldr(WRegisterFrom(maybe_temp2_loc), HeapOperand(temp.W(), array_length_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitCheckCast#3 decode __ Ldr(WRegisterFrom(maybe_temp3_loc), HeapOperand(temp.W(), object_array_data_offset));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitCheckCast#1 nop __ Add(temp, temp, 2 * kHeapReferenceSize);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitCheckCast#2 nop __ Sub(WRegisterFrom(maybe_temp2_loc), WRegisterFrom(maybe_temp2_loc), 2);
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::MaybeGenerateInlineCacheCheck#1 raw __ Ldr(w9, MemOperand(x8, InlineCache::ClassesOffset().Int32Value()));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInvokeInterface#1 decode __ Ldr(temp.W(), HeapOperand(temp.W(), class_offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInvokeInterface#2 decode __ Ldr(temp.W(), HeapOperandFrom(receiver, class_offset));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInvokeInterface#1 decode MemOperand(temp, mirror::Class::ImtPtrOffset(kArm64PointerSize).Uint32Value()));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInvokeInterface#2 raw __ Ldr(temp, MemOperand(temp, method_offset));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitInvokeInterface#3 raw __ Ldr(lr, MemOperand(temp, entry_point.Int32Value()));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateStaticOrDirectCall#1 raw __ Ldr(lr, MemOperand(XRegisterFrom(callee_method), offset.Int32Value()));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateStaticOrDirectCall#2 raw __ Ldr(lr, MemOperand(XRegisterFrom(callee_method), offset.Int32Value()));
+H compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#1 decode __ Ldr(temp.W(), HeapOperandFrom(LocationFrom(receiver), class_offset));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#1 raw __ Ldr(temp, MemOperand(temp, method_offset));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateVirtualCall#2 raw __ Ldr(lr, MemOperand(temp, entry_point.SizeValue()));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::EmitLdrOffsetPlaceholder#1 raw __ ldr(out, MemOperand(base, /* offset placeholder */ 0));
+H compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateImplicitNullCheck#1 decode __ Ldr(wzr, HeapOperandFrom(obj, Offset(0)));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitPackedSwitch#1 raw __ Sub(index, value_reg, Operand(lower_bound));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitPackedSwitch#1 raw __ Ldr(jump_offset, MemOperand(table_base, index, UXTW, 2));
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitPackedSwitch#2 raw __ Add(target_address, table_base, Operand(jump_offset, SXTW));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateReferenceLoadOneRegister#1 decode __ Ldr(out_reg, HeapOperand(out_reg, offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateReferenceLoadOneRegister#2 decode __ Ldr(out_reg, HeapOperand(out_reg, offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateReferenceLoadTwoRegisters#1 decode __ Ldr(out_reg, HeapOperand(obj_reg, offset));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::GenerateReferenceLoadTwoRegisters#2 decode __ Ldr(out_reg, HeapOperand(obj_reg, offset));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateGcRootFieldLoad#1 raw __ ldr(root_reg, MemOperand(obj.X(), offset));
+A compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateGcRootFieldLoad#1 decode __ Add(root_reg.X(), obj.X(), offset);
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateGcRootFieldLoad#2 raw __ Ldr(root_reg, MemOperand(obj, offset));
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFieldLoadWithBakerReadBarrier#1 dead __ Add(base, obj, offset);
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateFieldLoadWithBakerReadBarrier#2 dead __ Add(base, obj, Operand(offset & ~(kReferenceLoadMinFarOffset - 1u)));
+A compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateArrayLoadWithBakerReadBarrier#1 decode __ Add(temp.X(), obj.X(), Operand(data_offset));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::GenerateArrayLoadWithBakerReadBarrier#1 dead __ ldr(ref_reg, MemOperand(temp.X(), index_reg.X(), LSL, scale_factor));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitClassTableGet#1 decode MemOperand(XRegisterFrom(locations->InAt(0)), method_offset));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitClassTableGet#2 decode __ Ldr(XRegisterFrom(locations->Out()), MemOperand(XRegisterFrom(locations->InAt(0)),
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VisitClassTableGet#3 raw MemOperand(XRegisterFrom(locations->Out()), method_offset));
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 decode return MemOperand(base.X(), InputRegisterAt(instruction, 1).X());
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 decode return HeapOperand(base, offset);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#1 decode __ Add(*scratch, base, Operand(WRegisterFrom(index), LSL, shift));
+H compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecNEONAddress#2 decode return HeapOperand(*scratch, offset);
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecSVEAddress#1 decode return SVEMemOperand(base.X(), XRegisterFrom(index), LSL, shift);
+F compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecSVEAddress#1 decode __ Add(*scratch, base, offset);
+M compiler/optimizing/code_generator_arm64.cc::InstructionCodeGeneratorARM64::VecSVEAddress#2 derived return SVEMemOperand(scratch->X(), XRegisterFrom(index), LSL, shift);
+F compiler/optimizing/code_generator_arm64.cc::EmitGrayCheckAndFastPath#1 dead __ Add(lr, lr, BAKER_MARK_INTROSPECTION_FIELD_LDR_OFFSET);
+F compiler/optimizing/code_generator_arm64.cc::EmitGrayCheckAndFastPath#2 dead __ Add(base_reg, base_reg, Operand(ip0, LSR, 32));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::CompileBakerReadBarrierThunk#1 raw __ Ldr(ip0.W(), MemOperand(base_reg, ip0, LSL, 2));
+M compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::CompileBakerReadBarrierThunk#2 raw __ Ldar(ip0.W(), MemOperand(base_reg));
+F compiler/optimizing/code_generator_arm64.cc::CodeGeneratorARM64::CompileBakerReadBarrierThunk#1 dead __ Add(ip1, ip1, Operand(BAKER_MARK_INTROSPECTION_GC_ROOT_ENTRYPOINT_OFFSET));
+M compiler/optimizing/intrinsics_arm64.cc::<file>#1 raw return MemOperand(XRegisterFrom(location), offset);
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::GetAllocator#1 raw __ Ldr(tmp_reg, MemOperand(src_curr_addr, element_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::GetAllocator#2 raw __ Str(tmp_reg, MemOperand(dst_curr_addr, element_size, PostIndex));
+F compiler/optimizing/intrinsics_arm64.cc::GenUnsafeGet#1 decode __ Add(temp, base, offset.W());
+M compiler/optimizing/intrinsics_arm64.cc::GenUnsafeGet#1 derived MemOperand(temp.X()),
+M compiler/optimizing/intrinsics_arm64.cc::EmitLoadExclusive#1 raw __ Ldaxrb(old_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitLoadExclusive#2 raw __ Ldxrb(old_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitLoadExclusive#3 raw __ Ldaxrh(old_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitLoadExclusive#4 raw __ Ldxrh(old_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitLoadExclusive#5 raw __ Ldaxr(old_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitLoadExclusive#6 raw __ Ldxr(old_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitStoreExclusive#1 raw __ Stlxrb(store_result, new_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitStoreExclusive#2 raw __ Stxrb(store_result, new_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitStoreExclusive#3 raw __ Stlxrh(store_result, new_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitStoreExclusive#4 raw __ Stxrh(store_result, new_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitStoreExclusive#5 raw __ Stlxr(store_result, new_value, MemOperand(ptr));
+M compiler/optimizing/intrinsics_arm64.cc::EmitStoreExclusive#6 raw __ Stxr(store_result, new_value, MemOperand(ptr));
+A compiler/optimizing/intrinsics_arm64.cc::GenerateCompareAndSet#1 decode __ Add(tmp_ptr, base_.X(), Operand(offset_));
+A compiler/optimizing/intrinsics_arm64.cc::GenUnsafeCas#1 decode __ Add(tmp_ptr, base.X(), Operand(offset));
+A compiler/optimizing/intrinsics_arm64.cc::GenerateGetAndUpdate#1 nop __ Add(new_value, old_value_reg, arg.IsX() ? arg.X() : arg.W());
+A compiler/optimizing/intrinsics_arm64.cc::GenUnsafeGetAndUpdate#1 decode __ Add(tmp_ptr, base.X(), Operand(offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#1 decode __ Ldr(temp3, HeapOperand(str, count_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#2 decode __ Ldr(temp2, HeapOperand(arg, count_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#3 decode __ Ldr(temp0, HeapOperand(str, count_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#4 decode __ Ldr(temp1, HeapOperand(arg, count_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#1 decode __ Ldr(temp4, MemOperand(str.X(), temp1.X()));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#2 decode __ Ldr(temp2, MemOperand(arg.X(), temp1.X()));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#1 nop __ Add(temp1, temp1, char_size * 4);
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#2 nop __ Sub(out, temp1.W(), Operand(temp2.W(), UXTB));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#3 nop __ Sub(out, temp4.W(), Operand(temp2.W(), UXTH));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#4 nop __ Add(temp1, temp1, Operand(value_offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#5 nop __ Add(temp2, temp2, Operand(value_offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#6 nop __ Sub(temp0, temp0, Operand(temp3));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#3 decode __ Ldrb(temp4, MemOperand(temp1.X(), c_char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringCompareTo#4 decode __ Ldrh(temp3, MemOperand(temp2.X(), char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#1 decode __ Ldr(temp, MemOperand(str.X(), class_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#2 decode __ Ldr(temp1, MemOperand(arg.X(), class_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#3 decode __ Ldr(temp, MemOperand(arg.X(), count_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#4 decode __ Ldr(temp, MemOperand(str.X(), count_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#5 decode __ Ldr(temp1, MemOperand(arg.X(), count_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#6 decode __ Ldp(temp, temp1, MemOperand(str.X(), offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#7 decode __ Ldp(temp2, out, MemOperand(arg.X(), offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#8 decode __ Ldr(temp, MemOperand(str.X(), offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#9 decode __ Ldr(temp1, MemOperand(arg.X(), offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#10 decode __ Ldr(out, MemOperand(str.X(), temp1));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#11 decode __ Ldr(temp2, MemOperand(arg.X(), temp1));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#1 nop __ Add(temp1, temp1, Operand(sizeof(uint64_t)));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringEquals#2 nop __ Sub(temp, temp, Operand(mirror::kUseStringCompression ? 8 : 4), SetFlags);
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#1 nop __ Sub(num_chr, srcEnd, srcBegin);
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#2 decode __ Add(dst_ptr, dstObj, Operand(data_offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#3 derived __ Add(dst_ptr, dst_ptr, Operand(dstBegin, LSL, 1));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#4 decode __ Add(src_ptr, srcObj, Operand(value_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#1 decode __ Ldr(tmp2, MemOperand(srcObj, count_offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#5 derived __ Add(src_ptr, src_ptr, Operand(srcBegin, LSL, 1));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#2 derived __ Ldp(tmp1, tmp2, MemOperand(src_ptr, char_size * 8, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#3 derived __ Stp(tmp1, tmp2, MemOperand(dst_ptr, char_size * 8, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#4 derived __ Ldrh(tmp1, MemOperand(src_ptr, char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#5 derived __ Strh(tmp1, MemOperand(dst_ptr, char_size, PostIndex));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#6 derived __ Add(src_ptr, src_ptr, Operand(srcBegin));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#6 derived __ Ld1(vtmp1.V8B(), MemOperand(src_ptr, c_char_size * 8, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#7 derived __ St1(vtmp1.V8H(), MemOperand(dst_ptr, char_size * 8, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#8 derived __ Ldrb(tmp1, MemOperand(src_ptr, c_char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitStringGetCharsNoCheck#9 derived __ Strh(tmp1, MemOperand(dst_ptr, char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::CheckSystemArrayCopyPosition#1 decode __ Ldr(temp, MemOperand(array, length_offset));
+M compiler/optimizing/intrinsics_arm64.cc::CheckSystemArrayCopyPosition#2 decode __ Ldr(temp, MemOperand(array, length_offset));
+F compiler/optimizing/intrinsics_arm64.cc::CheckSystemArrayCopyPosition#1 nop __ Sub(temp, temp, pos_const);
+M compiler/optimizing/intrinsics_arm64.cc::CheckSystemArrayCopyPosition#3 decode __ Ldr(temp, MemOperand(array, length_offset));
+F compiler/optimizing/intrinsics_arm64.cc::CheckSystemArrayCopyPosition#2 nop __ Sub(temp, temp, pos_reg);
+F compiler/optimizing/intrinsics_arm64.cc::GenArrayAddress#1 decode __ Add(dest, base, DataType::Size(type) * constant + data_offset);
+F compiler/optimizing/intrinsics_arm64.cc::GenArrayAddress#2 decode __ Add(dest, base, data_offset);
+F compiler/optimizing/intrinsics_arm64.cc::GenArrayAddress#3 decode __ Add(dest, base, Operand(XRegisterFrom(pos), LSL, DataType::SizeShift(type)));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#1 derived __ Ldr(tmp, MemOperand(src_curr_addr, char_size * chars_per_block, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#2 derived __ Str(tmp, MemOperand(dst_curr_addr, char_size * chars_per_block, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#3 derived __ Ldrh(tmp, MemOperand(src_curr_addr, char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#4 derived __ Strh(tmp, MemOperand(dst_curr_addr, char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#5 derived __ Ldr(tmp.W(), MemOperand(src_curr_addr));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#6 derived __ Str(tmp.W(), MemOperand(dst_curr_addr));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#7 derived __ Ldrh(tmp, MemOperand(src_curr_addr, offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#8 derived __ Strh(tmp, MemOperand(dst_curr_addr, offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#9 derived __ Ldr(tmp, MemOperand(src_curr_addr, 4 * char_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopyChar#10 derived __ Str(tmp, MemOperand(dst_curr_addr, 4 * char_size, PostIndex));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#1 decode __ Ldr(temp, HeapOperand(klass, component_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#2 decode __ Ldrh(temp, HeapOperand(temp, primitive_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#1 decode __ Ldr(temp1, MemOperand(dest, class_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#2 decode __ Ldr(temp2, MemOperand(src, class_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#3 decode __ Ldr(temp1, HeapOperand(temp1, component_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#4 decode __ Ldr(temp1, HeapOperand(temp1, super_offset));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#3 decode __ Ldr(temp2, MemOperand(src, class_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#5 decode __ Ldr(tmp, HeapOperand(src.W(), monitor_offset));
+A compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#1 dead __ Add(src.X(), src.X(), Operand(tmp.X(), LSR, 32));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#4 derived __ Ldr(tmp, MemOperand(src_curr_addr, element_size, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitSystemArrayCopy#5 derived __ Str(tmp, MemOperand(dst_curr_addr, element_size, PostIndex));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::HandleValueOf#1 decode codegen_->Store(type, temp.W(), HeapOperand(out.W(), info.value_offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::HandleValueOf#1 nop __ Add(out.W(), in.W(), -info.low);
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::HandleValueOf#2 decode MemOperand source = HeapOperand(
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::HandleValueOf#3 decode codegen_->Store(type, in.W(), HeapOperand(out.W(), info.value_offset));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitReferenceGetReferent#1 decode __ Ldrh(temp, HeapOperand(temp, disable_intrinsic_offset.Uint32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitReferenceGetReferent#2 decode MemOperand field = HeapOperand(WRegisterFrom(obj), referent_offset);
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitReferenceRefersTo#1 decode MemOperand field = HeapOperand(obj, referent_offset);
+H compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitReferenceRefersTo#2 decode __ Ldr(tmp, HeapOperand(tmp, monitor_offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitThreadInterrupted#1 raw __ Add(temp, tr, Thread::InterruptedOffset<kArm64PointerSize>().Int32Value());
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitThreadInterrupted#1 raw __ Ldar(out.W(), MemOperand(temp));
+M compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitThreadInterrupted#2 raw __ Stlr(wzr, MemOperand(temp));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#1 raw __ Ldrb(array_elem, MemOperand(ptr, 1, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#2 raw __ Ldrh(array_elem, MemOperand(ptr, 2, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#3 raw __ Ldr(array_elem, MemOperand(ptr, 4, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#4 raw __ Ldr(array_elem.X(), MemOperand(ptr, 8, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#5 raw __ Ldr(array_elem, MemOperand(ptr, 4, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#6 raw __ Ldrh(array_elem, MemOperand(ptr, 2, PostIndex));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateCodeForCalculationCRC32ValueOfBytes#7 raw __ Ldrb(array_elem, MemOperand(ptr));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitCRC32UpdateBytes#1 decode __ Add(ptr, array, array_data_offset + offset_value);
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitCRC32UpdateBytes#2 decode __ Add(ptr, array, array_data_offset);
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitCRC32UpdateBytes#3 derived __ Add(ptr, ptr, XRegisterFrom(offset));
+F compiler/optimizing/intrinsics_arm64.cc::IntrinsicCodeGeneratorARM64::VisitCRC32UpdateByteBuffer#1 raw __ Add(ptr, addr, XRegisterFrom(locations->InAt(2)));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateSubTypeObjectCheckNoReadBarrier#1 decode __ Ldr(temp, HeapOperand(object, class_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateSubTypeObjectCheckNoReadBarrier#2 decode __ Ldr(temp, HeapOperand(temp, super_class_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleAccessModeAndVarTypeChecks#1 decode __ Ldp(var_type_no_rb, temp2, HeapOperand(varhandle, var_type_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleAccessModeAndVarTypeChecks#2 decode __ Ldrh(temp2, HeapOperand(var_type_no_rb, primitive_type_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleStaticFieldCheck#1 decode __ Ldr(temp, HeapOperand(varhandle, coordinate_type0_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleInstanceFieldChecks#1 decode __ Ldp(temp, temp2, HeapOperand(varhandle, coordinate_type0_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleArrayChecks#1 decode __ Ldp(temp, temp2, HeapOperand(varhandle, coordinate_type0_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleArrayChecks#2 decode __ Ldr(temp2, HeapOperand(object, class_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleArrayChecks#3 decode __ Ldr(temp2, HeapOperand(temp, component_type_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleArrayChecks#4 decode __ Ldrh(temp2, HeapOperand(temp2, primitive_type_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleArrayChecks#5 decode __ Ldr(temp, HeapOperand(object, array_length_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleTarget#1 decode __ Ldr(field.X(), HeapOperand(varhandle, art_field_offset.Int32Value()));
+M compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleTarget#1 raw __ Ldr(target.offset, MemOperand(field.X(), offset_offset.Int32Value()));
+F compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleTarget#1 nop __ Add(target.offset, shifted_index, data_offset.Int32Value());
+A compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleGet#1 decode __ Add(tmp_ptr, target.object.X(), target.offset.X());
+M compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleGet#1 derived MemOperand(tmp_ptr),
+A compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleCompareAndSetOrExchange#1 decode __ Add(tmp_ptr, target.object.X(), target.offset.X());
+A compiler/optimizing/intrinsics_arm64.cc::GenerateVarHandleGetAndUpdate#1 decode __ Add(tmp_ptr, target.object.X(), target.offset.X());
+H compiler/optimizing/intrinsics_arm64.cc::VarHandleSlowPathARM64::EmitByteArrayViewCode#1 decode __ Ldr(temp, HeapOperand(varhandle, class_offset.Int32Value()));
+H compiler/optimizing/intrinsics_arm64.cc::VarHandleSlowPathARM64::EmitByteArrayViewCode#2 decode __ Ldr(temp, HeapOperand(object, array_length_offset.Int32Value()));
+F compiler/optimizing/intrinsics_arm64.cc::VarHandleSlowPathARM64::EmitByteArrayViewCode#1 nop __ Add(target.offset, index, data_offset.Int32Value());
+H compiler/optimizing/intrinsics_arm64.cc::VarHandleSlowPathARM64::EmitByteArrayViewCode#3 decode __ Ldr(temp, HeapOperand(varhandle, native_byte_order_offset.Int32Value()));
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecAdd#1 nop __ Add(dst.V16B(), lhs.V16B(), rhs.V16B());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecAdd#2 nop __ Add(dst.V8H(), lhs.V8H(), rhs.V8H());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecAdd#3 nop __ Add(dst.V4S(), lhs.V4S(), rhs.V4S());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecAdd#4 nop __ Add(dst.V2D(), lhs.V2D(), rhs.V2D());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSub#1 nop __ Sub(dst.V16B(), lhs.V16B(), rhs.V16B());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSub#2 nop __ Sub(dst.V8H(), lhs.V8H(), rhs.V8H());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSub#3 nop __ Sub(dst.V4S(), lhs.V4S(), rhs.V4S());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSub#4 nop __ Sub(dst.V2D(), lhs.V2D(), rhs.V2D());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSADAccumulate#1 nop __ Sub(tmp.V4S(), left.V4S(), right.V4S());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSADAccumulate#2 nop __ Add(acc.V4S(), acc.V4S(), tmp.V4S());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSADAccumulate#3 nop __ Sub(tmp.V2D(), left.V2D(), right.V2D());
+F compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecSADAccumulate#4 nop __ Add(acc.V2D(), acc.V2D(), tmp.V2D());
+H compiler/optimizing/code_generator_vector_arm64_neon.cc::InstructionCodeGeneratorARM64Neon::VisitVecLoad#1 decode __ Ldr(length, HeapOperand(InputRegisterAt(instruction, 0), count_offset));
+M compiler/optimizing/code_generator_vector_arm64_neon.cc::SaveRestoreLiveRegistersHelperNeonImpl#1 raw masm->StoreCPURegList(core_list, MemOperand(base, spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_neon.cc::SaveRestoreLiveRegistersHelperNeonImpl#2 raw masm->StoreCPURegList(fp_list, MemOperand(base, spill_offset + core_spill_size));
+M compiler/optimizing/code_generator_vector_arm64_neon.cc::SaveRestoreLiveRegistersHelperNeonImpl#3 raw masm->LoadCPURegList(core_list, MemOperand(base, spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_neon.cc::SaveRestoreLiveRegistersHelperNeonImpl#4 raw masm->LoadCPURegList(fp_list, MemOperand(base, spill_offset + core_spill_size));
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecAdd#1 nop __ Add(dst.VnB(), p_reg, lhs.VnB(), rhs.VnB());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecAdd#2 nop __ Add(dst.VnH(), p_reg, lhs.VnH(), rhs.VnH());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecAdd#3 nop __ Add(dst.VnS(), p_reg, lhs.VnS(), rhs.VnS());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecAdd#4 nop __ Add(dst.VnD(), p_reg, lhs.VnD(), rhs.VnD());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecSub#1 nop __ Sub(dst.VnB(), p_reg, lhs.VnB(), rhs.VnB());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecSub#2 nop __ Sub(dst.VnH(), p_reg, lhs.VnH(), rhs.VnH());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecSub#3 nop __ Sub(dst.VnS(), p_reg, lhs.VnS(), rhs.VnS());
+F compiler/optimizing/code_generator_vector_arm64_sve.cc::InstructionCodeGeneratorARM64Sve::VisitVecSub#4 nop __ Sub(dst.VnD(), p_reg, lhs.VnD(), rhs.VnD());
+M compiler/optimizing/code_generator_vector_arm64_sve.cc::SaveRestoreLiveRegistersHelperSveImpl#1 raw masm->StoreCPURegList(core_list, MemOperand(base, spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_sve.cc::SaveRestoreLiveRegistersHelperSveImpl#2 raw masm->LoadCPURegList(core_list, MemOperand(base, spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_sve.cc::SaveRestoreLiveRegistersHelperSveImpl#3 raw masm->StoreCPURegList(core_list, MemOperand(base, spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_sve.cc::SaveRestoreLiveRegistersHelperSveImpl#4 raw masm->StoreCPURegList(fp_list, MemOperand(base, fp_spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_sve.cc::SaveRestoreLiveRegistersHelperSveImpl#5 raw masm->LoadCPURegList(core_list, MemOperand(base, spill_offset));
+M compiler/optimizing/code_generator_vector_arm64_sve.cc::SaveRestoreLiveRegistersHelperSveImpl#6 raw masm->LoadCPURegList(fp_list, MemOperand(base, fp_spill_offset));
+S runtime/arch/arm64/quick_entrypoints_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME#1 raw ldr xIP0, [xIP0, RUNTIME_SAVE_REFS_AND_ARGS_METHOD_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::SETUP_SAVE_EVERYTHING_FRAME_DECREMENTED_SP_SKIP_X29_LR#1 raw ldr xIP0, [xIP0, \runtime_method_offset]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CREATE_FRAME#1 raw ldr w10, [x1, x2]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CREATE_FRAME#2 raw str w10, [x9, x2]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CALL_AND_RETURN#1 raw ldr x9, [x0, #ART_METHOD_QUICK_CODE_OFFSET_64]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CALL_AND_RETURN#2 raw ldrb w10, [x5]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CALL_AND_RETURN#3 raw str x0, [x4]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CALL_AND_RETURN#4 raw str d0, [x4]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_CALL_AND_RETURN#5 raw str s0, [x4]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_LOAD_REG#1 raw ldr \reg, [\args], #\size
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_LOAD_ALL_ARGS#1 raw ldr w1, [x9], #4
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INVOKE_STUB_LOAD_ALL_ARGS#2 raw ldrb w17, [x10], #1
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_osr_stub#1 raw str x0, [x3]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_osr_stub#2 raw ldr w10, [x0, x1]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#1 raw ldp d0, d1, [x1, #0]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#2 raw ldp d2, d3, [x1, #16]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#3 raw ldp d4, d5, [x1, #32]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#4 raw ldp d6, d7, [x1, #48]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#5 raw ldp d8, d9, [x1, #64]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#6 raw ldp d10, d11, [x1, #80]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#7 raw ldp d12, d13, [x1, #96]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#8 raw ldp d14, d15, [x1, #112]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#9 raw ldp d16, d17, [x1, #128]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#10 raw ldp d18, d19, [x1, #144]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#11 raw ldp d20, d21, [x1, #160]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#12 raw ldp d22, d23, [x1, #176]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#13 raw ldp d24, d25, [x1, #192]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#14 raw ldp d26, d27, [x1, #208]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#15 raw ldp d28, d29, [x1, #224]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#16 raw ldp d30, d31, [x1, #240]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#17 raw ldp x2, x3, [x0, #16]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#18 raw ldp x4, x5, [x0, #32]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#19 raw ldp x6, x7, [x0, #48]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#20 raw ldp x8, x9, [x0, #64]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#21 raw ldp x10, x11, [x0, #80]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#22 raw ldp x12, x13, [x0, #96]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#23 raw ldp x14, x15, [x0, #112]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#24 raw ldr x19, [x0, #152]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#25 raw ldp x20, x21, [x0, #160]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#26 raw ldp x22, x23, [x0, #176]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#27 raw ldp x24, x25, [x0, #192]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#28 raw ldp x26, x27, [x0, #208]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#29 raw ldp x28, x29, [x0, #224]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#30 raw ldp x30, xIP0, [x0, #240]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#31 raw ldr xIP1, [x0, #33*8]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_do_long_jump#32 raw ldp x0, x1, [x0, #0]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::BAKER_RB_CHECK_GRAY_BIT_AND_LOAD#1 dead ldr wIP0, [\xObj, #MIRROR_OBJECT_LOCK_WORD_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::BAKER_RB_CHECK_GRAY_BIT_AND_LOAD#2 dead ldr \wDest, [\xObj, #\offset]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::BAKER_RB_LOAD_AND_MARK#1 dead ldr \wDest, [\xObj, #\offset]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#1 decode ldr w3, [x0, #MIRROR_OBJECT_CLASS_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#2 decode ldr w3, [x3, #MIRROR_CLASS_COMPONENT_TYPE_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#3 decode ldr w4, [x2, #MIRROR_OBJECT_CLASS_OFFSET]
+F runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#1 decode add x3, x0, #MIRROR_OBJECT_ARRAY_DATA_OFFSET
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#4 derived str w2, [x3, x1, lsl #2]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#5 raw strb w3, [x3, x0]
+F runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#2 decode add x3, x0, #MIRROR_OBJECT_ARRAY_DATA_OFFSET
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#6 derived str w2, [x3, x1, lsl #2]
+E runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#1 nop mov x0, x3
+F runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#3 decode add x3, x0, #MIRROR_OBJECT_ARRAY_DATA_OFFSET
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#7 derived str w2, [x3, x1, lsl #2]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_aput_obj#8 raw strb w3, [x3, x0]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#1 decode ldr w3, [x0, #MIRROR_CLASS_OBJECT_SIZE_ALLOC_FAST_PATH_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#2 raw ldr x4, [x4, #(THREAD_ROSALLOC_RUNS_OFFSET - __SIZEOF_POINTER__)]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#3 raw ldr x3, [x4, #(ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_HEAD_OFFSET)]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#4 raw ldr x1, [x3, #ROSALLOC_SLOT_NEXT_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#5 raw str x1, [x4, #(ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_HEAD_OFFSET)]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#6 encode str w0, [x3, #MIRROR_OBJECT_CLASS_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#7 nop str w3, [x1], #COMPRESSED_REFERENCE_SIZE
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#8 raw ldr w1, [x4, #(ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_SIZE_OFFSET)]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#9 raw str w1, [x4, #(ROSALLOC_RUN_FREE_LIST_OFFSET + ROSALLOC_RUN_FREE_LIST_SIZE_OFFSET)]
+E runtime/arch/arm64/quick_entrypoints_arm64.S::ART_QUICK_ALLOC_OBJECT_ROSALLOC#1 nop mov x0, x3
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ALLOC_OBJECT_TLAB_FAST_PATH_RESOLVED#1 decode ldr w7, [x0, #MIRROR_CLASS_OBJECT_SIZE_ALLOC_FAST_PATH_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ALLOC_OBJECT_TLAB_FAST_PATH_RESOLVED#2 raw str w0, [x4, #MIRROR_OBJECT_CLASS_OFFSET]
+E runtime/arch/arm64/quick_entrypoints_arm64.S::ALLOC_OBJECT_TLAB_FAST_PATH_RESOLVED#1 nop mov x0, x4
+E runtime/arch/arm64/quick_entrypoints_arm64.S::ALLOC_ARRAY_TLAB_FAST_PATH_RESOLVED_WITH_SIZE#1 nop mov x0, \xTemp0
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ALLOC_ARRAY_TLAB_FAST_PATH_RESOLVED_WITH_SIZE#1 raw str \wClass, [x0, #MIRROR_OBJECT_CLASS_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::ALLOC_ARRAY_TLAB_FAST_PATH_RESOLVED_WITH_SIZE#2 raw str \wCount, [x0, #MIRROR_ARRAY_LENGTH_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::COMPUTE_ARRAY_SIZE_UNKNOWN#1 decode ldr \wTemp0, [\xClass, #MIRROR_CLASS_COMPONENT_TYPE_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::COMPUTE_ARRAY_SIZE_UNKNOWN#2 decode ldr \wTemp0, [\xTemp0, #MIRROR_CLASS_OBJECT_PRIMITIVE_TYPE_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_imt_conflict_trampoline#1 raw ldr xIP0, [x0, #ART_METHOD_JNI_OFFSET_64]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_imt_conflict_trampoline#2 raw ldr x0, [xIP0]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_imt_conflict_trampoline#3 raw ldr x0, [xIP0, #(2 * __SIZEOF_POINTER__)]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_imt_conflict_trampoline#4 raw ldr x0, [xIP0, #__SIZEOF_POINTER__]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_imt_conflict_trampoline#5 raw ldr xIP0, [x0, #ART_METHOD_QUICK_CODE_OFFSET_64]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_generic_jni_trampoline#1 raw ldrb w1, [x1, #RUN_EXIT_HOOKS_OFFSET_FROM_RUNTIME_INSTANCE]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#1 decode ldr w4, [x0, #MIRROR_STRING_COUNT_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#2 decode ldr w3, [x0, #MIRROR_STRING_COUNT_OFFSET]
+F runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#1 decode add x0, x0, #MIRROR_STRING_VALUE_OFFSET
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#3 derived ldrh w6, [x0, #2]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#4 derived ldrh w7, [x0, #2]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#5 derived ldrh wIP0, [x0, #2]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#6 derived ldrh wIP1, [x0, #2]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#7 derived ldrh w6, [x0, #2]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_indexof#8 derived ldrb w6, [x0, #1]!
+S runtime/arch/arm64/quick_entrypoints_arm64.S::READ_BARRIER_MARK_REG#1 dead ldr wIP0, [\xreg, #MIRROR_OBJECT_LOCK_WORD_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::INTROSPECTION_ARRAY_LOAD#1 dead ldr wIP0, [xIP0, \index_reg, lsl #2]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::READ_BARRIER_MARK_INTROSPECTION_SLOW_PATH#1 dead ldr x0, [lr, #\ldr_offset]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::READ_BARRIER_MARK_INTROSPECTION_SLOW_PATH#2 dead ldr wIP1, [xIP0, #MIRROR_OBJECT_LOCK_WORD_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::READ_BARRIER_MARK_INTROSPECTION_SLOW_PATH#3 dead ldr wIP1, [lr, #BAKER_MARK_INTROSPECTION_FIELD_LDR_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#1 raw ldr w9, [x8, #INLINE_CACHE_CLASSES_OFFSET]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#2 raw ldxr w9, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#3 raw stxr w9, w0, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#4 raw ldr w9, [x8, #INLINE_CACHE_CLASSES_OFFSET+4]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#5 raw ldxr w9, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#6 raw stxr w9, w0, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#7 raw ldr w9, [x8, #INLINE_CACHE_CLASSES_OFFSET+8]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#8 raw ldxr w9, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#9 raw stxr w9, w0, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#10 raw ldr w9, [x8, #INLINE_CACHE_CLASSES_OFFSET+12]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#11 raw ldxr w9, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#12 raw stxr w9, w0, [x10]
+S runtime/arch/arm64/quick_entrypoints_arm64.S::art_quick_update_inline_cache#13 raw str w0, [x8, #INLINE_CACHE_CLASSES_OFFSET+16]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_stub#1 raw ldr xIP0, [x0, #THREAD_TOP_QUICK_FRAME_OFFSET]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_stub#2 raw ldr xIP0, [xIP0]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_stub#3 raw ldr xIP0, [xIP0, #ART_METHOD_ACCESS_FLAGS_OFFSET]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#1 raw ldp xIP0, xIP1, [x12, #FRAME_SIZE_SAVE_REFS_AND_ARGS]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#2 raw stp xIP0, xIP1, [x12], #16
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#3 raw stp d0, d1, [x13, #16]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#4 raw stp d2, d3, [x13, #32]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#5 raw stp d4, d5, [x13, #48]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#6 raw stp d6, d7, [x13, #64]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#7 raw stp x1, x2, [x13, #80]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#8 raw stp x3, x4, [x13, #96]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#9 raw stp x5, x6, [x13, #112]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#10 raw stp x7, x20, [x13, #128]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#11 raw stp x21, x22, [x13, #144]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#12 raw stp x23, x24, [x13, #160]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#13 raw stp x25, x26, [x13, #176]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#14 raw stp x27, x28, [x13, #192]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#15 raw stp x29, xIP1, [x13, #208]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#16 raw ldr wIP0, [x15, #ART_METHOD_ACCESS_FLAGS_OFFSET]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#17 raw ldr x15, [x15, #RUNTIME_SAVE_REFS_AND_ARGS_METHOD_OFFSET]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#18 raw ldp xIP0, xIP1, [x12, #-16]!
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#19 raw stp xIP0, xIP1, [x12, #FRAME_SIZE_SAVE_REFS_AND_ARGS]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#20 raw stp d8, d9, [x13, #16]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#21 raw stp d10, d11, [x13, #32]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#22 raw stp d12, d13, [x13, #48]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#23 raw stp d14, d15, [x13, #64]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#24 raw stp x19, x20, [x13, #80]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#25 raw stp x21, x22, [x13, #96]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#26 raw stp x23, x24, [x13, #112]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#27 raw stp x25, x26, [x13, #128]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#28 raw stp x27, x28, [x13, #144]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#29 raw str x29, [x13, #160]
+S runtime/arch/arm64/jni_entrypoints_arm64.S::art_jni_dlsym_lookup_critical_stub#30 raw ldr xIP0, [xIP0, #RUNTIME_SAVE_ALL_CALLEE_SAVES_METHOD_OFFSET]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_REG_BASE#1 raw ldr \reg, [\base, #(\offset)]
+S runtime/arch/arm64/asm_support_arm64.S::SAVE_TWO_REGS_BASE#1 raw stp \reg1, \reg2, [\base, #(\offset)]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_TWO_REGS_BASE#1 raw ldp \reg1, \reg2, [\base, #(\offset)]
+S runtime/arch/arm64/asm_support_arm64.S::LOAD_RUNTIME_INSTANCE#1 raw ldr \reg, [\reg, #:lo12:_ZN3art7Runtime9instance_E]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_ONLY_FRAME#1 raw ldr xIP0, [xIP0, RUNTIME_SAVE_REFS_ONLY_METHOD_OFFSET]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#1 raw stp d0, d1, [\base, #16]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#2 raw stp d2, d3, [\base, #32]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#3 raw stp d4, d5, [\base, #48]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#4 raw stp d6, d7, [\base, #64]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#5 raw stp x1, x2, [\base, #80]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#6 raw stp x3, x4, [\base, #96]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#7 raw stp x5, x6, [\base, #112]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#8 raw stp x7, x20, [\base, #128]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#1 raw ldp d0, d1, [\base, #16]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#2 raw ldp d2, d3, [\base, #32]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#3 raw ldp d4, d5, [\base, #48]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#4 raw ldp d6, d7, [\base, #64]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#5 raw ldp x1, x2, [\base, #80]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#6 raw ldp x3, x4, [\base, #96]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#7 raw ldp x5, x6, [\base, #112]
+S runtime/arch/arm64/asm_support_arm64.S::RESTORE_SAVE_REFS_AND_ARGS_FRAME_INTERNAL#8 raw ldp x7, x20, [\base, #128]
+S runtime/arch/arm64/asm_support_arm64.S::SETUP_SAVE_ALL_CALLEE_SAVES_FRAME#1 raw ldr xIP0, [xIP0, RUNTIME_SAVE_ALL_CALLEE_SAVES_METHOD_OFFSET]
+F runtime/arch/arm64/asm_support_arm64.S::LOCK_OBJECT_FAST_PATH#1 decode add x8, \obj, #MIRROR_OBJECT_LOCK_WORD_OFFSET
+S runtime/arch/arm64/asm_support_arm64.S::LOCK_OBJECT_FAST_PATH#1 derived ldaxr w10, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::LOCK_OBJECT_FAST_PATH#2 derived stxr w10, w11, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::LOCK_OBJECT_FAST_PATH#3 derived stxr w10, w11, [x8]
+F runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#1 decode add x8, \obj, #MIRROR_OBJECT_LOCK_WORD_OFFSET
+S runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#1 derived ldr w10, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#2 derived ldxr w10, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#3 derived stlr w11, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#4 derived stlxr w10, w11, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#5 derived str w11, [x8]
+S runtime/arch/arm64/asm_support_arm64.S::UNLOCK_OBJECT_FAST_PATH#6 derived stxr w10, w11, [x8]
