@@ -2012,6 +2012,14 @@ frameworks_base/core/java/android/os/CombinedVibration.java
 # Gap 1's batch 3 (App, 2026-10-28): the vibrator manager service's interface, which our SystemVibratorManager asks
 # of the local service (android.os.VibratorManagerService).
 frameworks_base/core/java/android/os/IVibratorManagerService.aidl
+# Gap 1's batch 3 (App, 2026-10-29): UiModeManager, which AppCompat's night mode, media3's Util.isTv and Material's
+# ColorContrast ask, over the local UI mode service (android.app.LocalUiModeManager), with its interfaces and the
+# IpcDataCache of its night mode (enable_night_mode_binder_cache).
+frameworks_base/core/java/android/app/UiModeManager.java
+frameworks_base/core/java/android/app/IUiModeManager.aidl
+frameworks_base/core/java/android/app/IUiModeManagerCallback.aidl
+frameworks_base/core/java/android/app/IOnProjectionStateChangedListener.aidl
+frameworks_base/core/java/android/os/IpcDataCache.java
 frameworks_base/core/java/android/hardware/lights/LightState.java
 frameworks_base/core/java/android/hardware/lights/LightsRequest.java
 frameworks_base_types/media/java/android/media/session/PlaybackState.java

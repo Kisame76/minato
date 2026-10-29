@@ -1,7 +1,9 @@
 package io.github.kisame76.minato.test.systemservices;
 
 import android.app.Activity;
+import android.app.UiModeManager;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -19,6 +21,10 @@ import android.view.View;
  *       press, which View sends to the vibrator itself (use_vibrator_haptic_feedback). Whether the device has a
  *       vibrator, its amplitude control, its IDs and the haptic feedback's answer differ by device and are shown on
  *       the device tag.
+ *   <li>the UI mode manager, from the application's context as media3's Util.isTv and AppCompat's night mode ask it:
+ *       its class, the same object by class, the current mode type, the night mode as the configuration has it, and
+ *       the contrast Material's ColorContrast reads. The night mode itself follows the device's dark theme and is shown
+ *       on the device tag.
  * </ul>
  * Its twin system-services-test-unpermitted, the same sources without the VIBRATE permission, shows the vibrator
  * service's checks: the vibration and the cancel throw SecurityException.
@@ -51,6 +57,7 @@ public class ServicesActivity extends Activity {
         Log.i(mTag, "start");
         vibrator();
         haptics();
+        uiMode();
         Log.i(mTag, "done");
     }
 
@@ -90,5 +97,26 @@ public class ServicesActivity extends Activity {
         final boolean haptic = mView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
         Log.i(mDevice, "haptic feedback for a long press " + haptic);
         Log.i(mTag, "haptic feedback for a long press sent");
+    }
+
+    /** The UI mode manager as the libraries ask it, from the application's context. */
+    private void uiMode() {
+        final Context application = getApplicationContext();
+        final UiModeManager manager = (UiModeManager) application.getSystemService(Context.UI_MODE_SERVICE);
+        Log.i(mTag, "ui mode manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(UiModeManager.class)));
+        if (manager == null) {
+            return;
+        }
+        final int uiMode = getResources().getConfiguration().uiMode;
+        Log.i(mTag, "current mode type " + manager.getCurrentModeType() + ", the configuration's "
+                + (uiMode & Configuration.UI_MODE_TYPE_MASK));
+        final int night = manager.getNightMode();
+        final int configured = uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        Log.i(mDevice, "night mode " + night + ", the configuration's " + configured);
+        final boolean agrees = night == UiModeManager.MODE_NIGHT_YES ? configured == Configuration.UI_MODE_NIGHT_YES
+                : night == UiModeManager.MODE_NIGHT_NO && configured == Configuration.UI_MODE_NIGHT_NO;
+        Log.i(mTag, "night mode as the configuration's " + agrees);
+        Log.i(mTag, "contrast " + manager.getContrast());
     }
 }

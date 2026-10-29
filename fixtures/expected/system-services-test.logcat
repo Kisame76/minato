@@ -5,4 +5,8 @@ I/system-services-test: default vibrator: android.os.SystemVibrator
 I/system-services-test: vibrated
 I/system-services-test: cancelled
 I/system-services-test: haptic feedback for a long press sent
+I/system-services-test: ui mode manager: android.app.UiModeManager, the same by class true
+I/system-services-test: current mode type 1, the configuration's 1
+I/system-services-test: night mode as the configuration's true
+I/system-services-test: contrast 0.0
 I/system-services-test: done

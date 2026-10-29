@@ -263,3 +263,6 @@ android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IV
 android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), which the local location service never delivers
 android.location.GnssMeasurementCorrections <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs
 android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILocationManager's Stub and Proxy, which the local location service never runs
+android.os.PermissionEnforcer <- android.app.IUiModeManager  # stays: IUiModeManager's Stub and Proxy, which the local UI mode service never runs
+com.android.internal.util.function.pooled.PooledLambda <- android.app.UiModeManager  # stays: a projection state listener's call, which the local UI mode service never makes (its listeners need READ_PROJECTION_STATE, a system permission)
+com.android.internal.util.function.pooled.PooledRunnable <- android.app.UiModeManager  # stays: as for PooledLambda

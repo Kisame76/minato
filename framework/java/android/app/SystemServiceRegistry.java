@@ -4,10 +4,10 @@
  * once per call where the tag's fetcher is static (the input method manager's forContext). It replaces ContextImpl's
  * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
  * power, audio and connectivity services, with power exemptions, which PowerManager asks, the notification service
- * (batch 2), the job scheduler (gap 9) and the vibrator with its manager (batch 3). A name or class without an
- * entry is logged once and gives null, as the tag's onServiceNotFound does; so does a service whose local binder the
- * table lacks (ServiceNotFoundException). AOSP's registry would load the mainline modules' classes and register 141
- * services; batches 2 and 3 add the rest.
+ * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode manager (batch 3). A name
+ * or class without an entry is logged once and gives null, as the tag's onServiceNotFound does; so does a service
+ * whose local binder the table lacks (ServiceNotFoundException). AOSP's registry would load the mainline modules'
+ * classes and register 141 services; batches 2 and 3 add the rest.
  */
 package android.app;
 
@@ -138,10 +138,13 @@ final class SystemServiceRegistry {
         cached(Context.ALARM_SERVICE, AlarmManager.class, ctx -> new AlarmManager(
                 IAlarmManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ALARM_SERVICE)),
                 ctx.getOuterContext()));
-        // ADR-0063: as AOSP's, over the local location service.
+        // Batch 3: ours under AOSP's names, over the local vibrator manager service.
         cached(Context.VIBRATOR_MANAGER_SERVICE, VibratorManager.class,
                 ctx -> new SystemVibratorManager((Context) (Object) ctx));
         cached(VIBRATOR_SERVICE, Vibrator.class, ctx -> new SystemVibrator((Context) (Object) ctx));
+        // Batch 3: as the tag's, over the local UI mode service.
+        cached(Context.UI_MODE_SERVICE, UiModeManager.class, ctx -> new UiModeManager(ctx.getOuterContext()));
+        // ADR-0063: as AOSP's, over the local location service.
         cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
                 ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));
     }

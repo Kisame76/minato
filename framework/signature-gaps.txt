@@ -97,3 +97,4 @@ android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IV
 android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), not taken; the local location service delivers none
 android.location.GnssMeasurementCorrections <- android.location.ILocationManager, android.location.LocationManager  # gap: injectGnssMeasurementCorrections, a system API (ADR-0063 step 1b), not taken
 android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs; no app reflects over a binder interface
+android.os.PermissionEnforcer <- android.app.IUiModeManager  # stays: IUiModeManager's Stub, which the local UI mode service never runs; no app reflects over a binder interface
