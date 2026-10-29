@@ -14,6 +14,7 @@
 #include "video_decoders.h"
 #include "sensor_syscalls.h"
 #include "location_syscalls.h"
+#include "battery.h"
 #include "host_calls.h"
 #include "identity.h"
 #include "loader_syscalls.h"
@@ -957,6 +958,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return apkrt::sensors::call(x[0], x[1]);  // ADR-0061
         case APKRT_NR_LOCATION:
             return apkrt::location::call(x[0], x[1], x[2]);  // ADR-0063
+        case APKRT_NR_BATTERY:
+            return apkrt::battery::call(x[0]);  // the battery transport (App gap-1, 2026-10-29)
         case APKRT_NR_SESSION_CONFIGURATION:
             return apkrt::session::configuration(x[0]);  // ADR-0039, config-test
         // The vsync channel (ADR-0036, decision 1).

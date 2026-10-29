@@ -284,6 +284,14 @@ enum apkrt_event_type {
                                           // GET follows); a2 the one-shot's token when bit 0 is set, else 0. A
                                           // continuous fix (bit 0 clear) is fetched with GET by its sequence, or read
                                           // whole with APKRT_LOCATION_LAST (getLastKnownLocation)
+    APKRT_EVENT_BATTERY,                  // the battery state changed (App's gap-1 proposal, 2026-10-29): a0 the
+                                          // charge level in percent 0..100, or -1 over the full 64-bit field when
+                                          // unknown; a1 the state (APKRT_BATTERY_STATE_* below), UIDevice.batteryState
+                                          // passed through raw; a2 0. Posted only on a change while a session runs, as
+                                          // Android's sticky ACTION_BATTERY_CHANGED broadcasts only on a change. A
+                                          // newly-registered receiver reads the current value synchronously with
+                                          // APKRT_NR_BATTERY (GET) before any event. Needs no permission, as the
+                                          // Android broadcast does not
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -812,6 +820,30 @@ struct apkrt_location_fix {
                                       // does not exist on Android 15 (ADR-0063)
     uint32_t valid;                   // APKRT_LOCATION_HAS_* bits
 };
+
+// MARK: - Battery (App's gap-1 proposal, 2026-10-29)
+//
+// The host (App's UIDevice side on iOS, apk_run's fixed model on the Mac) reports the battery with
+// apkrt_battery_set (apkrt.h). It stores the value and, while a session runs, posts APKRT_EVENT_BATTERY on a
+// change. The Java BatteryManager and the sticky ACTION_BATTERY_CHANGED live on the framework side (App); this is
+// only the transport. No permission is needed, as Android's battery broadcast needs none.
+
+/// One syscall carries every battery operation, like the sensor's and the location's: x0 the op.
+#define APKRT_NR_BATTERY 4131
+
+#define APKRT_BATTERY_GET 0  // x0 0: the current battery packed as (level & 0xFFFFFFFF) | (state << 32), both
+                             // non-negative (an unknown level is 0xFFFFFFFF in the low half, so the packed value is
+                             // always positive and never aliases a negative errno); -ENODATA before the host's first
+                             // apkrt_battery_set. Never gated (battery needs no permission). The sticky
+                             // BATTERY_CHANGED reads it at the first registerReceiver, before any event
+
+/// APKRT_EVENT_BATTERY's state (a1) and APKRT_BATTERY_GET's high half: UIDevice.BatteryState's raw values, so the
+/// host passes them through unchanged. The Android mapping (BatteryManager.BATTERY_STATUS_*, plugged, battery-low) is
+/// the framework's (App).
+#define APKRT_BATTERY_STATE_UNKNOWN   0
+#define APKRT_BATTERY_STATE_UNPLUGGED 1
+#define APKRT_BATTERY_STATE_CHARGING  2
+#define APKRT_BATTERY_STATE_FULL      3
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //

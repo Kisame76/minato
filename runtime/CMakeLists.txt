@@ -7,7 +7,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
   src/proc.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp src/netlink.cpp
-  src/video_decoders.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp)
+  src/video_decoders.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp src/battery.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
@@ -100,6 +100,14 @@ if(APK_HOST_BUILD)
   target_link_libraries(location_transport_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.location_transport COMMAND location_transport_test)
   set_tests_properties(runtime.location_transport PROPERTIES TIMEOUT 60)
+
+  # The battery transport (App gap-1, 2026-10-29): APKRT_NR_BATTERY (GET) through the dispatcher, and apkrt_battery_set
+  # announcing APKRT_EVENT_BATTERY through the session event stream, only on a change and only while a session runs.
+  add_executable(battery_transport_test tests/battery_transport_test.cpp)
+  target_include_directories(battery_transport_test PRIVATE src)
+  target_link_libraries(battery_transport_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.battery_transport COMMAND battery_transport_test)
+  set_tests_properties(runtime.battery_transport PROPERTIES TIMEOUT 60)
 
   # The guest's /dev/socket/dnsproxyd (ADR-0054 step b): the replies in DnsProxyListener's bytes.
   add_executable(dns_proxy_test tests/dns_proxy_test.cpp)

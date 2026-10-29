@@ -725,6 +725,13 @@ void apkrt_location_push(const struct apkrt_location_fix *fix);
 /// already-resolved token is ignored. Runs on the host's own thread; takes only the hub's lock.
 void apkrt_location_push_single(uint64_t token, const struct apkrt_location_fix *fix);
 
+/// The host reports the battery (App's gap-1 proposal, 2026-10-29): `level_percent` the charge 0..100, or -1 when
+/// unknown; `state` an APKRT_BATTERY_STATE_* value (UIDevice.batteryState raw). Stores the value on any thread, also
+/// before a session exists (APKRT_BATTERY_GET then reads it). While a session runs it posts APKRT_EVENT_BATTERY only
+/// when the value changed since the last post, as Android's ACTION_BATTERY_CHANGED broadcasts only on a change; a
+/// value set before the session is not posted but is readable with GET. Needs no permission.
+void apkrt_battery_set(int32_t level_percent, int32_t state);
+
 #ifdef __cplusplus
 }
 #endif
