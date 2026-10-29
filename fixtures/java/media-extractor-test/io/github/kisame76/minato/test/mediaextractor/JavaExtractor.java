@@ -29,6 +29,7 @@ import java.util.zip.CRC32;
  * - From a FileDescriptor with an offset and a length, from the copy's path, its file:// form and a file Uri, and from
  *   the bytes through a MediaDataSource: the samples' count and digest, and how often the source was closed; from a
  *   missing path, an unreachable http URL and bytes that are no movie: the exception.
+ * - The bytes with a broken avcC (step 2a.2): each track's MIME type or what getTrackFormat and selectTrack throw.
  */
 final class JavaExtractor {
     private static final long[] TIMES = {-500000, 0, 200000, 433333, 450000, 966667, 2000000};
@@ -115,6 +116,52 @@ final class JavaExtractor {
         Bytes other = new Bytes(text);
         sourceLine(prefix + " data source no movie", whole, e -> e.setDataSource(other));
         add(prefix + " data source no movie: closed " + other.closed + " times");
+        brokenLines(prefix, bytes);
+    }
+
+    /**
+     * The bytes with the first avcC broken (step 2a.2): of version 0, and with its first SPS's length past the box.
+     * Each track's MIME type or what getTrackFormat throws, what selectTrack throws, and the samples' count.
+     */
+    private void brokenLines(String prefix, byte[] bytes) {
+        int at = -1;
+        for (int index = 4; index + 12 <= bytes.length && at < 0; index++) {
+            if (bytes[index] == 'a' && bytes[index + 1] == 'v' && bytes[index + 2] == 'c' && bytes[index + 3] == 'C') {
+                at = index + 4;  // the body
+            }
+        }
+        if (at < 0) {
+            add(prefix + " broken: no avcC");
+            return;
+        }
+        byte[] version = bytes.clone();
+        version[at] = 0;
+        byte[] past = bytes.clone();
+        past[at + 6] = (byte) 0xff;
+        brokenLine(prefix + " avcC of version 0", version);
+        brokenLine(prefix + " avcC of an SPS past its end", past);
+    }
+
+    private void brokenLine(String what, byte[] bytes) {
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            extractor.setDataSource(new Bytes(bytes));
+            int tracks = extractor.getTrackCount();
+            add(what + ": " + tracks + " tracks");
+            for (int track = 0; track < tracks; track++) {
+                int index = track;
+                add(what + " track " + track + ": " + thrown(() -> extractor.getTrackFormat(index)
+                        .getString(MediaFormat.KEY_MIME)));
+                add(what + " select " + track + ": " + fails(() -> extractor.selectTrack(index)));
+            }
+            int count = 0;
+            for (; extractor.getSampleTrackIndex() >= 0; extractor.advance()) count++;
+            add(what + ": " + count + " samples");
+        } catch (Throwable t) {
+            add(what + ": " + t);
+        } finally {
+            extractor.release();
+        }
     }
 
     /** Every key of the format, sorted, one line each. */

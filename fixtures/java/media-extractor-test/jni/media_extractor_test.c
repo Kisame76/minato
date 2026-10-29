@@ -38,11 +38,11 @@
 // The keys a track's or a sample's format is asked for: those MPEG4Extractor and NuMediaExtractor set, and those
 // an app reads.
 static const char *const kKeys[] = {
-    "mime", "durationUs", "width", "height", "max-width", "max-height", "display-width", "display-height",
-    "sar-width", "sar-height", "rotation-degrees", "frame-rate", "capture-rate", "bitrate", "max-bitrate", "profile",
-    "level", "aac-profile", "is-adts", "sample-rate", "channel-count", "channel-mask", "pcm-encoding",
-    "bits-per-sample", "encoder-delay", "encoder-padding", "language", "track-id", "max-input-size", "csd-0", "csd-1",
-    "csd-2", "csd-avc", "csd-hevc", "esds", "color-range", "color-standard", "color-transfer", "hdr-static-info",
+    "mime", "durationUs", "width", "height", "max-width", "max-height", "display-width", "display-height", "sar-width",
+    "sar-height", "rotation-degrees", "frame-rate", "capture-rate", "bitrate", "max-bitrate", "profile", "level",
+    "aac-profile", "is-adts", "sample-rate", "channel-count", "channel-mask", "pcm-encoding", "bits-per-sample",
+    "encoder-delay", "encoder-padding", "language", "track-id", "max-input-size", "csd-0", "csd-1", "csd-2", "csd-avc",
+    "csd-hevc", "esds", "color-range", "color-standard", "color-transfer", "android._is-hdr", "hdr-static-info",
     "is-default", "is-autoselect", "is-forced-subtitle", "is-sync-frame", "thumbnail-time", "time-us", "track-index",
     "temporal-layer-id", "temporal-layer-count", "sample-file-offset", "last-sample-index-in-chunk", "target-time",
     "valid-samples", "pssh", "crypto-mode", "frame-count",
@@ -375,8 +375,38 @@ static struct buffer stsd_of(const struct buffer *entries, uint32_t count) {
     return out;
 }
 
+// The offset in an esds box of its DecoderConfigDescriptor's maximum bit rate (the average follows), or 0: version
+// and flags, the ES_Descriptor (tag 3) with its flags' fields, the DecoderConfigDescriptor (tag 4), descriptor
+// lengths of up to 4 bytes.
+static size_t esds_rates_at(const uint8_t *esds, size_t size) {
+    size_t at = 12;
+    const size_t end = be32(esds) <= size ? be32(esds) : size;
+    for (int descriptor = 0; descriptor < 2; descriptor++) {
+        if (at >= end || esds[at] != (descriptor == 0 ? 3 : 4)) return 0;
+        at++;
+        for (int part = 0; part < 4 && at < end && (esds[at++] & 0x80) != 0; part++) {}
+        if (descriptor == 0) {
+            if (at + 3 > end) return 0;
+            const uint8_t flags = esds[at + 2];
+            at += 3;
+            if (flags & 0x80) at += 2;
+            if ((flags & 0x40) && at < end) at += 1 + esds[at];
+            if (flags & 0x20) at += 2;
+        }
+    }
+    return at + 13 <= end ? at + 5 : 0;
+}
+
 // One description variant through an AMediaDataSource: each track's format, and the samples' count and digest.
+static void variant_lines_but(struct log *log, const char *prefix, struct buffer *file, size_t formatless);
+
 static void variant_lines(struct log *log, const char *prefix, struct buffer *file) {
+    variant_lines_but(log, prefix, file, (size_t)-1);
+}
+
+// As variant_lines, without track `formatless`'s format: Android's NDK gives a format of no message for a track
+// whose format does not convert, and its getters dereference it.
+static void variant_lines_but(struct log *log, const char *prefix, struct buffer *file, size_t formatless) {
     if (file->data == NULL) {
         add(log, "%s: not made", prefix);
         return;
@@ -393,9 +423,11 @@ static void variant_lines(struct log *log, const char *prefix, struct buffer *fi
     for (size_t track = 0; track < tracks; track++) {
         char what[128];
         snprintf(what, sizeof what, "%s track %zu", prefix, track);
-        AMediaFormat *format = AMediaExtractor_getTrackFormat(extractor, track);
-        format_lines(log, what, format);
-        if (format != NULL) AMediaFormat_delete(format);
+        if (track != formatless) {
+            AMediaFormat *format = AMediaExtractor_getTrackFormat(extractor, track);
+            format_lines(log, what, format);
+            if (format != NULL) AMediaFormat_delete(format);
+        }
         add(log, "%s: select %zu: status %d", prefix, track, AMediaExtractor_selectTrack(extractor, track));
     }
     int count = 0;
@@ -404,6 +436,289 @@ static void variant_lines(struct log *log, const char *prefix, struct buffer *fi
     AMediaExtractor_delete(extractor);
     AMediaDataSource_delete(source);
     free(file->data);
+}
+
+// A box for a sample entry: its type and body.
+struct extra {
+    const char *type;
+    const uint8_t *body;
+    size_t size;
+};
+#define EXTRA(type, body) {type, body, sizeof body}
+
+// Colour and aspect boxes (step 2a.2): colr and pasp after the avc1's boxes and the mp4a's esds, the first
+// nclx or nclc colr the track's, one too short for its fields failing the file; and hvc1s whose hvcC has, after its
+// VPS, SPSs (written for this test: Main profile, 320 x 180) whose VUI has a colour description or not.
+static void colour_lines(struct log *log, const char *name, const uint8_t *data, size_t size, const uint8_t *video,
+                         size_t video_size, const uint8_t *audio, size_t audio_size, const uint8_t *hvcc_head) {
+    static const uint8_t kHdr10[] = {'n', 'c', 'l', 'x', 0, 9, 0, 16, 0, 9, 0x80};
+    static const uint8_t kBt709[] = {'n', 'c', 'l', 'c', 0, 1, 0, 1, 0, 1};
+    static const uint8_t kExtended[] = {'n', 'c', 'l', 'x', 0, 11, 0, 17, 0, 0, 0x80};
+    static const uint8_t kShortNclx[] = {'n', 'c', 'l', 'x', 0, 9, 0, 16, 0, 9};
+    static const uint8_t kProfile[] = {'p', 'r', 'o', 'f', 0, 0, 0, 0};
+    static const uint8_t kUnknownTransfer[] = {'n', 'c', 'l', 'x', 0, 1, 0, 3, 0, 1, 0};
+    static const uint8_t kShortColr[] = {'n', 'c', 'l'};
+    static const uint8_t k4by3[] = {0, 0, 0, 4, 0, 0, 0, 3}, k0by3[] = {0, 0, 0, 0, 0, 0, 0, 3};
+    static const uint8_t k16by9[] = {0, 0, 0, 16, 0, 0, 0, 9}, k1by0[] = {0, 0, 0, 1, 0, 0, 0, 0};
+    static const uint8_t kHuge[] = {0x80, 0, 0, 0, 0, 0, 0, 1}, kShortPasp[] = {0, 0, 0, 4, 0, 0, 0};
+    static const uint8_t kHugeHeight[] = {0, 0, 0, 1, 0x80, 0, 0, 0};
+    const struct {
+        const char *what;
+        struct extra first, second;
+    } kinds[] = {
+        {"colr nclx of HDR10", EXTRA("colr", kHdr10), {NULL, NULL, 0}},
+        {"colr nclc of BT.709", EXTRA("colr", kBt709), {NULL, NULL, 0}},
+        {"colr nclx of extended values", EXTRA("colr", kExtended), {NULL, NULL, 0}},
+        {"colr nclx of unknown transfer", EXTRA("colr", kUnknownTransfer), {NULL, NULL, 0}},
+        {"colr nclc, then nclx", EXTRA("colr", kBt709), EXTRA("colr", kHdr10)},
+        {"colr short nclx, then nclc", EXTRA("colr", kShortNclx), EXTRA("colr", kBt709)},
+        {"colr prof, then nclx", EXTRA("colr", kProfile), EXTRA("colr", kHdr10)},
+        {"colr of 3 bytes", EXTRA("colr", kShortColr), {NULL, NULL, 0}},
+        {"pasp 4:3", EXTRA("pasp", k4by3), {NULL, NULL, 0}},
+        {"pasp 0:3", EXTRA("pasp", k0by3), {NULL, NULL, 0}},
+        {"pasp 4:3, then 16:9", EXTRA("pasp", k4by3), EXTRA("pasp", k16by9)},
+        {"pasp 4:3, then 1:0", EXTRA("pasp", k4by3), EXTRA("pasp", k1by0)},
+        {"pasp 2^31:1", EXTRA("pasp", kHuge), {NULL, NULL, 0}},
+        {"pasp 1:2^31", EXTRA("pasp", kHugeHeight), {NULL, NULL, 0}},
+        {"pasp of 7 bytes", EXTRA("pasp", kShortPasp), {NULL, NULL, 0}},
+    };
+    char prefix[96];
+    for (size_t kind = 0; kind < sizeof kinds / sizeof kinds[0]; kind++) {
+        struct buffer boxes = {NULL, 0}, entries = {NULL, 0};
+        append(&boxes, video + 86, video_size - 86);
+        append_box(&boxes, kinds[kind].first.type, kinds[kind].first.body, kinds[kind].first.size);
+        if (kinds[kind].second.type != NULL) {
+            append_box(&boxes, kinds[kind].second.type, kinds[kind].second.body, kinds[kind].second.size);
+        }
+        append_entry(&entries, "avc1", video, boxes.data, boxes.size);
+        struct buffer stsd = stsd_of(&entries, 1);
+        struct buffer file = with_stsd(data, size, 0, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s avc1 with %s", name, kinds[kind].what);
+        variant_lines(log, prefix, &file);
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+    }
+
+    // The mp4a with a colr and a pasp: an audio track's format has neither's keys.
+    {
+        struct buffer body = {NULL, 0}, entries = {NULL, 0};
+        append(&body, audio + 8, audio_size - 8);
+        append_box(&body, "colr", kHdr10, sizeof kHdr10);
+        append_box(&body, "pasp", k4by3, sizeof k4by3);
+        append_box(&entries, "mp4a", body.data, body.size);
+        struct buffer stsd = stsd_of(&entries, 1);
+        struct buffer file = with_stsd(data, size, 1, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s mp4a with colr and pasp", name);
+        variant_lines(log, prefix, &file);
+        free(stsd.data);
+        free(entries.data);
+        free(body.data);
+    }
+
+    // SPS NAL units with emulation prevention bytes, their VUI's video signal type of format 5 (unspecified), the
+    // full range flag, and the colour description's primaries, transfer and matrix: 9, 16, 9 (HDR10); 1, 1, 1 with
+    // full range; none with full range; 2, 2, 2 (unspecified); 2, 1, 2; 9 alone, the unit ending there; 9, 18, 9
+    // (HLG); and 1, 1, 1 after a chroma_format_idc of 259, which parseSps keeps as a uint8_t (3: a
+    // separate_colour_plane_flag follows).
+    static const uint8_t kSpsPq[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00,
+                                     0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a, 0x08, 0x0b,
+                                     0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6a, 0x12, 0x20, 0x13, 0x00};
+    static const uint8_t kSpsFull[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00,
+                                       0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a, 0x08, 0x0b,
+                                       0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6e, 0x02, 0x02, 0x03, 0x00};
+    static const uint8_t kSpsUndescribed[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90,
+                                              0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a,
+                                              0x08, 0x0b, 0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6d, 0x00};
+    static const uint8_t kSpsUnspecified[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00,
+                                              0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a, 0x08, 0x0b,
+                                              0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6a, 0x04, 0x04, 0x05, 0x00};
+    static const uint8_t kSpsPartly[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00,
+                                         0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a, 0x08, 0x0b,
+                                         0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6a, 0x04, 0x02, 0x05, 0x00};
+    static const uint8_t kSpsCut[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90,
+                                      0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a,
+                                      0x08, 0x0b, 0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6a, 0x12};
+    static const uint8_t kSpsHlg[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00,
+                                      0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0xa0, 0x0a, 0x08, 0x0b,
+                                      0x56, 0x59, 0x7a, 0xbc, 0xae, 0x6a, 0x12, 0x24, 0x13, 0x00};
+    static const uint8_t kSpsChroma[] = {0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x03, 0x00, 0x90, 0x00, 0x00,
+                                         0x03, 0x00, 0x00, 0x03, 0x00, 0x5d, 0x80, 0x41, 0x00, 0x14, 0x10, 0x16,
+                                         0xac, 0xb2, 0xf5, 0x79, 0x5c, 0xd4, 0x04, 0x04, 0x06, 0x00};
+    // Each with the hvcC's profile byte (0 keeps Main) and first compatibility byte (0 keeps Main's).
+    const struct {
+        const char *what;
+        struct extra first, second, colr;
+        int then_avc1;
+        uint8_t profile, compatibility;
+    } hevc[] = {
+        {"of an HDR10 VUI", EXTRA("", kSpsPq), {NULL, NULL, 0}, {NULL, NULL, 0}, 0},
+        {"of a full range BT.709 VUI", EXTRA("", kSpsFull), {NULL, NULL, 0}, {NULL, NULL, 0}, 0},
+        {"of a VUI without a description", EXTRA("", kSpsUndescribed), {NULL, NULL, 0}, {NULL, NULL, 0}, 0},
+        {"of an unspecified VUI", EXTRA("", kSpsUnspecified), {NULL, NULL, 0}, {NULL, NULL, 0}, 0},
+        {"of a VUI partly unspecified, a colr", EXTRA("", kSpsPartly), {NULL, NULL, 0}, EXTRA("colr", kHdr10), 0},
+        {"of a VUI cut after its primaries", EXTRA("", kSpsCut), {NULL, NULL, 0}, {NULL, NULL, 0}, 0},
+        {"of two SPSs", EXTRA("", kSpsPq), EXTRA("", kSpsUndescribed), {NULL, NULL, 0}, 0},
+        {"of chroma format 259", EXTRA("", kSpsChroma), {NULL, NULL, 0}, {NULL, NULL, 0}, 0},
+        {"with a colr alone", {NULL, NULL, 0}, {NULL, NULL, 0}, EXTRA("colr", kBt709), 0},
+        {"of an HDR10 VUI, then avc1", EXTRA("", kSpsPq), {NULL, NULL, 0}, {NULL, NULL, 0}, 1},
+        {"Main10 of an HDR10 VUI", EXTRA("", kSpsPq), {NULL, NULL, 0}, {NULL, NULL, 0}, 0, 0x02},
+        {"Main10 with an HDR10 colr", {NULL, NULL, 0}, {NULL, NULL, 0}, EXTRA("colr", kHdr10), 0, 0x02},
+        {"Main10 of a BT.709 VUI", EXTRA("", kSpsFull), {NULL, NULL, 0}, {NULL, NULL, 0}, 0, 0x02},
+        {"Main10 of an HLG VUI", EXTRA("", kSpsHlg), {NULL, NULL, 0}, {NULL, NULL, 0}, 0, 0x02},
+        {"Main10 by its flag, an HDR10 VUI", EXTRA("", kSpsPq), {NULL, NULL, 0}, {NULL, NULL, 0}, 0, 0x04, 0x20},
+    };
+    for (size_t kind = 0; kind < sizeof hevc / sizeof hevc[0]; kind++) {
+        // The hvcC's 22 bytes, then an array of the VPS and one of the SPSs.
+        struct buffer body = {NULL, 0}, boxes = {NULL, 0}, entries = {NULL, 0};
+        const struct extra *units[] = {&hevc[kind].first, &hevc[kind].second};
+        uint8_t head[3] = {0x21, 0, 0};
+        for (int unit = 0; unit < 2; unit++) head[2] = (uint8_t)(head[2] + (units[unit]->body != NULL));
+        const uint8_t arrays = head[2] != 0 ? 2 : 1;
+        append(&body, hvcc_head, 22);
+        if (hevc[kind].profile != 0) body.data[body.size - 21] = hevc[kind].profile;
+        if (hevc[kind].compatibility != 0) body.data[body.size - 20] = hevc[kind].compatibility;
+        append(&body, &arrays, 1);
+        append(&body, hvcc_head + 23, 7);
+        if (head[2] != 0) append(&body, head, 3);
+        for (int unit = 0; unit < 2; unit++) {
+            if (units[unit]->body == NULL) continue;
+            const uint8_t length[2] = {(uint8_t)(units[unit]->size >> 8), (uint8_t)units[unit]->size};
+            append(&body, length, 2);
+            append(&body, units[unit]->body, units[unit]->size);
+        }
+        append_box(&boxes, "hvcC", body.data, body.size);
+        if (hevc[kind].colr.body != NULL) append_box(&boxes, "colr", hevc[kind].colr.body, hevc[kind].colr.size);
+        append_entry(&entries, "hvc1", video, boxes.data, boxes.size);
+        if (hevc[kind].then_avc1) append(&entries, video, video_size);
+        struct buffer stsd = stsd_of(&entries, hevc[kind].then_avc1 ? 2 : 1);
+        struct buffer file = with_stsd(data, size, 0, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s hvc1 %s", name, hevc[kind].what);
+        variant_lines(log, prefix, &file);
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+        free(body.data);
+    }
+}
+
+// Broken codec configurations (step 2a.2): MPEG4Extractor keeps an avcC, hvcC or esds as its bytes, so its track
+// stays; the format's conversion and MPEG4Source's start are what refuse it. The broken track's format is not read
+// (variant_lines_but). An avcC of version 0, of 6 and of 4 bytes, an SPS or PPS length past its end, none of its PPS
+// count; an hvcC of versions 0 and 2, of 22 and 21 bytes, a unit past its end, 128 arrays of one there (and of all
+// 128 there, which keeps its format); an esds whose ES_Descriptor tag is not 3, in the mp4a and alone in a QuickTime
+// wave.
+static void broken_lines(struct log *log, const char *name, const uint8_t *data, size_t size, const uint8_t *video,
+                         size_t video_size, const uint8_t *audio, size_t audio_size, const uint8_t *hvcc_head,
+                         size_t hvcc_head_size) {
+    const uint8_t *avcc = video + 86;
+    const size_t avcc_size = be32(avcc), body_size = avcc_size - 8;
+    const size_t sps = avcc_size >= 16 ? (size_t)avcc[14] << 8 | avcc[15] : 0;
+    if (avcc_size < 17 + sps + 3) {
+        add(log, "custom %s broken: no avcC of a set each", name);
+        return;
+    }
+    char prefix[96];
+    const struct {
+        const char *what;
+        size_t size;  // of the body, 0 for all of it
+        size_t at;    // a byte to change, 0 for none
+        uint8_t value;
+    } avc[] = {
+        {"avcC of version 0", 0, 8, 0},
+        {"avcC of 6 bytes", 6, 0, 0},
+        {"avcC of 4 bytes", 4, 0, 0},
+        {"avcC of an SPS past its end", 0, 8 + 6, 0xff},
+        {"avcC without its PPS count", 8 + sps, 0, 0},
+        {"avcC of a PPS past its end", 0, 8 + 8 + sps + 1, 0xff},
+    };
+    for (size_t kind = 0; kind < sizeof avc / sizeof avc[0]; kind++) {
+        struct buffer config = {NULL, 0}, boxes = {NULL, 0}, entries = {NULL, 0};
+        append(&config, avcc + 8, avc[kind].size != 0 ? avc[kind].size : body_size);
+        if (avc[kind].at != 0) config.data[avc[kind].at - 8] = avc[kind].value;
+        append_box(&boxes, "avcC", config.data, config.size);
+        append(&boxes, avcc + avcc_size, video_size - 86 - avcc_size);  // fiel and chrm
+        append_entry(&entries, "avc1", video, boxes.data, boxes.size);
+        struct buffer stsd = stsd_of(&entries, 1);
+        struct buffer file = with_stsd(data, size, 0, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s %s", name, avc[kind].what);
+        variant_lines_but(log, prefix, &file, 0);
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+        free(config.data);
+    }
+    const struct {
+        const char *what;
+        size_t size;
+        size_t at;  // of the body, (size_t)-1 for none
+        uint8_t value;
+    } hevc[] = {
+        {"hvcC of version 0", 0, 0, 0},           {"hvcC of version 2", 0, 0, 2},
+        {"hvcC of 22 bytes", 22, (size_t)-1, 0},  {"hvcC of 21 bytes", 21, (size_t)-1, 0},
+        {"hvcC of a unit past its end", 0, 26, 0xff}, {"hvcC of 128 arrays", 0, 22, 0x80},
+    };
+    for (size_t kind = 0; kind < sizeof hevc / sizeof hevc[0]; kind++) {
+        struct buffer config = {NULL, 0}, boxes = {NULL, 0}, entries = {NULL, 0};
+        append(&config, hvcc_head, hevc[kind].size != 0 ? hevc[kind].size : hvcc_head_size);
+        if (hevc[kind].at != (size_t)-1) config.data[hevc[kind].at] = hevc[kind].value;
+        append_box(&boxes, "hvcC", config.data, config.size);
+        append_entry(&entries, "hvc1", video, boxes.data, boxes.size);
+        struct buffer stsd = stsd_of(&entries, 1);
+        struct buffer file = with_stsd(data, size, 0, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s %s", name, hevc[kind].what);
+        variant_lines_but(log, prefix, &file, 0);
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+        free(config.data);
+    }
+    {
+        // 128 arrays of no units, all there: the count is a char, unsigned on arm64, so the format stays.
+        struct buffer config = {NULL, 0}, boxes = {NULL, 0}, entries = {NULL, 0};
+        append(&config, hvcc_head, 22);
+        append(&config, "\x80", 1);
+        for (int array = 0; array < 128; array++) append(&config, "\x20\0\0", 3);
+        append_box(&boxes, "hvcC", config.data, config.size);
+        append_entry(&entries, "hvc1", video, boxes.data, boxes.size);
+        struct buffer stsd = stsd_of(&entries, 1);
+        struct buffer file = with_stsd(data, size, 0, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s hvcC of 128 arrays, all there", name);
+        variant_lines(log, prefix, &file);
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+        free(config.data);
+    }
+    const size_t esds_at = 36;  // the mp4a's esds, after the sound entry's 28 bytes
+    if (audio_size < esds_at + 13 || memcmp(audio + esds_at + 4, "esds", 4) != 0 || audio[esds_at + 12] != 3) {
+        add(log, "custom %s broken: no esds in the mp4a", name);
+        return;
+    }
+    for (int wave = 0; wave < 2; wave++) {
+        struct buffer esds = {NULL, 0}, body = {NULL, 0}, entries = {NULL, 0};
+        append(&esds, audio + esds_at, be32(audio + esds_at));
+        esds.data[12] = 5;  // the ES_Descriptor's tag
+        append(&body, audio + 8, 28);
+        if (wave) {
+            struct buffer inside = {NULL, 0};
+            append_box(&inside, "frma", "mp4a", 4);
+            append(&inside, esds.data, esds.size);
+            append_box(&body, "wave", inside.data, inside.size);
+            free(inside.data);
+        } else {
+            append(&body, esds.data, esds.size);
+        }
+        append_box(&entries, "mp4a", body.data, body.size);
+        struct buffer stsd = stsd_of(&entries, 1);
+        struct buffer file = with_stsd(data, size, 1, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s esds of tag 5%s", name, wave ? " in a wave" : "");
+        variant_lines_but(log, prefix, &file, 1);
+        free(stsd.data);
+        free(entries.data);
+        free(body.data);
+        free(esds.data);
+    }
 }
 
 // baseline's bytes with other sample descriptions: its video track's avc1 (avcC, fiel and chrm) and its audio
@@ -438,6 +753,85 @@ static void description_lines(struct log *log, const char *name, const uint8_t *
     variant_lines(log, prefix, &file);
     free(stsd.data);
     free(entries.data);
+
+    // QuickTime's AAC (step 2a.2): the mp4a's esds in a wave (no aac-profile, the bit rates the format's
+    // conversion takes), an mp4a whose esds has bit rates of 0 after one with them (they stay), alone, and before an
+    // mp4a with its esds in a wave; maximums below the average, in the mp4a's esds and in the final one, a final
+    // one whose maximum is above its own average but below the mp4a's, one of twice the mp4a's average after an
+    // mp4a that has its own, and an esds of MP3's object type, which gives no bit rates, before one of 0.
+    const size_t esds_at = 36;  // the mp4a's esds, after the sound entry's 28 bytes
+    if (audio_size >= esds_at + 8 && memcmp(audio + esds_at + 4, "esds", 4) == 0 &&
+        be32(audio + esds_at) <= audio_size - esds_at) {
+        const uint8_t *esds = audio + esds_at;
+        const size_t esds_size = be32(esds);
+        const size_t rates = esds_rates_at(esds, esds_size);
+        struct buffer wave_body = {NULL, 0}, wave_entry = {NULL, 0}, zero_entry = {NULL, 0};
+        struct buffer below_entry = {NULL, 0}, wave_below = {NULL, 0}, max_zero_entry = {NULL, 0};
+        struct buffer wave_quarter = {NULL, 0}, wave_double = {NULL, 0}, mp3_entry = {NULL, 0};
+        append_box(&wave_body, "frma", "mp4a", 4);
+        append(&wave_body, esds, esds_size);
+        struct buffer sound = {NULL, 0};
+        append(&sound, audio + 8, 28);
+        append_box(&sound, "wave", wave_body.data, wave_body.size);
+        append_box(&wave_entry, "mp4a", sound.data, sound.size);
+        append(&zero_entry, audio, audio_size);
+        if (rates != 0) memset(zero_entry.data + esds_at + rates, 0, 8);
+        const size_t wave_esds_at = 56;  // the wave entry's esds, after its sound entry, the wave's header and frma
+        append(&below_entry, audio, audio_size);
+        append(&max_zero_entry, audio, audio_size);
+        append(&wave_below, wave_entry.data, wave_entry.size);
+        append(&wave_quarter, wave_entry.data, wave_entry.size);
+        append(&wave_double, wave_entry.data, wave_entry.size);
+        append(&mp3_entry, audio, audio_size);
+        if (rates != 0) mp3_entry.data[esds_at + rates - 5] = 0x6b;  // the DecoderConfigDescriptor's object type
+        if (rates != 0) {
+            const uint32_t average = be32(audio + esds_at + rates + 4);
+            put_be32(below_entry.data + esds_at + rates, average / 2);
+            put_be32(max_zero_entry.data + esds_at + rates, 0);
+            put_be32(wave_below.data + wave_esds_at + rates, average / 2);
+            put_be32(wave_quarter.data + wave_esds_at + rates, average / 2);
+            put_be32(wave_quarter.data + wave_esds_at + rates + 4, average / 4);
+            put_be32(wave_double.data + wave_esds_at + rates, average * 2);
+        }
+        const struct {
+            const char *what;
+            const struct buffer *first, *second;
+        } kinds[] = {
+            {"mp4a with its esds in a wave", &wave_entry, NULL},
+            {"mp4a, then mp4a of bit rates 0", NULL, &zero_entry},
+            {"mp4a of bit rates 0", &zero_entry, NULL},
+            {"mp4a of bit rates 0, then mp4a with its esds in a wave", &zero_entry, &wave_entry},
+            {"mp4a of a maximum below its average", &below_entry, NULL},
+            {"mp4a of bit rates 0, then wave of maximum below average", &zero_entry, &wave_below},
+            {"mp4a of maximum 0, then wave of half and quarter rates", &max_zero_entry, &wave_quarter},
+            {"mp4a, then wave of twice its average as maximum", NULL, &wave_double},
+            {"mp4a of MP3's object type, then mp4a of bit rates 0", &mp3_entry, &zero_entry},
+        };
+        for (size_t kind = 0; kind < sizeof kinds / sizeof kinds[0]; kind++) {
+            entries = (struct buffer){NULL, 0};
+            if (kinds[kind].first != NULL) append(&entries, kinds[kind].first->data, kinds[kind].first->size);
+            else append(&entries, audio, audio_size);
+            if (kinds[kind].second != NULL) append(&entries, kinds[kind].second->data, kinds[kind].second->size);
+            stsd = stsd_of(&entries, kinds[kind].second != NULL ? 2 : 1);
+            file = with_stsd(data, size, 1, &stsd);
+            snprintf(prefix, sizeof prefix, "custom %s %s", name, kinds[kind].what);
+            variant_lines(log, prefix, &file);
+            free(stsd.data);
+            free(entries.data);
+        }
+        free(sound.data);
+        free(wave_body.data);
+        free(wave_entry.data);
+        free(zero_entry.data);
+        free(below_entry.data);
+        free(max_zero_entry.data);
+        free(wave_below.data);
+        free(wave_quarter.data);
+        free(wave_double.data);
+        free(mp3_entry.data);
+    } else {
+        add(log, "custom %s descriptions: no esds in the mp4a", name);
+    }
 
     // The audio track's stsd of the mp4a, then the avc1 as avc3, an entry Android does not know: AAC as before.
     entries = (struct buffer){NULL, 0};
@@ -481,6 +875,9 @@ static void description_lines(struct log *log, const char *name, const uint8_t *
     variant_lines(log, prefix, &file);
     free(stsd.data);
     free(entries.data);
+
+    colour_lines(log, name, data, size, video, video_size, audio, audio_size, kHvcc);
+    broken_lines(log, name, data, size, video, video_size, audio, audio_size, kHvcc, sizeof kHvcc);
 
     // An stsd of the avc1 without its avcC, then the whole one: the track has its avcC at its end.
     entries = (struct buffer){NULL, 0};

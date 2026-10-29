@@ -105,6 +105,201 @@ void keep_config(Track& track, const Span& body) {
     memcpy(track.config, body.data, track.config_size);
 }
 
+// NALBitReader's reading of a NAL unit's RBSP, ABitReader's semantics and all: an emulation prevention byte (a 3
+// after two zeros) skipped, up to 4 bytes taken into the reservoir at a time, a read past the end failing after it
+// took what was left (`over` set, as overRead), a read of more than 32 bits failing at once.
+struct NalBits {
+    const uint8_t* data;
+    size_t size;
+    uint32_t reservoir = 0;
+    size_t left = 0;  // bits in the reservoir
+    int zeros = 0;
+    bool over = false;
+
+    bool fill() {
+        if (size == 0) {
+            over = true;
+            return false;
+        }
+        reservoir = 0;
+        size_t count = 0;
+        while (size > 0 && count < 4) {
+            const bool prevention = zeros >= 2 && *data == 3;
+            zeros = *data == 0 ? zeros + 1 : 0;
+            if (!prevention) {
+                reservoir = reservoir << 8 | *data;
+                count++;
+            }
+            data++;
+            size--;
+        }
+        left = 8 * count;
+        reservoir = left == 0 ? 0 : reservoir << (32 - left);
+        return true;
+    }
+    bool get(size_t count, uint32_t* out) {
+        if (count > 32) return false;
+        uint64_t result = 0;
+        while (count > 0) {
+            if (left == 0 && !fill()) return false;
+            const size_t part = smaller(count, left);
+            if (part == 0) continue;  // a fill of an emulation prevention byte alone (ABitReader takes 0 bits)
+            result = result << part | reservoir >> (32 - part);
+            reservoir = part == 32 ? 0 : reservoir << part;
+            left -= part;
+            count -= part;
+        }
+        *out = static_cast<uint32_t>(result);
+        return true;
+    }
+    uint32_t get_or(size_t count, uint32_t fallback) {
+        uint32_t value = fallback;
+        get(count, &value);
+        return value;
+    }
+    void skip(size_t count) {
+        uint32_t ignored = 0;
+        for (; count > 32; count -= 32) {
+            if (!get(32, &ignored)) return;
+        }
+        if (count > 0) get(count, &ignored);
+    }
+    // parseUEWithFallback, whose skipUE and skipSE read the same bits.
+    uint32_t ue(uint32_t fallback) {
+        uint32_t zero_bits = 0;
+        while (get_or(1, 1) == 0) zero_bits++;
+        if (zero_bits >= 32) {
+            skip(zero_bits);
+            return fallback;
+        }
+        uint32_t value = 0;
+        return get(zero_bits, &value) ? value + (1u << zero_bits) - 1 : fallback;
+    }
+};
+
+// HevcParameterSets::parseSps (Rec. ITU-T H.265's 7.3.2.2) as far as the VUI's colour description, on an SPS after
+// its NAL header: the full range flag, the primaries, the transfer and the matrix each replace the one before when
+// read; a colour description and an HDR transfer stay once seen. It stops where parseSps returns ERROR_MALFORMED.
+void read_vui(const uint8_t* data, size_t size, Track::Vui& vui) {
+    NalBits bits{data, size};
+    bits.skip(4);  // sps_video_parameter_set_id
+    const uint8_t sub_layers = static_cast<uint8_t>(bits.get_or(3, 0));
+    bits.skip(1);
+    bits.skip(96);  // the general profile, tier and level
+    if (sub_layers > 0) {
+        bool profile_present[8], level_present[8];
+        for (int layer = 0; layer < sub_layers; ++layer) {
+            profile_present[layer] = bits.get_or(1, 0) != 0;
+            level_present[layer] = bits.get_or(1, 0) != 0;
+        }
+        bits.skip(2 * (8 - static_cast<size_t>(sub_layers)));
+        for (int layer = 0; layer < sub_layers; ++layer) {
+            if (profile_present[layer]) bits.skip(88);
+            if (level_present[layer]) bits.skip(8);
+        }
+    }
+    bits.ue(0);  // sps_seq_parameter_set_id
+    if (static_cast<uint8_t>(bits.ue(0)) == 3) bits.skip(1);  // chroma_format_idc as parseSps keeps it, a uint8_t
+    bits.ue(0);
+    bits.ue(0);  // the picture's width and height
+    if (bits.get_or(1, 0) != 0) {
+        for (int offset = 0; offset < 4; offset++) bits.ue(0);  // the conformance window
+    }
+    bits.ue(0);
+    bits.ue(0);  // bit depths
+    const size_t poc_lsb_bits = bits.ue(0) + size_t{4};
+    const bool ordering = bits.get_or(1, 0) != 0;
+    for (uint32_t layer = ordering ? 0 : sub_layers; layer <= sub_layers; ++layer) {
+        bits.ue(0);
+        bits.ue(0);
+        bits.ue(0);
+    }
+    for (int field = 0; field < 6; field++) bits.ue(0);  // block sizes and transform hierarchy depths
+    if (bits.get_or(1, 0) != 0 && bits.get_or(1, 0) != 0) {  // scaling lists, with their data
+        for (uint32_t size_id = 0; size_id < 4; ++size_id) {
+            for (uint32_t matrix = 0; matrix < 6; matrix += size_id == 3 ? 3 : 1) {
+                if (bits.get_or(1, 1) == 0) {
+                    bits.ue(0);
+                    continue;
+                }
+                const uint32_t coefficients = smaller(64u, 1u << (4 + (size_id << 1)));
+                if (size_id > 1) bits.ue(0);
+                for (uint32_t index = 0; index < coefficients; ++index) bits.ue(0);
+            }
+        }
+    }
+    bits.skip(1);
+    bits.skip(1);  // amp_enabled_flag, sample_adaptive_offset_enabled_flag
+    if (bits.get_or(1, 0) != 0) {  // PCM
+        bits.skip(4);
+        bits.skip(4);
+        bits.ue(0);
+        bits.ue(0);
+        bits.skip(1);
+    }
+    const uint32_t sets = bits.ue(0);
+    uint32_t pictures = 0;
+    for (uint32_t set = 0; set < sets; ++set) {
+        if (set != 0 && bits.get_or(1, 0) != 0) {  // predicted from the set before
+            bits.skip(1);
+            bits.ue(0);
+            uint32_t next = 0;
+            for (uint32_t picture = 0; picture <= pictures; ++picture) {
+                if (bits.get_or(1, 0) != 0 || bits.get_or(1, 0) != 0) ++next;
+            }
+            pictures = next;
+        } else {
+            const uint32_t negative = bits.ue(0), positive = bits.ue(0);
+            if (negative > UINT32_MAX - positive) return;
+            pictures = negative + positive;
+            for (uint32_t picture = 0; picture < pictures; ++picture) {
+                bits.ue(0);
+                bits.skip(1);
+                if (bits.over) return;
+            }
+        }
+        if (bits.over) return;
+    }
+    if (bits.get_or(1, 0) != 0) {  // long-term reference pictures
+        const uint32_t pictures_lt = bits.ue(0);
+        for (uint32_t picture = 0; picture < pictures_lt; ++picture) {
+            bits.skip(poc_lsb_bits);
+            bits.skip(1);
+            if (bits.over) return;
+        }
+    }
+    bits.skip(1);
+    bits.skip(1);  // sps_temporal_mvp_enabled_flag, strong_intra_smoothing_enabled_flag
+    if (bits.get_or(1, 0) == 0) return;  // no VUI
+    if (bits.get_or(1, 0) != 0 && bits.get_or(8, 0) == 0xff) {  // an extended sample aspect ratio
+        bits.skip(16);
+        bits.skip(16);
+    }
+    if (bits.get_or(1, 0) != 0) bits.skip(1);  // overscan
+    if (bits.get_or(1, 0) == 0) return;        // no video signal type
+    bits.skip(3);                              // video_format
+    uint32_t value = 0;
+    if (bits.get(1, &value)) {
+        vui.full_range = value;
+        vui.has_full_range = true;
+    }
+    if (bits.get_or(1, 0) == 0) return;  // no colour description
+    vui.described = true;
+    if (bits.get(8, &value)) {
+        vui.primaries = value;
+        vui.has_primaries = true;
+    }
+    if (bits.get(8, &value)) {
+        vui.transfer = value;
+        vui.has_transfer = true;
+        if (value == 16 || value == 18) vui.hdr = true;  // ST 2084, ARIB STD-B67 (HLG)
+    }
+    if (bits.get(8, &value)) {
+        vui.matrix = value;
+        vui.has_matrix = true;
+    }
+}
+
 struct Parser {
     Tracks* tracks;
     uint64_t source_length;  // the source's: a track's samples of one size never number more than it holds
@@ -122,6 +317,7 @@ struct Parser {
         uint8_t object = 0;
         uint32_t max_bitrate = 0, avg_bitrate = 0;
         Span info;  // empty without one
+        bool too_large = false;  // an info past kMaxCodecData, Minato's bound: the file fails
     };
 
     // Which sample tables one track has, read before they are combined; `size_count` is stsz's count.
@@ -150,11 +346,15 @@ struct Parser {
         Bytes& csd;
         size_t size = 0;
         bool copying = false;
+        bool too_large = false;  // past kMaxCodecData, which fails the file (a walk that ends early refuses the format)
 
         bool put(const Span& set) {
             static const uint8_t start[] = {0, 0, 0, 1};
             if (!copying) {
-                if (set.size + 4 > kMaxCodecData - size) return false;
+                if (set.size + 4 > kMaxCodecData - size) {
+                    too_large = true;
+                    return false;
+                }
                 size += 4 + set.size;
                 return true;
             }
@@ -206,20 +406,29 @@ struct Parser {
     }
 
     // Every SPS of an avcC into csd0 and every PPS into csd1, as convertMetaDataToMessage copies them (none for
-    // none).
-    void split_avcc(const Span& body, Track& track) {
+    // none); false for sets that pass the avcC's end, which the conversion refuses.
+    bool split_avcc(const Span& body, Track& track) {
         Sets sps{track.csd0}, pps{track.csd1};
-        if (!walk_avcc(body, sps, pps)) return fail_void(kMalformed);
-        if (!sps.allocate() || !pps.allocate()) return fail_void(kNoMemory);
-        walk_avcc(body, sps, pps);
+        if (!walk_avcc(body, sps, pps)) {
+            if (sps.too_large || pps.too_large) fail(kMalformed);
+            return false;
+        }
+        if (!sps.allocate() || !pps.allocate()) fail(kNoMemory);
+        if (error == 0) walk_avcc(body, sps, pps);
+        return true;
     }
 
-    // An hvcC's VPS, SPS and PPS into csd0 (none for no arrays, as hev1's sets may be in band).
-    void split_hvcc(const Span& body, Track& track) {
+    // An hvcC's VPS, SPS and PPS into csd0 (none for no arrays, as hev1's sets may be in band); false as
+    // split_avcc.
+    bool split_hvcc(const Span& body, Track& track) {
         Sets sets{track.csd0};
-        if (!walk_hvcc(body, sets)) return fail_void(kMalformed);
-        if (!sets.allocate()) return fail_void(kNoMemory);
-        walk_hvcc(body, sets);
+        if (!walk_hvcc(body, sets)) {
+            if (sets.too_large) fail(kMalformed);
+            return false;
+        }
+        if (!sets.allocate()) fail(kNoMemory);
+        if (error == 0) walk_hvcc(body, sets);
+        return true;
     }
 
     // A descriptor's length in ISO 14496-1's variable form, at most four bytes.
@@ -233,9 +442,51 @@ struct Parser {
         return length;
     }
 
+    // Utils' loop over an hvcC's units for convertMetaDataToMessage's HevcParameterSets: each SPS (type 33) of 2
+    // bytes or more read after its NAL header (the other units' results never reach the format).
+    static void read_vuis(Span body, Track::Vui& vui) {
+        body.take(22);
+        const uint8_t arrays = body.u8();
+        for (uint8_t array = 0; array < arrays && !body.bad; array++) {
+            body.u8();
+            const uint16_t count = body.u16();
+            for (uint16_t index = 0; index < count && !body.bad; index++) {
+                const uint16_t length = body.u16();
+                const Span unit = body.sub(length);
+                if (!unit.bad && unit.size >= 2 && (unit.data[0] >> 1 & 0x3f) == 33) {
+                    read_vui(unit.data + 2, unit.size - 2, vui);
+                }
+            }
+        }
+    }
+
+    // parseColorInfo: a colr under 4 bytes fails the file; the first nclx of 11 bytes or more or nclc of 10 or more
+    // stays the track's (its colour range, which every one sets, is there after it).
+    void read_colr(Span body, Track& track) {
+        if (body.size < 4) return fail_void(kMalformed);
+        const uint32_t kind = body.u32();
+        const bool nclx = kind == type_of("nclx") && body.size >= 11;
+        if ((!nclx && !(kind == type_of("nclc") && body.size >= 10)) || track.has_colr) return;
+        track.has_colr = true;
+        track.colr_primaries = body.u16();
+        track.colr_transfer = body.u16();
+        track.colr_matrix = body.u16();
+        track.colr_full_range = nclx && (body.u8() & 0x80) != 0;
+    }
+
+    // parsePaspBox: a pasp under 8 bytes fails the file; one of both spacings above 0 gives sar-width and height.
+    void read_pasp(Span body, Track& track) {
+        if (body.size < 8) return fail_void(kMalformed);
+        const uint32_t horizontal = body.u32(), vertical = body.u32();
+        if (horizontal == 0 || vertical == 0) return;
+        track.has_sar = true;
+        track.sar_width = horizontal;
+        track.sar_height = vertical;
+    }
+
     // esds: version and flags 0, as MPEG4Extractor's esds asks, then ES_Descriptor (3) > DecoderConfigDescriptor (4) >
     // DecoderSpecificInfo (5), the only descriptor after the config's 13 bytes; false for one ESDS's InitCheck
-    // refuses.
+    // refuses and for an info past Minato's bound (too_large).
     static bool parse_esds(Span body, Esds& esds) {
         if (body.u32() != 0 || body.u8() != 3) return false;
         Span es = body.sub(descriptor_length(body));
@@ -257,7 +508,8 @@ struct Parser {
         if (config.left() > 0) {
             if (config.u8() != 5) return false;
             esds.info = config.sub(descriptor_length(config));
-            if (esds.info.bad || esds.info.size > kMaxCodecData) return false;
+            esds.too_large = !esds.info.bad && esds.info.size > kMaxCodecData;
+            if (esds.info.bad || esds.too_large) return false;
         }
         return !body.bad && !es.bad && !config.bad;
     }
@@ -273,8 +525,13 @@ struct Parser {
         if (!in_mp4a) return;
         Esds esds;
         if (!parse_esds(body, esds)) return fail_void(kMalformed);
-        track.max_bitrate = esds.max_bitrate;
-        track.avg_bitrate = esds.avg_bitrate;
+        if (esds.object == 0xe1 || esds.object == 0x6b || esds.object == 0x69) {
+            track.mime = nullptr;  // QCELP or MP3, before any bit rate: a track this parser leaves out
+            return;
+        }
+        // updateAudioTrackInfoFromESDS_MPEG4Audio's: each only above 0, so a later esds of 0 keeps them.
+        if (esds.max_bitrate > 0 && esds.max_bitrate < INT32_MAX) track.max_bitrate = esds.max_bitrate;
+        if (esds.avg_bitrate > 0 && esds.avg_bitrate < INT32_MAX) track.avg_bitrate = esds.avg_bitrate;
         if (esds.object != 0x40 && esds.object != 0x66 && esds.object != 0x67 && esds.object != 0x68) {
             track.mime = nullptr;  // not AAC: a track this parser leaves out
             return;
@@ -309,6 +566,7 @@ struct Parser {
         uint32_t object = bits.get(5);
         if (object == 31) object = 32 + bits.get(6);  // the escape
         track.audio_object = object;
+        track.has_audio_object = true;
         const uint32_t frequency = bits.get(4);
         int32_t rate = 0, channels = 0;
         if (frequency == 15) {
@@ -474,6 +732,10 @@ struct Parser {
                 tables.has_hvcc = true;
             } else if (inner == type_of("esds")) {
                 read_esds(part, track, tables, type == type_of("mp4a"));
+            } else if (inner == type_of("colr")) {
+                read_colr(part, track);
+            } else if (inner == type_of("pasp")) {
+                read_pasp(part, track);
             } else if (is_sound && inner == type_of("wave")) {
                 // Its esds, whose parent is not the mp4a, leaves the entry's rate and channels as they are.
                 Span wave;
@@ -488,7 +750,12 @@ struct Parser {
 
     // As verifyTrack at the trak's end: an AVC track needs an avcC, an HEVC track an hvcC and an AAC track an esds, or
     // it is left out; its NAL length (MPEG4Source), csd and profile's bytes (convertMessageToMetaData, which takes
-    // csd-avc and csd-hevc by the MIME type) come from that box, whatever boxes its other entries had.
+    // csd-avc and csd-hevc by the MIME type) come from that box, whatever boxes its other entries had. A box whose
+    // bytes those refuse keeps the track, as MPEG4Extractor keeps the bytes: getTrack refuses an avcC under 7 bytes
+    // or of another version than 1, and an hvcC under 22 bytes or of another version than 1 (no selecting the track);
+    // the conversion refuses those avcCs and one whose sets pass its end, an hvcC under 23 bytes, of a version but 0
+    // and 1 or whose units pass its end (its count of arrays a char, unsigned on arm64), and an esds ESDS refuses (no
+    // format).
     void configure(Track& track, const Tables& tables) {
         const bool avc = strcmp(track.mime, "video/avc") == 0, hevc = strcmp(track.mime, "video/hevc") == 0;
         if (avc ? !tables.has_avcc : hevc ? !tables.has_hvcc : !tables.has_esds) {
@@ -496,21 +763,27 @@ struct Parser {
             return;
         }
         if (avc) {
-            if (tables.avcc.size < 5) return fail_void(kMalformed);
-            track.nal_length_size = (tables.avcc.data[4] & 3u) + 1;
+            const Span& box = tables.avcc;
+            track.select_refused = box.size < 7 || box.data[0] != 1;
+            if (box.size >= 5) track.nal_length_size = (box.data[4] & 3u) + 1;
+            keep_config(track, box);
+            track.format_refused = track.select_refused || !split_avcc(box, track);
         } else if (hevc) {
-            if (tables.hvcc.size < 22) return fail_void(kMalformed);
-            track.nal_length_size = (tables.hvcc.data[21] & 3u) + 1;
-        }
-        if (avc) {
-            keep_config(track, tables.avcc);
-            split_avcc(tables.avcc, track);
-        } else if (hevc) {
-            keep_config(track, tables.hvcc);
-            split_hvcc(tables.hvcc, track);
+            const Span& box = tables.hvcc;
+            track.select_refused = box.size < 22 || box.data[0] != 1;
+            if (box.size >= 22) track.nal_length_size = (box.data[21] & 3u) + 1;
+            keep_config(track, box);
+            track.format_refused = box.size < 23 || box.data[0] > 1 || !split_hvcc(box, track);
+            if (!track.format_refused) read_vuis(box, track.vui);
         } else {
             Esds esds;  // ESDS's InitCheck, which the format's conversion takes
-            if (!parse_esds(tables.esds, esds)) return fail_void(kMalformed);
+            if (!parse_esds(tables.esds, esds)) {
+                if (esds.too_large) return fail_void(kMalformed);
+                track.format_refused = true;
+                return;
+            }
+            track.esds_max_bitrate = esds.max_bitrate;  // the conversion's, when the mp4a gave none
+            track.esds_avg_bitrate = esds.avg_bitrate;
             const Span& info = esds.info;
             if (info.size == 0) return;
             track.csd0.data = static_cast<uint8_t*>(malloc(info.size));
@@ -1336,6 +1609,159 @@ long read_sample(const Source& source, const Track& track, size_t index, uint8_t
         at += length;
     }
     return static_cast<long>(written);
+}
+
+namespace {
+
+// ColorUtils at android-15.0.0_r1 over VideoAPI.h's ColorAspects (range, primaries, transfer and matrix values) and
+// the platform's colour range, standard and transfer; ALookup takes a table's first pair of a value.
+struct Aspects {
+    uint32_t range = 0, primaries = 0, transfer = 0, matrix = 0;
+};
+
+constexpr uint32_t kOther = 0xff;  // RangeOther, PrimariesOther, TransferOther, MatrixOther
+
+// sIsoPrimaries, sIsoTransfers and sIsoMatrixCoeffs: an ISO value and its aspect.
+constexpr uint32_t kIsoPrimaries[][2] = {{1, 1}, {2, 0}, {4, 2}, {5, 3}, {6, 4}, {7, 4}, {8, 5}, {9, 6}, {10, kOther},
+                                         {11, 7}, {12, 8}};
+constexpr uint32_t kIsoTransfers[][2] = {{1, 3},       {2, 0},       {4, 4},     {5, 5},     {6, 3},    {7, 0x40},
+                                         {8, 1},       {9, kOther},  {10, kOther}, {11, 0x41}, {12, 0x42}, {13, 2},
+                                         {14, 3},      {15, 3},      {16, 6},    {17, 0x43}, {18, 7}};
+constexpr uint32_t kIsoMatrices[][2] = {{0, kOther}, {1, 1}, {2, 0}, {4, 2}, {6, 3}, {5, 3}, {7, 4}, {8, kOther},
+                                        {9, 5},      {10, 6}};
+// sStandards: a platform standard, its primaries and its matrix.
+constexpr uint32_t kStandards[][3] = {{0, 0, 0}, {1, 1, 1}, {2, 3, 3}, {3, 3, 1}, {4, 4, 3}, {5, 4, 4},
+                                      {6, 6, 5}, {7, 6, 6}, {8, 2, 2}, {9, 5, 5}, {10, 8, 3}};
+
+template <size_t count>
+uint32_t iso_aspect(const uint32_t (&table)[count][2], uint32_t value) {
+    for (const auto& pair : table) {
+        if (pair[0] == value) return pair[1];
+    }
+    return 0;  // unspecified
+}
+
+// convertIsoColorAspectsToCodecAspects.
+Aspects iso_aspects(uint32_t primaries, uint32_t transfer, uint32_t matrix, bool full_range) {
+    return Aspects{full_range ? 1u : 2u, iso_aspect(kIsoPrimaries, primaries), iso_aspect(kIsoTransfers, transfer),
+                   iso_aspect(kIsoMatrices, matrix)};
+}
+
+// convertCodecColorAspectsToPlatformAspects: the wrapped values, and false for an aspect past kOther.
+bool platform_aspects(const Aspects& aspects, int32_t* range, int32_t* standard, int32_t* transfer) {
+    const uint32_t r = aspects.range, p = aspects.primaries, t = aspects.transfer, m = aspects.matrix;
+    *range = static_cast<int32_t>(r <= 2 ? r : r <= kOther ? 0x10000 + r : 0);
+    *standard = -1;
+    for (const auto& entry : kStandards) {
+        if (entry[1] == p && entry[2] == m) {
+            *standard = static_cast<int32_t>(entry[0]);
+            break;
+        }
+    }
+    if (*standard == -1) {
+        *standard = static_cast<int32_t>(p > kOther || m > kOther ? 0
+                                         : p <= 6 && m <= 6      ? 64 + p + m * 7
+                                                                 : 0x10000 + p + m * 0x100);
+    }
+    const bool defined = t <= 7 || (t >= 0x40 && t <= 0x43);
+    *transfer = static_cast<int32_t>(t <= 7 ? t : t > kOther ? 0 : defined ? 32 + t : 0x10000 + t);
+    return r <= kOther && p <= kOther && m <= kOther && t <= kOther;
+}
+
+// convertPlatformColorAspectsToCodecAspects: false when any value does not unwrap.
+bool codec_aspects(int32_t range, int32_t standard, int32_t transfer, Aspects* aspects) {
+    bool ok = true;
+    if (range >= 0 && range <= 2) {
+        aspects->range = static_cast<uint32_t>(range);
+    } else if (range >= 0x10000 && range < 0x10000 + 0x100) {
+        aspects->range = static_cast<uint32_t>(range - 0x10000);
+    } else {
+        aspects->range = kOther;
+        ok = false;
+    }
+    bool listed = false;
+    for (const auto& entry : kStandards) {
+        if (static_cast<int32_t>(entry[0]) == standard) {
+            aspects->primaries = entry[1];
+            aspects->matrix = entry[2];
+            listed = true;
+            break;
+        }
+    }
+    if (!listed) {
+        const bool vendor = standard >= 0x10000;
+        const int32_t start = vendor ? 0x10000 : 64, primaries = vendor ? 0x100 : 7, matrices = vendor ? 0x100 : 7;
+        if (standard >= start && standard < start + primaries * matrices) {
+            aspects->primaries = static_cast<uint32_t>((standard - start) % primaries);
+            aspects->matrix = static_cast<uint32_t>((standard - start) / primaries);
+        } else {
+            aspects->primaries = kOther;
+            aspects->matrix = kOther;
+            ok = false;
+        }
+    }
+    if (transfer >= 0 && transfer <= 7) {
+        aspects->transfer = static_cast<uint32_t>(transfer);
+    } else {
+        const bool vendor = transfer >= 0x10000;
+        const int32_t start = vendor ? 0x10000 : 32, transfers = vendor ? 0x100 : 0x44;
+        if (transfer >= start && transfer < start + transfers) {
+            aspects->transfer = static_cast<uint32_t>(transfer - start);
+        } else {
+            aspects->transfer = kOther;
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+}  // namespace
+
+ColorKeys color_keys(const Track& track) {
+    ColorKeys keys;
+    if (track.mime == nullptr || strncmp(track.mime, "video/", 6) != 0) return keys;
+    // The colr's keys in the track's format (those not 0), through the extractor service's convertMessageToMetaData
+    // (the codec aspects not 0 kept) and back in convertMetaDataToMessageColorAspects.
+    Aspects kept;
+    if (track.has_colr) {
+        int32_t range = 0, standard = 0, transfer = 0;
+        platform_aspects(iso_aspects(track.colr_primaries, track.colr_transfer, track.colr_matrix,
+                                     track.colr_full_range),
+                         &range, &standard, &transfer);
+        if (!codec_aspects(range, standard, transfer, &kept)) kept = Aspects{};
+        if (platform_aspects(kept, &range, &standard, &transfer)) {
+            if (range != 0) keys.range = range;
+            if (standard != 0) keys.standard = standard;
+            if (transfer != 0) keys.transfer = transfer;
+        }
+    }
+    if (strcmp(track.mime, "video/hevc") != 0) return keys;
+    const Track::Vui& vui = track.vui;
+    if (vui.described) keys.hdr = vui.hdr ? 1 : 0;
+    if (!vui.has_primaries || !vui.has_transfer || !vui.has_matrix || !vui.has_full_range) return keys;
+    Aspects aspects = iso_aspects(vui.primaries, vui.transfer, vui.matrix, vui.full_range != 0);
+    if (aspects.primaries == 0) aspects.primaries = kept.primaries;  // unspecified: the colr's, when it gave one
+    if (aspects.transfer == 0) aspects.transfer = kept.transfer;
+    if (aspects.matrix == 0) aspects.matrix = kept.matrix;
+    if (aspects.range == 0) aspects.range = kept.range;
+    int32_t range = 0, standard = 0, transfer = 0;
+    if (platform_aspects(aspects, &range, &standard, &transfer)) {
+        keys.standard = standard;
+        keys.transfer = transfer;
+        keys.range = range;
+    }
+    return keys;
+}
+
+int32_t aac_profile(const uint8_t* csd, size_t size) {
+    if (size < 2) return 0;
+    uint32_t object = static_cast<uint32_t>(csd[0]) << 8 | csd[1];
+    object = (object & 0xf800u) == 0xf800u ? 32 + ((object >> 5) & 0x3fu) : object >> 11;
+    static const uint32_t objects[] = {1, 2, 3, 4, 5, 6, 17, 23, 29, 39, 42};
+    for (uint32_t known : objects) {
+        if (object == known) return static_cast<int32_t>(object);
+    }
+    return 0;
 }
 
 }  // namespace minato::mp4

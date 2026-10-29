@@ -229,7 +229,8 @@ void avc_profile(AMediaFormat *format, const mp4::Track &track) {
     if (value > 0) AMediaFormat_setInt32(format, "level", value);
 }
 
-// Utils.cpp's parseHevcProfileLevelFromHvcc (without its HDR profiles: no colour boxes are read).
+// Utils.cpp's parseHevcProfileLevelFromHvcc, after the colour keys: Main10 is Main10HDR10 for a color-transfer of
+// ST 2084 (isHdr10or10Plus; no hdr-static-info or HDR10+ info is read).
 void hevc_profile(AMediaFormat *format, const mp4::Track &track) {
     if (track.config_size < 13 || track.config[0] != 1) return;
     const uint8_t profile = track.config[1] & 0x1f, tier = (track.config[1] & 0x20) >> 5, level = track.config[12];
@@ -239,6 +240,8 @@ void hevc_profile(AMediaFormat *format, const mp4::Track &track) {
         else if (track.config[2] & 0x20) code = 2;
         else return;
     }
+    int32_t transfer = 0;
+    if (code == 2 && AMediaFormat_getInt32(format, "color-transfer", &transfer) && transfer == 6) code = 0x1000;
     AMediaFormat_setInt32(format, "profile", code);
     static const uint8_t levels[] = {30, 60, 63, 90, 93, 120, 123, 150, 153, 156, 180, 183, 186};
     for (size_t index = 0; index < sizeof levels; index++) {
@@ -248,11 +251,28 @@ void hevc_profile(AMediaFormat *format, const mp4::Track &track) {
     }
 }
 
-// Utils.cpp's parseAacProfileFromCsd.
+// Utils.cpp's parseAacProfileFromCsd on csd-0, the final esds's AudioSpecificConfig.
 void aac_profile(AMediaFormat *format, const mp4::Track &track) {
-    static const uint32_t objects[] = {1, 2, 3, 4, 5, 6, 17, 23, 29, 39, 42};
-    for (uint32_t object : objects) {
-        if (object == track.audio_object) AMediaFormat_setInt32(format, "profile", static_cast<int32_t>(object));
+    const int32_t profile = mp4::aac_profile(track.csd0.data, track.csd0.size);
+    if (profile != 0) AMediaFormat_setInt32(format, "profile", profile);
+}
+
+// convertMetaDataToMessage's bit rates of a track that is not video: the mp4a esds's (btrt is not read), the maximum
+// whatever the average (its key mapping copies it both ways); then, each when the mp4a gave none, the final esds's,
+// the maximum when at least the average there is (the esds's own when the format has none).
+void audio_bit_rates(AMediaFormat *format, const mp4::Track &track) {
+    const uint32_t avg = track.avg_bitrate, max = track.max_bitrate;
+    if (avg > 0) AMediaFormat_setInt32(format, "bitrate", static_cast<int32_t>(avg));
+    if (max > 0) AMediaFormat_setInt32(format, "max-bitrate", static_cast<int32_t>(max));
+    uint32_t final_avg = track.esds_avg_bitrate;
+    if (avg == 0 && final_avg > 0 && final_avg <= INT32_MAX) {
+        AMediaFormat_setInt32(format, "bitrate", static_cast<int32_t>(final_avg));
+    } else if (avg > 0) {
+        final_avg = avg;
+    }
+    const uint32_t final_max = track.esds_max_bitrate;
+    if (max == 0 && final_max > 0 && final_max <= INT32_MAX && final_max >= final_avg) {
+        AMediaFormat_setInt32(format, "max-bitrate", static_cast<int32_t>(final_max));
     }
 }
 
@@ -314,15 +334,9 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
     const bool timed = track.duration_us >= 0;
     const int64_t duration_us = track.duration_us;
     if (timed) AMediaFormat_setInt64(format, "durationUs", duration_us);
-    if (video) {
-        AMediaFormat_setInt32(format, "frame-count", static_cast<int32_t>(track.frame_count));
-    } else if (track.max_bitrate > 0 && track.max_bitrate < INT32_MAX) {
-        AMediaFormat_setInt32(format, "max-bitrate", static_cast<int32_t>(track.max_bitrate));
-    }
+    if (video) AMediaFormat_setInt32(format, "frame-count", static_cast<int32_t>(track.frame_count));
     AMediaFormat_setInt32(format, "track-id", static_cast<int32_t>(track.id));
-    if (!video && track.avg_bitrate > 0 && track.avg_bitrate < INT32_MAX) {
-        AMediaFormat_setInt32(format, "bitrate", static_cast<int32_t>(track.avg_bitrate));
-    }
+    if (!video) audio_bit_rates(format, track);
     AMediaFormat_setString(format, "language", track.language);
     // max-input-size: the largest sample with room for 10 grown NAL lengths, else a size by the picture or 128 KiB.
     uint64_t input = track.max_size + 20ull;
@@ -337,9 +351,24 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
     if (video) {
         AMediaFormat_setInt32(format, "width", track.width);
         AMediaFormat_setInt32(format, "height", track.height);
+        // A pasp's spacings, which the extractor service's convertMessageToMetaData takes as int32_t: above 0 they are
+        // the format's; else it refuses the format (BAD_VALUE) with the keys above taken, and the client's format is
+        // those alone (observed: a spacing of 2^31 on Android 15's emulator).
+        const int32_t sar_width = static_cast<int32_t>(track.sar_width);
+        const int32_t sar_height = static_cast<int32_t>(track.sar_height);
+        if (track.has_sar) {
+            if (sar_width <= 0 || sar_height <= 0) return;
+            AMediaFormat_setInt32(format, "sar-width", sar_width);
+            AMediaFormat_setInt32(format, "sar-height", sar_height);
+        }
         if (track.rotation != 0) AMediaFormat_setInt32(format, "rotation-degrees", track.rotation);
         AMediaFormat_setInt32(format, "display-width", track.display_width);
         AMediaFormat_setInt32(format, "display-height", track.display_height);
+        const mp4::ColorKeys colour = mp4::color_keys(track);
+        if (colour.range >= 0) AMediaFormat_setInt32(format, "color-range", colour.range);
+        if (colour.standard >= 0) AMediaFormat_setInt32(format, "color-standard", colour.standard);
+        if (colour.transfer >= 0) AMediaFormat_setInt32(format, "color-transfer", colour.transfer);
+        if (colour.hdr >= 0) AMediaFormat_setInt32(format, "android._is-hdr", colour.hdr);
         AMediaFormat_setInt32(format, "max-input-size", static_cast<int32_t>(input));
         if (track.frame_count > 0 && timed && duration_us > 0) {
             const int64_t rate = (static_cast<int64_t>(track.frame_count) * 1000000 + (duration_us >> 1)) / duration_us;
@@ -350,7 +379,9 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
         AMediaFormat_setInt32(format, "channel-count", track.channels);
         AMediaFormat_setInt32(format, "sample-rate", track.sample_rate);
         if (timed) gapless(format, track, duration_us);
-        AMediaFormat_setInt32(format, "aac-profile", static_cast<int32_t>(track.audio_object));
+        if (track.has_audio_object) {  // an mp4a esds's, none for one in a QuickTime wave alone
+            AMediaFormat_setInt32(format, "aac-profile", static_cast<int32_t>(track.audio_object));
+        }
         AMediaFormat_setInt32(format, "max-input-size", static_cast<int32_t>(input));
         codec_keys(format, track);
     }
@@ -551,7 +582,11 @@ size_t AMediaExtractor_getTrackCount(AMediaExtractor *extractor) {
 AMediaFormat *AMediaExtractor_getTrackFormat(AMediaExtractor *extractor, size_t index) {
     Lock lock(&extractor->mutex);
     AMediaFormat *format = AMediaFormat_new();
-    if (format != nullptr && index < extractor->tracks.size()) track_format(format, extractor->tracks[index]);
+    // A track whose format Utils' conversion refuses: Android's NDK gives a format of no message, whose getters
+    // dereference it; Minato's has no keys (and the JNI's getTrackFormat throws, as Android's).
+    if (format != nullptr && index < extractor->tracks.size() && !extractor->tracks[index].format_refused) {
+        track_format(format, extractor->tracks[index]);
+    }
     return format;
 }
 
@@ -561,10 +596,12 @@ media_status_t AMediaExtractor_selectTrack(AMediaExtractor *extractor, size_t in
     for (size_t at = 0; at < extractor->selected_count; at++) {
         if (extractor->selected[at].track == index) return AMEDIA_OK;
     }
-    // getTrack fails for a track whose empty edit does not convert, and MPEG4Source::start for one whose
-    // max-input-size passes 64 MiB: both are malformed.
+    // getTrack fails for a track whose empty edit does not convert or whose avcC or hvcC it refuses, and
+    // MPEG4Source::start for one whose max-input-size passes 64 MiB: all are malformed.
     const mp4::Track &track = extractor->tracks[index];
-    if (track.edit_overflow || track.max_size + 20ull > mp4::kMaxInputBytes) return AMEDIA_ERROR_MALFORMED;
+    if (track.edit_overflow || track.select_refused || track.max_size + 20ull > mp4::kMaxInputBytes) {
+        return AMEDIA_ERROR_MALFORMED;
+    }
     Selected &selected = extractor->selected[extractor->selected_count++];
     memset(&selected, 0, sizeof selected);
     selected.track = index;

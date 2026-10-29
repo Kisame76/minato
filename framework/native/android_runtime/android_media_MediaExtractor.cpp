@@ -277,7 +277,16 @@ jobject MediaExtractor_getTrackFormatNative(JNIEnv *env, jobject thiz, jint inde
         jniThrowException(env, "java/lang/IllegalArgumentException", nullptr);  // -ERANGE
         return nullptr;
     }
-    return format_map(env, AMediaExtractor_getTrackFormat(extractor, static_cast<size_t>(index)));
+    // A format the conversion refuses has no MIME type (libmediandk's track of a broken avcC, hvcC or esds):
+    // getTrackFormat's error, IllegalArgumentException.
+    AMediaFormat *format = AMediaExtractor_getTrackFormat(extractor, static_cast<size_t>(index));
+    const char *mime = nullptr;
+    if (format != nullptr && !AMediaFormat_getString(format, "mime", &mime)) {
+        AMediaFormat_delete(format);
+        jniThrowException(env, "java/lang/IllegalArgumentException", nullptr);
+        return nullptr;
+    }
+    return format_map(env, format);
 }
 
 jobject MediaExtractor_getFileFormatNative(JNIEnv *env, jobject thiz) {

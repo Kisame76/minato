@@ -155,8 +155,26 @@ struct Track {
     // For the extractor's formats, as MPEG4Extractor keeps them.
     int32_t rotation = 0;                // tkhd's matrix: 0, 90, 180 or 270
     int32_t display_width = 0, display_height = 0;  // tkhd's
-    uint32_t avg_bitrate = 0, max_bitrate = 0;      // esds's
-    uint32_t audio_object = 0;           // the AudioSpecificConfig's audio object type
+    uint32_t avg_bitrate = 0, max_bitrate = 0;      // an mp4a esds's above 0, the last of each, as MPEG4Extractor's
+    uint32_t esds_avg_bitrate = 0, esds_max_bitrate = 0;  // the track's final esds's, of any parent
+    uint32_t audio_object = 0;           // an mp4a esds's AudioSpecificConfig's audio object type (aac-profile)
+    bool has_audio_object = false;       // one was read: an esds in a QuickTime wave alone gives none
+    // The first colr of type nclx (11 bytes or more) or nclc (10 or more) in a sample entry, as MPEG4Extractor's
+    // parseColorInfo keeps it: ISO/IEC 23091-2's colour primaries, transfer and matrix, and nclx's full range flag.
+    bool has_colr = false, colr_full_range = false;
+    uint16_t colr_primaries = 0, colr_transfer = 0, colr_matrix = 0;
+    // A sample entry's pasp, the last of both spacings above 0, as parsePaspBox sets sar-width and sar-height.
+    bool has_sar = false;
+    uint32_t sar_width = 0, sar_height = 0;
+    // The final hvcC's SPSs' VUIs as HevcParameterSets reads them for convertMetaDataToMessage: each value read
+    // replaces the one before; `described` and `hdr` (a transfer of ST 2084 or HLG) stay once an SPS gives them.
+    struct Vui {
+        bool described = false, hdr = false;
+        bool has_full_range = false, has_primaries = false, has_transfer = false, has_matrix = false;
+        uint32_t full_range = 0, primaries = 0, transfer = 0, matrix = 0;
+    } vui;
+    bool format_refused = false;         // the format's conversion refuses its avcC, hvcC or esds
+    bool select_refused = false;         // MPEG4Extractor's getTrack refuses its avcC or hvcC: no selecting it
     uint8_t config[13] = {};             // the avcC's or hvcC's first bytes, for the profile and level
     uint8_t config_size = 0;
     uint32_t frame_count = 0;            // stsz's count
@@ -213,6 +231,19 @@ long output_size(const Track& track, size_t index);
 // passes the sample dropped with the rest of it, as MPEG4Source::read), kMalformed for units that grow past
 // max-input-size, kIo, or kNoMemory when `capacity` is below output_size.
 long read_sample(const Source& source, const Track& track, size_t index, uint8_t* out, size_t capacity);
+
+// A video track's colour keys as Android 15's format has them, -1 for a key it lacks: the colr's, through the
+// extractor service's conversions (ColorUtils' ISO, codec and platform aspects), then for HEVC its VUI's
+// android._is-hdr and, when the VUI gave all four values, the three keys from them, unspecified aspects taken from
+// the colr (convertMetaDataToMessage).
+struct ColorKeys {
+    int32_t hdr = -1, standard = -1, transfer = -1, range = -1;
+};
+ColorKeys color_keys(const Track& track);
+
+// Utils.cpp's parseAacProfileFromCsd: the MediaCodecInfo profile of an AAC csd-0's AudioSpecificConfig (its first
+// 16 bits' object type, 5 bits or 32 + 6 more after the escape 31), 0 for none it knows or a csd of under 2 bytes.
+int32_t aac_profile(const uint8_t* csd, size_t size);
 
 }  // namespace minato::mp4
 

@@ -363,6 +363,9 @@ struct Knobs {
     Bytes avcc_body;              // not empty: the avcC's body
     uint32_t hvcc_boxes = 1;      // hvcC boxes in an hvc1 entry
     uint16_t hvcc_empty_units = 0;  // not 0: each hvcC's one array is this many units of no bytes
+    std::vector<Bytes> hvcc_units;  // not empty: the hvcC's one array's units (NAL header first) in place of its VPS
+    std::vector<Bytes> entry_boxes;  // boxes after the avcC, hvcC or esds of the avc1, hvc1 and mp4a entries
+    Bytes hvcc_whole;               // not empty: the hvcC's body in place of the one built
 };
 
 void put32(Bytes &out, uint32_t value) {
@@ -426,6 +429,9 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
                                            0xee})});
     }
     if (knobs.encrypted) visual = cat({visual, box("sinf", box("frma", {'a', 'v', 'c', '1'}))});
+    Bytes extra_boxes;
+    for (const Bytes &extra : knobs.entry_boxes) extra_boxes = cat({extra_boxes, extra});
+    visual = cat({visual, extra_boxes});
     // mp4a: version 0, 2 channels of 16 bits at 44,100 a second, and an esds whose DecoderSpecificInfo is the config.
     Bytes sound(6, 0);
     put16(sound, 1);
@@ -446,21 +452,55 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     Bytes esds = full(0);
     esds.insert(esds.end(), {3, static_cast<uint8_t>(descriptor.size())});
     esds.insert(esds.end(), descriptor.begin(), descriptor.end());
+    // The same esds with bit rates of 0 (its DecoderConfigDescriptor's max and average after the 5 bytes before them).
+    Bytes esds_without_rates = esds;
+    std::fill(esds_without_rates.begin() + 16, esds_without_rates.begin() + 24, 0);
+    Bytes esds_of_int32_max = esds;  // and of INT32_MAX, which MPEG4Extractor leaves out
+    Bytes esds_of_mp3 = esds;  // and of MP3's object type
+    esds_of_mp3[11] = 0x6b;
+    Bytes esds_of_tag_5 = esds;  // and with an ES_Descriptor tag of 5, which ESDS refuses
+    esds_of_tag_5[4] = 5;
+    for (int i : {16, 20}) std::copy_n(Bytes{0x7f, 0xff, 0xff, 0xff}.begin(), 4, esds_of_int32_max.begin() + i);
+    // And one whose DecoderSpecificInfo is a byte more than kMaxCodecData, each length in 4 bytes.
+    const auto put_length = [](Bytes &bytes, size_t length) {
+        for (int shift : {21, 14, 7}) bytes.push_back(static_cast<uint8_t>(0x80 | (length >> shift & 0x7f)));
+        bytes.push_back(static_cast<uint8_t>(length & 0x7f));
+    };
+    Bytes long_decoder(decoder.begin(), decoder.begin() + 13);
+    long_decoder.push_back(5);
+    put_length(long_decoder, minato::mp4::kMaxCodecData + 1);
+    long_decoder.insert(long_decoder.end(), minato::mp4::kMaxCodecData + 1, 0x12);
+    Bytes long_descriptor = {0, 1, 0, 4};
+    put_length(long_descriptor, long_decoder.size());
+    long_descriptor.insert(long_descriptor.end(), long_decoder.begin(), long_decoder.end());
+    Bytes long_esds = full(0);
+    long_esds.push_back(3);
+    put_length(long_esds, long_descriptor.size());
+    long_esds.insert(long_esds.end(), long_descriptor.begin(), long_descriptor.end());
     const Bytes video_entry = box(knobs.encrypted ? "encv" : "avc1", visual);
-    const Bytes audio_entry = box("mp4a", cat({sound, box("esds", esds)}));
+    const Bytes audio_entry = box("mp4a", cat({sound, box("esds", esds), extra_boxes}));
     // hvcC: version 1, Main profile, level 93, NAL length size 4, one array of a VPS (or of units of no bytes).
     Bytes hvcc_body = {1, 1, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 93, 0xf0, 0, 0xfc, 0xfd, 0xf8, 0xf8, 0, 0, 0x0f, 1, 0x20};
-    const uint16_t units = knobs.hvcc_empty_units != 0 ? knobs.hvcc_empty_units : 1;
+    const uint16_t units = knobs.hvcc_empty_units != 0 ? knobs.hvcc_empty_units
+                           : knobs.hvcc_units.empty()  ? 1
+                                                       : static_cast<uint16_t>(knobs.hvcc_units.size());
     put16(hvcc_body, units);
     for (uint16_t unit = 0; unit < units; unit++) {
-        if (knobs.hvcc_empty_units != 0) put16(hvcc_body, 0);
-        else hvcc_body.insert(hvcc_body.end(), {0, 2, 0x40, 1});
+        if (knobs.hvcc_empty_units != 0) {
+            put16(hvcc_body, 0);
+        } else if (!knobs.hvcc_units.empty()) {
+            put16(hvcc_body, static_cast<uint16_t>(knobs.hvcc_units[unit].size()));
+            hvcc_body.insert(hvcc_body.end(), knobs.hvcc_units[unit].begin(), knobs.hvcc_units[unit].end());
+        } else {
+            hvcc_body.insert(hvcc_body.end(), {0, 2, 0x40, 1});
+        }
     }
     Bytes hevc_visual = entry_body;
-    const Bytes hvcc = box("hvcC", hvcc_body);
+    const Bytes hvcc = box("hvcC", knobs.hvcc_whole.empty() ? hvcc_body : knobs.hvcc_whole);
     for (uint32_t index = 0; index < knobs.hvcc_boxes; index++) {
         hevc_visual.insert(hevc_visual.end(), hvcc.begin(), hvcc.end());
     }
+    hevc_visual = cat({hevc_visual, extra_boxes});
     // An esds whose DecoderConfigDescriptor is followed by a descriptor of tag 6, not a DecoderSpecificInfo.
     Bytes odd_decoder = {0x40, 0x15, 0, 0, 0};
     put32(odd_decoder, 128000);
@@ -472,9 +512,10 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     odd_esds.insert(odd_esds.end(), odd_decoder.begin(), odd_decoder.end());
     // An stsd entry by name: avc1, hvc1 and mp4a with their avcC, hvcC and esds, without them after a "-"; mp4v and
     // Opus with the avcC after a "*"; avc1 with an esds of version and flags alone after it ("avc1+e") and mp4v with
-    // the AAC esds ("mp4v+e"); mp4a with its
-    // esds in a QuickTime wave ("mp4a~") or with one of a tag 6 after its config ("mp4a!"); avc1 and hvc1 with a
-    // configuration of no parameter sets ("avc1/0", "hvc1/0"); tx3g and others with none.
+    // the AAC esds ("mp4v+e"); mp4a with its esds in a QuickTime wave ("mp4a~", "mp4a~5" of an ES_Descriptor tag of
+    // 5), with one of a tag 6 after its config ("mp4a!") or of bit rates 0 ("mp4a0"), INT32_MAX ("mp4aM") or MP3
+    // ("mp4a3"), or of a DecoderSpecificInfo past kMaxCodecData, in it ("mp4aL") or a wave ("mp4a~L"); avc1 and
+    // hvc1 with a configuration of no parameter sets ("avc1/0", "hvc1/0"); tx3g and others with none.
     const auto sample_entry = [&](const std::string &name) {
         if (name == "avc1") return video_entry;
         if (name == "mp4a") return audio_entry;
@@ -486,7 +527,19 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
         if (name == "mp4a~") {
             return box("mp4a", cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}), box("esds", esds)}))}));
         }
+        if (name == "mp4a~5") {
+            return box("mp4a", cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}),
+                                                              box("esds", esds_of_tag_5)}))}));
+        }
+        if (name == "mp4a~L") {
+            return box("mp4a",
+                       cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}), box("esds", long_esds)}))}));
+        }
+        if (name == "mp4aL") return box("mp4a", cat({sound, box("esds", long_esds)}));
         if (name == "mp4a!") return box("mp4a", cat({sound, box("esds", odd_esds)}));
+        if (name == "mp4a0") return box("mp4a", cat({sound, box("esds", esds_without_rates)}));
+        if (name == "mp4aM") return box("mp4a", cat({sound, box("esds", esds_of_int32_max)}));
+        if (name == "mp4a3") return box("mp4a", cat({sound, box("esds", esds_of_mp3)}));
         if (name == "avc1/0") return box("avc1", cat({entry_body, box("avcC", {1, 66, 0, 30, length_size, 0xe0, 0})}));
         if (name == "hvc1/0") {
             Bytes empty(hvcc_body.begin(), hvcc_body.begin() + 22);
@@ -1482,6 +1535,39 @@ extern "C" void __sanitizer_malloc_hook(const volatile void *, size_t) {
 
 namespace {
 
+// QuickTime's AAC (ADR-0060 e2d step 2a.2): only an esds whose parent is the mp4a gives the audio object
+// (aac-profile) and the bit rates, each only above 0, so that a later mp4a's esds of bit rates 0 keeps them, as
+// updateAudioTrackInfoFromESDS_MPEG4Audio sets them; the final esds of any parent stays apart, as the format's
+// conversion reads it [verified: MPEG4Extractor.cpp and Utils.cpp at the tag].
+TEST(quicktime_aac_keys_come_from_the_mp4a_esds_and_the_final_one_as_androids) {
+    struct Case {
+        std::vector<std::vector<std::string>> stsds;
+        bool object;
+        uint32_t max, avg, final_max, final_avg;
+    };
+    const Case cases[] = {
+        {{{"mp4a~"}}, false, 0, 0, 128000, 96000},
+        {{{"mp4a"}}, true, 128000, 96000, 128000, 96000},
+        {{{"mp4a", "mp4a0"}}, true, 128000, 96000, 0, 0},
+        {{{"mp4a0"}}, true, 0, 0, 0, 0},
+        {{{"mp4a0", "mp4a~"}}, true, 0, 0, 128000, 96000},
+        {{{"mp4aM"}}, true, 0, 0, INT32_MAX, INT32_MAX},
+        {{{"mp4a3", "mp4a0"}}, true, 0, 0, 0, 0},  // QCELP's and MP3's esds give no bit rates
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.stsds = test.stsds;
+        minato::mp4::Tracks tracks;
+        const bool right = parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 &&
+                           tracks[0].has_audio_object == test.object &&
+                           (!test.object || tracks[0].audio_object == 2) && tracks[0].max_bitrate == test.max &&
+                           tracks[0].avg_bitrate == test.avg && tracks[0].esds_max_bitrate == test.final_max &&
+                           tracks[0].esds_avg_bitrate == test.final_avg;
+        CHECK(right);
+        if (!right) std::printf("  case %s, %zu tracks\n", test.stsds[0][0].c_str(), tracks.size());
+    }
+}
+
 // One hvcC of one array of as many units of no bytes as the csd holds: the csd made in one allocation, not grown by
 // each unit (which copies it once per unit, quadratic in the units).
 TEST(one_configuration_of_many_units_is_made_in_one_allocation) {
@@ -1508,6 +1594,23 @@ TEST(a_configuration_past_the_codec_data_bound_is_malformed) {
     knobs.hvcc_empty_units = minato::mp4::kMaxCodecData / 4 + 1;
     minato::mp4::Tracks tracks;
     CHECK(parsed(built_file(knobs), &tracks) == minato::mp4::kMalformed);
+    // An avcC of an SPS of 65,535 bytes, which with its start code passes the bound too, and one of such a PPS.
+    Knobs avc;
+    avc.avcc_body = {1, 66, 0, 30, 0xff, 0xe1, 0xff, 0xff};
+    avc.avcc_body.insert(avc.avcc_body.end(), 0xffff, 0x67);
+    avc.avcc_body.insert(avc.avcc_body.end(), {1, 0, 2, 0x68, 0xce});
+    CHECK(parsed(built_file(avc), &tracks) == minato::mp4::kMalformed);
+    avc.avcc_body = {1, 66, 0, 30, 0xff, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0xff, 0xff};
+    avc.avcc_body.insert(avc.avcc_body.end(), 0xffff, 0x68);
+    CHECK(parsed(built_file(avc), &tracks) == minato::mp4::kMalformed);
+    // An esds of a DecoderSpecificInfo past the bound, the mp4a's own and one in a QuickTime wave.
+    for (const char *entry : {"mp4aL", "mp4a~L"}) {
+        Knobs aac;
+        aac.stsds = {{entry}};
+        const bool malformed = parsed(built_file(aac), &tracks) == minato::mp4::kMalformed;
+        CHECK(malformed);
+        if (!malformed) std::printf("  %s: %zu tracks\n", entry, tracks.size());
+    }
 }
 
 // As convertMetaDataToMessage: every SPS of the avcC into csd-0 and every PPS into csd-1, each after a start code.
@@ -1538,6 +1641,271 @@ TEST(many_configurations_parse_in_linear_time) {
     if (tracks.size() == 1) CHECK(tracks[0].csd0.size == 16000u * 4);
     CHECK(seconds < 10);  // about 100 s with ASan when each box made the csd again, under 2 s once
     if (seconds >= 10) std::fprintf(stderr, "  %.2f s\n", seconds);
+}
+
+// An HEVC SPS NAL unit as an encoder writes it (its header, then the RBSP with emulation prevention bytes): 4:2:0
+// (or `chroma`) 320 x 180 with a VUI of a video signal type, its full range flag and, when described, `values` of
+// its colour description's primaries, transfer and matrix, the unit ending after a cut description; `sets` short-term
+// reference picture sets claimed but not there, or one of 2^31 negative and 2^31 positive pictures (`overflow`).
+struct Vui {
+    bool signal = true, described = true;
+    uint32_t full_range = 0, primaries = 1, transfer = 1, matrix = 1;
+    uint32_t chroma = 1;
+    int values = 3;
+    uint32_t sets = 0;
+    bool overflow = false;
+};
+
+Bytes hevc_sps(const Vui &vui) {
+    Bytes rbsp;
+    uint32_t pending = 0;
+    int count = 0;
+    const auto put = [&](uint32_t value, int bits) {
+        for (int bit = bits - 1; bit >= 0; bit--) {
+            pending = pending << 1 | ((value >> bit) & 1u);
+            if (++count == 8) {
+                rbsp.push_back(static_cast<uint8_t>(pending));
+                pending = 0;
+                count = 0;
+            }
+        }
+    };
+    const auto ue = [&](uint32_t value) {  // Exp-Golomb
+        const uint64_t code = static_cast<uint64_t>(value) + 1;
+        int length = 0;
+        while ((code >> (length + 1)) != 0) length++;
+        put(0, length);
+        for (int bit = length; bit >= 0; bit--) put(static_cast<uint32_t>((code >> bit) & 1u), 1);
+    };
+    put(0, 4);  // VPS id
+    put(0, 3);  // one sub-layer
+    put(1, 1);  // temporal id nesting
+    put(0x01, 8), put(0x60000000, 32), put(0x9000, 16), put(0, 32), put(93, 8);  // Main profile, level 93: 96 bits
+    ue(0);                                                // SPS id
+    ue(vui.chroma);
+    if (static_cast<uint8_t>(vui.chroma) == 3) put(0, 1);  // separate_colour_plane_flag
+    ue(320), ue(180), put(0, 1);                          // the size, no conformance window
+    ue(0), ue(0), ue(4);                                  // bit depths 8, POC LSB of 8 bits
+    put(1, 1), ue(4), ue(0), ue(0);                       // the sub-layer's ordering
+    ue(0), ue(1), ue(0), ue(2), ue(0), ue(0);             // block sizes and transform depths
+    put(0, 1), put(0, 1), put(1, 1), put(0, 1);           // no scaling list, no AMP, SAO, no PCM
+    ue(vui.overflow ? 1 : vui.sets);
+    if (vui.overflow) ue(0x80000000u), ue(0x80000000u);
+    put(0, 1), put(1, 1), put(1, 1);  // no long-term reference pictures, TMVP, strong smoothing
+    put(1, 1), put(0, 1), put(0, 1);                      // a VUI, no aspect ratio, no overscan
+    put(vui.signal ? 1 : 0, 1);
+    if (vui.signal) {
+        put(5, 3), put(vui.full_range, 1), put(vui.described ? 1 : 0, 1);  // unspecified video format
+        const uint32_t values[] = {vui.primaries, vui.transfer, vui.matrix};
+        for (int index = 0; vui.described && index < vui.values; index++) put(values[index], 8);
+    }
+    if (vui.values == 3) put(0x10, 5);  // no chroma location, ..., then the RBSP's stop bit
+    if (count != 0) put(0, 8 - count);
+    Bytes unit = {0x42, 0x01};  // an SPS (33) of layer 0, temporal id 1
+    int zeros = 0;
+    for (uint8_t byte : rbsp) {
+        if (zeros >= 2 && byte <= 3) {
+            unit.push_back(3);
+            zeros = 0;
+        }
+        unit.push_back(byte);
+        zeros = byte == 0 ? zeros + 1 : 0;
+    }
+    return unit;
+}
+
+// A colr box of `type`, nclx with its full range flag's byte, and a pasp box.
+Bytes colr_box(const char *type, uint16_t primaries, uint16_t transfer, uint16_t matrix, bool full) {
+    Bytes body(type, type + 4);
+    put16(body, primaries);
+    put16(body, transfer);
+    put16(body, matrix);
+    if (std::string(type) == "nclx") body.push_back(full ? 0x80 : 0);
+    return box("colr", body);
+}
+
+Bytes pasp_box(uint32_t horizontal, uint32_t vertical) {
+    Bytes body;
+    put32(body, horizontal);
+    put32(body, vertical);
+    return box("pasp", body);
+}
+
+TEST(colour_keys_come_from_the_colr_and_the_hvccs_vui_as_androids) {
+    const Bytes hdr10 = colr_box("nclx", 9, 16, 9, true), bt709 = colr_box("nclc", 1, 1, 1, false);
+    const Vui pq{.primaries = 9, .transfer = 16, .matrix = 9};
+    struct Case {
+        const char *what;
+        std::vector<std::string> entries;
+        std::vector<Vui> units;
+        std::vector<Bytes> boxes;
+        minato::mp4::ColorKeys keys;
+    };
+    const Case cases[] = {
+        {"HEVC of HDR10", {"hvc1"}, {pq}, {}, {1, 6, 6, 2}},
+        {"HEVC of BT.709, full range", {"hvc1"}, {Vui{.full_range = 1}}, {}, {0, 1, 3, 1}},
+        {"HEVC without a description", {"hvc1"}, {Vui{.described = false, .full_range = 1}}, {}, {}},
+        {"HEVC without a signal type", {"hvc1"}, {Vui{.signal = false}}, {}, {}},
+        {"HEVC unspecified", {"hvc1"}, {Vui{.primaries = 2, .transfer = 2, .matrix = 2}}, {}, {0, 0, 0, 2}},
+        {"HEVC unspecified, a colr", {"hvc1"}, {Vui{.primaries = 2, .matrix = 2}}, {hdr10}, {0, 6, 3, 2}},
+        {"HEVC cut after its primaries", {"hvc1"}, {Vui{.primaries = 9, .transfer = 16, .values = 1}}, {},
+         {0, -1, -1, -1}},
+        {"HEVC of two SPSs", {"hvc1"}, {pq, Vui{.described = false, .full_range = 1}}, {}, {1, 6, 6, 1}},
+        {"HEVC of chroma 259", {"hvc1"}, {Vui{.chroma = 259}}, {}, {0, 1, 3, 2}},
+        {"HEVC with a colr alone", {"hvc1"}, {}, {colr_box("nclx", 1, 1, 1, true)}, {-1, 1, 3, 1}},
+        {"HEVC, then AVC", {"hvc1", "avc1"}, {pq}, {}, {}},
+        {"AVC nclc", {"avc1"}, {}, {bt709}, {-1, 1, 3, 2}},
+        {"AVC nclx of extended values", {"avc1"}, {}, {colr_box("nclx", 11, 17, 0, true)}, {-1, 130823, 99, 1}},
+        {"AVC two colrs", {"avc1"}, {}, {bt709, hdr10}, {-1, 1, 3, 2}},
+        {"AVC prof, then nclx", {"avc1"}, {}, {box("colr", Bytes{'p', 'r', 'o', 'f', 0, 0, 0, 0}), hdr10},
+         {-1, 6, 6, 1}},
+        {"AVC short nclx, then nclc", {"avc1"}, {}, {box("colr", Bytes{'n', 'c', 'l', 'x', 0, 9, 0, 16, 0, 9}), bt709},
+         {-1, 1, 3, 2}},
+        {"AVC unknown transfer", {"avc1"}, {}, {colr_box("nclx", 1, 3, 1, false)}, {-1, 1, -1, 2}},
+        {"HEVC of HLG", {"hvc1"}, {Vui{.primaries = 9, .transfer = 18, .matrix = 9}}, {}, {1, 6, 7, 2}},
+        // Its colour description's bytes are 00 03 21: a 3 after one 0 is no emulation prevention byte.
+        {"HEVC of a 3 after one 0", {"hvc1"}, {Vui{.primaries = 0, .transfer = 1, .matrix = 144}}, {}, {0, 0, 3, 2}},
+        {"HEVC of 2^31 - 1 missing sets", {"hvc1"}, {Vui{.sets = 0x7fffffffu}}, {}, {}},
+        {"HEVC of 2^32 pictures", {"hvc1"}, {Vui{.overflow = true}}, {}, {}},
+        {"AVC nclc of 11 bytes", {"avc1"}, {}, {box("colr", Bytes{'n', 'c', 'l', 'c', 0, 1, 0, 1, 0, 1, 0x80})},
+         {-1, 1, 3, 2}},
+        {"AVC nclx of a vendor transfer", {"avc1"}, {}, {colr_box("nclx", 1, 9, 1, false)}, {-1, 1, 65791, 2}},
+        {"HEVC of an unspecified transfer, a colr", {"hvc1"}, {Vui{.transfer = 2}}, {hdr10}, {0, 1, 6, 2}},
+        {"AVC nclc of an extended standard", {"avc1"}, {}, {colr_box("nclc", 4, 1, 1, false)}, {-1, 73, 3, 2}},
+        {"AVC nclc of 9 bytes", {"avc1"}, {}, {box("colr", Bytes{'n', 'c', 'l', 'c', 0, 1, 0, 1, 0})}, {}},
+        {"AAC", {"mp4a"}, {}, {hdr10}, {}},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.stsds = {test.entries};
+        for (const Vui &vui : test.units) knobs.hvcc_units.push_back(hevc_sps(vui));
+        knobs.entry_boxes = test.boxes;
+        minato::mp4::Tracks tracks;
+        const bool parsed_one = parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1;
+        const minato::mp4::ColorKeys keys = parsed_one ? minato::mp4::color_keys(tracks[0]) : minato::mp4::ColorKeys{};
+        const bool right = parsed_one && keys.hdr == test.keys.hdr && keys.standard == test.keys.standard &&
+                           keys.transfer == test.keys.transfer && keys.range == test.keys.range;
+        CHECK(right);
+        if (!right) {
+            std::printf("  %s: %zu tracks, %d %d %d %d\n", test.what, tracks.size(), keys.hdr, keys.standard,
+                        keys.transfer, keys.range);
+        }
+    }
+}
+
+// A codec configuration that the format's conversion or MPEG4Source refuses keeps its track, as MPEG4Extractor keeps
+// the box's bytes and verifyTrack only asks for one: Utils' convertMetaDataToMessage refuses an avcC under 7 bytes,
+// of another version than 1 or with its sets past its end, an hvcC under 23 bytes, of a version but 0 and 1 or with
+// its units past its end (its count of arrays a char, unsigned on arm64), and an esds ESDS refuses; MPEG4Extractor's
+// getTrack (the selection) refuses an avcC under 7 bytes or of another version than 1, and an hvcC under 22 bytes
+// or of another version than 1 [observed: the emulator, media-extractor-test's broken configurations].
+TEST(a_broken_configuration_keeps_its_track_as_androids) {
+    const Bytes avcc = {1, 66, 0, 30, 0xff, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0, 2, 0x68, 0xce};
+    const Bytes hvcc = {1, 1, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 93, 0xf0, 0, 0xfc, 0xfd, 0xf8, 0xf8, 0, 0, 0x0f,
+                        1, 0x20, 0, 1, 0, 2, 0x40, 1};
+    const auto with = [](Bytes bytes, size_t at, uint8_t value) {
+        bytes[at] = value;
+        return bytes;
+    };
+    Bytes arrays(hvcc.begin(), hvcc.begin() + 22);  // 128 arrays of no units, all there
+    arrays.push_back(0x80);
+    for (int array = 0; array < 128; array++) arrays.insert(arrays.end(), {0x20, 0, 0});
+    struct Case {
+        const char *what;
+        std::string entry;
+        Bytes avcc, hvcc;
+        bool format, select;
+    };
+    const Case cases[] = {
+        {"avcC whole", "avc1", avcc, {}, true, true},
+        {"avcC of version 0", "avc1", with(avcc, 0, 0), {}, false, false},
+        {"avcC of 6 bytes", "avc1", Bytes(avcc.begin(), avcc.begin() + 6), {}, false, false},
+        {"avcC of 4 bytes", "avc1", Bytes(avcc.begin(), avcc.begin() + 4), {}, false, false},
+        {"avcC of an SPS past its end", "avc1", with(avcc, 6, 0xff), {}, false, true},
+        {"avcC without its PPS count", "avc1", Bytes(avcc.begin(), avcc.begin() + 12), {}, false, true},
+        {"avcC of a PPS past its end", "avc1", with(avcc, 13, 0xff), {}, false, true},
+        {"hvcC whole", "hvc1", {}, hvcc, true, true},
+        {"hvcC of version 0", "hvc1", {}, with(hvcc, 0, 0), true, false},
+        {"hvcC of version 2", "hvc1", {}, with(hvcc, 0, 2), false, false},
+        {"hvcC of 22 bytes", "hvc1", {}, Bytes(hvcc.begin(), hvcc.begin() + 22), false, true},
+        {"hvcC of 21 bytes", "hvc1", {}, Bytes(hvcc.begin(), hvcc.begin() + 21), false, false},
+        {"hvcC of a unit past its end", "hvc1", {}, with(hvcc, 26, 0xff), false, true},
+        {"hvcC of 128 arrays", "hvc1", {}, with(hvcc, 22, 0x80), false, true},
+        {"hvcC of 128 arrays, all there", "hvc1", {}, arrays, true, true},
+        {"esds of tag 5 in a wave", "mp4a~5", {}, {}, false, true},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.stsds = {{test.entry}};
+        knobs.avcc_body = test.avcc;
+        knobs.hvcc_whole = test.hvcc;
+        minato::mp4::Tracks tracks;
+        const bool right = parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 &&
+                           tracks[0].format_refused == !test.format && tracks[0].select_refused == !test.select &&
+                           (!test.select || test.entry == "mp4a~5" || tracks[0].nal_length_size == 4);
+        CHECK(right);
+        if (!right) std::printf("  %s: %zu tracks\n", test.what, tracks.size());
+    }
+}
+
+// An SPS whose second reservoir fill finds only an emulation prevention byte: NALBitReader's fill of no bits,
+// after which its read takes nothing and fails at the end (no shift by 32 bits, which UBSan reports).
+TEST(an_sps_ending_in_an_emulation_prevention_byte_reads_nothing_more) {
+    Knobs knobs;
+    knobs.stsds = {{"hvc1"}};
+    knobs.hvcc_units = {Bytes{0x42, 0x01, 0x01, 0x01, 0x00, 0x00, 0x03}};
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 &&
+          minato::mp4::color_keys(tracks[0]).hdr == -1);
+}
+
+TEST(a_pasp_and_a_colr_read_as_androids) {
+    struct Case {
+        std::vector<Bytes> boxes;
+        bool sar;
+        uint32_t width, height;
+    };
+    const Case cases[] = {
+        {{pasp_box(4, 3)}, true, 4, 3},
+        {{pasp_box(0, 3)}, false, 0, 0},
+        {{pasp_box(4, 0)}, false, 0, 0},
+        {{pasp_box(4, 3), pasp_box(16, 9)}, true, 16, 9},
+        {{pasp_box(4, 3), pasp_box(1, 0)}, true, 4, 3},
+        {{pasp_box(0x80000000u, 1)}, true, 0x80000000u, 1},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.entry_boxes = test.boxes;
+        minato::mp4::Tracks tracks;
+        const bool right = parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 &&
+                           tracks[0].has_sar == test.sar && tracks[0].sar_width == test.width &&
+                           tracks[0].sar_height == test.height;
+        CHECK(right);
+        if (!right) std::printf("  %zu boxes: %zu tracks\n", test.boxes.size(), tracks.size());
+    }
+    // parsePaspBox and parseColorInfo fail the file on a box too short for its fields.
+    for (const Bytes &short_box : {box("pasp", Bytes(7, 1)), box("colr", Bytes{'n', 'c', 'l'})}) {
+        Knobs knobs;
+        knobs.entry_boxes = {short_box};
+        minato::mp4::Tracks tracks;
+        CHECK(parsed(built_file(knobs), &tracks) == minato::mp4::kMalformed);
+    }
+}
+
+TEST(an_aac_profile_reads_as_parse_aac_profile_from_csd) {
+    const struct {
+        Bytes csd;
+        int32_t profile;
+    } cases[] = {
+        {{0x12, 0x10}, 2},  {{0x08, 0x00}, 1},  {{0xe8, 0x00}, 29}, {{0x38, 0x00}, 0},  {{0xf0, 0x00}, 0},
+        {{0xf8, 0xe0}, 39}, {{0xf9, 0x40}, 42}, {{0xf8, 0x00}, 0},  {{0xf9, 0x20}, 0},  {{0x12}, 0},
+        {{}, 0},
+    };
+    for (const auto &test : cases) {
+        const int32_t profile = minato::mp4::aac_profile(test.csd.data(), test.csd.size());
+        CHECK(profile == test.profile);
+        if (profile != test.profile) std::printf("  %zu bytes: %d\n", test.csd.size(), profile);
+    }
 }
 
 // The AudioSpecificConfig as MPEG4Extractor's updateAudioTrackInfoFromESDS_MPEG4Audio reads it: the rate by its
