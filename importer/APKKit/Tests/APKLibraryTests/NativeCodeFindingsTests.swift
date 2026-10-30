@@ -272,7 +272,7 @@ struct NativeCodeNeededTests {
         let issues = result.entry.report?.compatibility.issues ?? []
         #expect(issues.contains(.conversionFailed(library: "libfmod.so", reason: "text relocations")))
         #expect(issues.contains(.conversionFailed(library: "libactivity-test.so",
-                                                  reason: "it needs libfmod.so, which cannot load")))
+                                                  reason: "it needs libfmod.so, which cannot load: text relocations")))
     }
 
     @Test func aMissingNameBlocksTheStartLibraryAndDegradesAnother() async throws {

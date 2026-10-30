@@ -144,8 +144,8 @@ enum NativeFindings {
     ]
 
     /// The libraries that cannot load, each with its reasons: its own first, then one for each library it needs that
-    /// cannot load. A NEEDED name counts only when `publicLibraries`, the guest's list, is known: then a name that is
-    /// neither a library of the app nor on the list is missing.
+    /// cannot load, with that one's first reason as the cause. A NEEDED name counts only when `publicLibraries`, the
+    /// guest's list, is known: then a name that is neither a library of the app nor on the list is missing.
     static func failing(_ libraries: [Library], publicLibraries: Set<String>?) -> [String: [String]] {
         let names = Set(libraries.map(\.name))
         var reasons: [String: [String]] = [:]
@@ -178,7 +178,9 @@ enum NativeFindings {
             next += 1
             for dependent in dependents[failed] ?? [] {
                 if reasons[dependent] == nil { pending.append(dependent) }
-                reasons[dependent, default: []].append("it needs \(failed), which cannot load")
+                // With the cause, the first reason of the one it needs, so that one line read out says why.
+                let cause = reasons[failed]?.first.map { ": " + $0 } ?? ""
+                reasons[dependent, default: []].append("it needs \(failed), which cannot load\(cause)")
             }
         }
         return reasons

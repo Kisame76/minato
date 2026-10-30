@@ -51,8 +51,18 @@ struct NativeFindingsTests {
             publicLibraries: Self.publicLibraries)
 
         #expect(found["libhelper.so"] == ["text relocations"])
-        #expect(found["libmid.so"] == ["it needs libhelper.so, which cannot load"])
-        #expect(found["libgame.so"] == ["it needs libmid.so, which cannot load"])
+        // Each names the cause, so that one line read out says why (the lead's request of 2026-10-30).
+        #expect(found["libmid.so"] == ["it needs libhelper.so, which cannot load: text relocations"])
+        #expect(found["libgame.so"] == [
+            "it needs libmid.so, which cannot load: it needs libhelper.so, which cannot load: text relocations"])
+    }
+
+    @Test func theCauseIsTheFirstReasonOfTheOneItNeeds() {
+        let found = NativeFindings.failing(
+            [Facts(name: "libgame.so", refusals: [], needed: ["libhelper.so"]),
+             Facts(name: "libhelper.so", refusals: ["text relocations", "svc"], needed: [])], publicLibraries: nil)
+
+        #expect(found["libgame.so"] == ["it needs libhelper.so, which cannot load: text relocations"])
     }
 
     @Test func aCycleTerminates() {
@@ -115,7 +125,7 @@ struct NativeFindingsTests {
              Facts(name: "libb.so", refusals: [], needed: ["liba.so", "liba.so"]),
              Facts(name: "liba.so", refusals: ["svc"], needed: [])], publicLibraries: nil)
 
-        #expect(found["libb.so"] == ["it needs liba.so, which cannot load"])
-        #expect(found["libc.so"] == ["it needs libb.so, which cannot load"])
+        #expect(found["libb.so"] == ["it needs liba.so, which cannot load: svc"])
+        #expect(found["libc.so"] == ["it needs libb.so, which cannot load: it needs liba.so, which cannot load: svc"])
     }
 }
