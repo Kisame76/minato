@@ -8,7 +8,8 @@ enum Texts {
     static func status(of entry: LibraryEntry) -> LibraryItem.Status {
         switch entry.state {
         case .ready:
-            return .ready
+            let degraded = entry.degradedLibraries
+            return degraded.isEmpty ? .ready : .readyWithout(degraded)
         case .needsSplits:
             return .needsSplits
         case .incompatible:
@@ -26,6 +27,8 @@ enum Texts {
         case .installing: "Installing…"
         case .updating: "Updating…"
         case .ready: "Ready"
+        case .readyWithout(let libraries):
+            libraries.count == 1 ? "Ready, without \(libraries[0])" : "Ready, without \(libraries.count) libraries"
         case .needsSplits: "Needs split APKs"
         case .incompatible(let reason): "Incompatible: \(reason)"
         case .invalid(let reason): "Not a valid APK: \(reason)"
@@ -75,7 +78,7 @@ enum Texts {
             ("Can’t Open “\(entry.displayName)”", "This is not a valid APK: \(reason).")
         case .notInstalled(let reason):
             ("Can’t Open “\(entry.displayName)”", "Not installed: " + (reason.hasSuffix(".") ? reason : reason + "."))
-        case .ready, .new, .installing, .updating:
+        case .ready, .readyWithout, .new, .installing, .updating:
             // A ready app without a report; an entry's status is never one of the other three.
             ("Can’t Open “\(entry.displayName)”", "Import it again.")
         }

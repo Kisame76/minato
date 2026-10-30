@@ -85,6 +85,13 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     public var usesLocalTesting: Bool {
         packs?.isEmpty == false || !moduleSlices.isEmpty
     }
+
+    /// The libraries a ready app runs without (ADR-0055 a2), sorted, for its status line: those the check left out.
+    public var degradedLibraries: [String] {
+        (report?.compatibility.issues ?? []).compactMap { issue in
+            if case .libraryDegraded(let library, _) = issue { library } else { nil }
+        }.sorted()
+    }
 }
 
 public struct PackageFile: Sendable, Equatable, Codable {

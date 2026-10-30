@@ -107,6 +107,8 @@ public enum APKAnalyzer {
             signature: signature(of: base, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
         report.usesInternet = manifest.requestsInternet
+        report.javaLibraries = javaLibraries(Set(nativeLibraries.map(\.name)),
+                                             in: apks.filter(\.hasCode).map(\.archive))
         report.compatibility = compatibility(of: report, manifest: manifest, hasCode: apks.contains(where: \.hasCode))
         return (report, icon?.archive)
     }
@@ -246,6 +248,27 @@ public enum APKAnalyzer {
             found.insert(.playGames)
         }
         return APKReport.PlayDependency.allCases.filter(found.contains)
+    }
+
+    /// The libraries whose file name, name for System.loadLibrary, or path ends a string constant of the dex files'
+    /// code (classes.dex, classes2.dex, ...): an SDL activity's names reach System.loadLibrary through an array, so
+    /// any constant counts, not only one passed to the call directly.
+    private static func javaLibraries(_ libraries: Set<String>, in archives: [ZipArchive]) -> [String] {
+        let dexes = archives.flatMap { archive in
+            archive.entries.filter { entry in
+                entry.name.hasPrefix("classes") && entry.name.hasSuffix(".dex") && !entry.name.contains("/")
+            }.map { (archive, $0) }
+        }
+        var constants: Set<String> = []
+        for (archive, entry) in dexes {
+            guard let data = try? archive.data(for: entry) else { continue }
+            constants.formUnion(DexStrings.constants(in: data))
+        }
+        return libraries.filter { name in
+            let stem = String(name.dropFirst("lib".count).dropLast(".so".count))
+            return constants.contains(stem) || constants.contains(name)
+                || constants.contains { $0.hasSuffix("/" + name) }
+        }.sorted()
     }
 
     /// The first folder of each path under assets/ ("renpy" for assets/renpy/common/00start.rpyc).

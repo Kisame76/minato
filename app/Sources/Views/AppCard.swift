@@ -108,7 +108,7 @@ struct StatusView: View {
     private var color: Color {
         switch status {
         case .new, .installing, .updating, .ready: .secondary
-        case .needsSplits: .orange
+        case .needsSplits, .readyWithout: .orange
         case .incompatible, .invalid, .notInstalled: .red
         }
     }

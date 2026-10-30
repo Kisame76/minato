@@ -1,7 +1,8 @@
 import Foundation
 
-/// The libraries an app cannot start without (ADR-0055, decision 2): a NativeActivity's own and the core libraries of
-/// the engines the analyzer knows. A library of these that cannot load blocks the app; any other only degrades.
+/// The libraries an app cannot start without (ADR-0055, decision 2): a NativeActivity's own, those its Java code loads
+/// by name, and the core libraries of the engines the analyzer knows. A library of these that cannot load blocks the
+/// app; any other only degrades.
 public enum StartPath {
     /// Their file names among `libraries`.
     public static func libraries(of report: APKReport) -> Set<String> {
@@ -17,6 +18,8 @@ public enum StartPath {
             names.insert("libmain.so")
         }
         names.formUnion(present.filter { $0.hasPrefix("libcocos") })
+        // What the app's Java code loads by name, whatever its engine.
+        names.formUnion(present.intersection(report.javaLibraries ?? []))
         return names
     }
 }

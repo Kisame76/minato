@@ -64,6 +64,7 @@ do {
     print("launcher:       \(report.launcherActivity ?? "-")")
     print("runtime:        \(report.runtime)")
     print("engine:         \(report.engine ?? "-")")
+    print("java loads:     \(report.javaLibraries.map { $0.joined(separator: ", ") } ?? "-")")
     print("ABIs:           \(report.abis.joined(separator: ", ")) -> \(report.selectedABI ?? "none")")
     print("GLES/Vulkan:    \(report.requiredGLESVersion.map { String(format: "0x%05x", $0) } ?? "-") / \(report.requiredVulkanVersion.map { String(format: "0x%x", $0) } ?? "-")")
     print("play:           \(report.playDependencies.map(\.rawValue).joined(separator: ", "))")

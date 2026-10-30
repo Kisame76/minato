@@ -53,6 +53,10 @@ public struct APKReport: Sendable, Equatable, Codable {
     /// it, which count as granted, the runtime's default.
     public var usesInternet: Bool? = nil
     public var engine: String?
+    /// The arm64 libraries that the app's Java code names in a string constant (DexStrings), sorted: what
+    /// System.loadLibrary, System.load or an engine's list of libraries loads at the start (ADR-0055 decision 2). Nil
+    /// in reports from before the import read the dex.
+    public var javaLibraries: [String]? = nil
     /// Path of the chosen icon image inside the APK.
     public var iconPath: String?
     public var signature: SignatureInfo

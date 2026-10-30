@@ -16,6 +16,8 @@ struct LibraryItem: Identifiable {
         /// Its converted code is being signed with a new certificate (ADR-0023).
         case updating
         case ready
+        /// Ready, but the check left these libraries out: the app runs without them (ADR-0055 a2).
+        case readyWithout([String])
         case needsSplits
         case incompatible(String)
         case invalid(String)
