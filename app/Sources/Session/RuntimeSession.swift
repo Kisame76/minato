@@ -144,6 +144,7 @@ final class RuntimeSessionHost: SessionHost {
         // The result code as a 32-bit int in the low bits (guest_interface.h).
         case .pickResult(let id, let code, let count):
             (APKRT_EVENT_PICK_RESULT, id, UInt64(UInt32(bitPattern: code)), count)
+        case .imeInsets(let bottom): (APKRT_EVENT_IME_INSETS, UInt64(max(bottom, 0)), 0, 0)
         }
     }
 

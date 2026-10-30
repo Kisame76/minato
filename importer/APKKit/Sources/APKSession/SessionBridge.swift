@@ -43,6 +43,8 @@ public enum SessionEvent: Sendable, Equatable {
     /// The answer to a pick request (ADR-0057), APKRT_EVENT_PICK_RESULT: Activity's result code (RESULT_OK -1,
     /// RESULT_CANCELED 0) and the number of picks the manifest names.
     case pickResult(id: UInt64, code: Int32, count: UInt64)
+    /// The part of the session's view UIKit's keyboard covers, in pixels (ADR-0068 step 2d), APKRT_EVENT_IME_INSETS.
+    case imeInsets(bottom: Int32)
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -171,6 +173,8 @@ public struct SessionBridge: Sendable {
     public private(set) var isInBackground = false
     /// The wait that answers the lifecycle's `awaits`; an answer to an earlier one changes nothing.
     private var current: Wait?
+    /// The keyboard's cover the guest was told last, in pixels: none at the start, as the guest's ime() inset.
+    private var keyboardCover: Int32 = 0
 
     /// A SurfaceView's surface (ADR-0043 c4), kept as apk-run's headless host keeps one.
     private struct Surface: Sendable, Equatable {
@@ -278,6 +282,16 @@ public struct SessionBridge: Sendable {
     public mutating func pickAnswered(id: UInt64, picked: Int?, host: SessionHost) -> Handled {
         let event = SessionEvent.pickResult(id: id, code: picked == nil ? 0 : -1, count: UInt64(picked ?? 0))
         if !isBroken, !lifecycle.hasEnded { _ = posted(event, host: host) }
+        return Handled()
+    }
+
+    /// UIKit's keyboard covers `pixels` of the session's view (ADR-0068 step 2d, KeyboardCover): posted when it
+    /// changes, unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func keyboardCovers(pixels: Int32, host: SessionHost) -> Handled {
+        guard pixels != keyboardCover, !isBroken, !lifecycle.hasEnded else { return Handled() }
+        keyboardCover = pixels
+        _ = posted(.imeInsets(bottom: pixels), host: host)
         return Handled()
     }
 

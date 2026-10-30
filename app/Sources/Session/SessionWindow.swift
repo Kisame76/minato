@@ -124,7 +124,11 @@ final class SessionLayersView: UIView {
     /// Runs for the presses of a hardware keyboard's keys (ADR-0068 step 7c2): down or up, or cancelled, with the
     /// keys that Android has a code for; the presses it does not know go on to UIKit.
     var onKeys: (KeyPhase, [HardwareKeyPress]) -> Void = { _, _ in }
+    /// Runs whenever UIKit's keyboard moves, with the part of the window's view it covers in pixels, 0 once it is
+    /// hidden (ADR-0068 step 2d).
+    var onKeyboardCover: (Int32) -> Void = { _ in }
     private var swipeOpenedMenu = false
+    private var keyboardObservers: [any NSObjectProtocol] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -158,6 +162,32 @@ final class SessionLayersView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil { becomeFirstResponder() }
+        observeKeyboard(window != nil)
+    }
+
+    /// UIKit's keyboard notifications while the view is in a window (ADR-0068 step 2d): willShow and willChangeFrame
+    /// give the keyboard's frame, also while it moves, and willHide 0.
+    private func observeKeyboard(_ on: Bool) {
+        for observer in keyboardObservers { NotificationCenter.default.removeObserver(observer) }
+        keyboardObservers = []
+        guard on else { return }
+        let center = NotificationCenter.default
+        for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillChangeFrameNotification,
+                     UIResponder.keyboardWillHideNotification] {
+            keyboardObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let hides = note.name == UIResponder.keyboardWillHideNotification
+                let frame = hides ? nil : note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+                MainActor.assumeIsolated { self?.keyboardMoved(frame) }
+            })
+        }
+    }
+
+    /// `frame` is the keyboard's in the screen's points, nil once it hides.
+    private func keyboardMoved(_ frame: CGRect?) {
+        guard let screen = window?.windowScene?.screen else { return }
+        let view = hostView.convert(hostView.bounds, to: screen.coordinateSpace)
+        onKeyboardCover(KeyboardCover.pixels(keyboard: frame ?? .zero, view: view, screen: screen.bounds,
+                                             scale: hostView.metalLayer.contentsScale))
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -548,6 +578,8 @@ struct MetalLayerView: UIViewRepresentable {
     var onKeys: (KeyPhase, [HardwareKeyPress]) -> Void = { _, _ in }
     /// The soft keyboard's view, once, as the view is made (ADR-0068 step 2c).
     var onTextView: (SoftKeyboardView) -> Void = { _ in }
+    /// The part of the session's view UIKit's keyboard covers, in pixels (ADR-0068 step 2d).
+    var onKeyboardCover: (Int32) -> Void = { _ in }
 
     func makeUIView(context: Context) -> SessionLayersView {
         let view = SessionLayersView(frame: .zero)
@@ -562,6 +594,7 @@ struct MetalLayerView: UIViewRepresentable {
         view.hostView.onLayout = onLayout
         view.onTouches = onTouches
         view.onKeys = onKeys
+        view.onKeyboardCover = onKeyboardCover
     }
 }
 

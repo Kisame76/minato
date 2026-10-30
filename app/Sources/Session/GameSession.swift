@@ -684,6 +684,16 @@ final class GameSession {
         if !wasBroken, bridge.isBroken { report(handled) }
     }
 
+    /// UIKit's keyboard covers `pixels` of the session's view (ADR-0068 step 2d): every window's ime() inset.
+    func keyboardCovers(_ pixels: Int32) {
+        #if DEBUG
+        SessionCheck.event("keyboard covers \(pixels)")
+        #endif
+        let wasBroken = bridge.isBroken
+        let handled = bridge.keyboardCovers(pixels: pixels, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
+    }
+
     /// The answer to an open request (ADR-0062), which the guest's framework activity finishes with.
     private func openAnswered(_ id: UInt64, _ outcome: OpenOutcome) {
         log.info("\(self.entry.id, privacy: .public): open \(id) \(String(describing: outcome), privacy: .public)")

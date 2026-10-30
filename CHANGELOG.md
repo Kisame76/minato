@@ -23,3 +23,4 @@ All notable changes to Minato are documented in this file. The format follows
 ### Fixed
 
 - Sound no longer plays too fast and choppy in apps that stream it through AAudio or AudioTrack
+- Apps lay out their content above the on-screen keyboard instead of under it

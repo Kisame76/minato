@@ -692,6 +692,27 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
     }
 
+    /// ADR-0068 step 2d: the keyboard's cover goes to the guest when it changes, as long as the session runs; UIKit's
+    /// repeats of the same frame post nothing.
+    @Test func theKeyboardsCoverIsPostedWhenItChanges() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        bridge.keyboardCovers(pixels: 0, host: host)
+        #expect(host.take() == [])
+        bridge.keyboardCovers(pixels: 1008, host: host)
+        bridge.keyboardCovers(pixels: 1008, host: host)
+        #expect(host.take() == [.post(.imeInsets(bottom: 1008))])
+        bridge.keyboardCovers(pixels: 0, host: host)
+        #expect(host.take() == [.post(.imeInsets(bottom: 0))])
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        _ = bridge.finished(second, result: 0, host: host)
+        _ = host.take()
+        bridge.keyboardCovers(pixels: 900, host: host)
+        #expect(host.take() == [])
+    }
+
     /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
     /// return.
     @Test func aSurfaceMadeInTheBackgroundOpensWithTheReturn() throws {
