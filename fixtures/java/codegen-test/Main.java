@@ -153,6 +153,23 @@ public class Main {
     static class Holder {
         int i; long l; Object o; volatile int vi; volatile long vl; volatile Object vo;
         static int si; static Object so;
+        final void touch() { }
+    }
+
+    /** Every reference below comes out of memory, so the access under test is its first use, not a later one. */
+    static class Pool {
+        static Holder[] holders = { new Holder(), new Holder() };
+        static String[] strings = { "compressed", "unicod\u00e9\u4e2d" };
+        static String[] longStrings = {
+            "a long string of compressed bytes, long enough for vector loads of its chars ....",
+            "a long string with an \u00e9 in it, so its chars are not compressed, not at all" };
+        static Object[] arrays = { new String[] { "a" }, new Object[] { "b" }, new Integer[] { 1 } };
+        static Shape[] shapes = { new Square(), new Tri(), new Base() };
+        static Object[] objects = { new Square(), "text", new int[2], new Tri(), new String[1], new Object[1] };
+        static int[][] ints = { new int[67], new int[67], new int[67] };
+        static char[][] chars = { new char[67], new char[100] };
+        static byte[][] bytes = { new byte[67] };
+        static int pick() { return counter < 0 ? 1 : 0; }
     }
 
     static class Node {
@@ -262,6 +279,82 @@ public class Main {
         out("late", Late.twice());
     }
 
+    /** More references live across calls than registers to hold them: the receivers are in stack slots. */
+    static int manyLive() {
+        Shape a0 = Pool.shapes[Pool.pick()], a1 = Pool.shapes[Pool.pick() + 1], a2 = Pool.shapes[Pool.pick() + 2];
+        Shape a3 = Pool.shapes[Pool.pick()], a4 = Pool.shapes[Pool.pick() + 1], a5 = Pool.shapes[Pool.pick() + 2];
+        Shape a6 = Pool.shapes[Pool.pick()], a7 = Pool.shapes[Pool.pick() + 1], a8 = Pool.shapes[Pool.pick() + 2];
+        Shape a9 = Pool.shapes[Pool.pick()], b0 = Pool.shapes[Pool.pick() + 1], b1 = Pool.shapes[Pool.pick() + 2];
+        Shape b2 = Pool.shapes[Pool.pick()], b3 = Pool.shapes[Pool.pick() + 1], b4 = Pool.shapes[Pool.pick() + 2];
+        Shape b5 = Pool.shapes[Pool.pick()], b6 = Pool.shapes[Pool.pick() + 1], b7 = Pool.shapes[Pool.pick() + 2];
+        Shape b8 = Pool.shapes[Pool.pick()], b9 = Pool.shapes[Pool.pick() + 1], c0 = Pool.shapes[Pool.pick() + 2];
+        Shape c1 = Pool.shapes[Pool.pick()], c2 = Pool.shapes[Pool.pick() + 1], c3 = Pool.shapes[Pool.pick() + 2];
+        int s = 0;
+        s += a0.sides(); s += a1.sides(); s += a2.sides(); s += a3.sides(); s += a4.sides(); s += a5.sides();
+        s += a6.sides(); s += a7.sides(); s += a8.sides(); s += a9.sides(); s += b0.sides(); s += b1.sides();
+        s += b2.sides(); s += b3.sides(); s += b4.sides(); s += b5.sides(); s += b6.sides(); s += b7.sides();
+        s += b8.sides(); s += b9.sides(); s += c0.sides(); s += c1.sides(); s += c2.sides(); s += c3.sides();
+        s += a3.sides() + a9.sides() + b5.sides() + c3.sides() + a0.sides() + a4.sides() + b9.sides();
+        return s;
+    }
+
+    static void firstUse() {
+        Pool.holders[Pool.pick()].vi = 5;
+        Pool.holders[Pool.pick()].vl = 6L;
+        Pool.holders[Pool.pick()].vo = Pool.strings[Pool.pick()];
+        out("volatile", Pool.holders[0].vi + " " + Pool.holders[0].vl + " " + Pool.holders[0].vo);
+        Pool.holders[Pool.pick()].touch();
+        Pool.holders[Pool.pick() + 1].touch();
+        int sum = 0;
+        for (String s : Pool.strings) for (int i = 0; i < s.length(); i++) sum += s.charAt(i);
+        sum += Pool.strings[Pool.pick()].charAt(3) + Pool.strings[Pool.pick() + 1].charAt(6);
+        out("chars", sum);
+        sum = 0;
+        for (String s : Pool.longStrings) { for (int i = 0; i < s.length(); i++) sum += s.charAt(i); }
+        out("long chars", sum);
+        char[] copy = Pool.chars[1];
+        long copied = 0;
+        for (String s : Pool.longStrings) {
+            for (int i = 0; i < s.length(); i++) copy[i] = s.charAt(i);
+            for (int i = 0; i < s.length(); i++) copied += copy[i] * (i + 1);
+        }
+        out("copied chars", copied);
+        out("many live", manyLive());
+        Object[] viaObject = (Object[]) Pool.arrays[Pool.pick() + 1];
+        viaObject[0] = Pool.strings[Pool.pick()];
+        Object[] viaString = (Object[]) Pool.arrays[Pool.pick()];
+        viaString[0] = Pool.strings[Pool.pick() + 1];
+        try { ((Object[]) Pool.arrays[Pool.pick() + 2])[0] = Pool.strings[Pool.pick()]; }
+        catch (ArrayStoreException e) { out("store", e.getMessage()); }
+        out("stored", viaObject[0] + " " + viaString[0]);
+        sum = 0;
+        for (int i = 0; i < Pool.shapes.length; i++) sum += Pool.shapes[i].sides();
+        out("shapes", sum);
+        StringBuilder b = new StringBuilder();
+        for (Object o : Pool.objects) {
+            b.append(o instanceof Shape ? 'S' : '-').append(o instanceof Named ? 'N' : '-')
+             .append(o instanceof int[] ? 'I' : '-').append(o instanceof Object[] ? 'O' : '-')
+             .append(o instanceof CharSequence ? 'C' : '-').append(' ');
+        }
+        out("objects", b);
+        for (Object o : Pool.arrays) {
+            try { out("cast", ((Object[]) o).length); } catch (ClassCastException e) { out("cast", e.getMessage()); }
+        }
+        for (Object o : Pool.objects) {
+            try { out("cast", ((Object[]) o).length); } catch (ClassCastException e) { out("cast", e.getMessage()); }
+        }
+        int[] x = Pool.ints[0], y = Pool.ints[1], z = Pool.ints[2];
+        char[] cs = Pool.chars[0];
+        byte[] bs = Pool.bytes[0];
+        for (int i = 0; i < 67; i++) { y[i] = i; z[i] = 3 * i - 7; }
+        for (int i = 0; i < 67; i++) x[i] = y[i] + z[i];
+        for (int i = 0; i < 67; i++) cs[i] = (char) (x[i] & 0x7f);
+        for (int i = 0; i < 67; i++) bs[i] = (byte) (cs[i] + 1);
+        long total = 0;
+        for (int i = 0; i < 67; i++) total += x[i] + cs[i] + bs[i];
+        out("vectors", total);
+    }
+
     static void loops() {
         int n = 103;
         int[] a = new int[n], b = new int[n], c = new int[n];
@@ -323,6 +416,7 @@ public class Main {
         interfaces();
         arrays();
         fields();
+        firstUse();
         loops();
         exceptions();
         allocation();
