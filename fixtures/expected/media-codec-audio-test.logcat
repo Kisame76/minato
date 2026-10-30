@@ -1,0 +1,28 @@
+I/media-codec-audio-test: decoder c2.android.aac.decoder: canonical c2.android.aac.decoder, alias false, software true, hardware false, vendor false
+I/media-codec-audio-test: c2.android.aac.decoder audio: bitrates [8000, 510000], channels 8, rates 7350-7350 8000-8000 11025-11025 12000-12000 16000-16000 22050-22050 24000-24000 32000-32000 44100-44100 48000-48000, max instances 32
+I/media-codec-audio-test: c2.android.aac.decoder default format: mime="audio/mp4a-latm"
+I/media-codec-audio-test: decoder OMX.google.aac.decoder: canonical c2.android.aac.decoder, alias true, software true, hardware false, vendor false
+I/media-codec-audio-test: track: aac-profile=2, bitrate=64000, channel-count=1, csd-0=buffer 2, durationUs=1068117L, encoder-delay=2112, encoder-padding=892, language="und", max-bitrate=64000, max-input-size=207, mime="audio/mp4a-latm", profile=2, sample-rate=44100, track-id=2
+I/media-codec-audio-test: sync: output format: aac-drc-album-mode=0, aac-drc-boost-level=127, aac-drc-cut-level=127, aac-drc-effect-type=3, aac-drc-output-loudness=-1, aac-encoded-target-level=-1, aac-max-output-channel_count=8, aac-target-ref-level=64, buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, channel-mask=4, encoder-delay=2112, encoder-padding=892, max-output-channel-count=8, mime="audio/raw", sample-rate=44100
+I/media-codec-audio-test: sync: end of stream
+I/media-codec-audio-test: sync: input capacity at least 1024: true
+I/media-codec-audio-test: sync: 44 output buffers, times -1451 to 997006, the first 68 samples
+I/media-codec-audio-test: sync: 44100 samples, rms 26 %, 439 rising zero crossings
+I/media-codec-audio-test: seek: flushed after 2 units, the extractor at 509387
+I/media-codec-audio-test: seek: output format: aac-drc-album-mode=0, aac-drc-boost-level=127, aac-drc-cut-level=127, aac-drc-effect-type=3, aac-drc-output-loudness=-1, aac-encoded-target-level=-1, aac-max-output-channel_count=8, aac-target-ref-level=64, buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, channel-mask=0, encoder-delay=2112, encoder-padding=892, max-output-channel-count=8, mime="audio/raw", sample-rate=44100
+I/media-codec-audio-test: seek: output format: aac-drc-album-mode=0, aac-drc-boost-level=127, aac-drc-cut-level=127, aac-drc-effect-type=3, aac-drc-output-loudness=-1, aac-encoded-target-level=-1, aac-max-output-channel_count=8, aac-target-ref-level=64, buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, channel-mask=4, encoder-delay=2112, encoder-padding=892, max-output-channel-count=8, mime="audio/raw", sample-rate=44100
+I/media-codec-audio-test: seek: end of stream
+I/media-codec-audio-test: seek: input capacity at least 1024: true
+I/media-codec-audio-test: seek: 20 output buffers, times 555827 to 997006, the first 68 samples
+I/media-codec-audio-test: seek: 19524 samples, rms 26 %, 194 rising zero crossings
+I/media-codec-audio-test: async: ended: true
+I/media-codec-audio-test: async: 1 format changes, the last: aac-drc-album-mode=0, aac-drc-boost-level=127, aac-drc-cut-level=127, aac-drc-effect-type=3, aac-drc-output-loudness=-1, aac-encoded-target-level=-1, aac-max-output-channel_count=8, aac-target-ref-level=64, buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, channel-mask=4, encoder-delay=2112, encoder-padding=892, max-output-channel-count=8, mime="audio/raw", sample-rate=44100
+I/media-codec-audio-test: async: 44 output buffers, 44100 samples, rms 26 %, 439 rising zero crossings
+I/media-codec-audio-test: by name: output format: aac-drc-album-mode=0, aac-drc-boost-level=127, aac-drc-cut-level=127, aac-drc-effect-type=3, aac-drc-output-loudness=-1, aac-encoded-target-level=-1, aac-max-output-channel_count=8, aac-target-ref-level=64, buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, channel-mask=4, encoder-delay=2112, encoder-padding=892, max-output-channel-count=8, mime="audio/raw", sample-rate=44100
+I/media-codec-audio-test: by name: end of stream
+I/media-codec-audio-test: by name: input capacity at least 1024: true
+I/media-codec-audio-test: by name: 44 output buffers, times -1451 to 997006, the first 68 samples
+I/media-codec-audio-test: by name: 44100 samples, rms 26 %, 439 rising zero crossings
+I/media-codec-audio-test: unknown name: java.lang.IllegalArgumentException
+I/media-codec-audio-test: unknown type: java.lang.IllegalArgumentException
+I/media-codec-audio-test: done

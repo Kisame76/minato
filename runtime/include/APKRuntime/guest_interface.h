@@ -838,6 +838,48 @@ struct apkrt_audio_decode {
 /// memory. The number follows media_player's.
 #define APKRT_NR_AUDIO_DECODE 4133
 
+// MARK: - Audio codecs (ADR-0060 e2f)
+//
+// MediaCodec's audio decoders (c2.android.aac.decoder and its alias) decode on the host (AudioToolbox's
+// AudioConverter on macOS and iOS). One syscall carries every operation, as the video decoder's does: x0 the op, x1
+// the argument. A unit is decoded in the call itself, into the guest's buffer as 16-bit interleaved frames, so the
+// runtime keeps no unit and no frame between calls; the guest's codec trims the stream's encoder delay and padding
+// itself, as Android's codec does above its decoder. The runtime checks every argument before the host sees it.
+#define APKRT_AUDIO_CODEC_CREATE  0  // x1 the address of an apkrt_audio_codec (type, data and size the configuration);
+                                     // sets id, rate, channels and frames (the most a unit gives); 0 or -errno
+#define APKRT_AUDIO_CODEC_DECODE  1  // x1 the address of an apkrt_audio_codec (id, data and size one unit, out and
+                                     // capacity); sets frames (0 for a unit that gives none); 0 or -errno
+#define APKRT_AUDIO_CODEC_FLUSH   2  // x1 an ID; the decoder as new, for the units after a seek; 0 or -errno
+#define APKRT_AUDIO_CODEC_DESTROY 3  // x1 an ID; 0 or -errno
+
+/// The codec types: AAC (MPEG-4 audio), its configuration csd-0's AudioSpecificConfig.
+#define APKRT_AUDIO_CODEC_AAC 1
+
+struct apkrt_audio_codec {
+    uint64_t id;        // CREATE: out, from 1; the others: in
+    uint64_t data;      // CREATE: the configuration; DECODE: the unit
+    uint64_t size;      // its bytes: CREATE 1 to APKRT_AUDIO_CODEC_MAX_CONFIG, DECODE 1 to APKRT_AUDIO_CODEC_MAX_UNIT
+    uint64_t out;       // DECODE: where the frames go
+    uint64_t capacity;  // DECODE: its bytes
+    uint64_t frames;    // CREATE: out, the most frames a unit gives; DECODE: out, the frames written
+    uint32_t type;      // CREATE: an APKRT_AUDIO_CODEC_* type
+    uint32_t rate;      // CREATE: out, the frames' sample rate
+    uint32_t channels;  // CREATE: out, and channels
+    uint32_t reserved;  // 0
+};
+
+#define APKRT_AUDIO_CODEC_MAX_CODECS 32           // MediaCodecInfo's max instances of Android's AAC decoder
+#define APKRT_AUDIO_CODEC_MAX_CONFIG 256
+#define APKRT_AUDIO_CODEC_MAX_UNIT   (1u << 20)
+
+/// audio_codec: x0 the op, x1 its argument. Returns 0; -EFAULT for a struct the guest cannot read or write, bytes it
+/// cannot read or a buffer it cannot write; -EINVAL for an unknown op or type, a reserved field not 0, a size of 0 or
+/// past its limit, and a configuration the host does not decode; -ENOSPC with frames out for a buffer smaller than a
+/// unit's frames; -EBADF for an ID that is not there, or no more; -EBUSY for a CREATE past
+/// APKRT_AUDIO_CODEC_MAX_CODECS; -ENOSYS without the host's decoder; -ENOMEM without memory. The number follows
+/// audio_decode's.
+#define APKRT_NR_AUDIO_CODEC 4134
+
 // MARK: - Sensors (ADR-0061)
 //
 // One syscall carries every sensor operation, as the video decoder's does: x0 the op, x1 the argument. The guest opens

@@ -20,7 +20,10 @@
 //   [verified: media-window-test].
 // - MediaCodecList lists libmediandk's codecs (minato_media_codec_at) with capabilities that VideoToolbox decodes on
 //   Apple's chips: H.264's Baseline, Constrained Baseline, Main, High and Constrained High to level 5.2, HEVC's Main
-//   and Main 10 to level 5.1, up to 4096 x 4096, with adaptive playback; hardware-accelerated and vendor.
+//   and Main 10 to level 5.1, up to 4096 x 4096, with adaptive playback; hardware-accelerated and vendor. AAC's
+//   decoder (e2f) and its alias are listed as Android 15 lists c2.android.aac.decoder [verified:
+//   media-codec-audio-test]: software only, its canonical name, its profiles, bitrates 8000 to 510000, 8 channels,
+//   the rates 7350 to 48000 and 32 instances.
 // Left out, their natives not registered: secure input, the block model, input surfaces, tunneling, vendor parameters
 // and audio presentations (UnsatisfiedLinkError, as no codec of ours has them).
 #define LOG_TAG "MediaCodec_JNI"
@@ -599,6 +602,13 @@ jstring MediaCodec_getCanonicalName(JNIEnv *env, jobject thiz) {
         jniThrowException(env, "java/lang/IllegalStateException", nullptr);
         return nullptr;
     }
+    // An alias's codec is its canonical one's (MediaCodecList's minato_media_codec_info).
+    const Private &functions = private_functions();
+    const size_t count = functions.codecs != nullptr ? functions.codecs() : 0;
+    for (size_t index = 0; index < count; index++) {
+        const minato_media_codec_info *info = functions.codecAt(index);
+        if (info != nullptr && codec->name == info->name) return env->NewStringUTF(info->canonical);
+    }
     return env->NewStringUTF(codec->name.c_str());
 }
 
@@ -753,8 +763,14 @@ jstring MediaCodecList_getCodecName(JNIEnv *env, jclass, jint index) {
 jint MediaCodecList_getAttributes(JNIEnv *env, jclass, jint index) {
     const minato_media_codec_info *info = codec_at(env, index);
     if (info == nullptr) return 0;
-    // MediaCodecInfo's FLAG_IS_ENCODER 1, FLAG_IS_VENDOR 2, FLAG_IS_HARDWARE_ACCELERATED 8.
-    return (info->encoder ? 1 : 0) | 2 | (info->hardware ? 8 : 0);
+    // MediaCodecInfo's FLAG_IS_ENCODER 1, FLAG_IS_VENDOR 2, FLAG_IS_SOFTWARE_ONLY 4, FLAG_IS_HARDWARE_ACCELERATED 8.
+    return (info->encoder ? 1 : 0) | (info->vendor ? 2 : 0) | (!info->vendor && !info->hardware ? 4 : 0) |
+           (info->hardware ? 8 : 0);
+}
+
+jstring MediaCodecList_getCanonicalName(JNIEnv *env, jclass, jint index) {
+    const minato_media_codec_info *info = codec_at(env, index);
+    return info != nullptr ? env->NewStringUTF(info->canonical) : nullptr;
 }
 
 jobjectArray MediaCodecList_getSupportedTypes(JNIEnv *env, jclass, jint index) {
@@ -784,9 +800,43 @@ void put_integer(JNIEnv *env, jobject map, const char *key, jint value) {
     env->DeleteLocalRef(v);
 }
 
+/// AAC's decoder's capabilities, C2SoftAacDec's: its profiles (LEVEL_UNUSED, 0), no color formats, and the details
+/// MediaCodecInfo's AudioCapabilities reads.
+jobject aac_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
+    // CodecProfileLevel's AACObjectLC 2, HE 5, LD 23, ERLC... as C2SoftAacDec lists them: LC, HE, HE_PS 29, LD,
+    // ELD 39, ER_SCALABLE 20, XHE 42.
+    const jint aac[] = {2, 5, 29, 23, 39, 20, 42};
+    const jsize count = sizeof aac / sizeof *aac;
+    jobjectArray profiles = env->NewObjectArray(count, gFields.profileLevelClass, nullptr);
+    for (jsize n = 0; profiles != nullptr && n < count; n++) {
+        jobject level = env->NewObject(gFields.profileLevelClass, gFields.profileLevelConstructor);
+        env->SetIntField(level, gFields.profileField, aac[n]);
+        env->SetIntField(level, gFields.levelField, 0);
+        env->SetObjectArrayElement(profiles, n, level);
+        env->DeleteLocalRef(level);
+    }
+    jintArray colors = env->NewIntArray(0);
+    jobject defaults = env->NewObject(gFields.hashMapClass, gFields.hashMapConstructor);
+    put_string(env, defaults, "mime", info->type);
+    jobject details = env->NewObject(gFields.hashMapClass, gFields.hashMapConstructor);
+    put_string(env, details, "mime", info->type);
+    put_string(env, details, "bitrate-range", "8000-510000");
+    put_string(env, details, "max-channel-count", "8");
+    put_string(env, details, "sample-rate-ranges", "7350,8000,11025,12000,16000,22050,24000,32000,44100,48000");
+    put_string(env, details, "max-concurrent-instances", "32");
+    jobject capabilities = env->NewObject(gFields.capabilitiesClass, gFields.capabilitiesConstructor, profiles,
+                                          colors, static_cast<jboolean>(info->encoder != 0), defaults, details);
+    env->DeleteLocalRef(profiles);
+    env->DeleteLocalRef(colors);
+    env->DeleteLocalRef(defaults);
+    env->DeleteLocalRef(details);
+    return capabilities;
+}
+
 jobject MediaCodecList_getCodecCapabilities(JNIEnv *env, jclass, jint index, jstring type) {
     const minato_media_codec_info *info = codec_at(env, index);
     if (info == nullptr || type == nullptr) return nullptr;
+    if (strncmp(info->type, "audio/", 6) == 0) return aac_capabilities(env, info);
     const bool hevc = strcmp(info->type, "video/hevc") == 0;
     // CodecProfileLevel's values (MediaCodecInfo.java): AVC's Baseline 1, Constrained Baseline 0x10000, Main 2,
     // High 8, Constrained High 0x80000 at AVCLevel52 0x10000; HEVC's Main 1 and Main10 2 at HEVCMainTierLevel51
@@ -850,7 +900,7 @@ const JNINativeMethod gMediaCodecListMethods[] = {
         {"native_init", "()V", (void *)MediaCodecList_init},
         {"native_getCodecCount", "()I", (void *)MediaCodecList_getCodecCount},
         {"getCodecName", "(I)Ljava/lang/String;", (void *)MediaCodecList_getCodecName},
-        {"getCanonicalName", "(I)Ljava/lang/String;", (void *)MediaCodecList_getCodecName},
+        {"getCanonicalName", "(I)Ljava/lang/String;", (void *)MediaCodecList_getCanonicalName},
         {"getAttributes", "(I)I", (void *)MediaCodecList_getAttributes},
         {"getSupportedTypes", "(I)[Ljava/lang/String;", (void *)MediaCodecList_getSupportedTypes},
         {"getCodecCapabilities", "(ILjava/lang/String;)Landroid/media/MediaCodecInfo$CodecCapabilities;",

@@ -12,6 +12,7 @@ All notable changes to Minato are documented in this file. The format follows
 - Ringtones and notification sounds: an app that asks for the default ringtone, notification or alarm sound gets one
   it can play, as on a phone without sounds set, instead of crashing
 - Games made with Ren'Py are recognized as such at import
+- AAC audio through MediaCodec, for apps that decode their music and sounds themselves
 
 ### Changed
 

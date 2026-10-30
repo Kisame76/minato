@@ -37,7 +37,9 @@ struct minato_media_codec_info {
     const char *name;
     const char *type;
     int encoder;
-    int hardware;  // decodes on the host's hardware where it has one (MediaCodecInfo.isHardwareAccelerated)
+    int hardware;           // decodes on the host's hardware where it has one (MediaCodecInfo.isHardwareAccelerated)
+    const char *canonical;  // the codec's own name, another than `name` for an alias (MediaCodecInfo.isAlias)
+    int vendor;             // the device maker's rather than Android's (MediaCodecInfo.isVendor)
 };
 
 /* The number of Minato's codecs, and codec `index`'s info; NULL past the last. */

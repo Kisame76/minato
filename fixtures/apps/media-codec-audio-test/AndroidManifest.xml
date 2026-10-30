@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0060 e2f's test (media-codec-audio-test): MediaCodec's AAC decoder on the AAC track of Minato's own
+     baseline.mp4 (assets/, from tools/make-mp4-sample.sh), through MediaExtractor. The launcher activity is the
+     framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mediacodecaudio" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <application android:label="Media Codec Audio Test"
+      android:name="io.github.kisame76.minato.test.mediacodecaudio.AudioCodecApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

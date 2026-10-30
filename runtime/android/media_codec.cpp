@@ -1,7 +1,9 @@
 // libmediandk.so's AMediaCodec (ADR-0060 e2b3): the codec core, which the framework's MediaCodec natives run on too.
 // Minato's codecs are video decoders on the host's (video_decoder in guest_interface.h): c2.apple.avc.decoder and
-// c2.apple.hevc.decoder. Encoders, crypto and the audio codecs (e2f) are not here yet: their calls answer
-// AMEDIA_ERROR_UNSUPPORTED, and an encoder or another type cannot be made (NULL), as on a device without it.
+// c2.apple.hevc.decoder; and AAC's audio decoder (e2f) on the host's (audio_codec): c2.android.aac.decoder, Android's
+// name, and OMX.google.aac.decoder, its alias, as Android 15 lists them. Encoders and crypto are not here yet: their
+// calls answer AMEDIA_ERROR_UNSUPPORTED, and an encoder or another type cannot be made (NULL), as on a device without
+// it.
 // - States as Android's: made, configured (configure), started (start: the host's decoder), and back to made at
 //   stop; flush keeps it started. A call in the wrong state answers AMEDIA_ERROR_INVALID_OPERATION.
 // - Input: four buffers of max-input-size bytes (the format's, else width x height x 3 / 2, at least 1 MiB); a queued
@@ -37,6 +39,16 @@
 //   into any surface, reported after its render with its time and the buffer's timestamp, the frame's time in
 //   nanoseconds or releaseOutputBufferAtTime's, as Android 15 reports them [verified: media-window-test]; on the
 //   thread that released it, outside the codec's lock.
+// - Audio (e2f): the AAC decoder decodes each queued unit as an output buffer is free, one unit per buffer at the
+//   unit's time, 16-bit PCM interleaved; csd-0's AudioSpecificConfig, or a unit queued with
+//   BUFFER_FLAG_CODEC_CONFIG, configures it. Android trims what comes out as CCodec's SkipCutBuffer does [verified:
+//   media-codec-audio-test]: the format's encoder-delay frames are skipped from the start, and again after each
+//   flush, and encoder-padding frames are held back from buffer to buffer, so that the end of the stream drops them.
+//   The output format is C2SoftAacDec's: audio/raw with its rate, channels and channel mask, encoder-delay and
+//   encoder-padding as configured, and its fixed DRC and batch keys; configure's has the format's rate and channels
+//   with channel mask 0. A format change rides the buffer it comes with: INFO_OUTPUT_FORMAT_CHANGED comes when that
+//   buffer would. A flush before the app has seen a decoded format brings configure's again, on an empty buffer, and
+//   the decoded one after it, as Android 15's resume reports them [verified: media-codec-audio-test].
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
 #include <android/hardware_buffer.h>
 #include <android/log.h>
@@ -115,10 +127,17 @@ bool is_surface(ANativeWindow *window, uint64_t *host) {
     return true;
 }
 
+constexpr char kAacType[] = "audio/mp4a-latm", kAacDecoder[] = "c2.android.aac.decoder";
+
 const minato_media_codec_info kCodecs[] = {
-    {"c2.apple.avc.decoder", "video/avc", 0, 1},
-    {"c2.apple.hevc.decoder", "video/hevc", 0, 1},
+    {"c2.apple.avc.decoder", "video/avc", 0, 1, "c2.apple.avc.decoder", 1},
+    {"c2.apple.hevc.decoder", "video/hevc", 0, 1, "c2.apple.hevc.decoder", 1},
+    {kAacDecoder, kAacType, 0, 0, kAacDecoder, 0},
+    {"OMX.google.aac.decoder", kAacType, 0, 0, kAacDecoder, 0},
 };
+
+/// A unit's flag of ours: BUFFER_FLAG_CODEC_CONFIG's configuration, not a unit to decode.
+constexpr uint32_t kUnitConfig = 1u << 31;
 
 uint32_t decoder_type(const char *type) {
     if (type == nullptr) return 0;
@@ -127,12 +146,40 @@ uint32_t decoder_type(const char *type) {
     return 0;
 }
 
-long video_call(apkrt_video_decoder_op op, uintptr_t argument) {
+/// The host's audio codec type of a media type, 0 for none.
+uint32_t audio_type(const char *type) {
+    return type != nullptr && strcasecmp(type, kAacType) == 0 ? APKRT_AUDIO_CODEC_AAC : 0;
+}
+
+long host_call(long number, uint64_t op, uintptr_t argument) {
     long result;
     do {
-        result = syscall(APKRT_NR_VIDEO_DECODER, op, argument);
+        result = syscall(number, op, argument);
     } while (result == -1 && errno == EINTR);
     return result == -1 ? -errno : result;
+}
+
+long video_call(apkrt_video_decoder_op op, uintptr_t argument) {
+    return host_call(APKRT_NR_VIDEO_DECODER, op, argument);
+}
+
+long audio_call(uint64_t op, uintptr_t argument) {
+    return host_call(APKRT_NR_AUDIO_CODEC, op, argument);
+}
+
+/// C2SoftAacDec's channel mask of a channel count, as android.media.AudioFormat's CHANNEL_OUT_* bits.
+int32_t channel_mask(uint32_t channels) {
+    constexpr int32_t fl = 0x4, fr = 0x8, fc = 0x10, lfe = 0x20, bl = 0x40, br = 0x80, sl = 0x800, sr = 0x1000;
+    switch (channels) {
+        case 1: return fl;
+        case 2: return fl | fr;
+        case 4: return fl | fc | bl | br;
+        case 5: return fl | fc | fr | bl | br;
+        case 6: return fl | fc | fr | bl | br | lfe;
+        case 7: return fl | fc | fr | bl | br | sl | sr;
+        case 8: return fl | fc | fr | bl | br | sl | sr | lfe;
+        default: return 0;
+    }
 }
 
 int64_t now_us() {
@@ -169,6 +216,15 @@ struct Output {
     AMediaCodecBufferInfo info;
     uint64_t token;  // a surface decoder's frame, 0 for none
     enum { kFree, kReady, kHeld } state;
+    AMediaFormat *format;  // an audio decoder's format change that comes with the buffer, NULL for none
+};
+
+/// An audio format's rate, channels and channel mask, which decide whether it changed.
+struct AudioShape {
+    int32_t rate, channels, mask;
+    bool operator==(const AudioShape &other) const {
+        return rate == other.rate && channels == other.channels && mask == other.mask;
+    }
 };
 
 struct Lock {
@@ -183,11 +239,12 @@ struct AMediaCodec {
     const minato_media_codec_info *info;
     pthread_mutex_t mutex;
     enum { kMade, kConfigured, kStarted, kReleased } state;  // kReleased: by itself, its window gone (e2c3)
-    uint32_t type;
+    uint32_t type;  // the host's video decoder type, or for an audio codec its audio codec type
+    bool audio;
     int32_t width, height;
     Bytes codec_data;
     AMediaFormat *input_format, *output_format;
-    uint64_t decoder;  // the runtime's ID while started
+    uint64_t decoder;  // the runtime's ID while started (an audio codec's from its configuration on)
     ANativeWindow *window;  // the surface, with a reference of the codec's; NULL for ByteBuffer output
     uint64_t host_window;   // the window's ID when it is a host window (e2c3), else 0
     uint32_t scaling;       // RENDER_WINDOW's flags, by setVideoScalingMode
@@ -205,6 +262,14 @@ struct AMediaCodec {
     uint32_t frame_width, frame_height, frame_stride, frame_slice;
     bool ended;  // the end of the stream came out
     media_status_t error;
+    // An audio codec's.
+    AudioShape configured, decoded, attached;  // configure's format; the host's; the last one a buffer came with
+    int32_t told_mask;                // the channel mask of the last format the app was given
+    bool input_ended;                 // the end of the stream queued: no more input until a flush
+    int32_t delay, padding;           // encoder-delay and encoder-padding frames, -1 for none in the format
+    uint32_t channels, unit_frames;   // the host's, from its configuration
+    uint32_t skip;                    // frames still to skip
+    Bytes pcm, held;                  // one unit's frames; the frames held back, the padding's
     // Asynchronous mode.
     AMediaCodecOnAsyncNotifyCallback callbacks;
     void *userdata;
@@ -305,8 +370,152 @@ void pull_frames(AMediaCodec *codec) {
     }
 }
 
+/// An audio codec's output format of `shape`, C2SoftAacDec's keys.
+AMediaFormat *audio_format(const AMediaCodec *codec, const AudioShape &shape) {
+    AMediaFormat *format = AMediaFormat_new();
+    if (format == nullptr) return nullptr;
+    AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "audio/raw");
+    if (shape.rate > 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, shape.rate);
+    if (shape.channels > 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, shape.channels);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_MASK, shape.mask);
+    if (codec->delay >= 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_ENCODER_DELAY, codec->delay);
+    if (codec->padding >= 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_ENCODER_PADDING, codec->padding);
+    const struct {
+        const char *key;
+        int32_t value;
+    } fixed[] = {
+            {"aac-drc-album-mode", 0},       {"aac-drc-boost-level", 127},
+            {"aac-drc-cut-level", 127},      {"aac-drc-effect-type", 3},
+            {"aac-drc-output-loudness", -1}, {"aac-encoded-target-level", -1},
+            {"aac-max-output-channel_count", 8}, {"aac-target-ref-level", 64},
+            {"buffer-batch-max-output-size", 0}, {"buffer-batch-threshold-output-size", 0},
+            {"max-output-channel-count", 8},
+    };
+    for (const auto &entry : fixed) AMediaFormat_setInt32(format, entry.key, entry.value);
+    return format;
+}
+
+/// The host's audio codec configured by `config`, with the codec's lock held; false where it refuses it.
+bool make_audio(AMediaCodec *codec, const uint8_t *config, size_t size) {
+    apkrt_audio_codec call{};
+    call.type = codec->type;
+    call.data = reinterpret_cast<uintptr_t>(config);
+    call.size = size;
+    if (audio_call(APKRT_AUDIO_CODEC_CREATE, reinterpret_cast<uintptr_t>(&call)) != 0) return false;
+    if (!resize(&codec->pcm, size_t{call.frames} * call.channels * 2)) {
+        audio_call(APKRT_AUDIO_CODEC_DESTROY, call.id);
+        return false;
+    }
+    codec->decoder = call.id;
+    codec->channels = call.channels;
+    codec->unit_frames = static_cast<uint32_t>(call.frames);
+    codec->decoded = AudioShape{static_cast<int32_t>(call.rate), static_cast<int32_t>(call.channels),
+                                channel_mask(call.channels)};
+    return true;
+}
+
+/// A free output buffer's index, or -1.
+int free_output(const AMediaCodec *codec) {
+    for (int index = 0; index < kOutputs; index++) {
+        if (codec->outputs[index].state == Output::kFree) return index;
+    }
+    return -1;
+}
+
+void make_ready(AMediaCodec *codec, int index) {
+    codec->outputs[index].state = Output::kReady;
+    codec->ready[(codec->ready_head + codec->ready_count) % kOutputs] = index;
+    codec->ready_count++;
+}
+
+/// `frames` decoded frames in the codec's pcm, trimmed as SkipCutBuffer trims them, into `output`'s bytes: the frames
+/// to skip dropped, the rest after the held ones, and all but the padding's last frames out. False without memory.
+bool trim(AMediaCodec *codec, size_t frames, Output &output) {
+    const size_t frame_bytes = size_t{codec->channels} * 2;
+    const size_t skipped = frames < codec->skip ? frames : codec->skip;
+    codec->skip -= static_cast<uint32_t>(skipped);
+    const size_t kept = (frames - skipped) * frame_bytes, held = codec->held.data != nullptr ? codec->held.size : 0;
+    if (!resize(&codec->held, held + kept)) return false;
+    if (kept > 0) memcpy(codec->held.data + held, codec->pcm.data + skipped * frame_bytes, kept);
+    const size_t cut = codec->padding > 0 ? static_cast<size_t>(codec->padding) * frame_bytes : 0;
+    const size_t out = held + kept > cut ? held + kept - cut : 0;
+    if (!resize(&output.bytes, out)) return false;
+    if (out > 0) {
+        memcpy(output.bytes.data, codec->held.data, out);
+        memmove(codec->held.data, codec->held.data + out, held + kept - out);
+        codec->held.size = held + kept - out;
+    }
+    return true;
+}
+
+/// Decodes the waiting units into free output buffers, one each, with the codec's lock held.
+void push_audio(AMediaCodec *codec) {
+    while (codec->waiting_count > 0 && codec->error == AMEDIA_OK && !codec->ended) {
+        Unit &unit = codec->waiting[codec->waiting_head];
+        if ((unit.flags & kUnitConfig) != 0) {
+            // The configuration again (an app's, or after a flush) leaves a configured codec as it is.
+            if (codec->decoder == 0 && !make_audio(codec, unit.bytes.data, unit.bytes.size)) {
+                codec->error = AMEDIA_ERROR_UNKNOWN;
+                return;
+            }
+        } else {
+            const int index = free_output(codec);
+            if (index < 0) return;
+            Output &output = codec->outputs[index];
+            size_t frames = 0;
+            if (unit.bytes.size > 0) {
+                apkrt_audio_codec call{};
+                call.id = codec->decoder;
+                call.data = reinterpret_cast<uintptr_t>(unit.bytes.data);
+                call.size = unit.bytes.size;
+                call.out = reinterpret_cast<uintptr_t>(codec->pcm.data);
+                call.capacity = codec->pcm.size;
+                if (codec->decoder == 0 ||
+                    audio_call(APKRT_AUDIO_CODEC_DECODE, reinterpret_cast<uintptr_t>(&call)) != 0) {
+                    codec->error = AMEDIA_ERROR_UNKNOWN;
+                    return;
+                }
+                frames = call.frames;
+            }
+            if (!trim(codec, frames, output)) {
+                codec->error = AMEDIA_ERROR_UNKNOWN;
+                return;
+            }
+            const bool end = (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0;
+            if (frames > 0 && !(codec->decoded == codec->attached)) {
+                output.format = audio_format(codec, codec->decoded);
+                codec->attached = codec->decoded;
+            }
+            const uint32_t flags = end ? static_cast<uint32_t>(AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) : 0u;
+            output.info = AMediaCodecBufferInfo{0, static_cast<int32_t>(output.bytes.size), unit.time_us, flags};
+            make_ready(codec, index);
+            if (end) codec->ended = true;  // the padding still held is never given out
+        }
+        codec->waiting_head = (codec->waiting_head + 1) % kInputs;
+        codec->waiting_count--;
+    }
+}
+
+/// Whether the next ready buffer comes with a format change; it is then the output format, given to the app.
+bool take_format(AMediaCodec *codec) {
+    if (codec->ready_count == 0) return false;
+    Output &next = codec->outputs[codec->ready[codec->ready_head]];
+    if (next.format == nullptr) return false;
+    AMediaFormat_delete(codec->output_format);
+    codec->output_format = next.format;
+    next.format = nullptr;
+    if (!AMediaFormat_getInt32(codec->output_format, AMEDIAFORMAT_KEY_CHANNEL_MASK, &codec->told_mask)) {
+        codec->told_mask = 0;
+    }
+    return true;
+}
+
 void pump(AMediaCodec *codec) {
     if (codec->state != AMediaCodec::kStarted) return;
+    if (codec->audio) {
+        push_audio(codec);
+        return;
+    }
     push_units(codec);
     pull_frames(codec);
     push_units(codec);
@@ -330,7 +539,7 @@ bool wait_for(AMediaCodec *codec, int64_t timeout_us, Ready ready) {
 
 /// A free input buffer's index, or -1 while every one is out or the host is four units behind.
 int free_input(AMediaCodec *codec) {
-    if (codec->waiting_count >= kInputs) return -1;
+    if (codec->waiting_count >= kInputs || codec->input_ended) return -1;
     for (int index = 0; index < kInputs; index++) {
         if (!codec->input_dequeued[index]) return index;
     }
@@ -349,9 +558,14 @@ int take_ready(AMediaCodec *codec) {
 void drop_buffers(AMediaCodec *codec) {
     codec->waiting_head = codec->waiting_count = 0;
     codec->ready_head = codec->ready_count = 0;
-    for (auto &output : codec->outputs) output.state = Output::kFree, output.token = 0;  // the runtime ended the tokens
+    for (auto &output : codec->outputs) {
+        output.state = Output::kFree, output.token = 0;  // the runtime ended the tokens
+        AMediaFormat_delete(output.format);
+        output.format = nullptr;
+    }
     for (bool &dequeued : codec->input_dequeued) dequeued = false;
     codec->ended = false;
+    codec->input_ended = false;
 }
 
 /// Joins an asynchronous thread that was stopped, with the codec's lock held, which it lets go while it waits; on
@@ -379,7 +593,8 @@ void stop_thread(AMediaCodec *codec) {
 }
 
 void end_decoder(AMediaCodec *codec) {
-    if (codec->decoder != 0) video_call(APKRT_VIDEO_DECODER_DESTROY, codec->decoder);
+    if (codec->decoder != 0 && codec->audio) audio_call(APKRT_AUDIO_CODEC_DESTROY, codec->decoder);
+    if (codec->decoder != 0 && !codec->audio) video_call(APKRT_VIDEO_DECODER_DESTROY, codec->decoder);
     codec->decoder = 0;
     drop_buffers(codec);
     codec->error = AMEDIA_OK;
@@ -523,7 +738,7 @@ void *run_callbacks(void *argument) {
             called = true;
         }
         if (codec->ready_count > 0 && running()) {
-            if (codec->format_changed && codec->output_format != nullptr) {
+            if (take_format(codec) || (codec->format_changed && codec->output_format != nullptr)) {
                 codec->format_changed = false;
                 AMediaFormat *format = AMediaFormat_new();
                 if (format != nullptr) AMediaFormat_copy(format, codec->output_format);
@@ -555,13 +770,102 @@ void *run_callbacks(void *argument) {
     return nullptr;
 }
 
+/// configure for an audio codec, with the codec's lock held.
+media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
+    const char *mime = nullptr;
+    if (!AMediaFormat_getString(asked, AMEDIAFORMAT_KEY_MIME, &mime) || audio_type(mime) != codec->type) {
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
+    codec->codec_data.size = 0;
+    void *data = nullptr;
+    size_t size = 0;
+    if (AMediaFormat_getBuffer(asked, AMEDIAFORMAT_KEY_CSD_0, &data, &size) && size > 0) {
+        if (size > APKRT_AUDIO_CODEC_MAX_CONFIG || !resize(&codec->codec_data, size)) {
+            return AMEDIA_ERROR_INVALID_PARAMETER;
+        }
+        memcpy(codec->codec_data.data, data, size);
+    }
+    // C2SoftAacDec's input buffers are 8192 bytes, or the format's max-input-size where larger.
+    int32_t max_input = 0;
+    size_t capacity = AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE, &max_input) && max_input > 8192
+                              ? static_cast<size_t>(max_input)
+                              : 8192;
+    if (capacity > APKRT_AUDIO_CODEC_MAX_UNIT) capacity = APKRT_AUDIO_CODEC_MAX_UNIT;
+    for (auto &input : codec->inputs) {
+        if (!resize(&input, capacity)) return AMEDIA_ERROR_UNKNOWN;
+    }
+    if (codec->input_format == nullptr) codec->input_format = AMediaFormat_new();
+    if (codec->input_format == nullptr) return AMEDIA_ERROR_UNKNOWN;
+    AMediaFormat_copy(codec->input_format, asked);
+    int32_t rate = 0, channels = 0;
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_SAMPLE_RATE, &rate)) rate = 0;
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &channels)) channels = 0;
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_ENCODER_DELAY, &codec->delay) || codec->delay < 0) {
+        codec->delay = -1;
+    }
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_ENCODER_PADDING, &codec->padding) || codec->padding < 0) {
+        codec->padding = -1;
+    }
+    codec->configured = AudioShape{rate, channels, 0};
+    AMediaFormat_delete(codec->output_format);
+    codec->output_format = audio_format(codec, codec->configured);
+    codec->told_mask = 0;
+    codec->state = AMediaCodec::kConfigured;
+    return AMEDIA_OK;
+}
+
+/// start for an audio codec, with the codec's lock held: the host's codec now where csd-0 configures it, else at
+/// the unit that does.
+media_status_t start_audio(AMediaCodec *codec) {
+    if (codec->codec_data.data != nullptr && codec->codec_data.size > 0 &&
+        !make_audio(codec, codec->codec_data.data, codec->codec_data.size)) {
+        return AMEDIA_ERROR_UNKNOWN;
+    }
+    codec->skip = codec->delay > 0 ? static_cast<uint32_t>(codec->delay) : 0;
+    codec->held.size = 0;
+    codec->attached = codec->configured;
+    return AMEDIA_OK;
+}
+
+/// flush for an audio codec, with the codec's lock held. Configure's format comes again on an empty buffer while the
+/// app has not been given a decoded one, as Android's resume reports it, and the decoded one with the next frames.
+media_status_t flush_audio(AMediaCodec *codec) {
+    if (codec->decoder != 0 && audio_call(APKRT_AUDIO_CODEC_FLUSH, codec->decoder) != 0) return AMEDIA_ERROR_UNKNOWN;
+    drop_buffers(codec);
+    codec->skip = codec->delay > 0 ? static_cast<uint32_t>(codec->delay) : 0;
+    codec->held.size = 0;
+    if (codec->told_mask == 0) {
+        Output &output = codec->outputs[0];
+        output.format = audio_format(codec, codec->configured);
+        output.bytes.size = 0;
+        output.info = AMediaCodecBufferInfo{0, 0, 0, 0};
+        make_ready(codec, 0);
+        codec->attached = codec->configured;
+    }
+    return AMEDIA_OK;
+}
+
+/// The end of start: the codec started, and in asynchronous mode its thread, with the codec's lock held.
+media_status_t start_running(AMediaCodec *codec) {
+    codec->format_changed = false;
+    codec->state = AMediaCodec::kStarted;
+    if (codec->asynchronous) {
+        codec->stopping = false;
+        codec->generation++;
+        codec->thread_running = pthread_create(&codec->thread, nullptr, run_callbacks, codec) == 0;
+        codec->thread_joinable = codec->thread_running;
+    }
+    return AMEDIA_OK;
+}
+
 AMediaCodec *make_codec(const minato_media_codec_info *info) {
     if (info == nullptr || info->encoder) return nullptr;
     auto *codec = static_cast<AMediaCodec *>(calloc(1, sizeof(AMediaCodec)));
     if (codec == nullptr) return nullptr;
     pthread_mutex_init(&codec->mutex, nullptr);
     codec->info = info;
-    codec->type = decoder_type(info->type);
+    codec->audio = audio_type(info->type) != 0;
+    codec->type = codec->audio ? audio_type(info->type) : decoder_type(info->type);
     codec->state = AMediaCodec::kMade;
     codec->error = AMEDIA_OK;
     return codec;
@@ -610,6 +914,8 @@ media_status_t AMediaCodec_delete(AMediaCodec *codec) {
     AMediaFormat_delete(codec->input_format);
     AMediaFormat_delete(codec->output_format);
     free(codec->codec_data.data);
+    free(codec->pcm.data);
+    free(codec->held.data);
     for (auto &input : codec->inputs) free(input.data);
     for (auto &unit : codec->waiting) free(unit.bytes.data);
     for (auto &output : codec->outputs) free(output.bytes.data);
@@ -641,6 +947,7 @@ media_status_t AMediaCodec_configure(AMediaCodec *codec, const AMediaFormat *for
     auto *asked = const_cast<AMediaFormat *>(format);
     const char *mime = nullptr;
     int32_t width = 0, height = 0, max_input = 0;
+    if (codec->audio) return configure_audio(codec, asked);
     if (!AMediaFormat_getString(asked, AMEDIAFORMAT_KEY_MIME, &mime) || decoder_type(mime) != codec->type ||
         !AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_WIDTH, &width) ||
         !AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_HEIGHT, &height) || width <= 0 || height <= 0 ||
@@ -700,6 +1007,11 @@ media_status_t AMediaCodec_start(AMediaCodec *codec) {
     Lock hold(&codec->mutex);
     join_thread(codec);  // one stopped from its own callback
     if (codec->state != AMediaCodec::kConfigured) return AMEDIA_ERROR_INVALID_OPERATION;
+    if (codec->audio) {
+        const media_status_t started = start_audio(codec);
+        if (started != AMEDIA_OK) return started;
+        return start_running(codec);
+    }
     apkrt_video_decoder call{};
     call.type = codec->type;
     call.width = static_cast<uint32_t>(codec->width);
@@ -710,15 +1022,7 @@ media_status_t AMediaCodec_start(AMediaCodec *codec) {
     if (video_call(APKRT_VIDEO_DECODER_CREATE, reinterpret_cast<uintptr_t>(&call)) != 0) return AMEDIA_ERROR_UNKNOWN;
     codec->decoder = call.id;
     codec->frame_width = codec->frame_height = codec->frame_stride = codec->frame_slice = 0;
-    codec->format_changed = false;
-    codec->state = AMediaCodec::kStarted;
-    if (codec->asynchronous) {
-        codec->stopping = false;
-        codec->generation++;
-        codec->thread_running = pthread_create(&codec->thread, nullptr, run_callbacks, codec) == 0;
-        codec->thread_joinable = codec->thread_running;
-    }
-    return AMEDIA_OK;
+    return start_running(codec);
 }
 
 media_status_t AMediaCodec_stop(AMediaCodec *codec) {
@@ -736,6 +1040,7 @@ media_status_t AMediaCodec_flush(AMediaCodec *codec) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
     if (codec->state != AMediaCodec::kStarted) return AMEDIA_ERROR_INVALID_OPERATION;
+    if (codec->audio) return flush_audio(codec);
     if (video_call(APKRT_VIDEO_DECODER_FLUSH, codec->decoder) != 0) return AMEDIA_ERROR_UNKNOWN;
     drop_buffers(codec);
     return AMEDIA_OK;
@@ -771,12 +1076,19 @@ media_status_t AMediaCodec_queueInputBuffer(AMediaCodec *codec, size_t index, of
     if (offset < 0 || static_cast<size_t>(offset) > input.size || size > input.size - static_cast<size_t>(offset)) {
         return AMEDIA_ERROR_INVALID_PARAMETER;
     }
+    if (codec->input_ended) {
+        codec->input_dequeued[index] = false;  // after the end of the stream: ignored, as CCodec's buffer channel does
+        return AMEDIA_OK;
+    }
     if (codec->waiting_count >= kInputs) return AMEDIA_ERROR_INVALID_OPERATION;  // free_input keeps this from coming
     Unit &unit = codec->waiting[(codec->waiting_head + codec->waiting_count) % kInputs];
     if (!resize(&unit.bytes, size)) return AMEDIA_ERROR_UNKNOWN;
     if (size > 0) memcpy(unit.bytes.data, input.data + offset, size);
     unit.time_us = static_cast<int64_t>(time);
     unit.flags = (flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0 ? APKRT_VIDEO_DECODER_END_OF_STREAM : 0;
+    if (codec->audio && (flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG) != 0) unit.flags |= kUnitConfig;
+    // An audio codec takes no input after the end of the stream until a flush, as CCodec's buffer channel.
+    codec->input_ended = codec->audio && (flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) != 0;
     codec->waiting_count++;
     codec->input_dequeued[index] = false;
     pump(codec);
@@ -791,6 +1103,7 @@ ssize_t AMediaCodec_dequeueOutputBuffer(AMediaCodec *codec, AMediaCodecBufferInf
     if (codec->ready_count == 0) {
         return codec->error != AMEDIA_OK ? static_cast<ssize_t>(codec->error) : AMEDIACODEC_INFO_TRY_AGAIN_LATER;
     }
+    if (take_format(codec)) return AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED;
     if (codec->format_changed) {
         codec->format_changed = false;
         return AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED;
