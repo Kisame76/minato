@@ -275,6 +275,15 @@ TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml` (framework br
 
 The evidence for the license: every file starts with "This file is part of TagSoup and is Copyright 2002-2008 by John Cowan. TagSoup is licensed under the Apache License, Version 2.0", the project's `LICENSE` is the Apache License 2.0, `MODULE_LICENSE_APACHE2` is present, and `METADATA` says `license_type: NOTICE`. Android.bp also lists AFL-3.0 and "legacy unencumbered" for the project, both permissive; there is no GPL file or header in the files we take.
 
+stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), SoundPool's Ogg Vorbis decoder (the compatibility plan's gap 13, step 4 of `docs/plans/2026-10-30-soundpool-and-audio-codecs.md`), fetched by `tools/fetch-sources.py --set framework` on the user's go, relayed by the lead on 2026-10-30, built into `libandroid_runtime.so` without stdio and the push-data API:
+
+| Project | Commit | License | File | Size | SHA-256 |
+|---|---|---|---|---|---|
+| `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the user's choice) | `LICENSE` | 2,510 | `bebfe904b1430165…` |
+| `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the user's choice) | `stb_vorbis.c` | 192,790 | `4c7cb2ff1f7011e9…` |
+
+The evidence for the license: the file's head says "public domain" and "See end of file for license information", and its end and `LICENSE` offer "ALTERNATIVE A - MIT License" and "ALTERNATIVE B - Public Domain (www.unlicense.org)".
+
 ## Graphics sources (ADR-0043 a)
 
 Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`, and libjnigraphics with them since ADR-0041 a5, with these texts under "Graphics sources" in its Licenses folder: libhwui, libminikin, libft2, libharfbuzz_ng and libharfbuzz_subset, libpng, libjpeg, libjpegdecoder, libjpegencoder and libultrahdr, libimage_io, libcutils and server_configurable_flags. frameworks/native, vulkan-headers, frameworks/av, hardware/interfaces, libhardware and googletest's `gtest_prod.h` are headers only. FreeType's and the IJG's credits stand in their components' license lines.

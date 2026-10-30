@@ -350,7 +350,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
             native/android_runtime/android_hardware_Camera.cpp
             native/android_runtime/android_media_AudioTrack.cpp
-            native/android_runtime/android_media_SoundPool.cpp
+            native/android_runtime/android_media_SoundPool.cpp "${SOURCES}/stb_vorbis/stb_vorbis.c"
             native/android_runtime/android_graphics_HardwareRenderer.cpp
             native/android_runtime/android_graphics_SurfaceTexture.cpp
             native/android_runtime/android_util_EventLog.cpp native/android_runtime/android_app_Activity.cpp
@@ -368,6 +368,11 @@ target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}
 file(COPY "${SOURCES}/frameworks_native_headers/opengl/include/ETC1" DESTINATION "${CMAKE_BINARY_DIR}/etc1-include")
 target_include_directories(android_runtime PRIVATE "${CMAKE_BINARY_DIR}/etc1-include")
 set_target_properties(android_runtime PROPERTIES CXX_STANDARD 20)
+# stb_vorbis (Sean Barrett, MIT or public domain; third_party/sources.json): SoundPool's Ogg Vorbis decoder, whole files
+# from memory only (the plan of docs/plans/2026-10-30-soundpool-and-audio-codecs.md, step 4). Third-party C, so no
+# warnings.
+set_source_files_properties("${SOURCES}/stb_vorbis/stb_vorbis.c" PROPERTIES COMPILE_OPTIONS "-w"
+  COMPILE_DEFINITIONS "STB_VORBIS_NO_STDIO;STB_VORBIS_NO_PUSHDATA_API")
 soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -Wno-parentheses
   -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES -DU_USING_ICU_NAMESPACE=0 -Wall -Werror -Wextra
   -Wthread-safety -Wno-error=deprecated-declarations -Wunused -Wunreachable-code

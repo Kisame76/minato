@@ -15,10 +15,10 @@
 //    plays it plays on.
 // All live streams are mixed by one callback of one libaaudio stream (float, stereo, 48 kHz, low latency), the
 // sounds' frames resampled by linear interpolation at the sound's rate times the stream's, so the pool costs the
-// runtime's audio one stream however many sounds play. The decoder is ours: WAV files of PCM 8, 16, 24, 32 bit and
-// float, which the pool turns into 16-bit frames; other files fail with a status, as a file that no decoder takes
-// fails on Android. The decoders for the rest are the plan's steps 3 and 4 (docs/plans/2026-10-30-soundpool-and-
-// audio-codecs.md).
+// runtime's audio one stream however many sounds play. The decoders are ours: WAV files of PCM 8, 16, 24, 32 bit and
+// float, and Ogg Vorbis through stb_vorbis, which the pool turns into 16-bit frames; other files fail with a status, as
+// a file that no decoder takes fails on Android. The decoders for the rest are the plan's steps 3 and 4
+// (docs/plans/2026-10-30-soundpool-and-audio-codecs.md).
 #include <aaudio/AAudio.h>
 #include <dlfcn.h>
 #include <jni.h>
@@ -35,6 +35,10 @@
 #include <vector>
 
 #include "core_jni_helpers.h"
+
+// stb_vorbis.c (third_party/sources.json), built without stdio and the push-data API.
+extern "C" int stb_vorbis_decode_memory(const unsigned char *mem, int len, int *channels, int *sample_rate,
+                                        short **output);
 
 namespace android {
 namespace {
@@ -160,6 +164,26 @@ bool decode_wav(const std::vector<uint8_t> &file, Sound &sound) {
     sound.rate = static_cast<int>(rate);
     sound.channels = channels;
     return sound.count() > 0;
+}
+
+/// An Ogg Vorbis file (mono or stereo) into frames by stb_vorbis; false for anything else, Opus in Ogg included.
+bool decode_ogg(const std::vector<uint8_t> &file, Sound &sound) {
+    if (file.size() < 4 || memcmp(file.data(), "OggS", 4) != 0 || file.size() > INT32_MAX) return false;
+    int channels = 0, rate = 0;
+    short *output = nullptr;
+    const int frames = stb_vorbis_decode_memory(file.data(), static_cast<int>(file.size()), &channels, &rate, &output);
+    if (frames <= 0 || output == nullptr) {
+        free(output);
+        return false;
+    }
+    bool usable = channels >= 1 && channels <= 2 && rate >= 1 && rate <= 192000;
+    if (usable) {
+        sound.frames.assign(output, output + static_cast<size_t>(frames) * channels);
+        sound.rate = rate;
+        sound.channels = channels;
+    }
+    free(output);
+    return usable;
 }
 
 // ---- the mixer ----
@@ -328,7 +352,7 @@ jint load_fd(JNIEnv *env, jobject thiz, jobject descriptor, jlong offset, jlong 
     const int id = sound->id;
     std::thread([pool, sound, file, readable]() {
         Sound decoded;
-        const bool ok = readable && decode_wav(*file, decoded);
+        const bool ok = readable && (decode_wav(*file, decoded) || decode_ogg(*file, decoded));
         {
             std::lock_guard<std::mutex> hold(pool->lock);
             if (ok) {

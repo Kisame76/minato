@@ -1,0 +1,6 @@
+I/soundpool-codec-test: tone.ogg: load returned 1
+I/soundpool-codec-test: tone.ogg: load completed: true
+I/soundpool-codec-test: tone.ogg: status 0: true
+I/soundpool-codec-test: tone.ogg: play: stream 1
+I/soundpool-codec-test: released
+I/soundpool-codec-test: done

@@ -554,7 +554,7 @@ run_app() {
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
       | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
       | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | sdl-audiotrack-test | jni-fields-test \
-      | soundpool-test \
+      | soundpool-test | soundpool-codec-test \
       | storage-test | location-test | gapscan-test | webview-camera-test | keystore-test | sms-test | accounts-test \
       | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test | media-fields-test | media-format-test \
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \

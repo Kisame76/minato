@@ -693,6 +693,17 @@
       "digest": "72431a8c23128a16ab087bad55f0f770f1088e2f94d1c164f88d4798446aa4d1"
     },
     {
+      "name": "stb_vorbis",
+      "raw": "https://raw.githubusercontent.com/nothings/stb/1ee679ca2ef753a528db5ba6801e1067b40481b8",
+      "commit": "1ee679ca2ef753a528db5ba6801e1067b40481b8",
+      "license": "MIT or public domain (stb_vorbis.c, version 1.22)",
+      "files": [
+        "LICENSE",
+        "stb_vorbis.c"
+      ],
+      "digest": "48b076edbcdfe7dd0448a9647001a8b0ca58f6e460bc8e899b0f5b58b3a26597"
+    },
+    {
       "name": "sqlite",
       "project": "platform/external/sqlite",
       "commit": "af6bb6a379e12d41b80a3468a4c8cab9263cc721",
