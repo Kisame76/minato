@@ -101,5 +101,7 @@ body:
     id: report
     attributes:
       label: Report from Minato
-      description: Paste the report that Report a problem copied. It holds no files and no account data.
+      description: >-
+        Paste the report that Report a problem copied. It holds no files. This issue is public, so read
+        it first and remove anything personal.
       render: text
