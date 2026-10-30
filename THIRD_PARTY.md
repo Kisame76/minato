@@ -354,7 +354,7 @@ Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the
 ## References without adopted code
 
 - **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.
-- **Certificate from SideStore and AltStore** (ADR-0023, research in [`docs/research/store-certificates.md`](docs/research/store-certificates.md)). Only read:
+- **Certificate from SideStore and AltStore** (ADR-0023). Only read:
   - which URL the export deep link has and which placeholders it replaces;
   - which markers the stores write into the Info.plist;
   - how SideStore builds its `.p12`.

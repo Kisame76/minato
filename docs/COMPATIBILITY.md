@@ -40,8 +40,8 @@ itself still starts without Java, where such calls fail, until ADR-0069 moves it
 - the soft keyboard and hardware keys in text fields;
 - sensors (CoreMotion), location (CoreLocation, after iOS's prompt);
 - document and photo pickers, sharing, and links that open in a Safari view;
-- `AudioTrack`, `SoundPool` (WAV and Ogg Vorbis), `MediaPlayer`, `MediaExtractor` and video `MediaCodec` (H.264
-  and HEVC);
+- `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer`, `MediaExtractor` and video
+  `MediaCodec` (H.264 and HEVC);
 - started and bound services and broadcasts inside the app;
 - Play Asset Delivery and Play Feature Delivery packs that were imported with the app.
 
@@ -87,7 +87,7 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
   starts in the Simulator with its picture and sound; a run on the iPhone is not confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
-- **libGDX:** untested. Its Java code runs in the interpreter, and `SoundPool` plays WAV and Ogg Vorbis so far.
+- **libGDX:** untested. Its Java code runs in the interpreter, and `SoundPool` plays WAV, Ogg Vorbis, MP3, AAC and FLAC.
 - **Cocos2d-x, axmol, Defold, GameMaker:** untested.
 - **Flutter:** untested. Release builds compile Dart ahead of time and need no JIT.
 - **React Native with Hermes:** untested.
@@ -126,8 +126,8 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-3
 - Text input, keys and controllers: the keyboard and hardware keys work; the keyboard's inset (resize and pan) and
   game controllers are missing (ADR-0068).
 - Java media and video: `AudioTrack`, `MediaPlayer`, `MediaCodec` for video and `MediaExtractor` are in. `SoundPool`
-  arrived after the recount and plays WAV and Ogg Vorbis so far; audio codecs in `MediaCodec` come later
-  (ADR-0060).
+  arrived after the recount and plays WAV, Ogg Vorbis, MP3, AAC and FLAC (Opus not yet); audio codecs in
+  `MediaCodec` come later (ADR-0060).
 - Device features and permissions: sensors and location are in; the camera and microphone recording are missing
   (only the microphone's permission path exists, ADR-0064).
 - Framework breadth: 577 public types of Android 15's API are still missing from `framework.jar` (297 pure Java, 125
