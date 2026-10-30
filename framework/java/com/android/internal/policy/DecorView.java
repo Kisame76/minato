@@ -24,6 +24,7 @@ import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -270,6 +271,26 @@ public class DecorView extends FrameLayout {
             cb.onDetachedFromWindow();
         }
         mPendingInsetsController.detach();
+    }
+
+    /**
+     * As Android's for a window that is not edge to edge (target SDK below 35 or the theme's opt-out) with
+     * SOFT_INPUT_ADJUST_RESIZE: the keyboard's ime() inset takes room from the content, whose views are laid out above
+     * the keyboard. On Android the window manager shrinks the window's frame; here the decor pads its bottom, which
+     * lays out and draws the same (ADR-0068 step 2d). Every other window leaves the inset to its views, as one that is
+     * edge to edge does. The views still get the ime() inset in the insets they apply.
+     */
+    @Override
+    @SuppressWarnings("deprecation")
+    public WindowInsets onApplyWindowInsets(WindowInsets insets) {
+        final int adjust = mWindow.getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST;
+        final boolean resize = !mWindow.isEdgeToEdgeEnforced()
+                && adjust == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
+        final int bottom = resize ? insets.getInsets(WindowInsets.Type.ime()).bottom : 0;
+        if (getPaddingBottom() != bottom) {
+            setPadding(getPaddingLeft(), getPaddingTop(), getPaddingRight(), bottom);
+        }
+        return super.onApplyWindowInsets(insets);
     }
 
     /** As AOSP's: the pending controller until the window is attached, then the window's own. */

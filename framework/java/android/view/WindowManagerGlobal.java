@@ -234,6 +234,21 @@ public final class WindowManagerGlobal {
         }
     }
 
+    /**
+     * The soft keyboard's height in the session's pixels (ADR-0068 step 2d, APKRT_EVENT_IME_INSETS): the ime() inset
+     * of every window, which asks its views to apply their insets again.
+     */
+    public void dispatchImeInsets(int bottom) {
+        final ArrayList<ViewRootImpl> roots;
+        synchronized (mLock) {
+            ViewRootImpl.sImeBottom = Math.max(bottom, 0);
+            roots = new ArrayList<>(mRoots);
+        }
+        for (ViewRootImpl root : roots) {
+            root.imeInsetsChanged();
+        }
+    }
+
     /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (gap 4 (b3)). */
     void childrenMayAsk(ViewRootImpl parent) {
         final ArrayList<ViewRootImpl> children = new ArrayList<>();

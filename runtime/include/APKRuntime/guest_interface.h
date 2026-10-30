@@ -292,6 +292,12 @@ enum apkrt_event_type {
                                           // newly-registered receiver reads the current value synchronously with
                                           // APKRT_NR_BATTERY (GET) before any event. Needs no permission, as the
                                           // Android broadcast does not
+    APKRT_EVENT_IME_INSETS,               // the soft keyboard's height (ADR-0068 step 2d): a0 the part of the session's
+                                          // view that the keyboard covers, from its top edge to the view's bottom, in
+                                          // the session's pixels (0 when it is hidden); a1, a2 0. The host posts it
+                                          // whenever the keyboard's frame changes (UIKit's keyboard notifications,
+                                          // apk-run's model), also while it moves (the last value counts); the guest
+                                          // makes the ime() inset of every window from the last one
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the

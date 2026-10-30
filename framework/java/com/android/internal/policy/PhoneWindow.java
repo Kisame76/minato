@@ -93,6 +93,11 @@ public class PhoneWindow extends Window {
     TypedValue mFixedHeightMinor;
     private boolean mDecorFitsSystemWindows = true;
     private boolean mEdgeToEdgeEnforced;
+
+    /** Whether the window is edge to edge by the platform's rule (target SDK 35 unless the theme opts out). */
+    boolean isEdgeToEdgeEnforced() {
+        return mEdgeToEdgeEnforced;
+    }
     private Drawable mBackgroundDrawable;
     private int mBackgroundResource;
     private int mStatusBarColor;

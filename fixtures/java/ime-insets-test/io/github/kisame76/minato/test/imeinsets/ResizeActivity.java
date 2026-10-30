@@ -27,6 +27,7 @@ public class ResizeActivity extends Activity {
     private EditText mEdit;
     private boolean mStarted;
     private int mFullHeight;
+    private int mRootTop;
     private int mImeBottom;
 
     @Override
@@ -59,6 +60,9 @@ public class ResizeActivity extends Activity {
         mEdit.requestFocus();
         mHandler.postDelayed(() -> {
             mFullHeight = mRoot.getHeight();
+            int[] at = new int[2];
+            mRoot.getLocationInWindow(at);
+            mRootTop = at[1];
             getSystemService(InputMethodManager.class).showSoftInput(mEdit, 0);
             mHandler.postDelayed(this::afterShow, SETTLE_MS);
         }, SETTLE_MS);
@@ -95,15 +99,22 @@ public class ResizeActivity extends Activity {
     private void report(String step) {
         int[] field = new int[2];
         mEdit.getLocationOnScreen(field);
-        int fieldBottom = field[1] + mEdit.getHeight();
-        android.graphics.Rect visible = new android.graphics.Rect();
-        mRoot.getWindowVisibleDisplayFrame(visible);
+        final int fieldBottom = field[1] + mEdit.getHeight();
         int[] root = new int[2];
         mRoot.getLocationOnScreen(root);
+        int[] inWindow = new int[2];
+        mRoot.getLocationInWindow(inWindow);
+        final View decor = getWindow().getDecorView();
+        int[] decorAt = new int[2];
+        decor.getLocationOnScreen(decorAt);
+        // The keyboard's top in the window: the decor's bottom less the IME inset, so that the system bars, which
+        // differ between devices, do not enter the line.
+        final boolean clear = fieldBottom <= decorAt[1] + decor.getHeight() - mImeBottom;
         Log.i(TAG, mode() + " " + step + ": content "
                 + (mRoot.getHeight() < mFullHeight ? "resized" : "full") + ", ime inset "
-                + (mImeBottom != 0 ? "nonzero" : "zero") + ", field "
-                + (fieldBottom <= visible.bottom ? "above" : "below") + " the visible frame's bottom, "
-                + (fieldBottom <= root[1] + mRoot.getHeight() ? "inside" : "outside") + " the content");
+                + (mImeBottom != 0 ? "nonzero" : "zero")
+                + (mImeBottom != 0 ? ", content " + (inWindow[1] < mRootTop ? "panned up" : "not panned") : "")
+                + (mImeBottom != 0 ? ", field " + (clear ? "clear of" : "covered by") + " the keyboard" : "")
+                + ", " + (fieldBottom <= root[1] + mRoot.getHeight() ? "inside" : "outside") + " the content");
     }
 }

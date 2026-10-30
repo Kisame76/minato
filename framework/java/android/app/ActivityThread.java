@@ -1180,6 +1180,7 @@ public final class ActivityThread {
     private static final int EVENT_PERMISSION_RESULT = 26;
     private static final int EVENT_LOCATION = 27;
     private static final int EVENT_BATTERY = 28;
+    private static final int EVENT_IME_INSETS = 29;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int SURFACE_MAKE = 1;
@@ -1416,6 +1417,10 @@ public final class ActivityThread {
                 break;
             case EVENT_BATTERY:
                 LocalBatteryService.onEvent((int) event[2], (int) event[3]);
+                break;
+            case EVENT_IME_INSETS:
+                // The soft keyboard's height (ADR-0068 step 2d): every window's ime() inset follows it.
+                WindowManagerGlobal.getInstance().dispatchImeInsets((int) event[2]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();

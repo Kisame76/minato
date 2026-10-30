@@ -34,6 +34,7 @@ import android.app.ActivityThread;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Canvas;
+import android.graphics.Insets;
 import android.graphics.Matrix;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
@@ -1113,9 +1114,34 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     WindowInsets getWindowInsets(boolean forceConstruct) {
         if (mLastWindowInsets == null || forceConstruct) {
-            mLastWindowInsets = systemInsets();
+            mLastWindowInsets = windowInsets();
         }
         return mLastWindowInsets;
+    }
+
+    /**
+     * The soft keyboard's height in the session's pixels (ADR-0068 step 2d), from the host's last report; 0 when
+     * hidden.
+     */
+    static volatile int sImeBottom;
+
+    /** A window's insets: the metrics' and the keyboard's, which only windows get (WindowMetrics leaves ime() out). */
+    private static WindowInsets windowInsets() {
+        final WindowInsets.Builder builder = new WindowInsets.Builder();
+        final int ime = sImeBottom;
+        if (ime > 0) {
+            builder.setInsets(WindowInsets.Type.ime(), Insets.of(0, 0, 0, ime));
+            builder.setVisible(WindowInsets.Type.ime(), true);
+        }
+        return builder.build();
+    }
+
+    /** The host reported another keyboard height (WindowManagerGlobal.dispatchImeInsets): the views apply it again. */
+    void imeInsetsChanged() {
+        mHandler.post(() -> {
+            mApplyInsetsRequested = true;
+            scheduleTraversals();
+        });
     }
 
     /**
@@ -1454,6 +1480,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /** No window scrolls on Minato yet, so no rectangle needs one. */
+    /**
+     * As AOSP's adjustPan would scroll the window for it; not here (ADR-0068 step 2d): Android 15 on the emulator does
+     * not move this window's content when the keyboard comes, as ime-insets-test logs for target 34 (content not
+     * panned), so there is nothing to match, and the cause is not found. mCurScrollY stays 0.
+     */
     @Override
     public boolean requestChildRectangleOnScreen(View child, Rect rectangle, boolean immediate) {
         return false;

@@ -568,6 +568,10 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
         std::fprintf(stderr, "apk-run: ime %llu: %s\n", static_cast<unsigned long long>(argument),
                      one_line(request.c_str()).c_str());
         if (request.compare(0, 5, "start") == 0) ime_serial.store(argument);
+        // The model of UIKit's keyboard, whose frame the App reports as the keyboard's height (ADR-0068 step 2d): the
+        // portrait keyboard of an iPhone 15 Pro Max with its home indicator, 335 points at scale 3.
+        if (request == "show") apkrt_session_post(APKRT_EVENT_IME_INSETS, 1005, 0, 0);
+        if (request == "hide") apkrt_session_post(APKRT_EVENT_IME_INSETS, 0, 0, 0);
         return;
     }
     if (type == APKRT_REQUEST_EXPORT_MEDIA) {
