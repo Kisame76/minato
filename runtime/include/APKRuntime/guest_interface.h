@@ -810,6 +810,34 @@ struct apkrt_media_player_event {
 /// Else the host's answer. The number follows battery's.
 #define APKRT_NR_MEDIA_PLAYER 4132
 
+// MARK: - Audio decoding (the SoundPool plan's step 3)
+//
+// SoundPool decodes its compressed sounds through the host (AudioToolbox's ExtAudioFile on macOS and iOS): the guest
+// hands the file's bytes and a buffer, and gets 16-bit interleaved frames at the file's rate and channels, as the
+// decoders of AOSP's Sound.cpp give them, up to the buffer's end (Sound.cpp's heap, which cuts a longer sound). Only
+// what Android's SoundPool decodes is taken: MP3, AAC (in MP4 or ADTS) and FLAC; WAV and Ogg Vorbis stay the guest's
+// own.
+
+struct apkrt_audio_decode {
+    uint64_t data;      // the file's bytes
+    uint64_t size;      // 1 to APKRT_AUDIO_DECODE_MAX_FILE
+    uint64_t out;       // where the frames go
+    uint64_t capacity;  // its bytes; the decode stops at the last whole frame that fits
+    uint64_t frames;    // out: the frames written
+    uint32_t rate;      // out: the file's sample rate
+    uint32_t channels;  // out: and channels
+};
+
+/// The largest file audio_decode takes, as SoundPool reads a file whole.
+#define APKRT_AUDIO_DECODE_MAX_FILE (64u << 20)
+
+/// audio_decode: x0 a struct apkrt_audio_decode. Decodes the file's frames into `out` until its end or the buffer's,
+/// and sets frames, rate and channels. Returns 0; -EFAULT for a struct the guest cannot read or write, bytes it cannot
+/// read or a buffer it cannot write; -EINVAL for a size of 0 or above APKRT_AUDIO_DECODE_MAX_FILE, and for a file the
+/// host does not decode or that is none of the formats above; -ENOSYS without the host's decoder; -ENOMEM without
+/// memory. The number follows media_player's.
+#define APKRT_NR_AUDIO_DECODE 4133
+
 // MARK: - Sensors (ADR-0061)
 //
 // One syscall carries every sensor operation, as the video decoder's does: x0 the op, x1 the argument. The guest opens

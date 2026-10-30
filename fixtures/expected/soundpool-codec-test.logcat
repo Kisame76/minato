@@ -2,5 +2,37 @@ I/soundpool-codec-test: tone.ogg: load returned 1
 I/soundpool-codec-test: tone.ogg: load completed: true
 I/soundpool-codec-test: tone.ogg: status 0: true
 I/soundpool-codec-test: tone.ogg: play: stream 1
+I/soundpool-codec-test: tone.mp3: load returned 2
+I/soundpool-codec-test: tone.mp3: load completed: true
+I/soundpool-codec-test: tone.mp3: status 0: true
+I/soundpool-codec-test: tone.mp3: play: stream 2
+I/soundpool-codec-test: tone-mono.mp3: load returned 3
+I/soundpool-codec-test: tone-mono.mp3: load completed: true
+I/soundpool-codec-test: tone-mono.mp3: status 0: true
+I/soundpool-codec-test: tone-mono.mp3: play: stream 3
+I/soundpool-codec-test: tone.m4a: load returned 4
+I/soundpool-codec-test: tone.m4a: load completed: true
+I/soundpool-codec-test: tone.m4a: status 0: true
+I/soundpool-codec-test: tone.m4a: play: stream 4
+I/soundpool-codec-test: tone.aac: load returned 5
+I/soundpool-codec-test: tone.aac: load completed: true
+I/soundpool-codec-test: tone.aac: status 0: true
+I/soundpool-codec-test: tone.aac: play: stream 5
+I/soundpool-codec-test: tone.flac: load returned 6
+I/soundpool-codec-test: tone.flac: load completed: true
+I/soundpool-codec-test: tone.flac: status 0: true
+I/soundpool-codec-test: tone.flac: play: stream 6
+I/soundpool-codec-test: tone-alac.m4a: load returned 7
+I/soundpool-codec-test: tone-alac.m4a: load completed: true
+I/soundpool-codec-test: tone-alac.m4a: status 0: false
+I/soundpool-codec-test: tone-alac.m4a: play: stream 0
+I/soundpool-codec-test: tone-ac3.mp4: load returned 8
+I/soundpool-codec-test: tone-ac3.mp4: load completed: true
+I/soundpool-codec-test: tone-ac3.mp4: status 0: false
+I/soundpool-codec-test: tone-ac3.mp4: play: stream 0
+I/soundpool-codec-test: tone.aiff: load returned 9
+I/soundpool-codec-test: tone.aiff: load completed: true
+I/soundpool-codec-test: tone.aiff: status 0: false
+I/soundpool-codec-test: tone.aiff: play: stream 0
 I/soundpool-codec-test: released
 I/soundpool-codec-test: done

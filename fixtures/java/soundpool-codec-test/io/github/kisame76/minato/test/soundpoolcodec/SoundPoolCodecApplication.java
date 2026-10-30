@@ -20,8 +20,13 @@ import java.util.concurrent.TimeUnit;
  */
 public class SoundPoolCodecApplication extends Application {
     private static final String TAG = "soundpool-codec-test";
-    /** One asset per codec; a step that adds a codec adds its file here and to assets/. */
-    private static final String[] FILES = {"tone.ogg"};
+    /**
+     * One asset per codec; a step that adds a codec adds its file here and to assets/ (tools/make-tone-samples.sh
+     * makes those of step 3: MP3 in stereo and in mono at 22050 Hz, AAC in MP4 and in ADTS, FLAC, ALAC and AC-3 in
+     * MP4, and AIFF).
+     */
+    private static final String[] FILES = {"tone.ogg", "tone.mp3", "tone-mono.mp3", "tone.m4a", "tone.aac",
+            "tone.flac", "tone-alac.m4a", "tone-ac3.mp4", "tone.aiff"};
 
     private static void log(String line) {
         Log.i(TAG, line);

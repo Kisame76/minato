@@ -16,8 +16,9 @@
 // All live streams are mixed by one callback of one libaaudio stream (float, stereo, 48 kHz, low latency), the
 // sounds' frames resampled by linear interpolation at the sound's rate times the stream's, so the pool costs the
 // runtime's audio one stream however many sounds play. The decoders are ours: WAV files of PCM 8, 16, 24, 32 bit and
-// float, and Ogg Vorbis through stb_vorbis, which the pool turns into 16-bit frames; other files fail with a status, as
-// a file that no decoder takes fails on Android. The decoders for the rest are the plan's steps 3 and 4
+// float, and Ogg Vorbis through stb_vorbis, which the pool turns into 16-bit frames, and MP3, AAC (in MP4 or ADTS),
+// and FLAC through the host's AudioToolbox (APKRT_NR_AUDIO_DECODE, the plan's step 3); other files fail with a
+// status, as a file that no decoder takes fails on Android. Opus, in Ogg and in MP4, is the plan's step 4
 // (docs/plans/2026-10-30-soundpool-and-audio-codecs.md).
 #include <aaudio/AAudio.h>
 #include <dlfcn.h>
@@ -33,6 +34,8 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+
+#include <APKRuntime/guest_interface.h>
 
 #include "core_jni_helpers.h"
 
@@ -184,6 +187,26 @@ bool decode_ogg(const std::vector<uint8_t> &file, Sound &sound) {
     }
     free(output);
     return usable;
+}
+
+/// MP3, AAC and FLAC (mono or stereo) through the host's decoder, up to Sound.cpp's heap of 1 MiB;
+/// false for anything else, the formats the host does not take included.
+bool decode_host(const std::vector<uint8_t> &file, Sound &sound) {
+    std::vector<int16_t> frames((1u << 20) / sizeof(int16_t));
+    apkrt_audio_decode call{};
+    call.data = reinterpret_cast<uint64_t>(file.data());
+    call.size = file.size();
+    call.out = reinterpret_cast<uint64_t>(frames.data());
+    call.capacity = frames.size() * sizeof(int16_t);
+    if (syscall(APKRT_NR_AUDIO_DECODE, &call) != 0 || call.channels < 1 || call.channels > 2 || call.frames == 0 ||
+        call.rate < 1 || call.rate > 192000) {
+        return false;
+    }
+    frames.resize(static_cast<size_t>(call.frames) * call.channels);
+    sound.frames = std::move(frames);
+    sound.rate = static_cast<int>(call.rate);
+    sound.channels = static_cast<int>(call.channels);
+    return true;
 }
 
 // ---- the mixer ----
@@ -352,7 +375,14 @@ jint load_fd(JNIEnv *env, jobject thiz, jobject descriptor, jlong offset, jlong 
     const int id = sound->id;
     std::thread([pool, sound, file, readable]() {
         Sound decoded;
-        const bool ok = readable && (decode_wav(*file, decoded) || decode_ogg(*file, decoded));
+        const bool ok = readable &&
+                        (decode_wav(*file, decoded) || decode_ogg(*file, decoded) || decode_host(*file, decoded));
+        // As AOSP's Sound.cpp: the decoded frames go into a heap of kDefaultHeapSize, 1 MiB, and a sound that fills it
+        // is READY with what fitted (about 5.9 s of 44.1 kHz stereo), whole frames only.
+        if (ok) {
+            const size_t most = (1u << 20) / (2 * static_cast<size_t>(decoded.channels));
+            if (decoded.count() > most) decoded.frames.resize(most * static_cast<size_t>(decoded.channels));
+        }
         {
             std::lock_guard<std::mutex> hold(pool->lock);
             if (ok) {
