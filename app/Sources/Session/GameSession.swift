@@ -69,7 +69,7 @@ final class GameSession {
     @ObservationIgnored private let keySink = KeyChannelSink()
     /// The guest's input method on UIKit's keyboard (ADR-0068 step 2c): its editor, the view that has the keyboard, and
     /// where the typed text goes.
-    @ObservationIgnored private var softKeyboard = SoftKeyboard()
+    @ObservationIgnored private var softKeyboard: SoftKeyboard
     @ObservationIgnored private weak var textView: SoftKeyboardView?
     @ObservationIgnored private let textSink = TextChannelSink()
     /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers; there
@@ -95,6 +95,8 @@ final class GameSession {
         self.entry = entry
         // Game mode starts only ready apps, which have a report; activity-host reports API level 35.
         bridge = SessionBridge(lifecycle: Lifecycle(targetSdk: entry.report?.targetSdk ?? 35))
+        // LatinIME's Enter and delete are keys for an app before Jelly Bean.
+        softKeyboard = SoftKeyboard(targetSdk: entry.report?.targetSdk ?? 35)
         #if DEBUG
         let withGuest = !SessionCheck.withoutGuest
         #else

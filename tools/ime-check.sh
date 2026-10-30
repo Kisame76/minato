@@ -29,7 +29,7 @@ tools/build-java-test-app.sh ime-test >/dev/null
 steps=start,tap:645:1400,text:1:1:0:h,text:1:1:0:he,text:0:1:0:hello,stext:0:1:0:XX
 steps+=,text:3:1:0:,text:6:2:0:,text:7:67:0:
 python3 framework/tests/java_app_run.py \
-  --in-order 'apk-run: ime 1: start\t1\t268435458\t0\t0\t0\t-1\thint' \
+  --in-order 'apk-run: ime 1: start\t1\t268435458\t0\t0\t0\t-1\t0\t0\thint' \
   --in-order 'apk-run: ime 1: show' --in-order 'apk-run: ime 1: stop' --in-order 'apk-run: ime 2: start' \
   --in-order 'apk-run: ime 2: show' --in-order 'apk-run: ime 2: hide' \
   --lifecycle "$steps" \

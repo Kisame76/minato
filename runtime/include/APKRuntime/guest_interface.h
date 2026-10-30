@@ -423,7 +423,8 @@ enum apkrt_request_type {
     APKRT_REQUEST_IME,             // guest only (ADR-0068, part 1): a0 the address of NUL-terminated text, a1 the
                                    // connection's serial. The host gets the serial as `argument` and the text:
                                    // "start\t<inputType>\t<imeOptions>\t<capsMode>\t<selStart>\t<selEnd>\t<fieldId>
-                                   // \t<hint>" (the numbers decimal, the hint last, cut by the guest to fit) when a
+                                   // \t<actionId>\t<actionLabel>\t<hint>" (the numbers decimal, actionLabel 1 when
+                                   // EditorInfo has one, else 0, the hint last, cut by the guest to fit) when a
                                    // view that takes text is served with a new connection (a1 not 0, a fresh one each
                                    // time), "show" and "stop" (a1 the live serial, not 0: the keyboard is wanted, the
                                    // view is no longer served) and "hide" (a1 the live serial or 0: the keyboard is

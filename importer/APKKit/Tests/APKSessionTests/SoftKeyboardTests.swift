@@ -24,9 +24,15 @@ import Testing
         KeyboardTraits(editor: editor(inputType, imeOptions))
     }
 
-    private func shown(_ inputType: Int32 = text, _ imeOptions: Int32 = 0, serial: Int64 = 5) -> SoftKeyboard {
-        var keyboard = SoftKeyboard()
-        _ = keyboard.handle(.start(serial: serial, editor: editor(inputType, imeOptions)))
+    private func shown(_ inputType: Int32 = text, _ imeOptions: Int32 = 0, serial: Int64 = 5, targetSdk: Int = 35,
+                       label actionId: Int32? = nil) -> SoftKeyboard {
+        var keyboard = SoftKeyboard(targetSdk: targetSdk)
+        var spec = editor(inputType, imeOptions)
+        if let actionId {
+            spec.actionId = actionId
+            spec.hasActionLabel = true
+        }
+        _ = keyboard.handle(.start(serial: serial, editor: spec))
         _ = keyboard.handle(.show(serial: serial))
         return keyboard
     }
@@ -34,11 +40,19 @@ import Testing
     // MARK: - The request's text
 
     @Test func startCarriesTheEditorAndAHintThatMayHoldTabs() {
-        let request = ImeRequest(text: "start\t180225\t-2147483642\t8192\t3\t4\t2131230801\tName\tand\tmore",
+        let request = ImeRequest(text: "start\t180225\t-2147483642\t8192\t3\t4\t2131230801\t0\t0\tName\tand\tmore",
                                  serial: 9)
         #expect(request == .start(serial: 9, editor: EditorSpec(
             inputType: 180225, imeOptions: Int32.min + 6, capsMode: 8192, selectionStart: 3, selectionEnd: 4,
             hint: "Name\tand\tmore")))
+    }
+
+    /// EditorInfo's actionId and whether it has an actionLabel, which LatinIME's Enter performs (ADR-0068).
+    @Test func startCarriesTheActionIdAndWhetherThereIsALabel() {
+        let request = ImeRequest(text: "start\t1\t6\t0\t0\t0\t-1\t42\t1\t", serial: 2)
+        #expect(request == .start(serial: 2, editor: EditorSpec(
+            inputType: 1, imeOptions: 6, capsMode: 0, selectionStart: 0, selectionEnd: 0, hint: "", actionId: 42,
+            hasActionLabel: true)))
     }
 
     @Test func showHideAndStopCarryOnlyTheSerial() {
@@ -48,9 +62,10 @@ import Testing
     }
 
     @Test func anyOtherTextIsNoRequest() {
-        #expect(ImeRequest(text: "start\t1\t0\t0\t0\t0\t7", serial: 1) == nil)  // no hint field
-        #expect(ImeRequest(text: "start\tx\t0\t0\t0\t0\t7\t", serial: 1) == nil)
-        #expect(ImeRequest(text: "start\t4294967297\t0\t0\t0\t0\t7\t", serial: 1) == nil)
+        #expect(ImeRequest(text: "start\t1\t0\t0\t0\t0\t7\t0\t0", serial: 1) == nil)  // no hint field
+        #expect(ImeRequest(text: "start\t1\t0\t0\t0\t0\t7\thint", serial: 1) == nil)  // the old six numbers
+        #expect(ImeRequest(text: "start\tx\t0\t0\t0\t0\t7\t0\t0\t", serial: 1) == nil)
+        #expect(ImeRequest(text: "start\t4294967297\t0\t0\t0\t0\t7\t0\t0\t", serial: 1) == nil)
         #expect(ImeRequest(text: "show\t", serial: 1) == nil)
         #expect(ImeRequest(text: "open", serial: 1) == nil)
         #expect(ImeRequest(text: "", serial: 1) == nil)
@@ -167,7 +182,7 @@ import Testing
         var keyboard = shown()
         #expect(keyboard.handle(.start(serial: 6, editor: editor(Self.number))) == .update(traits(Self.number)))
         #expect(keyboard.isShown)
-        #expect(keyboard.insert("1") == [TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 6, text: "1")])
+        #expect(keyboard.insert("1") == [TextRecord(op: .sendKey, arg0: 8, arg1: 0, serial: 6, text: "")])
     }
 
     @Test func hideResignsWhateverItsSerial() {
@@ -199,7 +214,7 @@ import Testing
         let expired1 = keyboard.releaseExpired()
         #expect(!expired1)
         #expect(keyboard.handle(.show(serial: 6)) == nil)
-        #expect(keyboard.insert("7") == [TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 6, text: "7")])
+        #expect(keyboard.insert("7") == [TextRecord(op: .sendKey, arg0: 14, arg1: 0, serial: 6, text: "")])
     }
 
     /// A stop that no start follows (the focus went to a view without an editor) hides the keyboard once the release
@@ -258,19 +273,24 @@ import Testing
         #expect(records.map(\.text).joined() == long)
     }
 
+    // LatinIME at android15-release, which UIKit's keys play: InputLogic's Enter (handleNonFunctionalEvent), its
+    // backspace (handleBackspaceEvent) and sendKeyCodePoint, and InputTypeUtils.getImeOptionsActionIdFromEditorInfo.
+
     @Test func deleteBackwardDeletesOneBeforeTheCursor() {
         #expect(shown().deleteBackward() == [TextRecord(op: .deleteSurrounding, arg0: 1, arg1: 0, serial: 5, text: "")])
     }
 
+    /// TYPE_NULL: the DEL key; Enter as for any editor, the action of imeOptions or a new line.
     @Test func aFieldWithoutAnEditorGetsKeys() {
         let keyboard = shown(0)
         #expect(keyboard.deleteBackward() == [TextRecord(op: .sendKey, arg0: 67, arg1: 0, serial: 5, text: "")])
-        #expect(keyboard.returnKey() == [TextRecord(op: .sendKey, arg0: 66, arg1: 0, serial: 5, text: "")])
+        #expect(keyboard.returnKey() == [TextRecord(op: .performAction, arg0: 0, arg1: 0, serial: 5, text: "")])
         #expect(keyboard.insert("a\nb") == [
             TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "a"),
-            TextRecord(op: .sendKey, arg0: 66, arg1: 0, serial: 5, text: ""),
+            TextRecord(op: .performAction, arg0: 0, arg1: 0, serial: 5, text: ""),
             TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "b"),
         ])
+        #expect(shown(0, 1).returnKey() == [TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "\n")])
     }
 
     @Test func returnPerformsTheEditorsAction() {
@@ -280,11 +300,54 @@ import Testing
             TextRecord(op: .performAction, arg0: Self.previous, arg1: 0, serial: 5, text: "")])
     }
 
+    /// IME_ACTION_UNSPECIFIED is an action too, which a BaseInputConnection makes the ENTER key of: an engine's view
+    /// that leaves imeOptions 0 sees Enter.
+    @Test func returnWithAnUnspecifiedActionPerformsIt() {
+        #expect(shown(Self.text, 0).returnKey() == [TextRecord(op: .performAction, arg0: 0, arg1: 0, serial: 5,
+                                                               text: "")])
+    }
+
     @Test func returnWithoutAnActionIsANewLine() {
         let newline = [TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "\n")]
-        #expect(shown(Self.text, 0).returnKey() == newline)
         #expect(shown(Self.text, 1).returnKey() == newline)
         #expect(shown(Self.text | Self.multiLine, Self.done | Self.noEnterAction).returnKey() == newline)
+    }
+
+    /// An actionLabel performs actionId, whatever imeOptions' action; IME_FLAG_NO_ENTER_ACTION still makes a new line.
+    @Test func returnWithAnActionLabelPerformsTheActionId() {
+        #expect(shown(Self.text, 1, label: 42).returnKey() == [
+            TextRecord(op: .performAction, arg0: 42, arg1: 0, serial: 5, text: "")])
+        #expect(shown(Self.text, Self.done | Self.noEnterAction, label: 42).returnKey() == [
+            TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "\n")])
+    }
+
+    /// Before Jelly Bean (targetSdk < 16) the new line is the ENTER key and the delete the DEL key.
+    @Test func anAppBeforeJellyBeanGetsTheEnterAndDelKeys() {
+        let old = shown(Self.text, 1, targetSdk: 15)
+        #expect(old.returnKey() == [TextRecord(op: .sendKey, arg0: 66, arg1: 0, serial: 5, text: "")])
+        #expect(old.deleteBackward() == [TextRecord(op: .sendKey, arg0: 67, arg1: 0, serial: 5, text: "")])
+        #expect(old.insert("a\nb") == [
+            TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "a"),
+            TextRecord(op: .sendKey, arg0: 66, arg1: 0, serial: 5, text: ""),
+            TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "b"),
+        ])
+        #expect(shown(Self.text, Self.go, targetSdk: 15).returnKey() == [
+            TextRecord(op: .performAction, arg0: Self.go, arg1: 0, serial: 5, text: "")])
+        #expect(shown(Self.text, 1, targetSdk: 16).returnKey() == [
+            TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "\n")])
+    }
+
+    /// sendKeyCodePoint sends a digit as its key (KEYCODE_0 to KEYCODE_9), as LatinIME's number, phone and date
+    /// keyboards and a field without an editor get them; a text field's digits stay commits here.
+    @Test func digitsAreKeysOnThePadsAndWithoutAnEditor() {
+        for type in [Self.number, Self.phone, Self.datetime, 0] {
+            #expect(shown(type, 6).insert("1-9") == [
+                TextRecord(op: .sendKey, arg0: 8, arg1: 0, serial: 5, text: ""),
+                TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "-"),
+                TextRecord(op: .sendKey, arg0: 16, arg1: 0, serial: 5, text: ""),
+            ])
+        }
+        #expect(shown(Self.text).insert("a1") == [TextRecord(op: .commit, arg0: 1, arg1: 0, serial: 5, text: "a1")])
     }
 
     @Test func uikitsNewLineIsTheReturnKey() {

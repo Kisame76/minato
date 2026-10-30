@@ -1,0 +1,63 @@
+I/enter-test-15: plain editor: inputType 0x1, imeOptions 0x8000005, actionId 0, actionLabel null
+I/enter-test-15: plain call commitText "x" 1 -> true, text "x"
+I/enter-test-15: plain call performEditorAction 5 -> true, text "x"
+I/enter-test-15: plain key KEYCODE_ENTER down flags 0x16
+I/enter-test-15: plain key KEYCODE_ENTER up flags 0x16
+I/enter-test-15: plain text "x"
+I/enter-test-15: send editor: inputType 0x1, imeOptions 0xc000004, actionId 0, actionLabel null
+I/enter-test-15: send call commitText "y" 1 -> true, text "y"
+I/enter-test-15: send call performEditorAction 4 -> true, text "y"
+I/enter-test-15: send editor action 4, event none
+I/enter-test-15: send text "y"
+I/enter-test-15: label editor: inputType 0x1, imeOptions 0xc000005, actionId 42, actionLabel Join
+I/enter-test-15: label call performEditorAction 42 -> true, text ""
+I/enter-test-15: label editor action 42, event none
+I/enter-test-15: label text ""
+I/enter-test-15: multi editor: inputType 0x20001, imeOptions 0x4c000005, actionId 0, actionLabel null
+I/enter-test-15: multi call commitText "a" 1 -> true, text "a"
+I/enter-test-15: multi call sendKeyEvent KEYCODE_ENTER down flags 0x6 -> false
+I/enter-test-15: multi call sendKeyEvent KEYCODE_ENTER up flags 0x6 -> false
+I/enter-test-15: multi call commitText "b" 1 -> true, text "ab"
+I/enter-test-15: multi call sendKeyEvent KEYCODE_DEL down flags 0x6 -> false
+I/enter-test-15: multi call sendKeyEvent KEYCODE_DEL up flags 0x6 -> false
+I/enter-test-15: multi key KEYCODE_ENTER down flags 0x6
+I/enter-test-15: multi editor action 0, event KEYCODE_ENTER down flags 0x6
+I/enter-test-15: multi key KEYCODE_ENTER up flags 0x6
+I/enter-test-15: multi editor action 0, event KEYCODE_ENTER up flags 0x6
+I/enter-test-15: multi key KEYCODE_DEL down flags 0x6
+I/enter-test-15: multi key KEYCODE_DEL up flags 0x6
+I/enter-test-15: multi text "a"
+I/enter-test-15: number editor: inputType 0x2, imeOptions 0xc000005, actionId 0, actionLabel null
+I/enter-test-15: number call sendKeyEvent KEYCODE_7 down flags 0x6 -> false
+I/enter-test-15: number call sendKeyEvent KEYCODE_7 up flags 0x6 -> false
+I/enter-test-15: number call sendKeyEvent KEYCODE_DEL down flags 0x6 -> false
+I/enter-test-15: number call sendKeyEvent KEYCODE_DEL up flags 0x6 -> false
+I/enter-test-15: number key KEYCODE_7 down flags 0x6
+I/enter-test-15: number key KEYCODE_7 up flags 0x6
+I/enter-test-15: number key KEYCODE_DEL down flags 0x6
+I/enter-test-15: number key KEYCODE_DEL up flags 0x6
+I/enter-test-15: number text ""
+I/enter-test-15: engine editor: inputType 0x1, imeOptions 0x0, actionId 0, actionLabel null
+I/enter-test-15: engine call commitText "z" 1 -> true, text "z"
+I/enter-test-15: engine call sendKeyEvent KEYCODE_ENTER down flags 0x16 -> false
+I/enter-test-15: engine call sendKeyEvent KEYCODE_ENTER up flags 0x16 -> false
+I/enter-test-15: engine call performEditorAction 0 -> true, text "z"
+I/enter-test-15: engine key KEYCODE_ENTER down flags 0x16
+I/enter-test-15: engine key KEYCODE_ENTER up flags 0x16
+I/enter-test-15: engine text "z"
+I/enter-test-15: null editor: inputType 0x0, imeOptions 0x0, actionId 0, actionLabel null
+I/enter-test-15: null call sendKeyEvent KEYCODE_5 down flags 0x6 -> false
+I/enter-test-15: null call sendKeyEvent KEYCODE_5 up flags 0x6 -> false
+I/enter-test-15: null call sendKeyEvent KEYCODE_ENTER down flags 0x16 -> false
+I/enter-test-15: null call sendKeyEvent KEYCODE_ENTER up flags 0x16 -> false
+I/enter-test-15: null call performEditorAction 0 -> true, text ""
+I/enter-test-15: null call sendKeyEvent KEYCODE_DEL down flags 0x6 -> false
+I/enter-test-15: null call sendKeyEvent KEYCODE_DEL up flags 0x6 -> false
+I/enter-test-15: null key KEYCODE_5 down flags 0x6
+I/enter-test-15: null key KEYCODE_5 up flags 0x6
+I/enter-test-15: null key KEYCODE_ENTER down flags 0x16
+I/enter-test-15: null key KEYCODE_ENTER up flags 0x16
+I/enter-test-15: null key KEYCODE_DEL down flags 0x6
+I/enter-test-15: null key KEYCODE_DEL up flags 0x6
+I/enter-test-15: null text ""
+I/enter-test-15: done

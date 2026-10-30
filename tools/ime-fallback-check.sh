@@ -26,7 +26,7 @@ tools/build-java-test-app.sh ime-fallback-test >/dev/null
 steps=start,text:0:1:0:h,text:0:1:0:H,text:0:1:0:hi,text:0:1:0:é,text:3:1:0:
 steps+=,text:7:67:0:,text:7:66:0:,text:6:2:0:
 python3 framework/tests/java_app_run.py \
-  --in-order 'apk-run: ime 1: start\t0\t0\t0\t-1\t-1\t0\t' \
+  --in-order 'apk-run: ime 1: start\t0\t0\t0\t-1\t-1\t0\t0\t0\t' \
   --in-order 'apk-run: ime 1: show' \
   --lifecycle "$steps" \
   ime-fallback-test io.github.kisame76.minato.test.imefallback android.app.Application \

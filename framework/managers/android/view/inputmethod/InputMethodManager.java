@@ -208,12 +208,16 @@ class InputMethodManager {
         ActivityThread.requestIme(serial, text);
     }
 
-    /** The "start" request of an editor: its numbers and its hint, cut at a character so that the request fits. */
+    /**
+     * The "start" request of an editor: its numbers, its actionId and whether it has an actionLabel (whose Enter
+     * performs actionId, as LatinIME's), and its hint, cut at a character so that the request fits.
+     */
     private static String startRequest(EditorInfo info) {
         final StringBuilder request = new StringBuilder("start\t").append(info.inputType).append('\t')
                 .append(info.imeOptions).append('\t').append(info.initialCapsMode).append('\t')
                 .append(info.initialSelStart).append('\t').append(info.initialSelEnd).append('\t')
-                .append(info.fieldId).append('\t');
+                .append(info.fieldId).append('\t').append(info.actionId).append('\t')
+                .append(info.actionLabel != null ? 1 : 0).append('\t');
         int bytes = request.toString().getBytes(StandardCharsets.UTF_8).length;
         final CharSequence hint = info.hintText;
         for (int i = 0; hint != null && i < hint.length();) {

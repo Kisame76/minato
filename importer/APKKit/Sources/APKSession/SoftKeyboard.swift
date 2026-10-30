@@ -7,15 +7,21 @@ public struct EditorSpec: Sendable, Equatable {
     public var selectionStart: Int32
     public var selectionEnd: Int32
     public var hint: String
+    /// EditorInfo's actionId, which an actionLabel's Enter performs.
+    public var actionId: Int32
+    /// EditorInfo's actionLabel is set.
+    public var hasActionLabel: Bool
 
     public init(inputType: Int32, imeOptions: Int32, capsMode: Int32, selectionStart: Int32, selectionEnd: Int32,
-                hint: String) {
+                hint: String, actionId: Int32 = 0, hasActionLabel: Bool = false) {
         self.inputType = inputType
         self.imeOptions = imeOptions
         self.capsMode = capsMode
         self.selectionStart = selectionStart
         self.selectionEnd = selectionEnd
         self.hint = hint
+        self.actionId = actionId
+        self.hasActionLabel = hasActionLabel
     }
 }
 
@@ -32,21 +38,22 @@ public enum ImeRequest: Sendable, Equatable {
     case stop(serial: Int64)
 
     /// The request of `text`, or nil for any text but the four: "start\t<inputType>\t<imeOptions>\t<capsMode>\t
-    /// <selStart>\t<selEnd>\t<fieldId>\t<hint>" in decimal (the hint last, so it may hold tabs), "show", "hide" and
-    /// "stop".
+    /// <selStart>\t<selEnd>\t<fieldId>\t<actionId>\t<actionLabel 1 or 0>\t<hint>" in decimal (the hint last, so it may
+    /// hold tabs), "show", "hide" and "stop".
     public init?(text: String, serial: Int64) {
         switch text {
         case "show": self = .show(serial: serial)
         case "hide": self = .hide(serial: serial)
         case "stop": self = .stop(serial: serial)
         default:
-            let fields = text.split(separator: "\t", maxSplits: 7, omittingEmptySubsequences: false)
-            guard fields.count == 8, fields[0] == "start" else { return nil }
-            let numbers = fields[1...6].compactMap { Int32($0) }
-            guard numbers.count == 6 else { return nil }
+            let fields = text.split(separator: "\t", maxSplits: 9, omittingEmptySubsequences: false)
+            guard fields.count == 10, fields[0] == "start" else { return nil }
+            let numbers = fields[1...8].compactMap { Int32($0) }
+            guard numbers.count == 8 else { return nil }
             self = .start(serial: serial, editor: EditorSpec(
                 inputType: numbers[0], imeOptions: numbers[1], capsMode: numbers[2], selectionStart: numbers[3],
-                selectionEnd: numbers[4], hint: String(fields[7])))
+                selectionEnd: numbers[4], hint: String(fields[9]), actionId: numbers[6],
+                hasActionLabel: numbers[7] != 0))
         }
     }
 }
@@ -172,7 +179,9 @@ public struct SoftKeyboard: Sendable {
     /// APKRT_TEXT_BYTES.
     public static let recordBytes = 1024
     static let classMask: Int32 = 0xf, classText: Int32 = 0x1, variationMask: Int32 = 0xff0
-    static let keyEnter: Int32 = 66, keyDel: Int32 = 67
+    static let keyEnter: Int32 = 66, keyDel: Int32 = 67, key0: Int32 = 7
+    /// Jelly Bean's API level: an app that targets an older one gets Enter and the delete as keys.
+    static let jellyBean = 16
 
     private var serial: Int64 = 0
     private var editor: EditorSpec?
@@ -180,7 +189,12 @@ public struct SoftKeyboard: Sendable {
     /// A stop released the shown keyboard and no start has come since.
     private var released = false
 
-    public init() {}
+    /// The app's targetSdk.
+    private let targetSdk: Int
+
+    public init(targetSdk: Int = 35) {
+        self.targetSdk = targetSdk
+    }
 
     public mutating func handle(_ request: ImeRequest) -> KeyboardCommand? {
         switch request {
@@ -220,41 +234,70 @@ public struct SoftKeyboard: Sendable {
         isShown = false
     }
 
-    /// insertText: the text as commits, each new line the return key unless the editor takes it as text.
+    /// insertText: the text as commits, each new line the return key unless the editor takes it as text, and each
+    /// digit its key on the pads and without an editor (LatinIME's sendKeyCodePoint).
     public func insert(_ text: String) -> [TextRecord] {
         guard let editor, isShown else { return [] }
-        if newLineIsText(editor) { return commits(text) }
+        if newLineIsText(editor) { return typed(text, editor) }
         var records: [TextRecord] = []
         for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             if index > 0 { records += returnKey() }
-            records += commits(String(line))
+            records += typed(String(line), editor)
         }
         return records
     }
 
     /// deleteBackward: one before the cursor (the guest widens it to a whole surrogate pair), or the DEL key for a
-    /// view without an editor (TYPE_NULL), as Android's keyboard sends it.
+    /// view without an editor (TYPE_NULL) and an app before Jelly Bean, as LatinIME's backspace sends it.
     public func deleteBackward() -> [TextRecord] {
         guard let editor, isShown else { return [] }
-        return editor.inputType == 0 ? [record(.sendKey, Self.keyDel)] : [record(.deleteSurrounding, 1)]
+        let key = editor.inputType == 0 || targetSdk < Self.jellyBean
+        return key ? [record(.sendKey, Self.keyDel)] : [record(.deleteSurrounding, 1)]
     }
 
-    /// The return key, or the action bar's button: the editor's action, else a new line (LatinIME's
-    /// sendKeyCodePoint), or the ENTER key for a view without an editor.
+    /// The return key, or the action bar's button, as LatinIME's Enter: the editor's action, else a new line, which
+    /// is the ENTER key for an app before Jelly Bean (sendKeyCodePoint).
     public func returnKey() -> [TextRecord] {
         guard let editor, isShown else { return [] }
-        if editor.inputType == 0 { return [record(.sendKey, Self.keyEnter)] }
-        if newLineIsText(editor) { return [record(.commit, 1, text: "\n")] }
-        return [record(.performAction, Self.action(editor))]
+        if let action = Self.enterAction(editor) { return [record(.performAction, action)] }
+        return targetSdk < Self.jellyBean ? [record(.sendKey, Self.keyEnter)] : [record(.commit, 1, text: "\n")]
     }
 
-    /// The editor's IME action, 0 (unspecified) or 1 (none) when the return key is to be a new line.
+    /// The action Enter performs (InputTypeUtils.getImeOptionsActionIdFromEditorInfo): none, so a new line, with
+    /// IME_FLAG_NO_ENTER_ACTION or IME_ACTION_NONE; actionId with an actionLabel; else imeOptions' action, where
+    /// IME_ACTION_UNSPECIFIED (0) is an action too, which a BaseInputConnection makes the ENTER key of.
+    static func enterAction(_ editor: EditorSpec) -> Int32? {
+        if editor.imeOptions & 0x4000_0000 != 0 { return nil }
+        if editor.hasActionLabel { return editor.actionId }
+        let action = editor.imeOptions & 0xff
+        return action == 1 ? nil : action
+    }
+
+    /// The editor's IME action for the return key's label: 0 (unspecified) or 1 (none) give UIKit's plain return.
     static func action(_ editor: EditorSpec) -> Int32 {
         editor.imeOptions & 0x4000_0000 != 0 ? 0 : editor.imeOptions & 0xff
     }
 
     private func newLineIsText(_ editor: EditorSpec) -> Bool {
-        editor.inputType != 0 && Self.action(editor) <= 1
+        Self.enterAction(editor) == nil && targetSdk >= Self.jellyBean
+    }
+
+    /// `text` without new lines: commits, but on the number, phone and date pads and without an editor each digit as
+    /// its key, as LatinIME's sendKeyCodePoint sends digits there (its text keyboards compose them into words).
+    private func typed(_ text: String, _ editor: EditorSpec) -> [TextRecord] {
+        guard editor.inputType & Self.classMask != Self.classText else { return commits(text) }
+        var records: [TextRecord] = []
+        var rest = ""
+        for character in text {
+            if let digit = character.wholeNumberValue, character.isASCII {
+                records += commits(rest)
+                rest = ""
+                records.append(record(.sendKey, Self.key0 + Int32(digit)))
+            } else {
+                rest.append(character)
+            }
+        }
+        return records + commits(rest)
     }
 
     private func record(_ op: TextOp, _ arg0: Int32 = 0, _ arg1: Int32 = 0, text: String = "") -> TextRecord {

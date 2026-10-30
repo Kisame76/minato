@@ -224,7 +224,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
-  "$app" == ime-fallback-test ||
+  "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
@@ -496,6 +496,9 @@ ime_test_off() {
   run ime disable io.github.kisame76.minato.test.imefallback/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.nativeime/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.nativejniime/.FixtureInputMethod >/dev/null 2>&1 || true
+  run ime disable io.github.kisame76.minato.test.enter/.FixtureInputMethod >/dev/null 2>&1 || true
+  # enter-test-15's input method once stayed the default after a run that failed: the app goes, and its method with it.
+  device uninstall io.github.kisame76.minato.test.enter >/dev/null 2>&1 || true
 }
 
 # Test 2's Godot APKs (ADR-0042 a): their lines under Godot's tag, split into bench.gd's "godot-bench:" lines, which
@@ -894,6 +897,11 @@ run_app() {
     ime-fallback-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FallbackActivity
       ;;
+    # enter-test (ADR-0068, the return key): seven fields that its fixture input method serves as LatinIME does, one
+    # after another; it ends with "done" after the last field. enter-test-15 is its twin of target SDK 15.
+    enter-test | enter-test-15)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EnterActivity
+      ;;
     ime-insets-test | ime-insets-test-34)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ResizeActivity
       ;;
@@ -946,6 +954,9 @@ run_app() {
     bundletool=$(/usr/bin/python3 tools/fetch-bundletool.py) || return 1
     "$java/bin/java" -jar "$bundletool" install-apks --apks="$apk" --adb="$ADB" --device-id="$serial" \
       >"$RESULTS/$app-install.log" 2>&1 || { sed 's/^/  /' "$RESULTS/$app-install.log" >&2; return 1; }
+  elif [[ "$app" == enter-test-15 ]]; then
+    # Android 14 and later refuse a target SDK below 23 unless install bypasses the block.
+    device install --bypass-low-target-sdk-block "$apk" >/dev/null
   else
     device install "$apk" >/dev/null
   fi
@@ -953,7 +964,8 @@ run_app() {
   run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
-    "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
+    "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
+    "$app" == enter-test || "$app" == enter-test-15 ]]; then
     # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
     # with the exit trap.
     run ime enable "$package/.FixtureInputMethod" >/dev/null
@@ -1041,6 +1053,22 @@ run_app() {
       run dumpsys battery set level 100 >/dev/null || return 1
   fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  if [[ "$app" == enter-test-15 ]]; then
+    # Android 15 asks to review the permissions of a fresh app of target SDK below 23 (ReviewPermissionsActivity),
+    # which ends at the launcher, so the app starts again; then it may warn that the app was built for an older
+    # Android (DeprecatedTargetSdkVersionDialog), which a tap on OK keeps away for the package from then on, also
+    # across installs. Each has the focus: CONTINUE, and OK when it shows, as a user taps them; the app's window then
+    # takes the focus and its run begins.
+    if ! python3 tools/ui-pick.py "$ADB" "$serial" tap CONTINUE 20 ||
+      ! run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \
+        -n "$activity" >/dev/null; then
+      run dumpsys window | grep -E "mCurrentFocus|mFocusedApp" >&2 || true
+      run uiautomator dump /sdcard/enter-ui.xml >/dev/null 2>&1 &&
+        run cat /sdcard/enter-ui.xml | grep -oE 'text="[^"]+"' >&2 || true
+      return 1
+    fi
+    python3 tools/ui-pick.py "$ADB" "$serial" tap OK 5 >/dev/null 2>&1 || true
+  fi
   if [[ "$app" == rotation-test ]]; then
     local turned=yes
     { wait_for "$app" ready && run cmd window user-rotation lock 1 >/dev/null &&
@@ -1408,7 +1436,8 @@ if [[ -n "$app" ]]; then
   # installs one too: the image's input methods and its default are put back at every exit, as for text-test, and the
   # fixture's own is switched off.
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
-    "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
+    "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
+    "$app" == enter-test || "$app" == enter-test-15 ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods=$(run ime list -s | tr -d '\r')
     default_input_method=$(run settings get secure default_input_method | tr -d '\r')

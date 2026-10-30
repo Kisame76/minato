@@ -738,12 +738,12 @@ bool ime_number(std::string_view text) {
     return true;
 }
 
-/// Whether `text` is "start" and six numbers and the hint, each after a tab: inputType, imeOptions, capsMode,
-/// selStart, selEnd, fieldId. The hint is the rest, which may hold tabs.
+/// Whether `text` is "start" and eight numbers and the hint, each after a tab: inputType, imeOptions, capsMode,
+/// selStart, selEnd, fieldId, actionId, actionLabel. The hint is the rest, which may hold tabs.
 bool valid_ime_start(std::string_view text) {
     if (text.substr(0, 6) != "start\t") return false;
     text.remove_prefix(6);
-    for (int field = 0; field < 6; ++field) {
+    for (int field = 0; field < 8; ++field) {
         const std::size_t tab = text.find('\t');
         if (tab == std::string_view::npos || !ime_number(text.substr(0, tab))) return false;
         text.remove_prefix(tab + 1);
