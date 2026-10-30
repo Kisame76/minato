@@ -102,7 +102,7 @@ public enum APKAnalyzer {
             splitName: manifest.splitName,
             requiresSplits: needsSplits ?? manifest.requiresSplits,
             playDependencies: playDependencies(manifest),
-            engine: engine(allLibraryNames),
+            engine: engine(allLibraryNames, assetFolders: assetFolders(apks.map(\.archive))),
             iconPath: icon?.path,
             signature: signature(of: base, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
@@ -248,7 +248,20 @@ public enum APKAnalyzer {
         return APKReport.PlayDependency.allCases.filter(found.contains)
     }
 
-    private static func engine(_ libraries: Set<String>) -> String? {
+    /// The first folder of each path under assets/ ("renpy" for assets/renpy/common/00start.rpyc).
+    private static func assetFolders(_ archives: [ZipArchive]) -> Set<String> {
+        Set(archives.flatMap(\.entries).compactMap { entry in
+            let parts = entry.name.split(separator: "/")
+            return parts.count > 2 && parts[0] == "assets" ? String(parts[1]) : nil
+        })
+    }
+
+    private static func engine(_ libraries: Set<String>, assetFolders: Set<String>) -> String? {
+        // Ren'Py: CPython and SDL2 as libraries, its own scripts and the app's as assets (renpy/ and game/, or with
+        // the packager's "x-" prefix), or a library of its own name.
+        let renpy = libraries.contains { $0.hasPrefix("librenpy") }
+            || libraries.contains { $0.hasPrefix("libpython") }
+            && !assetFolders.isDisjoint(with: ["renpy", "x-renpy", "game", "x-game"])
         let known: [(test: (Set<String>) -> Bool, name: String)] = [
             ({ $0.contains("libil2cpp.so") }, "Unity (IL2CPP)"),
             ({ $0.contains("libunity.so") }, "Unity"),
@@ -260,6 +273,7 @@ public enum APKAnalyzer {
             ({ $0.contains("libflutter.so") }, "Flutter"),
             ({ $0.contains("libreactnativejni.so") }, "React Native"),
             ({ $0.contains("libmonodroid.so") || $0.contains("libxamarin-app.so") }, ".NET (Xamarin/MAUI)"),
+            ({ _ in renpy }, "Ren'Py"),
             ({ $0.contains("libSDL2.so") || $0.contains("libSDL3.so") }, "SDL"),
         ]
         return known.first { $0.test(libraries) }?.name

@@ -259,6 +259,30 @@ struct APKAnalyzerTests {
         #expect(try APKAnalyzer.analyze(none.archive(), preferredLanguages: []).engine == nil)
     }
 
+    /// Ren'Py ships CPython and SDL2 as libraries and its scripts as assets; SDL2 without them, or a game/ folder
+    /// without CPython, is plain SDL. Synthetic names only, no real app.
+    @Test func detectsRenPyAndSDL() throws {
+        func asset(_ path: String) -> ZipBuilder.Entry { .init(name: "assets/" + path, content: Data(count: 8)) }
+        let sdl = [Self.library("lib/arm64-v8a/libSDL2.so"), Self.library("lib/arm64-v8a/libmain.so")]
+        let python = sdl + [Self.library("lib/arm64-v8a/libpython3.11.so")]
+        let renpyAssets = TestAPK(files: python + [asset("renpy/common/00start.rpyc"), asset("game/script.rpyc")])
+        let renpyPrefixed = TestAPK(files: python + [asset("x-renpy/x-common/x-00start.rpyc"),
+                                                     asset("x-game/x-script.rpyc")])
+        let renpyLibrary = TestAPK(files: sdl + [Self.library("lib/arm64-v8a/librenpython.so")])
+        let pythonOnly = TestAPK(files: python + [asset("private.tar")])
+        let sdlGame = TestAPK(files: sdl + [asset("game/level1.dat")])
+
+        func engine(_ apk: TestAPK) throws -> String? {
+            try APKAnalyzer.analyze(apk.archive(), preferredLanguages: []).engine
+        }
+        #expect(try engine(renpyAssets) == "Ren'Py")
+        #expect(try engine(renpyPrefixed) == "Ren'Py")
+        #expect(try engine(renpyLibrary) == "Ren'Py")
+        #expect(try engine(pythonOnly) == "SDL")
+        #expect(try engine(sdlGame) == "SDL")
+        #expect(try engine(TestAPK(files: sdl)) == "SDL")
+    }
+
     @Test func detectsGooglePlayDependencies() throws {
         let apk = TestAPK(manifestChildren: [
             E("uses-permission", [.android("name", 0x0101_0003, .string("com.android.vending.BILLING"))]),
