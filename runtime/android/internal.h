@@ -27,7 +27,12 @@ struct AInputEvent {
         struct apkrt_key_event key;
     };
     struct AInputEvent *next;  // the queue's, while a key waits for its delivery after the predispatch
+    uint64_t id;               // a local queue's (ADR-0069 step 3): its poster's ID, which its finish answers
 };
+
+/// A queue without a channel, filled in the process (ADR-0069 step 3): NativeActivity's InputQueue on the Java path,
+/// whose natives post its events and hear of each finish, on whatever thread finishes it, through `finished`.
+typedef void (*minato_input_finished)(void *context, uint64_t id, int handled);
 
 /// Android's AKEY_EVENT_FLAG_PREDISPATCH (Input.h), which the NDK does not name: a key's first delivery, before the
 /// input method's stage.

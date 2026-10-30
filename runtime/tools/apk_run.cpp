@@ -771,13 +771,13 @@ void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
         return;
     }
     if (touch.key_code >= 0) {
-        // The virtual keyboard's key (device -1), or the hardware keyboard's, with AINPUT_SOURCE_KEYBOARD, down and up
-        // at once, as `input keyevent`.
+        // The virtual keyboard's key (device -1) with adb's source 0, as `input keyevent` sends it on Android 15
+        // (ADR-0069 step 1), or the hardware keyboard's with AINPUT_SOURCE_KEYBOARD, down and up at once.
         apkrt_key_event key{};
         key.down_time = key.event_time = down;
         key.key_code = touch.key_code;
         key.device_id = touch.hardware ? kHardwareKeyboard : -1;
-        key.source = 0x101;
+        key.source = touch.hardware ? 0x101 : 0;
         for (const std::int32_t action : {0, 1}) {
             key.action = action;
             if (apkrt_input_post_key(input, &key) != 1) std::fprintf(stderr, "apk-run: the post of a key failed\n");

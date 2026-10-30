@@ -15,6 +15,7 @@ import android.graphics.PixelFormat;
 import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.InputQueue;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -291,6 +292,14 @@ public class DecorView extends FrameLayout {
      */
     public SurfaceHolder.Callback2 willYouTakeTheSurface() {
         return mFeatureId < 0 ? mWindow.mTakeSurfaceCallback : null;
+    }
+
+    /**
+     * ViewRootImpl.setView's, as AOSP's RootViewSurfaceTaker gives it: the callback that takes the window's input queue
+     * (NativeActivity's, Window.takeInputQueue; ADR-0069 step 3), for the window's own decor only.
+     */
+    public InputQueue.Callback willYouTakeTheInputQueue() {
+        return mFeatureId < 0 ? mWindow.mTakeInputQueueCallback : null;
     }
 
     /** As AOSP's RootViewSurfaceTaker.setSurfaceFormat: a taken surface's format is the window's (Window.setFormat). */

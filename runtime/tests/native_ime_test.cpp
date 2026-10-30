@@ -1,12 +1,13 @@
 // ADR-0068 step 2e's native-ime-test on the Mac: a scripted host (app_host.h) that runs native-ime-test
 // (fixtures/java/native-ime-test) through activity-host with the start of input_test.cpp. The app asks for the soft
 // keyboard, which Android 15 ignores for a NativeActivity's view ("is not served"), so no request reaches the host and
-// a text record the host posts anyway goes nowhere. Once the app logs "soft input done" the host posts its hardware
-// keyboard as the App does: the device, then B and DEL, each a down and an up 100 ms later, from device 1000 with the
-// keyboard's source. It passes when the app's lines are fixtures/expected/native-ime-test.logcat (the AVD's,
-// tools/android-reference.sh --app native-ime-test, where adb's keys are the same), its device lines are those
-// below, the only request was FINISH, and activity-host ended with status 0. The APK is the one with the input method
-// (tools/build-java-test-app.sh native-ime-test); the library is the fixtures' build of the same source. With
+// a text record the host posts anyway goes nowhere. Once the app logs "soft input done" the host posts a keyboard
+// device, which goes nowhere too, then B and DEL as the AVD's `input keyevent` sends them (ADR-0069 step 3): the
+// virtual keyboard's (device -1) with adb's source 0, each down and up at the same time. It passes when the app's
+// lines are fixtures/expected/native-ime-test.logcat (the AVD's, tools/android-reference.sh --app native-ime-test),
+// its device lines are those below, the only request was FINISH, and activity-host ended with status 0. The APK is
+// the one with the input method (tools/build-java-test-app.sh native-ime-test); the library is the fixtures' build of
+// the same source. With
 // "single" the app starts at native_ime_test_single_onCreate, which takes one event per looper callback and finishes
 // B's predispatched down as handled: its lines are single_lines below.
 //   native_ime_test <scratch directory> <fixtures bin> <bionic lib> <guest system> <fixtures/expected> <APK>
@@ -26,15 +27,15 @@ namespace {
 using namespace app_host;
 using namespace std::chrono_literals;
 
-constexpr std::int32_t device = 1000;  // HardwareKeyboard.deviceID
+constexpr std::int32_t device = 1000;  // HardwareKeyboard.deviceID, for the device record
 constexpr std::int32_t keyboard = 0x101;  // AINPUT_SOURCE_KEYBOARD
 
-// The host's device and times: the AVD's adb keys are the virtual keyboard's (-1), each up at its down's time.
+// The AVD's: adb's keys are the virtual keyboard's (-1), each up at its down's time.
 constexpr const char *device_lines =
-    "I/native-ime-test-device: key down B: device 1000, scan code 0, down time = event time\n"
-    "I/native-ime-test-device: key up B: device 1000, scan code 0, down time != event time\n"
-    "I/native-ime-test-device: key down DEL: device 1000, scan code 0, down time = event time\n"
-    "I/native-ime-test-device: key up DEL: device 1000, scan code 0, down time != event time\n";
+    "I/native-ime-test-device: key down B: device -1, scan code 0, down time = event time\n"
+    "I/native-ime-test-device: key up B: device -1, scan code 0, down time = event time\n"
+    "I/native-ime-test-device: key down DEL: device -1, scan code 0, down time = event time\n"
+    "I/native-ime-test-device: key up DEL: device -1, scan code 0, down time = event time\n";
 
 // The single variant's: B's down ends in its predispatch; every other key comes twice, each delivery woken alone.
 constexpr const char *single_lines =
@@ -59,14 +60,11 @@ std::int64_t now() {
 void post_key(std::uint64_t channel, std::int32_t key_code) {
     apkrt_key_event key{};
     key.key_code = key_code;
-    key.device_id = device;
-    key.source = keyboard;
+    key.device_id = -1;  // adb's virtual keyboard, source 0
     key.down_time = key.event_time = now();
     key.action = 0;
     if (apkrt_input_post_key(channel, &key) != 1) fail("the channel refused a key's down");
-    std::this_thread::sleep_for(100ms);
     key.action = 1;
-    key.event_time = now();
     if (apkrt_input_post_key(channel, &key) != 1) fail("the channel refused a key's up");
 }
 
@@ -148,7 +146,7 @@ int main(int argc, char **argv) {
     }
     const std::string device_log = lines_with(log, "I/native-ime-test-device: ");
     const std::string device_wanted = single ? std::string(device_lines).substr(std::strlen(
-        "I/native-ime-test-device: key down B: device 1000, scan code 0, down time = event time\n")) : device_lines;
+        "I/native-ime-test-device: key down B: device -1, scan code 0, down time = event time\n")) : device_lines;
     if (device_log != device_wanted) fail("the device lines differ:\n" + device_log);
     ::dprintf(report, failures == 0 ? "PASS: native-ime-test\n" : "%d failures\n", failures);
     _exit(failures == 0 ? 0 : 1);

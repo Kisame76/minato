@@ -83,6 +83,7 @@ LIBRARIES = {
         "stubbed": ["AConfiguration_match", "AConfiguration_isBetterThan", "AInputQueue_fromJava",
                     "AInputEvent_release", "AInputEvent_toJava", "AMotionEvent_fromJava", "AKeyEvent_fromJava"],
         "private": ["minato_AAssetManager_create", "minato_AInputQueue_create", "minato_AInputQueue_delete",
+                    "minato_AInputQueue_createLocal", "minato_AInputQueue_postKey", "minato_AInputQueue_postMotion",
                     "minato_AConfiguration_fromSession", "minato_ASensor_getInfo", "minato_ASensorManager_createQueue",
                     "minato_ASensorEventQueue_getFd", "minato_ASensorEventQueue_flush"],
     },

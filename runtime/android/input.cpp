@@ -1,6 +1,6 @@
 // AInputEvent_*, AMotionEvent_* and AKeyEvent_* of libandroid.so (ADR-0036, decision 3), on the records of the input
-// queue (internal.h). A key (ADR-0068 step 2e) gives its record's fields; its source is 0, as Android 15's
-// NativeActivity reports a key's (native-ime-test on the AVD, where Java's KeyEvent of the same key has 0x101). Every
+// queue (internal.h). A key (ADR-0068 step 2e) gives its record's fields, its source too, as Android 15's
+// NativeActivity copies a key's (ADR-0069 step 1: adb's keys come with 0, Virtual.kcm's with 0x101). Every
 // other event is a motion event of the touchscreen from one device, each pointer a finger. What a
 // record does not carry is fixed: no flags, meta state, buttons, edge flags, classification or action button,
 // no offset, a precision of 1, the touch minor and the tool's sizes as the touch major, size and orientation 0.
@@ -68,7 +68,7 @@ int32_t AInputEvent_getDeviceId(const AInputEvent *event) {
 }
 
 int32_t AInputEvent_getSource(const AInputEvent *event) {
-    return is_key(event) ? 0 : AINPUT_SOURCE_TOUCHSCREEN;
+    return is_key(event) ? event->key.source : AINPUT_SOURCE_TOUCHSCREEN;
 }
 
 int32_t AKeyEvent_getAction(const AInputEvent *key_event) {

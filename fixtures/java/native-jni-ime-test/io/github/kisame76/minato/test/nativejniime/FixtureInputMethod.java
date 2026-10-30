@@ -40,19 +40,25 @@ public class FixtureInputMethod extends InputMethodService {
             () -> logged("commitText \"\u00e9\" 1", connection().commitText("\u00e9", 1)),
             () -> logged("deleteSurroundingText 1,0", connection().deleteSurroundingText(1, 0)),
             () -> logged("sendKeyEvent DEL down",
-                    connection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))),
+                    connection().sendKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))),
             () -> logged("sendKeyEvent DEL up",
-                    connection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))),
+                    connection().sendKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))),
             () -> logged("sendKeyEvent ENTER down",
-                    connection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))),
+                    connection().sendKeyEvent(key(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))),
             () -> logged("sendKeyEvent ENTER up",
-                    connection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))),
+                    connection().sendKeyEvent(key(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))),
             () -> logged("commitText \"\\n\" 1", connection().commitText("\n", 1)),
             () -> logged("performEditorAction 2", connection().performEditorAction(EditorInfo.IME_ACTION_GO)),
         };
         for (int i = 0; i < calls.length; i++) {
             mHandler.postDelayed(calls[i], STEP_MS * (i + 1));
         }
+    }
+
+    /** As InputMethodService.sendDownUpKeyEvents makes a key: from the soft keyboard, keeping the touch mode. */
+    private static KeyEvent key(int action, int code) {
+        return KeyEvent.changeFlags(new KeyEvent(action, code),
+                KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE);
     }
 
     private InputConnection connection() {

@@ -19,10 +19,10 @@ I/native-jni-ime-test: key up H, meta 0x41, flags 0x0, repeat 0, source 0x101
 I/native-jni-ime-test: key up SHIFT_LEFT, meta 0x0, flags 0x0, repeat 0, source 0x101
 I/native-jni-ime-test: key multiple UNKNOWN, meta 0x0, flags 0x0, repeat 0, source 0x101
 I/native-jni-ime-test: key multiple UNKNOWN, meta 0x0, flags 0x0, repeat 0, source 0x101
-I/native-jni-ime-test: key down DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
-I/native-jni-ime-test: key up DEL, meta 0x0, flags 0x0, repeat 0, source 0x0
-I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x0, repeat 0, source 0x0
-I/native-jni-ime-test: key up ENTER, meta 0x0, flags 0x0, repeat 0, source 0x0
+I/native-jni-ime-test: key down DEL, meta 0x0, flags 0x6, repeat 0, source 0x0
+I/native-jni-ime-test: key up DEL, meta 0x0, flags 0x6, repeat 0, source 0x0
+I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x6, repeat 0, source 0x0
+I/native-jni-ime-test: key up ENTER, meta 0x0, flags 0x6, repeat 0, source 0x0
 I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x0, repeat 0, source 0x101
 I/native-jni-ime-test: key up ENTER, meta 0x0, flags 0x0, repeat 0, source 0x101
 I/native-jni-ime-test: key down ENTER, meta 0x0, flags 0x16, repeat 0, source 0x0

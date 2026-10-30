@@ -114,10 +114,21 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      */
     SurfaceHolder.Callback2 mSurfaceHolderCallback;
     private TakenSurfaceHolder mSurfaceHolder;
+    /**
+     * As AOSP's: the callback that took the window's input (NativeActivity's, DecorView.willYouTakeTheInputQueue;
+     * ADR-0069 step 3) and its queue, null for a window whose views take it; and the deliveries that wait for the one
+     * in the queue's stages to be answered, the running one first.
+     */
+    InputQueue.Callback mInputQueueCallback;
+    InputQueue mInputQueue;
+    private final java.util.ArrayDeque<Runnable> mQueuedDeliveries = new java.util.ArrayDeque<>();
     private boolean mTakenSurfaceCreated;
     private boolean mTakenSurfaceCreating;
     private int mTakenWidth = -1;
     private int mTakenHeight = -1;
+    /** The host asked for a redraw since the last that the taker heard of; a layout waits for the surface. */
+    private boolean mTakenRedrawNeeded;
+    private boolean mTakenLayoutPending;
     int mCurScrollY;
     /** As AOSP's: what the next draw redraws, in the window's pixels; invalidateRectOnScreen unions into it. */
     final Rect mDirty = new Rect();
@@ -441,7 +452,18 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 mSurfaceHolderCallback = ((DecorView) view).willYouTakeTheSurface();
                 if (mSurfaceHolderCallback != null) {
                     mSurfaceHolder = new TakenSurfaceHolder();
+                    // As AOSP's: the window's format goes back to its default (Window.setFormat with UNKNOWN), so
+                    // NativeActivity's RGB_565 of onCreate does not last, until the app sets the holder's format.
+                    mSurfaceHolder.setFormat(PixelFormat.UNKNOWN);
+                    // The window's attributes heard of it, but not this root: the decor has no parent yet.
+                    mWindowAttributes.format = attrs.format;
                     mSurfaceHolder.addCallback(mSurfaceHolderCallback);
+                }
+                // As AOSP's: a window whose input a callback takes gives it a queue.
+                mInputQueueCallback = ((DecorView) view).willYouTakeTheInputQueue();
+                if (mInputQueueCallback != null) {
+                    mInputQueue = new InputQueue();
+                    mInputQueueCallback.onInputQueueCreated(mInputQueue);
                 }
             }
             view.assignParent(this);
@@ -528,6 +550,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             }
             setWindowFormat(params.format);
         }
+        // As AOSP's relayout of a window whose surface a callback took: it hears of the surface before the layout.
+        if (mSurfaceHolder != null) {
+            tellTakenSurface();
+        }
         boolean triggerGlobalLayoutListener = false;
         if (mLayoutRequested) {
             mLayoutRequested = false;
@@ -561,6 +587,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             if (mRequestToken != 0) {
                 requestHostWindow();
             }
+        }
+        // A taken surface's window lays out once it has its surface, as AOSP's does after the relayout that gave it.
+        if (mSurfaceHolder != null && !mSurface.isValid()) {
+            mTakenLayoutPending |= triggerGlobalLayoutListener;
+            triggerGlobalLayoutListener = false;
+        } else if (mTakenLayoutPending) {
+            mTakenLayoutPending = false;
+            triggerGlobalLayoutListener = true;
         }
         if (triggerGlobalLayoutListener || mAttachInfo.mRecomputeGlobalAttributes) {
             mAttachInfo.mRecomputeGlobalAttributes = false;
@@ -787,6 +821,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      */
     public void redrawNeeded() {
         mFullRedrawNeeded = true;
+        mTakenRedrawNeeded = true;
         scheduleTraversals();
     }
 
@@ -836,17 +871,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * A taken surface's draw (ADR-0069 step 2), as AOSP's performTraversals and performDraw tell its callbacks: once
-     * the window has a surface, surfaceCreated, then surfaceChanged with the window's format and size whenever the
-     * size is new, then surfaceRedrawNeeded for a full redraw (the first, a new surface's or size's, the host's
-     * REDRAW_NEEDED), which counts as the window's draw. The tree draws nothing.
+     * A taken surface's news (ADR-0069 step 2), as AOSP's performTraversals tells its callbacks after the relayout:
+     * once the window has a surface, surfaceCreated, then surfaceChanged with the window's format and size whenever
+     * the size is new.
      */
-    private boolean drawTakenSurface() {
+    private void tellTakenSurface() {
         if (!mSurface.isValid()) {
-            return false;
+            return;
         }
-        final boolean fullRedrawNeeded = mFullRedrawNeeded;
-        mFullRedrawNeeded = false;
         final SurfaceHolder.Callback[] callbacks = mSurfaceHolder.callbacks();
         if (!mTakenSurfaceCreated) {
             mTakenSurfaceCreated = true;
@@ -863,10 +895,21 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             }
         }
         mTakenSurfaceCreating = false;
-        if (!fullRedrawNeeded) {
+    }
+
+    /**
+     * A taken surface's draw: surfaceRedrawNeeded once the host asks for the window's redraw (REDRAW_NEEDED, which
+     * follows each new window as the redraw that Android's window manager syncs), which counts as the window's draw;
+     * the tree draws nothing.
+     */
+    private boolean drawTakenSurface() {
+        mFullRedrawNeeded = false;
+        if (!mSurface.isValid() || !mTakenRedrawNeeded) {
             return false;
         }
-        for (SurfaceHolder.Callback callback : callbacks) {
+        tellTakenSurface();
+        mTakenRedrawNeeded = false;
+        for (SurfaceHolder.Callback callback : mSurfaceHolder.callbacks()) {
             if (callback instanceof SurfaceHolder.Callback2) {
                 ((SurfaceHolder.Callback2) callback).surfaceRedrawNeeded(mSurfaceHolder);
             }
@@ -1193,6 +1236,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             }
             takenSurfaceDestroyed();
             mSurface.release();
+            if (mInputQueue != null) {
+                // As AOSP's dispatchDetachedFromWindow: the queue goes after its callback heard of it.
+                mInputQueueCallback.onInputQueueDestroyed(mInputQueue);
+                mInputQueue.dispose();
+                mInputQueue = null;
+                mInputQueueCallback = null;
+                mQueuedDeliveries.clear();
+            }
             mAdded = false;
             unscheduleTraversals();
             disposeInput();
@@ -1799,6 +1850,13 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * to the receiver, or for an event handed in directly, its recycling.
      */
     private void deliverInputEvent(InputEvent event, InputEventReceiver receiver, boolean postIme) {
+        if (mInputQueue != null) {
+            mQueuedDeliveries.add(() -> deliverToInputQueue(event, receiver, postIme));
+            if (mQueuedDeliveries.size() == 1) {
+                mQueuedDeliveries.peek().run();
+            }
+            return;
+        }
         if (event instanceof KeyEvent) {
             mUnhandledKeyManager.preDispatch((KeyEvent) event);
         }
@@ -1821,6 +1879,79 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             receiver.finishInputEvent(event, handled);
         } else {
             event.recycleIfNeededAfterDispatch();
+        }
+    }
+
+    /**
+     * A NativeActivity's window's input (ADR-0069 step 3), as AOSP's input stages with NativePreImeInputStage and
+     * NativePostImeInputStage: a key the input method did not send goes to the input queue first with its predispatch
+     * flag, and a handled answer ends its stages; then ViewPreImeInputStage and EarlyPostImeInputStage; then every key
+     * and touch goes to the queue, and only an unhandled one reaches the views' stage. The queue answers on the main
+     * looper when the app finishes the event, so one event at a time goes through, the next once the last is answered,
+     * as AOSP's queue of input events does; a touch's EarlyPostImeInputStage part runs with the views' stage.
+     */
+    private void deliverToInputQueue(InputEvent event, InputEventReceiver receiver, boolean postIme) {
+        if (event instanceof KeyEvent) {
+            mUnhandledKeyManager.preDispatch((KeyEvent) event);
+        }
+        handleWindowFocusChanged();
+        if (event instanceof KeyEvent) {
+            final KeyEvent key = (KeyEvent) event;
+            if (shouldDropInputEvent(key)) {
+                finishQueuedDelivery(event, receiver, false);
+            } else if (!postIme) {
+                mInputQueue.sendInputEvent(key, key, true, (token, handled) -> {
+                    if (handled) {
+                        finishQueuedDelivery(event, receiver, true);
+                    } else if (mView != null && mView.dispatchKeyEventPreIme(key)) {
+                        finishQueuedDelivery(event, receiver, true);
+                    } else {
+                        deliverToInputQueuePostIme(key, receiver);
+                    }
+                });
+            } else {
+                deliverToInputQueuePostIme(key, receiver);
+            }
+        } else if (event instanceof MotionEvent && event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+            final MotionEvent motion = (MotionEvent) event;
+            trackTouch(motion);
+            if (shouldDropInputEvent(motion)) {
+                finishQueuedDelivery(event, receiver, false);
+                return;
+            }
+            mInputQueue.sendInputEvent(motion, motion, false, (token, handled) -> {
+                final boolean answer = handled || (mView != null && processPointerEvent(motion));
+                if (mUnbufferedInputDispatch && motion.isTouchEvent() && isTerminalInputEvent(motion)) {
+                    mUnbufferedInputDispatch = false;
+                    scheduleConsumeBatchedInput();
+                }
+                finishQueuedDelivery(event, receiver, answer);
+            });
+        } else {
+            finishQueuedDelivery(event, receiver, false);
+        }
+    }
+
+    /** A key after the input method's stage: EarlyPostImeInputStage, the queue again, then the views' stage. */
+    private void deliverToInputQueuePostIme(KeyEvent key, InputEventReceiver receiver) {
+        if (mView == null || processEarlyPostImeKey(key)) {
+            finishQueuedDelivery(key, receiver, mView != null);
+            return;
+        }
+        mInputQueue.sendInputEvent(key, key, false, (token, handled) -> finishQueuedDelivery(key, receiver,
+                handled || (mView != null && !shouldDropInputEvent(key) && processViewPostImeKey(key))));
+    }
+
+    /** The answer of a queued delivery, as deliverInputEvent's, and the next delivery's start. */
+    private void finishQueuedDelivery(InputEvent event, InputEventReceiver receiver, boolean handled) {
+        if (receiver != null) {
+            receiver.finishInputEvent(event, handled);
+        } else {
+            event.recycleIfNeededAfterDispatch();
+        }
+        mQueuedDeliveries.poll();
+        if (!mQueuedDeliveries.isEmpty()) {
+            mQueuedDeliveries.peek().run();
         }
     }
 
@@ -1875,8 +2006,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * input method sent the key; no ImeInputStage, as Minato has no input method; EarlyPostImeInputStage's tooltip key
      * and leaving touch mode; ViewPostImeInputStage's unhandled-key listeners, dispatchKeyEvent, a shortcut while a
      * modifier is held and the focus moves of the arrows and tab. A stage that finds the window unable to take the key
-     * drops it, as each of AOSP's does. Left out, as Minato lacks them: NativePreImeInputStage's and
-     * NativePostImeInputStage's input queue of a NativeActivity (takeInputQueue), the fallback event handler
+     * drops it, as each of AOSP's does. A NativeActivity's window takes its keys through deliverToInputQueue's stages
+     * instead (ADR-0069 step 3). Left out, as Minato lacks them: the fallback event handler
      * (PhoneFallbackEventHandler: media, volume, call and camera keys), a focus move into an adjacent window of
      * multi-window, and SyntheticInputStage's fallback keys, which only a key the system hands back unhandled takes.
      */
@@ -1887,13 +2018,20 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (!postIme && mView.dispatchKeyEventPreIme(event)) {
             return true;
         }
+        return processEarlyPostImeKey(event) || processViewPostImeKey(event);
+    }
+
+    /** As AOSP's EarlyPostImeInputStage for a key: the tooltip's key, and a key that only leaves touch mode. */
+    private boolean processEarlyPostImeKey(KeyEvent event) {
         if (mAttachInfo.mTooltipHost != null) {
             mAttachInfo.mTooltipHost.handleTooltipKey(event);
         }
         // If the key's purpose is to exit touch mode then we consume it and consider it handled.
-        if (checkForLeavingTouchModeAndConsume(event)) {
-            return true;
-        }
+        return checkForLeavingTouchModeAndConsume(event);
+    }
+
+    /** As AOSP's ViewPostImeInputStage for a key. */
+    private boolean processViewPostImeKey(KeyEvent event) {
         if (mUnhandledKeyManager.preViewDispatch(event)) {
             return true;
         }

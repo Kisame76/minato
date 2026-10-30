@@ -72,6 +72,7 @@ extern int register_android_animation_PropertyValuesHolder(JNIEnv *env);
 extern int register_android_util_EventLog(JNIEnv *env);
 extern int register_android_app_Activity(JNIEnv *env);
 extern int register_android_app_NativeActivity(JNIEnv *env);
+extern int register_android_view_InputQueue(JNIEnv *env);
 // KeyEvent's and KeyCharacterMap's (ADR-0045 step 7c1): AOSP's core/jni files over libinput; the input service's, ours,
 // for the virtual keyboard's map.
 extern int register_android_view_KeyEvent(JNIEnv *env);
@@ -159,7 +160,8 @@ int register_framework_natives(JNIEnv *env) {
           register_android_view_KeyEvent,
           register_android_view_KeyCharacterMap, register_android_hardware_input_InputService,
           register_android_view_MotionEvent, register_android_view_VelocityTracker,
-          register_android_view_InputChannel, register_android_view_InputEventReceiver}) {
+          register_android_view_InputChannel, register_android_view_InputEventReceiver,
+          register_android_view_InputQueue}) {
         if (registration(env) < 0) {
             env->PopLocalFrame(nullptr);
             return -1;
