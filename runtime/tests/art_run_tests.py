@@ -8,9 +8,9 @@ compared without the lines of the guest's logger, which on Android go to logcat.
 The list must hold exactly the subset of run_tests.py's rules. --sample runs the tests the list marks "sample",
 otherwise the named tests or all but the "out" ones. --debug runs ART's debug flavor, --gc <collector> adds
 -Xgc:<collector>, --compiled makes each jar's oat with our dex2oat at --compiler-filter=speed and runs the test
-with it under nterp (M6 c2; it needs MINATO_ART_NTERP=1 for the arguments), --jobs runs that many tests side by
-side (one by default), --times <file> writes each test's seconds. The run folder of a failed test stays in
-<work>/run-tests.
+with it under nterp (M6 c2; it sets MINATO_ART_NTERP=1 for run_tests.py's arguments), --jobs runs that many
+tests side by side (one by default), --times <file> writes each test's seconds. The run folder of a failed test
+stays in <work>/run-tests.
 Prints "skipped: ..." while dalvikvm, the boot jars' classes, the JDK, D8, the run-tests' sources, the guest
 system's list of public libraries or the graphics front libs, which every VM start preloads, are missing.
 
@@ -151,6 +151,8 @@ def main():
     art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, root = arguments[:8]
     named = arguments[8:]
     debug = "--debug" in flags
+    if "--compiled" in flags:
+        os.environ["MINATO_ART_NTERP"] = "1"  # no -Xint: compiled code runs, and nterp for the rest
     sources = os.path.join(root, "build", "sources")
     tests = os.path.join(sources, "art", "test")
     java = os.path.join(art, "java")
