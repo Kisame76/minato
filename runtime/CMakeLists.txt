@@ -520,13 +520,15 @@ if(APK_HOST_BUILD)
       TIMEOUT 400)
     # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, one after another, each printing
     # what Android 15 prints; the whole subset is a check of its own (runtime/tests/art_run_tests.py without
-    # --sample). The first run builds the sample's jars, about 0.5 s each.
+    # --sample). The first run builds the sample's jars, about 0.5 s each. These runs and the compiled ones, in both
+    # flavors, share art_runs' jars and run-tests folders, so they take one lock and run one at a time.
     add_test(NAME runtime.art_run_tests${suffix}
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run_tests.py" "${APK_ART_DIR}"
         "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
         "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
         $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${PROJECT_SOURCE_DIR}" --sample ${flag})
-    set_tests_properties(runtime.art_run_tests${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600)
+    set_tests_properties(runtime.art_run_tests${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600
+      RESOURCE_LOCK art_run_tests)
     # The run-tests of the sample compiled (M6 c2, patches 0009 and 0010): the sample's tests but 107-int-math2, whose
     # stack overflow is the signals step's, each with the oat our dex2oat makes at --compiler-filter=speed.
     file(STRINGS "${PROJECT_SOURCE_DIR}/fixtures/art-run-tests.txt" run_test_lines REGEX " sample$")
@@ -544,7 +546,7 @@ if(APK_HOST_BUILD)
         $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${PROJECT_SOURCE_DIR}"
         --compiled --jobs 2 ${flag} ${compiled_sample})
     set_tests_properties(runtime.art_run_tests_compiled${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
-      TIMEOUT 900)
+      TIMEOUT 900 RESOURCE_LOCK art_run_tests)
     # codec-test and stress-test compiled: JNI references across collections, System.arraycopy, Unsafe, signals inside
     # a collection. The debug flavor's OatFileManager checks that an oat is mapped once, and codec-test's second class
     # loader loads the same oat again (FORCE_LOAD gives the same image, ADR-0053 step b), so codec-test compiled is
