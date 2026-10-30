@@ -25,13 +25,20 @@
 #define APK_CONTAINER_SECTION "__apk_info"
 #define APK_CONTAINER_MAGIC "APKCONT"  /* 8 bytes with the terminating zero */
 /* 2: the table of x18 islands (ADR-0020 X4); 3: the runs (ADR-0008 amendment); 4: exclusive-window
-   islands are resumable (ADR-0020 X4h), so an EXCLUSIVE island's `commit` field changed meaning. */
-#define APK_CONTAINER_VERSION 4
+   islands are resumable (ADR-0020 X4h), so an EXCLUSIVE island's `commit` field changed meaning; 5: the
+   APK_ISLAND_SINGLE_NOSAVE kind (ADR-0020 C7), an in-sequence x18 use over a dead register with no red-zone
+   save. The converter writes this current version; the loader reads back to APK_CONTAINER_OLDEST_VERSION. */
+#define APK_CONTAINER_VERSION 5
 #define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
 /* From this version an EXCLUSIVE island is resumable (its `commit` is the preamble length); an older
    container's EXCLUSIVE islands are restartable (`commit` a commit point), so settle() reads them the
    old way and reenter() leaves them alone. */
 #define APK_CONTAINER_RESUMABLE_VERSION 4
+/* From this version a container may hold an APK_ISLAND_SINGLE_NOSAVE island (ADR-0020 C7): an in-sequence
+   x18 use relocated over a dead register, with no red-zone save. A container below this version never holds
+   the kind, and the loader's version range keeps older runtimes out: a runtime below this rejects such a
+   container, which triggers a reconvert-on-tap (ADR-0020 X4h LaunchDecision). */
+#define APK_CONTAINER_RECONSTRUCT_VERSION 5
 
 /// apk_container_info.flags
 enum {
@@ -94,6 +101,8 @@ enum {
     APK_ISLAND_EXCLUSIVE = 3,   // a whole LL/SC window with x18 (ADR-0020 X2c)
     APK_ISLAND_JUMP_TABLE = 4,  // BR x18 at the end of a jump table, with its landing pads (X2d)
     APK_ISLAND_INDIRECT = 5,    // BR or BLR x18 that ends no jump table, branching to the guest x18 (X2e)
+    APK_ISLAND_SINGLE_NOSAVE = 6,  // an in-sequence x18 use over a register proven dead; no red-zone save,
+                                   // touches only TSD slot 11 (ADR-0020 C3b, C7). value = the dead register
 };
 #define APK_ISLAND_NO_REGISTER 0xff  /* apk_island.base of an island with one scratch register */
 #define APK_ISLAND_NO_COMMIT 0xff    /* apk_island.commit of an island that changes nothing but pc */

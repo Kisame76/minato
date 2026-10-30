@@ -30,13 +30,17 @@ enum class SiteKind : std::uint8_t {
     thread_pointer_write,  // msr TPIDR_EL0, xN
     syscall,               // svc #0
     x18,                   // an instruction that uses x18
+    x18_nosave,            // an in-sequence x18 use (inside a live LL/SC), islanded over a register proven dead at
+                           // the use, touching only TSD slot 11, with no red-zone save (ADR-0020 C3b, C7)
 };
 
 struct Site {
     std::uint64_t address;  // of the instruction, in the address space given to scan()
     SiteKind kind;
-    std::uint8_t reg;  // N of xN, 31 for xzr; 0 for syscalls; 18 for x18
-    std::uint32_t instruction = 0;  // the instruction itself, for x18
+    std::uint8_t reg;  // N of xN, 31 for xzr; 0 for syscalls; 18 for x18; the value register Xd for x18_nosave
+    std::uint32_t instruction = 0;  // the instruction itself, for x18 and x18_nosave
+    std::uint8_t base = APK_ISLAND_NO_REGISTER;  // x18_nosave only: the second dead register, the TSD base for a write
+                                                 // use's store-back; APK_ISLAND_NO_REGISTER for a read use
 
     bool operator==(const Site &) const = default;
 };

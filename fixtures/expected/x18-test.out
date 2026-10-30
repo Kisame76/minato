@@ -21,6 +21,9 @@ an LL/SC window in 32 bits: 0x0
 cmpxchg through x18: swapped 7 for 8, then kept 8
 a window a CLREX closes: 8
 a window that skips its only write of x18: 77, and one that makes it: 5
+a no-save island for a live LL/SC read use: 42
+a no-save island for a live LL/SC write use at sp-128: 42
+the no-save islands run correctly under a SIGALRM storm: yes
 a jump table through br x18: 10 11 12 13 -1
 x18 across a syscall: kept
 x18 across 1000 sched_yield: kept

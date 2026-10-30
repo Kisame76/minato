@@ -106,8 +106,13 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
         if (!back && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
         settled.context.pc = header + island.site + (back ? 0 : 4 * std::uint64_t{island.resume});
     }
-    if (word >= 1) settled.context.x[island.value] = saved_value;
-    if (island.base != APK_ISLAND_NO_REGISTER && word >= 2) settled.context.x[island.base] = saved_base;
+    // A no-save island (ADR-0020 C7) runs the use over registers proven dead right after it, so it saves
+    // nothing to the red zone; there is nothing to restore, and its value/base registers stay as they are
+    // (the guest never reads them again). Every other island saved its scratch and gets it back here.
+    if (island.kind != APK_ISLAND_SINGLE_NOSAVE) {
+        if (word >= 1) settled.context.x[island.value] = saved_value;
+        if (island.base != APK_ISLAND_NO_REGISTER && word >= 2) settled.context.x[island.base] = saved_base;
+    }
     return settled;
 }
 
@@ -117,10 +122,13 @@ bool leave(GuestContext &context, std::uint64_t &x18) {
     const auto *island = island_at(*container, context.pc);
     if (island == nullptr) return false;
     const std::uint64_t word = (context.pc - (container->header + island->stub)) / 4;
-    // The island's own stores to the red zone succeeded, so reading it back cannot fault.
+    // A no-save island (ADR-0020 C7) never wrote the red zone, so sp - 128 is unrelated memory (a guard
+    // page at worst): do not read it. Every other island's own stores there succeeded, so reading it back
+    // cannot fault. The && short-circuits before the load when the island is no-save.
+    const bool saved = island->kind != APK_ISLAND_SINGLE_NOSAVE;
     const auto *red_zone = reinterpret_cast<const std::uint64_t *>(context.sp - 128);
-    const auto saved_value = word >= 1 ? red_zone[0] : 0;
-    const auto saved_base = word >= 2 && island->base != APK_ISLAND_NO_REGISTER ? red_zone[1] : 0;
+    const auto saved_value = (saved && word >= 1) ? red_zone[0] : 0;
+    const auto saved_base = (saved && word >= 2 && island->base != APK_ISLAND_NO_REGISTER) ? red_zone[1] : 0;
     const bool resumable = container->info->version >= APK_CONTAINER_RESUMABLE_VERSION;
     const auto settled = settle(*island, container->header, context, saved_value, saved_base, x18, resumable);
     context = settled.context;

@@ -95,8 +95,10 @@ std::uint32_t word(const std::vector<std::byte> &bytes, std::size_t index) {
 
 namespace oracle {
 // A brute-force step-D soundness check (defined after the fixtures below): under the real limits scan()
-// must island no x18 use that sits on a live LL/SC path. scan_words() runs it on every fixture (ADR-0020
-// step D, the lead's condition 2).
+// islands no x18 use on a live LL/SC path EXCEPT as a no-save island (which spills nothing, touching only
+// the TSD granule C3b keeps the monitor across) over register(s) proven dead -- any other island on a live
+// path, and a no-save island whose register is not dead, is unsound. scan_words() runs it on every fixture
+// (ADR-0020 step D and C7, the lead's condition 2 and step-7 claim).
 struct Toggles {
     bool call_return;   // ON: a call or return (BL, BLR, RET) ends the monitor path (the C6 limit)
     bool section_exit;  // ON: the section end, or a branch out of it, pairs nothing (one output section)
@@ -282,6 +284,61 @@ TEST(the_x18_islands_match_the_assembler) {
         if (stub.size() != 4 * test.words) continue;
         for (std::size_t index = 0; index < test.words; ++index) CHECK(word(stub, index) == test.reference[index]);
     }
+}
+
+// (b) ADR-0020 C7: the no-save island for a read use loads the guest x18 from TSD slot 11 into the dead
+// value register, runs the substituted use, and branches back -- no red-zone save, no store-back. Its
+// layout tells reconstruction there is no base register and no store word, so it reads neither.
+TEST(the_no_save_island_loads_x18_into_the_dead_register_and_runs_the_use) {
+    const Site site{0, SiteKind::x18_nosave, 5, 0x8b12'0023};  // add x3, x1, x18, value register x5
+
+    const auto layout = apk::rewrite::island_layout(site);
+    CHECK(layout.kind == APK_ISLAND_SINGLE_NOSAVE);
+    CHECK(layout.words == 5);                       // mrs, bic, ldr, the use, the branch back
+    CHECK(layout.value == 5);
+    CHECK(layout.base == APK_ISLAND_NO_REGISTER);   // no second register
+    CHECK(layout.store == 0);                       // a read never stores x18 back
+    CHECK(layout.commit == 3);                      // the use is word 3 (mrs 0, bic 1, ldr 2)
+    CHECK(layout.resume == 1);                      // after the commit, on to site + 4
+
+    const auto [patch, stub] = emit_at(site, address_of(ref_site), address_of(ref_x18));
+    CHECK(stub.size() == 5 * 4);
+    if (stub.size() == 5 * 4) {
+        CHECK(word(stub, 0) == 0xd53b'd065u);                   // mrs x5, TPIDRRO_EL0
+        CHECK(word(stub, 2) == 0xf940'2ca5u);                   // ldr x5, [x5, #88]  (TSD slot 11)
+        CHECK(word(stub, 3) == 0x8b05'0023u);                   // add x3, x1, x5  (x18 -> x5)
+        CHECK((word(stub, 4) & 0xfc00'0000u) == 0x1400'0000u);  // B back to the site
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);              // the site branches to the island
+}
+
+// (b) ADR-0020 C7: a write use's no-save island adds a store-back. After running the use in the dead
+// value register it loads the TSD base into a second dead register and stores the new x18 to slot 11, so
+// the guest's thread pointer stays coherent. `base` and `store` tell reconstruction where the store-back
+// is; between the commit and the store x18 lives in the value register.
+TEST(the_no_save_island_for_a_write_use_stores_x18_back_through_a_second_dead_register) {
+    const Site site{0, SiteKind::x18_nosave, 5, 0x8b03'0032, 6};  // add x18, x1, x3; value x5, base x6
+
+    const auto layout = apk::rewrite::island_layout(site);
+    CHECK(layout.kind == APK_ISLAND_SINGLE_NOSAVE);
+    CHECK(layout.words == 8);                       // mrs, bic, ldr, the use, mrs, bic, str, the branch back
+    CHECK(layout.value == 5);
+    CHECK(layout.base == 6);                        // the second dead register, the store-back TSD base
+    CHECK(layout.commit == 3);                      // the use is word 3 (mrs 0, bic 1, ldr 2)
+    CHECK(layout.store == 6);                        // str x5, [x6, #88] is word 6 (mrs 4, bic 5)
+    CHECK(layout.resume == 1);                       // after the commit, on to site + 4
+
+    const auto [patch, stub] = emit_at(site, address_of(ref_site), address_of(ref_x18));
+    CHECK(stub.size() == 8 * 4);
+    if (stub.size() == 8 * 4) {
+        CHECK(word(stub, 0) == 0xd53b'd065u);                   // mrs x5, TPIDRRO_EL0
+        CHECK(word(stub, 2) == 0xf940'2ca5u);                   // ldr x5, [x5, #88]  (TSD slot 11)
+        CHECK(word(stub, 3) == 0x8b03'0025u);                   // add x5, x1, x3  (x18 -> x5)
+        CHECK(word(stub, 4) == 0xd53b'd066u);                   // mrs x6, TPIDRRO_EL0
+        CHECK(word(stub, 6) == 0xf900'2cc5u);                   // str x5, [x6, #88]  (back to slot 11)
+        CHECK((word(stub, 7) & 0xfc00'0000u) == 0x1400'0000u);  // B back to the site
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);              // the site branches to the island
 }
 
 TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
@@ -583,6 +640,116 @@ TEST(a_store_exclusive_before_its_load_exclusive_by_a_back_edge_is_not_lone) {
         CHECK(std::string_view(findings.x18_unsupported[0].reason) ==
               "it lies between a load- and a store-exclusive, where the island's memory accesses could break the "
               "sequence");
+    }
+}
+
+// (b) ADR-0020 C7: an in-sequence x18 use (refused as inside_exclusive_sequence) that has a register
+// proven dead right after it is relocated to a no-save island over that dead register, not refused. The
+// window is the back-edge shape above, with `mov x5, #0` inserted after the use so x5 dies before the
+// backward branch. scan_words (step 7: the step-D oracle now accepts a no-save island over a dead register
+// as sound, so the fixture runs through it).
+TEST(an_in_sequence_x18_use_with_a_dead_register_after_it_becomes_a_no_save_island) {
+    const std::uint32_t code[] = {
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]: the store-exclusive, before its ldxr
+        0x3400'00a2,  // 0x1008 cbz w2, 0x101c
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]: the load-exclusive
+        0x8b12'0023,  // 0x1010 add x3, x1, x18: the in-sequence x18 read use
+        0xd280'0005,  // 0x1014 mov x5, #0: writes x5, so x5 is dead after the use (the value register)
+        0x17ff'fffb,  // 0x1018 b 0x1004: backward, to the store-exclusive
+        0xd503'201f,  // 0x101c nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);  // the oracle runs too, and accepts it
+    CHECK(findings.x18_unsupported.empty());  // no longer refused
+    CHECK(findings.sites.size() == 1);
+    if (findings.sites.size() == 1) {
+        const auto &site = findings.sites[0];
+        CHECK(site.kind == SiteKind::x18_nosave);
+        CHECK(site.address == 0x1010);
+        CHECK(site.reg == 5);                         // Xd = x5, the dead register
+        CHECK(site.base == APK_ISLAND_NO_REGISTER);   // a read use needs no store-back base
+        CHECK(site.instruction == 0x8b12'0023u);
+    }
+}
+
+// (b) ADR-0020 C7: an in-sequence x18 WRITE use becomes a no-save island too, but needs a second dead
+// register for the store-back that keeps slot 11 coherent. Two registers (x5, x6) die before the backward
+// branch, so the island runs `add x18,x1,x3` in x5 and stores x5 back through x6. scan_words: the oracle
+// accepts the island because both registers are proven dead (step 7).
+TEST(an_in_sequence_x18_write_use_with_two_dead_registers_becomes_a_no_save_island) {
+    const std::uint32_t code[] = {
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]: the store-exclusive, before its ldxr
+        0x3400'00c2,  // 0x1008 cbz w2, 0x1020: exit past the loop
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]: the load-exclusive
+        0x8b03'0032,  // 0x1010 add x18, x1, x3: the in-sequence x18 write use
+        0xd280'0005,  // 0x1014 mov x5, #0: x5 dead after the use (the value register)
+        0xd280'0006,  // 0x1018 mov x6, #0: x6 dead after the use (the store-back base)
+        0x17ff'fffa,  // 0x101c b 0x1004: backward, to the store-exclusive
+        0xd503'201f,  // 0x1020 nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);  // the oracle runs too, and accepts it
+    CHECK(findings.x18_unsupported.empty());  // no longer refused
+    CHECK(findings.sites.size() == 1);
+    if (findings.sites.size() == 1) {
+        const auto &site = findings.sites[0];
+        CHECK(site.kind == SiteKind::x18_nosave);
+        CHECK(site.address == 0x1010);
+        CHECK(site.reg == 5);                         // Xd = x5, the value register
+        CHECK(site.base == 6);                        // Xb = x6, the store-back base
+        CHECK(site.instruction == 0x8b03'0032u);
+    }
+}
+
+// (b) ADR-0020 C7: a write use with only ONE dead register stays refused -- the store-back needs a
+// second one. Same window as above with a single `mov x5,#0`, so x6 is never freed.
+TEST(an_x18_write_use_with_one_dead_register_stays_refused) {
+    const std::uint32_t code[] = {
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]
+        0x3400'00a2,  // 0x1008 cbz w2, 0x101c
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]
+        0x8b03'0032,  // 0x1010 add x18, x1, x3: the write use
+        0xd280'0005,  // 0x1014 mov x5, #0: only one register dies before the branch
+        0x17ff'fffb,  // 0x1018 b 0x1004
+        0xd503'201f,  // 0x101c nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);  // refused: no island for the oracle to see
+    CHECK(findings.sites.empty());                         // not converted
+    CHECK(findings.x18_unsupported.size() == 1);
+    if (findings.x18_unsupported.size() == 1) {
+        CHECK(findings.x18_unsupported[0].address == 0x1010);
+    }
+}
+
+// (b) ADR-0020 C7: a load-exclusive whose straight-line path ends at a ret (or an unconditional branch)
+// before reaching a store-exclusive is UNCLOSED -- the store-exclusive of the NEXT function, physically
+// close, must not be taken as its close. exclusive_window_end() once walked linearly past the ret into the
+// next function and treated that function's stxr as the window's close, refusing the whole span; adjacent
+// functions are normal in compiled libraries, so this over-refused real code. Here the back-edge window's
+// x18 use must become a no-save island, not be closed by the following function's store-exclusive.
+TEST(a_load_exclusive_whose_path_ends_before_its_store_is_not_closed_by_the_next_function) {
+    const std::uint32_t code[] = {
+        // function A: a back-edge LL/SC with an in-sequence x18 read use, leaving through ret.
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]: A's store-exclusive, before its load-exclusive
+        0x3400'00a2,  // 0x1008 cbz w2, 0x101c: success leaves through the ret
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]: A's load-exclusive
+        0x8b12'0023,  // 0x1010 add x3, x1, x18: the in-sequence x18 read use
+        0xd280'0005,  // 0x1014 mov x5, #0: x5 dead after the use
+        0x17ff'fffb,  // 0x1018 b 0x1004: back to the store-exclusive
+        0xd65f'03c0,  // 0x101c ret: A ends here, with no forward store-exclusive
+        // function B (adjacent): its own store-exclusive, physically within the window cap of A's ldxr.
+        0xc809'7c68,  // 0x1020 stxr w9, x8, [x3]: must NOT be read as A's close
+        0xd503'201f,  // 0x1024 nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.empty());  // A's use is a no-save island, not refused with the next function's stxr
+    CHECK(findings.sites.size() == 1);
+    if (findings.sites.size() == 1) {
+        CHECK(findings.sites[0].kind == SiteKind::x18_nosave);
+        CHECK(findings.sites[0].address == 0x1010);
+        CHECK(findings.sites[0].reg == 5);
     }
 }
 
@@ -905,7 +1072,7 @@ TEST(a_redirected_instruction_keeps_a_window_from_relocating_but_still_islands_i
 TEST(a_branch_that_leaves_a_window_or_a_register_branch_keeps_it_from_relocating) {
     const std::uint32_t register_branch[] = {
         0xc85f'7e48,  // ldxr x8, [x18]
-        0xd65f'03c0,  // ret            a register branch inside the window
+        0xd65f'03c0,  // ret            a return before the store-exclusive: the window's path ends here
         0xc809'7e48,  // stxr w9, x8, [x18]
     };
     const std::string_view leaves =
@@ -919,9 +1086,13 @@ TEST(a_branch_that_leaves_a_window_or_a_register_branch_keeps_it_from_relocating
     const Case cases[] = {
         {ref_x18_window_exit, ref_x18_window_input, 2, leaves},            // b.ne out of the window
         {ref_x18_window_exit_next, ref_x18_window_base, 2, leaves},        // branch to the word right after it
+        // The return before the store-exclusive ends the window's straight-line path (ADR-0020 step D), so
+        // exclusive_window_end() no longer reads the later store-exclusive as its close. The window is unclosed,
+        // and its two x18-address exclusive accesses are refused as exclusive accesses (an island's memory could
+        // break their LL/SC sequence) -- still not relocated. The register-branch-reach refusal stays covered by
+        // an_unclosed_window_reaching_a_non_jump_table_register_branch_names_the_register_branch.
         {register_branch, register_branch + std::size(register_branch), 2,
-         "it lies in an exclusive window a signal can resume, but it holds a register branch the island cannot "
-         "retarget to its relocated body"},
+         "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence"},
     };
     for (const auto &c : cases) {
         const auto findings = scan_words(c.begin, c.end, 0x10000);
@@ -1796,18 +1967,41 @@ bool reaches_store(const std::uint32_t *code, std::size_t words, std::size_t fro
     }
     return false;
 }
-// The islanded x18 sites (addresses) that lie on a live path LDXR -> site -> STXR under `t`. For each
+// Whether register `reg` is proven dead right after the use at word `use`: an independent forward walk
+// (the mirror of the production predicate, not a call into it) that stops at the first access or branch.
+// A no-save island loads the guest x18 into `reg` and clobbers it, which is sound only if the guest reads
+// `reg` no more before overwriting it. A read before any write means the value is live (the island would
+// corrupt it); any branch before a write means the forward value cannot be followed, so not proven dead.
+bool register_dead(const std::uint32_t *begin, std::size_t words, std::size_t use, unsigned reg) {
+    const std::uint32_t bit = 1u << reg;
+    for (std::size_t p = use + 1; p < words; ++p) {
+        const auto w = begin[p];
+        const auto u = apk::a64::register_use(w);
+        if ((u.reads & bit) != 0) return false;   // read before any write: live
+        if ((u.writes & bit) != 0) return true;   // written before any read: dead
+        if (o_disp(w) != 0 || o_reg_branch(w) || o_reg_call(w) || o_reg_return(w)) return false;  // a branch
+    }
+    return false;  // the section ended before a write
+}
+// The unsound x18 islands (addresses) that lie on a live path LDXR -> site -> STXR under `t`. For each
 // load-exclusive it walks the words its monitor reaches (fall-through and direct branches); a register
-// branch's target is unseen, so the whole section is then taken to be reachable (guard ii). A site both
-// reached from a load and from which reaches_store() holds is flagged.
-std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base, Toggles t) {
+// branch's target is unseen, so the whole section is then taken to be reachable (guard ii). An island
+// both reached from a load and from which reaches_store() holds lies on a live LL/SC path.
+//
+// C3b's exact soundness condition (ADR-0020 C7, the lead's step-7 claim): the ONLY island allowed on a
+// live path is a no-save island (SiteKind::x18_nosave) -- it spills nothing, touching only the TSD granule,
+// which C3b measured KEEPS the local monitor -- AND only over register(s) proven dead right after the use.
+// A red-zone-spilling x18 island on a live path stores to the stack granule inside the window and can break
+// the monitor, so it is flagged; a no-save island whose value (or store-back base) register is NOT dead is
+// flagged too. Anything flagged is unsound.
+std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base,
+                                 Toggles t, const apk::rewrite::Findings &findings) {
     const auto words = static_cast<std::size_t>(end - begin);
-    const std::span code(reinterpret_cast<const std::byte *>(begin), 4 * words);
-    apk::rewrite::Findings findings;
-    apk::rewrite::scan(code, base, findings);  // directly, so scan_words() may call flags() without recursion
-    std::vector<std::size_t> islands;
+    struct Island { std::size_t pos; SiteKind kind; std::uint8_t reg; std::uint8_t base; };
+    std::vector<Island> islands;
     for (const auto &site : findings.sites) {
-        if (site.kind == SiteKind::x18) islands.push_back(static_cast<std::size_t>((site.address - base) / 4));
+        if (site.kind == SiteKind::x18 || site.kind == SiteKind::x18_nosave)
+            islands.push_back({static_cast<std::size_t>((site.address - base) / 4), site.kind, site.reg, site.base});
     }
     std::vector<std::uint64_t> flagged;
     for (std::size_t load = 0; load < words; ++load) {
@@ -1833,13 +2027,27 @@ std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t
             }
         }
         if (reached_register_branch) from_load.assign(words, true);  // the branch may re-enter any word (guard ii)
-        for (const auto site : islands) {
-            if (from_load[site] && reaches_store(begin, words, site, t)) flagged.push_back(base + 4 * site);
+        for (const auto &island : islands) {
+            if (!(from_load[island.pos] && reaches_store(begin, words, island.pos, t))) continue;  // not on a live path
+            // On a live LL/SC path: sound only as a no-save island (no spill) over register(s) proven dead.
+            const bool sound = island.kind == SiteKind::x18_nosave &&
+                               register_dead(begin, words, island.pos, island.reg) &&
+                               (island.base == APK_ISLAND_NO_REGISTER ||
+                                register_dead(begin, words, island.pos, island.base));
+            if (!sound) flagged.push_back(base + 4 * island.pos);
         }
     }
     std::ranges::sort(flagged);
     flagged.erase(std::ranges::unique(flagged).begin(), flagged.end());
     return flagged;
+}
+// Scans `begin..end` at `base`, then flags its islands. scan_words() calls this; the overload above takes a
+// hand-built findings list so a test can give the flagging logic an island scan() would never emit.
+std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base, Toggles t) {
+    const std::span code(reinterpret_cast<const std::byte *>(begin), 4 * static_cast<std::size_t>(end - begin));
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, base, findings);  // directly, so scan_words() may call flags() without recursion
+    return flags(begin, end, base, t, findings);
 }
 }  // namespace oracle
 
@@ -1858,6 +2066,47 @@ TEST(the_brute_force_oracle_flags_the_toggle_dependent_islands) {
     CHECK(flags(sx, sx + std::size(sx), 0x1000, {true, true}) == none);
     CHECK(flags(fa.data(), fa.data() + fa.size(), 0x1000, {false, true}) == fa_site);  // rests on call/return
     CHECK(flags(sx, sx + std::size(sx), 0x1000, {true, false}) == sx_site);  // rests on the section-exit limit
+}
+
+// (b) ADR-0020 C7, step 7: the oracle accepts a no-save island on a live LL/SC path ONLY over a register
+// proven dead, and its deadness check has teeth. A sound no-save window (the back-edge shape, x5 written
+// before any read) is flagged by nothing; register_dead(), which flags() applies to every no-save island,
+// calls a register dead when it is written before any read and NOT dead when it is read first or a branch
+// comes before the write -- a no-save island over such a register would be flagged as unsound.
+TEST(the_oracle_accepts_a_dead_register_no_save_island_and_rejects_a_live_one) {
+    using oracle::flags;
+    using oracle::register_dead;
+    const std::uint32_t sound[] = {0x1400'0003, 0xc802'7c03, 0x3400'00a2, 0xc85f'7c01,
+                                   0x8b12'0023, 0xd280'0005, 0x17ff'fffb, 0xd503'201f};  // x5 dead after the use
+    CHECK(flags(sound, sound + std::size(sound), 0x1000, {true, true}).empty());  // sound: no spill, dead register
+    const std::uint32_t dead[] = {0x8b12'0023, 0xd280'0005};    // add x3,x1,x18 ; mov x5,#0  (x5 written)
+    const std::uint32_t live[] = {0x8b12'0023, 0x8b00'00a3};    // add x3,x1,x18 ; add x3,x5,x0 (x5 read first)
+    const std::uint32_t branch[] = {0x8b12'0023, 0x1400'0001};  // add x3,x1,x18 ; b  (a branch before any write)
+    CHECK(register_dead(dead, std::size(dead), 0, 5));
+    CHECK(!register_dead(live, std::size(live), 0, 5));
+    CHECK(!register_dead(branch, std::size(branch), 0, 5));
+}
+
+// (b) ADR-0020 C7, step 7 (the lead's option 1): flags()-level teeth. scan() never emits a no-save island
+// over a live register (its predicate is correct), so to prove the oracle would catch one we hand it a
+// findings list it would never produce -- one x18_nosave site over x5, in a window that reads x5 right
+// after the use -- and flags() must report it. The site sits on the live LL/SC path (ldxr 0x100c, the use,
+// the back-edge to the store-exclusive 0x1004).
+TEST(the_oracle_flags_a_hand_built_no_save_island_over_a_live_register) {
+    const std::uint32_t code[] = {
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]
+        0x3400'00a2,  // 0x1008 cbz w2, 0x101c
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]
+        0x8b12'0023,  // 0x1010 add x3, x1, x18: the use (the injected site)
+        0x8b00'00a4,  // 0x1014 add x4, x5, x0: reads x5, so x5 is live after the use
+        0x17ff'fffb,  // 0x1018 b 0x1004
+        0xd503'201f,  // 0x101c nop
+    };
+    apk::rewrite::Findings injected;  // what scan() would never build: a no-save island over the live x5
+    injected.sites.push_back({0x1010, SiteKind::x18_nosave, 5, 0x8b12'0023u});  // base defaults to NO_REGISTER
+    CHECK(oracle::flags(code, code + std::size(code), 0x1000, {true, true}, injected) ==
+          std::vector<std::uint64_t>{0x1010});
 }
 
 // The relocated island: x18 becomes the scratch everywhere, the guest value is loaded before and

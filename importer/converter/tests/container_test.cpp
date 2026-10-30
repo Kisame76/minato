@@ -417,7 +417,7 @@ TEST(the_island_table_describes_every_x18_island) {
     builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
     const auto singles = convert(builder);
     const auto image = read_info(singles.bytes).image_offset;
-    CHECK(read_info(singles.bytes).version == 4);
+    CHECK(read_info(singles.bytes).version == 5);
     const auto islands = island_table(singles);
     CHECK(islands.size() == 2);
     if (islands.size() == 2) {
@@ -460,6 +460,35 @@ TEST(the_island_table_describes_every_x18_island) {
         CHECK(jump[4].site == read_info(jump_container.bytes).image_offset + 0x21c);
         CHECK(jump[4].kind == APK_ISLAND_JUMP_TABLE && jump[4].words == 16 + 4 * 8 && jump[4].value == 0 &&
               jump[4].base == 1 && jump[4].commit == APK_ISLAND_NO_COMMIT && jump[4].store == 0);
+    }
+}
+
+// (b) ADR-0020 C7: an in-sequence x18 use on a live LL/SC path (the back-edge shape: the store-exclusive
+// before its load-exclusive, a backward branch) that no whole-window island took becomes a no-save island
+// over a register proven dead. The container records it as APK_ISLAND_SINGLE_NOSAVE, and a container that
+// holds one needs a v5 runtime (APK_CONTAINER_RECONSTRUCT_VERSION).
+TEST(the_container_records_a_no_save_island_at_version_5) {
+    auto builder = static_program();
+    builder.put<std::uint32_t>(0x200, 0x1400'0003);  // b 0x20c
+    builder.put<std::uint32_t>(0x204, 0xc802'7c03);  // stxr w2, x3, [x0]: the store-exclusive, before its ldxr
+    builder.put<std::uint32_t>(0x208, 0x3400'00a2);  // cbz w2, 0x21c
+    builder.put<std::uint32_t>(0x20c, 0xc85f'7c01);  // ldxr x1, [x0]
+    builder.put<std::uint32_t>(0x210, 0x8b12'0023);  // add x3, x1, x18: the in-sequence x18 read use
+    builder.put<std::uint32_t>(0x214, 0xd280'0005);  // mov x5, #0: x5 dead after the use (the value register)
+    builder.put<std::uint32_t>(0x218, 0x17ff'fffb);  // b 0x204
+    builder.put<std::uint32_t>(0x21c, 0xd503'201f);  // nop
+    const auto container = convert(builder);
+    const auto info = read_info(container.bytes);
+    CHECK(info.version == 5);
+    CHECK(info.version >= APK_CONTAINER_RECONSTRUCT_VERSION);  // the kind needs a reconstruction-capable runtime
+    const auto islands = island_table(container);
+    CHECK(islands.size() == 1);
+    if (islands.size() == 1) {
+        // mrs, bic, ldr x5 (the guest x18); add x3, x1, x5; b -- no red-zone save, no store-back
+        CHECK(islands[0].site == info.image_offset + 0x210);
+        CHECK(islands[0].kind == APK_ISLAND_SINGLE_NOSAVE && islands[0].words == 5 && islands[0].value == 5 &&
+              islands[0].base == APK_ISLAND_NO_REGISTER && islands[0].commit == 3 && islands[0].store == 0 &&
+              islands[0].resume == 1);
     }
 }
 
@@ -644,7 +673,7 @@ TEST(splits_an_image_into_runs_of_protection) {
     const auto container = convert(builder);
     const auto &bytes = container.bytes;
     const auto info = read_info(bytes);
-    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 4);
+    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 5);
     CHECK(info.min_vaddr == 0);
     CHECK(container.report.image_shift == 0);
     CHECK(info.image_size == 0x1c000);

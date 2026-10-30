@@ -340,10 +340,11 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
             });
             break;
         } catch (const apkrt::testing::LostSteps &) {
-            // The trace has a gap: run the call again. Under load gaps come in bursts (stepper.h), so each try
-            // waits a little longer first, up to 190 ms over 20 tries.
-            if (attempt == 20) throw;
-            std::this_thread::sleep_for(std::chrono::milliseconds(attempt));
+            // The trace has a gap: run the call again. Under load gaps come in bursts (stepper.h) that can
+            // outlast a short budget, so each try waits a little longer first (capped at 50 ms), up to about
+            // 1.7 s over 60 tries -- enough to ride out a burst while the parallel test load is heavy.
+            if (attempt == 60) throw;
+            std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 50 ? attempt : 50));
         }
     }
     for (std::size_t at = 0; at < steps.size(); ++at) {
@@ -547,6 +548,70 @@ TEST(a_resumable_exclusive_island_maps_every_word_to_the_guest_instruction) {
     after_store.x[value] = worked;
     const auto settled = apkrt::islands::settle(island, header, after_store, saved_value, saved_base, slot11, true);
     CHECK(settled.context.pc == header + island.site + 4 * 3);
+}
+
+// (b) ADR-0020 C7: a read no-save island loads the guest x18 into a dead value register, runs the use,
+// and branches back -- no red-zone save, no store-back. settle() maps each word to the site (before the
+// commit) or site + 4 (after), x18 stays slot 11 (a read never writes it), and the dead value register is
+// NEVER restored from the red zone (the island saved nothing there). The end-to-end no-fault leave() is
+// covered by the step-8 fixtures; here the settle() map is checked directly.
+TEST(a_no_save_read_island_maps_every_word_and_restores_no_register) {
+    constexpr std::uint8_t value = 5;
+    apk_island island{};
+    island.stub = 0x1000;
+    island.site = 0x400;
+    island.words = 5;  // mrs, bic, ldr, the use, the branch back
+    island.kind = APK_ISLAND_SINGLE_NOSAVE;
+    island.value = value;
+    island.base = APK_ISLAND_NO_REGISTER;
+    island.commit = 3;  // the use is word 3 (mrs 0, bic 1, ldr 2)
+    island.store = 0;   // a read never stores x18 back
+    island.resume = 1;
+    constexpr std::uint64_t header = 0x1'0000'0000;
+    constexpr std::uint64_t worked = 0xbeef, saved_value = 0xcafe, saved_base = 0xf00d, slot11 = 0x1818;
+    for (unsigned k = 0; k < island.words; ++k) {
+        apkrt::GuestContext context{};
+        context.pc = header + island.stub + 4 * k;
+        context.x[value] = worked;  // the island's x18 stand-in, a register proven dead after the use
+        const auto settled = apkrt::islands::settle(island, header, context, saved_value, saved_base, slot11, false);
+        const bool back = k <= island.commit;  // before the commit it restarts at the site; after, it goes on
+        CHECK(settled.context.pc == header + island.site + (back ? 0 : 4));
+        CHECK(settled.x18 == slot11);                     // a read leaves slot 11 the guest value throughout
+        CHECK(settled.context.x[value] == worked);        // the dead register is not restored from the red zone
+    }
+}
+
+// (b) ADR-0020 C7: a write no-save island adds a store-back through a second dead register. From just after
+// the use (the commit) until the str runs (the store word) x18 lives in the value register; before the
+// commit and after the store it is slot 11. Neither dead register is restored from the red zone.
+TEST(a_no_save_write_island_holds_x18_in_the_value_register_until_the_store_back) {
+    constexpr std::uint8_t value = 5, base = 6;
+    apk_island island{};
+    island.stub = 0x1000;
+    island.site = 0x400;
+    island.words = 8;  // mrs, bic, ldr, the use, mrs, bic, str, the branch back
+    island.kind = APK_ISLAND_SINGLE_NOSAVE;
+    island.value = value;
+    island.base = base;
+    island.commit = 3;  // the use is word 3
+    island.store = 6;   // str x_value, [x_base, #slot11] is word 6
+    island.resume = 1;
+    constexpr std::uint64_t header = 0x1'0000'0000;
+    constexpr std::uint64_t worked = 0xbeef, saved_value = 0xcafe, saved_base = 0xf00d, slot11 = 0x1818,
+                            had_base = 0x9999;
+    for (unsigned k = 0; k < island.words; ++k) {
+        apkrt::GuestContext context{};
+        context.pc = header + island.stub + 4 * k;
+        context.x[value] = worked;    // the new x18, once the use has run
+        context.x[base] = had_base;   // the store-back base scratch
+        const auto settled = apkrt::islands::settle(island, header, context, saved_value, saved_base, slot11, false);
+        const bool back = k <= island.commit;
+        CHECK(settled.context.pc == header + island.site + (back ? 0 : 4));
+        const bool x18_in_value = !back && k <= island.store;  // committed, but slot 11 not yet written
+        CHECK(settled.x18 == (x18_in_value ? worked : slot11));
+        CHECK(settled.context.x[value] == worked);    // neither dead register is restored from the red zone
+        CHECK(settled.context.x[base] == had_base);
+    }
 }
 
 // A container older than APK_CONTAINER_RESUMABLE_VERSION has restartable, not resumable, EXCLUSIVE

@@ -121,7 +121,8 @@ void inspect(const std::string &path) {
                 case apk::rewrite::SiteKind::thread_pointer_read: ++thread_pointer_reads; break;
                 case apk::rewrite::SiteKind::thread_pointer_write: ++thread_pointer_writes; break;
                 case apk::rewrite::SiteKind::syscall: ++syscalls; break;
-                case apk::rewrite::SiteKind::x18: ++x18_islands; break;
+                case apk::rewrite::SiteKind::x18:
+                case apk::rewrite::SiteKind::x18_nosave: ++x18_islands; break;
             }
         }
         const auto &findings = scan.findings;

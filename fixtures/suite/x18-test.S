@@ -327,6 +327,46 @@ function x18_skipped_write
     restore_x18
     ret
 
+// uint64_t x18_nosave_read(uint64_t *cell): adds 5 to the cell with x18 READ in-sequence on a LIVE
+// LL/SC path (ADR-0020 C7). The store-exclusive is physically before its load-exclusive and reached by
+// a backward branch, so this is not a closable window the converter can relocate: the x18 use becomes a
+// no-save island over x5, which `mov x5, #0` proves dead right after it. Returns the new cell value.
+function x18_nosave_read
+    save_x18
+    mov     x18, #5
+    b       1f
+0:  stxr    w2, x3, [x0]            // the store-exclusive, physically first
+    cbz     w2, 2f                  // success: leave
+1:  ldxr    x1, [x0]                // the load-exclusive
+    add     x3, x1, x18             // the in-sequence x18 read use -> a no-save island, value register x5
+    mov     x5, #0                  // x5 dead after the use
+    b       0b                      // backward to the store-exclusive
+2:  mov     x0, x3
+    restore_x18
+    ret
+
+// uint64_t x18_nosave_write(void): a WRITE use of x18 on a live LL/SC path whose cell is the red-zone
+// address itself (sp - 128), exactly where a red-zone spill would land (ADR-0020 C7, fixture b). The
+// no-save island touches only the TSD granule, so it never collides with the cell; x18, written in the
+// window to cell + 1, survives to the return, proving the store-back to slot 11 ran. Returns 42.
+function x18_nosave_write
+    save_x18
+    sub     x9, sp, #128            // the LL/SC cell is the red-zone address a spill would hit
+    mov     x3, #41
+    str     x3, [x9]
+    b       1f
+0:  stxr    w2, x3, [x9]            // the store-exclusive, physically first (stores x3, unchanged)
+    cbnz    w2, 1f                  // failed: retry
+    b       2f                      // success: leave
+1:  ldxr    x3, [x9]                // the load-exclusive
+    add     x18, x3, #1             // the in-sequence x18 write use -> a no-save island, value x5, base x6
+    mov     x5, #0                  // x5 dead after the use (the value register)
+    mov     x6, #0                  // x6 dead after the use (the store-back base)
+    b       0b                      // backward to the store-exclusive
+2:  mov     x0, x18                 // read x18 back from slot 11: 42 if the store-back worked
+    restore_x18
+    ret
+
 // int64_t x18_switch(uint64_t index): 10 + index for 0 to 3, else -1, through a jump table and
 // br x18, as compilers build a switch.
 function x18_switch

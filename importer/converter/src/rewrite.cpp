@@ -524,6 +524,16 @@ std::optional<std::int64_t> branch_displacement(std::uint32_t word) {
     return std::nullopt;
 }
 
+/// Whether `word` ends the straight-line path from a load-exclusive, so a store-exclusive physically
+/// beyond it belongs to other code, not this window: a return, a register or indirect branch (BR, `ret
+/// xN`), or an unconditional direct branch (B). A call (BL, BLR) returns to the next word and a
+/// conditional branch falls through, so neither ends the path. exclusive_window_end() and
+/// unclosed_window() stop here rather than scan linearly into the next function (ADR-0020 step D): a
+/// later function's store-exclusive must not be read as this load-exclusive's close.
+constexpr bool ends_straight_line(std::uint32_t word) {
+    return is_register_return(word) || is_register_branch(word) || (word & 0xfc00'0000) == 0x1400'0000;
+}
+
 /// How far after its load-exclusive a window may close, in bytes.
 constexpr std::size_t window_cap = 64 * 4;
 
@@ -538,6 +548,7 @@ std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code,
             return (j + 4 < code.size() && is_clrex(word_at(code, j + 4))) ? j + 4 : j;
         }
         if (is_clrex(word)) return j;
+        if (ends_straight_line(word)) return std::nullopt;  // the path ends with no close reached: unclosed
     }
     return std::nullopt;
 }
@@ -1085,6 +1096,47 @@ bool stays_in_place(std::span<const std::byte> code, std::size_t open, std::size
     return false;
 }
 
+// From the use at `use_offset`, whether register `cand` (0..30) is dead right after it: walking
+// forward, its first access is a write, reached before any branch and within dead_x18_reach words
+// (ADR-0020 C7). The no-save island's value register must be dead, so loading the guest x18 into it and
+// running the use there clobbers nothing the guest still needs. Generalizes the "dead after the window"
+// walk of stays_in_place to an arbitrary register.
+bool register_dead_after(std::span<const std::byte> code, std::size_t use_offset, unsigned cand) {
+    const std::uint32_t bit = 1u << cand;
+    for (std::size_t j = use_offset + 4, n = 0; j + 4 <= code.size() && n < dead_x18_reach; j += 4, ++n) {
+        const auto word = word_at(code, j);
+        const auto use = a64::register_use(word);
+        if ((use.reads & bit) != 0) return false;   // read before any write -> live
+        if ((use.writes & bit) != 0) return true;    // written before any read -> dead
+        if (is_branch(word)) return false;           // a branch before the write -> cannot prove it dead
+    }
+    return false;  // the reach limit or the section's end came first
+}
+
+// The lowest general register (0..30) proven dead right after the use and not touched by the use itself
+// (`operands` = its reads and writes, x18 included), so substituting it for x18 collides with no
+// operand; APK_ISLAND_NO_REGISTER if none.
+std::uint8_t dead_value_register(std::span<const std::byte> code, std::size_t use_offset, std::uint32_t operands) {
+    for (unsigned cand = 0; cand < 31; ++cand) {
+        if ((operands & (1u << cand)) != 0) continue;
+        if (register_dead_after(code, use_offset, cand)) return static_cast<std::uint8_t>(cand);
+    }
+    return APK_ISLAND_NO_REGISTER;
+}
+
+// `count` distinct registers (0..30) proven dead right after the use and not touched by it, lowest first
+// in `out`; false if fewer than `count` exist. A write use needs two (the value register Xd and the
+// store-back base Xb); each must be free so the island can clobber it without the red zone.
+bool dead_value_registers(std::span<const std::byte> code, std::size_t use_offset, std::uint32_t operands,
+                          unsigned count, std::uint8_t out[]) {
+    unsigned found = 0;
+    for (unsigned cand = 0; cand < 31 && found < count; ++cand) {
+        if ((operands & (1u << cand)) != 0) continue;
+        if (register_dead_after(code, use_offset, cand)) out[found++] = static_cast<std::uint8_t>(cand);
+    }
+    return found == count;
+}
+
 // --- Jump tables through x18 (ADR-0020 X2d) ------------------------------------------------------
 
 constexpr std::uint32_t br_x18 = 0xd61f'0240;
@@ -1387,6 +1439,35 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                              ? inside_exclusive_sequence
                              : unsupported_reason(instruction, is_lone_load(offset));
             }
+            // (b) ADR-0020 C7: an in-sequence x18 use that no whole-window island took can still be
+            // relocated to a no-save island over a register proven dead right after it. The island
+            // touches only the TSD granule (C3b KEEPS the monitor inside a live LL/SC) and needs no
+            // red-zone save, so dead registers are enough. Only a non-branch, non-exclusive use that
+            // falls through to the next instruction qualifies: the island runs it and returns to site+4.
+            // A read use needs one dead register (the value); a write use needs two -- the value and the
+            // store-back base that returns the new x18 to slot 11 (a read-modify-write is a write use).
+            bool nosave = false;
+            if (reason == inside_exclusive_sequence && (reads || writes) && !is_branch(instruction)
+                && !is_exclusive(instruction)) {
+                const std::uint32_t operands = use.reads | use.writes;
+                if (writes) {
+                    std::uint8_t registers[2];
+                    if (dead_value_registers(code, offset, operands, 2, registers)
+                        && a64::substitute(instruction, guest_x18, registers[0])) {
+                        findings.sites.push_back(
+                            {at, SiteKind::x18_nosave, registers[0], instruction, registers[1]});
+                        reason = nullptr;
+                        nosave = true;
+                    }
+                } else {
+                    const auto value = dead_value_register(code, offset, operands);
+                    if (value != APK_ISLAND_NO_REGISTER && a64::substitute(instruction, guest_x18, value)) {
+                        findings.sites.push_back({at, SiteKind::x18_nosave, value, instruction});
+                        reason = nullptr;
+                        nosave = true;
+                    }
+                }
+            }
             if (instruction == br_x18 && window_reason == nullptr && reason != inside_exclusive_sequence) {
                 // A br x18 runs as the end of a jump table through landing pads (X2d), or, when it ends
                 // no jump table the rewriter knows, as a general indirect island that branches to the
@@ -1405,7 +1486,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                     findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});  // the indirect island
                     reason = nullptr;
                 }
-            } else if (!reason) {
+            } else if (!reason && !nosave) {
                 findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});
             }
             if (reason) findings.x18_unsupported.push_back({at, reason});
@@ -1437,6 +1518,14 @@ std::size_t stub_size(const Site &site) {
         case SiteKind::thread_pointer_write: return 4 * write_island_words;
         case SiteKind::syscall: return 4 * syscall_veneer_words;
         case SiteKind::x18: return 4 * x18_island_words(site.instruction);
+        case SiteKind::x18_nosave: {
+            // mrs, bic, ldr (load the guest x18 into the dead register); the use (1 to 3 words); for a
+            // write use mrs, bic, str (store the new x18 back through the second dead register); the
+            // branch back. No red-zone save -- the registers are dead.
+            const auto body = std::max<std::size_t>(pc_relative_words(site.instruction), 1);
+            const bool writes = site.base != APK_ISLAND_NO_REGISTER;
+            return 4 * (3 + body + (writes ? 3u : 0u) + 1);
+        }
     }
     throw RewriteError("unknown site kind");
 }
@@ -1560,6 +1649,37 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
             write(ldp_post_index(x16, x30, sp, 16));
             break;
         }
+
+        case SiteKind::x18_nosave: {
+            // A use over registers proven dead right after it (ADR-0020 C7): load the guest x18 from the
+            // TSD into the dead value register, run the use there, and branch back. No red-zone save (the
+            // registers are dead). A write use also stores the new x18 back to slot 11 through a second
+            // dead register; a read use leaves x18 unchanged, so its only memory access is the TSD load,
+            // which C3b keeps the monitor across. (The write use's load and store are both to slot 11.)
+            const auto value = site.reg;
+            const auto substituted = a64::substitute(site.instruction, guest_x18, value);
+            if (!substituted) throw RewriteError("x18 cannot be substituted in a no-save island");
+            write(mrs_tpidrro_el0(value));
+            write(bic_7(value, value));
+            write(ldr_unsigned(value, value, guest_x18_offset));
+            if (const auto words = pc_relative_words(site.instruction)) {
+                const auto target = pc_relative_target(site.instruction, site_address);
+                write(adrp(value, write.next_address(), target));
+                if (words >= 2) write(add_immediate(value, value, target & 0xfff));
+                if (words == 3) {
+                    constexpr std::uint32_t loads[] = {0xb940'0000, 0xf940'0000, 0xb980'0000};  // LDR W, X; LDRSW
+                    write(loads[site.instruction >> 30] | reg(value, 5) | reg(value, 0));
+                }
+            } else {
+                write(*substituted);
+            }
+            if (site.base != APK_ISLAND_NO_REGISTER) {  // a write use returns the new x18 to the TSD
+                write(mrs_tpidrro_el0(site.base));
+                write(bic_7(site.base, site.base));
+                write(str_unsigned(value, site.base, guest_x18_offset));
+            }
+            break;
+        }
     }
     write(b(write.next_address(), back));
     write.finish();
@@ -1672,6 +1792,26 @@ std::uint32_t emit_jump_table(const JumpTable &table, std::uint64_t branch_addre
 }
 
 IslandLayout island_layout(const Site &site) {
+    if (site.kind == SiteKind::x18_nosave) {
+        // As emit() writes it: mrs, bic, ldr load the guest x18 into the dead value register, then the
+        // use (1 to 3 words), then -- for a write use -- mrs, bic, str return the new x18 to slot 11
+        // through the second dead register, then the branch back. No red-zone save, so reconstruction
+        // restores no register. commit is the use's last word; a read use stores nothing (store 0, base
+        // NO_REGISTER), a write use's store word is the str, and between the commit and the store x18
+        // lives in the value register.
+        const auto body = std::max<std::size_t>(pc_relative_words(site.instruction), 1);
+        const bool writes = site.base != APK_ISLAND_NO_REGISTER;
+        IslandLayout layout{.kind = APK_ISLAND_SINGLE_NOSAVE,
+                            .words = static_cast<std::uint32_t>(3 + body + (writes ? 3u : 0u) + 1),
+                            .value = site.reg};
+        layout.commit = static_cast<std::uint8_t>(2 + body);  // mrs(0) bic(1) ldr(2) use(3..2+body)
+        if (writes) {
+            layout.base = site.base;
+            layout.store = static_cast<std::uint8_t>(5 + body);  // mrs, bic, str at 3+body, 4+body, 5+body
+        }
+        layout.resume = 1;                                    // after the commit, on to site + 4
+        return layout;
+    }
     if (site.kind != SiteKind::x18) throw RewriteError("only an x18 site has an island layout");
     const auto scratch = scratch_registers(site.instruction);
     IslandLayout layout{.kind = APK_ISLAND_SINGLE,

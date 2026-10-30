@@ -6,10 +6,13 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 #include <sys/ucontext.h>
+#include <time.h>
 #include <unistd.h>
 
 uint64_t x18_move(uint64_t value);
@@ -35,6 +38,8 @@ uint64_t x18_ll_sc_w(uint32_t *cell);
 uint64_t x18_cmpxchg(uint64_t *cell, uint64_t expected, uint64_t desired);
 uint64_t x18_clrex_only(uint64_t *cell);
 uint64_t x18_skipped_write(uint64_t *cell);
+uint64_t x18_nosave_read(uint64_t *cell);
+uint64_t x18_nosave_write(void);
 int64_t x18_switch(uint64_t index);
 uint64_t x18_syscall(uint64_t value);
 uint64_t x18_yield(uint64_t value, uint64_t times);
@@ -62,6 +67,72 @@ static void *read_x18(void *argument) {
 
 static const char *yes(int condition) {
     return condition ? "yes" : "no";
+}
+
+// (b) ADR-0020 C7: run both no-save islands in a tight loop while a signaller thread delivers SIGALRM to
+// this thread every ~1 ms, so a signal lands inside a no-save island and the runtime's leave() reconstructs
+// x18 from slot 11 without reading the red zone. The write use's LL/SC cell IS the red-zone address
+// (sp - 128), so a stray red-zone access by leave() would corrupt it -- a wrong result would catch it.
+// (pthread_kill, as x18-stress uses it; ITIMER_REAL timers do not fire in the runtime.) Passes when every
+// result stays correct across at least `storm_wanted` signals.
+enum { storm_wanted = 100 };
+static volatile sig_atomic_t alarms;
+static atomic_int storm_running;
+static pthread_t storm_target;
+
+static void on_alarm(int signal) {
+    (void)signal;
+    ++alarms;
+}
+
+static void *storm_signaller(void *argument) {
+    (void)argument;
+    const struct timespec ms = {0, 1000000};  // ~1 ms between signals
+    while (atomic_load(&storm_running)) {
+        pthread_kill(storm_target, SIGALRM);
+        nanosleep(&ms, NULL);
+    }
+    return NULL;
+}
+
+static int64_t milliseconds_since(const struct timespec *start) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (now.tv_sec - start->tv_sec) * 1000 + (now.tv_nsec - start->tv_nsec) / 1000000;
+}
+
+static char storm_alt_stack[64 * 1024];
+
+static int nosave_storm(void) {
+    // The handler runs on an alt stack so its signal frame does not land on the main stack's red zone,
+    // where x18_nosave_write's LL/SC cell sits (sp - 128): that collision is a property of stacks, not of
+    // the no-save island, which never touches the red zone.
+    stack_t alt = {.ss_sp = storm_alt_stack, .ss_size = sizeof storm_alt_stack, .ss_flags = 0};
+    sigaltstack(&alt, NULL);
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_handler = on_alarm;
+    action.sa_flags = SA_RESTART | SA_ONSTACK;
+    sigaction(SIGALRM, &action, NULL);
+    storm_target = pthread_self();
+    atomic_store(&storm_running, 1);
+    pthread_t signaller;
+    pthread_create(&signaller, NULL, storm_signaller, NULL);
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    int ok = 1;
+    while (ok && alarms < storm_wanted && milliseconds_since(&start) < 10 * 1000) {
+        for (int i = 0; i < 10000 && ok; ++i) {
+            uint64_t cell = 37;
+            if (x18_nosave_read(&cell) != 42) ok = 0;  // the read island, over x5
+            if (x18_nosave_write() != 42) ok = 0;      // the write island, cell at sp - 128
+        }
+    }
+
+    atomic_store(&storm_running, 0);
+    pthread_join(signaller, NULL);
+    return ok && alarms >= storm_wanted;
 }
 
 int main(void) {
@@ -124,6 +195,10 @@ int main(void) {
     uint64_t zero = 0, five = 5;
     printf("a window that skips its only write of x18: %" PRIu64 ", and one that makes it: %" PRIu64 "\n",
            x18_skipped_write(&zero), x18_skipped_write(&five));
+    uint64_t nosave_cell = 37;
+    printf("a no-save island for a live LL/SC read use: %" PRIu64 "\n", x18_nosave_read(&nosave_cell));
+    printf("a no-save island for a live LL/SC write use at sp-128: %" PRIu64 "\n", x18_nosave_write());
+    printf("the no-save islands run correctly under a SIGALRM storm: %s\n", yes(nosave_storm()));
     printf("a jump table through br x18:");
     for (uint64_t index = 0; index < 5; ++index) printf(" %" PRId64, x18_switch(index));
     printf("\n");

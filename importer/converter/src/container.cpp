@@ -601,8 +601,12 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
 
     const std::uint64_t info_offset = align_up(macho::header_size(dylib) + macho::signature_headroom, 8);
     // The island table follows __apk_info: one entry per x18 island, in the order of the stubs; then the runs.
+    // Both x18 and x18_nosave sites become an island (ADR-0020 C7), so both are counted here -- this must match
+    // the add_island calls in the site loop below, or the table is mis-sized and the runs overwrite it.
     const auto island_count =
-        static_cast<std::size_t>(std::ranges::count(findings.sites, rewrite::SiteKind::x18, &rewrite::Site::kind)) +
+        static_cast<std::size_t>(std::ranges::count_if(findings.sites, [](const rewrite::Site &site) {
+            return site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave;
+        })) +
         findings.exclusive_regions.size() + findings.jump_tables.size();
     const std::uint64_t islands_offset = align_up(info_offset + sizeof(apk_container_info), 8);
     const std::uint64_t runs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 8);
@@ -704,6 +708,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
             case rewrite::SiteKind::thread_pointer_write: ++report.thread_pointer_writes; break;
             case rewrite::SiteKind::syscall: ++report.syscalls; break;
             case rewrite::SiteKind::x18:
+            case rewrite::SiteKind::x18_nosave:
                 ++report.x18_islands;
                 add_island(rewrite::island_layout(site), stub, site_address);
                 break;
@@ -731,6 +736,13 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         add_island(rewrite::jump_table_layout(table), stub, branch_address);
         stub += size;
         ++report.x18_islands;
+    }
+    // Internal check (ADR-0020 C7): the pre-count above sized the island table and the runs table was laid
+    // out right after it, so if the add_island calls do not match island_count the runs overwrite the table
+    // silently (the bug a missed kind caused). Fail the conversion rather than write a corrupt container.
+    if (islands.size() != island_count) {
+        throw Incompatible(std::format("internal: wrote {} islands but reserved space for {}", islands.size(),
+                                       island_count));
     }
     std::memcpy(bytes.data() + islands_offset, islands.data(), islands.size() * sizeof(apk_island));
     std::vector<apk_run> run_table;
