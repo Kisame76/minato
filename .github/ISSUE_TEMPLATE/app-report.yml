@@ -1,0 +1,105 @@
+name: An app does not work
+description: An Android app or game does not import, start or run right in Minato.
+title: "[App] "
+labels: ["app-report", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. Minato is in beta, and every report of an app that does not work helps make it work.
+        In Minato, open the app's menu and tap **Report a problem**: it fills in most of this form and copies a
+        report you can paste below. Please do not attach APK files, and leave out anything personal.
+  - type: input
+    id: app
+    attributes:
+      label: App
+      description: The app's name as the store shows it.
+    validations:
+      required: true
+  - type: input
+    id: package
+    attributes:
+      label: Package name
+      description: For example com.example.game. Minato shows it in Get Info.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+    validations:
+      required: true
+  - type: dropdown
+    id: what
+    attributes:
+      label: What happens
+      options:
+        - The import fails or the app shows as incompatible
+        - It does not start
+        - It crashes
+        - Black or frozen screen
+        - No sound or wrong sound
+        - Touch, keyboard or controller does not work
+        - Too slow
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What did you do, and what did you see?
+      description: The steps up to the problem, and the message Minato showed, if any.
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Where the APK came from
+      options:
+        - Exported from my Android device
+        - F-Droid
+        - The developer's website
+        - An APK site (APKMirror, APKPure or similar)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: File format
+      options:
+        - .apk
+        - .apks
+        - .xapk
+        - .apkm
+        - Split APKs (base.apk and split_*.apk)
+        - .aab
+        - With OBB files
+    validations:
+      required: true
+  - type: input
+    id: minato
+    attributes:
+      label: Minato version
+      description: Settings > About, for example 1.0.0 (Beta 1).
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: iPhone model
+      description: For example iPhone 15 Pro.
+    validations:
+      required: true
+  - type: input
+    id: ios
+    attributes:
+      label: iOS version
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report from Minato
+      description: Paste the report that Report a problem copied. It holds no files and no account data.
+      render: text

@@ -1,0 +1,94 @@
+name: release
+
+# Pushing a version tag is the release (docs/RELEASING.md). The release and its notes are built here from the
+# CHANGELOG section of the same version, so a tag nobody wrote up fails instead of becoming an empty release.
+# tools/release.sh then uploads the IPA, its SHA-256 and the website's source entry to it: the IPA needs AOSP's ART,
+# ANGLE, MoltenVK and Bionic, which a hosted runner cannot build in time.
+on:
+  push:
+    tags: ['v*']
+
+  # By hand against a tag that is already out: when a release was deleted by mistake or its notes came out wrong.
+  # Tags are protected against deletion and rewriting, so pushing one again is not the way.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to build the release from, e.g. v1.0.0-beta.1
+        required: true
+
+# Creating a release is a write; the default token is read-only.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    name: publish
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tag itself, so the notes are the CHANGELOG as it stood when the version went out; every tag, since
+          # whether this one is the newest is decided against the others below.
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Read the changelog section for this tag
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # The version is compared as a whole word, not as a pattern (its dots would match any character). The
+          # section runs to the next `## `.
+          awk -v want="$version" '
+            /^## / {
+              if (found) { exit }
+              split($0, heading, " ")
+              if (heading[2] == want) { found = 1 }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no section for ${version}. Write it up, then tag." >&2
+            exit 1
+          fi
+          # Blank lines at the top and the bottom, left by the headings around the section.
+          sed -i -e '/./,$!d' notes.md
+          printf '%s\n' "$(cat notes.md)" > notes.md
+          echo "Release notes for ${version}:"
+          cat notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$TAG"
+          # A version with a suffix is a pre-release: v1.0.0-beta.1, never v1.0.0.
+          case "$tag" in
+            *-*) prerelease='--prerelease' ;;
+            *)   prerelease='' ;;
+          esac
+          # Only the highest final version is latest: a fix on an older line must not take the badge from a newer
+          # one, and a beta never takes it, though v1.1.0-beta.1 sorts above v1.0.2. `create` takes
+          # --latest=false, `edit` only the bare flag. grep's no-match is an answer here (no final version yet).
+          highest_release="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+(\.[0-9]+)*$' |
+            head -n 1 || true)"
+          if [ -z "$prerelease" ] && [ "$highest_release" = "$tag" ]; then
+            create_latest='--latest'
+            edit_latest='--latest'
+          else
+            create_latest='--latest=false'
+            edit_latest=''
+          fi
+          # Run again on a tag that has a release, it rewrites the notes, so a fixed CHANGELOG can go out again.
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release edit "$tag" --notes-file notes.md --verify-tag $edit_latest
+          else
+            gh release create "$tag" --title "Minato ${tag#v}" --notes-file notes.md --verify-tag $create_latest \
+              $prerelease
+          fi

@@ -16,16 +16,31 @@ DerivedData/
 .build/
 .swiftpm/
 
-# Signing identities (certificate and private key) never go into the repo (ADR-0022)
+# Signing identities and profiles (certificates, private keys) never go into the repo (ADR-0022)
 *.p12
+*.cer
+*.pem
+*.key
+*.p8
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
 
-# No APKs or app bundles in the repo (CLAUDE.md Non-Goals)
+# Release outputs (tools/release.sh builds them under build/release)
+*.ipa
+*.xcarchive/
+*.dSYM/
+*.xcresult/
+
+# No APKs or app bundles in the repo; the OBB test's own files are the exception
 *.apk
 *.apks
 *.xapk
 *.apkm
 *.aab
 *.obb
+!fixtures/apps/obb-test/*.obb
 
 # CMake / Android NDK
 .cxx/
@@ -36,6 +51,13 @@ cmake-build-*/
 
 # Python
 __pycache__/
+*.pyc
+
+# Editors and local settings
+.idea/
+.vscode/
+*.swp
+.env
 
 # graphify's knowledge graph of the code, built locally (.graphifyignore)
 graphify-out/*

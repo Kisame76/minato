@@ -1,0 +1,46 @@
+name: A bug in Minato
+description: Something in Minato itself is wrong, such as the library, the import, signing or the overlay.
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For an Android app that does not work, use **An app does not work** instead. Please leave out anything
+        personal.
+  - type: textarea
+    id: details
+    attributes:
+      label: What happened?
+      description: The steps up to the problem, what you expected, and what you saw.
+    validations:
+      required: true
+  - type: input
+    id: minato
+    attributes:
+      label: Minato version
+      description: Settings > About, for example 1.0.0 (Beta 1).
+    validations:
+      required: true
+  - type: dropdown
+    id: installer
+    attributes:
+      label: Installed with
+      options:
+        - SideStore
+        - AltStore
+        - Xcode (a build of my own)
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: iPhone model
+    validations:
+      required: true
+  - type: input
+    id: ios
+    attributes:
+      label: iOS version
+    validations:
+      required: true
