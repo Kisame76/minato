@@ -37,3 +37,15 @@ python3 framework/tests/java_app_run.py \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/gamepad-check \
   build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
   build/gamepad-test/gamepad-test.apk fixtures/expected/gamepad-test.logcat 1290x2796@3,en-US
+
+# gamepad-native-test (step 4), a NativeActivity, on the Java path (ADR-0069 step 3): the same controller's keys and
+# axes reach its input queue as Android 15's do (fixtures/expected/gamepad-native-test.logcat). Its window must be
+# drawn, as native-activity-check's. The app ends at its 18th motion event, before the device goes.
+tools/build-fixtures.sh >/dev/null
+steps="${steps%,pad:remove}"
+python3 framework/tests/java_app_run.py --drawn --lifecycle "$steps" \
+  gamepad-native-test io.github.kisame76.minato.test.gamepadnative android.app.Application \
+  build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
+  "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/gamepad-check \
+  build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
+  build/fixtures/apks/gamepad-native-test.apk fixtures/expected/gamepad-native-test.logcat 1290x2796@3,en-US

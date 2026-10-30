@@ -24,6 +24,7 @@
 #include <log/log.h>
 
 #include <algorithm>
+#include <cstring>
 #include <map>
 #include <mutex>
 
@@ -83,10 +84,12 @@ struct {
 struct {
     jmethodID getAction, getPointerCount, getPointerId, getHistorySize, getHistoricalX, getHistoricalY,
             getHistoricalPressure, getHistoricalTouchMajor, getHistoricalEventTimeNanos, getX, getY, getPressure,
-            getTouchMajor, getEventTimeNanos, getDownTime;
+            getTouchMajor, getEventTimeNanos, getDownTime, getSource, getDeviceId, getToolType, getButtonState,
+            getMetaState, getAxisValue;
 } gMotionEventClassInfo;
 
 constexpr int32_t kPredispatch = 0x20000000;  // AKEY_EVENT_FLAG_PREDISPATCH
+constexpr int32_t kTouchscreen = 0x00001002;  // SOURCE_TOUCHSCREEN
 
 /// A finished event as the pipe carries it.
 struct Finish {
@@ -211,10 +214,38 @@ jlong nativeSendKeyEvent(JNIEnv *env, jclass, jlong ptr, jobject eventObj, jbool
     return libandroid().postKey(native->queue, &key, id) ? static_cast<jlong>(id) : 0;
 }
 
+/// A motion event of another source than the touchscreen (ADR-0068 decision 5, step 4: a pad's stick, a mouse's move)
+/// as an axes record: its action, device, source, tool, buttons and meta state, and the axes that are not zero, the
+/// first APKRT_AXES_MAX of them.
+jlong sendAxesEvent(JNIEnv *env, NativeQueue *native, jobject eventObj) {
+    const auto &info = gMotionEventClassInfo;
+    apkrt_axes_event axes{};
+    axes.kind = APKRT_INPUT_AXES;
+    axes.action = env->CallIntMethod(eventObj, info.getAction);
+    axes.event_time = env->CallLongMethod(eventObj, info.getEventTimeNanos);
+    axes.device_id = env->CallIntMethod(eventObj, info.getDeviceId);
+    axes.source = env->CallIntMethod(eventObj, info.getSource);
+    axes.tool_type = env->CallIntMethod(eventObj, info.getToolType, 0);
+    axes.button_state = env->CallIntMethod(eventObj, info.getButtonState);
+    axes.meta_state = env->CallIntMethod(eventObj, info.getMetaState);
+    for (int axis = 0; axis < APKRT_AXIS_LIMIT && axes.axis_count < APKRT_AXES_MAX; ++axis) {
+        const float value = env->CallFloatMethod(eventObj, info.getAxisValue, axis, 0);
+        if (value != 0.f) axes.axes[axes.axis_count++] = {axis, value};
+    }
+    // The record is smaller than a motion record, which the queue's copy takes whole.
+    apkrt_motion_event record{};
+    std::memcpy(&record, &axes, sizeof axes);
+    const uint64_t id = ++native->lastId;
+    return libandroid().postMotion(native->queue, &record, id) ? static_cast<jlong>(id) : 0;
+}
+
 jlong nativeSendMotionEvent(JNIEnv *env, jclass, jlong ptr, jobject eventObj) {
     NativeQueue *native = native_queue(ptr);
     if (native == nullptr) return 0;
     const auto &info = gMotionEventClassInfo;
+    if ((env->CallIntMethod(eventObj, info.getSource) & kTouchscreen) != kTouchscreen) {
+        return sendAxesEvent(env, native, eventObj);
+    }
     apkrt_motion_event motion{};
     motion.kind = APKRT_INPUT_MOTION;
     motion.action = env->CallIntMethod(eventObj, info.getAction);
@@ -295,6 +326,12 @@ int register_android_view_InputQueue(JNIEnv *env) {
     m.getTouchMajor = GetMethodIDOrDie(env, motion, "getTouchMajor", "(I)F");
     m.getEventTimeNanos = GetMethodIDOrDie(env, motion, "getEventTimeNanos", "()J");
     m.getDownTime = GetMethodIDOrDie(env, motion, "getDownTime", "()J");
+    m.getSource = GetMethodIDOrDie(env, motion, "getSource", "()I");
+    m.getDeviceId = GetMethodIDOrDie(env, motion, "getDeviceId", "()I");
+    m.getToolType = GetMethodIDOrDie(env, motion, "getToolType", "(I)I");
+    m.getButtonState = GetMethodIDOrDie(env, motion, "getButtonState", "()I");
+    m.getMetaState = GetMethodIDOrDie(env, motion, "getMetaState", "()I");
+    m.getAxisValue = GetMethodIDOrDie(env, motion, "getAxisValue", "(II)F");
     return RegisterMethodsOrDie(env, "android/view/InputQueue", g_methods, NELEM(g_methods));
 }
 

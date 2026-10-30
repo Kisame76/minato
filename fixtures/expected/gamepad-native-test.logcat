@@ -1,0 +1,42 @@
+I/gamepad-native-test: ready: pad
+I/gamepad-native-test: key down BUTTON_A, source 0x501
+I/gamepad-native-test: key up BUTTON_A, source 0x501
+I/gamepad-native-test: key down BUTTON_B, source 0x501
+I/gamepad-native-test: key up BUTTON_B, source 0x501
+I/gamepad-native-test: key down BUTTON_X, source 0x501
+I/gamepad-native-test: key up BUTTON_X, source 0x501
+I/gamepad-native-test: key down BUTTON_Y, source 0x501
+I/gamepad-native-test: key up BUTTON_Y, source 0x501
+I/gamepad-native-test: key down BUTTON_L1, source 0x501
+I/gamepad-native-test: key up BUTTON_L1, source 0x501
+I/gamepad-native-test: key down BUTTON_R1, source 0x501
+I/gamepad-native-test: key up BUTTON_R1, source 0x501
+I/gamepad-native-test: key down BUTTON_START, source 0x501
+I/gamepad-native-test: key up BUTTON_START, source 0x501
+I/gamepad-native-test: key down BUTTON_SELECT, source 0x501
+I/gamepad-native-test: key up BUTTON_SELECT, source 0x501
+I/gamepad-native-test: key down BUTTON_MODE, source 0x501
+I/gamepad-native-test: key up BUTTON_MODE, source 0x501
+I/gamepad-native-test: key down BUTTON_THUMBL, source 0x501
+I/gamepad-native-test: key up BUTTON_THUMBL, source 0x501
+I/gamepad-native-test: key down BUTTON_THUMBR, source 0x501
+I/gamepad-native-test: key up BUTTON_THUMBR, source 0x501
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_X=0.5
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_Y=-1
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_Z=0.25
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_RZ=-0.5
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_LTRIGGER=0.5 AXIS_BRAKE=0.5
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_RTRIGGER=1 AXIS_GAS=1
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_HAT_X=-1
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_HAT_Y=1
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_X=1 AXIS_Y=-0.5
+I/gamepad-native-test: motion MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-native-test: done

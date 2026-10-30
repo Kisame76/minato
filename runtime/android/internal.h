@@ -19,12 +19,14 @@ void minato_looper_send(ALooper *looper, int64_t uptime, void (*handler)(void *d
 /// Takes the messages with `data` that have not run out of `looper`.
 void minato_looper_remove(ALooper *looper, void *data);
 
-/// An event of an input queue (input_queue.cpp), which input.cpp's getters read: the record input_read gives
-/// (ADR-0036, decision 3), a motion event or, since ADR-0068 step 2e, a key, as its kind says.
+/// An event of an input queue (input_queue.cpp), which input.cpp's getters read: the record input_read gives (ADR-0036,
+/// decision 3), a motion event, a key (since ADR-0068 step 2e) or an axes record (decision 5, step 4), as its kind
+/// says.
 struct AInputEvent {
     union {
         struct apkrt_motion_event motion;
         struct apkrt_key_event key;
+        struct apkrt_axes_event axes;
     };
     struct AInputEvent *next;  // the queue's, while a key waits for its delivery after the predispatch
     uint64_t id;               // a local queue's (ADR-0069 step 3): its poster's ID, which its finish answers

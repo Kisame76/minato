@@ -26,18 +26,60 @@ bool is_key(const AInputEvent *event) {
     return event->motion.kind == APKRT_INPUT_KEY;
 }
 
+bool is_axes(const AInputEvent *event) {
+    return event->motion.kind == APKRT_INPUT_AXES;
+}
+
 size_t own_sample(const AInputEvent *event) {
-    return event->motion.sample_count - 1;
+    return is_axes(event) ? 0 : event->motion.sample_count - 1;
+}
+
+size_t pointers_of(const AInputEvent *event) {
+    return is_axes(event) ? 1 : event->motion.pointer_count;
 }
 
 size_t checked_pointer(const AInputEvent *event, size_t pointer, const char *getter) {
-    if (pointer >= event->motion.pointer_count) fatal(getter, "pointer", pointer);
+    if (pointer >= pointers_of(event)) fatal(getter, "pointer", pointer);
     return pointer;
 }
 
+/// An axis of an axes record: its listed value, 0 if unlisted; a trigger's other name, BRAKE or GAS, is its value too
+/// when only the trigger is listed (and the trigger when only the other is), as the guest's MotionEvent has them.
+float listed_axis(const AInputEvent *event, int32_t axis) {
+    const apkrt_axes_event &axes = event->axes;
+    const auto find = [&](int32_t wanted, float *value) {
+        for (uint32_t at = 0; at < axes.axis_count && at < APKRT_AXES_MAX; ++at) {
+            if (axes.axes[at].axis == wanted) {
+                *value = axes.axes[at].value;
+                return true;
+            }
+        }
+        return false;
+    };
+    float value = 0;
+    if (find(axis, &value)) return value;
+    int32_t twin = -1;
+    switch (axis) {
+        case AMOTION_EVENT_AXIS_BRAKE: twin = AMOTION_EVENT_AXIS_LTRIGGER; break;
+        case AMOTION_EVENT_AXIS_LTRIGGER: twin = AMOTION_EVENT_AXIS_BRAKE; break;
+        case AMOTION_EVENT_AXIS_GAS: twin = AMOTION_EVENT_AXIS_RTRIGGER; break;
+        case AMOTION_EVENT_AXIS_RTRIGGER: twin = AMOTION_EVENT_AXIS_GAS; break;
+        default: return 0;
+    }
+    return find(twin, &value) ? value : 0;
+}
+
 /// The place of pointer `pointer` in sample `sample`.
-const apkrt_pointer_coords &place(const AInputEvent *event, size_t pointer, size_t sample, const char *getter) {
+apkrt_pointer_coords place(const AInputEvent *event, size_t pointer, size_t sample, const char *getter) {
     checked_pointer(event, pointer, getter);
+    if (is_axes(event)) {
+        if (sample != 0) fatal(getter, "historical", sample);
+        apkrt_pointer_coords at{};
+        at.x = listed_axis(event, AMOTION_EVENT_AXIS_X);
+        at.y = listed_axis(event, AMOTION_EVENT_AXIS_Y);
+        at.pressure = listed_axis(event, AMOTION_EVENT_AXIS_PRESSURE);
+        return at;
+    }
     if (sample >= event->motion.sample_count) fatal(getter, "historical", sample);
     return event->motion.coords[sample][pointer];
 }
@@ -64,10 +106,12 @@ int32_t AInputEvent_getType(const AInputEvent *event) {
 }
 
 int32_t AInputEvent_getDeviceId(const AInputEvent *event) {
+    if (is_axes(event)) return event->axes.device_id;
     return is_key(event) ? event->key.device_id : kDevice;
 }
 
 int32_t AInputEvent_getSource(const AInputEvent *event) {
+    if (is_axes(event)) return event->axes.source;
     return is_key(event) ? event->key.source : AINPUT_SOURCE_TOUCHSCREEN;
 }
 
@@ -104,19 +148,19 @@ int64_t AKeyEvent_getEventTime(const AInputEvent *key_event) {
 }
 
 int32_t AMotionEvent_getAction(const AInputEvent *motion_event) {
-    return motion_event->motion.action;
+    return is_axes(motion_event) ? motion_event->axes.action : motion_event->motion.action;
 }
 
 int32_t AMotionEvent_getFlags(const AInputEvent *) {
     return 0;
 }
 
-int32_t AMotionEvent_getMetaState(const AInputEvent *) {
-    return 0;
+int32_t AMotionEvent_getMetaState(const AInputEvent *motion_event) {
+    return is_axes(motion_event) ? motion_event->axes.meta_state : 0;
 }
 
-int32_t AMotionEvent_getButtonState(const AInputEvent *) {
-    return 0;
+int32_t AMotionEvent_getButtonState(const AInputEvent *motion_event) {
+    return is_axes(motion_event) ? motion_event->axes.button_state : 0;
 }
 
 int32_t AMotionEvent_getEdgeFlags(const AInputEvent *) {
@@ -132,10 +176,11 @@ int32_t AMotionEvent_getActionButton(const AInputEvent *) {
 }
 
 int64_t AMotionEvent_getDownTime(const AInputEvent *motion_event) {
-    return motion_event->motion.down_time;
+    return is_axes(motion_event) ? 0 : motion_event->motion.down_time;
 }
 
 int64_t AMotionEvent_getEventTime(const AInputEvent *motion_event) {
+    if (is_axes(motion_event)) return motion_event->axes.event_time;
     return motion_event->motion.sample_times[own_sample(motion_event)];
 }
 
@@ -147,25 +192,26 @@ float AMotionEvent_getYOffset(const AInputEvent *) {
     return 0;
 }
 
-float AMotionEvent_getXPrecision(const AInputEvent *) {
-    return 1;
+float AMotionEvent_getXPrecision(const AInputEvent *motion_event) {
+    return is_axes(motion_event) ? 0 : 1;
 }
 
-float AMotionEvent_getYPrecision(const AInputEvent *) {
-    return 1;
+float AMotionEvent_getYPrecision(const AInputEvent *motion_event) {
+    return is_axes(motion_event) ? 0 : 1;
 }
 
 size_t AMotionEvent_getPointerCount(const AInputEvent *motion_event) {
-    return motion_event->motion.pointer_count;
+    return pointers_of(motion_event);
 }
 
 int32_t AMotionEvent_getPointerId(const AInputEvent *motion_event, size_t pointer_index) {
-    return motion_event->motion.pointer_ids[checked_pointer(motion_event, pointer_index, "getPointerId")];
+    const size_t checked = checked_pointer(motion_event, pointer_index, "getPointerId");
+    return is_axes(motion_event) ? 0 : motion_event->motion.pointer_ids[checked];
 }
 
 int32_t AMotionEvent_getToolType(const AInputEvent *motion_event, size_t pointer_index) {
     checked_pointer(motion_event, pointer_index, "getToolType");
-    return AMOTION_EVENT_TOOL_TYPE_FINGER;
+    return is_axes(motion_event) ? motion_event->axes.tool_type : AMOTION_EVENT_TOOL_TYPE_FINGER;
 }
 
 float AMotionEvent_getRawX(const AInputEvent *motion_event, size_t pointer_index) {
@@ -214,6 +260,10 @@ float AMotionEvent_getOrientation(const AInputEvent *motion_event, size_t pointe
 }
 
 float AMotionEvent_getAxisValue(const AInputEvent *motion_event, int32_t axis, size_t pointer_index) {
+    if (is_axes(motion_event)) {
+        checked_pointer(motion_event, pointer_index, "getAxisValue");
+        return listed_axis(motion_event, axis);
+    }
     return axis_value(place(motion_event, pointer_index, own_sample(motion_event), "getAxisValue"), axis);
 }
 
@@ -222,6 +272,10 @@ size_t AMotionEvent_getHistorySize(const AInputEvent *motion_event) {
 }
 
 int64_t AMotionEvent_getHistoricalEventTime(const AInputEvent *motion_event, size_t history_index) {
+    if (is_axes(motion_event)) {
+        if (history_index != 0) fatal("getHistoricalEventTime", "historical", history_index);
+        return motion_event->axes.event_time;
+    }
     if (history_index >= motion_event->motion.sample_count) {
         fatal("getHistoricalEventTime", "historical", history_index);
     }
@@ -280,6 +334,10 @@ float AMotionEvent_getHistoricalOrientation(const AInputEvent *motion_event, siz
 
 float AMotionEvent_getHistoricalAxisValue(const AInputEvent *motion_event, int32_t axis, size_t pointer_index,
                                           size_t history_index) {
+    if (is_axes(motion_event)) {
+        place(motion_event, pointer_index, history_index, "getHistoricalAxisValue");
+        return listed_axis(motion_event, axis);
+    }
     return axis_value(place(motion_event, pointer_index, history_index, "getHistoricalAxisValue"), axis);
 }
 

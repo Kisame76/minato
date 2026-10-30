@@ -849,6 +849,11 @@ run_app() {
     gamepad-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.GamepadActivity
       ;;
+    # gamepad-native-test (ADR-0068 decision 5, step 4): a NativeActivity (fixtures/apps), which logs the events of the
+    # same virtual controller as gamepad-test and ends with "done" at the 18th motion event.
+    gamepad-native-test)
+      last=done
+      ;;
     # start-stops-test (ADR-0042 b): its own launcher activity, which ends with "done" once its window has focus.
     start-stops-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.StartStopsActivity
@@ -1140,7 +1145,7 @@ run_app() {
     { wait_for "$app" "soft input done" 20 && sleep 1 && run input keyevent 30 && sleep 1 && run input keyevent 67; } ||
       return 1
   fi
-  if [[ "$app" == gamepad-test ]]; then
+  if [[ "$app" == gamepad-test || "$app" == gamepad-native-test ]]; then
     # ADR-0068 decision 5: once the window says "ready: pad", `uinput` makes a game controller, plays its buttons,
     # sticks, triggers and hat, and ends, which removes the device.
     device push fixtures/apps/gamepad-test/uinput.json /data/local/tmp/gamepad-uinput.json >/dev/null || return 1

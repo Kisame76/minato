@@ -777,6 +777,14 @@ if(APK_HOST_BUILD)
       "${PROJECT_SOURCE_DIR}/build/native-ime-test/native-ime-test.apk" ${case})
     set_tests_properties(${name} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   endforeach()
+  # ADR-0068 decision 5, step 4's gamepad-native-test: the same host plays a game controller (a device record, key
+  # records and axes records) and compares the log with Android 15's (fixtures/expected/gamepad-native-test.logcat).
+  add_executable(gamepad_native_test tests/gamepad_native_test.cpp)
+  target_link_libraries(gamepad_native_test PRIVATE app_host)
+  add_test(NAME runtime.gamepad-native COMMAND gamepad_native_test
+    "${CMAKE_CURRENT_BINARY_DIR}/gamepad_native_test_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
+  set_tests_properties(runtime.gamepad-native PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   # ADR-0038's test 3 (step c): the same host turns rotation-test to landscape and back as the App does, with the
   # window's new size, and compares the log with Android 15's (fixtures/expected/rotation-test.logcat).
   add_executable(rotation_test tests/rotation_test.cpp)

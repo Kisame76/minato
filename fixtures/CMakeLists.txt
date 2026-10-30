@@ -279,6 +279,12 @@ add_library(native-ime-test SHARED java/native-ime-test/jni/native_ime_test.c)
 target_compile_options(native-ime-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(native-ime-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(native-ime-test PRIVATE android log)
+# gamepad-native-test (ADR-0068 decision 5, step 4): a NativeActivity without native_app_glue that logs the keys and
+# the joystick motion events of a game controller in its input queue.
+add_library(gamepad-native-test SHARED apps/gamepad-native-test/main.c)
+target_compile_options(gamepad-native-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(gamepad-native-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(gamepad-native-test PRIVATE android log)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

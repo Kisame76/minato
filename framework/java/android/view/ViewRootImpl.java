@@ -1966,6 +1966,15 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 }
                 finishQueuedDelivery(event, receiver, answer);
             });
+        } else if (event instanceof MotionEvent) {
+            // A joystick's motion (ADR-0068 decision 5, step 4): the queue first, then the views' generic motion.
+            final MotionEvent motion = (MotionEvent) event;
+            if (shouldDropInputEvent(motion)) {
+                finishQueuedDelivery(event, receiver, false);
+                return;
+            }
+            mInputQueue.sendInputEvent(motion, motion, false, (token, handled) -> finishQueuedDelivery(event, receiver,
+                    handled || (mView != null && mView.dispatchGenericMotionEvent(motion))));
         } else {
             finishQueuedDelivery(event, receiver, false);
         }

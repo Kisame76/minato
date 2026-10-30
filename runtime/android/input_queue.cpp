@@ -185,13 +185,15 @@ int32_t AInputQueue_getEvent(AInputQueue *queue, AInputEvent **outEvent) {
     if (queue->fd < 0) return -EWOULDBLOCK;
     auto *event = static_cast<AInputEvent *>(malloc(sizeof(AInputEvent)));
     if (event == nullptr) return -ENOMEM;  // NO_MEMORY
-    // Texts and devices (ADR-0068) are taken and dropped.
+    // Texts and devices (ADR-0068) are taken and dropped; an axes record (a pad's stick, a pointer's move) is a motion
+    // event.
     do {
         if (syscall(APKRT_NR_INPUT_READ, queue->fd, &event->motion) != 0) {
             free(event);
             return -EWOULDBLOCK;
         }
-    } while (event->motion.kind != APKRT_INPUT_MOTION && event->motion.kind != APKRT_INPUT_KEY);
+    } while (event->motion.kind != APKRT_INPUT_MOTION && event->motion.kind != APKRT_INPUT_KEY &&
+             event->motion.kind != APKRT_INPUT_AXES);
     event->next = nullptr;
     if (event->motion.kind == APKRT_INPUT_KEY) event->key.flags |= MINATO_KEY_FLAG_PREDISPATCH;
     *outEvent = event;
