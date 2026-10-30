@@ -31,6 +31,9 @@ public class MediaExtractorApplication extends Application {
     /** One file through the three sources; the log lines, joined by newlines. */
     private static native String extract(String name, int fd, long offset, long length, String path, byte[] bytes);
 
+    /** Files with an opaque csd-0 made from the bytes (jni/media_extractor_test.c's csd_files): names and bytes. */
+    static native Object[] csdFiles(byte[] bytes);
+
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);

@@ -117,6 +117,7 @@ final class JavaExtractor {
         sourceLine(prefix + " data source no movie", whole, e -> e.setDataSource(other));
         add(prefix + " data source no movie: closed " + other.closed + " times");
         brokenLines(prefix, bytes);
+        csdLines(prefix, bytes);
     }
 
     /**
@@ -161,6 +162,40 @@ final class JavaExtractor {
             add(what + ": " + t);
         } finally {
             extractor.release();
+        }
+    }
+
+    /**
+     * Files whose sample entries give a track an opaque csd-0 (step 2a.2 item 4), which the JNI library makes from the
+     * bytes: each track's format or what getTrackFormat throws, what selectTrack throws, and the samples' count.
+     */
+    private void csdLines(String prefix, byte[] bytes) {
+        Object[] files = MediaExtractorApplication.csdFiles(bytes);
+        if (files.length == 0) add(prefix + " csd: no avc1 and mp4a");
+        for (int index = 0; index + 1 < files.length; index += 2) {
+            String what = prefix + " " + files[index];
+            MediaExtractor extractor = new MediaExtractor();
+            try {
+                extractor.setDataSource(new Bytes((byte[]) files[index + 1]));
+                int tracks = extractor.getTrackCount();
+                add(what + ": " + tracks + " tracks");
+                for (int track = 0; track < tracks; track++) {
+                    int selected = track;
+                    try {
+                        formatLines(what + " track " + track, extractor.getTrackFormat(track));
+                    } catch (IllegalArgumentException e) {
+                        add(what + " track " + track + ": " + e);
+                    }
+                    add(what + " select " + track + ": " + fails(() -> extractor.selectTrack(selected)));
+                }
+                int count = 0;
+                for (; extractor.getSampleTrackIndex() >= 0; extractor.advance()) count++;
+                add(what + ": " + count + " samples");
+            } catch (Throwable t) {
+                add(what + ": " + t);
+            } finally {
+                extractor.release();
+            }
         }
     }
 

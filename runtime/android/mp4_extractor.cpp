@@ -91,6 +91,10 @@ uint32_t be32(const uint8_t* bytes) {
 void release(Track& track) {
     free(track.csd0.data);
     free(track.csd1.data);
+    for (Bytes& plain : track.opaque) {
+        free(plain.data);
+        plain = Bytes{};
+    }
     free(track.samples.sorted_syncs);
     free(track.seek_index.entries);
     track.csd0 = Bytes{};
@@ -672,6 +676,88 @@ struct Parser {
         if (error == 0 && body.left() != 0) fail(kMalformed);
     }
 
+    // MPEG4Extractor's plain csd `index` (csd-0, csd-1 or csd-2) set to these bytes in place of any before; one past
+    // kMaxCodecData fails the file, Minato's bound.
+    void set_opaque(Track& track, int index, const uint8_t* data, size_t size) {
+        if (size > kMaxCodecData) return fail_void(kMalformed);
+        uint8_t* copy = static_cast<uint8_t*>(malloc(size > 0 ? size : 1));
+        if (copy == nullptr) return fail_void(kNoMemory);
+        if (size > 0) memcpy(copy, data, size);
+        free(track.opaque[index].data);
+        track.opaque[index] = Bytes{copy, size};
+        track.has_opaque[index] = true;
+    }
+
+    // An av1C's or vpcC's body, a dfLa's or an mhaC's config as the plain csd-0, as MPEG4Extractor's parseChunk keeps
+    // them: a dfLa's of 42 bytes, "fLaC" and its body after the version and flags (another size fails the file); an
+    // mhaC's after its 5 bytes, which give its length (an mhaC of another size fails the file), and its profile and
+    // level and its channel layout. False for another box.
+    bool read_plain_csd(uint32_t type, Span body, Track& track) {
+        if (type == type_of("av1C") || type == type_of("vpcC")) {
+            set_opaque(track, 0, body.data, body.size);
+        } else if (type == type_of("dfLa")) {
+            if (body.size != 42) {
+                fail(kMalformed);
+                return true;
+            }
+            uint8_t flac[42] = {'f', 'L', 'a', 'C'};
+            memcpy(flac + 4, body.data + 4, 38);
+            set_opaque(track, 0, flac, sizeof flac);
+        } else if (type == type_of("mhaC")) {
+            if (body.size < 5 || body.size != 5u + (static_cast<size_t>(body.data[3]) << 8 | body.data[4])) {
+                fail(kMalformed);
+                return true;
+            }
+            set_opaque(track, 0, body.data + 5, body.size - 5);
+            track.mpegh_profile = body.data[1];
+            track.mpegh_layout = body.data[2];
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    // An Opus entry's dOps as MPEG4Extractor reads it, the entry's bytes after its first 28: 19 to 276 of them
+    // (OpusHeader.h's AOPUS_OPUSHEAD_MINSIZE and MAXSIZE) of version 0, else the file fails. csd-0 is them as an
+    // OpusHead (its magic, version 1, the pre-skip, rate and gain little-endian), csd-1 the codec delay and csd-2 a
+    // seek pre-roll of 80 ms, each in ns as a little-endian int64_t.
+    void read_opus(Span rest, Track& track) {
+        const size_t size = rest.left();
+        if (size < 19 || size > 276) return fail_void(kMalformed);
+        uint8_t head[276];
+        memcpy(head, rest.data + rest.at, size);
+        if (head[8] != 0) return fail_void(kMalformed);
+        memcpy(head, "OpusHead", 8);
+        head[8] = 1;
+        const uint32_t pre_skip = static_cast<uint32_t>(head[10] << 8 | head[11]), rate = be32(head + 12);
+        const uint8_t little[8] = {static_cast<uint8_t>(pre_skip), static_cast<uint8_t>(pre_skip >> 8),
+                                   static_cast<uint8_t>(rate),     static_cast<uint8_t>(rate >> 8),
+                                   static_cast<uint8_t>(rate >> 16), static_cast<uint8_t>(rate >> 24),
+                                   head[17],                       head[16]};  // and the gain
+        memcpy(head + 10, little, sizeof little);
+        set_opaque(track, 0, head, size);
+        const uint64_t times[2] = {pre_skip * 1000000000ull / 48000, 80000000};
+        for (int index = 0; index < 2; index++) {
+            uint8_t bytes[8];
+            for (int at = 0; at < 8; at++) bytes[at] = static_cast<uint8_t>(times[index] >> (8 * at));
+            set_opaque(track, index + 1, bytes, sizeof bytes);
+        }
+    }
+
+    // An alac entry's cookie as parseALACSampleEntry reads it after the entry's first 28 bytes: an alac box of 36
+    // bytes, version and flags 0, else the file fails; csd-0 is its 24 bytes, bits-per-sample the 6th. Bytes after it
+    // fail the file too (Android's CHECK_EQ on the entry's end aborts its extractor). Read in QuickTime files as well,
+    // whose cookie Android reads from the entry's wave.
+    void read_alac(Span rest, Track& track) {
+        if (rest.left() != 36 || be32(rest.data + rest.at) != 36 || be32(rest.data + rest.at + 4) != type_of("alac") ||
+            be32(rest.data + rest.at + 8) != 0) {
+            return fail_void(kMalformed);
+        }
+        const uint8_t* cookie = rest.data + rest.at + 12;
+        set_opaque(track, 0, cookie, 24);
+        track.bits_per_sample = cookie[5];
+    }
+
     // As MPEG4Extractor's sample entries: one Android knows names the track's codec in place of the one before
     // (Minato reads AVC, HEVC and AAC and leaves a track of another out), and the avcC, hvcC and esds among its boxes
     // and in a QuickTime wave stay as the track's (Tables); one that names no codec (tx3g, whose text track's type
@@ -714,13 +800,16 @@ struct Parser {
             track.channels = entry.u16();
             entry.take(6);
             track.sample_rate = static_cast<int32_t>(entry.u32() >> 16);
+            // Opus's dOps and alac's cookie after the 28 bytes, whatever the version.
+            if (entry.bad) return fail_void(kMalformed);
+            if (type == type_of("Opus")) return read_opus(entry, track);
+            if (type == type_of("alac")) return read_alac(entry, track);
             if (version == 1) entry.take(16);
             if (version == 2) entry.take(36);
         } else {
             return;
         }
         if (entry.bad) return fail_void(kMalformed);
-        if (type == type_of("Opus") || type == type_of("alac")) return;
         Span part;
         for (uint32_t inner = 0; error == 0 && next_box(entry, &inner, &part);) {
             if (inner == type_of("sinf")) return fail_void(kUnsupported);
@@ -736,11 +825,14 @@ struct Parser {
                 read_colr(part, track);
             } else if (inner == type_of("pasp")) {
                 read_pasp(part, track);
+            } else if (read_plain_csd(inner, part, track)) {
+                // an av1C, vpcC, dfLa or mhaC: the plain csd-0
             } else if (is_sound && inner == type_of("wave")) {
                 // Its esds, whose parent is not the mp4a, leaves the entry's rate and channels as they are.
                 Span wave;
                 for (uint32_t kind = 0; error == 0 && next_box(part, &kind, &wave);) {
                     if (kind == type_of("esds")) read_esds(wave, track, tables, false);
+                    else read_plain_csd(kind, wave, track);
                 }
                 if (part.bad) fail(kMalformed);
             }
@@ -791,6 +883,74 @@ struct Parser {
             memcpy(track.csd0.data, info.data, info.size);
             track.csd0.size = info.size;
         }
+    }
+
+    // Utils' reassembleAVCC: version 1, the first SPS's profile, constraints and level (High, none and 1.3 without
+    // one), each unit after a start code in csd-0 an SPS and in csd-1 a PPS, their counts written as Android does
+    // (Opus's csd-1, a codec delay under 2^31 ns, holds no start code: its pass finds no unit).
+    static size_t reassemble_avcc(const Bytes& csd0, const Bytes& csd1, uint8_t* avcc) {
+        // findNextNalStartCode: the next 00 00 00 01 before the last 4 bytes, else the end.
+        const auto next = [](const uint8_t* data, size_t length) -> size_t {
+            for (size_t at = 0; length > 4 && at + 4 < length; at++) {
+                if (data[at] == 0 && data[at + 1] == 0 && data[at + 2] == 0 && data[at + 3] == 1) return at;
+            }
+            return length;
+        };
+        memcpy(avcc, "\x01\x64\x00\x0d\xff", 5);
+        size_t at = 6;
+        for (int pass = 0; pass < 2; pass++) {
+            const Bytes& csd = pass == 0 ? csd0 : csd1;
+            const size_t count_at = pass == 0 ? 5 : at++;
+            size_t index = 0, last = 0;
+            int units = 0;
+            do {
+                index += next(csd.data + index, csd.size - index);
+                if (last > 0) {
+                    const size_t size = index - last;
+                    if (pass == 0 && units == 0 && size > 3) memcpy(avcc + 1, csd.data + last + 1, 3);
+                    avcc[at++] = static_cast<uint8_t>(size >> 8);
+                    avcc[at++] = static_cast<uint8_t>(size);
+                    memcpy(avcc + at, csd.data + last, size);
+                    at += size;
+                    units++;
+                }
+                index += 4;
+                last = index;
+            } while (index < csd.size);
+            avcc[count_at] = static_cast<uint8_t>(pass == 0 ? 0xe0 | units : units);
+        }
+        return at;
+    }
+
+    // The format's codec data when MPEG4Extractor's meta has a plain csd-0, which the extractor service's
+    // convertMessageToMetaData takes in place of the avcC, hvcC or esds: an AVC track's csd-0 as is without a plain
+    // csd-1 (no profile, level or csd-1), else the avcC reassembleAVCC makes of both; an HEVC track's format refused
+    // (reassembleHVCC makes nothing of a csd-0 without a leading start code, and Minato does not port makeHvcc for one
+    // with it); an AAC track's esds reassembleESDS's, its config the csd-0 and its bit rates 64 kbit/s.
+    void plain_config(Track& track) {
+        const bool avc = strcmp(track.mime, "video/avc") == 0, hevc = strcmp(track.mime, "video/hevc") == 0;
+        track.format_refused = hevc;
+        if (hevc) return;
+        free(track.csd0.data);
+        free(track.csd1.data);
+        track.csd0 = Bytes{};
+        track.csd1 = Bytes{};
+        const Bytes& csd0 = track.opaque[0];
+        if (avc && track.has_opaque[1]) {
+            uint8_t* avcc = static_cast<uint8_t*>(malloc(csd0.size + track.opaque[1].size + 1024));
+            if (avcc == nullptr) return fail_void(kNoMemory);
+            const Span box{avcc, reassemble_avcc(csd0, track.opaque[1], avcc), 0, false};
+            keep_config(track, box);
+            track.format_refused = !split_avcc(box, track);
+            free(avcc);
+            return;
+        }
+        track.csd_opaque = true;
+        track.csd0.data = static_cast<uint8_t*>(malloc(csd0.size > 0 ? csd0.size : 1));
+        if (track.csd0.data == nullptr) return fail_void(kNoMemory);
+        if (csd0.size > 0) memcpy(track.csd0.data, csd0.data, csd0.size);
+        track.csd0.size = csd0.size;
+        if (!avc) track.esds_avg_bitrate = track.esds_max_bitrate = 64000;
     }
 
     void read_stbl(Span stbl, Track& track, Tables& tables) {
@@ -1040,6 +1200,7 @@ struct Parser {
         }
         if (has_edits) read_elst(edits, track);
         if (!skip && error == 0) configure(track, tables);
+        if (!skip && error == 0 && track.has_opaque[0]) plain_config(track);
         if (!skip && error == 0) combine(track, tables);
         return !skip && error == 0;
     }

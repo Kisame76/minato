@@ -512,24 +512,64 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     odd_esds.insert(odd_esds.end(), odd_decoder.begin(), odd_decoder.end());
     // An stsd entry by name: avc1, hvc1 and mp4a with their avcC, hvcC and esds, without them after a "-"; mp4v and
     // Opus with the avcC after a "*"; avc1 with an esds of version and flags alone after it ("avc1+e") and mp4v with
-    // the AAC esds ("mp4v+e"); mp4a with its esds in a QuickTime wave ("mp4a~", "mp4a~5" of an ES_Descriptor tag of
-    // 5), with one of a tag 6 after its config ("mp4a!") or of bit rates 0 ("mp4a0"), INT32_MAX ("mp4aM") or MP3
-    // ("mp4a3"), or of a DecoderSpecificInfo past kMaxCodecData, in it ("mp4aL") or a wave ("mp4a~L"); avc1 and
-    // hvc1 with a configuration of no parameter sets ("avc1/0", "hvc1/0"); tx3g and others with none.
+    // the AAC esds ("mp4v+e"); mp4a with its esds in a QuickTime wave ("mp4a~", "mp4a~+" with the entry's boxes in
+    // the wave, "mp4a~5" of an ES_Descriptor tag of 5), with one of a tag 6 after its config ("mp4a!") or of bit
+    // rates 0 ("mp4a0"), INT32_MAX ("mp4aM") or MP3 ("mp4a3"), or of a DecoderSpecificInfo past kMaxCodecData, in it
+    // ("mp4aL") or a wave ("mp4a~L"); avc1 and hvc1 with a configuration of no parameter sets ("avc1/0", "hvc1/0");
+    // Opus with a dOps ("Opus+", of another size or version after it) and alac with its cookie ("alac+", "alac+35",
+    // "alac+x"); tx3g and others with none.
     const auto sample_entry = [&](const std::string &name) {
         if (name == "avc1") return video_entry;
         if (name == "mp4a") return audio_entry;
         if (name == "hvc1") return box("hvc1", hevc_visual);
         if (name == "mp4v*") return box("mp4v", cat({entry_body, avcc}));
         if (name == "Opus*") return box("Opus", cat({sound, avcc}));
+        if (name.rfind("Opus+", 0) == 0) {
+            // A dOps: version 0 (1 for "Opus+v1"), 2 channels, a pre-skip of 312, 48000 Hz, gain 0, mapping family 0;
+            // of 18, 276 or 277 bytes for "Opus+18" and the others; in a sound entry of version 1 ("Opus+q"); of a
+            // gain of 0x0102 and two SPSs after it, the second ending in a start code ("Opus+s"); of version 2
+            // ("Opus+w"), whose 36 more bytes the dOps does not have.
+            Bytes body = {static_cast<uint8_t>(name == "Opus+v1"), 2, 0x01, 0x38, 0, 0, 0xbb, 0x80, 0, 0, 0};
+            const bool sized = name.size() > 5 && isdigit(static_cast<unsigned char>(name[5]));
+            body.resize((sized ? std::stoul(name.substr(5)) : 19) - 8);
+            if (name == "Opus+s") {
+                body[8] = 1;  // the gain, after the version, channels, pre-skip and rate
+                body[9] = 2;
+                body.insert(body.end(), {0, 0, 0, 1, 0x67, 0x64, 0, 0x1f, 0xaa, 0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0xbb,
+                                         0, 0, 0, 1});
+            }
+            Bytes head = sound;
+            if (name == "Opus+q") head[9] = 1;
+            if (name == "Opus+w") head[9] = 2;
+            return box("Opus", cat({head, box("dOps", body)}));
+        }
+        if (name.rfind("alac+", 0) == 0) {
+            // An alac box of version and flags 0 and a cookie of 4096 frames, 16 bits, 2 channels at 44100 Hz; its size
+            // 35 ("alac+35", one byte short), claiming 40 ("alac+40"), of type alaC ("alac+t") or flags 1 ("alac+f"),
+            // or an extra byte after it ("alac+x").
+            Bytes cookie = {0, 0, 0, 0, 0, 0, 0x10, 0, 0, 16, 40, 10, 14, 2, 0, 255, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0xac, 0x44};
+            if (name == "alac+35") cookie.pop_back();
+            if (name == "alac+f") cookie[3] = 1;
+            Bytes inner = box(name == "alac+t" ? "alaC" : "alac", cookie);
+            if (name == "alac+40") inner[3] = 40;
+            Bytes entry = cat({sound, inner});
+            if (name == "alac+x") entry.push_back(0);
+            return box("alac", entry);
+        }
         if (name == "avc1+e") return box("avc1", cat({entry_body, avcc, box("esds", full(0))}));
         if (name == "mp4v+e") return box("mp4v", cat({entry_body, box("esds", esds)}));
         if (name == "mp4a~") {
             return box("mp4a", cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}), box("esds", esds)}))}));
         }
+        if (name == "mp4a~+") {  // the entry's boxes inside the wave
+            return box("mp4a", cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}), box("esds", esds),
+                                                              extra_boxes}))}));
+        }
         if (name == "mp4a~5") {
             return box("mp4a", cat({sound, box("wave", cat({box("frma", {'m', 'p', '4', 'a'}),
-                                                              box("esds", esds_of_tag_5)}))}));
+                                                              box("esds", esds_of_tag_5)})),
+                                    extra_boxes}));
         }
         if (name == "mp4a~L") {
             return box("mp4a",
@@ -1477,7 +1517,7 @@ TEST(the_final_codec_and_its_configuration_read_as_androids) {
         {{{"avc1-"}, {"mp4a"}}, "audio/mp4a-latm", 0, aac},
         {{{"mp4a", "mp4v"}}, nullptr, 0, {}},
         {{{"mp4v", "avc1"}}, "video/avc", 2, sps},
-        {{{"Opus"}, {"mp4a", "avc1"}}, nullptr, 0, {}},
+        {{{"Opus+"}, {"mp4a", "avc1"}}, nullptr, 0, {}},
         {{{"avc1", "zzzz"}}, "video/avc", 2, sps},
         {{{"avc1", "mp4a"}}, "audio/mp4a-latm", 0, aac},
         {{{"avc1", "hvc1"}}, "video/hevc", 4, vps},
@@ -1493,7 +1533,7 @@ TEST(the_final_codec_and_its_configuration_read_as_androids) {
         {{{"mp4a!"}}, nullptr, 0, {}, minato::mp4::kMalformed},
         {{{"avc1/0"}}, "video/avc", 2, {}},
         {{{"hvc1/0"}}, "video/hevc", 4, {}},
-        {{{"Opus*", "avc1-"}}, nullptr, 0, {}},
+        {{{"Opus*", "avc1-"}}, nullptr, 0, {}, minato::mp4::kMalformed},  // its avcC read as a dOps of version 1
         {{{"mp4v+e", "mp4a-"}}, "audio/mp4a-latm", 0, aac},
     };
     for (const Case &test : cases) {
@@ -1603,6 +1643,11 @@ TEST(a_configuration_past_the_codec_data_bound_is_malformed) {
     avc.avcc_body = {1, 66, 0, 30, 0xff, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0xff, 0xff};
     avc.avcc_body.insert(avc.avcc_body.end(), 0xffff, 0x68);
     CHECK(parsed(built_file(avc), &tracks) == minato::mp4::kMalformed);
+    // A plain csd-0 past the bound: an av1C of a byte more.
+    Knobs av1;
+    av1.stsds = {{"avc1"}};
+    av1.entry_boxes = {box("av1C", Bytes(minato::mp4::kMaxCodecData + 1, 0x81))};
+    CHECK(parsed(built_file(av1), &tracks) == minato::mp4::kMalformed);
     // An esds of a DecoderSpecificInfo past the bound, the mp4a's own and one in a QuickTime wave.
     for (const char *entry : {"mp4aL", "mp4a~L"}) {
         Knobs aac;
@@ -1890,6 +1935,131 @@ TEST(a_pasp_and_a_colr_read_as_androids) {
         minato::mp4::Tracks tracks;
         CHECK(parsed(built_file(knobs), &tracks) == minato::mp4::kMalformed);
     }
+}
+
+// MPEG4Extractor's plain csd-0 (an av1C's, a vpcC's, a dfLa's or an mhaC's bytes among an entry's boxes, an Opus
+// entry's OpusHead with its codec delay and seek pre-roll as csd-1 and csd-2, an alac entry's cookie), which the
+// extractor service's convertMessageToMetaData takes before csd-avc, csd-hevc and esds: an AVC track's format has it
+// as is without a csd-1 (no profile or level), else an avcC reassembleAVCC makes of both; an HEVC track's format is
+// refused (reassembleHVCC finds no start code); an AAC track's esds is reassembleESDS's (64 kbit/s, csd-0 its config).
+// A dfLa of another size than 42, an mhaC under 13 bytes or of another config length, an Opus entry's dOps under 19 or
+// over 276 bytes or of a version but 0, and an alac cookie of another header fail the file, as Android's
+// [observed: media-extractor-test's csd variants on the emulator].
+TEST(a_plain_csd_comes_before_the_configuration_as_androids) {
+    const Bytes av1c = {0x81, 0x08, 0x0c, 0x00}, vpcc = {1, 0, 0, 0, 0, 10, 0x80, 1, 1, 1, 0, 0};
+    Bytes dfla = {0, 0, 0, 0, 0x80, 0, 0, 34};
+    for (int index = 0; index < 34; index++) dfla.push_back(static_cast<uint8_t>(index));
+    Bytes flac = {'f', 'L', 'a', 'C'};
+    flac.insert(flac.end(), dfla.begin() + 4, dfla.end());
+    const Bytes mhac = {1, 0x0d, 6, 0, 2, 0xab, 0xcd};
+    const Bytes opus_head = {'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 2, 0x38, 0x01, 0x80, 0xbb, 0, 0, 0, 0, 0};
+    const Bytes delay = {0xa0, 0x2e, 0x63, 0, 0, 0, 0, 0}, pre_roll = {0, 0xb4, 0xc4, 0x04, 0, 0, 0, 0};
+    const Bytes cookie = {0, 0, 0x10, 0, 0, 16, 40, 10, 14, 2, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xac, 0x44};
+    const Bytes avcc_v0 = {0, 66, 0, 30, 0xff, 0xe1, 0, 4, 0x67, 66, 0, 30, 1, 0, 2, 0x68, 0xce};
+    struct Case {
+        const char *what;
+        std::vector<std::string> entries;
+        std::vector<Bytes> boxes;
+        int answer;
+        Bytes csd0;  // the format's
+        int opaque;  // how many of csd-0, csd-1 and csd-2 MPEG4Extractor's meta has
+        bool reassembled = false, refused = false;
+    };
+    const Case cases[] = {
+        {"avc1 and av1C", {"avc1"}, {box("av1C", av1c)}, 0, av1c, 1},
+        {"avc1 and vpcC", {"avc1"}, {box("vpcC", vpcc)}, 0, vpcc, 1},
+        {"avc1 and dfLa", {"avc1"}, {box("dfLa", dfla)}, 0, flac, 1},
+        {"avc1 and dfLa of 41 bytes", {"avc1"}, {box("dfLa", Bytes(dfla.begin(), dfla.end() - 1))},
+         minato::mp4::kMalformed, {}, 0},
+        {"avc1 and dfLa of 43 bytes", {"avc1"}, {box("dfLa", cat({dfla, {0}}))}, minato::mp4::kMalformed, {}, 0},
+        {"avc1 and mhaC", {"avc1"}, {box("mhaC", mhac)}, 0, {0xab, 0xcd}, 1},
+        {"avc1 and mhaC of 4 bytes", {"avc1"}, {box("mhaC", {1, 0x0d, 6, 0})}, minato::mp4::kMalformed, {}, 0},
+        {"avc1 and mhaC of a longer config", {"avc1"}, {box("mhaC", {1, 0x0d, 6, 0, 3, 0xab, 0xcd})},
+         minato::mp4::kMalformed, {}, 0},
+        {"avc1 and mhaC of a shorter config", {"avc1"}, {box("mhaC", {1, 0x0d, 6, 0, 1, 0xab, 0xcd})},
+         minato::mp4::kMalformed, {}, 0},
+        {"avc1 and av1C, then vpcC", {"avc1"}, {box("av1C", av1c), box("vpcC", vpcc)}, 0, vpcc, 1},
+        {"Opus, then avc1", {"Opus+", "avc1"}, {}, 0, {}, 3, true},
+        {"alac, then avc1", {"alac+", "avc1"}, {}, 0, cookie, 1},
+        {"Opus without a dOps", {"Opus", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"Opus of a dOps of version 1", {"Opus+v1", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"Opus of 18 bytes", {"Opus+18", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"Opus of 276 bytes", {"Opus+276", "avc1"}, {}, 0, {}, 3, true},
+        {"Opus of 277 bytes", {"Opus+277", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"Opus of a sound entry of version 1", {"Opus+q", "avc1"}, {}, 0, {}, 3, true},
+        {"Opus of a sound entry of version 2", {"Opus+w", "avc1"}, {}, 0, {}, 3, true},
+        {"alac of a box claiming 40 bytes", {"alac+40", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"alac of a box of type alaC", {"alac+t", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"alac of flags 1", {"alac+f", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"alac of a box of 35 bytes", {"alac+35", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"alac of a byte after its box", {"alac+x", "avc1"}, {}, minato::mp4::kMalformed, {}, 0},
+        {"hvc1 and av1C", {"hvc1"}, {box("av1C", av1c)}, 0, {}, 1, false, true},
+        {"mp4a and av1C", {"mp4a"}, {box("av1C", av1c)}, 0, av1c, 1},
+        {"mp4a and mhaC", {"mp4a"}, {box("mhaC", mhac)}, 0, {0xab, 0xcd}, 1},
+        {"mp4a of a wave's esds of tag 5, and av1C", {"mp4a~5"}, {box("av1C", av1c)}, 0, av1c, 1},
+        {"mp4a of a wave of an av1C", {"mp4a~+"}, {box("av1C", av1c)}, 0, av1c, 1},  // a wave's boxes are parsed too
+        {"Opus, then mp4a", {"Opus+", "mp4a"}, {}, 0, opus_head, 3},
+        {"alac, then mp4a", {"alac+", "mp4a"}, {}, 0, cookie, 1},
+    };
+    for (const Case &test : cases) {
+        Knobs knobs;
+        knobs.stsds = {test.entries};
+        knobs.entry_boxes = test.boxes;
+        minato::mp4::Tracks tracks;
+        const int answer = parsed(built_file(knobs), &tracks);
+        bool right = answer == test.answer;
+        if (right && answer == 0) {
+            const minato::mp4::Track &track = tracks[0];
+            const auto same = [](const minato::mp4::Bytes &bytes, const Bytes &want) {
+                return bytes.size == want.size() && std::equal(want.begin(), want.end(), bytes.data);
+            };
+            right = tracks.size() == 1 && track.format_refused == test.refused && !track.select_refused;
+            for (int index = 0; index < 3; index++) right = right && track.has_opaque[index] == (index < test.opaque);
+            if (test.opaque == 3) right = right && same(track.opaque[1], delay) && same(track.opaque[2], pre_roll);
+            if (test.entries[0] == "Opus+" || test.entries[0] == "Opus+q" || test.entries[0] == "Opus+w") {
+                right = right && same(track.opaque[0], opus_head);
+            }
+            if (!test.refused && !test.reassembled) right = right && track.csd_opaque && same(track.csd0, test.csd0);
+            if (test.reassembled) {
+                // reassembleAVCC of an OpusHead and a codec delay, which hold no start code: version 1, High
+                // profile, no constraints, level 1.3, no SPS and no PPS.
+                right = right && !track.csd_opaque && track.csd0.size == 0 && track.csd1.size == 0 &&
+                        track.config_size >= 4 && track.config[0] == 1 && track.config[1] == 0x64 &&
+                        track.config[2] == 0 && track.config[3] == 0x0d;
+            }
+            if (std::string(track.mime) == "audio/mp4a-latm") {
+                right = right && track.esds_avg_bitrate == 64000 && track.esds_max_bitrate == 64000;
+            }
+            if (test.entries[0] == "alac+") right = right && track.bits_per_sample == 16;
+            const bool of_mhac = !test.boxes.empty() && test.csd0 == Bytes{0xab, 0xcd};  // profile 13, layout 6
+            right = right && track.mpegh_profile == (of_mhac ? 13 : -1) && track.mpegh_layout == (of_mhac ? 6 : -1);
+        }
+        CHECK(right);
+        if (!right) std::printf("  %s: answer %d, %zu tracks\n", test.what, answer, tracks.size());
+    }
+    // reassembleAVCC of an OpusHead holding two SPSs: the first's profile, constraints and level (the second's
+    // differ), each unit up to the next start code but one in the last 4 bytes, which stays in the unit; the gain
+    // little-endian.
+    {
+        Knobs knobs;
+        knobs.stsds = {{"Opus+s", "avc1"}};
+        minato::mp4::Tracks tracks;
+        const Bytes sets = {0, 0, 0, 1, 0x67, 0x64, 0, 0x1f, 0xaa, 0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0xbb, 0, 0, 0, 1};
+        const bool right = parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 && !tracks[0].csd_opaque &&
+                           tracks[0].opaque[0].size == 41 && tracks[0].opaque[0].data[16] == 2 &&
+                           tracks[0].opaque[0].data[17] == 1 && tracks[0].csd0.size == sets.size() &&
+                           std::equal(sets.begin(), sets.end(), tracks[0].csd0.data) && tracks[0].csd1.size == 0 &&
+                           tracks[0].config[1] == 0x64 && tracks[0].config[2] == 0 && tracks[0].config[3] == 0x1f;
+        CHECK(right);
+    }
+    // An avcC of version 0, which getTrack refuses, keeps refusing the selection; the format is the av1C's.
+    Knobs knobs;
+    knobs.stsds = {{"avc1"}};
+    knobs.avcc_body = avcc_v0;
+    knobs.entry_boxes = {box("av1C", av1c)};
+    minato::mp4::Tracks tracks;
+    CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 && tracks[0].select_refused &&
+          !tracks[0].format_refused && tracks[0].csd_opaque && tracks[0].csd0.size == 4);
 }
 
 TEST(an_aac_profile_reads_as_parse_aac_profile_from_csd) {

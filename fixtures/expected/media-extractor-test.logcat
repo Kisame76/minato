@@ -1983,6 +1983,501 @@ I/media-extractor-test: custom baseline two SPS and two PPS track 1 max-input-si
 I/media-extractor-test: custom baseline two SPS and two PPS track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
 I/media-extractor-test: custom baseline two SPS and two PPS: select 1: status 0
 I/media-extractor-test: custom baseline two SPS and two PPS: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline avc1 with an av1C: status 0, tracks 2
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 mime: string video/avc
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 width: int32 320
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 height: int32 180
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 display-width: int32 320
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 display-height: int32 180
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 language: string und
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 track-id: int32 1
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: custom baseline avc1 with an av1C track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline avc1 with an av1C: select 0: status 0
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 profile: int32 2
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 language: string und
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 track-id: int32 2
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline avc1 with an av1C track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline avc1 with an av1C: select 1: status 0
+I/media-extractor-test: custom baseline avc1 with an av1C: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline avc1 with a vpcC: status 0, tracks 2
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 mime: string video/avc
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 width: int32 320
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 height: int32 180
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 display-width: int32 320
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 display-height: int32 180
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 language: string und
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 track-id: int32 1
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 csd-0: buffer 12 bytes, crc deaee574
+I/media-extractor-test: custom baseline avc1 with a vpcC track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline avc1 with a vpcC: select 0: status 0
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 profile: int32 2
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 language: string und
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 track-id: int32 2
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline avc1 with a vpcC track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline avc1 with a vpcC: select 1: status 0
+I/media-extractor-test: custom baseline avc1 with a vpcC: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline avc1 with a dfLa: status 0, tracks 2
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 mime: string video/avc
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 width: int32 320
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 height: int32 180
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 display-width: int32 320
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 display-height: int32 180
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 language: string und
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 track-id: int32 1
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 csd-0: buffer 42 bytes, crc 25da6480
+I/media-extractor-test: custom baseline avc1 with a dfLa track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline avc1 with a dfLa: select 0: status 0
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 profile: int32 2
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 language: string und
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 track-id: int32 2
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline avc1 with a dfLa track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline avc1 with a dfLa: select 1: status 0
+I/media-extractor-test: custom baseline avc1 with a dfLa: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline avc1 with a dfLa of 41 bytes: status 0, tracks 0
+I/media-extractor-test: custom baseline avc1 with a dfLa of 41 bytes: 0 samples, digest 00000000
+I/media-extractor-test: custom baseline avc1 with an mhaC: status 0, tracks 2
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 mime: string video/avc
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 width: int32 320
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 height: int32 180
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 display-width: int32 320
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 display-height: int32 180
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 language: string und
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 track-id: int32 1
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 csd-0: buffer 2 bytes, crc e9ffc9d0
+I/media-extractor-test: custom baseline avc1 with an mhaC track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline avc1 with an mhaC: select 0: status 0
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 profile: int32 2
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 language: string und
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 track-id: int32 2
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline avc1 with an mhaC track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline avc1 with an mhaC: select 1: status 0
+I/media-extractor-test: custom baseline avc1 with an mhaC: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline Opus, then avc1: status 0, tracks 2
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 mime: string video/avc
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 width: int32 320
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 height: int32 180
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 display-width: int32 320
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 display-height: int32 180
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 profile: int32 8
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 level: int32 16
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 language: string und
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 track-id: int32 1
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 csd-0: buffer 0 bytes, crc 00000000
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 csd-1: buffer 0 bytes, crc 00000000
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 csd-2: buffer 8 bytes, crc cee14eb8
+I/media-extractor-test: custom baseline Opus, then avc1 track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline Opus, then avc1: select 0: status 0
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 profile: int32 2
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 language: string und
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 track-id: int32 2
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline Opus, then avc1 track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline Opus, then avc1: select 1: status 0
+I/media-extractor-test: custom baseline Opus, then avc1: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1: status 0, tracks 2
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 mime: string video/avc
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 width: int32 320
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 height: int32 180
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 display-width: int32 320
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 display-height: int32 180
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 profile: int32 8
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 level: int32 512
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 language: string und
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 track-id: int32 1
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 csd-0: buffer 22 bytes, crc 60bdba85
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 csd-1: buffer 0 bytes, crc 00000000
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 csd-2: buffer 8 bytes, crc cee14eb8
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1: select 0: status 0
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 profile: int32 2
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 language: string und
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 track-id: int32 2
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1 track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1: select 1: status 0
+I/media-extractor-test: custom baseline Opus of two SPSs, then avc1: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline alac, then avc1: status 0, tracks 2
+I/media-extractor-test: custom baseline alac, then avc1 track 0 mime: string video/avc
+I/media-extractor-test: custom baseline alac, then avc1 track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline alac, then avc1 track 0 width: int32 320
+I/media-extractor-test: custom baseline alac, then avc1 track 0 height: int32 180
+I/media-extractor-test: custom baseline alac, then avc1 track 0 display-width: int32 320
+I/media-extractor-test: custom baseline alac, then avc1 track 0 display-height: int32 180
+I/media-extractor-test: custom baseline alac, then avc1 track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline alac, then avc1 track 0 language: string und
+I/media-extractor-test: custom baseline alac, then avc1 track 0 track-id: int32 1
+I/media-extractor-test: custom baseline alac, then avc1 track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline alac, then avc1 track 0 csd-0: buffer 24 bytes, crc a7a6cffe
+I/media-extractor-test: custom baseline alac, then avc1 track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline alac, then avc1: select 0: status 0
+I/media-extractor-test: custom baseline alac, then avc1 track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline alac, then avc1 track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline alac, then avc1 track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline alac, then avc1 track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline alac, then avc1 track 1 profile: int32 2
+I/media-extractor-test: custom baseline alac, then avc1 track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline alac, then avc1 track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline alac, then avc1 track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline alac, then avc1 track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline alac, then avc1 track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline alac, then avc1 track 1 language: string und
+I/media-extractor-test: custom baseline alac, then avc1 track 1 track-id: int32 2
+I/media-extractor-test: custom baseline alac, then avc1 track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline alac, then avc1 track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline alac, then avc1: select 1: status 0
+I/media-extractor-test: custom baseline alac, then avc1: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline hvc1 with an av1C: status 0, tracks 2
+I/media-extractor-test: custom baseline hvc1 with an av1C: select 0: status 0
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 profile: int32 2
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 language: string und
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 track-id: int32 2
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline hvc1 with an av1C track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline hvc1 with an av1C: select 1: status 0
+I/media-extractor-test: custom baseline hvc1 with an av1C: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline mp4a with an av1C: status 0, tracks 2
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 mime: string video/avc
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 width: int32 320
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 height: int32 180
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 display-width: int32 320
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 display-height: int32 180
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 profile: int32 1
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 level: int32 16
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 language: string und
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 track-id: int32 1
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline mp4a with an av1C track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline mp4a with an av1C: select 0: status 0
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 language: string und
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 track-id: int32 2
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline mp4a with an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: custom baseline mp4a with an av1C: select 1: status 0
+I/media-extractor-test: custom baseline mp4a with an av1C: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline mp4a with a dfLa: status 0, tracks 2
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 mime: string video/avc
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 width: int32 320
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 height: int32 180
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 display-width: int32 320
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 display-height: int32 180
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 profile: int32 1
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 level: int32 16
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 language: string und
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 track-id: int32 1
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline mp4a with a dfLa track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline mp4a with a dfLa: select 0: status 0
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 language: string und
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 track-id: int32 2
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline mp4a with a dfLa track 1 csd-0: buffer 42 bytes, crc 25da6480
+I/media-extractor-test: custom baseline mp4a with a dfLa: select 1: status 0
+I/media-extractor-test: custom baseline mp4a with a dfLa: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline mp4a with an mhaC: status 0, tracks 2
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 mime: string video/avc
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 width: int32 320
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 height: int32 180
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 display-width: int32 320
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 display-height: int32 180
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 profile: int32 1
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 level: int32 16
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 language: string und
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 track-id: int32 1
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline mp4a with an mhaC track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline mp4a with an mhaC: select 0: status 0
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 language: string und
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 track-id: int32 2
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 csd-0: buffer 2 bytes, crc e9ffc9d0
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 mpegh-profile-level-indication: int32 13
+I/media-extractor-test: custom baseline mp4a with an mhaC track 1 mpegh-reference-channel-layout: int32 6
+I/media-extractor-test: custom baseline mp4a with an mhaC: select 1: status 0
+I/media-extractor-test: custom baseline mp4a with an mhaC: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline Opus, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline Opus, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline Opus, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 csd-0: buffer 19 bytes, crc ea5d642a
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 csd-1: buffer 8 bytes, crc de8d07d0
+I/media-extractor-test: custom baseline Opus, then mp4a track 1 csd-2: buffer 8 bytes, crc cee14eb8
+I/media-extractor-test: custom baseline Opus, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline Opus, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline alac, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline alac, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline alac, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline alac, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline alac, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline alac, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline alac, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline alac, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline alac, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline alac, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline alac, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline alac, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline alac, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline alac, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline alac, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline alac, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline alac, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline alac, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline alac, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline alac, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline alac, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline alac, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline alac, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline alac, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline alac, then mp4a track 1 bits-per-sample: int32 16
+I/media-extractor-test: custom baseline alac, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline alac, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline alac, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline alac, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline alac, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline alac, then mp4a track 1 csd-0: buffer 24 bytes, crc a7a6cffe
+I/media-extractor-test: custom baseline alac, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline alac, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C: status 0, tracks 2
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 mime: string video/avc
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 width: int32 320
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 height: int32 180
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 display-width: int32 320
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 display-height: int32 180
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 language: string und
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 track-id: int32 1
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C: select 0: status -10001
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 profile: int32 2
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 language: string und
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 track-id: int32 2
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C: select 1: status 0
+I/media-extractor-test: custom baseline avc1 of an avcC of version 0, with an av1C: 46 samples, digest e521109c
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C: status 0, tracks 2
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 mime: string video/avc
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 width: int32 320
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 height: int32 180
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 display-width: int32 320
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 display-height: int32 180
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 profile: int32 1
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 level: int32 16
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 language: string und
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 track-id: int32 1
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C: select 0: status 0
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 channel-count: int32 2
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 language: string und
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 track-id: int32 2
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C: select 1: status 0
+I/media-extractor-test: custom baseline mp4a with an esds of tag 5 in a wave, and an av1C: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: status 0, tracks 2
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 mime: string video/avc
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 width: int32 320
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 height: int32 180
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 display-width: int32 320
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 display-height: int32 180
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 profile: int32 1
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 level: int32 16
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 language: string und
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 track-id: int32 1
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: select 0: status 0
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 channel-count: int32 2
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 language: string und
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 track-id: int32 2
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: select 1: status 0
+I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: 76 samples, digest 20e1e4e4
 I/media-extractor-test: custom baseline no movie, then the fd: status -10000 then 0, 2 tracks, the refused source closed 0 times
 I/media-extractor-test: java baseline: tracks before a source 0, sample time -1, track -1
 I/media-extractor-test: java baseline: 2 tracks
@@ -2152,6 +2647,502 @@ I/media-extractor-test: java baseline avcC of an SPS past its end select 0: no e
 I/media-extractor-test: java baseline avcC of an SPS past its end track 1: no error, audio/mp4a-latm
 I/media-extractor-test: java baseline avcC of an SPS past its end select 1: no error
 I/media-extractor-test: java baseline avcC of an SPS past its end: 76 samples
+I/media-extractor-test: java baseline avc1 with an av1C: 2 tracks
+I/media-extractor-test: java baseline avc1 with an av1C track 0 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: java baseline avc1 with an av1C track 0 display-height: int 180
+I/media-extractor-test: java baseline avc1 with an av1C track 0 display-width: int 320
+I/media-extractor-test: java baseline avc1 with an av1C track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline avc1 with an av1C track 0 frame-count: int 30
+I/media-extractor-test: java baseline avc1 with an av1C track 0 frame-rate: int 30
+I/media-extractor-test: java baseline avc1 with an av1C track 0 height: int 180
+I/media-extractor-test: java baseline avc1 with an av1C track 0 language: string und
+I/media-extractor-test: java baseline avc1 with an av1C track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline avc1 with an av1C track 0 mime: string video/avc
+I/media-extractor-test: java baseline avc1 with an av1C track 0 track-id: int 1
+I/media-extractor-test: java baseline avc1 with an av1C track 0 width: int 320
+I/media-extractor-test: java baseline avc1 with an av1C select 0: no error
+I/media-extractor-test: java baseline avc1 with an av1C track 1 aac-profile: int 2
+I/media-extractor-test: java baseline avc1 with an av1C track 1 bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with an av1C track 1 channel-count: int 1
+I/media-extractor-test: java baseline avc1 with an av1C track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline avc1 with an av1C track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline avc1 with an av1C track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline avc1 with an av1C track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline avc1 with an av1C track 1 language: string und
+I/media-extractor-test: java baseline avc1 with an av1C track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with an av1C track 1 max-input-size: int 207
+I/media-extractor-test: java baseline avc1 with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline avc1 with an av1C track 1 profile: int 2
+I/media-extractor-test: java baseline avc1 with an av1C track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline avc1 with an av1C track 1 track-id: int 2
+I/media-extractor-test: java baseline avc1 with an av1C select 1: no error
+I/media-extractor-test: java baseline avc1 with an av1C: 76 samples
+I/media-extractor-test: java baseline avc1 with a vpcC: 2 tracks
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 csd-0: buffer 12 bytes, crc deaee574
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 display-height: int 180
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 display-width: int 320
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 frame-count: int 30
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 frame-rate: int 30
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 height: int 180
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 language: string und
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 mime: string video/avc
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 track-id: int 1
+I/media-extractor-test: java baseline avc1 with a vpcC track 0 width: int 320
+I/media-extractor-test: java baseline avc1 with a vpcC select 0: no error
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 aac-profile: int 2
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 channel-count: int 1
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 language: string und
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 max-input-size: int 207
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 profile: int 2
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline avc1 with a vpcC track 1 track-id: int 2
+I/media-extractor-test: java baseline avc1 with a vpcC select 1: no error
+I/media-extractor-test: java baseline avc1 with a vpcC: 76 samples
+I/media-extractor-test: java baseline avc1 with a dfLa: 2 tracks
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 csd-0: buffer 42 bytes, crc 25da6480
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 display-height: int 180
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 display-width: int 320
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 frame-count: int 30
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 frame-rate: int 30
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 height: int 180
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 language: string und
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 mime: string video/avc
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 track-id: int 1
+I/media-extractor-test: java baseline avc1 with a dfLa track 0 width: int 320
+I/media-extractor-test: java baseline avc1 with a dfLa select 0: no error
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 aac-profile: int 2
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 channel-count: int 1
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 language: string und
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 max-input-size: int 207
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 profile: int 2
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline avc1 with a dfLa track 1 track-id: int 2
+I/media-extractor-test: java baseline avc1 with a dfLa select 1: no error
+I/media-extractor-test: java baseline avc1 with a dfLa: 76 samples
+I/media-extractor-test: java baseline avc1 with a dfLa of 41 bytes: 0 tracks
+I/media-extractor-test: java baseline avc1 with a dfLa of 41 bytes: 0 samples
+I/media-extractor-test: java baseline avc1 with an mhaC: 2 tracks
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 csd-0: buffer 2 bytes, crc e9ffc9d0
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 display-height: int 180
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 display-width: int 320
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 frame-count: int 30
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 frame-rate: int 30
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 height: int 180
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 language: string und
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 mime: string video/avc
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 track-id: int 1
+I/media-extractor-test: java baseline avc1 with an mhaC track 0 width: int 320
+I/media-extractor-test: java baseline avc1 with an mhaC select 0: no error
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 aac-profile: int 2
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 channel-count: int 1
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 language: string und
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 max-input-size: int 207
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 profile: int 2
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline avc1 with an mhaC track 1 track-id: int 2
+I/media-extractor-test: java baseline avc1 with an mhaC select 1: no error
+I/media-extractor-test: java baseline avc1 with an mhaC: 76 samples
+I/media-extractor-test: java baseline Opus, then avc1: 2 tracks
+I/media-extractor-test: java baseline Opus, then avc1 track 0 csd-0: buffer 0 bytes, crc 00000000
+I/media-extractor-test: java baseline Opus, then avc1 track 0 csd-1: buffer 0 bytes, crc 00000000
+I/media-extractor-test: java baseline Opus, then avc1 track 0 csd-2: buffer 8 bytes, crc cee14eb8
+I/media-extractor-test: java baseline Opus, then avc1 track 0 display-height: int 180
+I/media-extractor-test: java baseline Opus, then avc1 track 0 display-width: int 320
+I/media-extractor-test: java baseline Opus, then avc1 track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline Opus, then avc1 track 0 frame-count: int 30
+I/media-extractor-test: java baseline Opus, then avc1 track 0 frame-rate: int 30
+I/media-extractor-test: java baseline Opus, then avc1 track 0 height: int 180
+I/media-extractor-test: java baseline Opus, then avc1 track 0 language: string und
+I/media-extractor-test: java baseline Opus, then avc1 track 0 level: int 16
+I/media-extractor-test: java baseline Opus, then avc1 track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline Opus, then avc1 track 0 mime: string video/avc
+I/media-extractor-test: java baseline Opus, then avc1 track 0 profile: int 8
+I/media-extractor-test: java baseline Opus, then avc1 track 0 track-id: int 1
+I/media-extractor-test: java baseline Opus, then avc1 track 0 width: int 320
+I/media-extractor-test: java baseline Opus, then avc1 select 0: no error
+I/media-extractor-test: java baseline Opus, then avc1 track 1 aac-profile: int 2
+I/media-extractor-test: java baseline Opus, then avc1 track 1 bitrate: int 64000
+I/media-extractor-test: java baseline Opus, then avc1 track 1 channel-count: int 1
+I/media-extractor-test: java baseline Opus, then avc1 track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline Opus, then avc1 track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline Opus, then avc1 track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline Opus, then avc1 track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline Opus, then avc1 track 1 language: string und
+I/media-extractor-test: java baseline Opus, then avc1 track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline Opus, then avc1 track 1 max-input-size: int 207
+I/media-extractor-test: java baseline Opus, then avc1 track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline Opus, then avc1 track 1 profile: int 2
+I/media-extractor-test: java baseline Opus, then avc1 track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline Opus, then avc1 track 1 track-id: int 2
+I/media-extractor-test: java baseline Opus, then avc1 select 1: no error
+I/media-extractor-test: java baseline Opus, then avc1: 76 samples
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1: 2 tracks
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 csd-0: buffer 22 bytes, crc 60bdba85
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 csd-1: buffer 0 bytes, crc 00000000
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 csd-2: buffer 8 bytes, crc cee14eb8
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 display-height: int 180
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 display-width: int 320
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 frame-count: int 30
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 frame-rate: int 30
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 height: int 180
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 language: string und
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 level: int 512
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 mime: string video/avc
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 profile: int 8
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 track-id: int 1
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 0 width: int 320
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 select 0: no error
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 aac-profile: int 2
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 bitrate: int 64000
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 channel-count: int 1
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 language: string und
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 max-input-size: int 207
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 profile: int 2
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 track 1 track-id: int 2
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1 select 1: no error
+I/media-extractor-test: java baseline Opus of two SPSs, then avc1: 76 samples
+I/media-extractor-test: java baseline alac, then avc1: 2 tracks
+I/media-extractor-test: java baseline alac, then avc1 track 0 csd-0: buffer 24 bytes, crc a7a6cffe
+I/media-extractor-test: java baseline alac, then avc1 track 0 display-height: int 180
+I/media-extractor-test: java baseline alac, then avc1 track 0 display-width: int 320
+I/media-extractor-test: java baseline alac, then avc1 track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline alac, then avc1 track 0 frame-count: int 30
+I/media-extractor-test: java baseline alac, then avc1 track 0 frame-rate: int 30
+I/media-extractor-test: java baseline alac, then avc1 track 0 height: int 180
+I/media-extractor-test: java baseline alac, then avc1 track 0 language: string und
+I/media-extractor-test: java baseline alac, then avc1 track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline alac, then avc1 track 0 mime: string video/avc
+I/media-extractor-test: java baseline alac, then avc1 track 0 track-id: int 1
+I/media-extractor-test: java baseline alac, then avc1 track 0 width: int 320
+I/media-extractor-test: java baseline alac, then avc1 select 0: no error
+I/media-extractor-test: java baseline alac, then avc1 track 1 aac-profile: int 2
+I/media-extractor-test: java baseline alac, then avc1 track 1 bitrate: int 64000
+I/media-extractor-test: java baseline alac, then avc1 track 1 channel-count: int 1
+I/media-extractor-test: java baseline alac, then avc1 track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline alac, then avc1 track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline alac, then avc1 track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline alac, then avc1 track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline alac, then avc1 track 1 language: string und
+I/media-extractor-test: java baseline alac, then avc1 track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline alac, then avc1 track 1 max-input-size: int 207
+I/media-extractor-test: java baseline alac, then avc1 track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline alac, then avc1 track 1 profile: int 2
+I/media-extractor-test: java baseline alac, then avc1 track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline alac, then avc1 track 1 track-id: int 2
+I/media-extractor-test: java baseline alac, then avc1 select 1: no error
+I/media-extractor-test: java baseline alac, then avc1: 76 samples
+I/media-extractor-test: java baseline hvc1 with an av1C: 2 tracks
+I/media-extractor-test: java baseline hvc1 with an av1C track 0: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline hvc1 with an av1C select 0: no error
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 aac-profile: int 2
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 bitrate: int 64000
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 channel-count: int 1
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 language: string und
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 max-input-size: int 207
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 profile: int 2
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline hvc1 with an av1C track 1 track-id: int 2
+I/media-extractor-test: java baseline hvc1 with an av1C select 1: no error
+I/media-extractor-test: java baseline hvc1 with an av1C: 76 samples
+I/media-extractor-test: java baseline mp4a with an av1C: 2 tracks
+I/media-extractor-test: java baseline mp4a with an av1C track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline mp4a with an av1C track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline mp4a with an av1C track 0 display-height: int 180
+I/media-extractor-test: java baseline mp4a with an av1C track 0 display-width: int 320
+I/media-extractor-test: java baseline mp4a with an av1C track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline mp4a with an av1C track 0 frame-count: int 30
+I/media-extractor-test: java baseline mp4a with an av1C track 0 frame-rate: int 30
+I/media-extractor-test: java baseline mp4a with an av1C track 0 height: int 180
+I/media-extractor-test: java baseline mp4a with an av1C track 0 language: string und
+I/media-extractor-test: java baseline mp4a with an av1C track 0 level: int 16
+I/media-extractor-test: java baseline mp4a with an av1C track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline mp4a with an av1C track 0 mime: string video/avc
+I/media-extractor-test: java baseline mp4a with an av1C track 0 profile: int 1
+I/media-extractor-test: java baseline mp4a with an av1C track 0 track-id: int 1
+I/media-extractor-test: java baseline mp4a with an av1C track 0 width: int 320
+I/media-extractor-test: java baseline mp4a with an av1C select 0: no error
+I/media-extractor-test: java baseline mp4a with an av1C track 1 aac-profile: int 2
+I/media-extractor-test: java baseline mp4a with an av1C track 1 bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an av1C track 1 channel-count: int 1
+I/media-extractor-test: java baseline mp4a with an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: java baseline mp4a with an av1C track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline mp4a with an av1C track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline mp4a with an av1C track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline mp4a with an av1C track 1 language: string und
+I/media-extractor-test: java baseline mp4a with an av1C track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an av1C track 1 max-input-size: int 207
+I/media-extractor-test: java baseline mp4a with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline mp4a with an av1C track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline mp4a with an av1C track 1 track-id: int 2
+I/media-extractor-test: java baseline mp4a with an av1C select 1: no error
+I/media-extractor-test: java baseline mp4a with an av1C: 76 samples
+I/media-extractor-test: java baseline mp4a with a dfLa: 2 tracks
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 display-height: int 180
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 display-width: int 320
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 frame-count: int 30
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 frame-rate: int 30
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 height: int 180
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 language: string und
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 level: int 16
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 mime: string video/avc
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 profile: int 1
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 track-id: int 1
+I/media-extractor-test: java baseline mp4a with a dfLa track 0 width: int 320
+I/media-extractor-test: java baseline mp4a with a dfLa select 0: no error
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 aac-profile: int 2
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 channel-count: int 1
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 csd-0: buffer 42 bytes, crc 25da6480
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 language: string und
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 max-input-size: int 207
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline mp4a with a dfLa track 1 track-id: int 2
+I/media-extractor-test: java baseline mp4a with a dfLa select 1: no error
+I/media-extractor-test: java baseline mp4a with a dfLa: 76 samples
+I/media-extractor-test: java baseline mp4a with an mhaC: 2 tracks
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 display-height: int 180
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 display-width: int 320
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 frame-count: int 30
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 frame-rate: int 30
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 height: int 180
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 language: string und
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 level: int 16
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 mime: string video/avc
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 profile: int 1
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 track-id: int 1
+I/media-extractor-test: java baseline mp4a with an mhaC track 0 width: int 320
+I/media-extractor-test: java baseline mp4a with an mhaC select 0: no error
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 aac-profile: int 2
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 channel-count: int 1
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 csd-0: buffer 2 bytes, crc e9ffc9d0
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 language: string und
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 max-input-size: int 207
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 mpegh-profile-level-indication: int 13
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 mpegh-reference-channel-layout: int 6
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline mp4a with an mhaC track 1 track-id: int 2
+I/media-extractor-test: java baseline mp4a with an mhaC select 1: no error
+I/media-extractor-test: java baseline mp4a with an mhaC: 76 samples
+I/media-extractor-test: java baseline Opus, then mp4a: 2 tracks
+I/media-extractor-test: java baseline Opus, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline Opus, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline Opus, then mp4a track 0 display-height: int 180
+I/media-extractor-test: java baseline Opus, then mp4a track 0 display-width: int 320
+I/media-extractor-test: java baseline Opus, then mp4a track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline Opus, then mp4a track 0 frame-count: int 30
+I/media-extractor-test: java baseline Opus, then mp4a track 0 frame-rate: int 30
+I/media-extractor-test: java baseline Opus, then mp4a track 0 height: int 180
+I/media-extractor-test: java baseline Opus, then mp4a track 0 language: string und
+I/media-extractor-test: java baseline Opus, then mp4a track 0 level: int 16
+I/media-extractor-test: java baseline Opus, then mp4a track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline Opus, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: java baseline Opus, then mp4a track 0 profile: int 1
+I/media-extractor-test: java baseline Opus, then mp4a track 0 track-id: int 1
+I/media-extractor-test: java baseline Opus, then mp4a track 0 width: int 320
+I/media-extractor-test: java baseline Opus, then mp4a select 0: no error
+I/media-extractor-test: java baseline Opus, then mp4a track 1 aac-profile: int 2
+I/media-extractor-test: java baseline Opus, then mp4a track 1 bitrate: int 64000
+I/media-extractor-test: java baseline Opus, then mp4a track 1 channel-count: int 1
+I/media-extractor-test: java baseline Opus, then mp4a track 1 csd-0: buffer 19 bytes, crc ea5d642a
+I/media-extractor-test: java baseline Opus, then mp4a track 1 csd-1: buffer 8 bytes, crc de8d07d0
+I/media-extractor-test: java baseline Opus, then mp4a track 1 csd-2: buffer 8 bytes, crc cee14eb8
+I/media-extractor-test: java baseline Opus, then mp4a track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline Opus, then mp4a track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline Opus, then mp4a track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline Opus, then mp4a track 1 language: string und
+I/media-extractor-test: java baseline Opus, then mp4a track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline Opus, then mp4a track 1 max-input-size: int 207
+I/media-extractor-test: java baseline Opus, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline Opus, then mp4a track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline Opus, then mp4a track 1 track-id: int 2
+I/media-extractor-test: java baseline Opus, then mp4a select 1: no error
+I/media-extractor-test: java baseline Opus, then mp4a: 76 samples
+I/media-extractor-test: java baseline alac, then mp4a: 2 tracks
+I/media-extractor-test: java baseline alac, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline alac, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline alac, then mp4a track 0 display-height: int 180
+I/media-extractor-test: java baseline alac, then mp4a track 0 display-width: int 320
+I/media-extractor-test: java baseline alac, then mp4a track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline alac, then mp4a track 0 frame-count: int 30
+I/media-extractor-test: java baseline alac, then mp4a track 0 frame-rate: int 30
+I/media-extractor-test: java baseline alac, then mp4a track 0 height: int 180
+I/media-extractor-test: java baseline alac, then mp4a track 0 language: string und
+I/media-extractor-test: java baseline alac, then mp4a track 0 level: int 16
+I/media-extractor-test: java baseline alac, then mp4a track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline alac, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: java baseline alac, then mp4a track 0 profile: int 1
+I/media-extractor-test: java baseline alac, then mp4a track 0 track-id: int 1
+I/media-extractor-test: java baseline alac, then mp4a track 0 width: int 320
+I/media-extractor-test: java baseline alac, then mp4a select 0: no error
+I/media-extractor-test: java baseline alac, then mp4a track 1 aac-profile: int 2
+I/media-extractor-test: java baseline alac, then mp4a track 1 bitrate: int 64000
+I/media-extractor-test: java baseline alac, then mp4a track 1 bits-per-sample: int 16
+I/media-extractor-test: java baseline alac, then mp4a track 1 channel-count: int 1
+I/media-extractor-test: java baseline alac, then mp4a track 1 csd-0: buffer 24 bytes, crc a7a6cffe
+I/media-extractor-test: java baseline alac, then mp4a track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline alac, then mp4a track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline alac, then mp4a track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline alac, then mp4a track 1 language: string und
+I/media-extractor-test: java baseline alac, then mp4a track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline alac, then mp4a track 1 max-input-size: int 207
+I/media-extractor-test: java baseline alac, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline alac, then mp4a track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline alac, then mp4a track 1 track-id: int 2
+I/media-extractor-test: java baseline alac, then mp4a select 1: no error
+I/media-extractor-test: java baseline alac, then mp4a: 76 samples
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C: 2 tracks
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 display-height: int 180
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 display-width: int 320
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 frame-count: int 30
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 frame-rate: int 30
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 height: int 180
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 language: string und
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 mime: string video/avc
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 track-id: int 1
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 0 width: int 320
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C select 0: java.lang.IllegalArgumentException
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 aac-profile: int 2
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 bitrate: int 64000
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 channel-count: int 1
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 language: string und
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 max-input-size: int 207
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 profile: int 2
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C track 1 track-id: int 2
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C select 1: no error
+I/media-extractor-test: java baseline avc1 of an avcC of version 0, with an av1C: 46 samples
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C: 2 tracks
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 display-height: int 180
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 display-width: int 320
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 frame-count: int 30
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 frame-rate: int 30
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 height: int 180
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 language: string und
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 level: int 16
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 mime: string video/avc
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 profile: int 1
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 track-id: int 1
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 0 width: int 320
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C select 0: no error
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 channel-count: int 2
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 language: string und
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 max-input-size: int 207
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C track 1 track-id: int 2
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C select 1: no error
+I/media-extractor-test: java baseline mp4a with an esds of tag 5 in a wave, and an av1C: 76 samples
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: 2 tracks
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 display-height: int 180
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 display-width: int 320
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 durationUs: long 1000000
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 frame-count: int 30
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 frame-rate: int 30
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 height: int 180
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 language: string und
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 level: int 16
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 max-input-size: int 1473
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 mime: string video/avc
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 profile: int 1
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 track-id: int 1
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 0 width: int 320
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C select 0: no error
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 channel-count: int 2
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 durationUs: long 1068117
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 encoder-delay: int 2112
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 encoder-padding: int 892
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 language: string und
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 max-bitrate: int 64000
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 max-input-size: int 207
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 sample-rate: int 44100
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 track-id: int 2
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C select 1: no error
+I/media-extractor-test: java baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: 76 samples
 I/media-extractor-test: fd main: status 0
 I/media-extractor-test: fd main: 1 tracks, cached duration -1
 I/media-extractor-test: fd main file mime: string video/mp4
@@ -2374,4 +3365,5 @@ I/media-extractor-test: java main avcC of an SPS past its end: 1 tracks
 I/media-extractor-test: java main avcC of an SPS past its end track 0: java.lang.IllegalArgumentException
 I/media-extractor-test: java main avcC of an SPS past its end select 0: no error
 I/media-extractor-test: java main avcC of an SPS past its end: 30 samples
+I/media-extractor-test: java main csd: no avc1 and mp4a
 I/media-extractor-test: done

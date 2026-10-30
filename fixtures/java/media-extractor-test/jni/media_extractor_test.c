@@ -45,7 +45,8 @@ static const char *const kKeys[] = {
     "csd-hevc", "esds", "color-range", "color-standard", "color-transfer", "android._is-hdr", "hdr-static-info",
     "is-default", "is-autoselect", "is-forced-subtitle", "is-sync-frame", "thumbnail-time", "time-us", "track-index",
     "temporal-layer-id", "temporal-layer-count", "sample-file-offset", "last-sample-index-in-chunk", "target-time",
-    "valid-samples", "pssh", "crypto-mode", "frame-count",
+    "valid-samples", "pssh", "crypto-mode", "frame-count", "mpegh-profile-level-indication",
+    "mpegh-reference-channel-layout",
 };
 
 struct log {
@@ -926,6 +927,194 @@ static void description_lines(struct log *log, const char *name, const uint8_t *
     free(hvcc.data);
 }
 
+// Files whose sample entries give a track an opaque csd-0 (step 2a.2 item 4): MPEG4Extractor keeps an av1C's, a
+// vpcC's, a dfLa's and an mhaC's bytes, an Opus entry's (with a csd-1 and csd-2) and an alac entry's cookie as csd-0,
+// which the extractor service's convertMessageToMetaData takes before csd-avc, csd-hevc and esds. An avc1, hvc1 or
+// mp4a with such a box, a dfLa of 41 bytes, and an Opus or alac entry before the avc1 or the mp4a; for JavaExtractor,
+// whose getTrackFormat throws where the NDK's format would crash the app. 0 files without baseline's avc1 and mp4a.
+struct named {
+    const char *what;
+    struct buffer file;
+};
+enum { kCsdFiles = 17 };  // csd_files' count
+
+static size_t csd_files(const uint8_t *data, size_t size, struct named *out) {
+    size_t video_size = 0, audio_size = 0, count = 0;
+    const uint8_t *video = first_entry(data, size, 0, &video_size);
+    const uint8_t *audio = first_entry(data, size, 1, &audio_size);
+    if (video == NULL || audio == NULL || video_size < 86 || audio_size < 36 || memcmp(video + 4, "avc1", 4) != 0 ||
+        memcmp(audio + 4, "mp4a", 4) != 0) {
+        return 0;
+    }
+    static const uint8_t kAv1c[] = {0x81, 0x08, 0x0c, 0x00};
+    static const uint8_t kVpcc[] = {1, 0, 0, 0, 0, 10, 0x80, 1, 1, 1, 0, 0};
+    static const uint8_t kDfla[] = {0, 0, 0, 0, 0x80, 0, 0, 34, 0x10, 0, 0x10, 0, 0, 0, 0, 0, 0, 0, 0x0a, 0xc4, 0x42,
+                                    0xf0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const uint8_t kMhac[] = {1, 0x0d, 6, 0, 2, 0xab, 0xcd};
+    static const uint8_t kHvcc[] = {1, 1, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 93, 0xf0, 0, 0xfc, 0xfd, 0xf8, 0xf8,
+                                    0, 0, 0x0f, 1, 0x20, 0, 1, 0, 2, 0x40, 1};
+    // dOps: version 0, 2 channels, a pre-skip of 312, 48000 Hz, gain 0, mapping family 0.
+    static const uint8_t kDops[] = {0, 2, 0x01, 0x38, 0, 0, 0xbb, 0x80, 0, 0, 0};
+    // The alac box: version and flags 0, then the cookie (frame length 4096, 16 bits, 2 channels, 44100 Hz).
+    static const uint8_t kAlac[] = {0, 0, 0, 0, 0, 0, 0x10, 0, 0, 16, 40, 10, 14, 2, 0, 255, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0xac, 0x44};
+    // And one of a gain of 0x0102 and two SPSs after it, the second ending in a start code, which reassembleAVCC reads.
+    static const uint8_t kDopsSets[] = {0, 2, 0x01, 0x38, 0, 0, 0xbb, 0x80, 1, 2, 0, 0, 0, 0, 1, 0x67, 0x64, 0, 0x1f,
+                                        0xaa, 0, 0, 0, 1, 0x67, 0x42, 0, 0x1e, 0xbb, 0, 0, 0, 1};
+    struct buffer opus = {NULL, 0}, opus_sets = {NULL, 0}, alac = {NULL, 0}, body = {NULL, 0};
+    append(&body, audio + 8, 28);
+    append_box(&body, "dOps", kDops, sizeof kDops);
+    append_box(&opus, "Opus", body.data, body.size);
+    free(body.data);
+    body = (struct buffer){NULL, 0};
+    append(&body, audio + 8, 28);
+    append_box(&body, "dOps", kDopsSets, sizeof kDopsSets);
+    append_box(&opus_sets, "Opus", body.data, body.size);
+    free(body.data);
+    body = (struct buffer){NULL, 0};
+    append(&body, audio + 8, 28);
+    append_box(&body, "alac", kAlac, sizeof kAlac);
+    append_box(&alac, "alac", body.data, body.size);
+    free(body.data);
+    const struct {
+        const char *what;
+        const char *box;  // NULL for none
+        const uint8_t *body;
+        size_t size;
+        const struct buffer *before;  // an entry before it, or NULL
+    } kinds[] = {
+        {"avc1 with an av1C", "av1C", kAv1c, sizeof kAv1c, NULL},
+        {"avc1 with a vpcC", "vpcC", kVpcc, sizeof kVpcc, NULL},
+        {"avc1 with a dfLa", "dfLa", kDfla, sizeof kDfla, NULL},
+        {"avc1 with a dfLa of 41 bytes", "dfLa", kDfla, sizeof kDfla - 1, NULL},
+        {"avc1 with an mhaC", "mhaC", kMhac, sizeof kMhac, NULL},
+        {"Opus, then avc1", NULL, NULL, 0, &opus},
+        {"Opus of two SPSs, then avc1", NULL, NULL, 0, &opus_sets},
+        {"alac, then avc1", NULL, NULL, 0, &alac},
+        {"hvc1 with an av1C", "av1C", kAv1c, sizeof kAv1c, NULL},
+        {"mp4a with an av1C", "av1C", kAv1c, sizeof kAv1c, NULL},
+        {"mp4a with a dfLa", "dfLa", kDfla, sizeof kDfla, NULL},
+        {"mp4a with an mhaC", "mhaC", kMhac, sizeof kMhac, NULL},
+        {"Opus, then mp4a", NULL, NULL, 0, &opus},
+        {"alac, then mp4a", NULL, NULL, 0, &alac},
+    };
+    for (size_t kind = 0; kind < sizeof kinds / sizeof kinds[0]; kind++) {
+        const int sound = memcmp(kinds[kind].what + strlen(kinds[kind].what) - 4, "mp4a", 4) == 0 ||
+                          strncmp(kinds[kind].what, "mp4a", 4) == 0;
+        const int hevc = strncmp(kinds[kind].what, "hvc1", 4) == 0;
+        struct buffer entries = {NULL, 0}, boxes = {NULL, 0};
+        if (kinds[kind].before != NULL) append(&entries, kinds[kind].before->data, kinds[kind].before->size);
+        if (hevc) {
+            append_box(&boxes, "hvcC", kHvcc, sizeof kHvcc);
+        } else {
+            append(&boxes, sound ? audio + 36 : video + 86, sound ? audio_size - 36 : video_size - 86);
+        }
+        if (kinds[kind].box != NULL) append_box(&boxes, kinds[kind].box, kinds[kind].body, kinds[kind].size);
+        if (sound) {
+            struct buffer entry = {NULL, 0};
+            append(&entry, audio + 8, 28);
+            append(&entry, boxes.data, boxes.size);
+            append_box(&entries, "mp4a", entry.data, entry.size);
+            free(entry.data);
+        } else {
+            append_entry(&entries, hevc ? "hvc1" : "avc1", video, boxes.data, boxes.size);
+        }
+        struct buffer stsd = stsd_of(&entries, kinds[kind].before != NULL ? 2 : 1);
+        out[count].what = kinds[kind].what;
+        out[count].file = with_stsd(data, size, sound ? 1 : 0, &stsd);
+        count++;
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+    }
+    free(opus.data);
+    free(opus_sets.data);
+    free(alac.data);
+    // An avc1 of an avcC of version 0 (getTrack refuses it) and an av1C; an mp4a with its esds in a wave, of an
+    // ES_Descriptor tag of 5 or of half and quarter rates, and an av1C (the conversion reads neither esds).
+    const size_t esds_at = 36, esds_size = be32(audio + esds_at);
+    const size_t rates = esds_rates_at(audio + esds_at, audio_size - esds_at);
+    for (int kind = 0; kind < 3 && esds_size <= audio_size - esds_at && rates != 0; kind++) {
+        struct buffer boxes = {NULL, 0}, entries = {NULL, 0};
+        if (kind == 0) {
+            append(&boxes, video + 86, video_size - 86);
+            boxes.data[8] = 0;  // the avcC's version
+            append_box(&boxes, "av1C", kAv1c, sizeof kAv1c);
+            append_entry(&entries, "avc1", video, boxes.data, boxes.size);
+            out[count].what = "avc1 of an avcC of version 0, with an av1C";
+        } else {
+            struct buffer esds = {NULL, 0}, wave = {NULL, 0}, body = {NULL, 0};
+            append(&esds, audio + esds_at, esds_size);
+            if (kind == 1) {
+                esds.data[12] = 5;
+            } else {
+                const uint32_t average = be32(esds.data + rates + 4);
+                put_be32(esds.data + rates, average / 2);
+                put_be32(esds.data + rates + 4, average / 4);
+            }
+            append_box(&wave, "frma", "mp4a", 4);
+            append(&wave, esds.data, esds.size);
+            append(&body, audio + 8, 28);
+            append_box(&body, "wave", wave.data, wave.size);
+            append_box(&body, "av1C", kAv1c, sizeof kAv1c);
+            append_box(&entries, "mp4a", body.data, body.size);
+            out[count].what = kind == 1 ? "mp4a with an esds of tag 5 in a wave, and an av1C"
+                                        : "mp4a with an esds of half and quarter rates in a wave, and an av1C";
+            free(esds.data);
+            free(wave.data);
+            free(body.data);
+        }
+        struct buffer stsd = stsd_of(&entries, 1);
+        out[count].file = with_stsd(data, size, kind == 0 ? 0 : 1, &stsd);
+        count++;
+        free(stsd.data);
+        free(entries.data);
+        free(boxes.data);
+    }
+    return count;
+}
+
+// csd_files' files through an AMediaDataSource, but for the hvc1's video format, which Android refuses (its NDK's
+// format of no message would crash the app).
+static void csd_lines(struct log *log, const char *name, const uint8_t *data, size_t size) {
+    struct named files[kCsdFiles];
+    const size_t count = csd_files(data, size, files);
+    char prefix[96];
+    for (size_t index = 0; index < count; index++) {
+        snprintf(prefix, sizeof prefix, "custom %s %s", name, files[index].what);
+        if (strncmp(files[index].what, "hvc1", 4) == 0) {
+            variant_lines_but(log, prefix, &files[index].file, 0);
+        } else {
+            variant_lines(log, prefix, &files[index].file);
+        }
+    }
+}
+
+// csd_files' files for JavaExtractor: each one's name, then its bytes.
+JNIEXPORT jobjectArray JNICALL NAME(csdFiles)(JNIEnv *env, jclass clazz, jbyteArray jbytes) {
+    (void)clazz;
+    const jsize size = (*env)->GetArrayLength(env, jbytes);
+    uint8_t *data = malloc(size > 0 ? (size_t)size : 1);
+    (*env)->GetByteArrayRegion(env, jbytes, 0, size, (jbyte *)data);
+    struct named files[kCsdFiles];
+    const size_t count = csd_files(data, (size_t)size, files);
+    free(data);
+    jobjectArray out = (*env)->NewObjectArray(env, (jsize)(2 * count), (*env)->FindClass(env, "java/lang/Object"),
+                                              NULL);
+    for (size_t index = 0; index < count; index++) {
+        jstring what = (*env)->NewStringUTF(env, files[index].what);
+        jbyteArray bytes = (*env)->NewByteArray(env, (jsize)files[index].file.size);
+        (*env)->SetByteArrayRegion(env, bytes, 0, (jsize)files[index].file.size,
+                                   (const jbyte *)files[index].file.data);
+        (*env)->SetObjectArrayElement(env, out, (jsize)(2 * index), what);
+        (*env)->SetObjectArrayElement(env, out, (jsize)(2 * index + 1), bytes);
+        (*env)->DeleteLocalRef(env, what);
+        (*env)->DeleteLocalRef(env, bytes);
+        free(files[index].file.data);
+    }
+    return out;
+}
+
 JNIEXPORT jstring JNICALL NAME(extract)(JNIEnv *env, jclass clazz, jstring jname, jint fd, jlong offset,
                                          jlong length, jstring jpath, jbyteArray jbytes) {
     (void)clazz;
@@ -1028,6 +1217,7 @@ JNIEXPORT jstring JNICALL NAME(extract)(JNIEnv *env, jclass clazz, jstring jname
     snprintf(prefix, sizeof prefix, "custom %s without durations", name);
     durationless_lines(&log, prefix, data, (size_t)size);
     if (strcmp(name, "baseline") == 0) description_lines(&log, name, data, (size_t)size);
+    if (strcmp(name, "baseline") == 0) csd_lines(&log, name, data, (size_t)size);
 
     // A source the sniff refuses, then the fd on the same extractor: the refused source is never closed.
     struct bytes refused = {text, sizeof text, 0, 0};

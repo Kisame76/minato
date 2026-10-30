@@ -318,11 +318,19 @@ void gapless(AMediaFormat *format, const mp4::Track &track, int64_t duration_us)
 
 // convertMetaDataToMessage's codec data, of the track's own box (the parser's csd): an AVC track's avcC's profile and
 // level, then its SPS as csd-0 and its PPS as csd-1; an HEVC track's hvcC's sets as csd-0, then its profile and
-// level; an AAC track's DecoderSpecificInfo as csd-0, then its profile. Each csd is there when it is empty too.
+// level; an AAC track's DecoderSpecificInfo as csd-0, then its profile. Each csd is there when it is empty too. A
+// plain csd-0 of MPEG4Extractor's stands for the box (the parser's plain_config), and its plain csd-1 and csd-2 stay
+// unless an avcC's csd-1 replaces the first.
 void codec_keys(AMediaFormat *format, const mp4::Track &track) {
-    if (is_avc(track)) avc_profile(format, track);
+    const bool avcc = is_avc(track) && !track.csd_opaque;
+    if (avcc) avc_profile(format, track);
     AMediaFormat_setBuffer(format, "csd-0", track.csd0.data, track.csd0.size);  // empty for no sets or no info
-    if (is_avc(track)) AMediaFormat_setBuffer(format, "csd-1", track.csd1.data, track.csd1.size);
+    if (avcc) {
+        AMediaFormat_setBuffer(format, "csd-1", track.csd1.data, track.csd1.size);
+    } else if (track.has_opaque[1]) {
+        AMediaFormat_setBuffer(format, "csd-1", track.opaque[1].data, track.opaque[1].size);
+    }
+    if (track.has_opaque[2]) AMediaFormat_setBuffer(format, "csd-2", track.opaque[2].data, track.opaque[2].size);
     if (is_hevc(track)) hevc_profile(format, track);
     if (!is_video(track)) aac_profile(format, track);
 }
@@ -378,6 +386,12 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
     } else {
         AMediaFormat_setInt32(format, "channel-count", track.channels);
         AMediaFormat_setInt32(format, "sample-rate", track.sample_rate);
+        // An alac entry's before the mp4a and an mhaC's, as its meta keeps them.
+        if (track.bits_per_sample >= 0) AMediaFormat_setInt32(format, "bits-per-sample", track.bits_per_sample);
+        if (track.mpegh_profile >= 0) {
+            AMediaFormat_setInt32(format, "mpegh-profile-level-indication", track.mpegh_profile);
+            AMediaFormat_setInt32(format, "mpegh-reference-channel-layout", track.mpegh_layout);
+        }
         if (timed) gapless(format, track, duration_us);
         if (track.has_audio_object) {  // an mp4a esds's, none for one in a QuickTime wave alone
             AMediaFormat_setInt32(format, "aac-profile", static_cast<int32_t>(track.audio_object));

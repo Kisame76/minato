@@ -173,6 +173,14 @@ struct Track {
         bool has_full_range = false, has_primaries = false, has_transfer = false, has_matrix = false;
         uint32_t full_range = 0, primaries = 0, transfer = 0, matrix = 0;
     } vui;
+    // MPEG4Extractor's plain csd-0, csd-1 and csd-2, each replaced by the next: an av1C's, a vpcC's, a dfLa's or an
+    // mhaC's bytes among an entry's boxes, an Opus entry's OpusHead, codec delay and seek pre-roll, an alac entry's
+    // cookie. The extractor service's convertMessageToMetaData takes csd-0 before the avcC, hvcC and esds.
+    Bytes opaque[3];
+    bool has_opaque[3] = {};
+    bool csd_opaque = false;             // the format's csd-0 (csd0) is the plain csd-0, with no profile or csd-1
+    int32_t bits_per_sample = -1;        // an alac entry's cookie's, -1 for none
+    int32_t mpegh_profile = -1, mpegh_layout = -1;  // an mhaC's profile and level and channel layout, -1 for none
     bool format_refused = false;         // the format's conversion refuses its avcC, hvcC or esds
     bool select_refused = false;         // MPEG4Extractor's getTrack refuses its avcC or hvcC: no selecting it
     uint8_t config[13] = {};             // the avcC's or hvcC's first bytes, for the profile and level
