@@ -75,8 +75,9 @@ public struct KeyboardTraits: Sendable, Equatable {
     public var secure: Bool
     /// Autocorrection and spell checking, off where Android's keyboards suggest nothing.
     public var corrects: Bool
-    /// The pads that have no return key on an iPhone get a bar with the editor's action above them.
-    public var needsActionBar: Bool
+    /// The editor's action on the bar above the keyboard, for the pads that have no return key on an iPhone; nil for
+    /// the others, whose bar has only the key that puts the keyboard away.
+    public var barAction: ReturnKeyKind?
     /// The cursor starts at the text's start, where UIKit's keyboard begins a sentence (UIKeyInput's hasText false).
     public var cursorAtStart: Bool
 
@@ -127,7 +128,7 @@ public struct KeyboardTraits: Sendable, Equatable {
         case 6: returnKey = .done
         default: returnKey = .standard
         }
-        needsActionBar = [.numberPad, .decimalPad, .phonePad].contains(kind)
+        barAction = [.numberPad, .decimalPad, .phonePad].contains(kind) ? returnKey : nil
         cursorAtStart = editor.selectionStart <= 0 && editor.selectionEnd <= 0
     }
 }

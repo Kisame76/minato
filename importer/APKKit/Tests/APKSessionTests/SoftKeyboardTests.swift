@@ -117,12 +117,14 @@ import Testing
         #expect(traits(Self.text | Self.multiLine, Self.done | Self.noEnterAction).returnKey == .standard)
     }
 
-    @Test func onlyThePadsWithoutAReturnKeyNeedABar() {
-        #expect(traits(Self.number).needsActionBar)
-        #expect(traits(Self.number | Self.decimal).needsActionBar)
-        #expect(traits(Self.phone).needsActionBar)
-        #expect(!traits(Self.number | Self.signed).needsActionBar)
-        #expect(!traits(Self.text).needsActionBar)
+    @Test func onlyThePadsWithoutAReturnKeyHaveTheActionOnTheBar() {
+        // Every keyboard's bar has the key that puts it away, as Android's Back does while an IME is shown; the pads
+        // without a return key also have the editor's action there.
+        #expect(traits(Self.number, Self.done).barAction == .done)
+        #expect(traits(Self.number | Self.decimal).barAction == .standard)
+        #expect(traits(Self.phone, Self.go).barAction == .go)
+        #expect(traits(Self.number | Self.signed).barAction == nil)
+        #expect(traits(Self.text, Self.done).barAction == nil)
     }
 
     @Test func theCursorAtTheStartBeginsASentence() {

@@ -391,14 +391,16 @@ final class SurfaceLayers {
 /// The host's view of the guest's input method (ADR-0068 step 2c): an invisible UIKeyInput in the session's view that
 /// becomes first responder when the guest shows its keyboard, so UIKit shows its own with the editor's traits, and
 /// hands what it types on. A hardware keyboard's presses stay keys, as on Android, where they reach the focused
-/// view as KeyEvents: the view gives them to the session's view. The pads without a return key get a bar with the
-/// editor's action.
+/// view as KeyEvents: the view gives them to the session's view. Every keyboard has a bar with a key that puts it
+/// away, as Android's Back does while an IME is shown (UIKit's iPhone keyboard has none), and the pads without a
+/// return key have the editor's action there too.
 final class SoftKeyboardView: UIView, UIKeyInput {
     /// Typed text, the delete key, and the return key or the bar's button.
     var onInsert: (String) -> Void = { _ in }
     var onDelete: () -> Void = {}
     var onReturn: () -> Void = {}
-    /// UIKit took the keyboard away without the guest asking (an iPad's dismiss key, another first responder).
+    /// UIKit took the keyboard away without the guest asking (the bar's key, an iPad's dismiss key, another first
+    /// responder).
     var onDismissed: () -> Void = {}
 
     var keyboardType: UIKeyboardType = .default
@@ -502,23 +504,32 @@ final class SoftKeyboardView: UIView, UIKeyInput {
         spellCheckingType = traits.corrects ? .default : .no
         isSecureTextEntry = traits.secure
         hasText = !traits.cursorAtStart
-        bar = traits.needsActionBar ? actionBar(traits.returnKey) : nil
+        bar = keyboardBar(traits.barAction)
     }
 
-    /// A bar with the return key's action, at the right as the return key is.
-    private func actionBar(_ returnKey: ReturnKeyKind) -> UIToolbar {
-        let title = switch returnKey {
-        case .standard: "Return"
-        case .go: "Go"
-        case .search: "Search"
-        case .send: "Send"
-        case .next: "Next"
-        case .done: "Done"
-        }
+    /// The bar: the key that puts the keyboard away at the left, and the return key's action, if any, at the right as
+    /// the return key is. The guest hears of it as of an iPad's dismiss key: its field keeps the focus, and a tap on it
+    /// shows the keyboard again.
+    private func keyboardBar(_ action: ReturnKeyKind?) -> UIToolbar {
         let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
-        let button = UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.onReturn() })
-        button.style = .prominent
-        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), button]
+        let hide = UIBarButtonItem(image: UIImage(systemName: "chevron.down"),
+                                   primaryAction: UIAction { [weak self] _ in _ = self?.resignFirstResponder() })
+        hide.accessibilityLabel = "Hide Keyboard"
+        var items = [hide, UIBarButtonItem(systemItem: .flexibleSpace)]
+        if let action {
+            let title = switch action {
+            case .standard: "Return"
+            case .go: "Go"
+            case .search: "Search"
+            case .send: "Send"
+            case .next: "Next"
+            case .done: "Done"
+            }
+            let button = UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.onReturn() })
+            button.style = .prominent
+            items.append(button)
+        }
+        bar.items = items
         bar.sizeToFit()
         return bar
     }
