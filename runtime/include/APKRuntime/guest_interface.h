@@ -431,6 +431,12 @@ enum apkrt_request_type {
                                    // (APKRT_TEXT_*), which the guest drops once the serial is not the live one. No
                                    // answer ends the request. The runtime refuses -EINVAL any other text or a serial
                                    // of 0 where one is needed, a text of 512 bytes or more, -EFAULT an unreadable one
+    APKRT_REQUEST_WEBVIEW,         // guest only (ADR-0056 step a): a0 the address of a struct apkrt_webview_request.
+                                   // MAKE opens the view's host->guest record channel and returns its fd (>= 0) as the
+                                   // result, like a connect; PLACE and REMOVE return 0; CALL returns 0 and its answer
+                                   // comes back as a record on the channel keyed by request_id; ANSWER returns 0 and
+                                   // carries the guest's answer to a waiting host record. -EFAULT for an unreadable
+                                   // address, -EINVAL for an unknown op, a malformed field or a payload over the cap
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)
@@ -470,6 +476,133 @@ struct apkrt_surface_request {
     int32_t height;
     int32_t format;    // a PixelFormat value, RGB_565 (4) by default
     int32_t opaque;    // the runtime's, for the host: 1 unless the format has alpha (PixelFormat.formatHasAlpha)
+};
+
+// MARK: - WebView (ADR-0056 step a)
+//
+// The guest asks the host to make, place, remove, call into or answer a WebView with APKRT_REQUEST_WEBVIEW (a0 = the
+// address of an apkrt_webview_request). MAKE returns a host -> guest channel fd; the host writes a stream of records to
+// it, which the guest reads with an ordinary read(). A record is a fixed header followed by `length` payload bytes. A
+// payload larger than APKRT_WEBVIEW_RECORD_MAX (a large loadData, an evaluateJavascript result, a WebResourceResponse
+// body) is split into several records, all but the last carrying APKRT_WEBVIEW_MORE, which the guest reassembles by
+// request_id. Several host records wait for the guest's reply, which it sends as an ANSWER request matched by
+// (token, request_id). The header's byte order is the process's (one family), and a field never changes meaning: a new
+// record type takes a new number, as for every struct here.
+
+/// What the guest asks of a WebView, APKRT_REQUEST_WEBVIEW's op.
+enum apkrt_webview_op {
+    APKRT_WEBVIEW_MAKE = 1,  // open the view and its record channel for a token that has none; returns the channel fd
+    APKRT_WEBVIEW_PLACE,     // the view's new frame in the window's pixels
+    APKRT_WEBVIEW_REMOVE,    // the guest is done with the view; frees the token and closes the channel
+    APKRT_WEBVIEW_CALL,      // a call into the view (evaluateJavascript, loadData): payload at
+                             // {payload, payload_length}
+    APKRT_WEBVIEW_ANSWER,    // the guest's answer to a host record that waits (shouldOverrideUrlLoading,
+                             // shouldInterceptRequest, a JS bridge call, onJsAlert/Confirm/Prompt,
+                             // onPermissionRequest), matched by (token, request_id); the answer bytes are at
+                             // {payload, payload_length}
+};
+
+/// A WebView request, 96 bytes. REMOVE uses op and token; PLACE adds the window, frame and clip; CALL and ANSWER add
+/// request_id and a payload. MAKE and PLACE never wait on the host's main thread: MAKE returns the fd at once and the
+/// host reports APKRT_WEBVIEW_REC_CREATED, PLACE returns 0 and the host reports APKRT_WEBVIEW_REC_PLACED. A CALL or an
+/// inline ANSWER payload over APKRT_WEBVIEW_RECORD_MAX is refused (-EINVAL): the host -> guest direction chunks a
+/// larger record with APKRT_WEBVIEW_MORE; a guest -> host body too big to inline (an intercepted vendor.js or .wasm) is
+/// answered by a file descriptor instead (APKRT_WEBVIEW_ANSWER_FD), which the host streams without copying it through
+/// records. The fd rides the request (the runtime hands the host a dup of the guest fd), so the socket needs no
+/// SCM_RIGHTS.
+struct apkrt_webview_request {
+    uint32_t op;              // enum apkrt_webview_op
+    uint32_t flags;           // APKRT_WEBVIEW_ANSWER_FD on an ANSWER whose body is the fd below, not inline bytes
+    uint64_t token;           // the guest's name of the view, not 0, one per live view of the session
+    uint64_t request_id;      // CALL: the id its answer record carries; ANSWER: the host record it answers; else 0
+    uint64_t window;          // PLACE: the host window the view sits in (minato_window_info.id)
+    int32_t left;             // PLACE: the frame in the window's pixels, not empty
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    int32_t clip_left;        // PLACE: the clip rect in the window's pixels (a WebView clipped by its parents)
+    int32_t clip_top;
+    int32_t clip_right;
+    int32_t clip_bottom;
+    uint64_t payload;         // CALL: the script or page; inline ANSWER: the answer bytes (a bool, a prompt string, a
+                              // permission decision, a small body); else 0
+    uint32_t payload_length;  // CALL / inline ANSWER: byte count, at most APKRT_WEBVIEW_RECORD_MAX; -EINVAL past it
+    int32_t fd;               // APKRT_WEBVIEW_ANSWER_FD: the guest fd whose bytes are the answer (an asset fd, a pipe);
+                              // else -1
+    int64_t offset;           // APKRT_WEBVIEW_ANSWER_FD: the start offset in the fd
+    int64_t length;           // APKRT_WEBVIEW_ANSWER_FD: bytes from the offset, or -1 for to-EOF
+};
+
+/// A record on the WebView channel (host -> guest): this header, then `length` payload bytes.
+struct apkrt_webview_record_header {
+    uint32_t type;        // enum apkrt_webview_record_type; an unknown value is refused (-EINVAL)
+    uint32_t flags;       // APKRT_WEBVIEW_MORE if more records of the same payload follow; else 0
+    uint32_t length;      // payload bytes, at most APKRT_WEBVIEW_RECORD_MAX; more is refused (-EINVAL)
+    uint32_t reserved;    // 0
+    uint64_t request_id;  // the CALL this answers, the record the guest must ANSWER, or 0 for a plain event
+};
+
+/// The host -> guest record types; extended as steps b) and c2) need each. A new type takes a new number, never a
+/// reused one, so 1 to 9 keep their meaning; 10 to 13 were added for WebChromeClient after App's step-b review.
+enum apkrt_webview_record_type {
+    APKRT_WEBVIEW_REC_CREATED = 1,  // the view is up (the answer to MAKE)
+    APKRT_WEBVIEW_REC_PLACED,       // the view's frame changed (the answer to PLACE)
+    APKRT_WEBVIEW_REC_DESTROYED,    // the host took the view away
+    APKRT_WEBVIEW_REC_NAVIGATION,   // a navigation event; its payload carries the phase -- onPageStarted,
+                                    // onPageFinished, doUpdateVisitedHistory, or shouldOverrideUrlLoading, which
+                                    // waits for an ANSWER
+    APKRT_WEBVIEW_REC_JS_RESULT,    // the answer to a CALL (evaluateJavascript), by request_id
+    APKRT_WEBVIEW_REC_JS_BRIDGE,    // an addJavascriptInterface call into the guest; waits for an ANSWER
+    APKRT_WEBVIEW_REC_RESOURCE,     // a minato-asset:// response body, may span several records
+    APKRT_WEBVIEW_REC_PERMISSION,   // an onPermissionRequest; waits for an ANSWER
+    APKRT_WEBVIEW_REC_ERROR,        // a load or render error; its payload says onReceivedError or onReceivedHttpError
+                                    // (an HTTP status and the URL)
+    APKRT_WEBVIEW_REC_JS_DIALOG,    // onJsAlert, onJsConfirm, onJsPrompt or onJsBeforeUnload (a sub-kind in the
+                                    // payload); waits for an ANSWER
+    APKRT_WEBVIEW_REC_CONSOLE,      // onConsoleMessage: the level, line and source (a plain event)
+    APKRT_WEBVIEW_REC_PROGRESS,     // onProgressChanged (a plain event)
+    APKRT_WEBVIEW_REC_TITLE,        // onReceivedTitle (a plain event)
+};
+
+#define APKRT_WEBVIEW_RECORD_MAX (1u << 20)  // 1 MiB: the most payload bytes in one record
+#define APKRT_WEBVIEW_MORE       1u          // apkrt_webview_record_header.flags: more records of this payload follow
+#define APKRT_WEBVIEW_ANSWER_FD  1u          // apkrt_webview_request.flags: the ANSWER's body is the fd, not inline
+
+// The intercept/resource response (shouldInterceptRequest, minato-asset://): the guest ANSWERs with the response head
+// first -- status, MIME, encoding, headers, and an optional total length (omit it when unknown, as a Java InputStream
+// often is) -- then the body as inline bytes or, when large, an APKRT_WEBVIEW_ANSWER_FD, and ends with an explicit end
+// or error. The head's serialization is settled in step c2); a) fixes only the ops, the fd fields and the flag.
+//
+// Answer timeouts (the host's, step c) sets the values; named here so a slow guest's fallback is not a surprise):
+// Android has no timeout -- its WebViewClient/WebChromeClient callbacks block Chromium's IO thread -- so the fallback
+// must be generous, about 10 s for shouldOverrideUrlLoading and a JS dialog. On a timeout the host takes Android's
+// default: no override, no intercept, deny the permission, JS gets undefined/null.
+
+/// A WebView request as the host's handler (apkrt_session.webview) sees it, after the runtime has checked the guest's
+/// apkrt_webview_request and made its fields host-safe. The runtime opens the record channel on MAKE and closes it on
+/// REMOVE; the host creates and destroys its WKWebView and, from MAKE onwards, may post records for the token at once
+/// (apkrt_webview_post). `payload` points at runtime memory valid only until the handler returns -- copy what you keep.
+/// An APKRT_WEBVIEW_ANSWER_FD hands the host an owned descriptor (`fd`) to stream and then close. In-process, so this
+/// carries real pointers and descriptors, not guest addresses; it is not a wire struct and has no fixed size.
+struct apkrt_webview_call {
+    uint32_t op;              // enum apkrt_webview_op
+    uint32_t flags;           // APKRT_WEBVIEW_ANSWER_FD when the answer body is `fd`, not `payload`
+    uint64_t token;           // the view
+    uint64_t request_id;      // CALL: the id its answer record must carry; ANSWER: the record it answers; else 0
+    uint64_t window;          // PLACE: the host window the view sits in (minato_window_info.id)
+    int32_t left;             // PLACE: the frame in the window's pixels
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    int32_t clip_left;        // PLACE: the clip rect in the window's pixels
+    int32_t clip_top;
+    int32_t clip_right;
+    int32_t clip_bottom;
+    const void *payload;      // CALL / inline ANSWER: the bytes (runtime memory, valid for the call); else NULL
+    uint32_t payload_length;  // their count, at most APKRT_WEBVIEW_RECORD_MAX
+    int32_t fd;               // APKRT_WEBVIEW_ANSWER_FD: an owned descriptor to stream, then close; else -1
+    int64_t offset;           // APKRT_WEBVIEW_ANSWER_FD: the start offset in the fd
+    int64_t length;           // APKRT_WEBVIEW_ANSWER_FD: bytes from the offset, or -1 to EOF
 };
 
 /// What a window of the guest's own asks of the host (ADR-0041, gap 4), APKRT_REQUEST_WINDOW's.

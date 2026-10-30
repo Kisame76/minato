@@ -687,6 +687,20 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.channels COMMAND channels_test)
   set_tests_properties(runtime.channels PROPERTIES TIMEOUT 60)
 
+  # The WebView channel (ADR-0056 step a).
+  add_executable(webview_channel_test tests/webview_channel_test.cpp)
+  target_include_directories(webview_channel_test PRIVATE src)
+  target_link_libraries(webview_channel_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.webview_channel COMMAND webview_channel_test)
+  set_tests_properties(runtime.webview_channel PROPERTIES TIMEOUT 60)
+
+  # The WebView request dispatch (ADR-0056 step a): APKRT_REQUEST_WEBVIEW to the host's webview handler.
+  add_executable(webview_session_test tests/webview_session_test.cpp)
+  target_include_directories(webview_session_test PRIVATE src)
+  target_link_libraries(webview_session_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.webview_session COMMAND webview_session_test)
+  set_tests_properties(runtime.webview_session PROPERTIES TIMEOUT 60)
+
   # The audio output streams (ADR-0036, decisions 5 and 6), with a fake host and, for the workgroup, the Mac's
   # default output unit.
   add_executable(audio_test tests/audio_test.cpp)

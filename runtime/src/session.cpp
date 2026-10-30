@@ -1,5 +1,6 @@
 #include "session.h"
 
+#include "channels.h"
 #include "descriptors.h"
 #include "guest_context.h"
 #include "permissions.h"
@@ -856,6 +857,138 @@ long window(std::uint64_t address) {
     return 0;
 }
 
+// The WebView views' live tokens (ADR-0056 step a). A request's check and payload copy run first; then, under one
+// lock as for surfaces and windows, the token set changes, the channel is made or closed, and the host's handler is
+// called, so the host sees the requests in the order the runtime took them.
+static_assert(sizeof(apkrt_webview_request) == 96);
+constexpr std::size_t webview_limit = 16;  // live views of the session, as windows and surfaces have
+
+std::mutex webviews_lock;
+std::vector<std::uint64_t> live_webviews;  // the tokens with an open channel, under webviews_lock
+
+/// APKRT_REQUEST_WEBVIEW: the request at `address` checked and handed to the host's WebView handler as an
+/// apkrt_webview_call with host-safe fields (guest_interface.h). MAKE opens the record channel and returns its fd;
+/// PLACE, CALL, ANSWER and REMOVE return 0 or a negative errno; REMOVE closes the channel. The host side is step c).
+long webview(std::uint64_t address) {
+    if (described.webview == nullptr) return -linux_errno::eopnotsupp;
+    apkrt_webview_request request;
+    if (address == 0 ||
+        !sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(&request), address, sizeof request)) {
+        return -linux_errno::efault;
+    }
+    if (request.op < APKRT_WEBVIEW_MAKE || request.op > APKRT_WEBVIEW_ANSWER) return -linux_errno::einval;
+    if (request.token == 0) return -linux_errno::einval;
+
+    apkrt_webview_call call{};
+    call.op = request.op;
+    call.token = request.token;
+    call.fd = -1;
+
+    // The fields each op carries, and the inline payload, checked and copied before the lock (a payload up to 1 MiB).
+    std::vector<std::uint8_t> payload;  // lives until the handler returns
+    switch (request.op) {
+        case APKRT_WEBVIEW_MAKE:
+        case APKRT_WEBVIEW_REMOVE:
+            if (request.flags != 0) return -linux_errno::einval;
+            break;
+        case APKRT_WEBVIEW_PLACE: {
+            if (request.flags != 0) return -linux_errno::einval;
+            if (request.window == 0) return -linux_errno::einval;
+            const std::int64_t frame_width = std::int64_t{request.right} - request.left;
+            const std::int64_t frame_height = std::int64_t{request.bottom} - request.top;
+            if (frame_width <= 0 || frame_height <= 0 || frame_width > frame_side_limit ||
+                frame_height > frame_side_limit) {
+                return -linux_errno::einval;
+            }
+            if (request.clip_right < request.clip_left || request.clip_bottom < request.clip_top) {
+                return -linux_errno::einval;  // a negative extent; an empty clip (equal edges) is allowed
+            }
+            call.window = request.window;
+            call.left = request.left;
+            call.top = request.top;
+            call.right = request.right;
+            call.bottom = request.bottom;
+            call.clip_left = request.clip_left;
+            call.clip_top = request.clip_top;
+            call.clip_right = request.clip_right;
+            call.clip_bottom = request.clip_bottom;
+            break;
+        }
+        case APKRT_WEBVIEW_CALL:
+            if (request.flags != 0) return -linux_errno::einval;  // the fd mode is for ANSWER only
+            call.request_id = request.request_id;
+            break;
+        case APKRT_WEBVIEW_ANSWER:
+            if ((request.flags & ~static_cast<std::uint32_t>(APKRT_WEBVIEW_ANSWER_FD)) != 0) {
+                return -linux_errno::einval;
+            }
+            call.request_id = request.request_id;
+            if ((request.flags & APKRT_WEBVIEW_ANSWER_FD) != 0) {
+                if (request.fd < 0 || request.length < -1) return -linux_errno::einval;
+                call.flags = APKRT_WEBVIEW_ANSWER_FD;
+                call.offset = request.offset;
+                call.length = request.length;  // the guest fd is dup'd under the lock, once the token is known live
+            }
+            break;
+    }
+    const bool inline_body = (request.op == APKRT_WEBVIEW_CALL) ||
+                             (request.op == APKRT_WEBVIEW_ANSWER && (request.flags & APKRT_WEBVIEW_ANSWER_FD) == 0);
+    if (inline_body && request.payload_length != 0) {
+        if (request.payload_length > APKRT_WEBVIEW_RECORD_MAX) return -linux_errno::einval;
+        if (request.payload == 0) return -linux_errno::efault;
+        try {
+            payload.resize(request.payload_length);
+        } catch (const std::bad_alloc &) {
+            return -linux_errno::enomem;
+        }
+        if (!sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(payload.data()), request.payload,
+                                       request.payload_length)) {
+            return -linux_errno::efault;
+        }
+        call.payload = payload.data();
+        call.payload_length = request.payload_length;
+    }
+
+    const std::lock_guard<std::mutex> hold(webviews_lock);
+    const auto found = std::find(live_webviews.begin(), live_webviews.end(), request.token);
+    switch (request.op) {
+        case APKRT_WEBVIEW_MAKE: {
+            if (found != live_webviews.end()) return -linux_errno::eexist;
+            if (live_webviews.size() == webview_limit) return -linux_errno::enospc;
+            const long fd = channels::webview_make(request.token);
+            if (fd < 0) return fd;
+            try {
+                live_webviews.push_back(request.token);
+            } catch (const std::bad_alloc &) {
+                channels::webview_close(request.token);  // undo the channel; the guest never learned of it
+                return -linux_errno::enomem;
+            }
+            as_host([&] { described.webview(described.context, &call); });
+            return fd;
+        }
+        case APKRT_WEBVIEW_REMOVE: {
+            if (found == live_webviews.end()) return -linux_errno::enoent;
+            live_webviews.erase(found);
+            as_host([&] { described.webview(described.context, &call); });  // the host tears its WKWebView down
+            channels::webview_close(request.token);  // then the channel closes and the guest's reader meets EOF
+            return 0;
+        }
+        default: {  // PLACE, CALL, ANSWER
+            if (found == live_webviews.end()) return -linux_errno::enoent;
+            if (request.op == APKRT_WEBVIEW_ANSWER && (request.flags & APKRT_WEBVIEW_ANSWER_FD) != 0) {
+                const auto description = descriptors::get(request.fd);
+                if (!description) return -linux_errno::ebadf;
+                const int duplicate = ::dup(description->host());  // the host owns it and closes it after streaming
+                if (duplicate < 0) return -sys::to_linux_errno(errno);
+                ::fcntl(duplicate, F_SETFD, FD_CLOEXEC);
+                call.fd = duplicate;
+            }
+            as_host([&] { described.webview(described.context, &call); });
+            return 0;
+        }
+    }
+}
+
 /// A time limit: none below 0 or for NaN, and at most 10^9 s (about 31 years), which fits every clock.
 std::chrono::steady_clock::duration limit(double seconds) {
     if (!(seconds > 0)) return {};
@@ -980,6 +1113,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return permission_cancel(a0);
         case APKRT_REQUEST_IME:
             return ime(a0, a1);
+        case APKRT_REQUEST_WEBVIEW:
+            return webview(a0);
         default:
             return -linux_errno::einval;
     }

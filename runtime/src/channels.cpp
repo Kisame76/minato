@@ -11,11 +11,14 @@
 #include "syscalls.h"
 
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -24,6 +27,8 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 namespace apkrt::channels {
@@ -37,7 +42,7 @@ std::mutex lock;
 /// A channel's description, whose pipe shows what it holds unread.
 class Channel : public Description {
 public:
-    enum class Of { vsync, input };
+    enum class Of { vsync, input, webview };
 
     Channel(int read_end, int write_end, Of of)
         : Description(read_end, false, false, false, Kind::channel), of_(of), write_end_(write_end) {}
@@ -537,9 +542,222 @@ std::size_t vsync_count() {
     return vsyncs.size();
 }
 
+// --- The WebView channel (ADR-0056 step a) -------------------------------------------------------------
+// The host writes a stream of records to the guest over an AF_UNIX/SOCK_STREAM pair. The guest's read end is the
+// description's host descriptor (kept blocking: a read waits for a whole record); the host's write end belongs to a
+// per-channel writer thread that drains an unbounded queue with blocking writes, so a post never blocks its caller
+// (ADR-0056 decision 3). Unlike the vsync and input channels this carries the records themselves, so it needs no
+// doorbell pipe; readiness is the socket's own POLLIN.
+namespace {
+
+/// A WebView channel's description. Its host descriptor is the socket's guest-read end; it has no doorbell write
+/// end (the base's stays -1), and its readiness is whatever the socket holds.
+class WebViewChannel final : public Channel {
+public:
+    explicit WebViewChannel(int guest_read_end) : Channel(guest_read_end, -1, Of::webview) {}
+
+    bool unread() const override {
+        int pending = 0;
+        return ::ioctl(host(), FIONREAD, &pending) == 0 && pending > 0;
+    }
+};
+
+/// The host's side of a WebView channel: the socket's write end and the writer thread that drains its queue.
+struct WebViewHost {
+    std::mutex queue_lock;
+    std::condition_variable wake;
+    std::deque<std::vector<std::uint8_t>> queue;  // framed bytes waiting to go out, under queue_lock
+    bool closing = false;                          // under queue_lock
+    int write_end = -1;                            // the socket's host end; the writer thread closes it as it exits
+
+    std::thread writer;
+
+    ~WebViewHost() {
+        if (writer.joinable()) {
+            {
+                const std::lock_guard hold(queue_lock);
+                closing = true;
+            }
+            wake.notify_all();
+            writer.join();  // the writer closed write_end on its way out
+        }
+        if (write_end >= 0) ::close(write_end);  // a channel whose writer thread never started
+    }
+};
+
+std::mutex webview_lock;
+std::map<std::uint64_t, std::unique_ptr<WebViewHost>> webviews;  // by token, under webview_lock
+
+/// Writes all `length` bytes to `fd`, blocking, over EINTR and short writes. False once the guest closed its end
+/// (EPIPE, which never raises SIGPIPE here) or the socket errors: nothing more can be delivered.
+bool write_all(int fd, const std::uint8_t *data, std::size_t length) {
+    std::size_t sent = 0;
+    while (sent < length) {
+        const ssize_t moved = ::write(fd, data + sent, length - sent);
+        if (moved < 0) {
+            if (errno == EINTR) continue;
+            return false;
+        }
+        sent += static_cast<std::size_t>(moved);
+    }
+    return true;
+}
+
+void writer_loop(WebViewHost *host) {
+    for (;;) {
+        std::vector<std::uint8_t> buffer;
+        {
+            std::unique_lock<std::mutex> hold(host->queue_lock);
+            host->wake.wait(hold, [host] { return !host->queue.empty() || host->closing; });
+            if (host->queue.empty()) break;  // closing and drained
+            buffer = std::move(host->queue.front());
+            host->queue.pop_front();
+        }
+        if (!write_all(host->write_end, buffer.data(), buffer.size())) {
+            const std::lock_guard hold(host->queue_lock);
+            host->queue.clear();  // the guest's end is gone; drop the rest and wait for the close
+        }
+    }
+    ::close(host->write_end);
+    host->write_end = -1;
+}
+
+/// Tells the writer thread to drain what is queued and close the socket, then joins it.
+void stop_writer(WebViewHost &host) {
+    {
+        const std::lock_guard hold(host.queue_lock);
+        host.closing = true;
+    }
+    host.wake.notify_all();
+    if (host.writer.joinable()) host.writer.join();
+}
+
+/// Frames `payload` (`length` bytes) as one record of `type`/`request_id`, or several split at
+/// APKRT_WEBVIEW_RECORD_MAX with APKRT_WEBVIEW_MORE on all but the last. May throw std::bad_alloc.
+std::vector<std::uint8_t> frame(std::uint32_t type, std::uint64_t request_id, const std::uint8_t *payload,
+                                std::size_t length) {
+    std::vector<std::uint8_t> out;
+    std::size_t offset = 0;
+    do {
+        const std::size_t chunk = std::min<std::size_t>(length - offset, APKRT_WEBVIEW_RECORD_MAX);
+        apkrt_webview_record_header header{};
+        header.type = type;
+        header.flags = offset + chunk < length ? APKRT_WEBVIEW_MORE : 0u;
+        header.length = static_cast<std::uint32_t>(chunk);
+        header.reserved = 0;
+        header.request_id = request_id;
+        const auto *bytes = reinterpret_cast<const std::uint8_t *>(&header);
+        out.insert(out.end(), bytes, bytes + sizeof header);
+        if (chunk > 0) out.insert(out.end(), payload + offset, payload + offset + chunk);
+        offset += chunk;
+    } while (offset < length);
+    return out;
+}
+
+/// Queues `bytes` for the token's writer thread, or -ENOENT when the token has no channel.
+long enqueue(std::uint64_t token, std::vector<std::uint8_t> &&bytes) {
+    const std::lock_guard hold(webview_lock);
+    const auto found = webviews.find(token);
+    if (found == webviews.end()) return -linux_errno::enoent;
+    WebViewHost &host = *found->second;
+    {
+        const std::lock_guard queued(host.queue_lock);
+        host.queue.push_back(std::move(bytes));
+    }
+    host.wake.notify_one();
+    return 0;
+}
+
+}  // namespace
+
+long webview_make(std::uint64_t token) {
+    if (token == 0) return -linux_errno::einval;
+    int ends[2];
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, ends) != 0) return -sys::to_linux_errno(errno);
+    // ends[0]: the guest's read end (the description's host descriptor, kept blocking). ends[1]: the host's write
+    // end. Both close-on-exec; a write never raises SIGPIPE once the guest's end is gone.
+    for (const int end : ends) ::fcntl(end, F_SETFD, FD_CLOEXEC);
+    ::fcntl(ends[1], F_SETNOSIGPIPE, 1);
+
+    std::shared_ptr<WebViewChannel> channel;  // owns ends[0] until the table takes it
+    std::unique_ptr<WebViewHost> host;        // owns ends[1] and, once started, the writer thread
+    try {
+        channel = std::make_shared<WebViewChannel>(ends[0]);
+        host = std::make_unique<WebViewHost>();
+    } catch (const std::bad_alloc &) {
+        if (!channel) ::close(ends[0]);  // else the channel owns and will close it
+        ::close(ends[1]);
+        return -linux_errno::enomem;
+    }
+    host->write_end = ends[1];
+    try {
+        host->writer = std::thread(writer_loop, host.get());  // waits on an empty queue until posts arrive
+    } catch (const std::system_error &) {
+        return -linux_errno::enomem;  // host closes ends[1], channel closes ends[0], as they go
+    }
+
+    const std::lock_guard hold(webview_lock);
+    if (webviews.count(token) != 0) return -linux_errno::einval;  // one live channel per token
+    // The table owns ends[0] now, or closed it on a full table.
+    const long fd = descriptors::add(std::move(channel), true);
+    if (fd < 0) return fd;
+    try {
+        webviews.emplace(token, std::move(host));
+    } catch (const std::bad_alloc &) {
+        // Undo the registration; the host (still here) stops its writer as it goes.
+        descriptors::close(static_cast<int>(fd));
+        return -linux_errno::enomem;
+    }
+    return fd;
+}
+
+long webview_post(std::uint64_t token, std::uint32_t type, std::uint64_t request_id, const void *payload,
+                  std::size_t length) {
+    if (payload == nullptr && length != 0) return -linux_errno::efault;
+    std::vector<std::uint8_t> framed;
+    try {
+        framed = frame(type, request_id, static_cast<const std::uint8_t *>(payload), length);
+    } catch (const std::bad_alloc &) {
+        return -linux_errno::enomem;
+    }
+    return enqueue(token, std::move(framed));
+}
+
+long webview_post_raw(std::uint64_t token, const void *bytes, std::size_t length) {
+    if (bytes == nullptr && length != 0) return -linux_errno::efault;
+    std::vector<std::uint8_t> raw;
+    try {
+        const auto *start = static_cast<const std::uint8_t *>(bytes);
+        raw.assign(start, start + length);
+    } catch (const std::bad_alloc &) {
+        return -linux_errno::enomem;
+    }
+    return enqueue(token, std::move(raw));
+}
+
+long webview_close(std::uint64_t token) {
+    std::unique_ptr<WebViewHost> host;
+    {
+        const std::lock_guard hold(webview_lock);
+        const auto found = webviews.find(token);
+        if (found == webviews.end()) return -linux_errno::enoent;
+        host = std::move(found->second);
+        webviews.erase(found);
+    }
+    stop_writer(*host);  // drains what was queued, then closes the write end so the guest's reader meets EOF
+    return 0;            // the guest fd and its read end stay until the guest closes them
+}
+
 }  // namespace apkrt::channels
 
 using namespace apkrt::channels;
+
+extern "C" int32_t apkrt_webview_post(uint64_t token, uint32_t type, uint64_t request_id, const void *bytes,
+                                      uint32_t length) {
+    return static_cast<int32_t>(webview_post(token, type, request_id, bytes, length));
+}
+
+extern "C" int32_t apkrt_webview_close(uint64_t token) { return static_cast<int32_t>(webview_close(token)); }
 
 extern "C" void apkrt_vsync_post(int64_t time, int64_t target_time) {
     const std::lock_guard hold(lock);

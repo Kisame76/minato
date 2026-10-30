@@ -219,6 +219,16 @@ typedef void (*apkrt_surface_handler)(void *context, const struct apkrt_surface_
 ///     host ignores them.
 typedef void (*apkrt_window_handler)(void *context, const struct apkrt_window_request *request);
 
+/// Called for each WebView request of the guest (ADR-0056 step a, guest_interface.h's struct apkrt_webview_call), on
+/// the guest thread that makes it, at once, with the runtime signal blocked, as the other request handlers are: it
+/// must not block. `call` lives only until the handler returns, and so do its `payload` and its `fd`. The runtime has
+/// checked the guest's apkrt_webview_request and keeps the live tokens: MAKE for a token that has none (at most 16
+/// live), then PLACE, CALL and ANSWER for it, then REMOVE, in that order. The runtime opens the record channel on MAKE
+/// (before the handler) and closes it on REMOVE (after the handler); the host drives its WKWebView and posts records
+/// for the token with apkrt_webview_post. For MAKE the host reports APKRT_WEBVIEW_REC_CREATED, for PLACE
+/// APKRT_WEBVIEW_REC_PLACED, both without blocking. An ANSWER's `fd` (APKRT_WEBVIEW_ANSWER_FD) is the host's to close.
+typedef void (*apkrt_webview_handler)(void *context, const struct apkrt_webview_call *call);
+
 /// How the host describes the app before the program starts (ADR-0028, decision 3).
 struct apkrt_session {
     void *context;                             // passed to the handlers
@@ -227,6 +237,7 @@ struct apkrt_session {
     struct apkrt_configuration configuration;  // what activity-host gets when it connects
     apkrt_surface_handler surface;             // NULL: surface requests answer -EOPNOTSUPP (ADR-0043 c4)
     apkrt_window_handler window;               // NULL: window requests answer -EOPNOTSUPP (ADR-0041, gap 4)
+    apkrt_webview_handler webview;             // NULL: WebView requests answer -EOPNOTSUPP (ADR-0056 step a)
 };
 
 /// Begins the process's session: from now on the program's end calls its end handler instead of ending
@@ -637,6 +648,19 @@ int apkrt_input_post_device(uint64_t id, const struct apkrt_device_event *event)
 /// stick that moves faster than the guest reads keeps its newest report, as touch MOVEs merge), and refuses the
 /// other actions, which the guest must see each.
 int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *event);
+
+/// Posts a record to a WebView channel (ADR-0056 step a), for the host's WKWebView side (Swift). `type` is an
+/// apkrt_webview_record_type and `request_id` the CALL it answers or the record the guest must ANSWER, or 0 for a plain
+/// event; `bytes`/`length` are the payload, which the runtime frames and, past APKRT_WEBVIEW_RECORD_MAX, splits into
+/// APKRT_WEBVIEW_MORE records; a writer thread drains the queue so this never blocks. The guest reads the records with
+/// the header-only WebViewReader (APKRuntime/apkrt_webview_reader.h). Returns 0, or a negative errno: -ENOENT for a
+/// token with no channel, -EFAULT for NULL bytes with a non-zero length, -ENOMEM without memory.
+int32_t apkrt_webview_post(uint64_t token, uint32_t type, uint64_t request_id, const void *bytes, uint32_t length);
+
+/// Closes a WebView channel from the host side (the DESTROYED path): the guest's reader meets EOF once it has read
+/// what was queued. REMOVE is the guest-initiated close; this is the host-initiated one. Returns 0, or -ENOENT for a
+/// token with no channel.
+int32_t apkrt_webview_close(uint64_t token);
 
 // MARK: - Audio output (ADR-0036, decisions 4 to 6)
 //
