@@ -1,0 +1,34 @@
+I/ringtone-test: type 1: default content://settings/system/ringtone, actual null
+I/ringtone-test: type 2: default content://settings/system/notification_sound, actual null
+I/ringtone-test: type 4: default content://settings/system/alarm_alert, actual null
+I/ringtone-test: type 7: default content://settings/system/ringtone, actual null
+I/ringtone-test: type 0: default null, actual null
+I/ringtone-test: content://settings/system/ringtone: type 1, default true
+I/ringtone-test: content://settings/system/notification_sound: type 2, default true
+I/ringtone-test: content://settings/system/alarm_alert: type 4, default true
+I/ringtone-test: content://settings/system/ringtone_cache: type -1, default false
+I/ringtone-test: content://settings/system/font_scale: type -1, default false
+I/ringtone-test: content://media/internal/audio/media/1: type -1, default false
+I/ringtone-test: file:///nothing.ogg: type -1, default false
+I/ringtone-test: open content://settings/system/ringtone_cache r: java.io.FileNotFoundException: open failed: ENOENT (No such file or directory)
+I/ringtone-test: open content://settings/system/ringtone_cache w: java.lang.SecurityException: io.github.kisame76.minato.test.ringtone was not granted  this permission: android.permission.WRITE_SETTINGS.
+I/ringtone-test: open content://settings/system/notification_sound_cache r: java.io.FileNotFoundException: open failed: ENOENT (No such file or directory)
+I/ringtone-test: open content://settings/system/notification_sound_cache w: java.lang.SecurityException: io.github.kisame76.minato.test.ringtone was not granted  this permission: android.permission.WRITE_SETTINGS.
+I/ringtone-test: open content://settings/system/alarm_alert_cache r: java.io.FileNotFoundException: open failed: ENOENT (No such file or directory)
+I/ringtone-test: open content://settings/system/alarm_alert_cache w: java.lang.SecurityException: io.github.kisame76.minato.test.ringtone was not granted  this permission: android.permission.WRITE_SETTINGS.
+I/ringtone-test: open content://settings/system/ringtone r: java.io.FileNotFoundException: Direct file access no longer supported; ringtone playback is available through android.media.Ringtone
+I/ringtone-test: open content://settings/system/ringtone w: java.lang.SecurityException: io.github.kisame76.minato.test.ringtone was not granted  this permission: android.permission.WRITE_SETTINGS.
+I/ringtone-test: player content://settings/system/ringtone: java.io.IOException: setDataSource failed.: status=0x80000000
+I/ringtone-test: player content://settings/system/notification_sound: java.io.IOException: setDataSource failed.: status=0x80000000
+I/ringtone-test: player content://settings/system/alarm_alert: java.io.IOException: setDataSource failed.: status=0x80000000
+I/ringtone-test: ringtone content://settings/system/ringtone: title Default (None), stream 2, usage 6, content 4, looping false, volume 1.0
+I/ringtone-test: ringtone content://settings/system/ringtone: playing false
+I/ringtone-test: ringtone content://settings/system/ringtone: stopped, playing false
+I/ringtone-test: ringtone content://settings/system/notification_sound: title Default (None), stream 2, usage 6, content 4, looping false, volume 1.0
+I/ringtone-test: ringtone content://settings/system/notification_sound: playing false
+I/ringtone-test: ringtone content://settings/system/notification_sound: stopped, playing false
+I/ringtone-test: ringtone content://settings/system/alarm_alert: title Default (None), stream 2, usage 6, content 4, looping false, volume 1.0
+I/ringtone-test: ringtone content://settings/system/alarm_alert: playing false
+I/ringtone-test: ringtone content://settings/system/alarm_alert: stopped, playing false
+I/ringtone-test: ringtone null: title None, stream 2, usage 6, content 4, looping false, volume 1.0
+I/ringtone-test: done

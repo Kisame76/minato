@@ -31,6 +31,7 @@ import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
@@ -38,6 +39,7 @@ import android.util.Log;
 
 import com.android.internal.util.ArrayUtils;
 
+import java.io.FileNotFoundException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Set;
@@ -322,6 +324,29 @@ public final class SettingsProvider extends ContentProvider {
             throw new SecurityException("Settings key: <" + name + "> is only readable to apps with "
                     + "targetSdkVersion lower than or equal to: " + maxTargetSdk);
         }
+    }
+
+    /**
+     * As SettingsProvider's openFile: a write needs WRITE_SETTINGS (its app op, the SecurityException without it), and
+     * only the three cached sounds are files, each the copy of its sound made when the sound was set. No sound is set
+     * here (SettingsDefaults has none, and decision 6 grants no app WRITE_SETTINGS), so none has its copy: the
+     * FileNotFoundException that ParcelFileDescriptor.open throws for the missing file.
+     */
+    @Override
+    public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+        if (mode.contains("w")) {
+            Context context = getContext();
+            Settings.checkAndNoteWriteSettingsOperation(context, Binder.getCallingUid(), context.getOpPackageName(),
+                    null, true);
+        }
+        uri = ContentProvider.getUriWithoutUserId(uri);
+        if (!Settings.System.RINGTONE_CACHE_URI.equals(uri)
+                && !Settings.System.NOTIFICATION_SOUND_CACHE_URI.equals(uri)
+                && !Settings.System.ALARM_ALERT_CACHE_URI.equals(uri)) {
+            throw new FileNotFoundException("Direct file access no longer supported; "
+                    + "ringtone playback is available through android.media.Ringtone");
+        }
+        throw new FileNotFoundException("open failed: ENOENT (No such file or directory)");
     }
 
     /** As SettingsProvider's mutate*Setting: a table's write permission, or its SecurityException. */

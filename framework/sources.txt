@@ -1913,6 +1913,14 @@ frameworks_av_media_aidl/media/libaudioclient/aidl/android/media/IPlayer.aidl
 frameworks_av_media_aidl/aidl/android/media/InterpolatorConfig.aidl
 frameworks_av_media_aidl/aidl/android/media/InterpolatorType.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperConfiguration.aidl
+
+# RingtoneManager and Ringtone (ADR-0060 e2e1's RingtoneManager step), AOSP's, which MediaPlayer's settings sounds
+# and apps' default sounds call; their remote player is framework/java's LocalRingtonePlayer, SystemUI's in the app.
+frameworks_base_types/media/java/android/media/RingtoneManager.java
+frameworks_base_types/media/java/android/media/Ringtone.java
+frameworks_base_types/media/java/android/media/IRingtonePlayer.aidl
+frameworks_base_types/media/java/android/media/ExternalRingtonesCursorWrapper.java
+frameworks_base/core/java/com/android/internal/database/SortCursor.java
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperConfigurationOptionFlag.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperConfigurationType.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperation.aidl

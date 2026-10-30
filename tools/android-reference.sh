@@ -408,6 +408,44 @@ present_timestamp_back() {
   fi
 }
 
+# ringtone-test (ADR-0060 e2e1) runs as on a device without sounds set, as Minato is: the settings' ringtone,
+# notification sound and alarm are deleted and their cached copies (SettingsProvider's, in system_de) moved aside for
+# the run, which takes a root adbd; every exit puts both back.
+sounds_was="" sounds_rooted=""
+SOUNDS="ringtone notification_sound alarm_alert"
+SOUNDS_CACHE=/data/system_de/0/ringtones
+sounds_off() {
+  if [[ "$(run id -u | tr -d '\r')" != 0 ]]; then
+    sounds_rooted=yes
+    device root >/dev/null
+    wait_for_adbd 0
+  fi
+  local name
+  sounds_was=""
+  for name in $SOUNDS; do
+    sounds_was="$sounds_was $name=$(run settings get system "$name" | tr -d '\r')"
+    run settings delete system "$name" >/dev/null
+    run "[ ! -e $SOUNDS_CACHE/${name}_cache ] || mv $SOUNDS_CACHE/${name}_cache $SOUNDS_CACHE/${name}_cache.saved"
+  done
+}
+sounds_back() {
+  local entry name value cache
+  for entry in $sounds_was; do
+    name=${entry%%=*} value=${entry#*=}
+    if [[ -z "$value" || "$value" == null ]]; then
+      run settings delete system "$name" >/dev/null || true
+    else
+      run settings put system "$name" "$value" || true
+    fi
+    cache="$SOUNDS_CACHE/${name}_cache"
+    run "[ ! -e $cache.saved ] || mv $cache.saved $cache" || true
+  done
+  if [[ -n "$sounds_rooted" ]]; then
+    device unroot >/dev/null || true
+    wait_for_adbd shell || true
+  fi
+}
+
 # text-test runs on Android 15 without an input method, as Minato has none until the keyboard step (ADR-0043 step d),
 # decision 5). Disabling the input methods is not enough, as the input method service enables a default one again
 # when none is left, so the packages that hold them are disabled for the run. Both are settings, which outlive the
@@ -576,6 +614,12 @@ run_app() {
     media-player-test | media-player-test-offline)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=240
+      ;;
+    # ringtone-test (ADR-0060 e2e1): RingtoneManager, Ringtone and MediaPlayer with the default sounds, without sounds
+    # set (sounds_off).
+    ringtone-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
       ;;
     permission-request-test | permission-request-test-fine)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
@@ -1331,6 +1375,10 @@ if [[ -n "$app" ]]; then
     # An emulator this script started stops at the end, and boots with both as they were.
     [[ -n "$started" ]] || trap present_timestamp_back EXIT
     present_timestamp_on
+  fi
+  if [[ "$app" == ringtone-test ]]; then
+    trap 'sounds_back; [[ -z "$started" ]] || emulator_stop' EXIT
+    sounds_off
   fi
   # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
   # as a hardware keyboard's do.

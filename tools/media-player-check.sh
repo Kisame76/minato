@@ -5,7 +5,8 @@
 # old binary; then media-player-test and its twin without the INTERNET permission, media-player-test-offline, against
 # Android 15's logs (fixtures/expected/<app>.logcat, from tools/android-reference.sh --app <app>): a player's answers
 # in each state, the sources, seeks, a playback to its end into an ImageReader, the http refusals and DRM. A session
-# (a configuration), whose frame clock lets the main Looper run the players' callbacks past the first traversal.
+# (a configuration), whose frame clock lets the main Looper run the players' callbacks past the first traversal. And
+# ringtone-test (the RingtoneManager step): RingtoneManager, Ringtone and MediaPlayer with the default sounds.
 # Needs tools/build-art.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/media-player-check.sh
 set -euo pipefail
@@ -20,12 +21,13 @@ cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-bionic.sh >/dev/null
 tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
-for app in media-player-test media-player-test-offline; do
+for app in media-player-test media-player-test-offline ringtone-test; do
   tools/build-java-test-app.sh "$app" >/dev/null
-  package=io.github.kisame76.minato.test.mediaplayer
+  package=io.github.kisame76.minato.test.mediaplayer application=MediaPlayerApplication
   [[ "$app" != *-offline ]] || package=${package}offline
+  [[ "$app" != ringtone-test ]] || package=io.github.kisame76.minato.test.ringtone application=RingtoneApplication
   python3 framework/tests/java_app_run.py "$app" "$package" \
-    io.github.kisame76.minato.test.mediaplayer.MediaPlayerApplication build/art build/bionic/lib \
+    "${package%offline}.$application" build/art build/bionic/lib \
     build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
     "$NATIVE/importer/converter/apk-convert" "$NATIVE/graphics/tests/graphics-run" "build/$app-check" \
     build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \

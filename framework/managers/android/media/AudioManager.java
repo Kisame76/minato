@@ -5,10 +5,15 @@
 // android-15.0.0_r1 [read], which apk-runner-35-bare shows for music [verified: services-test]. The output's rate
 // and burst are AAudio's usual ones until step c reads the session's (a named difference): an engine that sizes its
 // buffers from them must get numbers, never null. Interruptions, focus losses and the route come with step c.
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.Context;
+import android.net.Uri;
 import android.os.Handler;
 import android.util.Log;
 
+import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,6 +25,8 @@ class AudioManager {
     private static final String OUTPUT_FRAMES_PER_BUFFER = "256";
 
     private final Context context;
+    /** AOSP's: the context of the last manager made, which hasHapticChannels takes without one. */
+    private static WeakReference<Context> sContext = new WeakReference<>(null);
 
     /**
      * @hide SystemServiceRegistry's, with the context it builds the manager for. Android's AudioManager keeps its
@@ -27,6 +34,7 @@ class AudioManager {
      */
     public AudioManager(Context context) {
         this.context = context;
+        sContext = new WeakReference<>(context);
     }
 
     public int requestAudioFocus(OnAudioFocusChangeListener l, int streamType, int durationHint) {
@@ -211,6 +219,51 @@ class AudioManager {
             default:
                 return -1;
         }
+    }
+
+    /**
+     * @hide Ringtone's remote player (ADR-0060 e2e1's RingtoneManager step): the audio service hands out SystemUI's,
+     * here the process's own (LocalRingtonePlayer, SystemUI's port).
+     */
+    public IRingtonePlayer getRingtonePlayer() {
+        return LocalRingtonePlayer.get(context);
+    }
+
+    /**
+     * @hide As AOSP's, which Ringtone asks (the RingtoneManager step): whether a sound has haptic channels, by its
+     * extractor's formats; without a context and a manager made before, Android asks the audio service, which is not
+     * here: none then.
+     */
+    public static boolean hasHapticChannelsImpl(@NonNull Context context, @NonNull Uri uri) {
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            extractor.setDataSource(context, uri, null);
+            for (int i = 0; i < extractor.getTrackCount(); i++) {
+                MediaFormat format = extractor.getTrackFormat(i);
+                if (format.containsKey(MediaFormat.KEY_HAPTIC_CHANNEL_COUNT)
+                        && format.getInteger(MediaFormat.KEY_HAPTIC_CHANNEL_COUNT) > 0) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "hasHapticChannels failure:" + e);
+        }
+        return false;
+    }
+
+    /** @hide As AOSP's, but for the audio service (above). */
+    public static boolean hasHapticChannels(@Nullable Context context, @NonNull Uri uri) {
+        java.util.Objects.requireNonNull(uri);
+
+        if (context != null) {
+            return hasHapticChannelsImpl(context, uri);
+        }
+
+        Context cachedContext = sContext.get();
+        if (cachedContext != null) {
+            return hasHapticChannelsImpl(cachedContext, uri);
+        }
+        return false;
     }
 
     /** A stream's entry; AudioService throws IllegalArgumentException for an invalid stream type, as here. */

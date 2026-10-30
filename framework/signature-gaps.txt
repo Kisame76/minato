@@ -76,6 +76,7 @@ android.window.SplashScreenView <- android.window.SplashScreen  # gap: (App) Spl
 android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: (Planung) not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
+android.media.audiofx.HapticGenerator <- android.media.Ringtone  # gap: as its stub reference (mHapticGenerator), a hidden field no app reflects over
 android.media.IAudioService <- android.media.PlayerBase  # stays: a hidden class (getService and sService), which no app reflects over; MediaPlayer's own members name none of these (ADR-0060 e2e1)
 com.android.internal.app.IAppOpsCallback <- android.media.PlayerBase  # stays: as IAudioService (mAppOpsCallback)
 com.android.internal.app.IAppOpsService <- android.media.PlayerBase  # stays: as IAudioService (mAppOps)
