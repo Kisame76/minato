@@ -1,0 +1,22 @@
+I/soundpool-test: load returned 1, 2, 3
+I/soundpool-test: all three loads completed: true
+I/soundpool-test: short sound status 0: true
+I/soundpool-test: long sound status 0: true
+I/soundpool-test: garbage sound status not 0: true
+I/soundpool-test: play of the sound that did not load: 0
+I/soundpool-test: play of an ID that was never made: 0
+I/soundpool-test: play of the long sound, looping: stream 1
+I/soundpool-test: changed rate, volume, priority and loop
+I/soundpool-test: paused and resumed
+I/soundpool-test: autoPause and autoResume
+I/soundpool-test: second stream: 2
+I/soundpool-test: third stream with the lowest priority in a pool of two: 0
+I/soundpool-test: fourth stream with the highest priority: stream 3
+I/soundpool-test: stopped
+I/soundpool-test: play after the stops: stream 4
+I/soundpool-test: unload of the long sound: true
+I/soundpool-test: unload of it again: false
+I/soundpool-test: unload of an ID that was never made: false
+I/soundpool-test: play of the unloaded sound: 0
+I/soundpool-test: released
+I/soundpool-test: done

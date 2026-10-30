@@ -683,6 +683,16 @@
       "digest": "79b2a182bf236b86d7295ac715515c2d6e90c284f25683d44890f3b088642bba"
     },
     {
+      "name": "frameworks_base_soundpool",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "directories": [
+        "media/jni/soundpool"
+      ],
+      "digest": "72431a8c23128a16ab087bad55f0f770f1088e2f94d1c164f88d4798446aa4d1"
+    },
+    {
       "name": "sqlite",
       "project": "platform/external/sqlite",
       "commit": "af6bb6a379e12d41b80a3468a4c8cab9263cc721",

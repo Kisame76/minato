@@ -2617,3 +2617,7 @@ frameworks_base/core/java/android/os/BatteryManager.java
 frameworks_base/core/java/android/os/BatteryProperty.java
 frameworks_base/core/java/android/os/IBatteryPropertiesRegistrar.aidl
 frameworks_base/core/java/com/android/internal/app/IBatteryStats.aidl
+
+# SoundPool (the compatibility plan's gap 13): AOSP's Java over our natives (framework/native/android_runtime/
+# android_media_SoundPool.cpp), tested by soundpool-test against Android 15.
+frameworks_base_types/media/java/android/media/SoundPool.java
