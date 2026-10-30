@@ -291,6 +291,10 @@ private:
             deviceChanged(round.env, reinterpret_cast<const apkrt_device_event &>(record));
             return;
         }
+        if (record.kind == APKRT_INPUT_AXES) {
+            dispatchAxes(round, reinterpret_cast<const apkrt_axes_event &>(record));
+            return;
+        }
         if (record.kind != APKRT_INPUT_MOTION) return;
         if (record.action == AMOTION_EVENT_ACTION_MOVE) {
             for (uint32_t sample = 0; sample < record.sample_count; ++sample) {
@@ -395,6 +399,53 @@ private:
                             eventObj.get());
         if (env->ExceptionCheck()) {
             ALOGE("Exception dispatching key event.");
+            round.skipCallbacks = true;
+        }
+    }
+
+    // A game controller's or a mouse's motion (ADR-0068 decision 5), as InputReader makes one for a joystick or a
+    // pointer device: one pointer of the record's tool type with the axes the host listed, and the triggers' second
+    // axes, BRAKE and GAS, which Android reports with LTRIGGER and RTRIGGER (measured by gamepad-test). Between a
+    // touch's samples a batch waits: the controller's events are no part of it and go at once.
+    void dispatchAxes(Round &round, const apkrt_axes_event &record) {
+        jobject receiver = mDisposed ? nullptr : round.receiver(mReceiverWeakGlobal, mName);
+        if (receiver == nullptr) return;
+        PointerProperties properties;
+        properties.clear();
+        properties.id = 0;
+        properties.toolType = static_cast<ToolType>(record.tool_type);
+        PointerCoords coords;
+        coords.clear();
+        const uint32_t count = std::min<uint32_t>(record.axis_count, APKRT_AXES_MAX);
+        float x = 0, y = 0;
+        for (uint32_t at = 0; at < count; ++at) {
+            const apkrt_axis_value &axis = record.axes[at];
+            coords.setAxisValue(axis.axis, axis.value);
+            if (axis.axis == AMOTION_EVENT_AXIS_X) x = axis.value;
+            if (axis.axis == AMOTION_EVENT_AXIS_Y) y = axis.value;
+            if (axis.axis == AMOTION_EVENT_AXIS_LTRIGGER) coords.setAxisValue(AMOTION_EVENT_AXIS_BRAKE, axis.value);
+            if (axis.axis == AMOTION_EVENT_AXIS_RTRIGGER) coords.setAxisValue(AMOTION_EVENT_AXIS_GAS, axis.value);
+        }
+        const bool pointer = (static_cast<uint32_t>(record.source) & AINPUT_SOURCE_CLASS_POINTER) != 0;
+        MotionEvent event;
+        const ui::Transform identity;
+        event.initialize(InputEvent::nextId(), record.device_id, static_cast<uint32_t>(record.source),
+                         ui::LogicalDisplayId::DEFAULT, INVALID_HMAC, record.action, 0, 0, 0,
+                         record.meta_state, record.button_state, MotionClassification::NONE, identity, 1, 1,
+                         pointer ? x : AMOTION_EVENT_INVALID_CURSOR_POSITION,
+                         pointer ? y : AMOTION_EVENT_INVALID_CURSOR_POSITION, identity, record.event_time,
+                         record.event_time, 1, &properties, &coords);
+        JNIEnv *env = round.env;
+        ScopedLocalRef<jobject> eventObj = android_view_MotionEvent_obtainAsCopy(env, event);
+        if (eventObj.get() == nullptr) {
+            ALOGW("channel '%s' ~ Failed to obtain axes event object.", mName.c_str());
+            round.skipCallbacks = true;
+            return;
+        }
+        env->CallVoidMethod(receiver, gInputEventReceiverClassInfo.dispatchInputEvent, static_cast<jint>(++mSeq),
+                            eventObj.get());
+        if (env->ExceptionCheck()) {
+            ALOGE("Exception dispatching axes event.");
             round.skipCallbacks = true;
         }
     }

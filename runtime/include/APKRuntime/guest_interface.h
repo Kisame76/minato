@@ -1059,6 +1059,7 @@ struct apkrt_pointer_coords {
 #define APKRT_INPUT_KEY 1
 #define APKRT_INPUT_TEXT 2
 #define APKRT_INPUT_DEVICE 3
+#define APKRT_INPUT_AXES 4
 
 /// A motion event of the touchscreen as input_read gives it (AMotionEvent). Its source, tool type and device
 /// are libandroid's in M3: AINPUT_SOURCE_TOUCHSCREEN, AMOTION_EVENT_TOOL_TYPE_FINGER and one device.
@@ -1136,6 +1137,37 @@ struct apkrt_device_event {
 };
 // The host posts a device record to one channel, the first window's, and the guest ignores a record that repeats the
 // device it has.
+
+/// The most axes of one axes record, and the highest AMOTION_EVENT_AXIS_* it may name (Android's own go to 48).
+#define APKRT_AXES_MAX 16
+#define APKRT_AXIS_LIMIT 64
+
+/// One axis of an axes record: an AMOTION_EVENT_AXIS_* and its value, as AMotionEvent_getAxisValue reports it (a stick
+/// in -1 to 1, a trigger in 0 to 1, a hat in -1 to 1, a scroll in lines, a relative axis in pixels).
+struct apkrt_axis_value {
+    int32_t axis;
+    float value;
+};
+
+/// A motion event of a device that is not the touchscreen (ADR-0068 decision 5): a game controller's report, a mouse's
+/// or trackpad's move, hover, scroll and button. It makes one MotionEvent with one pointer. `axes` hold the values that
+/// are not zero, in any order; an axis that is not listed is 0. The host sends X and Y of the pointer as axes too
+/// (AMOTION_EVENT_AXIS_X, _Y: the window's pixels for a mouse, the stick's for a pad), and the guest adds what Android
+/// derives (BRAKE and GAS from the triggers). The device comes first as an APKRT_DEVICE_ADDED record.
+struct apkrt_axes_event {
+    int32_t action;       // AMOTION_EVENT_ACTION_*: MOVE 2, HOVER_MOVE 7, SCROLL 8, HOVER_ENTER 9, HOVER_EXIT 10,
+                          // BUTTON_PRESS 11 or BUTTON_RELEASE 12
+    uint32_t reserved0[2];
+    uint32_t kind;        // APKRT_INPUT_AXES
+    int64_t event_time;   // on the uptime clock, in nanoseconds
+    int32_t device_id;    // the host's, 1 or more: the one of the device record
+    int32_t source;       // AINPUT_SOURCE_*, not 0: JOYSTICK 0x01000010, MOUSE 0x00002002, MOUSE_RELATIVE 0x00020004
+    int32_t tool_type;    // AMOTION_EVENT_TOOL_TYPE_*, 0 to 5: MOUSE 3 for a mouse or trackpad, else UNKNOWN 0
+    int32_t button_state; // AMOTION_EVENT_BUTTON_* held after the event
+    int32_t meta_state;   // AMETA_*
+    uint32_t axis_count;  // 0 to APKRT_AXES_MAX
+    struct apkrt_axis_value axes[APKRT_AXES_MAX];
+};
 
 /// vsync_connect, AChoreographer's, once per instance: a new vsync channel. Returns its guest descriptor
 /// (close-on-exec), readable while the channel holds a tick it asked for or a period it has not read; -EMFILE

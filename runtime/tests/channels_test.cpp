@@ -31,6 +31,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <initializer_list>
 #include <thread>
 #include <vector>
@@ -498,7 +499,7 @@ TEST(a_grid_never_mixes_two_ticks_while_the_host_posts) {
 // --- The input channel ----------------------------------------------------------------------------
 
 constexpr std::int32_t down = 0, up = 1, move = 2, cancel = 3, pointer_down = 5, pointer_up = 6, index_shift = 8;
-constexpr std::size_t most_events = 256;
+constexpr std::size_t most_events = 256, most_ends = APKRT_MOTION_POINTERS + 1;
 
 std::int64_t input_connect(std::uint64_t id) {
     return call(APKRT_NR_INPUT_CONNECT, {id});
@@ -1151,6 +1152,147 @@ TEST(a_device_name_is_utf8_that_java_takes_as_it_is) {
     CHECK(named("\xed\xa0\x80") == 0);                                     // a surrogate, U+D800
     CHECK(named("\xe2\x82") == 0);                                          // a 3-byte lead with one byte
     CHECK(named("\xe2\x82\xac") == 1);                                     // U+20AC
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+apkrt_axes_event axes_of(std::int32_t action, std::int32_t device, std::int32_t source) {
+    apkrt_axes_event axes{};
+    axes.action = action;
+    axes.event_time = 1000;
+    axes.device_id = device;
+    axes.source = source;
+    return axes;
+}
+
+TEST(a_pad_axes_record_arrives_whole_and_tells_its_kind) {
+    const auto input = open_input();
+    apkrt_axes_event axes = axes_of(2, 1001, 0x01000010);  // MOVE of a joystick
+    axes.reserved0[0] = axes.reserved0[1] = 99;            // not the host's to set
+    axes.axis_count = 3;
+    axes.axes[0] = {0, 0.5f};     // AXIS_X
+    axes.axes[1] = {1, -1.0f};    // AXIS_Y
+    axes.axes[2] = {17, 0.25f};   // AXIS_LTRIGGER
+    CHECK(apkrt_input_post_axes(input.id, &axes) == 1);
+    const auto taken = take(input.fd);
+    CHECK(taken.result == 0 && taken.event.kind == APKRT_INPUT_AXES);
+    const auto read = as<apkrt_axes_event>(taken);
+    CHECK(read.action == 2 && read.event_time == 1000 && read.device_id == 1001 && read.source == 0x01000010);
+    CHECK(read.reserved0[0] == 0 && read.reserved0[1] == 0 && read.tool_type == 0 && read.button_state == 0);
+    CHECK(read.axis_count == 3 && read.axes[0].axis == 0 && read.axes[0].value == 0.5f);
+    CHECK(read.axes[1].axis == 1 && read.axes[1].value == -1.0f && read.axes[2].axis == 17 &&
+          read.axes[2].value == 0.25f);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_mouse_axes_record_carries_its_tool_buttons_and_scroll) {
+    const auto input = open_input();
+    apkrt_axes_event axes = axes_of(8, 1002, 0x00002002);  // SCROLL of a mouse
+    axes.tool_type = 3;
+    axes.button_state = 0x1;
+    axes.meta_state = 0x41;
+    axes.axis_count = 3;
+    axes.axes[0] = {0, 640.0f};   // AXIS_X in the window's pixels
+    axes.axes[1] = {1, 1200.0f};
+    axes.axes[2] = {9, -2.0f};    // AXIS_VSCROLL
+    CHECK(apkrt_input_post_axes(input.id, &axes) == 1);
+    const auto read = as<apkrt_axes_event>(take(input.fd));
+    CHECK(read.tool_type == 3 && read.button_state == 0x1 && read.meta_state == 0x41 && read.axis_count == 3);
+    CHECK(read.axes[2].axis == 9 && read.axes[2].value == -2.0f);
+    // HOVER_MOVE, HOVER_ENTER, HOVER_EXIT, BUTTON_PRESS, BUTTON_RELEASE
+    for (const std::int32_t action : {7, 9, 10, 11, 12}) {
+        axes.action = action;
+        CHECK(apkrt_input_post_axes(input.id, &axes) == 1);
+    }
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(axes_that_are_not_sound_are_refused) {
+    const auto input = open_input();
+    const apkrt_axes_event good = [] {
+        apkrt_axes_event axes = axes_of(2, 1001, 0x01000010);
+        axes.axis_count = 2;
+        axes.axes[0] = {0, 0.5f};
+        axes.axes[1] = {1, 0.5f};
+        return axes;
+    }();
+    CHECK(apkrt_input_post_axes(input.id, nullptr) == 0);
+    const auto refused = [&](auto change) {
+        apkrt_axes_event axes = good;
+        change(axes);
+        return apkrt_input_post_axes(input.id, &axes) == 0;
+    };
+    CHECK(refused([](apkrt_axes_event &a) { a.action = 0; }));                // a touch action is not an axes record's
+    CHECK(refused([](apkrt_axes_event &a) { a.action = 13; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.action = -1; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.device_id = 0; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.device_id = -1; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.source = 0; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.tool_type = 6; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.tool_type = -1; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.axis_count = APKRT_AXES_MAX + 1; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.axes[1].axis = 0; }));          // an axis named twice
+    CHECK(refused([](apkrt_axes_event &a) { a.axes[1].axis = -1; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.axes[1].axis = APKRT_AXIS_LIMIT; }));
+    CHECK(refused([](apkrt_axes_event &a) { a.axes[1].value = std::numeric_limits<float>::quiet_NaN(); }));
+    CHECK(refused([](apkrt_axes_event &a) { a.axes[0].value = std::numeric_limits<float>::infinity(); }));
+    CHECK(take(input.fd).result == -eagain);
+    // The axes past axis_count are not read, so what is there does not matter; 16 axes and none are sound.
+    apkrt_axes_event many = good;
+    many.axes[5] = {0, std::numeric_limits<float>::quiet_NaN()};
+    CHECK(apkrt_input_post_axes(input.id, &many) == 1);
+    many.axis_count = APKRT_AXES_MAX;
+    for (std::int32_t at = 0; at < APKRT_AXES_MAX; ++at) many.axes[at] = {at + 40, 0.0f};
+    CHECK(apkrt_input_post_axes(input.id, &many) == 1);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// A full channel does not grow for a stick: the newest MOVE of the same device, source and action is erased and the
+// new report goes to the back, so that event times keep their order; a device that has no MOVE there is refused.
+TEST(a_full_channel_replaces_the_newest_axes_move_of_the_same_device_at_the_back) {
+    const auto input = open_input();
+    const apkrt_key_event key = key_of(0, 29);
+    apkrt_axes_event stick = axes_of(2, 1001, 0x01000010);
+    stick.axis_count = 1;
+    stick.axes[0] = {0, 0.1f};
+    CHECK(apkrt_input_post_axes(input.id, &stick) == 1);
+    apkrt_axes_event other = axes_of(2, 1002, 0x01000010);
+    other.axis_count = 1;
+    other.axes[0] = {0, 0.9f};
+    CHECK(apkrt_input_post_axes(input.id, &other) == 1);
+    for (std::size_t count = 2; count < most_events; ++count) CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    CHECK(apkrt_input_post_key(input.id, &key) == 0);  // full
+    stick.axes[0].value = 0.7f;
+    stick.event_time = 2000;
+    CHECK(apkrt_input_post_axes(input.id, &stick) == 1);  // erases the first, goes to the back
+    stick.device_id = 1003;  // no MOVE of this device is waiting
+    CHECK(apkrt_input_post_axes(input.id, &stick) == 0);
+    stick.device_id = 1001;
+    stick.source = 0x00002002;  // nor of this source
+    CHECK(apkrt_input_post_axes(input.id, &stick) == 0);
+    const auto first = as<apkrt_axes_event>(take(input.fd));
+    CHECK(first.device_id == 1002 && first.axes[0].value == 0.9f);
+    for (std::size_t count = 2; count < most_events; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_KEY);
+    const auto last = as<apkrt_axes_event>(take(input.fd));
+    CHECK(last.device_id == 1001 && last.axes[0].value == 0.7f && last.event_time == 2000);
+    CHECK(take(input.fd).result == -eagain);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// Presses, releases and scrolls are not merged: a full channel takes them in the slack the ends of a touch gesture
+// have, as many as that holds.
+TEST(a_full_channel_takes_axes_that_are_not_moves_in_the_slack_of_the_touch_ends) {
+    const auto input = open_input();
+    const apkrt_key_event key = key_of(0, 29);
+    for (std::size_t count = 0; count < most_events; ++count) CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    apkrt_axes_event release = axes_of(12, 1002, 0x00002002);  // BUTTON_RELEASE of a mouse
+    release.tool_type = 3;
+    std::size_t taken = 0;
+    while (apkrt_input_post_axes(input.id, &release) == 1) ++taken;
+    CHECK(taken > 0 && taken == most_ends);
+    release.action = 8;  // SCROLL
+    CHECK(apkrt_input_post_axes(input.id, &release) == 0);
+    for (std::size_t count = 0; count < most_events; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_KEY);
+    for (std::size_t count = 0; count < taken; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_AXES);
     call(nr_close, {unsigned_of(input.fd)});
 }
 

@@ -29,6 +29,7 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.util.DisplayMetrics;
 import android.view.InputDevice;
+import android.view.KeyEvent;
 import android.view.KeyCharacterMap;
 import android.view.MotionEvent;
 import android.view.inputmethod.InputMethodInfo;
@@ -90,7 +91,8 @@ public final class InputService extends IInputManager.Default {
                 return;
             }
             if (op != 1) {
-                sHostDevices.add(new InputDevice.Builder()
+                final boolean pad = isPad(sources);
+                final InputDevice.Builder device = new InputDevice.Builder()
                         .setId(id)
                         .setName(name)
                         .setDescriptor("minato-host-" + id)
@@ -99,15 +101,64 @@ public final class InputService extends IInputManager.Default {
                         .setProductId(product)
                         .setGeneration(++sGeneration)
                         .setExternal(true)
-                        .setKeyboardType(InputDevice.KEYBOARD_TYPE_ALPHABETIC)
-                        .setKeyCharacterMap(nativeKeyboardKeyCharacterMap(id))
-                        .build());
+                        .setKeyboardType(pad ? InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC
+                                : InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+                        .setKeyCharacterMap(nativeKeyboardKeyCharacterMap(id));
+                if (pad) {
+                    addPadRanges(device);
+                }
+                sHostDevices.add(device.build());
             }
             service = sInstance;
         }
         if (service != null) {
             service.devicesChanged();
         }
+    }
+
+    /** A game controller: SOURCE_GAMEPAD is a class bit that the keyboard source shares, so all its bits are asked. */
+    private static boolean isPad(int sources) {
+        return (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD;
+    }
+
+    /**
+     * The motion ranges of the standard pad, as Android 15 reports them for an Xbox Wireless Controller (gamepad-test):
+     * the sticks, HAT_X and HAT_Y from -1 to 1, the triggers from 0 to 1, each trigger as two axes.
+     */
+    private static void addPadRanges(InputDevice.Builder device) {
+        final int source = InputDevice.SOURCE_JOYSTICK;
+        for (int axis : new int[] {MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ,
+                MotionEvent.AXIS_HAT_X, MotionEvent.AXIS_HAT_Y}) {
+            device.addMotionRange(axis, source, -1, 1, 0, 0, 0);
+        }
+        for (int axis : new int[] {MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_RTRIGGER, MotionEvent.AXIS_BRAKE,
+                MotionEvent.AXIS_GAS}) {
+            device.addMotionRange(axis, source, 0, 1, 0, 0, 0);
+        }
+    }
+
+    /**
+     * The buttons the standard pad has (gamepad-test's hasKeys): A, B, X, Y, L1, R1, both sticks, START, SELECT, MODE.
+     */
+    private static final int[] PAD_KEYS = {KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B,
+        KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1,
+        KeyEvent.KEYCODE_BUTTON_THUMBL, KeyEvent.KEYCODE_BUTTON_THUMBR, KeyEvent.KEYCODE_BUTTON_START,
+        KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_MODE};
+
+    /** As InputManagerService's: which of the key codes the device has; a game controller has its buttons. */
+    @Override
+    public boolean hasKeys(int deviceId, int sourceMask, int[] keyCodes, boolean[] keyExists) {
+        final InputDevice device = getInputDevice(deviceId);
+        if (device == null || (device.getSources() & sourceMask) == 0 || !isPad(device.getSources())) {
+            return false;
+        }
+        for (int at = 0; at < keyCodes.length; at++) {
+            keyExists[at] = false;
+            for (int code : PAD_KEYS) {
+                keyExists[at] |= code == keyCodes[at];
+            }
+        }
+        return true;
     }
 
     /** InputReader's device list change: every device's ID and generation, to each listener. */

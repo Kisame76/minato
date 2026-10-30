@@ -70,6 +70,12 @@
 //               at the same time on the session's input channel, as `input keyevent`'s. With a touch or a key in the
 //               list, the start's INPUT_QUEUE_CREATED names an input channel (apkrt_input_add), else none, as
 //               before;
+//   pad:add, pad:remove, pad:key:<code>:<0|1>, pad:axes:<action>:<axis>=<value>;...  (ADR-0068 decision 5, the
+//               controllers) a game controller of the host, device 1001 "Minato Test Pad", the Xbox Wireless
+//               Controller's IDs and sources 0x01000511 (JOYSTICK | GAMEPAD | KEYBOARD): its coming and going as device
+//               records, a button's down (1) or up (0) as a key record of source 0x501, and an axes record of source
+//               0x01000010 with the action (2 MOVE) and the axes as Android numbers them (0 X, 1 Y, 11 Z, 14 RZ, 17
+//               LTRIGGER, 18 RTRIGGER, 15 HAT_X, 16 HAT_Y), as the App's GCController side posts them;
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set).
@@ -225,12 +231,42 @@ struct Touch {
     /// stext: the same, for the connection before the last one: its serial is one less, which the guest drops.
     bool text_stale = false;
     std::string text;
+    /// A controller step (ADR-0068 decision 5): `pad_op` is 0 for none, 1 add, 2 remove, 3 a key (`pad_key`,
+    /// `pad_down`) or 4 an axes record (`pad_action`, `pad_axes`).
+    int pad_op = 0;
+    int pad_key = 0, pad_down = 0, pad_action = 0;
+    std::vector<std::pair<int, float>> pad_axes;
 };
 
 /// `step` as tap:<x>:<y> or swipe:<x1>:<y1>:<x2>:<y2>:<ms> with finite places and <ms> above 0, or key:<code> with
 /// a code of 0 or more, or text:<op>:<arg0>:<arg1>:<text> with a known op; false for any other step.
 bool parse_touch(const std::string &step, Touch &touch) {
     int used = 0;
+    if (step == "pad:add" || step == "pad:remove") {
+        touch.pad_op = step == "pad:add" ? 1 : 2;
+        return true;
+    }
+    if (std::sscanf(step.c_str(), "pad:key:%d:%d%n", &touch.pad_key, &touch.pad_down, &used) == 2 &&
+        used == static_cast<int>(step.size()) && touch.pad_key >= 0 && (touch.pad_down == 0 || touch.pad_down == 1)) {
+        touch.pad_op = 3;
+        return true;
+    }
+    if (std::sscanf(step.c_str(), "pad:axes:%d:%n", &touch.pad_action, &used) == 1 && used > 0) {
+        touch.pad_axes.clear();
+        std::istringstream list(step.substr(static_cast<std::size_t>(used)));
+        for (std::string pair; std::getline(list, pair, ';');) {
+            int axis = 0, taken = 0;
+            float value = 0;
+            if (std::sscanf(pair.c_str(), "%d=%f%n", &axis, &value, &taken) != 2 ||
+                taken != static_cast<int>(pair.size()) || axis < 0 || axis >= APKRT_AXIS_LIMIT ||
+                !std::isfinite(value) || touch.pad_axes.size() >= APKRT_AXES_MAX) {
+                return false;
+            }
+            touch.pad_axes.emplace_back(axis, value);
+        }
+        touch.pad_op = 4;
+        return true;
+    }
     if (step.compare(0, 6, "stext:") == 0 && parse_touch(step.substr(1), touch)) {
         touch.text_stale = true;
         return true;
@@ -748,6 +784,41 @@ void post_touch(std::uint64_t input, std::int32_t action, std::int64_t down, std
 /// as its `input swipe`, places on the line by its lerp, with a MOVE every period of `rate` holding two samples.
 void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
     const std::int64_t down = uptime();
+    if (touch.pad_op != 0) {
+        constexpr std::int32_t kPad = 1001, kPadSources = 0x01000511;
+        if (touch.pad_op == 1 || touch.pad_op == 2) {
+            apkrt_device_event device{};
+            device.op = touch.pad_op == 1 ? APKRT_DEVICE_ADDED : APKRT_DEVICE_REMOVED;
+            device.device_id = kPad;
+            device.sources = kPadSources;
+            device.vendor_id = 0x45e;
+            device.product_id = 0x2e0;
+            std::strcpy(device.name, "Minato Test Pad");
+            if (apkrt_input_post_device(input, &device) != 1) {
+                std::fprintf(stderr, "apk-run: the post of a device failed\n");
+            }
+        } else if (touch.pad_op == 3) {
+            apkrt_key_event key{};
+            key.down_time = key.event_time = down;
+            key.key_code = touch.pad_key;
+            key.device_id = kPad;
+            key.source = 0x501;  // SOURCE_KEYBOARD | SOURCE_GAMEPAD
+            key.action = touch.pad_down == 1 ? 0 : 1;
+            if (apkrt_input_post_key(input, &key) != 1) std::fprintf(stderr, "apk-run: the post of a key failed\n");
+        } else {
+            apkrt_axes_event axes{};
+            axes.action = touch.pad_action;
+            axes.event_time = down;
+            axes.device_id = kPad;
+            axes.source = 0x01000010;  // SOURCE_JOYSTICK
+            axes.axis_count = static_cast<std::uint32_t>(touch.pad_axes.size());
+            for (std::size_t at = 0; at < touch.pad_axes.size(); ++at) {
+                axes.axes[at] = {touch.pad_axes[at].first, touch.pad_axes[at].second};
+            }
+            if (apkrt_input_post_axes(input, &axes) != 1) std::fprintf(stderr, "apk-run: the post of axes failed\n");
+        }
+        return;
+    }
     if (touch.text_op >= 0) {
         for (int waited = 0; ime_serial.load() == 0 && waited < 500; ++waited) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -173,10 +174,12 @@ constexpr std::int32_t action_down = 0, action_up = 1, action_move = 2, action_c
 
 // The kind sits at byte 12 of every record, and each record fits the buffer input_read fills.
 static_assert(offsetof(apkrt_motion_event, kind) == 12 && offsetof(apkrt_key_event, kind) == 12 &&
-              offsetof(apkrt_text_event, kind) == 12 && offsetof(apkrt_device_event, kind) == 12);
+              offsetof(apkrt_text_event, kind) == 12 && offsetof(apkrt_device_event, kind) == 12 &&
+              offsetof(apkrt_axes_event, kind) == 12);
 static_assert(sizeof(apkrt_key_event) <= sizeof(apkrt_motion_event) &&
               sizeof(apkrt_text_event) <= sizeof(apkrt_motion_event) &&
-              sizeof(apkrt_device_event) <= sizeof(apkrt_motion_event));
+              sizeof(apkrt_device_event) <= sizeof(apkrt_motion_event) &&
+              sizeof(apkrt_axes_event) <= sizeof(apkrt_motion_event));
 
 class InputChannel;
 
@@ -366,6 +369,29 @@ apkrt_motion_event wrapped(const Record &record) {
     return event;
 }
 
+/// AMOTION_EVENT_ACTION_* of an axes record (ADR-0068 decision 5).
+constexpr std::int32_t action_hover_move = 7, action_scroll = 8, action_hover_enter = 9, action_hover_exit = 10,
+                       action_button_press = 11, action_button_release = 12, most_tool_type = 5;
+
+/// A full channel's answer to an axes MOVE (a stick or a pointer that moves): the newest MOVE of the same device,
+/// source and action is erased and `next` goes to the back, so that the guest finds the newest report, the count stays
+/// and event times keep their order. Under `lock`. Whether it did.
+bool replaces_newest_axes(InputQueue &queue, const apkrt_motion_event &next_record) {
+    apkrt_axes_event next;
+    std::memcpy(&next, &next_record, sizeof next);
+    if (next.action != action_move && next.action != action_hover_move) return false;
+    for (auto at = queue.events.rbegin(); at != queue.events.rend(); ++at) {
+        if (at->kind != APKRT_INPUT_AXES) continue;
+        apkrt_axes_event old;
+        std::memcpy(&old, &*at, sizeof old);
+        if (old.device_id != next.device_id || old.source != next.source || old.action != next.action) continue;
+        queue.events.erase(std::next(at).base());
+        queue.events.push_back(next_record);
+        return true;
+    }
+    return false;
+}
+
 /// Queues `event`, a record of another kind, for the channel of `id`. 1 when it was taken.
 int post_record(std::uint64_t id, apkrt_motion_event &event) {
     try {
@@ -373,6 +399,18 @@ int post_record(std::uint64_t id, apkrt_motion_event &event) {
         const auto found = inputs.find(id);
         if (found == inputs.end() || found->second.ended) return 0;
         InputQueue &queue = found->second;
+        if (event.kind == APKRT_INPUT_AXES && queue.events.size() >= most_events) {
+            if (replaces_newest_axes(queue, event)) return 1;
+            // A press, a release or a scroll cannot merge: it takes the slack the ends of a touch gesture have. A
+            // MOVE with no MOVE of its device waiting is refused.
+            apkrt_axes_event axes;
+            std::memcpy(&axes, &event, sizeof axes);
+            if (axes.action == action_move || axes.action == action_hover_move) return 0;
+            if (queue.events.size() >= most_events + most_ends) return 0;
+            queue.events.push_back(event);
+            if (queue.channel != nullptr) queue.channel->arrived();
+            return 1;
+        }
         if (!takes(queue, event)) return 0;
         queue.events.push_back(event);
         if (queue.channel != nullptr) queue.channel->arrived();
@@ -613,6 +651,46 @@ extern "C" int apkrt_input_post_device(uint64_t id, const struct apkrt_device_ev
     const std::size_t named = std::strlen(device->name);
     std::memset(record.name + named, 0, sizeof record.name - named);
     record.kind = APKRT_INPUT_DEVICE;
+    apkrt_motion_event event = wrapped(record);
+    return post_record(id, event);
+}
+
+extern "C" int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *axes) {
+    if (axes == nullptr || axes->device_id < 1 || axes->source == 0 || axes->tool_type < 0 ||
+        axes->tool_type > most_tool_type || axes->axis_count > APKRT_AXES_MAX) {
+        return 0;
+    }
+    switch (axes->action) {
+        case action_move:
+        case action_hover_move:
+        case action_scroll:
+        case action_hover_enter:
+        case action_hover_exit:
+        case action_button_press:
+        case action_button_release:
+            break;
+        default:
+            return 0;
+    }
+    std::uint64_t named = 0;  // the axes seen, by number
+    for (std::uint32_t at = 0; at < axes->axis_count; ++at) {
+        const std::int32_t axis = axes->axes[at].axis;
+        if (axis < 0 || axis >= APKRT_AXIS_LIMIT || !std::isfinite(axes->axes[at].value)) return 0;
+        const std::uint64_t bit = std::uint64_t{1} << axis;
+        if ((named & bit) != 0) return 0;
+        named |= bit;
+    }
+    apkrt_axes_event record{};
+    record.action = axes->action;
+    record.kind = APKRT_INPUT_AXES;
+    record.event_time = axes->event_time;
+    record.device_id = axes->device_id;
+    record.source = axes->source;
+    record.tool_type = axes->tool_type;
+    record.button_state = axes->button_state;
+    record.meta_state = axes->meta_state;
+    record.axis_count = axes->axis_count;
+    std::memcpy(record.axes, axes->axes, axes->axis_count * sizeof record.axes[0]);
     apkrt_motion_event event = wrapped(record);
     return post_record(id, event);
 }

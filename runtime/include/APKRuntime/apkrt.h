@@ -628,6 +628,16 @@ int apkrt_input_post_key(uint64_t id, const struct apkrt_key_event *event);
 int apkrt_input_post_text(uint64_t id, const struct apkrt_text_event *event);
 int apkrt_input_post_device(uint64_t id, const struct apkrt_device_event *event);
 
+/// A controller's or a mouse's motion (ADR-0068 decision 5), queued with the others in the order they were posted; it
+/// fills the `kind` itself and zeroes the reserved words. Refused (0) when `event` is null, its action is none of
+/// MOVE, HOVER_MOVE, SCROLL, HOVER_ENTER, HOVER_EXIT, BUTTON_PRESS and BUTTON_RELEASE, its device ID is under 1, its
+/// source is 0, its tool type is not 0 to 5, its axis count is over APKRT_AXES_MAX, an axis is outside 0 to
+/// APKRT_AXIS_LIMIT - 1, named twice or not finite, or the channel is full. A full channel (256 records) instead
+/// replaces its newest axes record of the same device, source and action when that action is MOVE or HOVER_MOVE (a
+/// stick that moves faster than the guest reads keeps its newest report, as touch MOVEs merge), and refuses the
+/// other actions, which the guest must see each.
+int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *event);
+
 // MARK: - Audio output (ADR-0036, decisions 4 to 6)
 //
 // The guest's libaaudio opens output streams through the runtime (guest_interface.h), which keeps each stream's ring

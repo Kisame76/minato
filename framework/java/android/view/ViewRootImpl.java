@@ -1905,6 +1905,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 mUnbufferedInputDispatch = false;
                 scheduleConsumeBatchedInput();
             }
+        } else if (event instanceof MotionEvent && !event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)) {
+            // As AOSP's ViewPostImeInputStage.processGenericMotionEvent for a joystick (ADR-0068 decision 5): the
+            // views' dispatchGenericMotionEvent. Not here: SyntheticJoystickHandler, which turns an unhandled stick
+            // into DPAD keys.
+            final MotionEvent motion = (MotionEvent) event;
+            if (mView != null && !shouldDropInputEvent(motion)) {
+                handled = mView.dispatchGenericMotionEvent(motion);
+            }
         }
         if (receiver != null) {
             receiver.finishInputEvent(event, handled);
