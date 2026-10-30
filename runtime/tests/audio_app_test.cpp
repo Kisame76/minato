@@ -99,12 +99,12 @@ bool requested(const std::string &request) {
 int main(int argc, char **argv) {
     if (argc != 7) {
         std::fprintf(stderr, "usage: audio_app_test <scratch> <fixtures bin> <bionic lib> <guest system> <expected> "
-                             "<aaudio-test | opensl-test>\n");
+                             "<aaudio-test | opensl-test | sdl-audio-test>\n");
         return 2;
     }
     const Paths paths{argv[1], argv[2], argv[3], argv[4], argv[5]};
     const std::string name = argv[6];
-    if (name != "aaudio-test" && name != "opensl-test") {
+    if (name != "aaudio-test" && name != "opensl-test" && name != "sdl-audio-test") {
         fail("no audio app " + name);
         return 1;
     }

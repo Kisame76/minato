@@ -276,7 +276,7 @@ started=""
 # The audio test apps (ADR-0036, step c) need the emulator's audio device; they play only zeros. Every other
 # test runs without it. A running emulator started with -no-audio would give them a wrong reference.
 audio=-no-audio
-case "$app" in aaudio-test | opensl-test | audio-live) audio="" ;; esac
+case "$app" in aaudio-test | opensl-test | audio-live | sdl-audio-test) audio="" ;; esac
 if [[ -n "$serial" && -z "$audio" && "$(ps -Ao args | grep -e '-avd ' | grep -c -e '-no-audio')" != 0 ]]; then
   echo "The running emulator has no audio device (-no-audio): stop it, and this script starts it with audio." >&2
   exit 1
@@ -553,7 +553,7 @@ run_app() {
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
       | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
-      | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | jni-fields-test \
+      | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | sdl-audiotrack-test | jni-fields-test \
       | storage-test | location-test | gapscan-test | webview-camera-test | keystore-test | sms-test | accounts-test \
       | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test | media-fields-test | media-format-test \
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \

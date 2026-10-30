@@ -62,7 +62,7 @@ int fake_open(void *, std::uint64_t stream, double sample_rate, std::int32_t cha
               apkrt_audio_hardware *hardware) {
     const std::lock_guard hold(fake.lock);
     fake.opened.push_back({stream, sample_rate, channels, performance_mode});
-    *hardware = {48'000, 0.005};
+    *hardware = {48'000, fake.io_buffer};
     apkrt_audio_set_output(nullptr, 10'000'000);
     if (fake.disconnect_in_open) apkrt_audio_disconnected(stream);
     return 0;
@@ -81,6 +81,7 @@ void use_fake_host() {
         fake.opened.clear();
         fake.closed.clear();
         fake.disconnect_in_open = false;
+        fake.io_buffer = 0.005;
     }
     static const apkrt_audio_host host{nullptr, fake_open, fake_close};
     if (apkrt_set_audio_host(&host) != 0) {  // every check after this would be about another host

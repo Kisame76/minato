@@ -693,7 +693,9 @@ if(APK_HOST_BUILD)
     add_executable(aaudio_library_test tests/aaudio_library_test.cpp tests/aaudio_host/host.cpp android/aaudio.cpp)
     add_executable(opensl_library_test tests/opensl_library_test.cpp tests/aaudio_host/host.cpp android/aaudio.cpp
       android/opensles.cpp)
-    foreach(test IN ITEMS aaudio_library_test opensl_library_test)
+    add_executable(audio_matrix_test tests/audio_matrix_test.cpp tests/aaudio_host/host.cpp android/aaudio.cpp
+      android/opensles.cpp)
+    foreach(test IN ITEMS aaudio_library_test opensl_library_test audio_matrix_test)
       target_include_directories(${test} PRIVATE src tests/aaudio_host)
       target_include_directories(${test} SYSTEM PRIVATE "${host_include}")
       target_compile_options(${test} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/tests/aaudio_host/shim.h")
@@ -701,7 +703,9 @@ if(APK_HOST_BUILD)
     endforeach()
     add_test(NAME runtime.aaudio_library COMMAND aaudio_library_test)
     add_test(NAME runtime.opensl_library COMMAND opensl_library_test)
+    add_test(NAME runtime.audio_matrix COMMAND audio_matrix_test)
     set_tests_properties(runtime.aaudio_library runtime.opensl_library PROPERTIES TIMEOUT 60)
+    set_tests_properties(runtime.audio_matrix PROPERTIES TIMEOUT 300)
   endif()
 
   add_executable(window_test tests/window_test.cpp tests/window_probe.S tests/blocking_probe.S tests/threads_probe.S)
@@ -771,11 +775,12 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.rotation COMMAND rotation_test "${CMAKE_CURRENT_BINARY_DIR}/rotation_test_scratch"
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
   set_tests_properties(runtime.rotation PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
-  # ADR-0036's aaudio-test and opensl-test: the same host plays the audio host's side with a consumer that reads every
-  # stream every 5 ms, and compares the log with Android 15's (fixtures/expected/<app>.logcat).
+  # ADR-0036's aaudio-test and opensl-test, and sdl-audio-test (the audio speed of an SDL2 game): the same host plays
+  # the audio host's side with a consumer that reads every stream every 5 ms, and compares the log with Android 15's
+  # (fixtures/expected/<app>.logcat).
   add_executable(audio_app_test tests/audio_app_test.cpp)
   target_link_libraries(audio_app_test PRIVATE app_host)
-  foreach(app IN ITEMS aaudio opensl)
+  foreach(app IN ITEMS aaudio opensl sdl-audio)
     add_test(NAME runtime.${app} COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/${app}_app_test_scratch"
       "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
       ${app}-test)

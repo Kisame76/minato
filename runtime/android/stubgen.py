@@ -122,7 +122,7 @@ LIBRARIES = {
     # AAudio's output streams on the runtime's (aaudio.cpp, ADR-0036, decision 6), every name written by hand, and
     # libOpenSLES's claim of a data callback's frames (ADR-0036 c2).
     "libaaudio": {"version": None, "implemented": ["*"], "stubbed": [],
-                  "private": ["minato_AAudioStream_claimCallbackFrames"]},
+                  "private": ["minato_AAudioStream_claimCallbackFrames", "minato_AAudioStream_setCallbackFrames"]},
     # OpenSL ES on libaaudio (opensles.cpp, ADR-0036, decision 7): its 3 functions and 53 interface IDs, every name
     # written by hand.
     "libOpenSLES": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},

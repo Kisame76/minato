@@ -406,6 +406,10 @@ long open(std::uint64_t config_address) {
     }
     const auto burst = static_cast<std::int32_t>(burst_frames);
     const std::int32_t capacity = APKRT_AUDIO_BURSTS * burst;
+    // As Android 15's streams start: a LOW_LATENCY one (MMAP) at two bursts, the others (AudioStreamTrack, whose
+    // getBufferSize is the AudioTrack's frameCount at the open, AudioStreamTrack.cpp:211 and :500) at the capacity.
+    const std::int32_t first_buffer_size =
+        asked.performance_mode == mode_low_latency ? APKRT_AUDIO_FIRST_BURSTS * burst : capacity;
     float *ring = new (std::nothrow) float[static_cast<std::size_t>(capacity) * static_cast<std::size_t>(asked.channels)];
     if (ring == nullptr) {
         host.close(host.context, handle);
@@ -425,7 +429,7 @@ long open(std::uint64_t config_address) {
     slot->state.store(APKRT_AUDIO_OPEN);
     slot->written.store(0);
     slot->read.store(0);
-    slot->buffer_size.store(APKRT_AUDIO_FIRST_BURSTS * burst);
+    slot->buffer_size.store(first_buffer_size);
     slot->xruns.store(0);
     slot->starts.store(0);
     slot->played_in = 0;
@@ -441,7 +445,7 @@ long open(std::uint64_t config_address) {
     config->sample_rate = rate;
     config->frames_per_burst = burst;
     config->capacity = capacity;
-    config->buffer_size = APKRT_AUDIO_FIRST_BURSTS * burst;
+    config->buffer_size = first_buffer_size;
     config->hardware_rate = static_cast<std::int32_t>(hardware_rate);
     return static_cast<long>(handle);
 }

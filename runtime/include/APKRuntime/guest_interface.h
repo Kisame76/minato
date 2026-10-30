@@ -1134,7 +1134,9 @@ struct apkrt_device_event {
 // controls and waits through the syscalls below. A stream's handle is the runtime's: never 0, and never valid again
 // once the stream is closed. Times are in nanoseconds on the guest's CLOCK_MONOTONIC; a deadline is such a time.
 
-/// The ring holds this many bursts (the capacity); the guest fills this many at first (the buffer size).
+/// The ring holds this many bursts (the capacity); the guest fills this many at first (the buffer size) of a
+/// LOW_LATENCY stream, as Android's MMAP streams start. Any other stream starts at the capacity, as the legacy
+/// AudioTrack-backed streams do (AudioStreamTrack::getBufferSize is the track's frame count at the open).
 #define APKRT_AUDIO_BURSTS 8
 #define APKRT_AUDIO_FIRST_BURSTS 2
 /// A stream's channels: 1 to this.
@@ -1169,7 +1171,7 @@ struct apkrt_audio_config {
     int32_t frames_per_burst;  // out: the host's IO buffer in frames at the stream's rate, to the nearest (halves up),
                                // at least 1
     int32_t capacity;          // out: APKRT_AUDIO_BURSTS bursts
-    int32_t buffer_size;       // out: APKRT_AUDIO_FIRST_BURSTS bursts
+    int32_t buffer_size;       // out: APKRT_AUDIO_FIRST_BURSTS bursts for LOW_LATENCY, else the capacity
     int32_t hardware_rate;     // out: Hz
     int32_t reserved;
 };
@@ -1297,6 +1299,14 @@ struct AAudioStreamStruct;
 /// the call began does: the stream's thread cannot see when the callback takes its frames. libOpenSLES claims them
 /// under the player's lock, which also orders its flushes and stops. From another thread it does nothing.
 void minato_AAudioStream_claimCallbackFrames(struct AAudioStreamStruct *stream);
+
+/// In libaaudio.so, from the stream's data callback: only the first `frames` of this call's frames are audio, and
+/// the stream's thread hands over just those, where it would hand over the whole call with the rest as the callback
+/// left it. A source that has fewer frames than a call asks for (libOpenSLES, whose buffer queue holds what the app
+/// enqueued so far) says so instead of padding with zeros, which the ring would play as silence at a time the app's
+/// next buffer may be about to fill (SDL's OpenSL ES driver at 512-frame buffers lost 20 % of its frames to that).
+/// With 0 the thread waits a millisecond before it asks again. From another thread it does nothing.
+void minato_AAudioStream_setCallbackFrames(struct AAudioStreamStruct *stream, int32_t frames);
 
 #ifdef __cplusplus
 }

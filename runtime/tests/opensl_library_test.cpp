@@ -628,10 +628,10 @@ TEST(buffers_play_in_order_and_each_calls_back_once_on_the_stream_thread) {
     }
     CHECK(player.queue_state().count == 3);
     CHECK(player.set(SL_PLAYSTATE_PLAYING) == SL_RESULT_SUCCESS);
-    const auto samples = read_all(player.stream);  // the queue's frames, the rest of that pull as zeros, then nothing
-    bool in_order = samples.size() > 300 * 2;
+    const auto samples = read_all(player.stream);  // the queue's frames, and nothing after them: no padding
+    bool in_order = samples.size() == 300 * 2;
     for (std::size_t frame = 0; in_order && frame < samples.size() / 2; ++frame) {
-        const float expected = frame < 300 ? static_cast<float>(frame / 100 + 1) : 0.0f;
+        const float expected = static_cast<float>(frame / 100 + 1);
         in_order = samples[2 * frame] == expected && samples[2 * frame + 1] == expected;
     }
     CHECK(in_order);
@@ -831,8 +831,8 @@ TEST(a_player_whose_queue_runs_empty_stops_its_stream_and_an_enqueue_starts_it_a
     const std::vector<float> first(100, 0.5f), second(100, 0.25f);
     player.enqueue(first.data(), 100 * sizeof(float));
     CHECK(player.set(SL_PLAYSTATE_PLAYING) == SL_RESULT_SUCCESS);
-    const auto played = read_all(player.stream);  // the frames and the rest of their pull as zeros; then the stop
-    CHECK(played.size() >= 2 * 100 && played.front() == 0.5f && played[2 * 99] == 0.5f && played.back() == 0.0f);
+    const auto played = read_all(player.stream);  // the frames, with no padding after them; then the stop
+    CHECK(played.size() == 2 * 100 && played.front() == 0.5f && played[2 * 99] == 0.5f && played.back() == 0.5f);
     std::this_thread::sleep_for(20ms);
     CHECK(render(player.stream.handle, 240, 2).empty());  // no pulls, no zeros: an idle player costs nothing
     SLuint32 state = 0;

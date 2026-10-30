@@ -280,7 +280,7 @@ TEST(a_requested_rate_is_kept_with_its_burst) {
         CHECK(open.config.sample_rate == 44'100 && open.config.hardware_rate == 48'000);
         CHECK(open.config.frames_per_burst == 221);  // 220.5 frames in 5 ms, rounded
         CHECK(open.config.capacity == APKRT_AUDIO_BURSTS * 221);
-        CHECK(open.config.buffer_size == APKRT_AUDIO_FIRST_BURSTS * 221);
+        CHECK(open.config.buffer_size == APKRT_AUDIO_BURSTS * 221);  // a legacy stream starts at its capacity
         {
             const std::lock_guard hold(fake.lock);
             CHECK(!fake.opened.empty() && fake.opened.back().sample_rate == 44'100 && fake.opened.back().channels == 1);

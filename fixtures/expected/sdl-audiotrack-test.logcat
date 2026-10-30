@@ -1,0 +1,16 @@
+I/sdl-audiotrack-test: 48000 Hz 16-bit stereo: state initialized: true
+I/sdl-audiotrack-test: 48000 Hz 16-bit stereo: read back: rate 48000, encoding 2, channels 2
+I/sdl-audiotrack-test: 48000 Hz 16-bit stereo: the loop was paced at about the track's rate (at most 30 percent over, 10 under): true
+I/sdl-audiotrack-test: 44100 Hz 16-bit stereo: state initialized: true
+I/sdl-audiotrack-test: 44100 Hz 16-bit stereo: read back: rate 44100, encoding 2, channels 2
+I/sdl-audiotrack-test: 44100 Hz 16-bit stereo: the loop was paced at about the track's rate (at most 30 percent over, 10 under): true
+I/sdl-audiotrack-test: 22050 Hz 16-bit mono: state initialized: true
+I/sdl-audiotrack-test: 22050 Hz 16-bit mono: read back: rate 22050, encoding 2, channels 1
+I/sdl-audiotrack-test: 22050 Hz 16-bit mono: the loop was paced at about the track's rate (at most 30 percent over, 10 under): true
+I/sdl-audiotrack-test: 48000 Hz float stereo: state initialized: true
+I/sdl-audiotrack-test: 48000 Hz float stereo: read back: rate 48000, encoding 4, channels 2
+I/sdl-audiotrack-test: 48000 Hz float stereo: the loop was paced at about the track's rate (at most 30 percent over, 10 under): true
+I/sdl-audiotrack-test: 22050 Hz 8-bit mono: state initialized: true
+I/sdl-audiotrack-test: 22050 Hz 8-bit mono: read back: rate 22050, encoding 3, channels 1
+I/sdl-audiotrack-test: 22050 Hz 8-bit mono: the loop was paced at about the track's rate (at most 30 percent over, 10 under): true
+I/sdl-audiotrack-test: done

@@ -27,6 +27,7 @@ struct FakeHost {
     std::vector<Opened> opened;
     std::vector<std::uint64_t> closed;
     bool disconnect_in_open = false;
+    double io_buffer = 0.005;  // the hardware's IO buffer in seconds, as the open reports it
 };
 extern FakeHost fake;
 

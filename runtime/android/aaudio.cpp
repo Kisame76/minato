@@ -80,6 +80,7 @@ struct AAudioStreamStruct {
     bool claimed;           // the thread's: the data callback under way claimed its frames
     uint32_t claimed_at;    // under `feed`: `drops` at that claim
     int32_t per_call;       // the frames of a data callback
+    int32_t given;          // the thread's: the frames of the call under way that are audio, -1 for all of them
     void* callback_frames;  // per_call frames in the app's format
     float* floats;          // chunk frames, converted
     int32_t chunk;
@@ -207,18 +208,32 @@ void to_float(aaudio_format_t format, const void* source, float* target, int64_t
 }
 
 /// Hands `count` float frames to the runtime, waiting until `deadline`: the frames taken, or -errno when none were.
-int64_t hand_over(AAudioStream* stream, const float* frames, int64_t count, int64_t deadline) {
+/// With `block`, the wait has no deadline while the stream plays: AudioStreamTrack::write makes any timeout above 0 a
+/// blocking AudioTrack::write (AudioStreamTrack.cpp:458-460, android-15.0.0_r1: "TODO add timeout to AudioTrack",
+/// blocking = timeoutNanoseconds > 0), which waits for room until everything is written. A stream that does not
+/// play (paused, stopped, flushed or not started) has no room coming, so its write returns what fitted at once, as
+/// the emulator's does (aaudio-test: a write of twice the capacity while paused, timeout 50 ms, took 0 ms).
+int64_t hand_over(AAudioStream* stream, const float* frames, int64_t count, int64_t deadline, bool block = false) {
     int64_t taken = 0;
     while (taken < count) {
+        // A blocking wait goes in slices, so that a pause or a stop during it is seen.
+        const int64_t until = block ? deadline_after(20'000'000) : deadline;
         const long result = call(APKRT_NR_AUDIO_WRITE, stream->handle, bits(frames + taken * stream->channels),
-                                 bits(count - taken), bits(deadline));
+                                 bits(count - taken), bits(until));
         if (result < 0) {
             if (errno != EINTR) return taken > 0 ? taken : -errno;
-            if (passed(deadline)) break;  // a handler without SA_RESTART ran: wait on until the deadline
+            if (passed(until)) break;  // a handler without SA_RESTART ran: wait on until the deadline
             continue;
         }
         taken += result;
-        if (taken < count && passed(deadline)) break;
+        if (taken >= count) break;
+        if (block) {
+            apkrt_audio_status status;
+            if (call(APKRT_NR_AUDIO_STATUS, stream->handle, bits(&status)) != 0) break;
+            if (status.state != APKRT_AUDIO_STARTING && status.state != APKRT_AUDIO_STARTED) break;
+            continue;
+        }
+        if (passed(deadline)) break;
     }
     return taken;
 }
@@ -266,6 +281,7 @@ void* run_callbacks(void* argument) {
             pthread_mutex_unlock(&stream->feed);
             if (pending_count > 0) continue;
             stream->claimed = false;
+            stream->given = -1;
             const aaudio_data_callback_result_t result =
                 stream->data_callback(stream, stream->data_user, stream->callback_frames, stream->per_call);
             if (result != AAUDIO_CALLBACK_RESULT_CONTINUE) {
@@ -274,21 +290,24 @@ void* run_callbacks(void* argument) {
                 call(APKRT_NR_AUDIO_CONTROL, stream->handle, APKRT_AUDIO_STOP);
                 continue;
             }
+            const int32_t audio =
+                stream->given >= 0 && stream->given < stream->per_call ? stream->given : stream->per_call;
             const float* frames = static_cast<const float*>(stream->callback_frames);
             if (stream->format != AAUDIO_FORMAT_PCM_FLOAT) {
-                to_float(stream->format, stream->callback_frames, stream->floats,
-                         int64_t{stream->per_call} * stream->channels);
+                to_float(stream->format, stream->callback_frames, stream->floats, int64_t{audio} * stream->channels);
                 frames = stream->floats;
             }
             pthread_mutex_lock(&stream->feed);
             if (stream->claimed) drops = stream->claimed_at;
-            if (stream->drops == drops) {  // no flush or stop came during the callback, or after its claim
-                const long taken = call(APKRT_NR_AUDIO_WRITE, stream->handle, bits(frames), bits(stream->per_call));
+            if (stream->drops == drops && audio > 0) {  // no flush or stop came during the callback, or after its claim
+                const long taken = call(APKRT_NR_AUDIO_WRITE, stream->handle, bits(frames), bits(audio));
                 const int64_t took = taken > 0 ? taken : 0;
                 pending = frames + took * stream->channels;
-                pending_count = stream->per_call - took;
+                pending_count = audio - took;
             }
             pthread_mutex_unlock(&stream->feed);
+            // A source with no frames to give is asked again soon, and not at once.
+            if (audio == 0) call(APKRT_NR_AUDIO_WAIT, stream->handle, status.sequence, bits(deadline_after(1'000'000)));
             continue;
         }
         if (call(APKRT_NR_AUDIO_WAIT, stream->handle, status.sequence, bits(kForever)) != 0 && errno == EBADF) break;
@@ -717,8 +736,10 @@ aaudio_result_t AAudioStream_write(AAudioStream* stream, const void* buffer, int
     if (numFrames == 0) return 0;
     if (released(stream)) return AAUDIO_ERROR_INVALID_STATE;
     const int64_t deadline = timeoutNanoseconds > 0 ? deadline_after(timeoutNanoseconds) : 0;
+    // A legacy (not LOW_LATENCY) stream blocks on any timeout above 0, as Android's AudioStreamTrack does.
+    const bool block = timeoutNanoseconds > 0 && stream->performance_mode != AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
     if (stream->format == AAUDIO_FORMAT_PCM_FLOAT) {
-        const int64_t taken = hand_over(stream, static_cast<const float*>(buffer), numFrames, deadline);
+        const int64_t taken = hand_over(stream, static_cast<const float*>(buffer), numFrames, deadline, block);
         return taken < 0 ? result_of(static_cast<int>(-taken)) : static_cast<aaudio_result_t>(taken);
     }
     const auto* source = static_cast<const uint8_t*>(buffer);
@@ -727,7 +748,7 @@ aaudio_result_t AAudioStream_write(AAudioStream* stream, const void* buffer, int
     while (written < numFrames) {
         const int64_t count = smaller(numFrames - written, stream->chunk);
         to_float(stream->format, source + written * frame_bytes, stream->floats, count * stream->channels);
-        const int64_t taken = hand_over(stream, stream->floats, count, deadline);
+        const int64_t taken = hand_over(stream, stream->floats, count, deadline, block);
         if (taken < 0) return written > 0 ? static_cast<aaudio_result_t>(written) : result_of(static_cast<int>(-taken));
         written += taken;
         if (taken < count) break;  // the deadline passed
@@ -878,6 +899,11 @@ bool AAudioStream_isPrivacySensitive(AAudioStream* stream) {
 }
 
 // MARK: - Private
+
+void minato_AAudioStream_setCallbackFrames(AAudioStream* stream, int32_t frames) {
+    if (stream == nullptr || !on_own_thread(stream)) return;
+    stream->given = frames < 0 ? 0 : frames;
+}
 
 void minato_AAudioStream_claimCallbackFrames(AAudioStream* stream) {
     if (stream == nullptr || !on_own_thread(stream)) return;

@@ -1,0 +1,10 @@
+I/sdl-audio-test: android_main
+I/sdl-audio-test: aaudio: opened, rate 48000, channels 2, format I16
+I/sdl-audio-test: aaudio: the buffer size starts at the capacity: yes
+I/sdl-audio-test: aaudio: 2 s of SDL's writes of 1024 frames with a timeout of 1 ms: none took fewer frames than given: yes
+I/sdl-audio-test: aaudio: the thread mixed at about the stream's rate (at most 25 percent over): yes
+I/sdl-audio-test: opensl: 512-frame buffers: the thread was paced at about the player's rate (at most 25 percent over): yes
+I/sdl-audio-test: opensl: 1024-frame buffers: the thread was paced at about the player's rate (at most 25 percent over): yes
+I/sdl-audio-test: done
+I/sdl-audio-test: ANativeActivity_finish
+I/sdl-audio-test: android_main returns

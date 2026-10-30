@@ -311,6 +311,8 @@ add_subdirectory(apps/present-test)
 # The App chat's audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.
 add_subdirectory(apps/aaudio-test)
 add_subdirectory(apps/opensl-test)
+# The Planung chat's SDL2 audio sequences (the audio speed of an SDL2 game).
+add_subdirectory(apps/sdl-audio-test)
 # The App chat's turn test app (ADR-0038, test 3).
 add_subdirectory(apps/rotation-test)
 # The App chat's live audio test app (ADR-0036, after M3).

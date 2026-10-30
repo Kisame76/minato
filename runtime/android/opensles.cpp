@@ -495,6 +495,9 @@ aaudio_data_callback_result_t pull(AAudioStream* stream, void* user, void* audio
     }
     memset(out + int64_t{done} * player->out_channels, 0,
            static_cast<size_t>(frames - done) * static_cast<size_t>(player->out_channels) * sizeof(float));
+    // The queue had fewer frames than the pull asked for: only those are audio. The rest is no silence to play
+    // (the app's next buffer may be about to come): the host's read of a short ring is the gap, and counts as the xrun.
+    minato_AAudioStream_setCallbackFrames(stream, done);
     if (!takes(player)) {  // a stop, a pause or a Destroy came during the pull
         pthread_mutex_unlock(&player->lock);
         return AAUDIO_CALLBACK_RESULT_CONTINUE;

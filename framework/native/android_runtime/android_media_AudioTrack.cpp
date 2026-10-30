@@ -9,6 +9,7 @@
 // static track plays its buffer once from the start, and its write copies to the buffer's start. A release wakes a
 // waiting write and waits for it to leave. Not here: loops and markers, rate changes, timestamps, routing.
 #include <aaudio/AAudio.h>
+#include <dlfcn.h>
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
 #include <stdint.h>
@@ -105,7 +106,15 @@ void convert(const Track &track, uint64_t first, size_t count, float *out) {
     }
 }
 
-aaudio_data_callback_result_t pull(AAudioStream *, void *user, void *audio, int32_t count) {
+/// libaaudio's (runtime/android/aaudio.cpp, guest_interface.h): the frames of this call that are audio. The NDK's
+/// stub has no such name, so it comes from the runtime's libaaudio through dlsym, once.
+void set_callback_frames(AAudioStream *stream, int32_t frames) {
+    static const auto set = reinterpret_cast<void (*)(AAudioStream *, int32_t)>(
+            dlsym(RTLD_DEFAULT, "minato_AAudioStream_setCallbackFrames"));
+    if (set != nullptr) set(stream, frames);
+}
+
+aaudio_data_callback_result_t pull(AAudioStream *stream, void *user, void *audio, int32_t count) {
     Track &track = *static_cast<Track *>(user);
     float *out = static_cast<float *>(audio);
     const size_t asked = static_cast<size_t>(count);
@@ -129,6 +138,9 @@ aaudio_data_callback_result_t pull(AAudioStream *, void *user, void *audio, int3
         }
     }
     std::fill(out + given * track.channels, out + asked * track.channels, 0.0f);
+    // Only the frames the track had are audio: a track that is slow to write leaves a gap that the host's read of a
+    // short ring is, and not zeros that the ring would play later in the place of the frames about to come.
+    set_callback_frames(stream, static_cast<int32_t>(given));
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
