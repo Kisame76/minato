@@ -366,6 +366,7 @@ struct Knobs {
     std::vector<Bytes> hvcc_units;  // not empty: the hvcC's one array's units (NAL header first) in place of its VPS
     std::vector<Bytes> entry_boxes;  // boxes after the avcC, hvcC or esds of the avc1, hvc1 and mp4a entries
     Bytes hvcc_whole;               // not empty: the hvcC's body in place of the one built
+    Bytes raw_entry;                // the sample entry named "raw", whole
 };
 
 void put32(Bytes &out, uint32_t value) {
@@ -519,6 +520,7 @@ Bytes built_file(const Knobs &knobs, uint64_t *mdat_data_offset = nullptr) {
     // Opus with a dOps ("Opus+", of another size or version after it) and alac with its cookie ("alac+", "alac+35",
     // "alac+x"); tx3g and others with none.
     const auto sample_entry = [&](const std::string &name) {
+        if (name == "raw") return knobs.raw_entry;
         if (name == "avc1") return video_entry;
         if (name == "mp4a") return audio_entry;
         if (name == "hvc1") return box("hvc1", hevc_visual);
@@ -2060,6 +2062,115 @@ TEST(a_plain_csd_comes_before_the_configuration_as_androids) {
     minato::mp4::Tracks tracks;
     CHECK(parsed(built_file(knobs), &tracks) == 0 && tracks.size() == 1 && tracks[0].select_refused &&
           !tracks[0].format_refused && tracks[0].csd_opaque && tracks[0].csd0.size == 4);
+}
+
+// As MPEG4Extractor's ac-3, ec-3 and ac-4 entries: parseAC3SpecificBox, parseEAC3SpecificBox and parseAC4SpecificBox
+// read the dac3, dec3 or dac4 from the entry's 28th byte, by the file's bytes; one they refuse leaves the track out
+// (skipTrack), whatever entries follow, and one they take names a codec the next entry replaces. A dac3 under 11
+// bytes, of another type, of fscod 3, of a rate but the entry's or of a bsid above 8; a dec3 under 11 or over 152
+// bytes, of another type, short of 23 bits a substream, of fscod 3, another rate, a bsid above 16, without the bit or
+// 9 bits after a substream, or of flags whose bytes are not there (its `size` bytes read from its payload, 8 past the
+// box); a dac4 under 11 bytes, of another type or of a DSI of 1176 bytes or more, or one AC4DSIParser refuses before
+// its presentations: a DSI version above 1, a bitstream version above 1 in a DSI of version 0, bits short of a field
+// [observed: media-extractor-test's ac-3, ec-3 and ac-4 variants on the emulator]. A dec3 whose substreams after the
+// first run past its bytes fails the file: ABitReader's getBits aborts there (CHECK) [verified at android-15.0.0_r1].
+TEST(a_refused_dolby_box_leaves_its_track_out_as_androids) {
+    Bytes sound(6, 0);
+    put16(sound, 1);
+    sound.insert(sound.end(), 8, 0);
+    put16(sound, 2);
+    put16(sound, 16);
+    put32(sound, 0);
+    put32(sound, 44100u << 16);
+    struct Case {
+        const char *what;
+        const char *entry, *box;
+        uint32_t claim;  // the specific box's size field
+        Bytes payload;   // and what follows it in the entry
+        bool kept;
+        int answer = 0;
+    };
+    const Case cases[] = {
+        {"ac-3", "ac-3", "dac3", 11, {0x50, 0x08, 0}, true},
+        {"ac-3 of fscod 3", "ac-3", "dac3", 11, {0xd0, 0x08, 0}, false},
+        {"ac-3 of 48000 Hz", "ac-3", "dac3", 11, {0x10, 0x08, 0}, false},
+        {"ac-3 of bsid 9", "ac-3", "dac3", 11, {0x52, 0x08, 0}, false},
+        {"ac-3 of bsid 8", "ac-3", "dac3", 11, {0x50, 0x08, 0}, true},
+        {"ac-3 of a dac3 of 10 bytes", "ac-3", "dac3", 10, {0x50, 0x08, 0}, false},
+        {"ac-3 of a dacX", "ac-3", "dacX", 11, {0x50, 0x08, 0}, false},
+        {"ec-3", "ec-3", "dec3", 13, {0x06, 0, 0x60, 0x04, 0}, true},
+        {"ec-3 of a dependent substream", "ec-3", "dec3", 14, {0x06, 0, 0x60, 0x04, 0x02, 0x01}, true},
+        {"ec-3 of fscod 3", "ec-3", "dec3", 13, {0x06, 0, 0xe0, 0x04, 0}, false},
+        {"ec-3 of 48000 Hz", "ec-3", "dec3", 13, {0x06, 0, 0x20, 0x04, 0}, false},
+        {"ec-3 of bsid 17", "ec-3", "dec3", 13, {0x06, 0, 0x62, 0x04, 0}, false},
+        {"ec-3 of bsid 16", "ec-3", "dec3", 13, {0x06, 0, 0x60, 0x04, 0}, true},
+        {"ec-3 of a mask of 8 flags", "ec-3", "dec3", 13, {0x06, 0, 0x60, 0x04, 0, 0xff, 1, 2}, false},
+        {"ec-3 of a mask of 7 flags", "ec-3", "dec3", 13, {0x06, 0, 0x60, 0x04, 0, 0x7f, 1, 2}, true},
+        {"ec-3 of a dec3 of 152 bytes", "ec-3", "dec3", 152, {0x06, 0, 0x60, 0x04, 0}, true},
+        {"ec-3 of a dec3 of 153 bytes", "ec-3", "dec3", 153, {0x06, 0, 0x60, 0x04, 0}, false},
+        {"ec-3 of a dec3 of 10 bytes", "ec-3", "dec3", 10, {0x06, 0, 0x60, 0x04, 0}, false},
+        {"ec-3 of a decX", "ec-3", "decX", 13, {0x06, 0, 0x60, 0x04, 0}, false},
+        {"ec-3 of 8 substreams", "ec-3", "dec3", 13, {0x06, 0x07, 0x60, 0x04, 0}, false},
+        {"ec-3 of 4 substreams in 11 bytes", "ec-3", "dec3", 11,
+         {0x06, 0x03, 0x60, 0x04, 0, 0x60, 0x04, 0, 0x60, 0x04, 0, 0x60, 0x04, 0}, false},
+        {"ec-3 of a dependent substream and 7 flags", "ec-3", "dec3", 14,
+         {0x06, 0, 0x60, 0x04, 0x02, 0x01, 0xfe, 0, 0, 0, 0, 0, 0, 0}, true},
+        {"ec-3 of a dec3 of 11 bytes", "ec-3", "dec3", 11, {0x06, 0, 0x60, 0x04, 0, 0, 0, 0, 0, 0, 0}, true},
+        {"ec-3 of 3 dependent substreams in 14 bytes", "ec-3", "dec3", 14,
+         {0x06, 0x02, 0x60, 0x04, 0x02, 0x01, 0x60, 0x04, 0x02, 0x01, 0x60, 0x04, 0x02, 0x01}, true},
+        {"ec-3 of 3 dependent substreams in 13 bytes", "ec-3", "dec3", 13,
+         {0x06, 0x02, 0x60, 0x04, 0x02, 0x01, 0x60, 0x04, 0x02, 0x01, 0x60, 0x04, 0x02}, false},
+        {"ec-3 of 8 substreams in 24 bytes", "ec-3", "dec3", 24,
+         {0, 0x07, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40}, false},
+        {"ec-3 of 8 substreams past its 25 bytes", "ec-3", "dec3", 25,
+         {0, 0x07, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0xff,
+          0xff, 0xff},
+         false, minato::mp4::kMalformed},
+        {"ec-3 of 8 substreams, the last at the end of its 26 bytes", "ec-3", "dec3", 26,
+         {0, 0x07, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0, 0x40, 0, 0x02, 0x01, 0x40, 0, 0x02, 0x01, 0x40, 0,
+          0x02, 0x01, 0xff, 0xff},
+         false, minato::mp4::kMalformed},
+        {"ac-4", "ac-4", "dac4", 11, {0, 0, 0}, true},
+        {"ac-4 of bitstream version 1", "ac-4", "dac4", 11, {0, 0x40, 0}, true},
+        {"ac-4 of DSI version 1 and 64 bits of bit rate", "ac-4", "dac4", 19, cat({{0x20, 0, 0}, Bytes(8, 0)}), false},
+        {"ac-4 of a program ID", "ac-4", "dac4", 22, cat({{0x20, 0x80, 0, 0x80}, Bytes(10, 0)}), true},
+        {"ac-4 of a UUID without its bits", "ac-4", "dac4", 28, cat({{0x20, 0x80, 0, 0x80, 0, 0x40}, Bytes(14, 0)}),
+         false},
+        {"ac-4 of a UUID 2 bits short", "ac-4", "dac4", 29, cat({{0x20, 0x80, 0, 0x80, 0, 0x40}, Bytes(15, 0)}),
+         false},
+        {"ac-4 of a UUID, 4 bits short of a bit rate", "ac-4", "dac4", 37,
+         cat({{0x20, 0x80, 0, 0x80, 0, 0x40}, Bytes(23, 0)}), false},
+        {"ac-4 of a UUID", "ac-4", "dac4", 38, cat({{0x20, 0x80, 0, 0x80, 0, 0x40}, Bytes(24, 0)}), true},
+        {"ac-4 of a dac4 of 10 bytes", "ac-4", "dac4", 10, {0, 0, 0}, false},
+        {"ac-4 of a dacX", "ac-4", "dacX", 11, {0, 0, 0}, false},
+        {"ac-4 of a DSI of 1176 bytes", "ac-4", "dac4", 1184, Bytes(1176, 0), false},
+        {"ac-4 of a DSI of 1175 bytes", "ac-4", "dac4", 1183, Bytes(1175, 0), true},
+        {"ac-4 of DSI version 2", "ac-4", "dac4", 11, {0x40, 0, 0}, false},
+        {"ac-4 of DSI version 1 without its bit rate", "ac-4", "dac4", 11, {0x20, 0, 0}, false},
+        {"ac-4 of DSI version 1", "ac-4", "dac4", 20, {0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, true},
+        {"ac-4 of DSI version 0 and bitstream version 2", "ac-4", "dac4", 11, {0, 0x80, 0}, false},
+        {"ac-4 of DSI version 1 and bitstream version 2", "ac-4", "dac4", 20,
+         {0x20, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, true},
+        {"ac-4 of a program ID without its bits", "ac-4", "dac4", 12, {0x20, 0x80, 0, 0x80}, false},
+        {"ac-4 of DSI version 2 and a bit rate's bits", "ac-4", "dac4", 20, {0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+         false},
+        {"ac-4 of DSI version 0, bitstream version 2 and a byte more", "ac-4", "dac4", 12, {0, 0x80, 0, 0}, false},
+        {"ac-4 of DSI version 1 and 40 bits of bit rate", "ac-4", "dac4", 16, {0x20, 0, 0, 0, 0, 0, 0, 0}, false},
+    };
+    for (const Case &test : cases) {
+        Bytes header;
+        put32(header, test.claim);
+        header.insert(header.end(), test.box, test.box + 4);
+        Knobs knobs;
+        knobs.audio_config = {0x12, 0x10};
+        knobs.raw_entry = box(test.entry, cat({sound, header, test.payload}));
+        knobs.stsds = {{"raw", "mp4a"}};
+        minato::mp4::Tracks tracks;
+        const int answer = parsed(built_file(knobs), &tracks);
+        const bool right = answer == test.answer && tracks.size() == (test.kept ? 1u : 0u);
+        CHECK(right);
+        if (!right) std::printf("  %s: answer %d, %zu tracks\n", test.what, answer, tracks.size());
+    }
 }
 
 TEST(an_aac_profile_reads_as_parse_aac_profile_from_csd) {

@@ -1074,6 +1074,81 @@ static size_t csd_files(const uint8_t *data, size_t size, struct named *out) {
     return count;
 }
 
+// An ac-3, ec-3 or ac-4 entry before the audio track's mp4a (step 2a.2 item 5): MPEG4Extractor reads its dac3, dec3
+// or dac4 from the entry's 28th byte; one it refuses leaves the track out (skipTrack), one it takes names AC-3, E-AC-3
+// or AC-4 until the mp4a names AAC. Good ones (an E-AC-3 one with a dependent substream too, the bytes after the
+// dec3 read as its own), and a dac3 of fscod 3, of 48000 Hz, of bsid 9, of a size of 10 or named dacX; a dec3 of fscod
+// 3, of bsid 17, of a flag mask whose bytes are not there, of 153 bytes, of 8 substreams; a dac4 of 10 bytes, named
+// dacX, of DSI version 2, of DSI version 1 without or with its bit rate, of bitstream version 2 in DSI versions 0
+// and 1, or of a program ID without its bits; and the edges of each count: 4 substreams in 11 bytes, a dependent
+// substream with 7 flags, a version 2 DSI of a bit rate's bits, a version 0 one of bitstream version 2 and a byte
+// more, a version 1 one of 40 bits of bit rate.
+static void dolby_lines(struct log *log, const char *name, const uint8_t *data, size_t size) {
+    size_t audio_size = 0;
+    const uint8_t *audio = first_entry(data, size, 1, &audio_size);
+    if (audio == NULL || audio_size < 36 || memcmp(audio + 4, "mp4a", 4) != 0 || be32(audio + 32) >> 16 != 44100) {
+        add(log, "custom %s dolby: no mp4a of 44100 Hz", name);
+        return;
+    }
+    static const struct {
+        const char *what;
+        const char *entry, *box;
+        uint32_t claim;  // the specific box's size field
+        uint8_t payload[14];
+        size_t size;     // the payload's bytes
+    } kinds[] = {
+        {"ac-3", "ac-3", "dac3", 11, {0x50, 0x08, 0}, 3},
+        {"ac-3 of fscod 3", "ac-3", "dac3", 11, {0xd0, 0x08, 0}, 3},
+        {"ac-3 of 48000 Hz", "ac-3", "dac3", 11, {0x10, 0x08, 0}, 3},
+        {"ac-3 of bsid 9", "ac-3", "dac3", 11, {0x52, 0x08, 0}, 3},
+        {"ac-3 of a dac3 of 10 bytes", "ac-3", "dac3", 10, {0x50, 0x08, 0}, 3},
+        {"ac-3 of a dacX", "ac-3", "dacX", 11, {0x50, 0x08, 0}, 3},
+        {"ec-3", "ec-3", "dec3", 13, {0x06, 0, 0x60, 0x04, 0}, 5},
+        {"ec-3 of a dependent substream", "ec-3", "dec3", 14, {0x06, 0, 0x60, 0x04, 0x02, 0x01}, 6},
+        {"ec-3 of fscod 3", "ec-3", "dec3", 13, {0x06, 0, 0xe0, 0x04, 0}, 5},
+        {"ec-3 of bsid 17", "ec-3", "dec3", 13, {0x06, 0, 0x62, 0x04, 0}, 5},
+        {"ec-3 of a mask of 8 flags", "ec-3", "dec3", 13, {0x06, 0, 0x60, 0x04, 0, 0xff, 1, 2}, 8},
+        {"ec-3 of a dec3 of 153 bytes", "ec-3", "dec3", 153, {0x06, 0, 0x60, 0x04, 0}, 5},
+        {"ec-3 of 8 substreams", "ec-3", "dec3", 13, {0x06, 0x07, 0x60, 0x04, 0}, 5},
+        {"ec-3 of 4 substreams in 11 bytes", "ec-3", "dec3", 11, {6, 3, 0x60, 4, 0, 0x60, 4, 0, 0x60, 4, 0, 0x60, 4, 0},
+         14},
+        {"ec-3 of a dependent substream and 7 flags", "ec-3", "dec3", 14, {0x06, 0, 0x60, 0x04, 0x02, 0x01, 0xfe}, 14},
+        {"ac-4", "ac-4", "dac4", 11, {0, 0, 0}, 3},
+        {"ac-4 of a dac4 of 10 bytes", "ac-4", "dac4", 10, {0, 0, 0}, 3},
+        {"ac-4 of a dacX", "ac-4", "dacX", 11, {0, 0, 0}, 3},
+        {"ac-4 of DSI version 2", "ac-4", "dac4", 11, {0x40, 0, 0}, 3},
+        {"ac-4 of DSI version 1 without its bit rate", "ac-4", "dac4", 11, {0x20, 0, 0}, 3},
+        {"ac-4 of DSI version 1", "ac-4", "dac4", 20, {0x20}, 12},
+        {"ac-4 of DSI version 0 and bitstream version 2", "ac-4", "dac4", 11, {0, 0x80, 0}, 3},
+        {"ac-4 of DSI version 1 and bitstream version 2", "ac-4", "dac4", 20, {0x20, 0x80}, 12},
+        {"ac-4 of a program ID without its bits", "ac-4", "dac4", 12, {0x20, 0x80, 0, 0x80}, 4},
+        {"ac-4 of DSI version 2 and a bit rate's bits", "ac-4", "dac4", 20, {0x40}, 12},
+        {"ac-4 of DSI version 0, bitstream version 2 and a byte more", "ac-4", "dac4", 12, {0, 0x80, 0, 0}, 4},
+        {"ac-4 of DSI version 1 and 40 bits of bit rate", "ac-4", "dac4", 16, {0x20}, 8},
+    };
+    char prefix[96];
+    for (size_t kind = 0; kind < sizeof kinds / sizeof kinds[0]; kind++) {
+        // The mask variant's flags and 2 bytes lie in the entry, and the dec3's 13 bytes reach 5 more into the mp4a:
+        // 7 bytes, where its 8 flags need 8.
+        struct buffer body = {NULL, 0}, entries = {NULL, 0};
+        uint8_t header[8];
+        put_be32(header, kinds[kind].claim);
+        memcpy(header + 4, kinds[kind].box, 4);
+        append(&body, audio + 8, 28);
+        append(&body, header, 8);
+        append(&body, kinds[kind].payload, kinds[kind].size);
+        append_box(&entries, kinds[kind].entry, body.data, body.size);
+        append(&entries, audio, audio_size);
+        struct buffer stsd = stsd_of(&entries, 2);
+        struct buffer file = with_stsd(data, size, 1, &stsd);
+        snprintf(prefix, sizeof prefix, "custom %s %s, then mp4a", name, kinds[kind].what);
+        variant_lines(log, prefix, &file);
+        free(stsd.data);
+        free(entries.data);
+        free(body.data);
+    }
+}
+
 // csd_files' files through an AMediaDataSource, but for the hvc1's video format, which Android refuses (its NDK's
 // format of no message would crash the app).
 static void csd_lines(struct log *log, const char *name, const uint8_t *data, size_t size) {
@@ -1218,6 +1293,7 @@ JNIEXPORT jstring JNICALL NAME(extract)(JNIEnv *env, jclass clazz, jstring jname
     durationless_lines(&log, prefix, data, (size_t)size);
     if (strcmp(name, "baseline") == 0) description_lines(&log, name, data, (size_t)size);
     if (strcmp(name, "baseline") == 0) csd_lines(&log, name, data, (size_t)size);
+    if (strcmp(name, "baseline") == 0) dolby_lines(&log, name, data, (size_t)size);
 
     // A source the sniff refuses, then the fd on the same extractor: the refused source is never closed.
     struct bytes refused = {text, sizeof text, 0, 0};

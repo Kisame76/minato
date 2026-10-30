@@ -2478,6 +2478,597 @@ I/media-extractor-test: custom baseline mp4a with an esds of half and quarter ra
 I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C track 1 csd-0: buffer 4 bytes, crc d60710f6
 I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: select 1: status 0
 I/media-extractor-test: custom baseline mp4a with an esds of half and quarter rates in a wave, and an av1C: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ac-3, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-3, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-3, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ac-3, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ac-3, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ac-3, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-3 of fscod 3, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-3 of 48000 Hz, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-3 of bsid 9, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-3 of a dac3 of 10 bytes, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-3 of a dacX, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ec-3, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ec-3, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ec-3, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ec-3 of a dependent substream, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of fscod 3, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of bsid 17, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of a mask of 8 flags, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of a dec3 of 153 bytes, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of 8 substreams, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of 4 substreams in 11 bytes, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ec-3 of a dependent substream and 7 flags, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ac-4, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ac-4, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ac-4, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ac-4, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of a dac4 of 10 bytes, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of a dacX, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 2, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 without its bit rate, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 1, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 0 and bitstream version 2, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a: status 0, tracks 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 mime: string audio/mp4a-latm
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 durationUs: int64 1068117
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 max-bitrate: int32 64000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 profile: int32 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 aac-profile: int32 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 sample-rate: int32 44100
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 channel-count: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 encoder-delay: int32 2112
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 encoder-padding: int32 892
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 track-id: int32 2
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 max-input-size: int32 207
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a track 1 csd-0: buffer 2 bytes, crc 37f6ea1e
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a: select 1: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and bitstream version 2, then mp4a: 76 samples, digest 20e1e4e4
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of a program ID without its bits, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 2 and a bit rate's bits, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 0, bitstream version 2 and a byte more, then mp4a: 30 samples, digest a9e9a105
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a: status 0, tracks 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 mime: string video/avc
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 durationUs: int64 1000000
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 display-width: int32 320
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 display-height: int32 180
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 frame-rate: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 profile: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 level: int32 16
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 language: string und
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 track-id: int32 1
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 max-input-size: int32 1473
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 csd-0: buffer 14 bytes, crc 6876fc13
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 csd-1: buffer 8 bytes, crc 38be309d
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a track 0 frame-count: int32 30
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a: select 0: status 0
+I/media-extractor-test: custom baseline ac-4 of DSI version 1 and 40 bits of bit rate, then mp4a: 30 samples, digest a9e9a105
 I/media-extractor-test: custom baseline no movie, then the fd: status -10000 then 0, 2 tracks, the refused source closed 0 times
 I/media-extractor-test: java baseline: tracks before a source 0, sample time -1, track -1
 I/media-extractor-test: java baseline: 2 tracks

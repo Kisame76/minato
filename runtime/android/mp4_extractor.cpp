@@ -308,6 +308,7 @@ struct Parser {
     Tracks* tracks;
     uint64_t source_length;  // the source's: a track's samples of one size never number more than it holds
     const uint8_t* movie;    // the moov's body, which the tracks' tables point into
+    size_t movie_size = 0;
     int error = 0;
     bool skip = false;  // the track being read is left out, as Android's verifyTrack leaves it out
 
@@ -758,11 +759,111 @@ struct Parser {
         track.bits_per_sample = cookie[5];
     }
 
+    // MSB-first bits of a run of bytes, as ABitReader reads them: `left` counts what is not read.
+    struct ByteBits {
+        const uint8_t* data;
+        size_t size, at;  // at in bits
+        bool past = false;  // a get ran past the end, which read nothing (ABitReader's getBits aborts there)
+        size_t left() const { return size * 8 - at; }
+        uint32_t get(size_t count) {
+            if (count > left()) {
+                past = true;
+                at = size * 8;
+                return 0;
+            }
+            uint32_t value = 0;
+            for (size_t bit = 0; bit < count; bit++, at++) value = value << 1 | ((data[at / 8] >> (7 - at % 8)) & 1u);
+            return value;
+        }
+    };
+
+    // Whether parseAC3SpecificBox, parseEAC3SpecificBox or parseAC4SpecificBox takes an ac-3, ec-3 or ac-4 entry's
+    // dac3, dec3 or dac4: read from the entry's 28th byte by the file's offsets, not the entry's (the entry's sample
+    // rate, from its 24th byte, must match an AC-3 or E-AC-3 box's), and as far as the moov reaches (Android reads
+    // the file past it). A dec3's `size` bytes are read from its payload, 8 past the box; an AC-4 DSI's presentations
+    // are not read (AC4DSIParser's checks of them and MPEG4Extractor's of their channel modes not ported). A dec3 whose
+    // substreams after the first run past its bytes fails the file, where ABitReader's getBits aborts (CHECK).
+    bool dolby_box_taken(uint32_t type, const Span& entry) {
+        const uint8_t* at = entry.data;
+        const auto there = [&](size_t offset, size_t count) {
+            const size_t start = static_cast<size_t>(at - movie);
+            return start <= movie_size && offset <= movie_size - start && count <= movie_size - start - offset;
+        };
+        if (!there(16, 2) || !there(24, 2) || !there(28, 8)) return false;
+        const uint32_t rate = static_cast<uint32_t>(at[24] << 8 | at[25]), size = be32(at + 28), box = be32(at + 32);
+        static constexpr uint32_t kRates[] = {48000, 44100, 32000};
+        if (type == type_of("ac-3")) {
+            if (size < 11 || box != type_of("dac3") || !there(36, 3)) return false;
+            ByteBits bits{at + 36, 3, 0};
+            const uint32_t fscod = bits.get(2);
+            return fscod != 3 && kRates[fscod] == rate && bits.get(5) <= 8;
+        }
+        if (type == type_of("ac-4")) {
+            if (size < 11 || box != type_of("dac4") || size - 8 >= 1176 || !there(36, size - 8)) return false;
+            // AC4DSIParser before its presentations (TS 103 190's ac4_dsi and ac4_dsi_v1).
+            ByteBits bits{at + 36, size - 8, 0};
+            if (bits.left() < 3) return false;
+            const uint32_t version = bits.get(3);
+            if (version > 1 || bits.left() < 7 + 1 + 4 + 9) return false;
+            const uint32_t bitstream = bits.get(7);
+            bits.get(1 + 4 + 9);  // fs_index, frame_rate_index, n_presentations
+            if (bitstream > 1) {
+                if (version == 0 || bits.left() < 1) return false;
+                if (bits.get(1) == 1) {  // b_program_id
+                    if (bits.left() < 16 + 1) return false;
+                    bits.get(16);
+                    if (bits.get(1) == 1) {  // b_uuid
+                        if (bits.left() < 128) return false;
+                        bits.at += 128;
+                    }
+                }
+            }
+            return version == 0 || bits.left() >= 2 + 32 + 32;  // parseBitrateDsi
+        }
+        if (size < 11 || size > 152 || box != type_of("dec3") || !there(36, size)) return false;
+        ByteBits bits{at + 36, size, 0};
+        if (bits.left() < 16) return false;
+        bits.get(13);  // data_rate
+        const uint32_t substreams = bits.get(3) + 1;
+        if (bits.left() < substreams * 23) return false;
+        const auto aborts = [this]() {
+            fail_void(kMalformed);
+            return false;
+        };
+        for (uint32_t index = 0; index < substreams; index++) {
+            const uint32_t fscod = bits.get(2);
+            if (bits.past) return aborts();
+            // and the bsid, there whenever the fscod is: a substream starts at a byte, so 8 bits at least
+            if (fscod == 3 || kRates[fscod] != rate || bits.get(5) > 16) return false;
+            bits.get(2 + 3 + 3 + 1 + 3);  // asvc and reserved, bsmod, acmod, lfeon, reserved
+            const uint32_t dependent = bits.get(4);
+            if (bits.past) return aborts();
+            if (dependent != 0) {  // dependent substreams: their channel locations
+                if (bits.left() < 9) return false;
+                bits.get(9);
+            } else {
+                if (bits.left() == 0) return false;
+                bits.get(1);
+            }
+        }
+        if (bits.left() != 0) {
+            if (bits.left() < 8) return false;
+            const uint32_t flags = bits.get(8);
+            for (int flag = 0; flag < 8; flag++) {
+                if ((flags >> flag & 1u) == 0) continue;
+                if (bits.left() < 8) return false;
+                bits.get(8);
+            }
+        }
+        return true;
+    }
+
     // As MPEG4Extractor's sample entries: one Android knows names the track's codec in place of the one before
     // (Minato reads AVC, HEVC and AAC and leaves a track of another out), and the avcC, hvcC and esds among its boxes
     // and in a QuickTime wave stay as the track's (Tables); one that names no codec (tx3g, whose text track's type
     // comes from its hdlr) or that Android does not know (avc3 among them) changes nothing. The boxes of ac-3, ec-3,
-    // ac-4 and mett are not read, nor those of Opus and alac, whose entries Android reads to their end itself.
+    // ac-4 and mett are not read, nor those of Opus and alac, whose entries Android reads to their end itself. An
+    // ac-3, ec-3 or ac-4 box among an entry's boxes, which parseChunk reads as an entry of its own, is not either.
     void read_sample_entry(uint32_t type, Span entry, Track& track, Tables& tables) {
         if (type == type_of("encv") || type == type_of("enca")) return fail_void(kUnsupported);
         static constexpr uint32_t visual[] = {
@@ -784,6 +885,11 @@ struct Parser {
         const bool is_sound = listed(sound, sizeof sound / sizeof *sound);
         if (!is_visual && !is_sound && !listed(other, sizeof other / sizeof *other)) return;
         tables.described = true;
+        if (type == type_of("ac-3") || type == type_of("ec-3") || type == type_of("ac-4")) {
+            if (!dolby_box_taken(type, entry)) skip = true;
+            track.mime = nullptr;  // AC-3, E-AC-3 or AC-4, which Minato leaves out unless a later entry names another
+            return;
+        }
         track.mime = type == type_of("avc1")                               ? "video/avc"
                      : type == type_of("hvc1") || type == type_of("hev1") ? "video/hevc"
                      : type == type_of("mp4a")                             ? "audio/mp4a-latm"
@@ -1714,7 +1820,7 @@ int parse(const Source& source, Tracks* tracks) {
         tracks->clear();
         return kNoMemory;
     }
-    Parser parser{tracks, source.length, movie};
+    Parser parser{tracks, source.length, movie, movie_size};
     parser.read_moov(Span{movie, movie_size, 0, false});
     if (parser.error != 0) {
         tracks->clear();
