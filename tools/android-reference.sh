@@ -844,6 +844,11 @@ run_app() {
     key-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.KeyActivity
       ;;
+    # gamepad-test (ADR-0068 decision 5, the controllers' step 1): its own launcher activity, which logs a virtual
+    # game controller of `uinput` (fixtures/apps/gamepad-test/uinput.json) and ends with "done" once it is gone.
+    gamepad-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.GamepadActivity
+      ;;
     # start-stops-test (ADR-0042 b): its own launcher activity, which ends with "done" once its window has focus.
     start-stops-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.StartStopsActivity
@@ -1134,6 +1139,13 @@ run_app() {
     # sends a hardware keyboard's keys through Minato's input channel.
     { wait_for "$app" "soft input done" 20 && sleep 1 && run input keyevent 30 && sleep 1 && run input keyevent 67; } ||
       return 1
+  fi
+  if [[ "$app" == gamepad-test ]]; then
+    # ADR-0068 decision 5: once the window says "ready: pad", `uinput` makes a game controller, plays its buttons,
+    # sticks, triggers and hat, and ends, which removes the device.
+    device push fixtures/apps/gamepad-test/uinput.json /data/local/tmp/gamepad-uinput.json >/dev/null || return 1
+    { wait_for "$app" "ready: pad" && sleep 1 && run uinput /data/local/tmp/gamepad-uinput.json; } || return 1
+    run rm -f /data/local/tmp/gamepad-uinput.json
   fi
   if [[ "$app" == key-test ]]; then
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its

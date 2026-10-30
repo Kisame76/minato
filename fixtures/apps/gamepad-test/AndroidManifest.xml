@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- gamepad-test (ADR-0068 decision 5, the controllers' step 1): a window that logs the game controller that appears
+     (its InputDevice, ranges and sources), its keys and its joystick motion events, and its going. On Android 15's
+     emulator the controller is a virtual device of `uinput` (uinput.json); the launcher activity is the app's own. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.gamepad" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Gamepad Test">
+    <activity android:name="io.github.kisame76.minato.test.gamepad.GamepadActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

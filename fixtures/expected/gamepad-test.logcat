@@ -1,0 +1,56 @@
+I/gamepad-test: pads before: 0
+I/gamepad-test: ready: pad
+I/gamepad-test: added: name "Minato Test Pad", sources 0x1000511, vendor 0x45e, product 0x2e0, virtual false, external true, keyboard type 1
+I/gamepad-test: range AXIS_BRAKE source 0x1000010 [0.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_GAS source 0x1000010 [0.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_HAT_X source 0x1000010 [-1.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_HAT_Y source 0x1000010 [-1.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_LTRIGGER source 0x1000010 [0.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_RTRIGGER source 0x1000010 [0.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_RZ source 0x1000010 [-1.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_X source 0x1000010 [-1.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_Y source 0x1000010 [-1.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: range AXIS_Z source 0x1000010 [-1.0, 1.0] flat 0.0 fuzz 0.0
+I/gamepad-test: keys: BUTTON_A BUTTON_B BUTTON_X BUTTON_Y BUTTON_L1 BUTTON_R1 BUTTON_THUMBL BUTTON_THUMBR BUTTON_START BUTTON_SELECT BUTTON_MODE
+I/gamepad-test: key down KEYCODE_BUTTON_A, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_A, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_B, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_B, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_X, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_X, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_Y, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_Y, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_L1, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_L1, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_R1, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_R1, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_START, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_START, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_SELECT, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_SELECT, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_MODE, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_MODE, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_THUMBL, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_THUMBL, source 0x501
+I/gamepad-test: key down KEYCODE_BUTTON_THUMBR, source 0x501
+I/gamepad-test: key up KEYCODE_BUTTON_THUMBR, source 0x501
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_X=0.5
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_Y=-1.0
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_Z=0.25
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_RZ=-0.5
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_LTRIGGER=0.5 AXIS_BRAKE=0.5
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_RTRIGGER=1.0 AXIS_GAS=1.0
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_HAT_X=-1.0
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_HAT_Y=1.0
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes AXIS_X=1.0 AXIS_Y=-0.5
+I/gamepad-test: motion ACTION_MOVE, source 0x1000010, pointers 1, history 0, axes
+I/gamepad-test: removed: the pad is no longer listed: true
+I/gamepad-test: done
