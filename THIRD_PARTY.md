@@ -1,12 +1,19 @@
 # Third-party code
 
-What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is not adopted, with one exception (ADR-0033): ART's code under GPL-2.0 with the Classpath Exception, which ships as separate components with its license text, and whose source code must go with every build that leaves the Mac (below).
+What Minato adopts from others, with license and version. Project license: Apache-2.0 (ADR-0017). GPL and AGPL code is
+not adopted, with one exception (ADR-0033): ART's code under GPL-2.0 with the Classpath Exception, which ships as
+separate components with its license text, and whose source code must go with every build that leaves the Mac (below).
 
-The app carries the license texts of what it embeds in `Licenses/`: `tools/bundle-licenses.py` copies them at build time as [`third_party/licenses.json`](third_party/licenses.json) lists them, and `tools/license-check.py` fails a built app that lacks a text for a table row of an embedded section below.
+The app carries the license texts of what it embeds in `Licenses/`: `tools/bundle-licenses.py` copies them at build time
+as [`third_party/licenses.json`](third_party/licenses.json) lists them, and `tools/license-check.py` fails a built app
+that lacks a text for a table row of an embedded section below.
 
 ## Guest libc (ADR-0009, ADR-0021)
 
-AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in [`third_party/sources.json`](third_party/sources.json). From them, `tools/build-bionic.sh` builds `libc.so`, `libm.so`, `libdl.so` and `ld-android.so` with the NDK. These libraries run as guest code in the process.
+AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py` downloads them to
+`build/sources/` (not in the repo) and checks them against the checksums in
+[`third_party/sources.json`](third_party/sources.json). From them, `tools/build-bionic.sh` builds `libc.so`, `libm.so`,
+`libdl.so` and `ld-android.so` with the NDK. These libraries run as guest code in the process.
 
 | Source | Commit | License | Which parts |
 |---|---|---|---|
@@ -18,16 +25,28 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/build` | `3d9c9aacdb6c` | Apache-2.0 | `fs_config_generator.py`: generates the table of Android UIDs |
 
 **Our changes to Bionic** (`runtime/bionic/`, ADR-0021):
-- `overlay/bionic/libc/arch-arm64/bionic/setjmp.S`: Bionic's file, without saving and restoring `x18` (ADR-0019). License as in the original (BSD, header in the file).
-- `scudo/custom_scudo_config.h`: Scudo's Android configuration (`config/custom_scudo_config.h` of `platform/external/scudo` at `67dd481e24c7`), with regions of 64 MiB, each reserved when its size class is first used, instead of 256 MiB in one piece (`RegionSizeLog` 26, `EnableContiguousRegions` false; ADR-0035). License as in the original: AOSP's BSD header and Apache-2.0 WITH LLVM-exception, both in the file.
-- `src/libc_start.cpp`, `src/libc_start.map`, `src/sigreturn.S`, `src/ld_android.cpp`, `src/ld_android.map`: our own code (Apache-2.0), built with Bionic's private headers.
-- `src/liblog.cpp`, `src/libnetd_client.cpp`: our own small versions of `liblog.so` and `libnetd_client.so` (Apache-2.0), based on the NDK documentation and on what Bionic expects of the library, respectively; no AOSP code adopted.
+- `overlay/bionic/libc/arch-arm64/bionic/setjmp.S`: Bionic's file, without saving and restoring `x18` (ADR-0019).
+  License as in the original (BSD, header in the file).
+- `scudo/custom_scudo_config.h`: Scudo's Android configuration (`config/custom_scudo_config.h` of
+  `platform/external/scudo` at `67dd481e24c7`), with regions of 64 MiB, each reserved when its size class is first used,
+  instead of 256 MiB in one piece (`RegionSizeLog` 26, `EnableContiguousRegions` false; ADR-0035). License as in the
+  original: AOSP's BSD header and Apache-2.0 WITH LLVM-exception, both in the file.
+- `src/libc_start.cpp`, `src/libc_start.map`, `src/sigreturn.S`, `src/ld_android.cpp`, `src/ld_android.map`: our own
+  code (Apache-2.0), built with Bionic's private headers.
+- `src/liblog.cpp`, `src/libnetd_client.cpp`: our own small versions of `liblog.so` and `libnetd_client.so`
+  (Apache-2.0), based on the NDK documentation and on what Bionic expects of the library, respectively; no AOSP code
+  adopted.
 
 **Derived from Bionic in the runtime** (host code, ADR-0039 a):
-- `runtime/src/properties.cpp`: the system property area that the runtime writes for `/dev/__properties__`, in Bionic's pre-split format. It follows `libc/system_properties/prop_area.cpp` (`prop_area::add` and the trie functions) and the layouts of `prop_area.h` and `prop_info.h` at `361ba86734fb`. License as in the original: AOSP's BSD header, kept in the file.
+- `runtime/src/properties.cpp`: the system property area that the runtime writes for `/dev/__properties__`, in Bionic's
+  pre-split format. It follows `libc/system_properties/prop_area.cpp` (`prop_area::add` and the trie functions) and the
+  layouts of `prop_area.h` and `prop_info.h` at `361ba86734fb`. License as in the original: AOSP's BSD header, kept in
+  the file.
 
 **Derived from AOSP in libandroid** (`runtime/android/`, the guest's `lib64/libandroid.so`):
-- `runtime/android/sharedmem.cpp`: the NDK's ASharedMemory, from frameworks/base's `native/android/sharedmem.cpp` and the memfd path of system/core's `libcutils/ashmem-dev.cpp` at android-15.0.0_r1, merged into one file in place of libcutils, which the guest system lacks. License as in the originals: AOSP's Apache-2.0 header, kept in the file.
+- `runtime/android/sharedmem.cpp`: the NDK's ASharedMemory, from frameworks/base's `native/android/sharedmem.cpp` and
+  the memfd path of system/core's `libcutils/ashmem-dev.cpp` at android-15.0.0_r1, merged into one file in place of
+  libcutils, which the guest system lacks. License as in the originals: AOSP's Apache-2.0 header, kept in the file.
 
 **From the Android NDK r30** (`30.0.16248370`) in the guest libraries:
 
@@ -42,7 +61,13 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 
 ## Graphics: ANGLE (ADR-0029)
 
-ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh` fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in [`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend. The iPhone's slice and the Mac's test library also have the Vulkan backend (ADR-0044 c), the Simulator's slice not, with Volk from ANGLE's tree and four more of the dependencies it keeps, in the table below. The app embeds it as `libGLESv2.framework` from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header that says why, whether it could go upstream and when it goes.
+ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/angle/angle`. `tools/build-angle.sh`
+fetches it with the dependencies it keeps into `build/angle/` (not in the repo), pinned in
+[`third_party/sources.json`](third_party/sources.json), and builds `libGLESv2` with the Metal backend. The iPhone's
+slice and the Mac's test library also have the Vulkan backend (ADR-0044 c), the Simulator's slice not, with Volk from
+ANGLE's tree and four more of the dependencies it keeps, in the table below. The app embeds it as `libGLESv2.framework`
+from `build/ANGLE.xcframework`. Our changes are the patch series in `third_party/angle/patches/`, each with a header
+that says why, whether it could go upstream and when it goes.
 
 | Part in `libGLESv2` | Version | License |
 |---|---|---|
@@ -58,11 +83,21 @@ ANGLE's branch `chromium/8037` at `b4cbb0a8`, from `chromium.googlesource.com/an
 | SPIRV-Tools (`third_party/spirv-tools/src`) | `b40380bf` | Apache-2.0 |
 | VulkanMemoryAllocator (`third_party/vulkan_memory_allocator`) | `7e55b011` | MIT |
 
-The BSD licenses ask for their notices with every binary: the app embeds the framework since 2026-09-27 and carries ANGLE's texts in `Licenses/`, with the holders of `src/common/base` (The Chromium Authors, the V8 project authors) from [`third_party/angle/licenses/`](third_party/angle/licenses/). Used only to build, not in the app: depot_tools' `gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
+The BSD licenses ask for their notices with every binary: the app embeds the framework since 2026-09-27 and carries
+ANGLE's texts in `Licenses/`, with the holders of `src/common/base` (The Chromium Authors, the V8 project authors) from
+[`third_party/angle/licenses/`](third_party/angle/licenses/). Used only to build, not in the app: depot_tools'
+`gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos
+registries `gl.xml` and `egl.xml` (Apache-2.0).
 
 ## Graphics: MoltenVK (ADR-0030, ADR-0044 b))
 
-MoltenVK 1.4.2 (tag `v1.4.2`, commit `db660224`), built by us from Khronos's sources since ADR-0044 b): `tools/fetch-sources.py --set moltenvk-src` fetches GitHub's archives of MoltenVK and of the parts below, at the commits of its `ExternalRevisions/`, into `build/sources/moltenvk/` (not in the repo), pinned by their content digests in [`third_party/sources.json`](third_party/sources.json), and `tools/build-moltenvk.sh` builds them unchanged, with Apple's private Metal API compiled in and off by default. The app embeds the dynamic framework for the device from `build/MoltenVK.xcframework`. The release (`github.com/KhronosGroup/MoltenVK/releases`, `tools/fetch-moltenvk.sh --fetch`, checked against the SHA-256 in the same file) holds the same parts at the same commits.
+MoltenVK 1.4.2 (tag `v1.4.2`, commit `db660224`), built by us from Khronos's sources since ADR-0044 b):
+`tools/fetch-sources.py --set moltenvk-src` fetches GitHub's archives of MoltenVK and of the parts below, at the commits
+of its `ExternalRevisions/`, into `build/sources/moltenvk/` (not in the repo), pinned by their content digests in
+[`third_party/sources.json`](third_party/sources.json), and `tools/build-moltenvk.sh` builds them unchanged, with
+Apple's private Metal API compiled in and off by default. The app embeds the dynamic framework for the device from
+`build/MoltenVK.xcframework`. The release (`github.com/KhronosGroup/MoltenVK/releases`, `tools/fetch-moltenvk.sh
+--fetch`, checked against the SHA-256 in the same file) holds the same parts at the same commits.
 
 | Part in `MoltenVK.framework` | Version | License |
 |---|---|---|
@@ -73,11 +108,18 @@ MoltenVK 1.4.2 (tag `v1.4.2`, commit `db660224`), built by us from Khronos's sou
 | SPIRV-Headers (headers only) | `29981f65` | MIT |
 | Vulkan-Headers (headers only) | `v1.4.357` @`e3b1eec0` | Apache-2.0 OR MIT |
 
-MoltenVK's own license text comes from its sources (`build/moltenvk/LICENSE`). The texts of SPIRV-Cross, SPIRV-Tools, SPIRV-Headers and cereal, at these commits, are in [`third_party/moltenvk/licenses/`](third_party/moltenvk/licenses/) (`tools/fetch-moltenvk.sh --licenses`, checked against their Git blobs), for the bundle. Used only to build: `vk.xml` of Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030, the Vulkan headers of the same version from MoltenVK's build, against which our guest `libvulkan.so` is built, and the rest of these sources, which only build MoltenVK. Vulkan-Tools and Volk, which only MoltenVK's demos use, are not fetched.
+MoltenVK's own license text comes from its sources (`build/moltenvk/LICENSE`). The texts of SPIRV-Cross, SPIRV-Tools,
+SPIRV-Headers and cereal, at these commits, are in [`third_party/moltenvk/licenses/`](third_party/moltenvk/licenses/)
+(`tools/fetch-moltenvk.sh --licenses`, checked against their Git blobs), for the bundle. Used only to build: `vk.xml` of
+Vulkan-Headers `v1.4.357` (Apache-2.0 OR MIT), read by the generator of ADR-0030, the Vulkan headers of the same version
+from MoltenVK's build, against which our guest `libvulkan.so` is built, and the rest of these sources, which only build
+MoltenVK. Vulkan-Tools and Volk, which only MoltenVK's demos use, are not fetched.
 
 ## Parity benchmark (ADR-0037)
 
-Only in benchmark builds (`APK_EMBED_BENCHMARK=YES`), beside `MinatoBench.framework`: the APKs `bench-gles` and `bench-vulkan` in `Benchmark/`, built by `tools/build-bench.sh` with the NDK r30 (`30.0.16248370`). `MinatoBench.framework` is our own code and links ANGLE's framework (above); neither APK links libc++.
+Only in benchmark builds (`APK_EMBED_BENCHMARK=YES`), beside `MinatoBench.framework`: the APKs `bench-gles` and
+`bench-vulkan` in `Benchmark/`, built by `tools/build-bench.sh` with the NDK r30 (`30.0.16248370`).
+`MinatoBench.framework` is our own code and links ANGLE's framework (above); neither APK links libc++.
 
 | Part | License | What for |
 |---|---|---|
@@ -87,7 +129,9 @@ Used only to build: the NDK's `glslc` (Apache-2.0), which compiles the scene's s
 
 ## Time zones
 
-Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo.
+Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's
+IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not
+in the repo.
 
 Android's tzdata module (`com.android.tzdata`) lies in every app build as Android 15 lays it out (the compatibility
 plan's gap 21): `etc/tz/tzdata` and `etc/tz/versioned/8/tzdata` are the file above, with a `tz_version` beside each
@@ -107,7 +151,13 @@ framework/tests/app_process_run.py name the pin to make when bionic's tzdata is 
 
 ## ART and its libraries (ADR-0033)
 
-AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art` downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of [`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK. Since step d2 every app build embeds that build's release flavor (`tools/embed-guest-system.sh`): the jars, ICU's data and the time zone files in `Guest/apex`, the libraries as signed containers in `Guest/apex-lib64`. The debug flavor (`libartd`, `libartbased`, `libdexfiled`, `libopenjdkd`, `libopenjdkjvmd`, `libprofiled`) and ART's tests go only into fixture builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
+AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art`
+downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of
+[`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK. Since step d2
+every app build embeds that build's release flavor (`tools/embed-guest-system.sh`): the jars, ICU's data and the time
+zone files in `Guest/apex`, the libraries as signed containers in `Guest/apex-lib64`. The debug flavor (`libartd`,
+`libartbased`, `libdexfiled`, `libopenjdkd`, `libopenjdkjvmd`, `libprofiled`) and ART's tests go only into fixture
+builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 
 | Source | Commit | License | Which parts |
 |---|---|---|---|
@@ -138,13 +188,22 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | `platform/system/logging` | `54d3fa266d21` | Apache-2.0 (`liblog/NOTICE`) | only `liblog/include`: the headers ART and libcore compile against; `liblog.so` is Minato's own |
 | `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 (`NOTICE` license type; the generated data follows IANA's notice) | the format of the time zone files (ADR-0033, decision 9) is only read; `output_data/android/tzlookup.xml` and `telephonylookup.xml` ship in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/` (gap 21) |
 
-**GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm` ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app. It must go with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision (`docs/STATUS.md`). ADR-0033 also names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s Java), `libopenjdk` and `libopenjdkd` (its natives), and `libopenjdkjvm` and `libopenjdkjvmd` (`openjdkjvm/`).
+**GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm`
+ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app. It must go
+with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision (`docs/STATUS.md`). ADR-0033 also
+names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource
+(`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is
+BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s
+Java), `libopenjdk` and `libopenjdkd` (its natives), and `libopenjdkjvm` and `libopenjdkjvmd` (`openjdkjvm/`).
 
-**Ours in ART's module** (`Guest/apex-lib64`, ADR-0033): `libartpalette-system.so` (`runtime/art/palette/palette_system.cc`), written after AOSP's `libartpalette/system/palette_fake.cc` in `platform/art` (Apache-2.0, whose `NOTICE` ships with ART), and `heapprofd_client_api.so` (`runtime/art/heapprofd`), a stub of our own.
+**Ours in ART's module** (`Guest/apex-lib64`, ADR-0033): `libartpalette-system.so`
+(`runtime/art/palette/palette_system.cc`), written after AOSP's `libartpalette/system/palette_fake.cc` in `platform/art`
+(Apache-2.0, whose `NOTICE` ships with ART), and `heapprofd_client_api.so` (`runtime/art/heapprofd`), a stub of our own.
 
 ## Build tools for ART (ADR-0033)
 
-Used only to build ART's Java part, not in the app. `tools/fetch-sources.py --set art` fetches them with the sources above, the JDK checked against Adoptium's SHA-256 before it is unpacked.
+Used only to build ART's Java part, not in the app. `tools/fetch-sources.py --set art` fetches them with the sources
+above, the JDK checked against Adoptium's SHA-256 before it is unpacked.
 
 | Tool | Version | License |
 |---|---|---|
@@ -164,15 +223,23 @@ Host tools in `build/`, not in the app. The Java that `aidl` writes comes from A
 
 ## Framework sources (ADR-0039 step b)
 
-Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 MB packed, your go). The host aapt2 and protoc, with the protobuf, libpng, expat, libutils, libcutils, libziparchive, incfs-utils and libbuildversion they link, are build tools in `build/` and do not ship; what the guest system ships is named here when its step builds it.
+Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 MB packed, your go). The host aapt2 and
+protoc, with the protobuf, libpng, expat, libutils, libcutils, libziparchive, incfs-utils and libbuildversion they link,
+are build tools in `build/` and do not ship; what the guest system ships is named here when its step builds it.
 
-Since ADR-0039 c4, every app build ships the Java start's guest system, with these texts under "Framework sources" in its Licenses folder:
+Since ADR-0039 c4, every app build ships the Java start's guest system, with these texts under "Framework sources" in
+its Licenses folder:
 
-- `system/framework/framework.jar`: frameworks/base's `core/java`, `graphics/java`, `opengl/java` and the ravenwood annotations, modules-utils' `java/`, build/release's ap3a values in the flag classes, the managers' generator's classes after the Connectivity and Wi-Fi API files, and our own classes;
-- `system/framework/framework-res/`, the folder of ADR-0039 decision 8 (8,127 files): frameworks/base's `core/res` through our aapt2;
+- `system/framework/framework.jar`: frameworks/base's `core/java`, `graphics/java`, `opengl/java` and the ravenwood
+  annotations, modules-utils' `java/`, build/release's ap3a values in the flag classes, the managers' generator's
+  classes after the Connectivity and Wi-Fi API files, and our own classes;
+- `system/framework/framework-res/`, the folder of ADR-0039 decision 8 (8,127 files): frameworks/base's `core/res`
+  through our aapt2;
 - `system/etc/permissions/platform.xml`, unchanged;
-- `lib64/libandroid_runtime.so`: `core/jni` and libandroidfw, with static libbase and fmtlib, libcutils and libutils, libziparchive, libincfs-utils and libpng, and core/jni's database natives over libsqlite.so;
-- `lib64/libsqlite.so`: external/sqlite's SQLite 3.44.3 with Android's functions (the compatibility plan's gap 7), linking ICU's libandroidicu;
+- `lib64/libandroid_runtime.so`: `core/jni` and libandroidfw, with static libbase and fmtlib, libcutils and libutils,
+  libziparchive, libincfs-utils and libpng, and core/jni's database natives over libsqlite.so;
+- `lib64/libsqlite.so`: external/sqlite's SQLite 3.44.3 with Android's functions (the compatibility plan's gap 7),
+  linking ICU's libandroidicu;
 - `bin/app_process64`: ours (`framework/app_process`), linking ART's libnativehelper, libsigchain and liblog.
 
 protobuf and Soong's libbuildversion stay build tools and do not ship.
@@ -193,11 +260,31 @@ protobuf and Soong's libbuildversion stay build tools and do not ship.
 | `platform/packages/providers/MediaProvider` | `8a53c6d378a9` | Apache-2.0 | `apex/framework/java/android/provider/MediaStore.java` with `Column.java` and `CloudMediaProviderContract.java`, which it names (0.34 MB, `build/sources/media_provider_module`): the contract apps use to query and insert photos and videos, taken as it is by `framework/sources.txt` (ADR-0057 step e) |
 | `platform/frameworks/libs/modules-utils` | `810bd8c57bb3` | Apache-2.0 | only `java/` (0.5 MB): `Preconditions`, the typed XML parsers and annotations that framework.jar's taken files use (ADR-0039 b3) |
 
-b3.2 builds `libandroidfw` for the guest, with `libbase`, fmtlib, `libcutils`, `libutils`, `libziparchive`, `libincfs-utils` and libpng, as static archives; they ship inside `libandroid_runtime.so` from b3.3 on. `libandroidfw` carries Minato's patch `framework/native/patches/androidfw-directory-listing.patch` (Apache-2.0 like the file it changes): it only changes `DirectoryAssetsProvider::ForEachFile` in `libs/androidfw/AssetsProvider.cpp` and adds three includes there.
+b3.2 builds `libandroidfw` for the guest, with `libbase`, fmtlib, `libcutils`, `libutils`, `libziparchive`,
+`libincfs-utils` and libpng, as static archives; they ship inside `libandroid_runtime.so` from b3.3 on. `libandroidfw`
+carries Minato's patch `framework/native/patches/androidfw-directory-listing.patch` (Apache-2.0 like the file it
+changes): it only changes `DirectoryAssetsProvider::ForEachFile` in `libs/androidfw/AssetsProvider.cpp` and adds three
+includes there.
 
-b3.3 builds `libandroid_runtime.so` from `core/jni`'s files for Log, AssetManager, StringBlock, XmlBlock, ApkAssets, SystemProperties and SystemClock, and `core_jni_helpers`, unchanged, with stand-ins of ours (`framework/native/android_runtime`). framework.jar carries Minato's patch `framework/patches/assetmanager-framework-res-folder.patch` to `core/java/android/content/res/AssetManager.java` (Apache-2.0 like the file it changes): only `createSystemAssetsInZygoteLocked` changes, to open framework-res's folder and ask for no overlay idmaps. ADR-0041 a) adds `core/jni/android_animation_PropertyValuesHolder.cpp`, unchanged. ADR-0041 a)'s GLES bindings add `core/jni`'s `android_opengl_*.cpp` (12 files), `com_google_android_gles_jni_EGLImpl.cpp` and `com_google_android_gles_jni_GLImpl.cpp`, and `android/opengl/util.cpp` with `poly_clip.cpp`; five of them carry Minato's patch `framework/native/patches/opengl-without-libgui.patch` (Apache-2.0 like the files it changes): window surfaces through Minato's own function for a Surface's window, no SurfaceTexture, `eglDupNativeFenceFDANDROID` through `eglGetProcAddress`, no init count, and no ETC1 natives (GLUtils' bitmap natives came back with ADR-0041 a3). framework.jar takes `opengl/java`'s three packages unchanged, without `ETC1` and `ETC1Util`. ADR-0043 c2's `framework/native/android_runtime/android_view_Surface.cpp` is Minato's, written after `core/jni/android_view_Surface.cpp` function by function (Apache-2.0), on libnativewindow's window in place of libgui's Surface.
+b3.3 builds `libandroid_runtime.so` from `core/jni`'s files for Log, AssetManager, StringBlock, XmlBlock, ApkAssets,
+SystemProperties and SystemClock, and `core_jni_helpers`, unchanged, with stand-ins of ours
+(`framework/native/android_runtime`). framework.jar carries Minato's patch
+`framework/patches/assetmanager-framework-res-folder.patch` to `core/java/android/content/res/AssetManager.java`
+(Apache-2.0 like the file it changes): only `createSystemAssetsInZygoteLocked` changes, to open framework-res's folder
+and ask for no overlay idmaps. ADR-0041 a) adds `core/jni/android_animation_PropertyValuesHolder.cpp`, unchanged.
+ADR-0041 a)'s GLES bindings add `core/jni`'s `android_opengl_*.cpp` (12 files),
+`com_google_android_gles_jni_EGLImpl.cpp` and `com_google_android_gles_jni_GLImpl.cpp`, and `android/opengl/util.cpp`
+with `poly_clip.cpp`; five of them carry Minato's patch `framework/native/patches/opengl-without-libgui.patch`
+(Apache-2.0 like the files it changes): window surfaces through Minato's own function for a Surface's window, no
+SurfaceTexture, `eglDupNativeFenceFDANDROID` through `eglGetProcAddress`, no init count, and no ETC1 natives (GLUtils'
+bitmap natives came back with ADR-0041 a3). framework.jar takes `opengl/java`'s three packages unchanged, without `ETC1`
+and `ETC1Util`. ADR-0043 c2's `framework/native/android_runtime/android_view_Surface.cpp` is Minato's, written after
+`core/jni/android_view_Surface.cpp` function by function (Apache-2.0), on libnativewindow's window in place of libgui's
+Surface.
 
-The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag on your go in the App chat. `tools/managergen` reads them and writes our own classes under their names into `build/`; the files themselves never ship.
+The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag on your go in
+the App chat. `tools/managergen` reads them and writes our own classes under their names into `build/`; the files
+themselves never ship.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
@@ -207,7 +294,12 @@ The API signature files of the managers' generator (ADR-0045 decision 3), fetche
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
 
-The module APIs' Java sources (the framework breadth, `docs/plans/2026-10-07-framework-breadth.md`), fetched by `tools/fetch-sources.py --set framework` at the tag with the user's go of 2026-10-08 (`build/sources/location_java`, `connectivity_java`, `wifi_java`). `tools/api-coverage.py` reads them to classify the module APIs' types, and a breadth batch takes the plain Java ones into `framework/sources.txt`. Their folders hold tests, build files and AIDL besides the Java; only the files a batch lists are built. `RttManager.java` in the Wi-Fi module has no license header; it lies in an Apache-2.0 project.
+The module APIs' Java sources (the framework breadth, `docs/plans/2026-10-07-framework-breadth.md`), fetched by
+`tools/fetch-sources.py --set framework` at the tag with the user's go of 2026-10-08 (`build/sources/location_java`,
+`connectivity_java`, `wifi_java`). `tools/api-coverage.py` reads them to classify the module APIs' types, and a breadth
+batch takes the plain Java ones into `framework/sources.txt`. Their folders hold tests, build files and AIDL besides the
+Java; only the files a batch lists are built. `RttManager.java` in the Wi-Fi module has no license header; it lies in an
+Apache-2.0 project.
 
 | Project | Commit | License | Folders | Files | Digest |
 |---|---|---|---|---|---|
@@ -215,32 +307,54 @@ The module APIs' Java sources (the framework breadth, `docs/plans/2026-10-07-fra
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework`, `framework-t` | 220 | `09f780b06cb754fa…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework` | 320 | `23e1635aeae7342d…` |
 
-The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. The Mac's harness mounts it, and every app build ships it in its guest system since ADR-0039 c4.
+The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App
+chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. The
+Mac's harness mounts it, and every app build ships it in its guest system since ADR-0039 c4.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/etc/platform.xml` | 18,104 | `4f1139ad764d74f3…` |
 
-The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework` on your go in the Planung chat (`build/sources/frameworks_base_keyboards`, digest `bfebf0c1…b11a` since ADR-0068 step 7c2, which added Generic.kcm, the map of a hardware keyboard, on the same standing rule for AOSP sources; the Planung chat's report gave its size). framework/CMakeLists.txt builds both into libandroid_runtime as C arrays, which the input service parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; nothing ships them as files.
+The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework` on
+your go in the Planung chat (`build/sources/frameworks_base_keyboards`, digest `bfebf0c1…b11a` since ADR-0068 step 7c2,
+which added Generic.kcm, the map of a hardware keyboard, on the same standing rule for AOSP sources; the Planung chat's
+report gave its size). framework/CMakeLists.txt builds both into libandroid_runtime as C arrays, which the input service
+parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; nothing ships them as files.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Generic.kcm` | 15,940 | `4710a130708720a6…` |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Virtual.kcm` | 15,716 | `6356265ec24b7eb2…` |
 
-The vibrator HAL's AIDL (gap 1 of the compatibility plan, batch 3), fetched by `tools/fetch-sources.py --set framework` on your go of 2026-10-29 in the lead's chat (`build/sources/hardware_interfaces_vibrator`, the entry `hardware_interfaces_vibrator`, digest `398c80a3…c7ae`; 12 files, 31,015 bytes). tools/build-framework.sh compiles its ten types of `android.hardware.vibrator` with aidl into framework.jar, whose AOSP VibratorInfo and Vibrator read IVibrator's capabilities and Braking, as Android's framework.jar has them.
+The vibrator HAL's AIDL (gap 1 of the compatibility plan, batch 3), fetched by `tools/fetch-sources.py --set framework`
+on your go of 2026-10-29 in the lead's chat (`build/sources/hardware_interfaces_vibrator`, the entry
+`hardware_interfaces_vibrator`, digest `398c80a3…c7ae`; 12 files, 31,015 bytes). tools/build-framework.sh compiles its
+ten types of `android.hardware.vibrator` with aidl into framework.jar, whose AOSP VibratorInfo and Vibrator read
+IVibrator's capabilities and Braking, as Android's framework.jar has them.
 
 | Project | Commit | License | Folder | Use |
 |---|---|---|---|---|
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 | `vibrator/aidl/android` and `vibrator/aidl/Android.bp` | the vibrator HAL's types for framework.jar |
 
-The media server's player AIDL (ADR-0060 e2e1), fetched by `tools/fetch-sources.py --set framework` under your standing rule of 2026-10-11 for AOSP sources, on the lead's go of 2026-10-29 in the Grafik chat (`build/sources/frameworks_av_media_aidl`, the entry `frameworks_av_media_aidl`, digest `bfa32365…6283`; 10 files, 26,040 bytes). tools/build-framework.sh compiles IPlayer and the VolumeShaper and Interpolator types of `android.media` with aidl into framework.jar, whose AOSP PlayerBase and MediaPlayer take them as Android's framework.jar has them; nothing else of frameworks/av ships.
+The media server's player AIDL (ADR-0060 e2e1), fetched by `tools/fetch-sources.py --set framework` under your standing
+rule of 2026-10-11 for AOSP sources, on the lead's go of 2026-10-29 in the Grafik chat
+(`build/sources/frameworks_av_media_aidl`, the entry `frameworks_av_media_aidl`, digest `bfa32365…6283`; 10 files,
+26,040 bytes). tools/build-framework.sh compiles IPlayer and the VolumeShaper and Interpolator types of `android.media`
+with aidl into framework.jar, whose AOSP PlayerBase and MediaPlayer take them as Android's framework.jar has them;
+nothing else of frameworks/av ships.
 
 | Project | Commit | License | Files | Use |
 |---|---|---|---|---|
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 (`NOTICE`) | `media/libaudioclient/aidl/android/media/IPlayer.aidl`, eight types of `aidl/android/media` (`InterpolatorConfig`, `InterpolatorType`, `VolumeShaperConfiguration`, `VolumeShaperConfigurationOptionFlag`, `VolumeShaperConfigurationType`, `VolumeShaperOperation`, `VolumeShaperOperationFlag`, `VolumeShaperState`) and `NOTICE` | PlayerBase's IPlayer and its parcelables for framework.jar |
 
-SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set framework` on your go of 2026-10-07 in the chat Formate (`build/sources/sqlite`, the entry `sqlite`, digest `6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships it in its guest system, with these texts under "Framework sources". libandroid_runtime.so's database natives (`core/jni`'s `android_database_*.cpp`, unchanged) link it, and framework.jar takes `core/java/android/database/sqlite` unchanged.
+SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set
+framework` on your go of 2026-10-07 in the chat Formate (`build/sources/sqlite`, the entry `sqlite`, digest
+`6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite
+for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag
+RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships
+it in its guest system, with these texts under "Framework sources". libandroid_runtime.so's database natives
+(`core/jni`'s `android_database_*.cpp`, unchanged) link it, and framework.jar takes `core/java/android/database/sqlite`
+unchanged.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
@@ -253,9 +367,14 @@ SQLite and Android's functions for it (the compatibility plan's gap 7), fetched 
 | `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 | `android/PhoneNumberUtils.h` | 1,124 | `83e6b3f1d2506485…` |
 | `platform/external/sqlite` | `af6bb6a379e1` | Apache-2.0 | `android/OldPhoneNumberUtils.cpp` | 7,782 | `0822bf88d7c957b7…` |
 
-The fetch also takes `LICENSE`, `dist/NOTICE`, `android/NOTICE` and the two `Android.bp` files, which are read, not built.
+The fetch also takes `LICENSE`, `dist/NOTICE`, `android/NOTICE` and the two `Android.bp` files, which are read, not
+built.
 
-The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.guessContentTypeFromName` (framework breadth batch B1), fetched by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-10; `build/sources/mime_map` and `build/sources/mime_support`, the entries `mime_map` and `mime_support`, digests `ea842014…d16d` and `a08dd24e…907b3d7c`). 86 KB; `DefaultMimeMapFactory` reads the three tables, which `tools/build-framework.sh` puts into framework.jar as `res/…` as Android's `mimemap-res.jar` does.
+The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.guessContentTypeFromName` (framework breadth
+batch B1), fetched by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-10;
+`build/sources/mime_map` and `build/sources/mime_support`, the entries `mime_map` and `mime_support`, digests
+`ea842014…d16d` and `a08dd24e…907b3d7c`). 86 KB; `DefaultMimeMapFactory` reads the three tables, which
+`tools/build-framework.sh` puts into framework.jar as `res/…` as Android's `mimemap-res.jar` does.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
@@ -265,29 +384,53 @@ The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.gues
 | `platform/external/mime-support` | `fa5a0ada898e` | public domain | `mime.types` | 74,975 | `fb5d3dced49ceecd…` |
 | `platform/external/mime-support` | `fa5a0ada898e` | public domain | `LICENSE` | 442 | `ce7ee91d78762c68…` |
 
-The evidence for "public domain": the project's `LICENSE` is a Debian copyright file that states `Copyright: public-domain`, `License: ad-hoc`, and "It contains public information compiled from around the 'net and many people", `METADATA` names `license_type: UNENCUMBERED` (Debian's media-types package, version `0cde41f063cf`, upgraded 2024-07-12), the project's `Android.bp` declares the license kind `legacy_unencumbered`, and the file `MODULE_LICENSE_PUBLIC_DOMAIN` is empty and present. Nothing of it is copied into our source files: the build puts the tables into framework.jar after the same minimizing step as Android's `debian.mime.types.minimized` genrule (comments stripped, whitespace normalized, lines without an extension dropped).
+The evidence for "public domain": the project's `LICENSE` is a Debian copyright file that states `Copyright:
+public-domain`, `License: ad-hoc`, and "It contains public information compiled from around the 'net and many people",
+`METADATA` names `license_type: UNENCUMBERED` (Debian's media-types package, version `0cde41f063cf`, upgraded
+2024-07-12), the project's `Android.bp` declares the license kind `legacy_unencumbered`, and the file
+`MODULE_LICENSE_PUBLIC_DOMAIN` is empty and present. Nothing of it is copied into our source files: the build puts the
+tables into framework.jar after the same minimizing step as Android's `debian.mime.types.minimized` genrule (comments
+stripped, whitespace normalized, lines without an extension dropped).
 
-TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml` (framework breadth, step (a) after batch B4), fetched by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-11: "lad herunter was auch immer du brauchst, aber wirklich nur wenn wir das brauchen, um alle apps laufen zu lassen"; `build/sources/tagsoup`, the entry `tagsoup`, digest `0b418969…e428`). 0.37 MB, 15 source files of `platform/external/tagsoup` at android-15.0.0_r1 (commit `5c387116e235`) and its `LICENSE`; the tests, the `jaxp` folder and the command line tools' extras are left out. The sources are compiled into framework.jar as AOSP does (`org.ccil.cowan.tagsoup`).
+TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml` (framework breadth, step (a) after batch B4), fetched
+by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-11: "lad herunter was auch immer du
+brauchst, aber wirklich nur wenn wir das brauchen, um alle apps laufen zu lassen"; `build/sources/tagsoup`, the entry
+`tagsoup`, digest `0b418969…e428`). 0.37 MB, 15 source files of `platform/external/tagsoup` at android-15.0.0_r1 (commit
+`5c387116e235`) and its `LICENSE`; the tests, the `jaxp` folder and the command line tools' extras are left out. The
+sources are compiled into framework.jar as AOSP does (`org.ccil.cowan.tagsoup`).
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
 | `platform/external/tagsoup` | `5c387116e235` | Apache-2.0 | `LICENSE` | 11,357 | `c71d239df91726fc…` |
 | `platform/external/tagsoup` | `5c387116e235` | Apache-2.0 | `src/org/ccil/cowan/tagsoup/*.java` (15 files, e.g. `Parser.java`, `HTMLSchema.java`) | 263,377 | see `third_party/sources.json` |
 
-The evidence for the license: every file starts with "This file is part of TagSoup and is Copyright 2002-2008 by John Cowan. TagSoup is licensed under the Apache License, Version 2.0", the project's `LICENSE` is the Apache License 2.0, `MODULE_LICENSE_APACHE2` is present, and `METADATA` says `license_type: NOTICE`. Android.bp also lists AFL-3.0 and "legacy unencumbered" for the project, both permissive; there is no GPL file or header in the files we take.
+The evidence for the license: every file starts with "This file is part of TagSoup and is Copyright 2002-2008 by John
+Cowan. TagSoup is licensed under the Apache License, Version 2.0", the project's `LICENSE` is the Apache License 2.0,
+`MODULE_LICENSE_APACHE2` is present, and `METADATA` says `license_type: NOTICE`. Android.bp also lists AFL-3.0 and
+"legacy unencumbered" for the project, both permissive; there is no GPL file or header in the files we take.
 
-stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), SoundPool's Ogg Vorbis decoder (the compatibility plan's gap 13, step 4 of `docs/plans/2026-10-30-soundpool-and-audio-codecs.md`), fetched by `tools/fetch-sources.py --set framework` on the user's go, relayed by the lead on 2026-10-30, built into `libandroid_runtime.so` without stdio and the push-data API:
+stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), SoundPool's Ogg Vorbis decoder (the compatibility plan's gap 13, step 4
+of `docs/plans/2026-10-30-soundpool-and-audio-codecs.md`), fetched by `tools/fetch-sources.py --set framework` on the
+user's go, relayed by the lead on 2026-10-30, built into `libandroid_runtime.so` without stdio and the push-data API:
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
 | `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the user's choice) | `LICENSE` | 2,510 | `bebfe904b1430165…` |
 | `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the user's choice) | `stb_vorbis.c` | 192,790 | `4c7cb2ff1f7011e9…` |
 
-The evidence for the license: the file's head says "public domain" and "See end of file for license information", and its end and `LICENSE` offer "ALTERNATIVE A - MIT License" and "ALTERNATIVE B - Public Domain (www.unlicense.org)".
+The evidence for the license: the file's head says "public domain" and "See end of file for license information", and
+its end and `LICENSE` offer "ALTERNATIVE A - MIT License" and "ALTERNATIVE B - Public Domain (www.unlicense.org)".
 
 ## Graphics sources (ADR-0043 a)
 
-Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of 2026-10-02). Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`, and libjnigraphics with them since ADR-0041 a5, with these texts under "Graphics sources" in its Licenses folder: libhwui, libminikin, libft2, libharfbuzz_ng and libharfbuzz_subset, libpng, libjpeg, libjpegdecoder, libjpegencoder and libultrahdr, libimage_io, libcutils and server_configurable_flags. frameworks/native, vulkan-headers, frameworks/av, hardware/interfaces, libhardware and googletest's `gtest_prod.h` are headers only. FreeType's and the IJG's credits stand in their components' license lines.
+Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of
+frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of
+2026-10-02). Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`,
+and libjnigraphics with them since ADR-0041 a5, with these texts under "Graphics sources" in its Licenses folder:
+libhwui, libminikin, libft2, libharfbuzz_ng and libharfbuzz_subset, libpng, libjpeg, libjpegdecoder, libjpegencoder and
+libultrahdr, libimage_io, libcutils and server_configurable_flags. frameworks/native, vulkan-headers, frameworks/av,
+hardware/interfaces, libhardware and googletest's `gtest_prod.h` are headers only. FreeType's and the IJG's credits
+stand in their components' license lines.
 
 | Project | Commit | License | What we take |
 |---|---|---|---|
@@ -314,7 +457,10 @@ Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB
 
 ## Guest fonts (ADR-0043 test 2)
 
-From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.8 MB), and its `/system/etc` our cuts of AOSP's two font lists, `graphics/fonts/fonts.xml` and `font_fallback.xml` (Apache-2.0, as the originals; each names its source). `tools/build-bionic.sh` puts them into `build/bionic/system` (`graphics/fonts/fonts.cmake`), and the app carries them in `Guest/system` (`tools/embed-guest-system.sh`).
+From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.8 MB), and its `/system/etc` our cuts of
+AOSP's two font lists, `graphics/fonts/fonts.xml` and `font_fallback.xml` (Apache-2.0, as the originals; each names its
+source). `tools/build-bionic.sh` puts them into `build/bionic/system` (`graphics/fonts/fonts.cmake`), and the app
+carries them in `Guest/system` (`tools/embed-guest-system.sh`).
 
 | Project | Commit | License | What we take |
 |---|---|---|---|
@@ -323,7 +469,10 @@ From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.
 
 ## Test 2 with Godot (ADR-0042)
 
-The engine of test 2's app and the tool its export needs, in `build/godot/`, not in the app. `tools/fetch-godot.py` fetches them and checks every file against its pin in `third_party/sources.json` before it unpacks; Godot's license texts are kept in `third_party/godot/`. The twin, Godot's iOS template, goes into benchmark builds for devices only (ADR-0042 c), as `Frameworks/MinatoGodot.framework`, which is this section's rule for the bundle.
+The engine of test 2's app and the tool its export needs, in `build/godot/`, not in the app. `tools/fetch-godot.py`
+fetches them and checks every file against its pin in `third_party/sources.json` before it unpacks; Godot's license
+texts are kept in `third_party/godot/`. The twin, Godot's iOS template, goes into benchmark builds for devices only
+(ADR-0042 c), as `Frameworks/MinatoGodot.framework`, which is this section's rule for the bundle.
 
 | Tool | Version | License |
 |---|---|---|
@@ -333,7 +482,11 @@ The engine of test 2's app and the tool its export needs, in `build/godot/`, not
 
 ## Test 2's APKs (ADR-0042)
 
-The two test APKs that `tools/build-godot.sh` exports at test time are never kept in the repo. A benchmark build with `APK_EMBED_GODOT=YES` (`tools/benchmark.sh --scene godot`) carries both in `Benchmark/` (`tools/embed-benchmark.sh`), and every other build removes them, so this section's rule for the bundle is the Vulkan APK's path. They hold what Godot's Android template holds; Swappy stays inside `libgodot_android.so` also while `godot-bench` turns it off. The Apache-2.0 components take the repository's `LICENSE` as their text.
+The two test APKs that `tools/build-godot.sh` exports at test time are never kept in the repo. A benchmark build with
+`APK_EMBED_GODOT=YES` (`tools/benchmark.sh --scene godot`) carries both in `Benchmark/` (`tools/embed-benchmark.sh`),
+and every other build removes them, so this section's rule for the bundle is the Vulkan APK's path. They hold what
+Godot's Android template holds; Swappy stays inside `libgodot_android.so` also while `godot-bench` turns it off. The
+Apache-2.0 components take the repository's `LICENSE` as their text.
 
 | What the APKs hold | License |
 |---|---|
@@ -344,7 +497,8 @@ The two test APKs that `tools/build-godot.sh` exports at test time are never kep
 
 ## Build tools for the formats (M5)
 
-Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the app; pinned in `third_party/sources.json`, fetched on your go of 2026-10-04 in the chat Formate.
+Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the app; pinned in
+`third_party/sources.json`, fetched on your go of 2026-10-04 in the chat Formate.
 
 | Tool | Version | License |
 |---|---|---|
@@ -353,13 +507,15 @@ Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the
 
 ## References without adopted code
 
-- **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.
+- **ARTBox** (MIT, `fd48d48`): The list of Bionic sources and their commits for `android-15.0.0_r1` served as the
+  starting point; the commits have been checked against the tag on `android.googlesource.com`. No code is adopted.
 - **Certificate from SideStore and AltStore** (ADR-0023). Only read:
   - which URL the export deep link has and which placeholders it replaces;
   - which markers the stores write into the Info.plist;
   - how SideStore builds its `.p12`.
 
-  No code is adopted. The PKCS#12 reader and the callback parser are our own code, written from RFC 7292 and from the measured behavior.
+  No code is adopted. The PKCS#12 reader and the callback parser are our own code, written from RFC 7292 and from the
+  measured behavior.
 
   | Project | Version | License |
   |---|---|---|
