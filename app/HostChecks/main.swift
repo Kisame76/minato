@@ -49,8 +49,13 @@ check(takesTouches(view.hitTest(center, with: nil)),
 check(takesTouches(view.hitTest(CGPoint(x: 215, y: 10), with: nil)), "and the top edge's, for the menu's swipe")
 setHiddenAsTheHideRule(window, false)
 
+/// The view's layers beside the soft keyboard view's, which takes no part in the window's and the surfaces' order.
+@MainActor func sideLayers() -> [CALayer] {
+    (view.layer.sublayers ?? []).filter { $0 !== view.textView.layer }
+}
+
 // Without a surface the window's layer is alone, with the view's black, as before the SurfaceViews.
-check(view.layer.sublayers?.count == 1 && view.layer.sublayers?.first === window, "without a surface: the window alone")
+check(sideLayers().count == 1 && sideLayers().first === window, "without a surface: the window alone")
 check(isBlack(window.backgroundColor) && view.layer.backgroundColor == nil, "without a surface: the window's black")
 
 final class Registry {
@@ -70,7 +75,7 @@ let registry = Registry()
 let surfaces = view.surfaces
 let full = PixelRect(left: 0, top: 0, right: 1290, bottom: 2796)
 let media = surfaces.add(frame: full, z: -2, opaque: true) { registry.register($0) }
-let sides = view.layer.sublayers ?? []
+let sides = sideLayers()
 check(sides.count == 3 && sides[1] === window, "the first surface brings the containers, below and above the window")
 let below = sides.first, above = sides.last
 check(below?.sublayers?.first === registry.layers[media], "a media surface lies below the window")

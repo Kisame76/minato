@@ -9,14 +9,15 @@ cd "$(dirname "$0")/.."
 OUT=build/session-window-check
 mkdir -p "$OUT"
 SDK=$(xcrun --sdk macosx --show-sdk-path)
-FLAGS=(-target arm64-apple-ios18.0-macabi -sdk "$SDK" -Fsystem "$SDK/System/iOSSupport/System/Library/Frameworks"
+FLAGS=(-target arm64-apple-ios26.0-macabi -sdk "$SDK" -Fsystem "$SDK/System/iOSSupport/System/Library/Frameworks"
        -swift-version 6)
 SESSION=importer/APKKit/Sources/APKSession
 xcrun --sdk macosx swiftc "${FLAGS[@]}" -parse-as-library -emit-library -emit-module -module-name APKSession \
   -emit-module-path "$OUT/APKSession.swiftmodule" -o "$OUT/libAPKSession.dylib" \
   "$SESSION/SessionBridge.swift" "$SESSION/OpenRequest.swift" "$SESSION/Lifecycle.swift" \
   "$SESSION/SurfaceRequest.swift" "$SESSION/TouchTranslator.swift" "$SESSION/EdgePanReport.swift" \
-  "$SESSION/SessionOrientation.swift" "$SESSION/InterfaceOrientations.swift" app/HostChecks/LaunchMode.swift
+  "$SESSION/SessionOrientation.swift" "$SESSION/InterfaceOrientations.swift" "$SESSION/SoftKeyboard.swift" \
+  "$SESSION/HardwareKeyboard.swift" "$SESSION/KeyboardCover.swift" app/HostChecks/LaunchMode.swift
 xcrun --sdk macosx swiftc "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lAPKSession -Xlinker -rpath -Xlinker "$PWD/$OUT" \
   -o "$OUT/session-window-check" app/Sources/Session/SessionWindow.swift app/HostChecks/MinatoMetalLayer.swift \
   app/HostChecks/main.swift
