@@ -386,6 +386,39 @@ TEST(file_calls_go_through_the_table) {
     CHECK(table.holds_its_own());
 }
 
+/// The runtime's own folder ".minato" (picks, shares, the media library) is in the data folder of the host, but the
+/// app's listing of its data folder is Android's: it never shows. The path still opens.
+TEST(the_data_folder_listing_hides_the_runtimes_folder) {
+    Table table;
+    const std::string data = table.host + "/data-folder";
+    CHECK(::mkdir(data.c_str(), 0755) == 0);
+    CHECK(::mkdir((data + "/.minato").c_str(), 0755) == 0);
+    CHECK(::mkdir((data + "/files").c_str(), 0755) == 0);
+    CHECK(::mkdir((data + "/files/.minato").c_str(), 0755) == 0);
+    apkrt::vfs::mount("/data/data/com.example.app", data);
+
+    const auto list = [&](const char *path) {
+        std::set<std::string> names;
+        const auto directory = call(nr_openat, {at_fdcwd, address(path), o_rdonly, 0});
+        CHECK(directory >= 0);
+        alignas(8) char records[1024];
+        for (long used; (used = call(nr_getdents64, {unsigned_of(directory), address(records), sizeof records})) > 0;) {
+            for (long at = 0; at < used;) {
+                names.insert(records + at + 19);
+                std::uint16_t length;
+                std::memcpy(&length, records + at + 16, 2);
+                at += length;
+            }
+        }
+        call(nr_close, {unsigned_of(directory)});
+        return names;
+    };
+    CHECK(list("/data/data/com.example.app") == std::set<std::string>({".", "..", "files"}));
+    CHECK(list("/data/user/0/com.example.app") == std::set<std::string>({".", "..", "files"}));
+    CHECK(list("/data/data/com.example.app/files") == std::set<std::string>({".", "..", ".minato"}));
+    CHECK(call(nr_openat, {at_fdcwd, address("/data/data/com.example.app/.minato"), o_rdonly, 0}) >= 0);
+}
+
 TEST(directory_calls_go_through_the_table) {
     Table table;
     const std::string directory_path = table.host + "/dir";

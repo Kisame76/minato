@@ -633,6 +633,18 @@ bool is_mounted_itself(std::string_view guest) {
     return guest != "/" && mount && *mount == guest;
 }
 
+/// Whether `guest` is the data folder of an app, /data/data/<package> or /data/user_de/0/<package> (the canonical
+/// spellings; /data/user/0 is a link to /data/data), whose listing hides the runtime's ".minato".
+bool is_app_data_folder(std::string_view guest) {
+    for (const std::string_view parent : {"/data/data/", "/data/user_de/0/"}) {
+        if (guest.size() > parent.size() && guest.substr(0, parent.size()) == parent &&
+            guest.find('/', parent.size()) == std::string_view::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // --- Directory streams ---------------------------------------------------------------------------------
 //
 // getdents64 reads a directory through a DIR* of its open file description (descriptors.h), opened
@@ -641,6 +653,15 @@ bool is_mounted_itself(std::string_view guest) {
 
 /// struct linux_dirent64 (include/linux/dirent.h): 19 bytes of header, the name, 8-byte aligned.
 constexpr std::size_t dirent_header = 19;
+
+/// The next entry of the stream, leaving out ".minato" where the description hides it; positions count what is listed.
+const dirent *next_entry(descriptors::Description &description) {
+    const dirent *entry;
+    while ((entry = ::readdir(description.stream)) != nullptr && description.hides_runtime_folder &&
+           std::strcmp(entry->d_name, ".minato") == 0) {
+    }
+    return entry;
+}
 
 long get_directory_entries(descriptors::Description &description, std::uint64_t buffer, std::uint64_t size) {
     const std::lock_guard lock(description.stream_mutex);
@@ -666,7 +687,7 @@ long get_directory_entries(descriptors::Description &description, std::uint64_t 
     while (true) {
         const long before = ::telldir(directory);
         errno = 0;
-        const dirent *entry = ::readdir(directory);
+        const dirent *entry = next_entry(description);
         if (entry == nullptr) {
             if (errno != 0 && used == 0) return -to_linux_errno(errno);
             break;
@@ -707,7 +728,7 @@ std::optional<long> seek_stream(descriptors::Description &description, std::int6
     if (target < 0) return -linux_errno::einval;
     ::rewinddir(description.stream);
     description.stream_position = 0;
-    while (description.stream_position < target && ::readdir(description.stream) != nullptr) {
+    while (description.stream_position < target && next_entry(description) != nullptr) {
         ++description.stream_position;
     }
     return description.stream_position;
@@ -765,7 +786,14 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
         !(flags & linux_open::path) && ::fstat(fd, &identity) == 0 && S_ISREG(identity.st_mode)) {
         writer = watches::writer_opened(identity);
     }
-    return descriptors::add(fd, (flags & linux_open::cloexec) != 0, (flags & linux_open::nonblock) != 0, writer);
+    const long number =
+        descriptors::add(fd, (flags & linux_open::cloexec) != 0, (flags & linux_open::nonblock) != 0, writer);
+    if (number >= 0 && is_app_data_folder(host.guest)) {
+        if (const auto description = descriptors::get(static_cast<int>(number))) {
+            description->hides_runtime_folder = true;
+        }
+    }
+    return number;
 }
 
 long sys_close(int fd) {

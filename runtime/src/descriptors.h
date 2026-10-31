@@ -61,6 +61,10 @@ public:
     DIR *stream = nullptr;     // guarded by stream_mutex
     long stream_position = 0;  // guarded by stream_mutex
 
+    /// Whether getdents64 leaves out the entry ".minato", the runtime's own folder (picks, shares, the media library)
+    /// in an app's data folder, which Android's listing of it never has. Set by sys_openat, before the number is out.
+    bool hides_runtime_folder = false;
+
     /// For a file of /proc or /sys that the runtime wrote (proc.h): its guest path, which the links
     /// of /proc/self/fd show. Set before the description goes into the table; empty for all others.
     std::string written_path;
