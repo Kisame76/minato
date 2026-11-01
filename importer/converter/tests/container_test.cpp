@@ -1041,6 +1041,20 @@ TEST(c_rename_register_refuses_a_function_with_an_unrenamable_x18_use) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
 }
 
+// Step 4b: c_rename_plan lists the functions (c) renames and the refused sites they cover. fn (c) takes holds one
+// `ret x18`; another `ret x18` is in no sized function, so it is not covered and convert() will still refuse it.
+TEST(c_rename_plan_lists_the_functions_c_takes_and_the_sites_in_them) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});
+    prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18 inside fn: covered
+    prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18 in no sized function: not covered
+    const auto scan = apk::container::scan_code(prog.bytes);
+    const auto plan = apk::container::c_rename_plan(prog.bytes, scan.findings.x18_unsupported);
+    CHECK(plan.functions.size() == 1);
+    CHECK(plan.functions.size() == 1 && plan.functions[0].begin == 0x200 && plan.functions[0].end == 0x218 &&
+          plan.functions[0].reg == 9u);
+    CHECK(plan.covered_sites == std::vector<std::uint64_t>{0x214});
+}
+
 // Step 4b: of the refused x18 sites, x18_sites_c_would_take counts those in a function (c) would take. Here one
 // `ret x18` sits in the sized function fn (c) accepts; another sits in no sized function, so (c) cannot take it.
 TEST(x18_sites_c_would_take_counts_the_refused_sites_in_functions_c_accepts) {

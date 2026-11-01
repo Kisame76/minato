@@ -134,10 +134,19 @@ struct WholeFunctionRename {
 /// will call per refused site.
 std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> elf, std::uint64_t address);
 
-/// Of the refused x18 `uses`, how many sit in a function option (c) would take -- one c_rename_register verdict per
-/// sized function (the uses are grouped by it, so each is decided once). These are the sites (c) will convert once it
-/// is wired into convert(); until then the converter still refuses them, and this counts them (step 4b). `elf` is the
-/// file scan_code saw.
+/// What option (c) does to a file's refused x18 `uses` (step 4b): the distinct sized functions it renames and the
+/// refused sites those cover. The refused sites NOT in `covered_sites` are the ones (c) cannot take, which convert()
+/// still refuses. The uses are grouped by their sized function, one c_rename_register verdict each.
+struct CRenamePlan {
+    std::vector<WholeFunctionRename> functions;  // ascending by begin, each a function (c) renames
+    std::vector<std::uint64_t> covered_sites;    // the refused x18 addresses inside those functions
+};
+
+/// The option (c) plan for `elf`'s refused x18 `uses` (see CRenamePlan). `elf` is the file scan_code saw.
+CRenamePlan c_rename_plan(std::span<const std::byte> elf, std::span<const rewrite::Unsupported> uses);
+
+/// Of the refused x18 `uses`, how many sit in a function option (c) would take (c_rename_plan's covered_sites count).
+/// These are the sites (c) converts once wired into convert(); until then the converter still refuses them.
 std::size_t x18_sites_c_would_take(std::span<const std::byte> elf, std::span<const rewrite::Unsupported> uses);
 
 /// Of the refused x18 `uses` (from scan_code's x18_unsupported), how many sit in a function that has a register a

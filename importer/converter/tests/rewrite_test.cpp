@@ -535,6 +535,26 @@ TEST(the_c_call_island_refuses_a_non_call) {
                  "BL or a BLR");
 }
 
+// ADR-0020 must-have 7: a (c) function keeps the guest x18 in an R from x2-x15, and a foreign stub inside it (a svc
+// veneer, a thread-pointer island) runs while R is live. Each such stub must write no register in x2-x15 beyond the
+// site's own operand, so R survives the stub's return into the body. The veneer touches only x16/x30; the thread-
+// pointer islands only their own destination (read) or x16/x17 (write). With the operand chosen as x0, none of
+// x2-x15 is written.
+TEST(our_stubs_leave_the_rename_registers_x2_to_x15_alone) {
+    constexpr std::uint32_t r_mask = 0xfffcu;  // x2 .. x15
+    const Site cases[] = {
+        {0, SiteKind::syscall, 0},
+        {0, SiteKind::thread_pointer_read, 0},   // mrs x0, TPIDR_EL0
+        {0, SiteKind::thread_pointer_write, 0},  // msr TPIDR_EL0, x0
+    };
+    for (const auto &site : cases) {
+        const auto [patch, stub] = emit_at(site, address_of(ref_site), address_of(ref_x18));
+        std::uint32_t writes = 0;
+        for (std::size_t index = 0; index * 4 < stub.size(); ++index) writes |= apk::a64::register_use(word(stub, index)).writes;
+        CHECK((writes & r_mask) == 0);
+    }
+}
+
 TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::uint32_t code[] = {
         0x8b01'0252,  // add x18, x18, x1: island
@@ -1244,6 +1264,17 @@ TEST(free_caller_saved_register_uses_argument_registers_only_in_a_leaf) {
               std::span(reinterpret_cast<const std::byte *>(body.data()), body.size() * 4)) == 2u);
     body.push_back(0x9400'0001);  // bl .+4: now the body makes a call
     CHECK(!apk::rewrite::free_caller_saved_register(  // x2-x7 may be the callee's arguments, so none is handed out
+               std::span(reinterpret_cast<const std::byte *>(body.data()), body.size() * 4)).has_value());
+}
+
+// ADR-0020 must-have 8: a svc reads x0-x8 without naming them, so a function that makes one must not rename into an
+// argument register -- a leaf's x2-x7 become off-limits too, and R comes only from x9-x15.
+TEST(free_caller_saved_register_treats_a_svc_as_using_the_argument_registers) {
+    std::vector<std::uint32_t> body;
+    for (unsigned n = 9; n <= 15; n++) body.push_back(0xd280'0000 | n);  // mov x9..x15: all temporaries used
+    body.push_back(0xd400'0001);  // svc #0
+    // x2-x7 are unused but off-limits (the svc's implicit arguments), so with the temporaries gone there is nothing.
+    CHECK(!apk::rewrite::free_caller_saved_register(
                std::span(reinterpret_cast<const std::byte *>(body.data()), body.size() * 4)).has_value());
 }
 

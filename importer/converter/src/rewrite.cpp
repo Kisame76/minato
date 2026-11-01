@@ -1677,6 +1677,7 @@ std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> co
         const auto word = word_at(code, offset);
         const auto use = a64::register_use(word);
         used |= use.reads | use.writes;
+        if ((word & 0xffe0'001f) == 0xd400'0001) used |= 0x1ffu;  // svc reads x0-x8 implicitly (ADR-0020 must-have 8)
         if ((word & 0xfc00'0000) == 0x9400'0000) {  // BL: a call
             leaf = false;
         } else if ((word & 0xffff'fc1f) == 0xd63f'0000 || (word & 0xffff'fc1f) == 0xd61f'0000) {  // BLR, BR

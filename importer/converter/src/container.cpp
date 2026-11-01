@@ -747,26 +747,33 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     return WholeFunctionRename{begin, end, *reg};
 }
 
-std::size_t x18_sites_c_would_take(std::span<const std::byte> elf_bytes,
-                                   std::span<const rewrite::Unsupported> uses) {
-    if (uses.empty()) return 0;
+CRenamePlan c_rename_plan(std::span<const std::byte> elf_bytes, std::span<const rewrite::Unsupported> uses) {
+    CRenamePlan plan;
+    if (uses.empty()) return plan;
     const auto symbols = elf::read_symbols(elf_bytes);
     const auto sections = layout_sections(elf_bytes);
-    std::map<std::uint64_t, bool> takes_by_function;  // a sized function's begin -> whether c_rename_register takes it
-    std::size_t count = 0;
+    std::map<std::uint64_t, std::optional<WholeFunctionRename>> verdict;  // sized function begin -> (c) rename or none
     for (const auto &use : uses) {
         const auto *section = section_of(sections, use.address);
         if (section == nullptr) continue;
         const auto bounds =
             sized_function_bounds(symbols, section->address, section->address + section->size, use.address);
         if (!bounds) continue;  // no sized function holds the site, so (c) cannot take it
-        auto it = takes_by_function.find(bounds->first);
-        if (it == takes_by_function.end()) {  // one verdict per function: group the sites by it
-            it = takes_by_function.emplace(bounds->first, c_rename_register(elf_bytes, use.address).has_value()).first;
+        auto it = verdict.find(bounds->first);
+        if (it == verdict.end()) {  // one c_rename_register verdict per function: group the sites by it
+            it = verdict.emplace(bounds->first, c_rename_register(elf_bytes, use.address)).first;
         }
-        if (it->second) ++count;
+        if (it->second) plan.covered_sites.push_back(use.address);  // the function is taken, so this site is covered
     }
-    return count;
+    for (const auto &[begin, rename] : verdict) {  // std::map is ordered, so the functions come out ascending by begin
+        if (rename) plan.functions.push_back(*rename);
+    }
+    return plan;
+}
+
+std::size_t x18_sites_c_would_take(std::span<const std::byte> elf_bytes,
+                                   std::span<const rewrite::Unsupported> uses) {
+    return c_rename_plan(elf_bytes, uses).covered_sites.size();
 }
 
 std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf_bytes,
