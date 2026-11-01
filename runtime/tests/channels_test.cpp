@@ -30,8 +30,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <limits>
+#include <string>
 #include <initializer_list>
 #include <thread>
 #include <vector>
@@ -1293,6 +1295,231 @@ TEST(a_full_channel_takes_axes_that_are_not_moves_in_the_slack_of_the_touch_ends
     CHECK(apkrt_input_post_axes(input.id, &release) == 0);
     for (std::size_t count = 0; count < most_events; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_KEY);
     for (std::size_t count = 0; count < taken; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_AXES);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// A mouse or trackpad as the host reports it (apkrt_input_post_mouse): a move, a button's press or release and a
+// scroll, each of which the runtime turns into the records Android 15 makes of a mouse, measured by mouse-test with a
+// `uinput` mouse (hover enter and move, hover exit before the first button's DOWN and BUTTON_PRESS, MOVE for more
+// buttons, BUTTON_RELEASE, UP and a hover enter after the last, BACK and FORWARD as keys, a hover move before each
+// scroll).
+apkrt_axes_event mouse_of(std::int32_t action, std::int32_t buttons, float x = 0, float y = 0) {
+    apkrt_axes_event mouse = axes_of(action, 1002, 0x00002002);
+    mouse.tool_type = 3;
+    mouse.button_state = buttons;
+    mouse.axis_count = 2;
+    mouse.axes[0] = {0, x};
+    mouse.axes[1] = {1, y};
+    return mouse;
+}
+
+float axis_value(const apkrt_axes_event &axes, std::int32_t axis) {
+    for (std::uint32_t at = 0; at < axes.axis_count; ++at) {
+        if (axes.axes[at].axis == axis) return axes.axes[at].value;
+    }
+    return 0.0f;
+}
+
+bool has_axis(const apkrt_axes_event &axes, std::int32_t axis) {
+    for (std::uint32_t at = 0; at < axes.axis_count; ++at) {
+        if (axes.axes[at].axis == axis) return true;
+    }
+    return false;
+}
+
+/// What the channel holds, taken: a short word for each record, an axes record's action (HE hover enter, HM hover move,
+/// HX hover exit, DOWN, MV move, UP, PRESS, REL release, SCR scroll) with "/" and its button state in hex, and for a
+/// press or release "/" and its action button; a key's "kd" or "ku" and its key code. The records are in `last`.
+std::string mouse_trace(std::int64_t channel, std::vector<apkrt_axes_event> *last = nullptr) {
+    std::string trace;
+    if (last != nullptr) last->clear();
+    for (;;) {
+        const auto taken = take(channel);
+        if (taken.result != 0) break;
+        if (!trace.empty()) trace += ' ';
+        if (taken.event.kind == APKRT_INPUT_KEY) {
+            apkrt_key_event key;
+            std::memcpy(&key, &taken.event, sizeof key);
+            trace += (key.action == 0 ? "kd" : "ku") + std::to_string(key.key_code);
+            if (last != nullptr) last->push_back({});
+            continue;
+        }
+        const auto axes = as<apkrt_axes_event>(taken);
+        if (last != nullptr) last->push_back(axes);
+        static const char *const names[] = {"DOWN", "UP", "MV", "?", "?", "?", "?", "HM", "SCR", "HE", "HX", "PRESS",
+                                            "REL"};
+        trace += names[axes.action] + std::string("/") + [&] {
+            char hex[16];
+            std::snprintf(hex, sizeof hex, "%x", axes.button_state);
+            return std::string(hex);
+        }();
+        if (axes.action == 11 || axes.action == 12) trace += "/" + std::to_string(axes.reserved0[0]);
+    }
+    return trace;
+}
+
+TEST(a_mouse_moves_as_hover_enter_then_hover_moves_with_its_position_and_relative_axes) {
+    const auto input = open_input();
+    std::vector<apkrt_axes_event> got;
+    apkrt_axes_event hover = mouse_of(7, 0, 30, 20);
+    hover.axis_count = 4;
+    hover.axes[2] = {27, 30.0f};  // AXIS_RELATIVE_X
+    hover.axes[3] = {28, 20.0f};
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    CHECK(mouse_trace(input.fd, &got) == "HE/0");
+    CHECK(got[0].source == 0x2002 && got[0].tool_type == 3 && axis_value(got[0], 0) == 30.0f &&
+          axis_value(got[0], 1) == 20.0f && axis_value(got[0], 27) == 30.0f && axis_value(got[0], 28) == 20.0f);
+    hover.axes[0].value = 40;
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    CHECK(mouse_trace(input.fd) == "HM/0");
+    // The pointer leaves the window: a hover exit; its return is a hover enter again.
+    apkrt_axes_event leave = mouse_of(10, 0);
+    CHECK(apkrt_input_post_mouse(input.id, &leave) == 1);
+    // (Android makes the exit from the last hover record, relative axes and all.)
+    CHECK(mouse_trace(input.fd, &got) == "HX/0" && axis_value(got[0], 27) == 30.0f);
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    CHECK(mouse_trace(input.fd) == "HE/0");
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_mouse_click_is_hover_exit_down_press_then_release_up_hover_enter) {
+    const auto input = open_input();
+    std::vector<apkrt_axes_event> got;
+    apkrt_axes_event first = mouse_of(7, 0, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &first) == 1);
+    mouse_trace(input.fd);
+    apkrt_axes_event press = mouse_of(11, 1, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);
+    CHECK(mouse_trace(input.fd, &got) == "HX/1 DOWN/1 PRESS/1/1");
+    CHECK(axis_value(got[1], 0) == 5.0f && axis_value(got[1], 1) == 6.0f);  // the last position, with no relative axes
+    CHECK(!has_axis(got[1], 27) && got[1].tool_type == 3);
+    // Held, a hover is the touch's MOVE.
+    apkrt_axes_event drag = mouse_of(7, 1, 15, 16);
+    CHECK(apkrt_input_post_mouse(input.id, &drag) == 1);
+    CHECK(mouse_trace(input.fd, &got) == "MV/1" && axis_value(got[0], 0) == 15.0f);
+    apkrt_axes_event release = mouse_of(12, 0);
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    CHECK(mouse_trace(input.fd) == "REL/0/1 UP/0 HE/0");
+    // A second button while one is held: a MOVE and the press; the release of one: the release and a MOVE.
+    press.button_state = 1;
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);
+    mouse_trace(input.fd);
+    press.button_state = 3;
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);
+    CHECK(mouse_trace(input.fd) == "MV/3 PRESS/3/2");
+    release.button_state = 1;
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    CHECK(mouse_trace(input.fd) == "REL/1/2 MV/1");
+    release.button_state = 0;
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    CHECK(mouse_trace(input.fd) == "REL/0/1 UP/0 HE/0");
+    // A release of a button that was not held says nothing.
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    CHECK(mouse_trace(input.fd).empty());
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_mouses_back_and_forward_buttons_are_keys_with_a_hover_move_between) {
+    const auto input = open_input();
+    apkrt_axes_event hover = mouse_of(7, 0, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    mouse_trace(input.fd);
+    apkrt_axes_event press = mouse_of(11, 8);  // BUTTON_BACK
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);
+    CHECK(mouse_trace(input.fd) == "kd4 HM/8");
+    apkrt_axes_event release = mouse_of(12, 0);
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    CHECK(mouse_trace(input.fd) == "HM/0 ku4");
+    press.button_state = 0x10;  // BUTTON_FORWARD
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);
+    CHECK(mouse_trace(input.fd) == "kd125 HM/10");
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    CHECK(mouse_trace(input.fd) == "HM/0 ku125");
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_mouse_scroll_is_a_hover_move_and_the_scroll_with_the_wheels_axes) {
+    const auto input = open_input();
+    std::vector<apkrt_axes_event> got;
+    apkrt_axes_event hover = mouse_of(7, 0, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    mouse_trace(input.fd);
+    apkrt_axes_event scroll = mouse_of(8, 0);
+    scroll.axis_count = 2;  // no position: the last one
+    scroll.axes[0] = {9, -2.0f};   // AXIS_VSCROLL
+    scroll.axes[1] = {10, 0.5f};   // AXIS_HSCROLL
+    CHECK(apkrt_input_post_mouse(input.id, &scroll) == 1);
+    CHECK(mouse_trace(input.fd, &got) == "HM/0 SCR/0");
+    CHECK(!has_axis(got[0], 27) && axis_value(got[0], 0) == 5.0f && axis_value(got[0], 1) == 6.0f);
+    CHECK(axis_value(got[1], 9) == -2.0f && axis_value(got[1], 10) == 0.5f && axis_value(got[1], 0) == 5.0f &&
+          axis_value(got[1], 1) == 6.0f && got[1].tool_type == 3);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// A mouse that goes while it hovers leaves the window first (mouse-test: the hover exit comes before the removal).
+TEST(a_mouse_that_goes_while_it_hovers_leaves_the_window_first) {
+    const auto input = open_input();
+    apkrt_axes_event hover = mouse_of(7, 0, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    mouse_trace(input.fd);
+    apkrt_device_event gone{};
+    gone.op = APKRT_DEVICE_REMOVED;
+    gone.device_id = 1002;
+    gone.sources = 0x2002;
+    std::strcpy(gone.name, "Mouse");
+    CHECK(apkrt_input_post_device(input.id, &gone) == 1);
+    CHECK(take(input.fd).event.kind == APKRT_INPUT_AXES);
+    const auto device = take(input.fd);
+    CHECK(device.event.kind == APKRT_INPUT_DEVICE);
+    CHECK(take(input.fd).result == -eagain);
+    // Not hovering any more, a second removal makes no exit.
+    CHECK(apkrt_input_post_device(input.id, &gone) == 1);
+    CHECK(take(input.fd).event.kind == APKRT_INPUT_DEVICE);
+    CHECK(take(input.fd).result == -eagain);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_mouse_record_that_is_not_one_is_refused) {
+    const auto input = open_input();
+    CHECK(apkrt_input_post_mouse(input.id, nullptr) == 0);
+    const auto refused = [&](auto change) {
+        apkrt_axes_event mouse = mouse_of(7, 0, 1, 1);
+        change(mouse);
+        return apkrt_input_post_mouse(input.id, &mouse) == 0;
+    };
+    CHECK(refused([](apkrt_axes_event &m) { m.action = 2; }));   // the guest makes MOVE, DOWN and UP itself
+    CHECK(refused([](apkrt_axes_event &m) { m.action = 0; }));
+    CHECK(refused([](apkrt_axes_event &m) { m.action = 9; }));
+    CHECK(refused([](apkrt_axes_event &m) { m.action = 13; }));
+    CHECK(refused([](apkrt_axes_event &m) { m.device_id = 0; }));
+    CHECK(refused([](apkrt_axes_event &m) { m.source = 0x01000010; }));  // not a mouse
+    CHECK(refused([](apkrt_axes_event &m) { m.tool_type = 6; }));
+    CHECK(refused([](apkrt_axes_event &m) { m.axis_count = APKRT_AXES_MAX + 1; }));
+    CHECK(refused([](apkrt_axes_event &m) { m.axes[0].value = std::numeric_limits<float>::infinity(); }));
+    CHECK(refused([](apkrt_axes_event &m) { m.axes[1].axis = 0; }));  // named twice
+    CHECK(refused([](apkrt_axes_event &m) { m.button_state = 0x1000; }));  // a button the runtime has no word for
+    CHECK(mouse_trace(input.fd).empty());
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// A press makes three records at once: the channel takes all of them or none, and keeps the state it had.
+TEST(a_full_channel_takes_a_mouse_press_whole_or_not_at_all) {
+    const auto input = open_input();
+    apkrt_axes_event hover = mouse_of(7, 0, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    const apkrt_key_event key = key_of(0, 29);
+    for (std::size_t count = 1; count < most_events; ++count) CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    apkrt_axes_event filler = mouse_of(12, 0);  // releases, which take the slack of the touch ends
+    filler.device_id = 1003;
+    for (std::size_t count = 0; count < most_ends - 2; ++count) CHECK(apkrt_input_post_axes(input.id, &filler) == 1);
+    apkrt_axes_event press = mouse_of(11, 1, 5, 6);
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 0);  // three would not fit in two
+    CHECK(take(input.fd).event.kind == APKRT_INPUT_AXES);  // the hover enter
+    for (std::size_t count = 1; count < most_events; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_KEY);
+    for (std::size_t count = 0; count < most_ends - 2; ++count) CHECK(take(input.fd).event.kind == APKRT_INPUT_AXES);
+    CHECK(take(input.fd).result == -eagain);
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);  // the refused press had changed nothing
+    CHECK(mouse_trace(input.fd) == "HX/1 DOWN/1 PRESS/1/1");
     call(nr_close, {unsigned_of(input.fd)});
 }
 

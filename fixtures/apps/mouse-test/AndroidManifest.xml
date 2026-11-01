@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mouse-test (ADR-0068 decision 5, the mouse step): a window that logs the mouse that appears (its InputDevice and
+     ranges) and what its view gets (hover, touch and generic motion events with source, tool, buttons and scroll), and
+     the mouse's going. On Android 15's emulator the mouse is a virtual device of `uinput` (uinput.json); the launcher
+     activity is the app's own. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mouse" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Mouse Test">
+    <activity android:name="io.github.kisame76.minato.test.mouse.MouseActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

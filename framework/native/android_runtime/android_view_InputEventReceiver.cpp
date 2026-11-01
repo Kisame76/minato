@@ -430,8 +430,9 @@ private:
         MotionEvent event;
         const ui::Transform identity;
         event.initialize(InputEvent::nextId(), record.device_id, static_cast<uint32_t>(record.source),
-                         ui::LogicalDisplayId::DEFAULT, INVALID_HMAC, record.action, 0, 0, 0,
-                         record.meta_state, record.button_state, MotionClassification::NONE, identity, 1, 1,
+                         ui::LogicalDisplayId::DEFAULT, INVALID_HMAC, record.action,
+                         static_cast<int32_t>(record.reserved0[0]), 0, 0, record.meta_state, record.button_state,
+                         MotionClassification::NONE, identity, 1, 1,
                          pointer ? x : AMOTION_EVENT_INVALID_CURSOR_POSITION,
                          pointer ? y : AMOTION_EVENT_INVALID_CURSOR_POSITION, identity, record.event_time,
                          record.event_time, 1, &properties, &coords);

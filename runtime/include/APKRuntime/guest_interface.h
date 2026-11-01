@@ -1353,7 +1353,8 @@ struct apkrt_axis_value {
 struct apkrt_axes_event {
     int32_t action;       // AMOTION_EVENT_ACTION_*: MOVE 2, HOVER_MOVE 7, SCROLL 8, HOVER_ENTER 9, HOVER_EXIT 10,
                           // BUTTON_PRESS 11 or BUTTON_RELEASE 12
-    uint32_t reserved0[2];
+    uint32_t reserved0[2];  // [0]: the action button (AMOTION_EVENT_BUTTON_*) of a BUTTON_PRESS or BUTTON_RELEASE that
+                            // apkrt_input_post_mouse makes, else 0; the host's own records have it 0
     uint32_t kind;        // APKRT_INPUT_AXES
     int64_t event_time;   // on the uptime clock, in nanoseconds
     int32_t device_id;    // the host's, 1 or more: the one of the device record

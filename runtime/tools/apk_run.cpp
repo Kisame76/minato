@@ -76,6 +76,13 @@
 //               records, a button's down (1) or up (0) as a key record of source 0x501, and an axes record of source
 //               0x01000010 with the action (2 MOVE) and the axes as Android numbers them (0 X, 1 Y, 11 Z, 14 RZ, 17
 //               LTRIGGER, 18 RTRIGGER, 15 HAT_X, 16 HAT_Y), as the App's GCController side posts them;
+//   mouse:add, mouse:remove, mouse:move:<x>:<y>:<dx>:<dy>, mouse:press:<buttons>, mouse:release:<buttons>,
+//               mouse:scroll:<vertical>:<horizontal>, mouse:exit  (ADR-0068 decision 5, the mouse step) a mouse of the
+//               host, device 1002 "Minato Test Mouse", sources 0x2002 (MOUSE): its coming and going as device records
+//               and its reports through apkrt_input_post_mouse, as the App's GCMouse and pointer side posts them: a
+//               move to <x>, <y> by <dx>, <dy>, the buttons held after a press or release as
+//               AMOTION_EVENT_BUTTON_* (1 primary, 2 secondary, 4 tertiary, 8 back, 16 forward), a scroll in lines
+//               (positive up and left), the pointer's leaving the window;
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set).
@@ -236,12 +243,41 @@ struct Touch {
     int pad_op = 0;
     int pad_key = 0, pad_down = 0, pad_action = 0;
     std::vector<std::pair<int, float>> pad_axes;
+    /// A mouse step (ADR-0068 decision 5): `mouse_op` is 0 for none, 1 add, 2 remove, 3 move, 4 press, 5 release,
+    /// 6 scroll or 7 exit; `mouse_buttons` the buttons held after a press or release, `mouse_values` a move's x, y, dx
+    /// and dy or a scroll's vertical and horizontal.
+    int mouse_op = 0, mouse_buttons = 0;
+    float mouse_values[4] = {0, 0, 0, 0};
 };
 
 /// `step` as tap:<x>:<y> or swipe:<x1>:<y1>:<x2>:<y2>:<ms> with finite places and <ms> above 0, or key:<code> with
 /// a code of 0 or more, or text:<op>:<arg0>:<arg1>:<text> with a known op; false for any other step.
 bool parse_touch(const std::string &step, Touch &touch) {
     int used = 0;
+    if (step == "mouse:add" || step == "mouse:remove" || step == "mouse:exit") {
+        touch.mouse_op = step == "mouse:add" ? 1 : step == "mouse:remove" ? 2 : 7;
+        return true;
+    }
+    if (std::sscanf(step.c_str(), "mouse:move:%f:%f:%f:%f%n", &touch.mouse_values[0], &touch.mouse_values[1],
+                    &touch.mouse_values[2], &touch.mouse_values[3], &used) == 4 &&
+        used == static_cast<int>(step.size()) && std::isfinite(touch.mouse_values[0]) &&
+        std::isfinite(touch.mouse_values[1]) && std::isfinite(touch.mouse_values[2]) &&
+        std::isfinite(touch.mouse_values[3])) {
+        touch.mouse_op = 3;
+        return true;
+    }
+    if (std::sscanf(step.c_str(), "mouse:scroll:%f:%f%n", &touch.mouse_values[0], &touch.mouse_values[1], &used) == 2 &&
+        used == static_cast<int>(step.size()) && std::isfinite(touch.mouse_values[0]) &&
+        std::isfinite(touch.mouse_values[1])) {
+        touch.mouse_op = 6;
+        return true;
+    }
+    if ((std::sscanf(step.c_str(), "mouse:press:%d%n", &touch.mouse_buttons, &used) == 1 ||
+         std::sscanf(step.c_str(), "mouse:release:%d%n", &touch.mouse_buttons, &used) == 1) &&
+        used == static_cast<int>(step.size()) && touch.mouse_buttons >= 0 && touch.mouse_buttons < 32) {
+        touch.mouse_op = step.compare(0, 11, "mouse:press") == 0 ? 4 : 5;
+        return true;
+    }
     if (step == "pad:add" || step == "pad:remove") {
         touch.pad_op = step == "pad:add" ? 1 : 2;
         return true;
@@ -784,6 +820,53 @@ void post_touch(std::uint64_t input, std::int32_t action, std::int64_t down, std
 /// as its `input swipe`, places on the line by its lerp, with a MOVE every period of `rate` holding two samples.
 void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
     const std::int64_t down = uptime();
+    if (touch.mouse_op != 0) {
+        constexpr std::int32_t kMouse = 1002;
+        if (touch.mouse_op == 1 || touch.mouse_op == 2) {
+            apkrt_device_event device{};
+            device.op = touch.mouse_op == 1 ? APKRT_DEVICE_ADDED : APKRT_DEVICE_REMOVED;
+            device.device_id = kMouse;
+            device.sources = 0x2002;  // SOURCE_MOUSE
+            device.vendor_id = 0x46d;
+            device.product_id = 0xc077;
+            std::strcpy(device.name, "Minato Test Mouse");
+            if (apkrt_input_post_device(input, &device) != 1) {
+                std::fprintf(stderr, "apk-run: the post of a device failed\n");
+            }
+            return;
+        }
+        apkrt_axes_event mouse{};
+        mouse.event_time = down;
+        mouse.device_id = kMouse;
+        mouse.source = 0x2002;
+        mouse.tool_type = 3;  // MOUSE
+        mouse.button_state = touch.mouse_buttons;
+        switch (touch.mouse_op) {
+            case 3:
+                mouse.action = 7;  // HOVER_MOVE
+                mouse.axis_count = 4;
+                mouse.axes[0] = {0, touch.mouse_values[0]};
+                mouse.axes[1] = {1, touch.mouse_values[1]};
+                mouse.axes[2] = {27, touch.mouse_values[2]};  // RELATIVE_X
+                mouse.axes[3] = {28, touch.mouse_values[3]};
+                break;
+            case 4:
+            case 5:
+                mouse.action = touch.mouse_op == 4 ? 11 : 12;  // BUTTON_PRESS, BUTTON_RELEASE
+                break;
+            case 6:
+                mouse.action = 8;  // SCROLL
+                mouse.axis_count = 2;
+                mouse.axes[0] = {9, touch.mouse_values[0]};   // VSCROLL
+                mouse.axes[1] = {10, touch.mouse_values[1]};  // HSCROLL
+                break;
+            default:
+                mouse.action = 10;  // HOVER_EXIT
+                break;
+        }
+        if (apkrt_input_post_mouse(input, &mouse) != 1) std::fprintf(stderr, "apk-run: the post of a mouse failed\n");
+        return;
+    }
     if (touch.pad_op != 0) {
         constexpr std::int32_t kPad = 1001, kPadSources = 0x01000511;
         if (touch.pad_op == 1 || touch.pad_op == 2) {

@@ -102,10 +102,14 @@ public final class InputService extends IInputManager.Default {
                         .setGeneration(++sGeneration)
                         .setExternal(true)
                         .setKeyboardType(pad ? InputDevice.KEYBOARD_TYPE_NON_ALPHABETIC
-                                : InputDevice.KEYBOARD_TYPE_ALPHABETIC)
+                                : (sources & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD
+                                        ? InputDevice.KEYBOARD_TYPE_ALPHABETIC : InputDevice.KEYBOARD_TYPE_NONE)
                         .setKeyCharacterMap(nativeKeyboardKeyCharacterMap(id));
                 if (pad) {
                     addPadRanges(device);
+                }
+                if ((sources & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE) {
+                    addMouseRanges(device);
                 }
                 sHostDevices.add(device.build());
             }
@@ -114,6 +118,20 @@ public final class InputService extends IInputManager.Default {
         if (service != null) {
             service.devicesChanged();
         }
+    }
+
+    /**
+     * The motion ranges of a mouse, as Android 15 reports them for a USB mouse (mouse-test): the pointer's position in
+     * the display, its pressure, and the wheels, all with the source MOUSE and no flat or fuzz.
+     */
+    private static void addMouseRanges(InputDevice.Builder device) {
+        final DisplayMetrics metrics = Resources.getSystem().getDisplayMetrics();
+        final int source = InputDevice.SOURCE_MOUSE;
+        device.addMotionRange(MotionEvent.AXIS_X, source, 0, Math.max(0, metrics.widthPixels - 1), 0, 0, 0);
+        device.addMotionRange(MotionEvent.AXIS_Y, source, 0, Math.max(0, metrics.heightPixels - 1), 0, 0, 0);
+        device.addMotionRange(MotionEvent.AXIS_PRESSURE, source, 0, 1, 0, 0, 0);
+        device.addMotionRange(MotionEvent.AXIS_VSCROLL, source, -1, 1, 0, 0, 0);
+        device.addMotionRange(MotionEvent.AXIS_HSCROLL, source, -1, 1, 0, 0, 0);
     }
 
     /** A game controller: SOURCE_GAMEPAD is a class bit that the keyboard source shares, so all its bits are asked. */

@@ -1,0 +1,79 @@
+I/mouse-test: ready: mouse
+I/mouse-test: added: name "Minato Test Mouse", sources 0x2002, vendor 0x46d, product 0xc077, virtual false, external true, keyboard type 0
+I/mouse-test: range AXIS_HSCROLL source 0x2002 flat 0.0 fuzz 0.0
+I/mouse-test: range AXIS_PRESSURE source 0x2002 flat 0.0 fuzz 0.0
+I/mouse-test: range AXIS_VSCROLL source 0x2002 flat 0.0 fuzz 0.0
+I/mouse-test: range AXIS_X source 0x2002 flat 0.0 fuzz 0.0
+I/mouse-test: range AXIS_Y source 0x2002 flat 0.0 fuzz 0.0
+I/mouse-test: hover ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved true, relative
+I/mouse-test: generic ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved true, relative
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved true, relative
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved true, relative
+I/mouse-test: hover ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false, relative
+I/mouse-test: generic ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false, relative
+I/mouse-test: touch ACTION_DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x1, meta 0x0, moved false
+I/mouse-test: touch ACTION_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved true, relative
+I/mouse-test: generic ACTION_BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x1, meta 0x0, moved false
+I/mouse-test: touch ACTION_UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, action button 0x0, meta 0x0, moved false
+I/mouse-test: touch ACTION_DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, action button 0x2, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x2, meta 0x0, moved false
+I/mouse-test: touch ACTION_UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, action button 0x0, meta 0x0, moved false
+I/mouse-test: touch ACTION_DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, action button 0x4, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x4, meta 0x0, moved false
+I/mouse-test: touch ACTION_UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false
+I/mouse-test: touch ACTION_DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x1, meta 0x0, moved false
+I/mouse-test: touch ACTION_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x3, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x3, action button 0x2, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x2, meta 0x0, moved false
+I/mouse-test: touch ACTION_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x1, meta 0x0, moved false
+I/mouse-test: touch ACTION_UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: key down KEYCODE_BACK, source 0x2002
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x8, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x8, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: key up KEYCODE_BACK, source 0x2002
+I/mouse-test: key down KEYCODE_FORWARD, source 0x2002
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x10, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x10, action button 0x0, meta 0x0, moved false
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: key up KEYCODE_FORWARD, source 0x2002
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false, VSCROLL=1.0
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false, VSCROLL=-2.0
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false, HSCROLL=1.0
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false, HSCROLL=-1.0
+I/mouse-test: hover ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false, VSCROLL=1.0, HSCROLL=1.0
+I/mouse-test: hover ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: generic ACTION_HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, action button 0x0, meta 0x0, moved false
+I/mouse-test: removed: the mouse is no longer listed: true
+I/mouse-test: done

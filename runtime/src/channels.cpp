@@ -190,6 +190,17 @@ class InputChannel;
 
 /// The host's side of an input channel, from apkrt_input_add on. It stays after its queue closed, so that
 /// its ID stays used.
+/// What the host's mouse has done to a channel (apkrt_input_post_mouse): the buttons held, whether it hovers over the
+/// window and its last position, so that the records Android makes of a report follow from the reports before it.
+struct MouseState {
+    std::int32_t buttons = 0;
+    bool hovering = false;
+    std::int32_t device = 0, source = 0, tool = 0;  // of the last report, and its time
+    std::int64_t time = 0;
+    float x = 0, y = 0;
+    std::vector<apkrt_axis_value> hover_extra;  // what the last hover record had beyond its position: the relative axes
+};
+
 struct InputQueue {
     std::deque<apkrt_motion_event> events;
     InputChannel *channel = nullptr;  // the channel of the guest's descriptor, while that is open
@@ -197,6 +208,7 @@ struct InputQueue {
     bool ended = false;               // the descriptor was closed
     bool refusing = false;            // the rest of the last gesture the channel could not take
     std::int64_t refused = 0;         // that gesture's down time
+    MouseState mouse;                 // what apkrt_input_post_mouse has made of the host's mouse so far
 };
 
 std::map<std::uint64_t, InputQueue> inputs;  // by ID, under `lock`; never erased
@@ -397,6 +409,11 @@ bool replaces_newest_axes(InputQueue &queue, const apkrt_motion_event &next_reco
     return false;
 }
 
+/// The action of an axes record held in a motion event's buffer.
+std::int32_t wrapped_action(const apkrt_motion_event &event) {
+    return event.action;  // the action is the first word of every record
+}
+
 /// Queues `event`, a record of another kind, for the channel of `id`. 1 when it was taken.
 int post_record(std::uint64_t id, apkrt_motion_event &event) {
     try {
@@ -424,6 +441,152 @@ int post_record(std::uint64_t id, apkrt_motion_event &event) {
         return 0;
     }
 }
+
+
+/// AMOTION_EVENT_AXIS_* and BUTTON_* of a mouse's records (ADR-0068 decision 5, the mouse step).
+constexpr std::int32_t axis_x = 0, axis_y = 1, axis_vscroll = 9, axis_hscroll = 10, axis_relative_x = 27,
+                       axis_relative_y = 28;
+constexpr std::int32_t button_primary_three = 0x7, button_back = 0x8, button_forward = 0x10, buttons_known = 0x1f;
+constexpr std::int32_t keycode_back = 4, keycode_forward = 125, source_mouse = 0x00002002;
+
+/// The records of one mouse report (apkrt_input_post_mouse), as Android 15's InputReader and dispatcher make them from
+/// a `uinput` mouse (fixtures/expected/mouse-test.logcat).
+class MouseReport {
+public:
+    MouseReport(const apkrt_axes_event &in, MouseState &state) : in_(in), state_(state) {
+        state_.device = in.device_id;
+        state_.source = in.source;
+        state_.tool = in.tool_type;
+        state_.time = in.event_time;
+    }
+
+    std::vector<apkrt_motion_event> records;
+
+    void move() {
+        place();
+        std::vector<apkrt_axis_value> relative;
+        for (std::uint32_t at = 0; at < in_.axis_count; ++at) {
+            const apkrt_axis_value &axis = in_.axes[at];
+            if (axis.axis == axis_relative_x || axis.axis == axis_relative_y) relative.push_back(axis);
+        }
+        if ((state_.buttons & button_primary_three) != 0) {
+            add(action_move, state_.buttons, 0, relative);
+        } else {
+            hover(relative);
+        }
+    }
+
+    void leave() {
+        place();
+        if (state_.hovering) add(action_hover_exit, state_.buttons, 0, state_.hover_extra);
+        state_.hovering = false;
+    }
+
+    void scroll() {
+        place();
+        if ((state_.buttons & button_primary_three) == 0) hover({});
+        std::vector<apkrt_axis_value> wheels;
+        for (std::uint32_t at = 0; at < in_.axis_count; ++at) {
+            const apkrt_axis_value &axis = in_.axes[at];
+            if (axis.axis == axis_vscroll || axis.axis == axis_hscroll) wheels.push_back(axis);
+        }
+        add(action_scroll, state_.buttons, 0, wheels);
+    }
+
+    void press() {
+        place();
+        for (std::int32_t bit = 1; bit <= buttons_known; bit <<= 1) {
+            if ((in_.button_state & bit) == 0 || (state_.buttons & bit) != 0) continue;
+            const bool first = (state_.buttons & button_primary_three) == 0;
+            state_.buttons |= bit;
+            if (bit == button_back || bit == button_forward) {
+                key(0, bit == button_back ? keycode_back : keycode_forward);
+                hover({});
+            } else if (first) {
+                if (state_.hovering) add(action_hover_exit, state_.buttons, 0, state_.hover_extra);
+                state_.hovering = false;
+                add(action_down, state_.buttons, 0, {});
+                add(action_button_press, state_.buttons, bit, {});
+            } else {
+                add(action_move, state_.buttons, 0, {});
+                add(action_button_press, state_.buttons, bit, {});
+            }
+        }
+    }
+
+    void release() {
+        place();
+        for (std::int32_t bit = 1; bit <= buttons_known; bit <<= 1) {
+            if ((in_.button_state & bit) != 0 || (state_.buttons & bit) == 0) continue;
+            state_.buttons &= ~bit;
+            if (bit == button_back || bit == button_forward) {
+                hover({});
+                key(1, bit == button_back ? keycode_back : keycode_forward);
+            } else {
+                add(action_button_release, state_.buttons, bit, {});
+                if ((state_.buttons & button_primary_three) != 0) {
+                    add(action_move, state_.buttons, 0, {});
+                } else {
+                    add(action_up, state_.buttons, 0, {});
+                    state_.hovering = false;
+                    hover({});
+                }
+            }
+        }
+    }
+
+private:
+    /// The position of the report, when it has one.
+    void place() {
+        for (std::uint32_t at = 0; at < in_.axis_count; ++at) {
+            if (in_.axes[at].axis == axis_x) state_.x = in_.axes[at].value;
+            if (in_.axes[at].axis == axis_y) state_.y = in_.axes[at].value;
+        }
+    }
+
+    /// The first record over the window is a hover enter, the next ones hover moves. The exit that follows is made from
+    /// the last of them, as Android 15's dispatcher makes it, with its relative axes.
+    void hover(const std::vector<apkrt_axis_value> &extra) {
+        state_.hover_extra = extra;
+        add(state_.hovering ? action_hover_move : action_hover_enter, state_.buttons, 0, extra);
+        state_.hovering = true;
+    }
+
+    void add(std::int32_t action, std::int32_t buttons, std::int32_t action_button,
+             const std::vector<apkrt_axis_value> &extra) {
+        apkrt_axes_event record{};
+        record.action = action;
+        record.reserved0[0] = static_cast<std::uint32_t>(action_button);
+        record.kind = APKRT_INPUT_AXES;
+        record.event_time = in_.event_time;
+        record.device_id = in_.device_id;
+        record.source = in_.source;
+        record.tool_type = in_.tool_type;
+        record.button_state = buttons;
+        record.meta_state = in_.meta_state;
+        record.axes[0] = {axis_x, state_.x};
+        record.axes[1] = {axis_y, state_.y};
+        record.axis_count = 2;
+        for (const apkrt_axis_value &axis : extra) record.axes[record.axis_count++] = axis;
+        records.push_back(wrapped(record));
+    }
+
+    void key(std::int32_t action, std::int32_t key_code) {
+        apkrt_key_event record{};
+        record.action = action;
+        record.kind = APKRT_INPUT_KEY;
+        record.down_time = in_.event_time;
+        record.event_time = in_.event_time;
+        record.key_code = key_code;
+        record.meta_state = in_.meta_state;
+        record.device_id = in_.device_id;
+        record.source = in_.source;
+        records.push_back(wrapped(record));
+    }
+
+    const apkrt_axes_event &in_;
+    MouseState &state_;
+};
 
 }  // namespace
 
@@ -870,14 +1033,62 @@ extern "C" int apkrt_input_post_device(uint64_t id, const struct apkrt_device_ev
     std::memset(record.name + named, 0, sizeof record.name - named);
     record.kind = APKRT_INPUT_DEVICE;
     apkrt_motion_event event = wrapped(record);
+    if (device->op == APKRT_DEVICE_REMOVED) {
+        // A mouse that goes while it hovers leaves the window first, as Android 15 does (mouse-test).
+        try {
+            const std::lock_guard hold(lock);
+            const auto found = inputs.find(id);
+            if (found != inputs.end() && !found->second.ended) {
+                InputQueue &queue = found->second;
+                MouseState &mouse = queue.mouse;
+                if (mouse.hovering && mouse.device == device->device_id &&
+                    queue.events.size() + 2 <= most_events + most_ends) {
+                    apkrt_axes_event leave{};
+                    leave.action = action_hover_exit;
+                    leave.kind = APKRT_INPUT_AXES;
+                    leave.event_time = mouse.time;
+                    leave.device_id = mouse.device;
+                    leave.source = mouse.source;
+                    leave.tool_type = mouse.tool;
+                    leave.button_state = mouse.buttons;
+                    leave.axes[0] = {axis_x, mouse.x};
+                    leave.axes[1] = {axis_y, mouse.y};
+                    leave.axis_count = 2;
+                    queue.events.push_back(wrapped(leave));
+                    if (queue.channel != nullptr) queue.channel->arrived();
+                }
+                if (mouse.device == device->device_id) mouse = MouseState{};
+            }
+        } catch (const std::bad_alloc &) {
+        }
+    }
     return post_record(id, event);
 }
 
-extern "C" int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *axes) {
+namespace {
+
+/// Whether an axes record is sound as far as its header and axes go: a device, a source, a tool type and axes that
+/// are each named once, in range and finite.
+bool axes_sound(const apkrt_axes_event *axes) {
     if (axes == nullptr || axes->device_id < 1 || axes->source == 0 || axes->tool_type < 0 ||
         axes->tool_type > most_tool_type || axes->axis_count > APKRT_AXES_MAX) {
-        return 0;
+        return false;
     }
+    std::uint64_t named = 0;  // the axes seen, by number
+    for (std::uint32_t at = 0; at < axes->axis_count; ++at) {
+        const std::int32_t axis = axes->axes[at].axis;
+        if (axis < 0 || axis >= APKRT_AXIS_LIMIT || !std::isfinite(axes->axes[at].value)) return false;
+        const std::uint64_t bit = std::uint64_t{1} << axis;
+        if ((named & bit) != 0) return false;
+        named |= bit;
+    }
+    return true;
+}
+
+}  // namespace
+
+extern "C" int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *axes) {
+    if (!axes_sound(axes)) return 0;
     switch (axes->action) {
         case action_move:
         case action_hover_move:
@@ -889,14 +1100,6 @@ extern "C" int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event 
             break;
         default:
             return 0;
-    }
-    std::uint64_t named = 0;  // the axes seen, by number
-    for (std::uint32_t at = 0; at < axes->axis_count; ++at) {
-        const std::int32_t axis = axes->axes[at].axis;
-        if (axis < 0 || axis >= APKRT_AXIS_LIMIT || !std::isfinite(axes->axes[at].value)) return 0;
-        const std::uint64_t bit = std::uint64_t{1} << axis;
-        if ((named & bit) != 0) return 0;
-        named |= bit;
     }
     apkrt_axes_event record{};
     record.action = axes->action;
@@ -911,4 +1114,60 @@ extern "C" int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event 
     std::memcpy(record.axes, axes->axes, axes->axis_count * sizeof record.axes[0]);
     apkrt_motion_event event = wrapped(record);
     return post_record(id, event);
+}
+
+extern "C" int apkrt_input_post_mouse(uint64_t id, const struct apkrt_axes_event *mouse) {
+    if (!axes_sound(mouse) || (mouse->source & source_mouse) != source_mouse ||
+        (mouse->button_state & ~buttons_known) != 0) {
+        return 0;
+    }
+    switch (mouse->action) {
+        case action_hover_move:
+        case action_scroll:
+        case action_hover_exit:
+        case action_button_press:
+        case action_button_release:
+            break;
+        default:
+            return 0;
+    }
+    try {
+        const std::lock_guard hold(lock);
+        const auto found = inputs.find(id);
+        if (found == inputs.end() || found->second.ended) return 0;
+        InputQueue &queue = found->second;
+        MouseState state = queue.mouse;
+        MouseReport report(*mouse, state);
+        switch (mouse->action) {
+            case action_hover_move: report.move(); break;
+            case action_scroll: report.scroll(); break;
+            case action_hover_exit: report.leave(); break;
+            case action_button_press: report.press(); break;
+            default: report.release(); break;
+        }
+        const std::size_t count = report.records.size();
+        const std::size_t size = queue.events.size();
+        // A move is all a full channel merges: it replaces the newest one waiting. The rest takes the slack of the
+        // touch ends, all of it or none.
+        const bool only_move = mouse->action == action_hover_move && count == 1 &&
+                               (wrapped_action(report.records[0]) == action_move ||
+                                wrapped_action(report.records[0]) == action_hover_move);
+        if (size + count <= most_events) {
+            // room
+        } else if (only_move) {
+            if (!replaces_newest_axes(queue, report.records[0])) return 0;
+            queue.mouse = state;
+            return 1;
+        } else if (size + count > most_events + most_ends) {
+            return 0;
+        }
+        for (const apkrt_motion_event &record : report.records) {
+            queue.events.push_back(record);
+            if (queue.channel != nullptr) queue.channel->arrived();
+        }
+        queue.mouse = state;
+        return 1;
+    } catch (const std::bad_alloc &) {
+        return 0;
+    }
 }

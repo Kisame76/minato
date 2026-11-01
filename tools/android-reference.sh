@@ -858,6 +858,16 @@ run_app() {
     gamepad-native-test)
       last=done
       ;;
+    # mouse-test (ADR-0068 decision 5, the mouse step): its own launcher activity, which logs a virtual mouse of
+    # `uinput` (fixtures/apps/mouse-test/uinput.json) and ends with "done" once it is gone.
+    mouse-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MouseActivity
+      ;;
+    # mouse-native-test (ADR-0068 decision 5, the mouse step): a NativeActivity (fixtures/apps), which logs the events
+    # of the same virtual mouse as mouse-test and ends with "done" at the 46th motion event.
+    mouse-native-test)
+      last=done
+      ;;
     # start-stops-test (ADR-0042 b): its own launcher activity, which ends with "done" once its window has focus.
     start-stops-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.StartStopsActivity
@@ -1180,6 +1190,13 @@ run_app() {
     device push fixtures/apps/gamepad-test/uinput.json /data/local/tmp/gamepad-uinput.json >/dev/null || return 1
     { wait_for "$app" "ready: pad" && sleep 1 && run uinput /data/local/tmp/gamepad-uinput.json; } || return 1
     run rm -f /data/local/tmp/gamepad-uinput.json
+  fi
+  if [[ "$app" == mouse-test || "$app" == mouse-native-test ]]; then
+    # ADR-0068 decision 5: once the window says "ready: mouse", `uinput` makes a mouse, plays its moves, buttons and
+    # wheels, and ends, which removes the device.
+    device push fixtures/apps/mouse-test/uinput.json /data/local/tmp/mouse-uinput.json >/dev/null || return 1
+    { wait_for "$app" "ready: mouse" && sleep 1 && run uinput /data/local/tmp/mouse-uinput.json; } || return 1
+    run rm -f /data/local/tmp/mouse-uinput.json
   fi
   if [[ "$app" == key-test ]]; then
     # ADR-0045 step 7c: the typed digit takes the display out of touch mode, which outlives the app; a tap in its

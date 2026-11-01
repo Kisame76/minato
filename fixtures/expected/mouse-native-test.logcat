@@ -1,0 +1,52 @@
+I/mouse-native-test: ready: mouse
+I/mouse-native-test: motion HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved true, relative
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved true, relative
+I/mouse-native-test: motion HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false, relative
+I/mouse-native-test: motion DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved true, relative
+I/mouse-native-test: motion BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, meta 0x0, moved false
+I/mouse-native-test: motion DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x2, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, meta 0x0, moved false
+I/mouse-native-test: motion DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x4, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion DOWN, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x3, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_PRESS, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x3, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x1, meta 0x0, moved false
+I/mouse-native-test: motion BUTTON_RELEASE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion UP, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_ENTER, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: key down BACK, source 0x2002
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x8, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: key up BACK, source 0x2002
+I/mouse-native-test: key down FORWARD, source 0x2002
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x10, meta 0x0, moved false
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: key up FORWARD, source 0x2002
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false, VSCROLL=1
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false, VSCROLL=-2
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false, HSCROLL=1
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false, HSCROLL=-1
+I/mouse-native-test: motion HOVER_MOVE, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: motion SCROLL, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false, VSCROLL=1, HSCROLL=1
+I/mouse-native-test: motion HOVER_EXIT, source 0x2002, tool MOUSE, pointers 1, history 0, buttons 0x0, meta 0x0, moved false
+I/mouse-native-test: done

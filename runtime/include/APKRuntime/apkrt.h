@@ -649,6 +649,26 @@ int apkrt_input_post_device(uint64_t id, const struct apkrt_device_event *event)
 /// other actions, which the guest must see each.
 int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *event);
 
+/// A mouse's or trackpad's report (ADR-0068 decision 5, the mouse step), which the runtime turns into the records
+/// Android 15 makes of a mouse (measured with a `uinput` mouse, fixtures/expected/mouse-test.logcat), queued whole
+/// with the others in the order they were posted. `event` is an apkrt_axes_event of a mouse source
+/// (AINPUT_SOURCE_MOUSE, bit 0x2002 of `source`, not 0) and tool type (MOUSE 3 for a mouse or trackpad) whose action is
+///  - HOVER_MOVE (7): the pointer moved to AXIS_X and AXIS_Y (the window's pixels), by AXIS_RELATIVE_X and _Y; the
+///    first move, or the first after a HOVER_EXIT, is a HOVER_ENTER, a move with a button held is the touch's MOVE;
+///  - BUTTON_PRESS (11) or BUTTON_RELEASE (12): `button_state` is the buttons held after the event (BUTTON_PRIMARY 1,
+///    SECONDARY 2, TERTIARY 4, BACK 8, FORWARD 16). The first of the primary three makes HOVER_EXIT, DOWN and
+///    BUTTON_PRESS; one more makes a MOVE and its BUTTON_PRESS; a release makes BUTTON_RELEASE and, once none is left,
+///    UP and a HOVER_ENTER, else a MOVE. BACK and FORWARD make a key (KEYCODE_BACK 4, KEYCODE_FORWARD 125) and a hover
+///    move. The button's bit is the record's action button;
+///  - SCROLL (8): AXIS_VSCROLL and AXIS_HSCROLL in lines, positive up and left as a wheel turned forward and to the
+///    left, after a hover move of its own; fractions are allowed (a trackpad's two-finger scroll);
+///  - HOVER_EXIT (10): the pointer left the window.
+/// The position is the last one given when a record has none. Returns 1 when the channel took all the records the
+/// report makes, else 0 and nothing changed: a record that is not sound as for apkrt_input_post_axes, an action other
+/// than those, a source that is not a mouse's, a button the runtime has no word for, or too little room in the
+/// channel (a move then replaces the newest waiting one of its kind, as a stick's does).
+int apkrt_input_post_mouse(uint64_t id, const struct apkrt_axes_event *event);
+
 /// Posts a record to a WebView channel (ADR-0056 step a), for the host's WKWebView side (Swift). `type` is an
 /// apkrt_webview_record_type and `request_id` the CALL it answers or the record the guest must ANSWER, or 0 for a plain
 /// event; `bytes`/`length` are the payload, which the runtime frames and, past APKRT_WEBVIEW_RECORD_MAX, splits into

@@ -810,6 +810,15 @@ if(APK_HOST_BUILD)
     "${CMAKE_CURRENT_BINARY_DIR}/gamepad_native_test_scratch"
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
   set_tests_properties(runtime.gamepad-native PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # ADR-0068 decision 5, the mouse step's mouse-native-test: the same host plays a mouse (a device record and
+  # apkrt_input_post_mouse's reports) and compares the log with Android 15's
+  # (fixtures/expected/mouse-native-test.logcat).
+  add_executable(mouse_native_test tests/mouse_native_test.cpp)
+  target_link_libraries(mouse_native_test PRIVATE app_host)
+  add_test(NAME runtime.mouse-native COMMAND mouse_native_test
+    "${CMAKE_CURRENT_BINARY_DIR}/mouse_native_test_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
+  set_tests_properties(runtime.mouse-native PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   # ADR-0038's test 3 (step c): the same host turns rotation-test to landscape and back as the App does, with the
   # window's new size, and compares the log with Android 15's (fixtures/expected/rotation-test.logcat).
   add_executable(rotation_test tests/rotation_test.cpp)

@@ -285,6 +285,13 @@ add_library(gamepad-native-test SHARED apps/gamepad-native-test/main.c)
 target_compile_options(gamepad-native-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(gamepad-native-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(gamepad-native-test PRIVATE android log)
+
+# mouse-native-test (ADR-0068 decision 5, the mouse step): a NativeActivity without native_app_glue that logs the motion
+# events and keys a mouse gives its input queue.
+add_library(mouse-native-test SHARED apps/mouse-native-test/main.c)
+target_compile_options(mouse-native-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(mouse-native-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(mouse-native-test PRIVATE android log)
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)
