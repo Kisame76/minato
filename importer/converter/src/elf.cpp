@@ -248,6 +248,54 @@ std::vector<Section> read_sections(std::span<const std::byte> bytes) {
     return sections;
 }
 
+std::vector<Symbol> read_symbols(std::span<const std::byte> bytes) {
+    std::vector<Symbol> symbols;
+    try {
+        const auto header = read_file_header(bytes);
+        if (header.section_header_offset == 0 || header.section_header_count == 0 ||
+            header.section_header_size != sizeof(RawSectionHeader) ||
+            !fits(header.section_header_offset,
+                  std::uint64_t{header.section_header_count} * sizeof(RawSectionHeader), bytes.size())) {
+            return symbols;
+        }
+        const std::size_t count = header.section_header_count;
+        const auto raw_at = [&](std::size_t index) {
+            return copy_at<RawSectionHeader>(bytes, header.section_header_offset + index * sizeof(RawSectionHeader));
+        };
+        // Prefer .symtab, which names local (static) symbols too, over .dynsym's exports.
+        std::optional<RawSectionHeader> table;
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto raw = raw_at(index);
+            if (raw.type == section_type_symtab) {
+                table = raw;
+                break;
+            }
+            if (raw.type == section_type_dynsym && !table) table = raw;
+        }
+        constexpr std::uint64_t entry = 24;  // sizeof(Elf64_Sym)
+        if (!table || table->entry_size != entry || table->link >= count ||
+            !fits(table->offset, table->size, bytes.size())) {
+            return symbols;
+        }
+        const auto strings = raw_at(static_cast<std::size_t>(table->link));
+        if (strings.type == section_type_nobits || !fits(strings.offset, strings.size, bytes.size())) return symbols;
+        const auto names = bytes.subspan(static_cast<std::size_t>(strings.offset), static_cast<std::size_t>(strings.size));
+        for (std::uint64_t at = 0; at + entry <= table->size; at += entry) {
+            const auto base = table->offset + at;
+            const auto name_offset = copy_at<std::uint32_t>(bytes, base);
+            const auto section_index = copy_at<std::uint16_t>(bytes, base + 6);
+            const auto value = copy_at<std::uint64_t>(bytes, base + 8);
+            const auto size = copy_at<std::uint64_t>(bytes, base + 16);
+            if (section_index == 0 || section_index >= 0xff00 || name_offset == 0) continue;  // undef/abs/common/nameless
+            auto name = name_at(names, name_offset);
+            if (!name || name->empty()) continue;
+            symbols.push_back(Symbol{.name = std::move(*name), .value = value, .size = size});
+        }
+    } catch (const FormatError &) {
+    }
+    return symbols;
+}
+
 std::vector<DynamicEntry> read_dynamic(const File &file, std::span<const std::byte> bytes) {
     const auto dynamic = std::ranges::find(file.segments, SegmentType::dynamic, &Segment::type);
     if (dynamic == file.segments.end()) return {};

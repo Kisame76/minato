@@ -322,6 +322,36 @@ std::string section_blockers(std::span<const elf::Section> sections, std::uint64
     return text;
 }
 
+/// Names the code a refusal points into, for the import report: " in <symbol>+0x<off> (<section>)", or "" when no
+/// symbol covers the address (a stripped library -- the refusal gives the address alone, as before). The symbol is
+/// the one with the greatest address at or before `address` in the same section (a sized symbol must also contain
+/// it), from read_symbols; "" keeps the symbol-less refusals unchanged, while a protected library's import shows
+/// which component the site is in.
+std::string describe_site(std::span<const elf::Symbol> symbols, std::span<const elf::Section> sections,
+                          std::uint64_t address) {
+    const elf::Section *section = nullptr;
+    for (const auto &candidate : sections) {
+        if ((candidate.flags & elf::section_allocated) == 0 || candidate.size == 0) continue;
+        if (address >= candidate.address && address < candidate.address + candidate.size) {
+            section = &candidate;
+            break;
+        }
+    }
+    const elf::Symbol *best = nullptr;
+    for (const auto &symbol : symbols) {
+        if (symbol.value > address || (symbol.size != 0 && address >= symbol.value + symbol.size)) continue;
+        if (section != nullptr &&
+            (symbol.value < section->address || symbol.value >= section->address + section->size)) {
+            continue;
+        }
+        if (best == nullptr || symbol.value > best->value) best = &symbol;
+    }
+    if (best == nullptr) return {};  // a stripped library names no symbol: the address alone, as before
+    const auto in_section = section != nullptr && !section->name.empty() ? std::format(" ({})", section->name)
+                                                                         : std::string();
+    return std::format(" in {}+{:#x}{}", best->name, address - best->value, in_section);
+}
+
 }  // namespace
 
 std::vector<elf::Section> layout_sections(std::span<const std::byte> elf_bytes) {
@@ -500,9 +530,14 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
     return layout;
 }
 
-std::string x18_refusal(std::span<const rewrite::Unsupported> uses) {
-    if (uses.size() == 1) return std::format("x18 at {:#x} cannot run on iOS: {}", uses[0].address, uses[0].reason);
-    // One class per reason, the most common first, then the one met first; the first three addresses the scan met.
+std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
+                        std::span<const elf::Section> sections) {
+    if (uses.size() == 1) {
+        return std::format("x18 at {:#x}{} cannot run on iOS: {}", uses[0].address,
+                           describe_site(symbols, sections, uses[0].address), uses[0].reason);
+    }
+    // One class per reason, the most common first, then the one met first; the first three addresses the scan met,
+    // each with the symbol it sits in.
     std::vector<std::pair<std::string_view, std::vector<std::uint64_t>>> classes;
     for (const auto &use : uses) {
         auto known = std::ranges::find(classes, std::string_view(use.reason), &decltype(classes)::value_type::first);
@@ -517,7 +552,8 @@ std::string x18_refusal(std::span<const rewrite::Unsupported> uses) {
         text += std::format("{} {} where {} (", i == 0 ? ":" : ";", addresses.size(), reason);
         for (std::size_t k = 0; k < addresses.size() && k < shown; ++k) {
             const bool last = k + 1 == addresses.size();
-            text += std::format("{}{:#x}", k == 0 ? "" : last ? " and " : ", ", addresses[k]);
+            text += std::format("{}{:#x}{}", k == 0 ? "" : last ? " and " : ", ", addresses[k],
+                                describe_site(symbols, sections, addresses[k]));
         }
         if (addresses.size() > shown) text += std::format(" and {} more", addresses.size() - shown);
         text += ')';
@@ -544,8 +580,9 @@ void refuse_darwin_syscall(const elf::File &file, std::span<const std::byte> elf
     std::uint32_t instruction;
     std::memcpy(&instruction, word.data(), sizeof instruction);
     const auto more = findings.other_syscalls.size() - 1;
-    throw Incompatible(std::format("svc #{:#x} at {:#x} is no Linux syscall and would run a Darwin one{}",
-                                   (instruction >> 5) & 0xffff, address,
+    const auto site = describe_site(elf::read_symbols(elf_bytes), layout_sections(elf_bytes), address);
+    throw Incompatible(std::format("svc #{:#x} at {:#x}{} is no Linux syscall and would run a Darwin one{}",
+                                   (instruction >> 5) & 0xffff, address, site,
                                    more == 0 ? std::string() : std::format(" (and {} more)", more)));
 }
 
@@ -557,14 +594,16 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
     std::uint32_t instruction;
     std::memcpy(&instruction, word.data(), sizeof instruction);
     const auto more = findings.tpidrro_reads.size() - 1;
+    const auto site = describe_site(elf::read_symbols(elf_bytes), layout_sections(elf_bytes), address);
     throw Incompatible(std::format(
-        "mrs x{}, TPIDRRO_EL0 at {:#x} reads the Darwin TSD base (zero on Android), which a guest could name as an "
+        "mrs x{}, TPIDRRO_EL0 at {:#x}{} reads the Darwin TSD base (zero on Android), which a guest could name as an "
         "exclusive target to clear an x18 island's monitor{}",
-        instruction & 0x1f, address, more == 0 ? std::string() : std::format(" (and {} more)", more)));
+        instruction & 0x1f, address, site, more == 0 ? std::string() : std::format(" (and {} more)", more)));
 }
 
-void refuse_unsupported_x18(const rewrite::Findings &findings) {
-    if (!findings.x18_unsupported.empty()) throw Incompatible(x18_refusal(findings.x18_unsupported));
+void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite::Findings &findings) {
+    if (findings.x18_unsupported.empty()) return;
+    throw Incompatible(x18_refusal(findings.x18_unsupported, elf::read_symbols(elf_bytes), layout_sections(elf_bytes)));
 }
 
 Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
@@ -614,7 +653,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     refuse_tpidrro_read(file, elf_bytes, findings);
     // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a
     // scratch register instead (ADR-0020); a form no island handles makes the file incompatible.
-    refuse_unsupported_x18(findings);
+    refuse_unsupported_x18(elf_bytes, findings);
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
 
@@ -873,7 +912,7 @@ std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
     if (!attempt([&] { scan = scan_sections(*file, elf_bytes, *sections); })) return reasons;
     attempt([&] { refuse_darwin_syscall(*file, elf_bytes, scan->findings); });
     attempt([&] { refuse_tpidrro_read(*file, elf_bytes, scan->findings); });
-    attempt([&] { refuse_unsupported_x18(scan->findings); });
+    attempt([&] { refuse_unsupported_x18(elf_bytes, scan->findings); });
     // What convert() refuses only after these, in building the container (its size, a place outside the file, the
     // rewriter's and the writer's limits), shows when the tests above found nothing.
     if (reasons.empty()) attempt([&] { (void)convert(elf_bytes, {.install_name = "@rpath/check.dylib"}); });

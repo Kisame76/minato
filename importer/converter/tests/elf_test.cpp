@@ -155,6 +155,18 @@ TEST(a_file_without_section_headers_has_no_sections) {
     CHECK(apk::elf::read_sections(static_pie().bytes).empty());
 }
 
+TEST(read_symbols_names_defined_functions) {
+    auto builder = static_pie();
+    builder.sections({{".text", sht_progbits, shf_alloc | shf_execinstr, 0x1000, 0x1000, 0x80}},
+                     {{"alpha", 0x1000, 0x10}, {"beta", 0x1010, 0x20}});
+    const auto symbols = apk::elf::read_symbols(builder.bytes);
+    CHECK(symbols.size() == 2);
+    CHECK(symbols[0].name == "alpha" && symbols[0].value == 0x1000 && symbols[0].size == 0x10);
+    CHECK(symbols[1].name == "beta" && symbols[1].value == 0x1010 && symbols[1].size == 0x20);
+    // A stripped file (no symbol table) yields none, and read_symbols never throws.
+    CHECK(apk::elf::read_symbols(static_pie().bytes).empty());
+}
+
 TEST(rejects_malformed_section_headers) {
     const auto valid = static_pie_with_sections();
     const auto table = [&] {

@@ -66,7 +66,9 @@ struct File {
 
 /// sh_type values the converter looks at.
 inline constexpr std::uint32_t section_type_null = 0;
+inline constexpr std::uint32_t section_type_symtab = 2;   // .symtab
 inline constexpr std::uint32_t section_type_nobits = 8;
+inline constexpr std::uint32_t section_type_dynsym = 11;  // .dynsym
 
 /// sh_flags
 inline constexpr std::uint64_t section_writable = 0x1;
@@ -81,6 +83,13 @@ struct Section {
     std::uint64_t offset;
     std::uint64_t size;
     std::uint64_t addralign;  // sh_addralign, the alignment the section's content needs (0 or a power of two)
+};
+
+/// A named, defined symbol (Elf64_Sym), for naming the code a refusal points into -- not for linking.
+struct Symbol {
+    std::string name;
+    std::uint64_t value = 0;  // st_value: the address in a shared object
+    std::uint64_t size = 0;   // st_size: 0 when the symbol carries none
 };
 
 /// One entry of the dynamic table (Elf64_Dyn).
@@ -102,6 +111,11 @@ File read(std::span<const std::byte> bytes);
 /// rewrites code inside executable sections (ADR-0010), so it needs them; Android's linker also
 /// insists on a valid table for apps that target API 26 and later.
 std::vector<Section> read_sections(std::span<const std::byte> bytes);
+
+/// The named, defined symbols of `bytes` from .symtab, else .dynsym, else empty (a stripped library). For naming
+/// the code a refusal falls in, not for linking: undefined, nameless and non-section (absolute/common) entries are
+/// left out. Never throws: a broken or partial table yields the entries read so far, or none.
+std::vector<Symbol> read_symbols(std::span<const std::byte> bytes);
 
 /// The entries of PT_DYNAMIC up to DT_NULL. Empty without PT_DYNAMIC. `file` comes from read(bytes).
 std::vector<DynamicEntry> read_dynamic(const File &file, std::span<const std::byte> bytes);

@@ -62,7 +62,8 @@ constexpr std::uint32_t sht_relr = 19;
 
 /// A small static PIE laid out like the NDK's: code and headers in one r-x segment at 0, data in
 /// an rw- segment on its own 16 KiB page, a RELR table with one address in the zero-filled part.
-ElfBuilder static_program(std::uint64_t relocated_address = 0x4800) {
+ElfBuilder static_program(std::uint64_t relocated_address = 0x4800,
+                          std::initializer_list<SymbolEntry> symbols = {}) {
     ElfBuilder builder;
     builder.put<std::uint64_t>(24, 0x200);  // e_entry
     builder
@@ -81,7 +82,7 @@ ElfBuilder static_program(std::uint64_t relocated_address = 0x4800) {
         {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof code},
         {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
         {".bss", sht_nobits, shf_alloc | shf_write, 0x4300, 0x300, 0xf80},
-    });
+    }, symbols);
     return builder;
 }
 
@@ -872,6 +873,16 @@ TEST(a_16_kib_tls_block_keeps_the_refusal) {
     tls.put<std::uint64_t>(sixth + 48, 0x4000);                        // p_align: the TLS block wants 16 KiB
     tls.put<std::uint16_t>(56, 6);                                     // e_phnum
     CHECK_THROWS(Incompatible, convert(tls), "the TLS block (align 0x4000)");
+}
+
+// The refusal names the enclosing symbol (.symtab/.dynsym: name + offset, and the section) so an import of a
+// protected library shows which component an x18 use sits in, not just an address. A stripped library names no
+// symbol and the message is unchanged (the other refusal tests build no symbol table).
+TEST(a_refusal_names_the_enclosing_symbol) {
+    auto named = static_program(0x4800, {{"guest_atomic", 0x200, 0x20}});
+    named.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18
+    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: refused, no island follows it
+    CHECK_THROWS(Incompatible, convert(named), "x18 at 0x21c in guest_atomic+0x1c (.text) cannot run on iOS");
 }
 
 TEST(refuses_what_cannot_run) {

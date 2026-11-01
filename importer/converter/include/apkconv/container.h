@@ -91,7 +91,10 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
 
 /// The reason for refusing a file whose x18 `uses` no island handles (at least one), for Incompatible: one use with
 /// its address, or every reason with its count and first addresses, so that one refusal names all a library needs.
-std::string x18_refusal(std::span<const rewrite::Unsupported> uses);
+/// Each address is named with the symbol it sits in (`symbols` from read_symbols) and its section (`sections`), so
+/// an import of a protected library shows which component; a stripped library names only the section, or nothing.
+std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
+                        std::span<const elf::Section> sections);
 
 /// Converts `elf`. Throws Incompatible, or elf::FormatError when the file is broken.
 Container convert(std::span<const std::byte> elf, const Options &options);
