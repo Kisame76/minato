@@ -57,6 +57,7 @@ extern int register_android_hardware_camera2_utils_SurfaceUtils(JNIEnv *env);
 extern int register_android_hardware_display_DisplayService(JNIEnv *env);
 extern int register_android_os_MessageQueue(JNIEnv *env);
 extern int register_android_os_Trace(JNIEnv *env);
+extern int register_com_android_internal_minato_webkit_WebViewChannel(JNIEnv *env);
 extern int register_android_os_Debug(JNIEnv *env);
 extern int register_android_os_Process(JNIEnv *env);
 extern int register_com_android_internal_util_VirtualRefBasePtr(JNIEnv *env);
@@ -162,7 +163,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_view_KeyCharacterMap, register_android_hardware_input_InputService,
           register_android_view_MotionEvent, register_android_view_VelocityTracker,
           register_android_view_InputChannel, register_android_view_InputEventReceiver,
-          register_android_view_InputQueue}) {
+          register_android_view_InputQueue, register_com_android_internal_minato_webkit_WebViewChannel}) {
         if (registration(env) < 0) {
             env->PopLocalFrame(nullptr);
             return -1;

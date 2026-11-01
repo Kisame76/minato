@@ -328,7 +328,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
           apk, package, application, mounts=(), configuration=None, signers=None, again=False, last=None,
           lifecycle=None, android_id=None, obbs=(), packs=(), environment=(), splits=(), picks=(), photos=(), saves=None, tree=None,
           export_dir=None, shares=False, sensor_script=None, grant_location=None, location_script=None,
-          device_profile=None, odex=None):
+          device_profile=None, odex=None, webview_fake=False):
     """Starts the APK's Application class through app_process as an app process; apk-run's result, or None after a
     timeout, as run_app() ends it 2 s after a line matches `last`, the app's last line. `application` goes to
     ActivityThread as --application, which takes the place of the manifest's class; None leaves the manifest's (step
@@ -354,6 +354,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     Download folder, and `tree` (a folder) an ACTION_OPEN_DOCUMENT_TREE request with that folder, copied into Download
     before the start (ADR-0057 step d; --pick-create, --pick-tree). `shares` (True) has apk-run read each file of a
     share request (ADR-0062) from the data folder and write it out (--pick-data).
+    `webview_fake` (True) has apk-run's fake WebView host answer the app's WebViews (--webview-fake, ADR-0056 step b2).
     `environment` are apk-run's --env entries (<name>=<value>) on top of the app's environment, as GuestStart's
     extra entries (the gap scanner's MINATO_GAPSCAN).
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
@@ -489,6 +490,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
         command += ["--location-script", location_script]
     if device_profile:
         command += ["--device-profile", device_profile]
+    if webview_fake:
+        command += ["--webview-fake"]
     if picks:
         # The host's own folder for the records of the write-back, outside everything the app can reach (ADR-0057).
         state = os.path.join(run, "host-state")

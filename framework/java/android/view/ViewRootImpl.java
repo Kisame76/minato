@@ -773,8 +773,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return mHostWindow != 0;
     }
 
-    /** @hide The host's window's ID, 0 without one. */
-    long hostWindow() {
+    /** @hide The host's window's ID, 0 without one; public for the WebView's placing (ADR-0056 step b2). */
+    public long hostWindow() {
         return mHostWindow;
     }
 

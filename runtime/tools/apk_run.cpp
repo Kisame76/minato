@@ -8,7 +8,7 @@
 //           [--pick-photo <host file>]... [--sensor-script <host file>]
 //           [--grant-location fine|coarse|denied] [--location-script <host file>]
 //           [--device-profile pixel|galaxy] [--frame-rate 60|120]
-//           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]
+//           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>] [--webview-fake]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64. Both split at
@@ -34,6 +34,9 @@
 // step d). An open request (ADR-0062) is answered as a host that showed it: RESULT_OK 300 ms after the request, with
 // the line "apk-run: open <ID>: <kind>\t<decoded fields>" on stderr, tabs and newlines written out; with --pick-data a
 // share's files follow, each as the host reads it, "apk-run: open <ID> file <name>: <size> bytes <first bytes>".
+// --webview-fake, with --configuration, answers the guest's WebViews with the fake host of tools/webview_fake.h, which
+// plays the effects of webview-test's pages as Android 15's WebView shows them (ADR-0056 step b2); without it a
+// WebView request answers -EOPNOTSUPP, as where no host has a WebView.
 // Without --configuration there is no frame clock, by design (vsync-lag-test posts its own ticks): a Java app's first
 // traversal posts ViewRootImpl's sync barrier, which only a frame removes, so its main Looper then dispatches no post
 // from another thread and no delayed post. A check that needs the main Looper passes a configuration.
@@ -125,6 +128,7 @@
 #include "headless_audio.h"
 #include "headless_host.h"
 #include "pick_host.h"
+#include "webview_fake.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -173,6 +177,7 @@ int usage() {
                  "               [--pick-state <host directory>] [--export-dir <host directory>]\n"
                  "               [--pick-photo <host file>]...\n"
                  "               [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]\n"
+                 "               [--webview-fake]\n"
                  "               [--measures <file>] <container.dylib> [argument...]\n"
                  "--mount and --libraries split at the last '=', --env at the first.\n");
     return 2;
@@ -1342,11 +1347,16 @@ int main(int argc, char **argv) {
     std::int32_t location_grant = -1;  // -1: no --grant-location, so the runtime stays at its default (no grant)
     std::string device_profile;        // empty: no --device-profile, so the host's own names (ADR-0065)
     int frame_rate = 0;                // 0: no --frame-rate, so no FPS unlock (ADR-0066)
+    bool webview_fake = false;         // --webview-fake: the fake WebView host (ADR-0056 step b2)
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
         const std::string_view option = argv[index];
         if (option == "--app-environment") {
             shell.clear();
+            continue;
+        }
+        if (option == "--webview-fake") {
+            webview_fake = true;
             continue;
         }
         if (index + 1 >= argc) return usage();
@@ -1448,6 +1458,7 @@ int main(int argc, char **argv) {
             session.surface = on_surface;
             session.window = on_window;
         }
+        if (webview_fake) session.webview = webview_fake::handle;
         if (apkrt_session_begin(&session) != 0) {
             std::fprintf(stderr, "apk-run: the session did not begin\n");
             return 2;

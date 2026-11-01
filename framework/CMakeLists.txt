@@ -335,6 +335,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_util_Binder.cpp native/android_runtime/android_app_ActivityThread.cpp
             native/android_runtime/android_view_DisplayEventReceiver.cpp native/android_runtime/android_view_Surface.cpp
             native/android_runtime/android_view_TextureView.cpp
+            native/android_runtime/com_android_internal_minato_webkit_WebViewChannel.cpp
             native/android_runtime/android_hardware_display_DisplayService.cpp
             native/android_runtime/android_hardware_SensorManager.cpp
             native/android_runtime/android_hardware_HardwareBuffer.cpp

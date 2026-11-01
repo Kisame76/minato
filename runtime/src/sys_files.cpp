@@ -1,6 +1,7 @@
 // File syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): Linux paths, flags and
 // structures on Darwin's file descriptors. Every path goes through the path table (vfs.h), every
 // descriptor through the guest's descriptor table (descriptors.h, ADR-0027).
+#include "channels.h"
 #include "descriptors.h"
 #include "identity.h"
 #include "memfd.h"
@@ -1300,8 +1301,10 @@ template <typename Plain>
 long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain plain) {
     const auto description = descriptors::get(fd);
     if (!description) return -linux_errno::ebadf;
-    // An epoll has no read or write, and a channel only its private syscalls (channels.h).
-    if (description->kind() == Description::Kind::epoll || description->kind() == Description::Kind::channel) {
+    // An epoll has no read or write, and a channel only its private syscalls (channels.h), but for the reads of a
+    // WebView channel, whose records the guest reads (ADR-0056 step a).
+    if (description->kind() == Description::Kind::epoll ||
+        (description->kind() == Description::Kind::channel && (writing || !channels::reads_records(*description)))) {
         return -linux_errno::einval;
     }
     if (count == 0) return 0;  // Linux moves nothing; Darwin answers EINVAL for no vectors

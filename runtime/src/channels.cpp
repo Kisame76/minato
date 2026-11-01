@@ -44,8 +44,10 @@ class Channel : public Description {
 public:
     enum class Of { vsync, input, webview };
 
-    Channel(int read_end, int write_end, Of of)
-        : Description(read_end, false, false, false, Kind::channel), of_(of), write_end_(write_end) {}
+    /// `can_block`: the guest reads the channel itself, and the runtime's read waits on its non-blocking host end
+    /// (a WebView channel); the other channels have only their private syscalls.
+    Channel(int read_end, int write_end, Of of, bool can_block = false)
+        : Description(read_end, can_block, false, false, Kind::channel), of_(of), write_end_(write_end) {}
     ~Channel() override { ::close(write_end_); }
     Channel(const Channel &) = delete;
     Channel &operator=(const Channel &) = delete;
@@ -707,17 +709,18 @@ std::size_t vsync_count() {
 
 // --- The WebView channel (ADR-0056 step a) -------------------------------------------------------------
 // The host writes a stream of records to the guest over an AF_UNIX/SOCK_STREAM pair. The guest's read end is the
-// description's host descriptor (kept blocking: a read waits for a whole record); the host's write end belongs to a
-// per-channel writer thread that drains an unbounded queue with blocking writes, so a post never blocks its caller
-// (ADR-0056 decision 3). Unlike the vsync and input channels this carries the records themselves, so it needs no
-// doorbell pipe; readiness is the socket's own POLLIN.
+// description's host descriptor, which the guest reads with read(): non-blocking on the host and blocking for the
+// guest, as the runtime's read waits for it as for a socket's, so that a signal ends the wait; the host's write end
+// belongs to a per-channel writer thread that drains an unbounded queue with blocking writes, so a post never blocks
+// its caller (ADR-0056 decision 3). Unlike the vsync and input channels this carries the records themselves, so it
+// needs no doorbell pipe; readiness is the socket's own POLLIN.
 namespace {
 
 /// A WebView channel's description. Its host descriptor is the socket's guest-read end; it has no doorbell write
 /// end (the base's stays -1), and its readiness is whatever the socket holds.
 class WebViewChannel final : public Channel {
 public:
-    explicit WebViewChannel(int guest_read_end) : Channel(guest_read_end, -1, Of::webview) {}
+    explicit WebViewChannel(int guest_read_end) : Channel(guest_read_end, -1, Of::webview, true) {}
 
     bool unread() const override {
         int pending = 0;
@@ -833,13 +836,19 @@ long enqueue(std::uint64_t token, std::vector<std::uint8_t> &&bytes) {
 
 }  // namespace
 
+bool reads_records(descriptors::Description &channel) {
+    return channel.kind() == Description::Kind::channel && static_cast<Channel &>(channel).of() == Channel::Of::webview;
+}
+
 long webview_make(std::uint64_t token) {
     if (token == 0) return -linux_errno::einval;
     int ends[2];
     if (::socketpair(AF_UNIX, SOCK_STREAM, 0, ends) != 0) return -sys::to_linux_errno(errno);
-    // ends[0]: the guest's read end (the description's host descriptor, kept blocking). ends[1]: the host's write
-    // end. Both close-on-exec; a write never raises SIGPIPE once the guest's end is gone.
+    // ends[0]: the guest's read end (the description's host descriptor, non-blocking on the host, the runtime's
+    // read waiting for it). ends[1]: the host's write end, blocking, for the writer thread. Both close-on-exec; a
+    // write never raises SIGPIPE once the guest's end is gone.
     for (const int end : ends) ::fcntl(end, F_SETFD, FD_CLOEXEC);
+    ::fcntl(ends[0], F_SETFL, O_NONBLOCK);
     ::fcntl(ends[1], F_SETNOSIGPIPE, 1);
 
     std::shared_ptr<WebViewChannel> channel;  // owns ends[0] until the table takes it

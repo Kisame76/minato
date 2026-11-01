@@ -918,6 +918,11 @@ run_app() {
     webview-start-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WebViewStartActivity
       ;;
+    # webview-test (ADR-0056 step b2): its launcher activity loads an asset page, a missing asset and a large page from
+    # loadDataWithBaseURL, and logs what its clients hear; it ends with "done" after the third page's history.
+    webview-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WebViewActivity
+      ;;
     # enter-test (ADR-0068, the return key): seven fields that its fixture input method serves as LatinIME does, one
     # after another; it ends with "done" after the last field. enter-test-15 is its twin of target SDK 15.
     enter-test | enter-test-15)

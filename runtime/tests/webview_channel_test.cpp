@@ -11,6 +11,8 @@
 #include "APKRuntime/guest_interface.h"
 #include "check.h"
 
+#include <fcntl.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -26,10 +28,14 @@ using Bytes = std::vector<std::uint8_t>;
 constexpr std::int64_t einval = 22;
 
 /// The real read end behind a guest channel fd, so the header-only reader (which read()s the fd directly, as the guest
-/// does) can be driven in this host process. On the device the guest's read() of the channel fd routes here itself.
+/// does) can be driven in this host process. The guest's read() of the channel fd waits in the runtime on this end,
+/// which is non-blocking on the host (blocking_test.cpp checks that read); the test's direct reads make it blocking, so
+/// that they wait as the guest's do.
 int read_fd(long guest_fd) {
     const auto description = apkrt::descriptors::get(static_cast<int>(guest_fd));
-    return description ? description->host() : -1;
+    if (!description) return -1;
+    ::fcntl(description->host(), F_SETFL, ::fcntl(description->host(), F_GETFL) & ~O_NONBLOCK);
+    return description->host();
 }
 
 /// A payload of `n` bytes with a recognizable pattern, so a wrong join or a truncation shows.

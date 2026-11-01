@@ -1,0 +1,25 @@
+I/webview-test: page started: file:///android_asset/page.html
+I/webview-test: title: Minato page
+I/webview-test: alert: hello from the page, from file:///android_asset/page.html
+I/webview-test: progress 100
+I/webview-test: page finished: file:///android_asset/page.html
+I/webview-test: page: url file:///android_asset/page.html, original file:///android_asset/page.html, title Minato page, progress 100
+I/webview-test: script 1 + 2: 3
+I/webview-test: script document.title: "Minato page"
+I/webview-test: page started: file:///android_asset/missing.html
+I/webview-test: error: main frame true, code -1, net::ERR_FILE_NOT_FOUND, file:///android_asset/missing.html
+I/webview-test: page finished: file:///android_asset/missing.html
+I/webview-test: missing, finished: url file:///android_asset/page.html, original file:///android_asset/page.html, title Minato page, progress 10
+I/webview-test: title: Webpage not available
+I/webview-test: progress 100
+I/webview-test: missing, a second later: url file:///android_asset/missing.html, original file:///android_asset/missing.html, title Webpage not available, progress 100
+I/webview-test: page started: about:blank
+I/webview-test: title: Big page
+I/webview-test: progress 100
+I/webview-test: page finished: about:blank
+I/webview-test: big: url about:blank, original data:text/html;charset=utf-8;base64,, title Big page, progress 100
+I/webview-test: history: back true, forward false, size 3, current 2
+I/webview-test: history 0: file:///android_asset/page.html, title Minato page
+I/webview-test: history 1: file:///android_asset/missing.html, title Webpage not available
+I/webview-test: history 2: data:text/html;charset=utf-8;base64,, title Big page
+I/webview-test: done

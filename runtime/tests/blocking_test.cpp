@@ -1,10 +1,13 @@
 // Checks that blocking syscalls end as on Linux when signals come (ADR-0026, ADR-0027): a futex wait, a
 // sleep or a blocking read or write on a pipe ends with EINTR at once when a signal is deliverable,
-// however shortly before the wait it came, and a signal the thread blocks ends none of them. Host
+// however shortly before the wait it came, and a signal the thread blocks ends none of them. A WebView channel's
+// read, the one read a channel takes (ADR-0056 step a), gives its records and ends so too; a write to it, and a
+// read of another channel, are refused with EINVAL. Host
 // threads call the dispatcher directly, as
 // syscalls_test.cpp does; the guest threads are clone children that make their syscalls through the
 // veneer's exact instructions (threads_probe.S, blocking_probe.S), and the test's own thread sends them
 // signals like another thread of the program.
+#include "channels.h"
 #include "descriptors.h"
 #include "signals.h"
 #include "syscall_frame.h"
@@ -12,6 +15,8 @@
 #include "threads.h"
 
 #include "check.h"
+
+#include "APKRuntime/guest_interface.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -73,7 +78,7 @@ constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12, sigpipe = 13;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
 constexpr std::uint64_t sig_block = 0, sig_unblock = 1;
 constexpr std::uint64_t clock_monotonic = 1, timer_abstime = 1;
-constexpr long eintr = 4, eagain = 11, etimedout = 110;
+constexpr long eintr = 4, eagain = 11, einval = 22, etimedout = 110;
 
 constexpr std::uint64_t bit(std::uint64_t signal) {
     return std::uint64_t{1} << (signal - 1);
@@ -546,6 +551,56 @@ TEST(a_wait_leaves_no_filter_behind_that_wakes_the_next_wait_in_vain) {
     CHECK(waiter.sleeps());
     CHECK(holds_no_filter(waiter.state(), host_of(first.read_end)));
     CHECK(waiter.result(by_writing_to(second)) == 1);
+}
+
+// --- A WebView channel (ADR-0056 step a), which the guest reads with read() ------------------------------------
+
+/// A WebView channel's guest fd for `token`.
+long webview_channel(std::uint64_t token) {
+    const long fd = apkrt::channels::webview_make(token);
+    CHECK(fd >= 0);
+    return fd;
+}
+
+TEST(a_guest_read_of_a_webview_channel_gives_its_record) {
+    const long fd = webview_channel(901);
+    const char body[] = "{\"progress\":100}";
+    CHECK(apkrt::channels::webview_post(901, APKRT_WEBVIEW_REC_PROGRESS, 7, body, sizeof body - 1) == 0);
+    struct {
+        apkrt_webview_record_header header;
+        char body[sizeof body - 1];
+    } record{};
+    CHECK(read_from(static_cast<int>(fd), &record, sizeof record) == static_cast<long>(sizeof record));
+    CHECK(record.header.type == APKRT_WEBVIEW_REC_PROGRESS && record.header.request_id == 7);
+    CHECK(record.header.length == sizeof body - 1 && std::memcmp(record.body, body, sizeof body - 1) == 0);
+    apkrt::channels::webview_close(901);
+}
+
+TEST(a_guest_write_to_a_webview_channel_is_refused) {
+    const long fd = webview_channel(902);
+    CHECK(write_to(static_cast<int>(fd), "x", 1) == -einval);
+    apkrt::channels::webview_close(902);
+}
+
+TEST(a_read_of_another_channel_kind_is_still_refused) {
+    const long fd = apkrt::channels::vsync_connect();
+    CHECK(fd >= 0);
+    std::uint64_t value = 0;
+    CHECK(read_from(static_cast<int>(fd), &value, sizeof value) == -einval);
+    call(nr_close, static_cast<std::uint64_t>(fd));
+}
+
+TEST(a_signal_ends_a_blocked_webview_channel_read_as_a_sockets) {
+    const long fd = webview_channel(903);
+    Waiter waiter(leave_as_is, [&] {
+        apkrt_webview_record_header header{};
+        return read_from(static_cast<int>(fd), &header, sizeof header);
+    });
+    CHECK(waiter.sleeps());
+    send_without_runtime_signal(waiter.state(), sigusr1);
+    CHECK(waiter.finishes_within(2s));
+    CHECK(waiter.result(by_signal) == -eintr);
+    apkrt::channels::webview_close(903);
 }
 
 TEST(a_blocking_writev_writes_every_vector_in_order) {

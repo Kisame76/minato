@@ -20,6 +20,10 @@ long vsync_read(int fd, std::uint64_t vsync);
 long input_connect(std::uint64_t id);
 long input_read(int fd, std::uint64_t event);
 
+/// Whether the description is a WebView channel, whose records the guest reads with read() (ADR-0056 step a); the
+/// other channels have only their private syscalls.
+bool reads_records(descriptors::Description &channel);
+
 /// Whether a channel's description (Kind::channel) holds something unread: its POLLIN.
 bool readable(descriptors::Description &channel);
 

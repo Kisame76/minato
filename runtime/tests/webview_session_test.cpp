@@ -118,10 +118,14 @@ long send(const apkrt_webview_request &request) {
     return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_WEBVIEW, address(&request));
 }
 
-/// The real read end behind a guest channel fd, so the header-only reader can be driven in this host process.
+/// The real read end behind a guest channel fd, so the header-only reader can be driven in this host process. It is
+/// non-blocking on the host, where the guest's read() waits in the runtime; the test's direct reads make it blocking,
+/// as webview_channel_test.cpp's do.
 int read_fd(long guest_fd) {
     const auto description = apkrt::descriptors::get(static_cast<int>(guest_fd));
-    return description ? description->host() : -1;
+    if (!description) return -1;
+    ::fcntl(description->host(), F_SETFL, ::fcntl(description->host(), F_GETFL) & ~O_NONBLOCK);
+    return description->host();
 }
 
 }  // namespace

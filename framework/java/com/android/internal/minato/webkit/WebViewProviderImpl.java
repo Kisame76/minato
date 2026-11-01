@@ -7,6 +7,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Picture;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -23,20 +24,29 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewRootImpl;
 import android.view.ViewStructure;
+import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.util.Base64;
+import android.webkit.ConsoleMessage;
 import android.webkit.DownloadListener;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
 import android.webkit.ValueCallback;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
 import android.webkit.WebHistoryItem;
 import android.webkit.WebMessage;
 import android.webkit.WebMessagePort;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -44,19 +54,38 @@ import android.webkit.WebViewProvider;
 import android.webkit.WebViewRenderProcess;
 import android.webkit.WebViewRenderProcessClient;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.BufferedWriter;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 
 /**
- * One WebView's provider (ADR-0056 step b1): what Chromium's WebViewChromium is to AOSP's facade, without a page yet.
- * It keeps what the app sets (settings, clients, listeners, the background color) and answers the getters as a
- * WebView that has loaded nothing does; the view lays out and takes no input. It draws as Chromium's does on Android
- * 15 (webview-start-test on the AVD): opaque black before the app asks for any content, then its background color,
- * white unless the app sets one, as an empty page shows. A load or a script is logged once per process, without its
- * URL, since the page comes with the host's WKWebView in step c); a script's callback gets "null" so that an app
- * waiting for it goes on. AOSP's facade checks the UI thread before each call.
+ * One WebView's provider (ADR-0056 steps b1 and b2): what Chromium's WebViewChromium is to AOSP's facade, with the
+ * page in the host. It keeps what the app sets (settings, clients, listeners, the background color) and sends the
+ * loads, scripts and navigation to the host over its WebViewChannel, which it opens at the first load or at its attach,
+ * whichever comes first: a CALL "make" first, with the package's data store, the scheme and the settings, then one
+ * per call, with "settings" again before a load when they changed (Grafik's review of b2). URLs of the app's assets
+ * and resources (file:///android_asset/, file:///android_res/) go to the host as minato-asset://asset/ and
+ * minato-asset://res/, and come back as the app gave them, in every URL the app sees. The host's records come back on
+ * the main Looper: they drive the clients and a mirror of the page (URL, original URL, title, progress, history), from
+ * which the getters answer. At each pre-draw while attached it places the view in its window's pixels (PLACE).
+ * Without a host (none has a WebView yet, MAKE answers -EOPNOTSUPP) it answers as a WebView that has loaded nothing
+ * does, as in b1, and draws as Chromium's does on Android 15 (webview-start-test on the AVD): opaque black before the
+ * app asks for any content, then its background color, white unless the app sets one; a load or a script is logged
+ * once per process, without its URL, and a script's callback gets "null" so that an app waiting for it goes on. With a
+ * host its area is cleared, as SurfaceView's hole, for the host's view. AOSP's facade checks the UI thread before
+ * each call.
  */
 @SuppressWarnings("deprecation") // The interface's deprecated members, which Chromium's implements too.
 final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.ViewDelegate,
@@ -79,22 +108,46 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private int mRendererPriority = WebView.RENDERER_PRIORITY_IMPORTANT;
     private boolean mRendererWaived;
 
+    /** The host's view: not asked yet, open, or absent (no host has a WebView; b1's answers). */
+    private static final int HOST_UNKNOWN = 0;
+    private static final int HOST_OPEN = 1;
+    private static final int HOST_ABSENT = 2;
+    private int mHost = HOST_UNKNOWN;
+    private final WebViewChannel mChannel = new WebViewChannel();
+    /** The settings the host has, as last sent. */
+    private JSONObject mSentSettings;
+    /** The page's mirror, from the host's records. */
+    private String mUrl;
+    private String mOriginalUrl;
+    private String mTitle = "";
+    private int mProgress = 100;
+    private final List<HistoryItem> mHistory = new ArrayList<>();
+    private int mHistoryIndex = -1;
+    /** evaluateJavascript's callbacks, by their CALL's request id. */
+    private final Map<Long, ValueCallback<String>> mScripts = new HashMap<>();
+    /** The frame and clip last placed, and the window they were placed in. */
+    private int[] mPlaced;
+    private long mPlacedWindow;
+    private final ViewTreeObserver.OnPreDrawListener mPlacer = () -> {
+        place();
+        return true;
+    };
+
     WebViewProviderImpl(WebView webView, WebView.PrivateAccess privateAccess) {
         mWebView = webView;
         mPrivate = privateAccess;
         mSettings = new WebSettingsImpl(webView.getContext());
     }
 
-    /** The app asked for content, which comes in step c): the area turns to the page's background. */
+    /** The app asked for content: without a host, the area turns to the page's background. */
     private void requested() {
         if (!mContentRequested) {
             mContentRequested = true;
             mWebView.invalidate();
         }
-        noContent();
     }
 
-    /** The page this would show comes in step c): noted once per process, without what was asked. */
+    /** Without a host the page does not come: noted once per process, without what was asked. */
     private static synchronized void noContent() {
         if (!sNoContentLogged) {
             sNoContentLogged = true;
@@ -102,14 +155,392 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
     }
 
-    /** No pages, so no history: an empty list, as Chromium's before the first load. */
+    // The host
+
+    /** The host's view, opened at the first need: MAKE, then the CALL "make". Whether the host has one. */
+    private boolean hostOpen() {
+        if (mHost == HOST_UNKNOWN) {
+            if (mChannel.make(mRecords) < 0) {
+                mHost = HOST_ABSENT;
+            } else {
+                mHost = HOST_OPEN;
+                mSentSettings = settings();
+                String dataStore = UUID.nameUUIDFromBytes(("minato-webview:" + mWebView.getContext().getPackageName())
+                        .getBytes(StandardCharsets.UTF_8)).toString();
+                try {
+                    send(new JSONObject().put("call", "make").put("dataStore", dataStore)
+                            .put("schemes", new JSONArray().put(SCHEME)).put("settings", mSentSettings), null, 0);
+                } catch (JSONException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+        }
+        return mHost == HOST_OPEN;
+    }
+
+    /** What the host's view needs of the settings; a change applies from the next load (Grafik's review). */
+    private JSONObject settings() {
+        try {
+            return new JSONObject().put("userAgent", mSettings.getUserAgentString())
+                    .put("javaScript", mSettings.getJavaScriptEnabled())
+                    .put("domStorage", mSettings.getDomStorageEnabled())
+                    .put("mediaNeedsGesture", mSettings.getMediaPlaybackRequiresUserGesture())
+                    .put("blockNetworkLoads", mSettings.getBlockNetworkLoads())
+                    .put("textZoom", mSettings.getTextZoom());
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** A CALL to the host; a refusal is noted as b1's missing content is. */
+    private void send(JSONObject call, String cut, long requestId) {
+        if (mChannel.call(requestId, call, cut) < 0) {
+            noContent();
+        }
+    }
+
+    /** A load: "settings" first when they changed since the host last had them, then the load itself. */
+    private void load(JSONObject call, String cut) {
+        requested();
+        if (!hostOpen()) {
+            noContent();
+            return;
+        }
+        JSONObject now = settings();
+        if (!now.toString().equals(mSentSettings.toString())) {
+            mSentSettings = now;
+            try {
+                send(new JSONObject().put("call", "settings").put("settings", now), null, 0);
+            } catch (JSONException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        send(call, cut, 0);
+    }
+
+    /** A call that only the host can carry out (navigation, the cache), dropped without one. */
+    private void command(String name, String key, Object value) {
+        if (!hostOpen()) {
+            return;
+        }
+        try {
+            JSONObject call = new JSONObject().put("call", name);
+            if (key != null) {
+                call.put(key, value);
+            }
+            send(call, null, 0);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static JSONObject call(String name) {
+        try {
+            return new JSONObject().put("call", name);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The scheme of the app's assets and resources in the host. */
+    static final String SCHEME = "minato-asset";
+    private static final String[][] URL_PREFIXES = {
+        {"file:///android_asset/", SCHEME + "://asset/"},
+        {"file:///android_res/", SCHEME + "://res/"},
+    };
+
+    /** A URL of the app as the host sees it. */
+    static String toHost(String url) {
+        if (url != null) {
+            for (String[] prefix : URL_PREFIXES) {
+                if (url.startsWith(prefix[0])) {
+                    return prefix[1] + url.substring(prefix[0].length());
+                }
+            }
+        }
+        return url;
+    }
+
+    /** A URL of the host as the app gave it. */
+    static String toApp(String url) {
+        if (url != null) {
+            for (String[] prefix : URL_PREFIXES) {
+                if (url.startsWith(prefix[1])) {
+                    return prefix[0] + url.substring(prefix[1].length());
+                }
+            }
+        }
+        return url;
+    }
+
+    /** A URL field of a record, as the app gave it; null when absent. */
+    private static String url(JSONObject record, String name) {
+        return record.isNull(name) ? null : toApp(record.optString(name));
+    }
+
+    // The host's records, on the main Looper
+
+    private final WebViewChannel.Records mRecords = new WebViewChannel.Records() {
+        @Override
+        public void onRecord(int type, long requestId, JSONObject record) {
+            switch (type) {
+                case WebViewChannel.REC_NAVIGATION:
+                    navigation(record);
+                    break;
+                case WebViewChannel.REC_PROGRESS:
+                    mProgress = record.optInt("progress", 100);
+                    if (mChromeClient != null) {
+                        mChromeClient.onProgressChanged(mWebView, mProgress);
+                    }
+                    break;
+                case WebViewChannel.REC_TITLE:
+                    mTitle = record.optString("title", "");
+                    if (mHistoryIndex >= 0) {
+                        mHistory.get(mHistoryIndex).mTitle = mTitle;
+                    }
+                    if (mChromeClient != null) {
+                        mChromeClient.onReceivedTitle(mWebView, mTitle);
+                    }
+                    break;
+                case WebViewChannel.REC_JS_RESULT: {
+                    ValueCallback<String> callback = mScripts.remove(requestId);
+                    if (callback != null) {
+                        callback.onReceiveValue(record.isNull("json") ? null : record.optString("json"));
+                    }
+                    break;
+                }
+                case WebViewChannel.REC_JS_DIALOG:
+                    dialog(requestId, record);
+                    break;
+                case WebViewChannel.REC_ERROR:
+                    error(record);
+                    break;
+                case WebViewChannel.REC_CONSOLE:
+                    if (mChromeClient != null) {
+                        mChromeClient.onConsoleMessage(new ConsoleMessage(record.optString("message"),
+                                url(record, "source"), record.optInt("line"), level(record.optString("level"))));
+                    }
+                    break;
+                default:
+                    break; // CREATED, PLACED and DESTROYED change nothing the app sees
+            }
+        }
+
+        @Override
+        public void onChannelEnd() {
+            for (ValueCallback<String> callback : mScripts.values()) {
+                callback.onReceiveValue(null);
+            }
+            mScripts.clear();
+        }
+    };
+
+    private void navigation(JSONObject record) {
+        String phase = record.optString("phase");
+        String url = url(record, "url");
+        switch (phase) {
+            case "started":
+                mClient.onPageStarted(mWebView, url, null);
+                break;
+            case "committed":
+                mUrl = url;
+                mOriginalUrl = url(record, "originalUrl");
+                JSONArray items = record.optJSONArray("history");
+                if (items != null) {
+                    mHistory.clear();
+                    for (int i = 0; i < items.length(); i++) {
+                        JSONObject item = items.optJSONObject(i);
+                        mHistory.add(new HistoryItem(i, url(item, "url"), url(item, "originalUrl"),
+                                item.optString("title", "")));
+                    }
+                    mHistoryIndex = record.optInt("index", mHistory.size() - 1);
+                }
+                mClient.doUpdateVisitedHistory(mWebView, url, record.optBoolean("reload"));
+                break;
+            case "finished":
+                mClient.onPageFinished(mWebView, url);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void error(JSONObject record) {
+        Request request = new Request(url(record, "url"), record.optBoolean("mainFrame"));
+        if (record.optBoolean("http")) {
+            mClient.onReceivedHttpError(mWebView, request, new WebResourceResponse(null, null,
+                    record.optInt("status"), record.optString("reason", "Error"), Collections.emptyMap(), null));
+        } else {
+            mClient.onReceivedError(mWebView, request,
+                    new Error(record.optInt("code"), record.optString("description")));
+        }
+    }
+
+    /** A script's dialog, which the host waits for: the chrome client's answer, else a cancel, as no dialog shows. */
+    private void dialog(long requestId, JSONObject record) {
+        String kind = record.optString("kind");
+        String url = url(record, "url");
+        String message = record.optString("message");
+        JsResult.ResultReceiver receiver = result -> {
+            try {
+                JSONObject answer = new JSONObject().put("result", result.getResult());
+                if (result instanceof JsPromptResult) {
+                    answer.put("value", ((JsPromptResult) result).getStringResult());
+                }
+                mChannel.answer(requestId, answer);
+            } catch (JSONException e) {
+                throw new IllegalStateException(e);
+            }
+        };
+        boolean handled = false;
+        JsResult result;
+        if (kind.equals("prompt")) {
+            JsPromptResult prompt = new JsPromptResult(receiver);
+            result = prompt;
+            handled = mChromeClient != null
+                    && mChromeClient.onJsPrompt(mWebView, url, message, record.optString("default"), prompt);
+        } else {
+            result = new JsResult(receiver);
+            if (mChromeClient != null) {
+                switch (kind) {
+                    case "alert":
+                        handled = mChromeClient.onJsAlert(mWebView, url, message, result);
+                        break;
+                    case "confirm":
+                        handled = mChromeClient.onJsConfirm(mWebView, url, message, result);
+                        break;
+                    case "beforeunload":
+                        handled = mChromeClient.onJsBeforeUnload(mWebView, url, message, result);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        if (!handled) {
+            result.cancel();
+        }
+    }
+
+    private static ConsoleMessage.MessageLevel level(String name) {
+        switch (name) {
+            case "tip": return ConsoleMessage.MessageLevel.TIP;
+            case "warning": return ConsoleMessage.MessageLevel.WARNING;
+            case "error": return ConsoleMessage.MessageLevel.ERROR;
+            case "debug": return ConsoleMessage.MessageLevel.DEBUG;
+            default: return ConsoleMessage.MessageLevel.LOG;
+        }
+    }
+
+    /** PLACE: the view's frame and its visible part in its window's pixels, when they changed. */
+    private void place() {
+        if (mHost != HOST_OPEN) {
+            return;
+        }
+        ViewRootImpl root = mWebView.getViewRootImpl();
+        long window = root != null ? root.hostWindow() : 0;
+        if (window == 0 || mWebView.getWidth() <= 0 || mWebView.getHeight() <= 0) {
+            return;
+        }
+        int[] at = new int[2];
+        mWebView.getLocationInWindow(at);
+        Rect visible = new Rect();
+        if (!mWebView.getLocalVisibleRect(visible)) {
+            visible.setEmpty();
+        } else {
+            visible.offset(at[0] - mWebView.getScrollX(), at[1] - mWebView.getScrollY());
+        }
+        int[] frame = {at[0], at[1], at[0] + mWebView.getWidth(), at[1] + mWebView.getHeight(),
+                visible.left, visible.top, visible.right, visible.bottom};
+        if (window != mPlacedWindow || !java.util.Arrays.equals(frame, mPlaced)) {
+            mPlacedWindow = window;
+            mPlaced = frame;
+            mChannel.place(window, frame);
+        }
+    }
+
+    /** A history entry of the host's, as its last record gave it. */
+    private static final class HistoryItem extends WebHistoryItem {
+        private final int mId;
+        private final String mUrl;
+        private final String mOriginalUrl;
+        String mTitle;
+
+        HistoryItem(int id, String url, String originalUrl, String title) {
+            mId = id;
+            mUrl = url;
+            mOriginalUrl = originalUrl;
+            mTitle = title;
+        }
+
+        @Override public int getId() { return mId; }
+        @Override public String getUrl() { return mUrl; }
+        @Override public String getOriginalUrl() { return mOriginalUrl; }
+        @Override public String getTitle() { return mTitle; }
+        @Override public Bitmap getFavicon() { return null; }
+        @Override protected HistoryItem clone() { return new HistoryItem(mId, mUrl, mOriginalUrl, mTitle); }
+    }
+
+    /** A copy of the history, as copyBackForwardList gives it; empty before the first page, as Chromium's. */
     @SuppressWarnings("serial")
-    private static final class EmptyHistory extends WebBackForwardList {
-        @Override public WebHistoryItem getCurrentItem() { return null; }
-        @Override public int getCurrentIndex() { return -1; }
-        @Override public WebHistoryItem getItemAtIndex(int index) { return null; }
-        @Override public int getSize() { return 0; }
-        @Override protected WebBackForwardList clone() { return new EmptyHistory(); }
+    private static final class History extends WebBackForwardList {
+        private final List<HistoryItem> mItems;
+        private final int mIndex;
+
+        History(List<HistoryItem> items, int index) {
+            mItems = new ArrayList<>();
+            for (HistoryItem item : items) {
+                mItems.add(item.clone());
+            }
+            mIndex = index;
+        }
+
+        @Override
+        public WebHistoryItem getCurrentItem() {
+            return mIndex >= 0 && mIndex < mItems.size() ? mItems.get(mIndex) : null;
+        }
+
+        @Override public int getCurrentIndex() { return mIndex; }
+
+        @Override
+        public WebHistoryItem getItemAtIndex(int index) {
+            return index >= 0 && index < mItems.size() ? mItems.get(index) : null;
+        }
+
+        @Override public int getSize() { return mItems.size(); }
+        @Override protected WebBackForwardList clone() { return new History(mItems, mIndex); }
+    }
+
+    /** The request of an error record: a GET without a gesture, as the host reports a failed load. */
+    private static final class Request implements WebResourceRequest {
+        private final Uri mUrl;
+        private final boolean mMainFrame;
+
+        Request(String url, boolean mainFrame) {
+            mUrl = url != null ? Uri.parse(url) : Uri.EMPTY;
+            mMainFrame = mainFrame;
+        }
+
+        @Override public Uri getUrl() { return mUrl; }
+        @Override public boolean isForMainFrame() { return mMainFrame; }
+        @Override public boolean isRedirect() { return false; }
+        @Override public boolean hasGesture() { return false; }
+        @Override public String getMethod() { return "GET"; }
+        @Override public Map<String, String> getRequestHeaders() { return Collections.emptyMap(); }
+    }
+
+    /** A load's error: Chromium's code and its net:: description. */
+    private static final class Error extends WebResourceError {
+        private final int mCode;
+        private final String mDescription;
+
+        Error(int code, String description) {
+            mCode = code;
+            mDescription = description;
+        }
+
+        @Override public int getErrorCode() { return mCode; }
+        @Override public CharSequence getDescription() { return mDescription; }
     }
 
     // WebViewProvider
@@ -132,26 +563,78 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public void savePassword(String host, String username, String password) {}
     @Override public void setHttpAuthUsernamePassword(String host, String realm, String username, String password) {}
     @Override public String[] getHttpAuthUsernamePassword(String host, String realm) { return null; }
-    @Override public void destroy() {}
+    @Override public void destroy() { mChannel.remove(); }
     @Override public void setNetworkAvailable(boolean networkUp) {}
     @Override public WebBackForwardList saveState(Bundle outState) { return null; }
     @Override public boolean savePicture(Bundle b, File dest) { return false; }
     @Override public boolean restorePicture(Bundle b, File src) { return false; }
     @Override public WebBackForwardList restoreState(Bundle inState) { return null; }
-    @Override public void loadUrl(String url, Map<String, String> additionalHttpHeaders) { requested(); }
-    @Override public void loadUrl(String url) { requested(); }
-    @Override public void postUrl(String url, byte[] postData) { requested(); }
-    @Override public void loadData(String data, String mimeType, String encoding) { requested(); }
+    @Override
+    public void loadUrl(String url, Map<String, String> additionalHttpHeaders) {
+        try {
+            JSONObject call = call("loadUrl").put("url", toHost(url));
+            if (additionalHttpHeaders != null && !additionalHttpHeaders.isEmpty()) {
+                call.put("headers", new JSONObject(additionalHttpHeaders));
+            }
+            load(call, null);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Override public void loadUrl(String url) { loadUrl(url, null); }
+
+    @Override
+    public void postUrl(String url, byte[] postData) {
+        try {
+            load(call("postUrl").put("url", toHost(url))
+                    .put("body", Base64.encodeToString(postData != null ? postData : new byte[0], Base64.NO_WRAP)),
+                    "body");
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Override
+    public void loadData(String data, String mimeType, String encoding) {
+        try {
+            load(call("loadData").put("data", data).put("mimeType", mimeType).put("encoding", encoding), "data");
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     @Override
     public void loadDataWithBaseURL(String baseUrl, String data, String mimeType, String encoding,
             String historyUrl) {
-        requested();
+        try {
+            load(call("loadDataWithBaseURL").put("baseUrl", toHost(baseUrl)).put("data", data)
+                    .put("mimeType", mimeType).put("encoding", encoding).put("historyUrl", toHost(historyUrl)),
+                    "data");
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
+    /** A script's value comes from the host by its request id; without a host, "null", as b1 answers. */
     @Override
     public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {
         requested();
+        if (hostOpen()) {
+            long id = mChannel.nextRequestId();
+            if (resultCallback != null) {
+                mScripts.put(id, resultCallback);
+            }
+            try {
+                if (mChannel.call(id, call("evaluateJavascript").put("script", script), null) >= 0) {
+                    return;
+                }
+            } catch (JSONException e) {
+                throw new IllegalStateException(e);
+            }
+            mScripts.remove(id);
+        }
+        noContent();
         if (resultCallback != null) {
             new Handler(Looper.getMainLooper()).post(() -> resultCallback.onReceiveValue("null"));
         }
@@ -166,14 +649,25 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
     }
 
-    @Override public void stopLoading() {}
-    @Override public void reload() {}
-    @Override public boolean canGoBack() { return false; }
-    @Override public void goBack() {}
-    @Override public boolean canGoForward() { return false; }
-    @Override public void goForward() {}
-    @Override public boolean canGoBackOrForward(int steps) { return steps == 0; }
-    @Override public void goBackOrForward(int steps) {}
+    @Override public void stopLoading() { command("stopLoading", null, null); }
+    @Override public void reload() { command("reload", null, null); }
+    @Override public boolean canGoBack() { return canGoBackOrForward(-1); }
+    @Override public void goBack() { goBackOrForward(-1); }
+    @Override public boolean canGoForward() { return canGoBackOrForward(1); }
+    @Override public void goForward() { goBackOrForward(1); }
+
+    @Override
+    public boolean canGoBackOrForward(int steps) {
+        int index = mHistoryIndex + steps;
+        return steps == 0 || (mHistoryIndex >= 0 && index >= 0 && index < mHistory.size());
+    }
+
+    @Override
+    public void goBackOrForward(int steps) {
+        if (steps != 0 && canGoBackOrForward(steps)) {
+            command("goBackOrForward", "steps", steps);
+        }
+    }
     @Override public boolean isPrivateBrowsingEnabled() { return false; }
     @Override public boolean pageUp(boolean top) { return false; }
     @Override public boolean pageDown(boolean bottom) { return false; }
@@ -192,13 +686,13 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public WebView.HitTestResult getHitTestResult() { return new WebView.HitTestResult(); }
     @Override public void requestFocusNodeHref(Message hrefMsg) {}
     @Override public void requestImageRef(Message msg) {}
-    @Override public String getUrl() { return null; }
-    @Override public String getOriginalUrl() { return null; }
-    /** As Chromium's for a WebView that has shown no page: an empty title, where the URL is null. */
-    @Override public String getTitle() { return ""; }
+    @Override public String getUrl() { return mUrl; }
+    @Override public String getOriginalUrl() { return mOriginalUrl; }
+    /** The page's, from the host; before any page, as Chromium's: an empty title, where the URL is null. */
+    @Override public String getTitle() { return mTitle; }
     @Override public Bitmap getFavicon() { return null; }
     @Override public String getTouchIconUrl() { return null; }
-    @Override public int getProgress() { return 100; }
+    @Override public int getProgress() { return mProgress; }
     @Override public int getContentHeight() { return 0; }
     @Override public int getContentWidth() { return 0; }
     @Override public void pauseTimers() {}
@@ -207,11 +701,15 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public void onResume() { mPaused = false; }
     @Override public boolean isPaused() { return mPaused; }
     @Override public void freeMemory() {}
-    @Override public void clearCache(boolean includeDiskFiles) {}
+    @Override
+    public void clearCache(boolean includeDiskFiles) {
+        command("clearCache", "includeDiskFiles", includeDiskFiles);
+    }
+
     @Override public void clearFormData() {}
     @Override public void clearHistory() {}
     @Override public void clearSslPreferences() {}
-    @Override public WebBackForwardList copyBackForwardList() { return new EmptyHistory(); }
+    @Override public WebBackForwardList copyBackForwardList() { return new History(mHistory, mHistoryIndex); }
     @Override public void setFindListener(WebView.FindListener listener) {}
     @Override public void findNext(boolean forward) {}
     @Override public int findAll(String find) { return 0; }
@@ -291,9 +789,16 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public void onOverScrolled(int scrollX, int scrollY, boolean clampedX, boolean clampedY) {}
     @Override public void onWindowVisibilityChanged(int visibility) {}
 
-    /** The page's area, empty: black before any content was asked for, then the background color. */
+    /**
+     * The page's area: cleared for the host's view when there is one; else empty, black before any content was asked
+     * for, then the background color.
+     */
     @Override
     public void onDraw(Canvas canvas) {
+        if (mHost == HOST_OPEN) {
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            return;
+        }
         int color = mContentRequested ? mBackgroundColor : Color.BLACK;
         if (Color.alpha(color) != 0) {
             mBackgroundPaint.setColor(color);
@@ -315,8 +820,17 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public boolean onKeyMultiple(int keyCode, int repeatCount, KeyEvent event) { return false; }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) { return false; }
     @Override public boolean onKeyUp(int keyCode, KeyEvent event) { return false; }
-    @Override public void onAttachedToWindow() {}
-    @Override public void onDetachedFromWindow() {}
+    /** The host's view is opened here at the latest (a WebView never attached costs no channel), and placed. */
+    @Override
+    public void onAttachedToWindow() {
+        hostOpen();
+        mWebView.getViewTreeObserver().addOnPreDrawListener(mPlacer);
+    }
+
+    @Override
+    public void onDetachedFromWindow() {
+        mWebView.getViewTreeObserver().removeOnPreDrawListener(mPlacer);
+    }
     @Override public void onVisibilityChanged(View changedView, int visibility) {}
     @Override public void onWindowFocusChanged(boolean hasWindowFocus) {}
     @Override public void onFocusChanged(boolean focused, int direction, Rect previouslyFocusedRect) {}

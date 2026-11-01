@@ -65,6 +65,9 @@ starts, and with --location-script <file> a fake location host replays the file'
 runtime/tools/apk_run.cpp's lines: "<at_ms> <lat> <lon> <accuracy_m> [altitude]" and "rate <hz> <seconds> <lat> <lon>
 <accuracy_m>"); the runtime makes the fixes of a coarse grant coarse.
 
+With --webview-fake, apk-run's fake WebView host answers the app's WebViews (ADR-0056 step b2): it plays the effects
+of webview-test's pages as Android 15's WebView shows them, where no host has a WebView.
+
 With --device-profile pixel|galaxy, the program gets that phone's Build names instead of the host's (ADR-0065).
 
 With --export-dir <folder>, the session's host answers an export request of the app's MediaStore (ADR-0057 step e) by
@@ -98,7 +101,7 @@ Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <s
                        [--pick <file>]... [--pick-photo <file>]...
                        [--pick-save] [--pick-tree <folder>] [--export-dir <folder>] [--shares]
                        [--sensor-script <file>] [--grant-location fine|coarse|denied] [--location-script <file>]
-                       [--device-profile pixel|galaxy] [--odex <file>] [--status <n>]
+                       [--device-profile pixel|galaxy] [--odex <file>] [--status <n>] [--webview-fake]
                        [--once <line>]... [--never <text>]...
                        [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
@@ -140,6 +143,7 @@ def main():
     odex = None
     saves = False
     shares = False
+    webview_fake = False
     tree = None
     splits = []
     status = 0
@@ -150,7 +154,7 @@ def main():
                        ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
                        ["--pick-tree"], ["--export-dir"], ["--shares"], ["--sensor-script"], ["--grant-location"],
                        ["--location-script"], ["--device-profile"], ["--odex"], ["--status"], ["--once"], ["--never"],
-                       ["--env"],
+                       ["--env"], ["--webview-fake"],
                        ["--split"]):
         if args[0] == "--restart":
             restart, args = True, args[1:]
@@ -162,6 +166,8 @@ def main():
             saves, args = True, args[1:]
         elif args[0] == "--shares":
             shares, args = True, args[1:]
+        elif args[0] == "--webview-fake":
+            webview_fake, args = True, args[1:]
         elif len(args) > 1 and args[0] == "--export-dir":
             export_dir, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--sensor-script":
@@ -237,7 +243,7 @@ def main():
                        android_id=android_id, obbs=obbs, packs=packs, environment=environment, splits=splits,
                        picks=picks, photos=photos, saves=saves, tree=tree, export_dir=export_dir, shares=shares,
                        sensor_script=sensor_script, grant_location=grant_location, location_script=location_script,
-                       device_profile=device_profile, odex=odex)
+                       device_profile=device_profile, odex=odex, webview_fake=webview_fake)
         if result is None:
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)
