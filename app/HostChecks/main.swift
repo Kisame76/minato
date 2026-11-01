@@ -29,11 +29,20 @@ func setHiddenAsTheHideRule(_ layer: CALayer, _ hidden: Bool) {
         && pans.contains { $0.maximumNumberOfTouches == 1 }
 }
 
-let view = SessionLayersView(frame: CGRect(x: 0, y: 0, width: 430, height: 932))
+/// The display the view is laid out at: MINATO_DISPLAY, <width>x<height>@<scale> in pixels (tools/check-display.sh).
+let display: (width: Int32, height: Int32, scale: CGFloat) = {
+    let text = ProcessInfo.processInfo.environment["MINATO_DISPLAY"] ?? "1290x2796@3"
+    let parts = text.split(whereSeparator: { $0 == "x" || $0 == "@" }).compactMap { Int32($0) }
+    precondition(parts.count == 3, "MINATO_DISPLAY is <width>x<height>@<scale>, not \(text)")
+    return (parts[0], parts[1], CGFloat(parts[2]))
+}()
+let points = CGSize(width: CGFloat(display.width) / display.scale, height: CGFloat(display.height) / display.scale)
+
+let view = SessionLayersView(frame: CGRect(origin: .zero, size: points))
 view.layoutIfNeeded()
 let window = view.hostView.metalLayer
-window.contentsScale = 3
-let center = CGPoint(x: 215, y: 466)
+window.contentsScale = display.scale
+let center = CGPoint(x: points.width / 2, y: points.height / 2)
 /// UIKit's black, the window view's background, in whatever color space it comes.
 func isBlack(_ color: CGColor?) -> Bool {
     guard let color, let parts = color.components, color.alpha == 1 else { return false }
@@ -46,7 +55,7 @@ check(takesTouches(view.hitTest(center, with: nil)), "the view hit while the win
 setHiddenAsTheHideRule(window, true)
 check(takesTouches(view.hitTest(center, with: nil)),
       "the view hit while the hide rule hides the window's layer takes the touches")
-check(takesTouches(view.hitTest(CGPoint(x: 215, y: 10), with: nil)), "and the top edge's, for the menu's swipe")
+check(takesTouches(view.hitTest(CGPoint(x: center.x, y: 10), with: nil)), "and the top edge's, for the menu's swipe")
 setHiddenAsTheHideRule(window, false)
 
 /// The view's layers beside the soft keyboard view's, which takes no part in the window's and the surfaces' order.
@@ -73,15 +82,15 @@ final class Registry {
 
 let registry = Registry()
 let surfaces = view.surfaces
-let full = PixelRect(left: 0, top: 0, right: 1290, bottom: 2796)
+let full = PixelRect(left: 0, top: 0, right: display.width, bottom: display.height)
 let media = surfaces.add(frame: full, z: -2, opaque: true) { registry.register($0) }
 let sides = sideLayers()
 check(sides.count == 3 && sides[1] === window, "the first surface brings the containers, below and above the window")
 let below = sides.first, above = sides.last
 check(below?.sublayers?.first === registry.layers[media], "a media surface lies below the window")
-check(registry.layers[media]?.frame == CGRect(x: 0, y: 0, width: 430, height: 932),
+check(registry.layers[media]?.frame == CGRect(origin: .zero, size: points),
       "its frame in points: the window's pixels over its contentsScale")
-check(registry.layers[media]?.contentsScale == 3 && registry.layers[media]?.isOpaque == true,
+check(registry.layers[media]?.contentsScale == display.scale && registry.layers[media]?.isOpaque == true,
       "its contentsScale is the window's, and an opaque format makes it opaque")
 check(window.backgroundColor == nil && isBlack(view.layer.backgroundColor),
       "with a surface below, the black is behind it, and the window has none of its own")
@@ -104,7 +113,8 @@ check(above?.sublayers?.first === registry.layers[top] && registry.layers[top]?.
 surfaces.place(overlay, frame: PixelRect(left: 30, top: 60, right: 330, bottom: 660), z: 2)
 check(above?.sublayers?.map { ObjectIdentifier($0) } == identities([top, overlay]),
       "a place with another z moves the layer to its side, by z")
-check(registry.layers[overlay]?.frame == CGRect(x: 10, y: 20, width: 100, height: 200), "and to its new frame")
+check(registry.layers[overlay]?.frame == CGRect(x: 30, y: 60, width: 300, height: 600).applying(
+    CGAffineTransform(scaleX: 1 / display.scale, y: 1 / display.scale)), "and to its new frame")
 
 surfaces.remove(media)
 surfaces.remove(second)

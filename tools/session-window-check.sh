@@ -3,9 +3,11 @@
 # (ADR-0043 c4 (d)): app/HostChecks/main.swift asks which view takes the guest's touches while graphics/host's hide
 # rule hides the window's layer, and where the SurfaceViews' layers lie. It builds the APKSession files the view uses
 # as their module, with a stand-in for LaunchRequest.swift's LaunchMode, and the view with one for graphics/host's
-# MinatoMetalLayer, in Swift 6 as the app.
+# MinatoMetalLayer, in Swift 6 as the app. The view is laid out at MINATO_DISPLAY, by default the M4 plan's
+# (tools/check-display.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source tools/check-display.sh
 OUT=build/session-window-check
 mkdir -p "$OUT"
 SDK=$(xcrun --sdk macosx --show-sdk-path)
@@ -17,8 +19,10 @@ xcrun --sdk macosx swiftc "${FLAGS[@]}" -parse-as-library -emit-library -emit-mo
   "$SESSION/SessionBridge.swift" "$SESSION/OpenRequest.swift" "$SESSION/Lifecycle.swift" \
   "$SESSION/SurfaceRequest.swift" "$SESSION/TouchTranslator.swift" "$SESSION/EdgePanReport.swift" \
   "$SESSION/SessionOrientation.swift" "$SESSION/InterfaceOrientations.swift" "$SESSION/SoftKeyboard.swift" \
-  "$SESSION/HardwareKeyboard.swift" "$SESSION/KeyboardCover.swift" app/HostChecks/LaunchMode.swift
+  "$SESSION/HardwareKeyboard.swift" "$SESSION/KeyboardCover.swift" "$SESSION/TextBar.swift" \
+  "$SESSION/OutsideTap.swift" app/HostChecks/LaunchMode.swift
 xcrun --sdk macosx swiftc "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lAPKSession -Xlinker -rpath -Xlinker "$PWD/$OUT" \
-  -o "$OUT/session-window-check" app/Sources/Session/SessionWindow.swift app/HostChecks/MinatoMetalLayer.swift \
+  -o "$OUT/session-window-check" app/Sources/Session/SessionWindow.swift app/Sources/Session/KeyboardBarView.swift \
+  app/HostChecks/MinatoMetalLayer.swift \
   app/HostChecks/main.swift
-"$OUT/session-window-check"
+MINATO_DISPLAY="$CHECK_DISPLAY" "$OUT/session-window-check"
