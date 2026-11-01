@@ -288,6 +288,11 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
   set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
 
+  # The Mac harness's finalizer timeout for the run-tests (60 s, a test's own value kept); skipped without AOSP's art/test.
+  add_test(NAME runtime.art_run_tests_options
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run_tests_options_test.py" "${PROJECT_SOURCE_DIR}")
+  set_tests_properties(runtime.art_run_tests_options PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
   # BoringSSL as libjavacrypto links it (ADR-0046 b): boringssl-test from ART's build prints known answers, whether
   # AES-GCM runs on the crypto extension, and libssl's default cipher order, as on Android 15
   # (fixtures/expected/boringssl-test.out). Skipped while the program is not built.

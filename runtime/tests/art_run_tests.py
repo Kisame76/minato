@@ -106,7 +106,7 @@ def run_test(test, reference, setting):
             return [oat_failure], 0.0
     command = art_run.apk_run_command(
         setting["apk_run"], setting["art"], setting["bionic_system"], work, setting["art_lib64"], run,
-        run_tests.dalvikvm_arguments(tests, test, boot_class_path, debug, extra), cwd=location, jni=libraries,
+        guest_arguments(tests, test, boot_class_path, debug, extra), cwd=location, jni=libraries,
         environment=[f"ANDROID_DATA={location}", f"DEX_LOCATION={location}"])
     started = time.monotonic()
     try:
@@ -132,6 +132,16 @@ def run_test(test, reference, setting):
         failure += differences("stderr", wanted_err, stderr)
     failure += ["the guest's log, last lines:"] + ["  " + line for line in result.stderr.splitlines()[-8:]]
     return failure, seconds
+
+
+# A loaded Mac is slower than a phone: the FinalizerWatchdog's 10 s (Android's default) aborted 080-oom-throw at load 25.
+# It comes before the test's own runtime options, so 1336-short-finalizer-timeout keeps its 500 ms.
+FINALIZER_TIMEOUT = "-XX:FinalizerTimeoutMs=60000"
+
+
+def guest_arguments(tests, test, boot_class_path, debug=False, extra=()):
+    """dalvikvm's arguments for `test` as the Mac harness runs it: run_tests.py's, with the longer finalizer timeout."""
+    return run_tests.dalvikvm_arguments(tests, test, boot_class_path, debug, [FINALIZER_TIMEOUT, *extra])
 
 
 def main():
