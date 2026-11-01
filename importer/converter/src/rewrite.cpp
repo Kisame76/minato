@@ -1584,6 +1584,18 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     }
 }
 
+bool has_external_entry(std::span<const std::byte> code, std::size_t begin, std::size_t end) {
+    for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
+        if (j >= begin && j < end) continue;  // the function's own branches are internal
+        const auto displacement = branch_displacement(word_at(code, j));
+        if (!displacement) continue;  // not a direct branch; an indirect one cannot be seen
+        const auto target = static_cast<std::int64_t>(j) + *displacement;
+        // Strictly inside (begin, end): a branch to begin is the normal entry, end is the next function.
+        if (target > static_cast<std::int64_t>(begin) && target < static_cast<std::int64_t>(end)) return true;
+    }
+    return false;
+}
+
 std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code) {
     std::uint32_t used = 0;
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {

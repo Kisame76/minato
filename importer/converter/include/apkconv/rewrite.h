@@ -156,6 +156,13 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
 /// is used across `code`.
 std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code);
 
+/// Whether a direct branch from outside the function at offsets [begin, end) in `code` (the executable section)
+/// targets its interior -- any word but `begin`, its only entry (ADR-0020 option c must-have 3): a renamed function
+/// loads its register at `begin`, so an entry into the middle would run renamed code with it unset. Checks the
+/// direct branches (B, BL, B.cond, CBZ/CBNZ, TBZ/TBNZ). Computed entries (ADR/ADRP+ADD) are added before (c) is
+/// wired in; indirect branches (BR/BLR) cannot be seen -- a named limit.
+bool has_external_entry(std::span<const std::byte> code, std::size_t begin, std::size_t end);
+
 /// Rewrites every instruction in `code` that uses x18 to use `reg` instead -- a whole-function rename (ADR-0020
 /// option c), where `reg` must be free across the function and not x18. Returns false and leaves `code` untouched
 /// when some instruction uses x18 with no register field to redirect (a CASP pair, an ST64B block), so the function

@@ -1036,6 +1036,28 @@ TEST(scan_splits_an_in_sequence_refused_use_by_its_load_exclusive) {
     CHECK(findings.x18_live_in == 0);
 }
 
+// ADR-0020 (c) must-have 3: a direct branch from outside the function into its interior (not begin) refuses (c).
+TEST(has_external_entry_flags_a_branch_into_the_function_interior) {
+    const std::uint32_t code[] = {
+        0x1400'0005,  // 0x00 b 0x14: external, into the interior of the function [0x10, 0x20)
+        0xd503'201f, 0xd503'201f, 0xd503'201f,              // 0x04 0x08 0x0c nop
+        0xd503'201f, 0xd503'201f, 0xd503'201f, 0xd503'201f  // 0x10..0x1c the function
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    CHECK(apk::rewrite::has_external_entry(bytes, 0x10, 0x20));
+}
+
+TEST(has_external_entry_allows_a_branch_to_begin_and_internal_branches) {
+    const std::uint32_t code[] = {
+        0x1400'0004,  // 0x00 b 0x10: external, to begin (the normal entry) -- fine
+        0xd503'201f, 0xd503'201f, 0xd503'201f,              // 0x04 0x08 0x0c nop
+        0x1400'0002,                                        // 0x10 begin: b 0x18 (internal) -- fine
+        0xd503'201f, 0xd503'201f, 0xd503'201f               // 0x14 0x18 0x1c nop
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    CHECK(!apk::rewrite::has_external_entry(bytes, 0x10, 0x20));
+}
+
 // ADR-0020 (c): R is the first free caller-saved register, the temporaries x9-x15 before the arguments x0-x7.
 TEST(free_caller_saved_register_prefers_temporaries_then_arguments) {
     const std::uint32_t nothing[] = {0xd503'201f};  // nop: no register used
