@@ -1410,6 +1410,17 @@ TEST(rename_x18_refuses_and_keeps_the_bytes_when_x18_has_no_field) {
     CHECK(code[1] == 0xd503'201f);
 }
 
+// ADR-0020 option (c): can_rename_x18 is the register-independent check the gate uses, so it agrees with rename_x18
+// and the (c) counts. A CASP (x18 has no field of its own) cannot be renamed; a plain x18 use can.
+TEST(can_rename_x18_is_false_only_when_an_x18_use_has_no_register_field) {
+    const std::uint32_t casp[] = {0x4832'7c82, 0xd503'201f};  // casp x18, ...; nop
+    CHECK(!apk::rewrite::can_rename_x18(std::span(reinterpret_cast<const std::byte *>(casp), sizeof casp)));
+    const std::uint32_t plain[] = {0x8b12'0023, 0xd503'201f};  // add x3, x1, x18; nop
+    CHECK(apk::rewrite::can_rename_x18(std::span(reinterpret_cast<const std::byte *>(plain), sizeof plain)));
+    const std::uint32_t none[] = {0xd503'201f};  // nop: no x18 use at all
+    CHECK(apk::rewrite::can_rename_x18(std::span(reinterpret_cast<const std::byte *>(none), sizeof none)));
+}
+
 // Each window that is not relocated says why, so that one refusal names every cause at once.
 TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     // No longer refused here: a window with no store-exclusive at all (step C C3) and a nested

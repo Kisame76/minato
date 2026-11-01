@@ -195,10 +195,15 @@ bool call_leaks_link_register(std::span<const std::byte> code);
 /// which the island would run at the wrong PC). The gate refuses a (c) function whose first instruction is neither.
 bool c_entry_runs_first_instruction(std::uint32_t first);
 
+/// Whether every x18 use in `code` can be redirected to another register (ADR-0020 option c). False when some use
+/// has no register field for x18 -- a CASP pair, an ST64B block -- so the function cannot be renamed this way.
+/// Register-independent: it tests only whether x18's field can be redirected, not to which register, so the gate and
+/// the counts agree and emit never throws on a function the gate took.
+bool can_rename_x18(std::span<const std::byte> code);
+
 /// Rewrites every instruction in `code` that uses x18 to use `reg` instead -- a whole-function rename (ADR-0020
 /// option c), where `reg` must be free across the function and not x18. Returns false and leaves `code` untouched
-/// when some instruction uses x18 with no register field to redirect (a CASP pair, an ST64B block), so the function
-/// cannot be renamed this way.
+/// when it cannot be renamed (can_rename_x18 is false: some use has no register field for x18).
 bool rename_x18(std::span<std::byte> code, unsigned reg);
 
 /// The entry island of a renamed function (ADR-0020 option c). Bytes it needs in the stub area.

@@ -134,6 +134,12 @@ struct WholeFunctionRename {
 /// will call per refused site.
 std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> elf, std::uint64_t address);
 
+/// Of the refused x18 `uses`, how many sit in a function option (c) would take -- one c_rename_register verdict per
+/// sized function (the uses are grouped by it, so each is decided once). These are the sites (c) will convert once it
+/// is wired into convert(); until then the converter still refuses them, and this counts them (step 4b). `elf` is the
+/// file scan_code saw.
+std::size_t x18_sites_c_would_take(std::span<const std::byte> elf, std::span<const rewrite::Unsupported> uses);
+
 /// Of the refused x18 `uses` (from scan_code's x18_unsupported), how many sit in a function that has a register a
 /// whole-function rename may use (rewrite::free_caller_saved_register), for the ADR-0020 option (c) split (counts
 /// only; the sites are proprietary). A function's bounds come from the sized symbol (`read_symbols`) that contains

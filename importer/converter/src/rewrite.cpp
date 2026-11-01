@@ -1702,15 +1702,22 @@ std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> co
     return std::nullopt;
 }
 
-bool rename_x18(std::span<std::byte> code, unsigned reg) {
-    // First pass: every x18 use must be redirectable to `reg`, or the function cannot be renamed this way.
+bool can_rename_x18(std::span<const std::byte> code) {
+    // A fixed probe register: whether x18's field can be redirected does not depend on the target register, so this
+    // answers the same as rename_x18's first pass for any `reg` -- false only for a CASP pair or an ST64B block.
+    constexpr unsigned probe = 9;
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         const auto word = word_at(code, offset);
         const auto use = a64::register_use(word);
         if (((use.reads | use.writes) & x18_bit) == 0) continue;
-        if (!a64::substitute(word, guest_x18, reg)) return false;
+        if (!a64::substitute(word, guest_x18, probe)) return false;
     }
-    // Second pass: redirect them in place (same instruction size, so nothing shifts).
+    return true;
+}
+
+bool rename_x18(std::span<std::byte> code, unsigned reg) {
+    if (!can_rename_x18(code)) return false;  // some x18 use has no register field to redirect
+    // Redirect every x18 use in place (same instruction size, so nothing shifts).
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         const auto word = word_at(code, offset);
         const auto use = a64::register_use(word);

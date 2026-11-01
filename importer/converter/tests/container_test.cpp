@@ -1033,6 +1033,25 @@ TEST(c_rename_register_refuses_a_control_flow_first_instruction) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
 }
 
+// ADR-0020 option (c): a function whose x18 use has no register field (a CASP pair) cannot be renamed, so the gate
+// refuses it -- the count stays honest and emit_c_rename never throws on a gated function.
+TEST(c_rename_register_refuses_a_function_with_an_unrenamable_x18_use) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // [0x200, 0x218)
+    prog.put<std::uint32_t>(0x210, 0x4832'7c82);  // casp x18, x19, x2, x3, [x4]: x18 has no register field
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
+}
+
+// Step 4b: of the refused x18 sites, x18_sites_c_would_take counts those in a function (c) would take. Here one
+// `ret x18` sits in the sized function fn (c) accepts; another sits in no sized function, so (c) cannot take it.
+TEST(x18_sites_c_would_take_counts_the_refused_sites_in_functions_c_accepts) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // fn = [0x200, 0x218)
+    prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18: a refused x18 use, inside fn, which (c) takes
+    prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: refused too, but in no sized function
+    const auto scan = apk::container::scan_code(prog.bytes);
+    CHECK(scan.findings.x18_unsupported.size() == 2);
+    CHECK(apk::container::x18_sites_c_would_take(prog.bytes, scan.findings.x18_unsupported) == 1);
+}
+
 // The per-site facts ride in the refusal reason itself: on the iPhone the library never runs through apk-convert,
 // so the Incompatible string is the only way the (b)/(c) counts reach an import.
 TEST(the_refusal_text_carries_the_per_site_facts) {

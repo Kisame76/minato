@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstring>
 #include <format>
+#include <map>
 #include <optional>
 
 namespace apk::container {
@@ -728,7 +729,9 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     // The entry island runs the first instruction, so it must be a plain one (not control flow, not pc-relative).
     if (!rewrite::c_entry_runs_first_instruction(word_at_off(begin_off))) return std::nullopt;
 
-    const auto reg = rewrite::free_caller_saved_register(code.subspan(begin_off, end_off - begin_off));
+    const auto function = code.subspan(begin_off, end_off - begin_off);
+    if (!rewrite::can_rename_x18(function)) return std::nullopt;  // an x18 use with no register field (CASP, ST64B)
+    const auto reg = rewrite::free_caller_saved_register(function);
     if (!reg) return std::nullopt;  // must-have 1: no caller-saved register is free across the function
     if (rewrite::has_external_entry(code, base, begin_off, end_off)) return std::nullopt;  // must-have 3
     // A non-call branch inside the function back to begin would rerun the entry reload with a stale slot 11 (lead
@@ -742,6 +745,28 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
         return std::nullopt;
     }
     return WholeFunctionRename{begin, end, *reg};
+}
+
+std::size_t x18_sites_c_would_take(std::span<const std::byte> elf_bytes,
+                                   std::span<const rewrite::Unsupported> uses) {
+    if (uses.empty()) return 0;
+    const auto symbols = elf::read_symbols(elf_bytes);
+    const auto sections = layout_sections(elf_bytes);
+    std::map<std::uint64_t, bool> takes_by_function;  // a sized function's begin -> whether c_rename_register takes it
+    std::size_t count = 0;
+    for (const auto &use : uses) {
+        const auto *section = section_of(sections, use.address);
+        if (section == nullptr) continue;
+        const auto bounds =
+            sized_function_bounds(symbols, section->address, section->address + section->size, use.address);
+        if (!bounds) continue;  // no sized function holds the site, so (c) cannot take it
+        auto it = takes_by_function.find(bounds->first);
+        if (it == takes_by_function.end()) {  // one verdict per function: group the sites by it
+            it = takes_by_function.emplace(bounds->first, c_rename_register(elf_bytes, use.address).has_value()).first;
+        }
+        if (it->second) ++count;
+    }
+    return count;
 }
 
 std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf_bytes,
