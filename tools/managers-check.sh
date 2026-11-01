@@ -112,8 +112,15 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
 # The boot jars' java.base exports only the JDK's packages; framework.jar's classes see the rest, as on Android.
 "$JDK/bin/jar" tf build/art/java/all-classes.jar | sed -n 's|/[^/]*\.class$||p' | sort -u \
   | grep -v '^javax\{0,1\}/' | tr / . | sed 's|.*|--add-exports java.base/&=ALL-UNNAMED|' > "$OUT/exports"
+# java.base holds android.annotation, so that the classpath's types of that package are hidden: its annotations from
+# classes.jar and stubs.jar patch java.base, as tools/build-framework.sh's do.
+mkdir -p "$OUT/annotations"
+for jar in build/framework/stubs.jar build/framework/classes.jar; do
+  (cd "$OUT/annotations" && "$OLDPWD/$JDK/bin/jar" xf "$OLDPWD/$jar" android/annotation)
+done
 find "$OUT/gen" "$OUT/stubs" framework/java/com/android/minato/services -name '*.java' | sort > "$OUT/sources"
 "$JDK/bin/javac" -J-Xmx4g -source 17 -target 17 --system=build/framework/system @"$OUT/exports" \
+  --patch-module java.base="$OUT/annotations" \
   -XDstringConcat=inline -encoding UTF-8 -Xlint:all,-deprecation,-rawtypes,-unchecked,-serial -Werror \
   -Xmaxerrs 1000 -classpath build/framework/classes.jar:build/framework/stubs.jar -d "$OUT/classes" \
   @"$OUT/sources"
