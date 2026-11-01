@@ -26,7 +26,7 @@ I/media-codec-decoders-test: mp3 seek: output format: buffer-batch-max-output-si
 I/media-codec-decoders-test: mp3 seek: end of stream, 2116 bytes with it
 I/media-codec-decoders-test: mp3 seek: input capacity 8192
 I/media-codec-decoders-test: mp3 seek: 10 output buffers and 2 empty ones, times 301473 to 536575, the first 785 frames, the last 529
-I/media-codec-decoders-test: mp3 seek: 10530 frames, rms 33 %, 105 rising zero crossings, the first at 118
+I/media-codec-decoders-test: mp3 seek: 10530 frames, rms 33 %, 101 rising zero crossings, the first at 415
 I/media-codec-decoders-test: mp3 end with the last: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
 I/media-codec-decoders-test: mp3 end with the last: end of stream, 2116 bytes with it
 I/media-codec-decoders-test: mp3 end with the last: input capacity 8192
@@ -41,6 +41,17 @@ I/media-codec-decoders-test: mp3 mono: 11025 frames, rms 34 %, 219 rising zero c
 I/media-codec-decoders-test: mp3 async: ended: true
 I/media-codec-decoders-test: mp3 async: 1 format changes, the last: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
 I/media-codec-decoders-test: mp3 async: 20 output buffers, 22050 frames, rms 34 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: mp3 bad side info: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 bad side info: end of stream, 2116 bytes with it
+I/media-codec-decoders-test: mp3 bad side info: input capacity 8192
+I/media-codec-decoders-test: mp3 bad side info: 20 output buffers and 2 empty ones, times 40249 to 536575, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3 bad side info: 22050 frames, rms 32 %, 208 rising zero crossings, the first at 101
+I/media-codec-decoders-test: mp3 rate change: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 rate change: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=22050
+I/media-codec-decoders-test: mp3 rate change: end of stream, 1058 bytes with it
+I/media-codec-decoders-test: mp3 rate change: input capacity 8192
+I/media-codec-decoders-test: mp3 rate change: 41 output buffers and 3 empty ones, times 40249 to 1647845, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3 rate change: 33651 frames, rms 33 %, 428 rising zero crossings, the first at 101, 1152 after the change of rate left out
 I/media-codec-decoders-test: mp3 by name: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
 I/media-codec-decoders-test: mp3 by name: end of stream, 2116 bytes with it
 I/media-codec-decoders-test: mp3 by name: input capacity 8192

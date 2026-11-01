@@ -51,18 +51,22 @@
 //   it), and the decoded one after it, as Android 15's resume reports them [verified: media-codec-audio-test and
 //   media-codec-decoders-test]. A buffer whose frames the trimming took is given out empty, as Android's are.
 // - MP3, FLAC and raw (e2f.2), as Android 15's C2SoftMp3Dec, C2SoftFlacDec and C2SoftRawDec [verified:
-//   media-codec-decoders-test]. Their output formats have no channel mask nor AAC's keys; FLAC's and raw's have the
-//   PCM encoding, 16-bit or float as configured (raw's also 8-bit, 24-bit packed and 32-bit). The trimming above is
-//   theirs too. MP3: a buffer's frames, split by their headers, decode into one output buffer, at the time of the
-//   first unit since the start or a flush plus the frames given since; the host's codec is made from the first
-//   frame's header, and again from a header of another rate or channels (a named limit: the new one cuts the delay
-//   again and starts without the bit reservoir, where C2SoftMp3Dec goes on); a frame the host decodes to nothing gives
-//   silence, as C2SoftMp3Dec's recoverable errors do; the end of the stream adds the 529 frames of silence that
-//   C2SoftMp3Dec adds for the delay it cut from the start. FLAC: csd-0's metadata, or the first unit's, gives
-//   STREAMINFO to the host, one frame a unit (after a frame the host cannot decode, none until a flush, as libFLAC
-//   under C2SoftFlacDec), its samples shifted to 16 bits or made float as FLACDecoder does. Raw:
-//   each unit's bytes come out as they went in, in whole frames. For every audio codec, a unit queued with the end
-//   of the stream comes out as its frames and then the end on its own, as CCodec's buffer channel splits it.
+//   media-codec-decoders-test]. Their output formats have no channel mask nor AAC's keys; FLAC's and raw's have the PCM
+//   encoding, 16-bit or float as configured (raw's also 8-bit, 24-bit packed and 32-bit). The trimming above is theirs
+//   too. MP3: a buffer's frames, split by their headers, decode into one output buffer, at the time of the first unit
+//   since the start or a flush plus the frames given since; the host's codec is made from the first frame's header, and
+//   again from a header of another rate or channels, whose delay the new codec cuts where C2SoftMp3Dec goes on, so that
+//   it comes as silence (a named limit: the new codec starts without the bit reservoir); a frame whose side information
+//   pvmp3 refuses never goes to the host, and it and a frame the host decodes to nothing give silence, as
+//   C2SoftMp3Dec's recoverable errors do; the end of the stream adds the 529 frames of silence that C2SoftMp3Dec adds
+//   for the delay it cut from the start. FLAC: csd-0's metadata, or the first unit's, gives STREAMINFO to the host, one
+//   frame a unit (after a frame the host cannot decode, none until a flush, as libFLAC under C2SoftFlacDec), its
+//   samples shifted to 16 bits or made float as FLACDecoder does. Raw: each unit's bytes come out as they went in, in
+//   whole frames. For every audio codec, a unit queued with the end of the stream comes out as its frames and then the
+//   end on its own, as CCodec's buffer channel splits it; and a format of another rate or channels than the trimming's
+//   (configure's, then the last such change's) trims anew, as CCodecBuffers' updateSkipCutBuffer: the frames held back
+//   are dropped, and configure's delay is skipped and its padding held again, each times the new rate over the
+//   trimming's, as it scales them.
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
 #include <android/hardware_buffer.h>
 #include <android/log.h>
@@ -206,6 +210,27 @@ size_t mp3_frame(const uint8_t *header, int32_t *rate, int32_t *channels) {
     return (version == 3 ? 144000 * v1[bitrate - 1] : 72000 * v2[bitrate - 1]) / hz + padding;
 }
 
+/// Whether pvmp3_get_side_info refuses an MP3 frame of `size` bytes (SIDE_INFO_ERROR): a granule's channel whose
+/// window switching has block type 0, or side information past the frame. C2SoftMp3Dec gives the frame as silence.
+bool mp3_side_info_refused(const uint8_t *frame, size_t size, int32_t channels) {
+    const bool mpeg1 = (frame[1] >> 3 & 3) == 3;
+    size_t bit = (frame[1] & 1) == 0 ? 48 : 32;  // the header, and its CRC
+    bit += mpeg1 ? 9 + (channels == 1 ? 5 : 3) + 4 * size_t(channels) : 8 + (channels == 1 ? 1 : 2);
+    const int granules = mpeg1 ? 2 : 1;
+    for (int granule = 0; granule < granules; granule++) {
+        for (int channel = 0; channel < channels; channel++) {
+            bit += 12 + 9 + 8 + (mpeg1 ? 4 : 9);
+            if (bit + 1 + 22 + (mpeg1 ? 3 : 2) > size * 8) return true;
+            const bool switching = (frame[bit >> 3] >> (7 - (bit & 7)) & 1) != 0;
+            const unsigned block_type = (frame[(bit + 1) >> 3] >> (7 - ((bit + 1) & 7)) & 1) << 1 |
+                                        (frame[(bit + 2) >> 3] >> (7 - ((bit + 2) & 7)) & 1);
+            if (switching && block_type == 0) return true;
+            bit += 1 + 22 + (mpeg1 ? 3 : 2);
+        }
+    }
+    return false;
+}
+
 /// STREAMINFO's 34 bytes in FLAC metadata ("fLaC" and its blocks, csd-0's or a config unit's); NULL where there is
 /// none.
 const uint8_t *flac_info(const uint8_t *data, size_t size) {
@@ -340,6 +365,8 @@ struct AMediaCodec {
     int32_t encoding;                 // the output's PCM encoding
     uint32_t channels, unit_frames;   // the host's, from its configuration (raw's: configure's channels)
     uint32_t skip;                    // frames still to skip
+    uint32_t cut;                     // the frames held back: the padding's, scaled after a change of rate
+    int32_t cut_rate, cut_channels;   // the trimming's rate and channels: configure's, then a format change's
     Bytes pcm, held;                  // one buffer's frames; the frames held back, the padding's
     bool first, gapless;              // MP3: no frames since the start or a flush; frames since the end's silence
     bool stuck;                       // FLAC: a frame the host could not decode since the start or a flush
@@ -519,6 +546,14 @@ long decode_unit(AMediaCodec *codec, const uint8_t *data, size_t size, size_t at
     return static_cast<long>(call.frames);
 }
 
+/// `frames` 16-bit frames of silence at `at` frames into the codec's pcm; false without memory.
+bool silence(AMediaCodec *codec, size_t at, size_t frames) {
+    const size_t frame_bytes = size_t{codec->channels} * 2;
+    if (!resize(&codec->pcm, (at + frames) * frame_bytes)) return false;
+    memset(codec->pcm.data + at * frame_bytes, 0, frames * frame_bytes);
+    return true;
+}
+
 /// An MP3 buffer's frames decoded one by one into the codec's pcm, as C2SoftMp3Dec's process: the frames, or -1 for
 /// a header it does not take, a buffer without a frame or the host's error. Four bytes or fewer after the last frame
 /// are left, as its calculateOutSize leaves them.
@@ -531,13 +566,17 @@ long decode_mp3(AMediaCodec *codec, const uint8_t *data, size_t size) {
         if (length == 0) return -1;
         if (length > size - at) length = size - at;
         if (codec->decoder == 0 || rate != codec->decoded.rate || channels != codec->decoded.channels) {
+            const bool going = codec->decoder != 0 && !codec->first;
             if (!make_audio(codec, data + at, 4)) return -1;  // C2SoftMp3Dec reconfigures for another rate
+            // The new codec cuts its delay, where C2SoftMp3Dec goes on decoding [verified:
+            // media-codec-decoders-test].
+            if (going && !silence(codec, out, kMp3Delay)) return -1;
+            if (going) out += kMp3Delay;
         }
-        const long got = decode_unit(codec, data + at, length, out);
+        const bool refused = mp3_side_info_refused(data + at, length, channels);
+        const long got = refused ? 0 : decode_unit(codec, data + at, length, out);
         if (got < 0) return -1;
-        if (got == 0) {  // silence, as for C2SoftMp3Dec's recoverable errors
-            memset(codec->pcm.data + out * 2 * codec->channels, 0, size_t{codec->unit_frames} * 2 * codec->channels);
-        }
+        if (got == 0 && !silence(codec, out, codec->unit_frames)) return -1;  // as C2SoftMp3Dec's recoverable errors
         out += got > 0 ? static_cast<size_t>(got) : codec->unit_frames;
         at += length;
     }
@@ -581,7 +620,7 @@ bool trim(AMediaCodec *codec, size_t frames, Output &output) {
     const size_t kept = (frames - skipped) * frame_bytes, held = codec->held.data != nullptr ? codec->held.size : 0;
     if (!resize(&codec->held, held + kept)) return false;
     if (kept > 0) memcpy(codec->held.data + held, codec->pcm.data + skipped * frame_bytes, kept);
-    const size_t cut = codec->padding > 0 ? static_cast<size_t>(codec->padding) * frame_bytes : 0;
+    const size_t cut = size_t{codec->cut} * frame_bytes;
     const size_t out = held + kept > cut ? held + kept - cut : 0;
     if (!resize(&output.bytes, out)) return false;
     if (out > 0) {
@@ -639,6 +678,25 @@ long unit_frames(AMediaCodec *codec, const Unit &unit, int64_t *time_us) {
     return frames;
 }
 
+/// The trimming made anew for the decoder's format where its rate or channels are not the trimming's, as
+/// updateSkipCutBuffer: configure's delay and padding times the new rate over the trimming's, the frames held back
+/// dropped. Without a delay or padding in the format there is no trimming to make anew.
+void retrim(AMediaCodec *codec) {
+    if (codec->delay <= 0 && codec->padding <= 0) return;
+    const AudioShape &now = codec->decoded;
+    if (now.rate == codec->cut_rate && now.channels == codec->cut_channels) return;
+    int64_t delay = codec->delay > 0 ? codec->delay : 0, padding = codec->padding > 0 ? codec->padding : 0;
+    if (now.rate != codec->cut_rate && codec->cut_rate > 0) {
+        delay = delay * now.rate / codec->cut_rate;
+        padding = padding * now.rate / codec->cut_rate;
+    }
+    codec->cut_rate = now.rate;
+    codec->cut_channels = now.channels;
+    codec->skip = static_cast<uint32_t>(delay);
+    codec->cut = static_cast<uint32_t>(padding);
+    codec->held.size = 0;
+}
+
 /// Decodes the waiting units into free output buffers, one each, with the codec's lock held.
 void push_audio(AMediaCodec *codec) {
     while (codec->waiting_count > 0 && codec->error == AMEDIA_OK && !codec->ended) {
@@ -674,12 +732,14 @@ void push_audio(AMediaCodec *codec) {
             if (split) unit.flags &= ~uint32_t{APKRT_VIDEO_DECODER_END_OF_STREAM};
             int64_t time_us = 0;
             const long frames = unit_frames(codec, unit, &time_us);
+            const bool changed = (frames > 0 || codec->announce) && !(codec->decoded == codec->attached);
+            if (changed) retrim(codec);
             if (frames < 0 || !trim(codec, static_cast<size_t>(frames), output)) {
                 codec->error = AMEDIA_ERROR_UNKNOWN;
                 return;
             }
             const bool end = (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0;
-            if ((frames > 0 || codec->announce) && !(codec->decoded == codec->attached)) {
+            if (changed) {
                 output.format = audio_format(codec, codec->decoded);
                 output.decoded = true;
                 codec->attached = codec->decoded;
@@ -1053,6 +1113,9 @@ media_status_t start_audio(AMediaCodec *codec) {
         codec->decoded = codec->configured;
     }
     codec->skip = codec->delay > 0 ? static_cast<uint32_t>(codec->delay) : 0;
+    codec->cut = codec->padding > 0 ? static_cast<uint32_t>(codec->padding) : 0;
+    codec->cut_rate = codec->configured.rate;
+    codec->cut_channels = codec->configured.channels;
     codec->held.size = 0;
     codec->attached = AudioShape{-1, -1, -1};  // the first frames come with the decoder's format
     codec->first = true;

@@ -28,8 +28,10 @@ import java.util.zip.CRC32;
  * units itself (MP3 frames by their headers, the LAME tag's encoder delay and padding into the format as MP3Extractor
  * puts them; FLAC frames by their sync code and header CRC, the stream's metadata as csd-0) and makes the raw samples
  * itself (a sine, 16-bit and float). MP3 decoders differ in the last bits of their samples, so those are compared
- * coarsely: their count, the RMS in steps of 1 % of full scale, the rising zero crossings and the first one's index,
- * all of the first channel; their CRC32 goes to the device tag. FLAC and raw are lossless, so their CRC32 is logged.
+ * coarsely: their count, the RMS in steps of 1 % of full scale, the rising zero crossings (each after the samples
+ * were below -1/32 of full scale, so that the noise around silence, where decoders differ, does not count) and the
+ * first one's index, all of the first channel; their CRC32 goes to the device tag. FLAC and raw are lossless, so
+ * their CRC32 is logged.
  * From a thread that Application.attachBaseContext starts:
  * - MediaCodecList: the decoders of audio/mpeg, audio/flac and audio/raw by name, alias and flags, and the first one's
  *   audio capabilities and default format;
@@ -37,7 +39,8 @@ import java.util.zip.CRC32;
  *   output buffers' count (and the empty ones'), the first and last times and frames, the end of the stream, and the
  *   samples; a configure refused, or a codec error, by its exception's class;
  * - MP3 with three frames in a buffer, across a flush, the end flagged on its last frame, of MPEG-2 (mono,
- *   22050 Hz) and asynchronously;
+ *   22050 Hz), asynchronously, with a frame mid-stream whose side information pvmp3 refuses, and changing from MPEG-1
+ *   stereo to MPEG-2 mono mid-stream (its measures leave out the first 1152 frames after the change);
  * - FLAC to float samples, across a flush, with its metadata as a unit instead of csd-0 (flagged as codec config,
  *   not flagged, and flagged with the end of the stream too), and with a corrupt frame, also followed by a flush;
  * - raw to 16-bit and float samples, trimmed by an encoder delay and padding, and a format without a sample rate.
@@ -122,6 +125,7 @@ public class DecodersApplication extends Application {
         final List<Long> times = new ArrayList<>();
         byte[] header;  // FLAC's metadata, for a codec config unit
         boolean endWithLast;  // the end of the stream flagged on the last unit, not on an empty buffer after it
+        long leaveOut;  // the frames after a change of rate that the measures of the samples leave out
 
         Stream(MediaFormat format) {
             this.format = format;
@@ -189,6 +193,17 @@ public class DecodersApplication extends Application {
             frames += shape[2];
         }
         return stream;
+    }
+
+    /**
+     * Breaks an MPEG-1 frame's side information as pvmp3_get_side_info refuses it (SIDE_INFO_ERROR, which
+     * C2SoftMp3Dec gives as silence): the first granule's first channel switches windows with block type 0.
+     */
+    private static void breakSideInfo(byte[] frame) {
+        boolean mono = u8(frame, 3) >> 6 == 3;
+        int bit = ((frame[1] & 1) == 0 ? 48 : 32) + 9 + (mono ? 5 + 4 : 3 + 8) + 12 + 9 + 8 + 4;
+        frame[bit >> 3] |= (byte) (0x80 >> (bit & 7));  // window_switching_flag
+        for (int i = bit + 1; i <= bit + 2; i++) frame[i >> 3] &= (byte) ~(0x80 >> (i & 7));  // block_type
     }
 
     /** CRC-8 of a FLAC frame header (polynomial 0x07). */
@@ -274,6 +289,18 @@ public class DecodersApplication extends Application {
         add("mp3 mono track: " + keys(mp3(mono).format) + ", " + mp3(mono).units.size() + " units");
         decode("mp3 mono", MediaCodec.createDecoderByType(MP3), mp3(mono), 1, -1, -1);
         decodeAsync("mp3 async", MediaCodec.createDecoderByType(MP3), mp3(tone));
+        Stream broken = mp3(tone);
+        breakSideInfo(broken.units.get(broken.units.size() / 2));
+        decode("mp3 bad side info", MediaCodec.createDecoderByType(MP3), broken, 1, -1, -1);
+        Stream change = mp3(tone), second = mp3(mono);
+        long after = change.times.get(change.times.size() - 1)
+                + 1152 * 1_000_000L / change.format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+        for (int i = 0; i < second.units.size(); i++) {
+            change.units.add(second.units.get(i));
+            change.times.add(after + second.times.get(i));
+        }
+        change.leaveOut = 1152;  // pvmp3 decodes on through the change, which a new decoder cannot
+        decode("mp3 rate change", MediaCodec.createDecoderByType(MP3), change, 1, -1, -1);
         if (mp3 != null) decode("mp3 by name", MediaCodec.createByCodecName(mp3), mp3(tone), 1, -1, -1);
         add("flac track: " + keys(flac(lossless, true).format) + ", " + flac(lossless, true).units.size() + " units");
         decode("flac", MediaCodec.createDecoderByType(FLAC), flac(lossless, true), 1, -1, -1);
@@ -343,17 +370,25 @@ public class DecodersApplication extends Application {
      *  the first one's frame; and the CRC32 of all of them. */
     private static final class Samples {
         int channels;
+        int rate;
         int encoding = PCM_16;
-        long frames;
+        long frames, measured;
+        long leaveOut;  // the frames after a change of rate the measures leave out: there decoders differ
+        long left;
         double sum;
         int crossings;
         long firstCrossing = -1;
-        double last;
+        boolean below;  // below -1/32 of full scale since the last crossing
         final CRC32 crc = new CRC32();
 
         void shape(MediaFormat format) {
             if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                 channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            }
+            if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                int now = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                if (rate != 0 && now != rate) left = leaveOut;
+                rate = now;
             }
             encoding = format.containsKey(MediaFormat.KEY_PCM_ENCODING)
                     ? format.getInteger(MediaFormat.KEY_PCM_ENCODING) : PCM_16;
@@ -373,20 +408,28 @@ public class DecodersApplication extends Application {
             int step = frameSize();
             for (int at = 0; at + step <= size; at += step) {
                 double value = encoding == PCM_16 ? samples.getShort(at) / 32768.0 : samples.getFloat(at);
-                sum += value * value;
-                if (last < 0 && value >= 0) {
-                    crossings++;
-                    if (firstCrossing < 0) firstCrossing = frames;
-                }
-                last = value;
                 frames++;
+                if (left > 0) {
+                    left--;
+                    below = false;
+                    continue;
+                }
+                measured++;
+                sum += value * value;
+                if (value < -1.0 / 32) {
+                    below = true;
+                } else if (below && value >= 0) {
+                    below = false;
+                    crossings++;
+                    if (firstCrossing < 0) firstCrossing = frames - 1;
+                }
             }
         }
 
         String describe() {
-            long rms = frames == 0 ? 0 : Math.round(100 * Math.sqrt(sum / frames));
+            long rms = measured == 0 ? 0 : Math.round(100 * Math.sqrt(sum / measured));
             return frames + " frames, rms " + rms + " %, " + crossings + " rising zero crossings, the first at "
-                    + firstCrossing;
+                    + firstCrossing + (leaveOut > 0 ? ", " + leaveOut + " after the change of rate left out" : "");
         }
     }
 
@@ -406,6 +449,7 @@ public class DecodersApplication extends Application {
         }
         codec.start();
         Samples samples = new Samples();
+        samples.leaveOut = stream.leaveOut;
         samples.shape(stream.format);
         int next = 0;
         if (headerFlags >= 0) {
@@ -499,6 +543,7 @@ public class DecodersApplication extends Application {
         thread.start();
         CountDownLatch ended = new CountDownLatch(1);
         Samples samples = new Samples();
+        samples.leaveOut = stream.leaveOut;
         samples.shape(stream.format);
         int[] counts = new int[3];  // output buffers with samples, format changes, the next unit
         String[] formats = new String[1];
