@@ -135,6 +135,8 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     /** The frame and clip last placed, and the window they were placed in. */
     private int[] mPlaced;
     private long mPlacedWindow;
+    /** The touch region last sent, as left, top, right, bottom quadruples in the window's pixels. */
+    private int[] mTouchRegion;
     private final ViewTreeObserver.OnPreDrawListener mPlacer = () -> {
         place();
         return true;
@@ -581,6 +583,96 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
             mPlaced = frame;
             mChannel.place(window, frame);
         }
+        int[] region = touchRegion(visible, root.getView());
+        if (!java.util.Arrays.equals(region, mTouchRegion)) {
+            mTouchRegion = region;
+            try {
+                JSONArray rects = new JSONArray();
+                for (int i = 0; i < region.length; i += 4) {
+                    rects.put(new JSONArray().put(region[i]).put(region[i + 1]).put(region[i + 2])
+                            .put(region[i + 3]));
+                }
+                send(call("touchRegion").put("rects", rects), null, 0);
+            } catch (JSONException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+    }
+
+    /**
+     * The touch region (ADR-0056 decision 2), which the host's hit test gives the page: the WebView's visible part
+     * less the visible views drawn after it that take touches as View.onTouchEvent does (clickable, long-clickable or
+     * context-clickable; a view that is only focusable lets them through), its own children included, in the window's
+     * tree order; the window's pixels, as left, top, right, bottom quadruples. Named limits: a child drawing order or
+     * a z is not followed; views that take touches without being clickable are not cut out (a scrolling container's
+     * onTouchEvent or onInterceptTouchEvent, a view with only an OnTouchListener); nor is a child outside a covering
+     * view's bounds (clipChildren false), whose children are skipped.
+     */
+    private int[] touchRegion(Rect visible, View root) {
+        List<Rect> region = new ArrayList<>();
+        if (!visible.isEmpty()) {
+            region.add(new Rect(visible));
+        }
+        boolean[] after = {false};
+        coverAfter(root, region, after);
+        int[] flat = new int[region.size() * 4];
+        for (int i = 0; i < region.size(); i++) {
+            Rect rect = region.get(i);
+            flat[i * 4] = rect.left;
+            flat[i * 4 + 1] = rect.top;
+            flat[i * 4 + 2] = rect.right;
+            flat[i * 4 + 3] = rect.bottom;
+        }
+        return flat;
+    }
+
+    /** Takes from `region` the views from the WebView on that take touches; `after` is set at the WebView. */
+    private void coverAfter(View view, List<Rect> region, boolean[] after) {
+        if (view == null || view.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        if (view == mWebView) {
+            after[0] = true;
+        } else if (after[0] && (view.isClickable() || view.isLongClickable() || view.isContextClickable())) {
+            Rect covered = new Rect();
+            if (view.getGlobalVisibleRect(covered)) {
+                subtract(region, covered);
+            }
+            return;  // its children lie inside it
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                coverAfter(group.getChildAt(i), region, after);
+            }
+        }
+    }
+
+    /** `region` less `cut`: each rectangle it meets splits into the up to four bands around it. */
+    static void subtract(List<Rect> region, Rect cut) {
+        List<Rect> rest = new ArrayList<>();
+        for (Rect rect : region) {
+            if (!Rect.intersects(rect, cut)) {
+                rest.add(rect);
+                continue;
+            }
+            int top = Math.max(rect.top, cut.top);
+            int bottom = Math.min(rect.bottom, cut.bottom);
+            if (cut.top > rect.top) {
+                rest.add(new Rect(rect.left, rect.top, rect.right, cut.top));
+            }
+            if (cut.bottom < rect.bottom) {
+                rest.add(new Rect(rect.left, cut.bottom, rect.right, rect.bottom));
+            }
+            if (cut.left > rect.left) {
+                rest.add(new Rect(rect.left, top, cut.left, bottom));
+            }
+            if (cut.right < rect.right) {
+                rest.add(new Rect(cut.right, top, rect.right, bottom));
+            }
+        }
+        region.clear();
+        region.addAll(rest);
     }
 
     /** A history entry of the host's, as its last record gave it. */

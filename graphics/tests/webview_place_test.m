@@ -2,7 +2,8 @@
 // the runtime's handler, without the runtime: at PLACE a clip view at the clip rectangle, just below the window's own
 // view, with the WKWebView inside at the full frame, in points; a PLACE before the view's "make" waits for it; a
 // window the host does not show and an empty clip hide the view; REMOVE takes it out. The host hears how many views
-// each window shows, as its layer must let them through.
+// each window shows, as its layer must let them through. The hit test gives the page the points of its last
+// touchRegion (piece 2), and every other point to the window: none before the first.
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
@@ -20,7 +21,18 @@
 }
 @end
 
+/// The window's view as the app's is: it takes no touches (its hit test skips it), the session's view does.
+@interface WindowView : FlippedView
+@end
+@implementation WindowView
+- (NSView *)hitTest:(NSPoint)point {
+    (void)point;
+    return nil;
+}
+@end
+
 static int failures;
+static NSView *root;
 static NSView *container;
 static NSView *window_view;
 static uint32_t shown[16];
@@ -90,14 +102,29 @@ static NSView *clip_of_web_view(void) {
     return nil;
 }
 
+/// What the hit test gives `point`, in the container's points, as AppKit asks it: from the root, in its superview's.
+static NSView *container_hit(NSPoint point) {
+    return [root hitTest:[root convertPoint:point fromView:container]];
+}
+
+/// Whether `view` is the page or inside it.
+static BOOL in_page(NSView *view) {
+    for (; view != nil; view = view.superview) {
+        if ([view isKindOfClass:WKWebView.class]) return YES;
+    }
+    return NO;
+}
+
 static BOOL same(NSRect a, NSRect b) {
     return NSEqualRects(a, b);
 }
 
 int main(void) {
     @autoreleasepool {
-        container = [[FlippedView alloc] initWithFrame:NSMakeRect(0, 0, 400, 900)];
-        window_view = [[FlippedView alloc] initWithFrame:container.bounds];
+        root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 900)];
+        container = [[FlippedView alloc] initWithFrame:root.bounds];
+        [root addSubview:container];
+        window_view = [[WindowView alloc] initWithFrame:container.bounds];
         [container addSubview:window_view];
         static const struct minato_webview_windows windows = {NULL, on_container, on_shown};
         minato_webview_set_windows(&windows);
@@ -123,6 +150,17 @@ int main(void) {
         }
         CHECK(shown[7] == 1 && shown_calls == 1, "window 7 shows %u views after %d calls, want 1 after 1", shown[7],
               shown_calls);
+
+        // The touch region: the page takes the points inside its rectangles, the window's view the rest.
+        CHECK(container_hit(NSMakePoint(50, 100)) == container, "a point before any touchRegion reaches the page");
+        request(APKRT_WEBVIEW_CALL, 1, 0, NULL, NULL,
+                "{\"call\":\"touchRegion\",\"rects\":[[30,90,330,300],[30,300,180,600]]}");
+        CHECK(in_page(container_hit(NSMakePoint(50, 50))), "a point in the first rectangle does not reach the page");
+        CHECK(in_page(container_hit(NSMakePoint(20, 150))), "a point in the second rectangle does not reach the page");
+        CHECK(container_hit(NSMakePoint(90, 150)) == container, "a point outside the region reaches the page");
+        CHECK(container_hit(NSMakePoint(5, 5)) == container, "a point outside the clip reaches the page");
+        request(APKRT_WEBVIEW_CALL, 1, 0, NULL, NULL, "{\"call\":\"touchRegion\",\"rects\":[]}");
+        CHECK(container_hit(NSMakePoint(50, 50)) == container, "an empty touchRegion leaves the page its points");
 
         // A new frame moves it; the count stays.
         const int32_t moved[4] = {0, 0, 300, 300};

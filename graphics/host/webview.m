@@ -16,7 +16,9 @@
 //   a failed resource.
 // - Views (c2): at PLACE the WKWebView goes into a clip view at the clip rectangle, just below its window's own view in
 //   the host's tree (minato_webview_set_windows), at the full frame, in points; the host hears how many views each
-//   window shows, as its layer must let them through where the guest cleared its pixels.
+//   window shows, as its layer must let them through where the guest cleared its pixels. The hit test gives the
+//   page the points of its last CALL "touchRegion" (rectangles in the window's pixels, the WebView's visible part
+//   less the guest's views over it): scrolling, links and text fields; all other points stay the guest's.
 // Not here (later steps): shouldOverrideUrlLoading, the JavaScript bridge, new windows, downloads and permissions.
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
@@ -177,17 +179,43 @@ static NSString *const kErrorPage =
 typedef UIView MinatoHostView;
 #else
 typedef NSView MinatoHostView;
+#endif
 
-/// A clip view that counts y from its top, as the guest's frames do.
-@interface MinatoClipView : NSView
+/// The page's clip view, which takes the points of the touch region only, in its own points; on the Mac it counts y
+/// from its top, as the guest's frames do.
+@interface MinatoClipView : MinatoHostView
+@property(nonatomic, copy) NSArray<NSValue *> *region;
 @end
 
 @implementation MinatoClipView
+
+- (BOOL)inRegion:(CGPoint)point {
+    for (NSValue *rect in self.region) {
+#if TARGET_OS_IPHONE
+        if (CGRectContainsPoint(rect.CGRectValue, point)) return YES;
+#else
+        if (CGRectContainsPoint(rect.rectValue, point)) return YES;
+#endif
+    }
+    return NO;
+}
+
+#if TARGET_OS_IPHONE
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    return [self inRegion:point] && [super pointInside:point withEvent:event];
+}
+#else
 - (BOOL)isFlipped {
     return YES;
 }
-@end
+
+- (NSView *)hitTest:(NSPoint)point {
+    // `point` is in the superview's points.
+    return [self inRegion:[self convertPoint:point fromView:self.superview]] ? [super hitTest:point] : nil;
+}
 #endif
+
+@end
 
 static const struct minato_webview_windows *host_windows;
 
@@ -232,7 +260,8 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic) uint64_t window;
 @property(nonatomic) CGRect frame;                               // in the window's pixels
 @property(nonatomic) CGRect clip;
-@property(nonatomic, strong) MinatoHostView *holder;             // the clip view, once placed
+@property(nonatomic, strong) MinatoClipView *holder;             // the clip view, once placed
+@property(nonatomic, copy) NSArray<NSValue *> *touchRegion;      // the last touchRegion, in the window's pixels
 @property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
 @end
 
@@ -373,6 +402,20 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
             [self.entries setArray:@[ current ]];
             self.index = 0;
         }
+    } else if ([name isEqualToString:@"touchRegion"]) {
+        NSMutableArray<NSValue *> *region = [NSMutableArray new];
+        for (NSArray *rect in either(call[@"rects"], @[])) {
+            if (![rect isKindOfClass:NSArray.class] || rect.count != 4) continue;
+            const CGFloat left = [rect[0] doubleValue], top = [rect[1] doubleValue];
+            const CGRect value = CGRectMake(left, top, [rect[2] doubleValue] - left, [rect[3] doubleValue] - top);
+#if TARGET_OS_IPHONE
+            if (!CGRectIsEmpty(value)) [region addObject:[NSValue valueWithCGRect:value]];
+#else
+            if (!CGRectIsEmpty(value)) [region addObject:[NSValue valueWithRect:value]];
+#endif
+        }
+        self.touchRegion = region;
+        [self show];
     } else if ([name isEqualToString:@"clearCache"]) {
         NSMutableSet *types = [NSMutableSet setWithObjects:WKWebsiteDataTypeMemoryCache, nil];
         if ([call[@"includeDiskFiles"] boolValue]) [types addObject:WKWebsiteDataTypeDiskCache];
@@ -540,12 +583,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
         return;
     }
     if (self.holder == nil) {
-#if TARGET_OS_IPHONE
-        self.holder = [[UIView alloc] initWithFrame:CGRectZero];
-        self.holder.userInteractionEnabled = NO;  // the touches stay the guest's until the touch region (c2)
-#else
         self.holder = [[MinatoClipView alloc] initWithFrame:CGRectZero];
-#endif
         self.holder.clipsToBounds = YES;
         [self.holder addSubview:self.view];
     }
@@ -573,6 +611,23 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 #endif
     self.holder.frame = clip;
     self.view.frame = page;
+    NSMutableArray<NSValue *> *region = [NSMutableArray new];
+    for (NSValue *value in self.touchRegion) {
+#if TARGET_OS_IPHONE
+        const CGRect rect = value.CGRectValue;
+#else
+        const CGRect rect = value.rectValue;
+#endif
+        const CGRect local = CGRectMake((rect.origin.x - self.clip.origin.x) / points,
+                                        (rect.origin.y - self.clip.origin.y) / points, rect.size.width / points,
+                                        rect.size.height / points);
+#if TARGET_OS_IPHONE
+        [region addObject:[NSValue valueWithCGRect:local]];
+#else
+        [region addObject:[NSValue valueWithRect:local]];
+#endif
+    }
+    self.holder.region = region;
     const BOOL visible = !CGRectIsEmpty(self.clip);
     self.holder.hidden = !visible;
     [self count:visible ? self.window : 0];
