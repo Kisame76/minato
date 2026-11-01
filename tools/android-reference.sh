@@ -219,12 +219,13 @@ fi
 # and toast-test (gap 4 (b4)), whose toast's size and place are, windows-return-test (gap 4 (b5a)), whose dialog's
 # size is, and title-test, whose dialogs' sizes are.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
-  "$app" == views-test || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
+  "$app" == views-test* || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
   "$app" == activity-flow-test || "$app" == key-test || "$app" == gesture-flow-test ||
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
+  "$app" == action-bar-test || "$app" == action-bar-test-34 ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -882,10 +883,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.javatest.JavaActivity
       ;;
-    # views-test (ADR-0043 step c3, test 1): its activity draws in software, changes its label's text once it has the
+    # views-test (ADR-0043 step c3, test 1; views-test-default is its twin in the default theme, whose action bar the
+    # screen shows too): its activity draws in software, changes its label's text once it has the
     # focus, and logs "done" after the draw that follows the click of the script's tap on its Button; its screen follows
     # its log.
-    views-test)
+    views-test | views-test-default)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.views.ViewsActivity
       ;;
@@ -932,6 +934,11 @@ run_app() {
       ;;
     toolbar-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToolbarActivity
+      ;;
+    # action-bar-test (the platform action bar, compatibility plan gap 5): a default-theme activity that uses
+    # getActionBar(), an options menu with an overflow, hide and show, and an action mode; ends with "done".
+    action-bar-test | action-bar-test-34)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BarActivity
       ;;
     # back-test (ADR-0041 decision 10, the system's back): Root starts Second, and three BACKs pop Second's fragment,
     # finish Second and reach Root, which ends with "done". back-test-callback is its twin that opted in to
@@ -1134,7 +1141,7 @@ run_app() {
       wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
       run input swipe 300 1398 1000 1398 200; } || return 1
   fi
-  if [[ "$app" == views-test ]]; then
+  if [[ "$app" == views-test* ]]; then
     # ADR-0043 test 1: a tap on the Button's middle, from its logged bounds in the window, which fills the screen, a
     # second after the label's change, as apk-run's lifecycle plays it in tools/views-check.sh.
     local bounds left top right bottom
@@ -1407,7 +1414,7 @@ run_app() {
     # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
     device exec-out run-as "$package" cat cache/canvas-test.rgba | gzip -n -9 >"$RESULTS/$app.rgba.gz"
   fi
-  if [[ "$app" == views-test ]]; then
+  if [[ "$app" == views-test* ]]; then
     # The screen a second after "done", while the app shows it, between the bars.
     device exec-out screencap >"$RESULTS/$app.screencap"
     python3 framework/tests/views_compare.py --crop "$RESULTS/$app.screencap" "$RESULTS/$app-device.logcat" \
@@ -1462,12 +1469,12 @@ print("  screen center (RGBA): " + data[offset:offset + 4].hex())' "$RESULTS/$ap
     return 1
   fi
   device uninstall "$package" >/dev/null 2>&1 || true
-  if [[ "$app" == canvas-test || "$app" == views-test || "$app" == texture-view-test ]] &&
+  if [[ "$app" == canvas-test || "$app" == views-test* || "$app" == texture-view-test ]] &&
     ! cmp -s "fixtures/expected/$app.rgba.gz" "$RESULTS/$app.rgba.gz"; then
     echo "DIFFERS  $app's pixels: $RESULTS/$app.rgba.gz"
     return 1
   fi
-  if [[ "$app" == views-test ]] && ! cmp -s "fixtures/expected/$app.rows" "$RESULTS/$app.rows"; then
+  if [[ "$app" == views-test* ]] && ! cmp -s "fixtures/expected/$app.rows" "$RESULTS/$app.rows"; then
     echo "DIFFERS  $app's rows: $RESULTS/$app.rows"
     return 1
   fi

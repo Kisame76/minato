@@ -34,8 +34,9 @@ import android.widget.TextView;
  * click, when the ripple has gone, the app redraws the Button alone and logs the last line, "done", after that draw.
  */
 public class ViewsActivity extends Activity {
-    private static final String TAG = "views-test";
-    private static final String DEVICE_TAG = "views-test-device";
+    // The application's label, views-test or its twin in the default theme (views-test-default), tags the lines.
+    private String TAG;
+    private String DEVICE_TAG;
 
     private LinearLayout mColumn;
     private LabelView mLabel;
@@ -50,6 +51,8 @@ public class ViewsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        TAG = getPackageManager().getApplicationLabel(getApplicationInfo()).toString();
+        DEVICE_TAG = TAG + "-device";
         Log.i(TAG, "onCreate");
         getWindow().setBackgroundDrawable(new ColorDrawable(0xFFE8EEF4));
         mColumn = new LinearLayout(this);
@@ -131,7 +134,7 @@ public class ViewsActivity extends Activity {
         }, 1000);
     }
 
-    /** The first layout's bounds, the text's advance and the window's insets. */
+    /** The first layout's bounds and the text's advance. */
     private void laidOut() {
         if (mLaidOut || mLabel.getWidth() == 0) {
             return;
@@ -143,14 +146,29 @@ public class ViewsActivity extends Activity {
         Log.i(TAG, "textview bounds " + bounds(mColumn.getChildAt(3)));
         Log.i(TAG, "button bounds " + bounds(mButton));
         Log.i(TAG, "text advance " + mLabel.advance());
+    }
+
+    /** The window's insets, once the bars have settled. */
+    private void logInsets() {
         Insets bars = getWindow().getDecorView().getRootWindowInsets().getInsets(WindowInsets.Type.systemBars());
-        Log.i(DEVICE_TAG, "insets top " + bars.top + " bottom " + bars.bottom);
+        // The rows the screen's comparison starts at: below the status bar, and below the action bar that views-test's
+        // twin in the default theme has over its views (the bar's own pixels follow the status bar's inset).
+        int top = bars.top;
+        final View bar = getWindow().getDecorView().findViewById(
+                getResources().getIdentifier("action_bar_container", "id", "android"));
+        if (bar != null && bar.getVisibility() == View.VISIBLE) {
+            final int[] at = new int[2];
+            bar.getLocationInWindow(at);
+            top = Math.max(top, at[1] + bar.getHeight());
+        }
+        Log.i(DEVICE_TAG, "insets top " + top + " bottom " + bars.bottom);
     }
 
     /** The first draw after the click has settled: "done" once it is posted. */
     private void drawing() {
         if (mSettled && !mDone) {
             mDone = true;
+            logInsets();
             mColumn.post(() -> Log.i(TAG, "done"));
         }
     }

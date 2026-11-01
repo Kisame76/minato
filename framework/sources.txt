@@ -2398,6 +2398,15 @@ frameworks_base/core/java/com/android/internal/widget/ToolbarWidgetWrapper.java
 frameworks_base/core/java/android/widget/RtlSpacingHelper.java
 frameworks_base/core/java/com/android/internal/view/menu/ActionMenuItem.java
 frameworks_base/core/java/com/android/internal/widget/ScrollingTabContainerView.java
+frameworks_base/core/java/com/android/internal/widget/DecorContentParent.java
+frameworks_base/core/java/com/android/internal/widget/ActionBarOverlayLayout.java
+frameworks_base/core/java/com/android/internal/widget/ActionBarContainer.java
+frameworks_base/core/java/com/android/internal/widget/ActionBarContextView.java
+frameworks_base/core/java/com/android/internal/widget/AbsActionBarView.java
+frameworks_base/core/java/com/android/internal/app/WindowDecorActionBar.java
+frameworks_base/core/java/com/android/internal/app/ToolbarActionBar.java
+frameworks_base/core/java/android/view/WindowCallbackWrapper.java
+frameworks_base/core/java/com/android/internal/app/NavItemSelectedListener.java
 frameworks_base/core/java/android/widget/MediaController.java
 frameworks_base/core/java/android/widget/ZoomButtonsController.java
 frameworks_base/core/java/android/text/method/HideReturnsTransformationMethod.java

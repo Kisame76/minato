@@ -4,8 +4,9 @@
  * the window's events to its callback, the activity, as AOSP's DecorView does: key, touch and generic events, the
  * attach and detach, and the window's focus. Its background decides the window's default format, as AOSP's
  * drawableChanged does (ADR-0043 c3). AOSP's (2,670 lines) also draws the system bars' backgrounds, the caption, the
- * window's frame and the action modes, and resizes with the window; those come with ADR-0041 a)'s insets and ADR-0038's
- * status bar, and without action modes a view's startActionMode gets none.
+ * window's frame and the standalone and floating action modes, and resizes with the window; those come with ADR-0041
+ * a)'s insets and ADR-0038's status bar. An action mode is the action bar's, which the activity gives it (the window
+ * callback's onWindowStartingActionMode); a window without an action bar gets none.
  */
 package com.android.internal.policy;
 
@@ -16,9 +17,12 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.ActionMode;
 import android.view.InputQueue;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.PendingInsetsController;
 import android.view.SurfaceHolder;
@@ -346,5 +350,107 @@ public class DecorView extends FrameLayout {
     /** As AOSP's RootViewSurfaceTaker.setSurfaceFormat: a taken surface's format is the window's (Window.setFormat). */
     public void setSurfaceFormat(int format) {
         mWindow.setFormat(format);
+    }
+
+    /** As AOSP's: the primary action mode of the action bar, which the window callback hands out. */
+    private ActionMode mPrimaryActionMode;
+
+    @Override
+    public ActionMode startActionModeForChild(View originalView, ActionMode.Callback callback) {
+        return startActionModeForChild(originalView, callback, ActionMode.TYPE_PRIMARY);
+    }
+
+    @Override
+    public ActionMode startActionModeForChild(View child, ActionMode.Callback callback, int type) {
+        return startActionMode(callback, type);
+    }
+
+    @Override
+    public ActionMode startActionMode(ActionMode.Callback callback) {
+        return startActionMode(callback, ActionMode.TYPE_PRIMARY);
+    }
+
+    /**
+     * As AOSP's startActionMode with the window callback's mode only: the activity's action bar starts it. AOSP's
+     * standalone and floating modes, which a window without an action bar gets, come with the popups (ADR-0041 a)).
+     */
+    @Override
+    public ActionMode startActionMode(ActionMode.Callback callback, int type) {
+        final ActionMode.Callback2 wrappedCallback = new ActionModeCallback2Wrapper(callback);
+        ActionMode mode = null;
+        if (mWindow.getCallback() != null && !mWindow.isDestroyed()) {
+            try {
+                mode = mWindow.getCallback().onWindowStartingActionMode(wrappedCallback, type);
+            } catch (AbstractMethodError ame) {
+                // Older apps might not implement the typed version of this method.
+                if (type == ActionMode.TYPE_PRIMARY) {
+                    try {
+                        mode = mWindow.getCallback().onWindowStartingActionMode(wrappedCallback);
+                    } catch (AbstractMethodError ame2) {
+                        // Older apps might not implement this callback method at all.
+                    }
+                }
+            }
+        }
+        if (mode != null) {
+            if (mode.getType() == ActionMode.TYPE_PRIMARY) {
+                if (mPrimaryActionMode != null) {
+                    mPrimaryActionMode.finish();
+                }
+                mPrimaryActionMode = mode;
+            }
+            if (mWindow.getCallback() != null && !mWindow.isDestroyed()) {
+                try {
+                    mWindow.getCallback().onActionModeStarted(mode);
+                } catch (AbstractMethodError ame) {
+                    // Older apps might not implement this callback method.
+                }
+            }
+        }
+        return mode;
+    }
+
+    /** As AOSP's: clears the references when the action mode is destroyed. */
+    private class ActionModeCallback2Wrapper extends ActionMode.Callback2 {
+        private final ActionMode.Callback mWrapped;
+
+        ActionModeCallback2Wrapper(ActionMode.Callback wrapped) {
+            mWrapped = wrapped;
+        }
+
+        public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+            return mWrapped.onCreateActionMode(mode, menu);
+        }
+
+        public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+            return mWrapped.onPrepareActionMode(mode, menu);
+        }
+
+        public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+            return mWrapped.onActionItemClicked(mode, item);
+        }
+
+        public void onDestroyActionMode(ActionMode mode) {
+            mWrapped.onDestroyActionMode(mode);
+            if (mode == mPrimaryActionMode) {
+                mPrimaryActionMode = null;
+            }
+            if (mWindow.getCallback() != null && !mWindow.isDestroyed()) {
+                try {
+                    mWindow.getCallback().onActionModeFinished(mode);
+                } catch (AbstractMethodError ame) {
+                    // Older apps might not implement this callback method.
+                }
+            }
+        }
+
+        @Override
+        public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
+            if (mWrapped instanceof ActionMode.Callback2) {
+                ((ActionMode.Callback2) mWrapped).onGetContentRect(mode, view, outRect);
+            } else {
+                super.onGetContentRect(mode, view, outRect);
+            }
+        }
     }
 }

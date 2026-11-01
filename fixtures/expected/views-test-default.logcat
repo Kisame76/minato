@@ -1,0 +1,13 @@
+I/views-test-default: onCreate
+I/views-test-default: onStart
+I/views-test-default: onResume
+I/views-test-default: label bounds 195 937 1095 1105
+I/views-test-default: block bounds 195 1177 1095 1321
+I/views-test-default: bitmap bounds 597 1393 693 1489
+I/views-test-default: textview bounds 425 1561 865 1642
+I/views-test-default: button bounds 442 1714 848 1858
+I/views-test-default: text advance 483.0
+I/views-test-default: focus true
+I/views-test-default: text changed
+I/views-test-default: button clicked
+I/views-test-default: done

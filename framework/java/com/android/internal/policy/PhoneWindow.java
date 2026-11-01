@@ -20,12 +20,12 @@ package com.android.internal.policy;
 
 import android.content.Context;
 import android.content.res.Configuration;
+import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -38,6 +38,7 @@ import android.util.TypedValue;
 import android.view.AttachedSurfaceControl;
 import android.view.InputEvent;
 import android.view.InputQueue;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -52,11 +53,22 @@ import android.window.OnBackInvokedDispatcher;
 import android.widget.TextView;
 import android.window.ProxyOnBackInvokedDispatcher;
 import com.android.internal.R;
+import android.media.AudioManager;
+import android.util.EventLog;
+import android.view.ContextThemeWrapper;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.ViewConfiguration;
+import android.view.ViewManager;
+import android.view.ViewParent;
+import com.android.internal.view.menu.MenuBuilder;
+import com.android.internal.view.menu.MenuPresenter;
+import com.android.internal.widget.DecorContentParent;
 import java.util.List;
 
 /** @hide */
 @SuppressWarnings("deprecation") // Window's bar colors, flags and insets that it implements and keeps, as AOSP's.
-public class PhoneWindow extends Window {
+public class PhoneWindow extends Window implements MenuBuilder.Callback {
     private static final String TAG = "PhoneWindow";
     private static final String FOCUSED_ID_TAG = "android:focusedViewId";
     private static final String VIEWS_TAG = "android:views";
@@ -91,6 +103,24 @@ public class PhoneWindow extends Window {
     TypedValue mFixedWidthMinor;
     TypedValue mFixedHeightMajor;
     TypedValue mFixedHeightMinor;
+    // The action bar and the panels (the platform action bar, step 3): AOSP's, for the options menu that the action bar
+    // shows; a window without an action bar shows no panel.
+    DecorContentParent mDecorContentParent;
+    private PanelFeatureState[] mPanels;
+    PanelFeatureState mPreparedPanel;
+    int mPanelChordingKey;
+    private boolean mClosingActionMenu;
+    private boolean mInvalidatePanelMenuPosted;
+    private int mInvalidatePanelMenuFeatures;
+    private ActionMenuPresenterCallback mActionMenuPresenterCallback;
+    private int mUiOptions;
+    private int mIconRes;
+    private int mLogoRes;
+    private int mResourcesSetFlags;
+    private static final int FLAG_RESOURCE_SET_ICON = 1 << 0;
+    private static final int FLAG_RESOURCE_SET_LOGO = 1 << 1;
+    private static final int FLAG_RESOURCE_SET_ICON_FALLBACK = 1 << 2;
+    private boolean mIsStartingWindow;
     private boolean mDecorFitsSystemWindows = true;
     private boolean mEdgeToEdgeEnforced;
 
@@ -126,6 +156,9 @@ public class PhoneWindow extends Window {
             mDecor = new DecorView(getContext(), -1, this, getAttributes());
             mDecor.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
             mDecor.setIsRootNamespace(true);
+            if (!mInvalidatePanelMenuPosted && mInvalidatePanelMenuFeatures != 0) {
+                mDecor.postOnAnimation(mInvalidatePanelMenuRunnable);
+            }
         }
         if (mContentParent == null) {
             mContentParent = generateLayout(mDecor);
@@ -150,6 +183,12 @@ public class PhoneWindow extends Window {
         }
         if (a.getBoolean(R.styleable.Window_windowNoTitle, false)) {
             requestFeature(FEATURE_NO_TITLE);
+        } else if (a.getBoolean(R.styleable.Window_windowActionBar, false)) {
+            // As AOSP's: no action bar without a title.
+            requestFeature(FEATURE_ACTION_BAR);
+        }
+        if (a.getBoolean(R.styleable.Window_windowActionBarOverlay, false)) {
+            requestFeature(FEATURE_ACTION_BAR_OVERLAY);
         }
         if (a.getBoolean(R.styleable.Window_windowActionModeOverlay, false)) {
             requestFeature(FEATURE_ACTION_MODE_OVERLAY);
@@ -223,16 +262,18 @@ public class PhoneWindow extends Window {
         if (getContainer() == null && mBackgroundDrawable == null && mBackgroundResource == 0) {
             mBackgroundResource = a.getResourceId(R.styleable.Window_windowBackground, 0);
         }
-        // As AOSP's: a title bar unless FEATURE_NO_TITLE, the dialog's for a floating window; a theme with an action
-        // bar keeps screen_simple, our gap.
+        // As AOSP's: a title bar unless FEATURE_NO_TITLE, the dialog's for a floating window, the action bar's layout
+        // for a window with the action bar feature.
         final int features = getLocalFeatures();
         final int layoutResource;
         if ((features & (1 << FEATURE_NO_TITLE)) == 0 && mIsFloating) {
             TypedValue res = new TypedValue();
             getContext().getTheme().resolveAttribute(R.attr.dialogTitleDecorLayout, res, true);
             layoutResource = res.resourceId;
-        } else if ((features & (1 << FEATURE_NO_TITLE)) == 0
-                && !a.getBoolean(R.styleable.Window_windowActionBar, false)) {
+        } else if ((features & (1 << FEATURE_NO_TITLE)) == 0 && (features & (1 << FEATURE_ACTION_BAR)) != 0) {
+            layoutResource = a.getResourceId(R.styleable.Window_windowActionBarFullscreenDecorLayout,
+                    R.layout.screen_action_bar);
+        } else if ((features & (1 << FEATURE_NO_TITLE)) == 0) {
             layoutResource = R.layout.screen_title;
         } else if ((features & (1 << FEATURE_ACTION_MODE_OVERLAY)) != 0) {
             layoutResource = R.layout.screen_simple_overlay_action_mode;
@@ -244,11 +285,48 @@ public class PhoneWindow extends Window {
         if (contentParent == null) {
             throw new RuntimeException("Window couldn't find content container view");
         }
-        mTitleView = (TextView) findViewById(R.id.title);
-        if (mTitleView != null) {
-            mTitleView.setText(mTitle);
-            if (mTitleColor != 0) {
-                mTitleView.setTextColor(mTitleColor);
+        final DecorContentParent decorContentParent = (DecorContentParent) decor.findViewById(
+                R.id.decor_content_parent);
+        if (decorContentParent != null) {
+            // As AOSP's installDecor: the action bar's layout parent takes the window's callback, title, features, UI
+            // options, icon and logo, and the options menu is made, deferred, for the bar.
+            mDecorContentParent = decorContentParent;
+            mDecorContentParent.setWindowCallback(getCallback());
+            if (mDecorContentParent.getTitle() == null) {
+                mDecorContentParent.setWindowTitle(mTitle);
+            }
+            final int localFeatures = getLocalFeatures();
+            for (int i = 0; i < FEATURE_MAX; i++) {
+                if ((localFeatures & (1 << i)) != 0) {
+                    mDecorContentParent.initFeature(i);
+                }
+            }
+            mDecorContentParent.setUiOptions(mUiOptions);
+            if ((mResourcesSetFlags & FLAG_RESOURCE_SET_ICON) != 0
+                    || (mIconRes != 0 && !mDecorContentParent.hasIcon())) {
+                mDecorContentParent.setIcon(mIconRes);
+            } else if ((mResourcesSetFlags & FLAG_RESOURCE_SET_ICON) == 0 && mIconRes == 0
+                    && !mDecorContentParent.hasIcon()) {
+                mDecorContentParent.setIcon(getContext().getPackageManager().getDefaultActivityIcon());
+                mResourcesSetFlags |= FLAG_RESOURCE_SET_ICON_FALLBACK;
+            }
+            if ((mResourcesSetFlags & FLAG_RESOURCE_SET_LOGO) != 0
+                    || (mLogoRes != 0 && !mDecorContentParent.hasLogo())) {
+                mDecorContentParent.setLogo(mLogoRes);
+            }
+            // Panel menu invalidation is deferred, so that the app's onCreateOptionsMenu does not run in the middle of
+            // its onCreate.
+            final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+            if (!isDestroyed() && (st == null || st.menu == null) && !mIsStartingWindow) {
+                invalidatePanelMenu(FEATURE_ACTION_BAR);
+            }
+        } else {
+            mTitleView = (TextView) findViewById(R.id.title);
+            if (mTitleView != null) {
+                mTitleView.setText(mTitle);
+                if (mTitleColor != 0) {
+                    mTitleView.setTextColor(mTitleColor);
+                }
             }
         }
         if (getContainer() == null) {
@@ -430,6 +508,8 @@ public class PhoneWindow extends Window {
         mTitle = title;
         if (mTitleView != null) {
             mTitleView.setText(title);
+        } else if (mDecorContentParent != null) {
+            mDecorContentParent.setWindowTitle(title);
         }
         WindowManager.LayoutParams params = getAttributes();
         if (!TextUtils.equals(title, params.accessibilityTitle)) {
@@ -602,34 +682,702 @@ public class PhoneWindow extends Window {
     public void alwaysReadCloseOnTouchAttr() {
     }
 
-    @Override
-    public void openPanel(int featureId, KeyEvent event) {
+    // The panels (AOSP's, from here to the end of the block).
+
+    /**
+     * Prepares the panel to either be opened or chorded. This creates the Menu
+     * instance for the panel and populates it via the Activity callbacks.
+     *
+     * @param st The panel state to prepare.
+     * @param event The event that triggered the preparing of the panel.
+     * @return Whether the panel was prepared. If the panel should not be shown,
+     *         returns false.
+     */
+    public final boolean preparePanel(PanelFeatureState st, KeyEvent event) {
+        if (isDestroyed()) {
+            return false;
+        }
+
+        // Already prepared (isPrepared will be reset to false later)
+        if (st.isPrepared) {
+            return true;
+        }
+
+        if ((mPreparedPanel != null) && (mPreparedPanel != st)) {
+            // Another Panel is prepared and possibly open, so close it
+            closePanel(mPreparedPanel, false);
+        }
+
+        final Callback cb = getCallback();
+
+        if (cb != null) {
+            st.createdPanelView = cb.onCreatePanelView(st.featureId);
+        }
+
+        final boolean isActionBarMenu =
+                (st.featureId == FEATURE_OPTIONS_PANEL || st.featureId == FEATURE_ACTION_BAR);
+
+        if (isActionBarMenu && mDecorContentParent != null) {
+            // Enforce ordering guarantees around events so that the action bar never
+            // dispatches menu-related events before the panel is prepared.
+            mDecorContentParent.setMenuPrepared();
+        }
+
+        if (st.createdPanelView == null) {
+            // Init the panel state's menu--return false if init failed
+            if (st.menu == null || st.refreshMenuContent) {
+                if (st.menu == null) {
+                    if (!initializePanelMenu(st) || (st.menu == null)) {
+                        return false;
+                    }
+                }
+
+                if (isActionBarMenu && mDecorContentParent != null) {
+                    if (mActionMenuPresenterCallback == null) {
+                        mActionMenuPresenterCallback = new ActionMenuPresenterCallback();
+                    }
+                    mDecorContentParent.setMenu(st.menu, mActionMenuPresenterCallback);
+                }
+
+                // Call callback, and return if it doesn't want to display menu.
+
+                // Creating the panel menu will involve a lot of manipulation;
+                // don't dispatch change events to presenters until we're done.
+                st.menu.stopDispatchingItemsChanged();
+                if ((cb == null) || !cb.onCreatePanelMenu(st.featureId, st.menu)) {
+                    // Ditch the menu created above
+                    st.setMenu(null);
+
+                    if (isActionBarMenu && mDecorContentParent != null) {
+                        // Don't show it in the action bar either
+                        mDecorContentParent.setMenu(null, mActionMenuPresenterCallback);
+                    }
+
+                    return false;
+                }
+
+                st.refreshMenuContent = false;
+            }
+
+            // Callback and return if the callback does not want to show the menu
+
+            // Preparing the panel menu can involve a lot of manipulation;
+            // don't dispatch change events to presenters until we're done.
+            st.menu.stopDispatchingItemsChanged();
+
+            // Restore action view state before we prepare. This gives apps
+            // an opportunity to override frozen/restored state in onPrepare.
+            if (st.frozenActionViewState != null) {
+                st.menu.restoreActionViewStates(st.frozenActionViewState);
+                st.frozenActionViewState = null;
+            }
+
+            if (!cb.onPreparePanel(st.featureId, st.createdPanelView, st.menu)) {
+                if (isActionBarMenu && mDecorContentParent != null) {
+                    // The app didn't want to show the menu for now but it still exists.
+                    // Clear it out of the action bar.
+                    mDecorContentParent.setMenu(null, mActionMenuPresenterCallback);
+                }
+                st.menu.startDispatchingItemsChanged();
+                return false;
+            }
+
+            // Set the proper keymap
+            KeyCharacterMap kmap = KeyCharacterMap.load(
+                    event != null ? event.getDeviceId() : KeyCharacterMap.VIRTUAL_KEYBOARD);
+            st.qwertyMode = kmap.getKeyboardType() != KeyCharacterMap.NUMERIC;
+            st.menu.setQwertyMode(st.qwertyMode);
+            st.menu.startDispatchingItemsChanged();
+        }
+
+        // Set other state
+        st.isPrepared = true;
+        st.isHandled = false;
+        mPreparedPanel = st;
+
+        return true;
     }
 
     @Override
-    public void closePanel(int featureId) {
+    public final void openPanel(int featureId, KeyEvent event) {
+        if (featureId == FEATURE_OPTIONS_PANEL && mDecorContentParent != null &&
+                mDecorContentParent.canShowOverflowMenu() &&
+                !ViewConfiguration.get(getContext()).hasPermanentMenuKey()) {
+            mDecorContentParent.showOverflowMenu();
+        } else {
+            openPanel(getPanelState(featureId, true), event);
+        }
     }
 
     @Override
-    public void togglePanel(int featureId, KeyEvent event) {
+    public final void closePanel(int featureId) {
+        if (featureId == FEATURE_OPTIONS_PANEL && mDecorContentParent != null &&
+                mDecorContentParent.canShowOverflowMenu() &&
+                !ViewConfiguration.get(getContext()).hasPermanentMenuKey()) {
+            mDecorContentParent.hideOverflowMenu();
+        } else if (featureId == FEATURE_CONTEXT_MENU) {
+            closeContextMenu();
+        } else {
+            closePanel(getPanelState(featureId, true), true);
+        }
+    }
+
+    /**
+     * Closes the given panel.
+     *
+     * @param st The panel to be closed.
+     * @param doCallback Whether to notify the callback that the panel was
+     *            closed. If the panel is in the process of re-opening or
+     *            opening another panel (e.g., menu opening a sub menu), the
+     *            callback should not happen and this variable should be false.
+     *            In addition, this method internally will only perform the
+     *            callback if the panel is open.
+     */
+    public final void closePanel(PanelFeatureState st, boolean doCallback) {
+        // System.out.println("Close panel: isOpen=" + st.isOpen);
+        if (doCallback && st.featureId == FEATURE_OPTIONS_PANEL &&
+                mDecorContentParent != null && mDecorContentParent.isOverflowMenuShowing()) {
+            checkCloseActionMenu(st.menu);
+            return;
+        }
+
+        final ViewManager wm = getWindowManager();
+        if ((wm != null) && st.isOpen) {
+            if (st.decorView != null) {
+                wm.removeView(st.decorView);
+                // Log.v(TAG, "Removing main menu from window manager.");
+            }
+
+            if (doCallback) {
+                callOnPanelClosed(st.featureId, st, null);
+            }
+        }
+
+        st.isPrepared = false;
+        st.isHandled = false;
+        st.isOpen = false;
+
+        // This view is no longer shown, so null it out
+        st.shownPanelView = null;
+
+        if (st.isInExpandedMode) {
+            // Next time the menu opens, it should not be in expanded mode, so
+            // force a refresh of the decor
+            st.refreshDecorView = true;
+            st.isInExpandedMode = false;
+        }
+
+        if (mPreparedPanel == st) {
+            mPreparedPanel = null;
+            mPanelChordingKey = 0;
+        }
+    }
+
+    void checkCloseActionMenu(Menu menu) {
+        if (mClosingActionMenu) {
+            return;
+        }
+
+        mClosingActionMenu = true;
+        mDecorContentParent.dismissPopups();
+        Callback cb = getCallback();
+        if (cb != null && !isDestroyed()) {
+            cb.onPanelClosed(FEATURE_ACTION_BAR, menu);
+        }
+        mClosingActionMenu = false;
+    }
+
+    @Override
+    public final void togglePanel(int featureId, KeyEvent event) {
+        PanelFeatureState st = getPanelState(featureId, true);
+        if (st.isOpen) {
+            closePanel(st, true);
+        } else {
+            openPanel(st, event);
+        }
     }
 
     @Override
     public void invalidatePanelMenu(int featureId) {
+        mInvalidatePanelMenuFeatures |= 1 << featureId;
+
+        if (!mInvalidatePanelMenuPosted && mDecor != null) {
+            mDecor.postOnAnimation(mInvalidatePanelMenuRunnable);
+            mInvalidatePanelMenuPosted = true;
+        }
+    }
+
+    void doPendingInvalidatePanelMenu() {
+        if (mInvalidatePanelMenuPosted) {
+            mDecor.removeCallbacks(mInvalidatePanelMenuRunnable);
+            mInvalidatePanelMenuRunnable.run();
+        }
+    }
+
+    void doInvalidatePanelMenu(int featureId) {
+        PanelFeatureState st = getPanelState(featureId, false);
+        if (st == null) {
+            return;
+        }
+        Bundle savedActionViewStates = null;
+        if (st.menu != null) {
+            savedActionViewStates = new Bundle();
+            st.menu.saveActionViewStates(savedActionViewStates);
+            if (savedActionViewStates.size() > 0) {
+                st.frozenActionViewState = savedActionViewStates;
+            }
+            // This will be started again when the panel is prepared.
+            st.menu.stopDispatchingItemsChanged();
+            st.menu.clear();
+        }
+        st.refreshMenuContent = true;
+        st.refreshDecorView = true;
+
+        // Prepare the options panel if we have an action bar
+        if ((featureId == FEATURE_ACTION_BAR || featureId == FEATURE_OPTIONS_PANEL)
+                && mDecorContentParent != null) {
+            st = getPanelState(Window.FEATURE_OPTIONS_PANEL, false);
+            if (st != null) {
+                st.isPrepared = false;
+                preparePanel(st, null);
+            }
+        }
+    }
+
+    @Override
+    public final void closeAllPanels() {
+        final ViewManager wm = getWindowManager();
+        if (wm == null) {
+            return;
+        }
+
+        final PanelFeatureState[] panels = mPanels;
+        final int N = panels != null ? panels.length : 0;
+        for (int i = 0; i < N; i++) {
+            final PanelFeatureState panel = panels[i];
+            if (panel != null) {
+                closePanel(panel, true);
+            }
+        }
+
+        closeContextMenu();
     }
 
     @Override
     public boolean performPanelShortcut(int featureId, int keyCode, KeyEvent event, int flags) {
-        return false;
+        return performPanelShortcut(getPanelState(featureId, false), keyCode, event, flags);
+    }
+
+    boolean performPanelShortcut(PanelFeatureState st, int keyCode, KeyEvent event,
+            int flags) {
+        if (event.isSystem() || (st == null)) {
+            return false;
+        }
+
+        boolean handled = false;
+
+        // Only try to perform menu shortcuts if preparePanel returned true (possible false
+        // return value from application not wanting to show the menu).
+        if ((st.isPrepared || preparePanel(st, event)) && st.menu != null) {
+            // The menu is prepared now, perform the shortcut on it
+            handled = st.menu.performShortcut(keyCode, event, flags);
+        }
+
+        if (handled) {
+            // Mark as handled
+            st.isHandled = true;
+
+            // Only close down the menu if we don't have an action bar keeping it open.
+            if ((flags & Menu.FLAG_PERFORM_NO_CLOSE) == 0 && mDecorContentParent == null) {
+                closePanel(st, true);
+            }
+        }
+
+        return handled;
     }
 
     @Override
     public boolean performPanelIdentifierAction(int featureId, int id, int flags) {
+
+        PanelFeatureState st = getPanelState(featureId, true);
+        if (!preparePanel(st, new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MENU))) {
+            return false;
+        }
+        if (st.menu == null) {
+            return false;
+        }
+
+        boolean res = st.menu.performIdentifierAction(id, flags);
+
+        // Only close down the menu if we don't have an action bar keeping it open.
+        if (mDecorContentParent == null) {
+            closePanel(st, true);
+        }
+
+        return res;
+    }
+
+    public PanelFeatureState findMenuPanel(Menu menu) {
+        final PanelFeatureState[] panels = mPanels;
+        final int N = panels != null ? panels.length : 0;
+        for (int i = 0; i < N; i++) {
+            final PanelFeatureState panel = panels[i];
+            if (panel != null && panel.menu == menu) {
+                return panel;
+            }
+        }
+        return null;
+    }
+
+    public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item) {
+        final Callback cb = getCallback();
+        if (cb != null && !isDestroyed()) {
+            final PanelFeatureState panel = findMenuPanel(menu.getRootMenu());
+            if (panel != null) {
+                return cb.onMenuItemSelected(panel.featureId, item);
+            }
+        }
         return false;
     }
 
+    public void onMenuModeChange(MenuBuilder menu) {
+        reopenMenu(true);
+    }
+
+    private void reopenMenu(boolean toggleMenuMode) {
+        if (mDecorContentParent != null && mDecorContentParent.canShowOverflowMenu() &&
+                (!ViewConfiguration.get(getContext()).hasPermanentMenuKey() ||
+                        mDecorContentParent.isOverflowMenuShowPending())) {
+            final Callback cb = getCallback();
+            if (!mDecorContentParent.isOverflowMenuShowing() || !toggleMenuMode) {
+                if (cb != null && !isDestroyed()) {
+                    // If we have a menu invalidation pending, do it now.
+                    if (mInvalidatePanelMenuPosted &&
+                            (mInvalidatePanelMenuFeatures & (1 << FEATURE_OPTIONS_PANEL)) != 0) {
+                        mDecor.removeCallbacks(mInvalidatePanelMenuRunnable);
+                        mInvalidatePanelMenuRunnable.run();
+                    }
+
+                    final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+
+                    // If we don't have a menu or we're waiting for a full content refresh,
+                    // forget it. This is a lingering event that no longer matters.
+                    if (st != null && st.menu != null && !st.refreshMenuContent &&
+                            cb.onPreparePanel(FEATURE_OPTIONS_PANEL, st.createdPanelView, st.menu)) {
+                        cb.onMenuOpened(FEATURE_ACTION_BAR, st.menu);
+                        mDecorContentParent.showOverflowMenu();
+                    }
+                }
+            } else {
+                mDecorContentParent.hideOverflowMenu();
+                final PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+                if (st != null && cb != null && !isDestroyed()) {
+                    cb.onPanelClosed(FEATURE_ACTION_BAR, st.menu);
+                }
+            }
+            return;
+        }
+
+        PanelFeatureState st = getPanelState(FEATURE_OPTIONS_PANEL, false);
+
+        if (st == null) {
+            return;
+        }
+
+        // Save the future expanded mode state since closePanel will reset it
+        boolean newExpandedMode = toggleMenuMode ? !st.isInExpandedMode : st.isInExpandedMode;
+
+        st.refreshDecorView = true;
+        closePanel(st, false);
+
+        // Set the expanded mode state
+        st.isInExpandedMode = newExpandedMode;
+
+        openPanel(st, null);
+    }
+
+    /**
+     * Initializes the menu associated with the given panel feature state. You
+     * must at the very least set PanelFeatureState.menu to the Menu to be
+     * associated with the given panel state. The default implementation creates
+     * a new menu for the panel state.
+     *
+     * @param st The panel whose menu is being initialized.
+     * @return Whether the initialization was successful.
+     */
+    protected boolean initializePanelMenu(final PanelFeatureState st) {
+        Context context = getContext();
+
+        // If we have an action bar, initialize the menu with the right theme.
+        if ((st.featureId == FEATURE_OPTIONS_PANEL || st.featureId == FEATURE_ACTION_BAR) &&
+                mDecorContentParent != null) {
+            final TypedValue outValue = new TypedValue();
+            final Theme baseTheme = context.getTheme();
+            baseTheme.resolveAttribute(R.attr.actionBarTheme, outValue, true);
+
+            Theme widgetTheme = null;
+            if (outValue.resourceId != 0) {
+                widgetTheme = context.getResources().newTheme();
+                widgetTheme.setTo(baseTheme);
+                widgetTheme.applyStyle(outValue.resourceId, true);
+                widgetTheme.resolveAttribute(
+                        R.attr.actionBarWidgetTheme, outValue, true);
+            } else {
+                baseTheme.resolveAttribute(
+                        R.attr.actionBarWidgetTheme, outValue, true);
+            }
+
+            if (outValue.resourceId != 0) {
+                if (widgetTheme == null) {
+                    widgetTheme = context.getResources().newTheme();
+                    widgetTheme.setTo(baseTheme);
+                }
+                widgetTheme.applyStyle(outValue.resourceId, true);
+            }
+
+            if (widgetTheme != null) {
+                context = new ContextThemeWrapper(context, 0);
+                context.getTheme().setTo(widgetTheme);
+            }
+        }
+
+        final MenuBuilder menu = new MenuBuilder(context);
+        menu.setCallback(this);
+        st.setMenu(menu);
+
+        return true;
+    }
+
+    /**
+     * Gets a panel's state based on its feature ID.
+     *
+     * @param featureId The feature ID of the panel.
+     * @param required Whether the panel is required (if it is required and it
+     *            isn't in our features, this throws an exception).
+     * @return The panel state.
+     */
+    PanelFeatureState getPanelState(int featureId, boolean required) {
+        return getPanelState(featureId, required, null);
+    }
+
+    /**
+     * Gets a panel's state based on its feature ID.
+     *
+     * @param featureId The feature ID of the panel.
+     * @param required Whether the panel is required (if it is required and it
+     *            isn't in our features, this throws an exception).
+     * @param convertPanelState Optional: If the panel state does not exist, use
+     *            this as the panel state.
+     * @return The panel state.
+     */
+    private PanelFeatureState getPanelState(int featureId, boolean required,
+            PanelFeatureState convertPanelState) {
+        if ((getFeatures() & (1 << featureId)) == 0) {
+            if (!required) {
+                return null;
+            }
+            throw new RuntimeException("The feature has not been requested");
+        }
+
+        PanelFeatureState[] ar;
+        if ((ar = mPanels) == null || ar.length <= featureId) {
+            PanelFeatureState[] nar = new PanelFeatureState[featureId + 1];
+            if (ar != null) {
+                System.arraycopy(ar, 0, nar, 0, ar.length);
+            }
+            mPanels = ar = nar;
+        }
+
+        PanelFeatureState st = ar[featureId];
+        if (st == null) {
+            ar[featureId] = st = (convertPanelState != null)
+                    ? convertPanelState
+                    : new PanelFeatureState(featureId);
+        }
+        return st;
+    }
+
+    /**
+     * Helper method for calling the {@link Callback#onPanelClosed(int, Menu)}
+     * callback. This method will grab whatever extra state is needed for the
+     * callback that isn't given in the parameters. If the panel is not open,
+     * this will not perform the callback.
+     *
+     * @param featureId Feature ID of the panel that was closed. Must be given.
+     * @param panel Panel that was closed. Optional but useful if there is no
+     *            menu given.
+     * @param menu The menu that was closed. Optional, but give if you have.
+     */
+    private void callOnPanelClosed(int featureId, PanelFeatureState panel, Menu menu) {
+        final Callback cb = getCallback();
+        if (cb == null)
+            return;
+
+        // Try to get a menu
+        if (menu == null) {
+            // Need a panel to grab the menu, so try to get that
+            if (panel == null) {
+                if ((featureId >= 0) && (featureId < mPanels.length)) {
+                    panel = mPanels[featureId];
+                }
+            }
+
+            if (panel != null) {
+                // menu still may be null, which is okay--we tried our best
+                menu = panel.menu;
+            }
+        }
+
+        // If the panel is not open, do not callback
+        if ((panel != null) && (!panel.isOpen))
+            return;
+
+        if (!isDestroyed()) {
+            cb.onPanelClosed(featureId, menu);
+        }
+    }
+
+    private final class ActionMenuPresenterCallback implements MenuPresenter.Callback {
+        @Override
+        public boolean onOpenSubMenu(MenuBuilder subMenu) {
+            Callback cb = getCallback();
+            if (cb != null) {
+                cb.onMenuOpened(FEATURE_ACTION_BAR, subMenu);
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void onCloseMenu(MenuBuilder menu, boolean allMenusAreClosing) {
+            checkCloseActionMenu(menu);
+        }
+    }
+
+    /**
+     * AOSP's PanelFeatureState for the panels the action bar shows: the options menu's state. The panels that are a
+     * window of their own (popup list and icon menus), their presenters and their saved state are left out.
+     */
+    static final class PanelFeatureState {
+        /** The panel's feature, one of Window's FEATURE_OPTIONS_PANEL and FEATURE_ACTION_BAR. */
+        int featureId;
+        View createdPanelView;
+        View shownPanelView;
+        MenuBuilder menu;
+        boolean isCompact;
+        boolean isPrepared;
+        boolean isHandled;
+        boolean isOpen;
+        boolean isInExpandedMode;
+        public boolean qwertyMode;
+        boolean refreshDecorView;
+        boolean refreshMenuContent;
+        Bundle frozenActionViewState;
+        DecorView decorView;
+
+        PanelFeatureState(int featureId) {
+            this.featureId = featureId;
+            refreshDecorView = false;
+        }
+
+        public boolean isInListMode() {
+            return isInExpandedMode || isCompact;
+        }
+
+        public boolean hasPanelItems() {
+            return shownPanelView != null && (createdPanelView != null || ((ViewGroup) shownPanelView).getChildCount() > 0);
+        }
+
+        public void clearMenuPresenters() {
+        }
+
+        void setStyle(Context context) {
+        }
+
+        void setMenu(MenuBuilder menu) {
+            this.menu = menu;
+        }
+    }
+
+    private final Runnable mInvalidatePanelMenuRunnable = new Runnable() {
+        @Override public void run() {
+            for (int i = 0; i <= FEATURE_MAX; i++) {
+                if ((mInvalidatePanelMenuFeatures & 1 << i) != 0) {
+                    doInvalidatePanelMenu(i);
+                }
+            }
+            mInvalidatePanelMenuPosted = false;
+            mInvalidatePanelMenuFeatures = 0;
+        }
+    };
+
+    private void closeContextMenu() {
+    }
+
+    /**
+     * AOSP's openPanel for a panel that is a window of its own (a popup list or icon menu), which Minato does not make:
+     * only the action bar shows the options menu, through the overflow.
+     */
+    private void openPanel(final PanelFeatureState st, KeyEvent event) {
+    }
+
     @Override
-    public void closeAllPanels() {
+    public void setUiOptions(int uiOptions) {
+        mUiOptions = uiOptions;
+    }
+
+    @Override
+    public void setUiOptions(int uiOptions, int mask) {
+        mUiOptions = (mUiOptions & ~mask) | (uiOptions & mask);
+    }
+
+    /** As AOSP's: the window's icon and logo, for the action bar. */
+    @Override
+    public void setIcon(int resId) {
+        mIconRes = resId;
+        mResourcesSetFlags |= FLAG_RESOURCE_SET_ICON;
+        mResourcesSetFlags &= ~FLAG_RESOURCE_SET_ICON_FALLBACK;
+        if (mDecorContentParent != null) {
+            mDecorContentParent.setIcon(resId);
+        }
+    }
+
+    @Override
+    public void setDefaultIcon(int resId) {
+        if ((mResourcesSetFlags & FLAG_RESOURCE_SET_ICON) != 0) {
+            return;
+        }
+        mIconRes = resId;
+        if (mDecorContentParent != null && (!mDecorContentParent.hasIcon()
+                || (mResourcesSetFlags & FLAG_RESOURCE_SET_ICON_FALLBACK) != 0)) {
+            if (resId != 0) {
+                mDecorContentParent.setIcon(resId);
+                mResourcesSetFlags &= ~FLAG_RESOURCE_SET_ICON_FALLBACK;
+            } else {
+                mDecorContentParent.setIcon(getContext().getPackageManager().getDefaultActivityIcon());
+                mResourcesSetFlags |= FLAG_RESOURCE_SET_ICON_FALLBACK;
+            }
+        }
+    }
+
+    @Override
+    public void setLogo(int resId) {
+        mLogoRes = resId;
+        mResourcesSetFlags |= FLAG_RESOURCE_SET_LOGO;
+        if (mDecorContentParent != null) {
+            mDecorContentParent.setLogo(resId);
+        }
+    }
+
+    @Override
+    public void setDefaultLogo(int resId) {
+        if ((mResourcesSetFlags & FLAG_RESOURCE_SET_LOGO) != 0) {
+            return;
+        }
+        mLogoRes = resId;
+        if (mDecorContentParent != null && !mDecorContentParent.hasLogo()) {
+            mDecorContentParent.setLogo(resId);
+        }
     }
 
     @Override

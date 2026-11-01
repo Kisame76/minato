@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- action-bar-test (the platform action bar, compatibility plan gap 5): an activity of a theme with an action bar
+     (Theme.DeviceDefault.Light), no AppCompat, that uses getActionBar(), an options menu and an action mode. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.actionbar" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.actionbar.BarActivity" android:exported="true"
+        android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.Light">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

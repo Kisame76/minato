@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ADR-0043 step c3's pixel check of views-test (tools/views-check.sh): the window that graphics-run's fake buffers
 wrote post by post (MINATO_WINDOW_DUMP, graphics/tests/window_host.m) against Android 15's screen after the app's
-"done" (tools/android-reference.sh --app views-test).
+"done" (tools/android-reference.sh --app views-test; its twin views-test-default has the same lines under its own tag).
 
 The reference is the screen's rows between the AVD's system bars, since SystemUI draws over the rest:
 fixtures/expected/views-test.rgba.gz holds those rows as RGBA bytes, fixtures/expected/views-test.rows the screen's
@@ -37,8 +37,8 @@ from canvas_compare import compare  # noqa: E402
 
 POST = re.compile(r"^(\d+) window (\d+) (\d+)x(\d+) format (\d+) dirty (-?\d+) (-?\d+) (-?\d+) (-?\d+)$")
 ROWS = re.compile(r"^width (\d+) height (\d+) top (\d+) bottom (\d+)$")
-INSETS = re.compile(r"views-test-device: insets top (\d+) bottom (\d+)$")
-VIEW_BOUNDS = re.compile(r"views-test: (\w+) bounds (\d+) (\d+) (\d+) (\d+)$")
+INSETS = re.compile(r"views-test(?:-default)?-device: insets top (\d+) bottom (\d+)$")
+VIEW_BOUNDS = re.compile(r"views-test(?:-default)?: (\w+) bounds (\d+) (\d+) (\d+) (\d+)$")
 RGBA_8888 = 1
 RGBX_8888 = 2
 

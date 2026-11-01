@@ -15,6 +15,8 @@ All notable changes to Minato are documented in this file. The format follows
 - AAC, MP3, FLAC and uncompressed audio through MediaCodec, for apps that decode their music and sounds themselves
 - Apps already in the library are checked again after a Minato update, so an app a newer Minato can run turns Ready
   without importing it again
+- Android's action bar for apps with the default theme: the title, the options menu with its overflow, hiding and
+  showing it, and action modes, as on Android 15
 
 ### Changed
 

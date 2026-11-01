@@ -1,0 +1,27 @@
+I/action-bar-test: onCreate getActionBar true
+I/action-bar-test: onCreateOptionsMenu
+I/action-bar-test: onPrepareOptionsMenu 1, items 4
+I/action-bar-test: start: showing true, bar has a height, content under the bar, title action-bar-test, subtitle sub, home as up true
+I/action-bar-test: onOptionsItemSelected First
+I/action-bar-test: onPanelClosed feature 8
+I/action-bar-test: performIdentifierAction first: true
+I/action-bar-test: onOptionsItemSelected Third
+I/action-bar-test: onPanelClosed feature 8
+I/action-bar-test: performIdentifierAction third (overflow): true
+I/action-bar-test: onMenuOpened feature 8, items -1
+I/action-bar-test: onPrepareOptionsMenu 2, items 4
+I/action-bar-test: onMenuOpened feature 8, items 4
+I/action-bar-test: onPanelClosed feature 8
+I/action-bar-test: onPanelClosed feature 8
+I/action-bar-test: onPanelClosed feature 8
+I/action-bar-test: onPanelClosed feature 8
+I/action-bar-test: onCreateOptionsMenu
+I/action-bar-test: onPrepareOptionsMenu 3, items 4
+I/action-bar-test: hidden: showing false, bar has a height, content below the bar, title action-bar-test, subtitle sub, home as up true
+I/action-bar-test: shown again: showing true, bar has a height, content under the bar, title action-bar-test, subtitle sub, home as up true
+I/action-bar-test: onCreateActionMode
+I/action-bar-test: onPrepareActionMode
+I/action-bar-test: onActionModeStarted
+I/action-bar-test: onDestroyActionMode
+I/action-bar-test: onActionModeFinished
+I/action-bar-test: done

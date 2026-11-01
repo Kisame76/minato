@@ -104,9 +104,6 @@ android.view.RemoteAnimationTarget <- android.window.BackMotionEvent  # stays: B
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # stays: autofill's client callbacks, which no AutofillManager calls, as autofill is off
 android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
 android.window.OnBackInvokedCallbackInfo <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
-com.android.internal.app.ToolbarActionBar <- android.app.Activity  # gap: Activity.setActionBar with a platform Toolbar, which needs the widget
-com.android.internal.app.WindowDecorActionBar <- android.app.Activity  # stays: the window's action bar, which initWindowDecorActionBar makes only for a window with FEATURE_ACTION_BAR, and our PhoneWindow requests none
-com.android.internal.app.WindowDecorActionBar <- android.app.Dialog  # stays: the window's action bar, which Dialog.show makes only for a window with FEATURE_ACTION_BAR, and our PhoneWindow requests none
 
 # ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
 # sensor runs.

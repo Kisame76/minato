@@ -1143,6 +1143,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** A window's insets: the metrics' and the keyboard's, which only windows get (WindowMetrics leaves ime() out). */
     private static WindowInsets windowInsets() {
         final WindowInsets.Builder builder = new WindowInsets.Builder();
+        // As a window manager's: the system bars' insets are there, empty, so the views are not handed consumed insets,
+        // which stop at the decor and never reach an ActionBarOverlayLayout.
+        builder.setInsets(WindowInsets.Type.systemBars(), Insets.NONE);
+        builder.setInsetsIgnoringVisibility(WindowInsets.Type.systemBars(), Insets.NONE);
         final int ime = sImeBottom;
         if (ime > 0) {
             builder.setInsets(WindowInsets.Type.ime(), Insets.of(0, 0, 0, ime));
