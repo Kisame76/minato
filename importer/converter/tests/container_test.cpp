@@ -845,14 +845,16 @@ TEST(a_16_kib_p_align_the_sections_do_not_need_takes_a_4_kib_shift) {
     CHECK(convert(mixed).report.image_shift == 0x2000);  // converts, shifting 8 KiB like the 4 KiB library it is
 }
 
-// The refusal stays when an allocated section truly needs 16 KiB that a 4 KiB-multiple shift cannot keep.
+// The refusal stays when an allocated section truly needs 16 KiB that a 4 KiB-multiple shift cannot keep, and it
+// names that section (name, address, size, alignment) so the import report shows which one to look at.
 TEST(a_section_that_needs_16_kib_keeps_the_refusal) {
     auto needs = four_kib_program(0x22c0, 0x4000);   // .text's sh_addralign asks for 16 KiB
     needs.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // and the code segment's p_align matches
-    CHECK_THROWS(Incompatible, convert(needs), "a section or the TLS block needs 0x4000 alignment");
+    CHECK_THROWS(Incompatible, convert(needs), ".text (addr 0x200, size 0x20, align 0x4000)");
 }
 
-// ... and when a TLS block needs it: a sixth program header, PT_TLS over the data, asking for 16 KiB.
+// ... and when a TLS block needs it: a sixth program header, PT_TLS over the data, asking for 16 KiB. The refusal
+// names the TLS block and its alignment.
 TEST(a_16_kib_tls_block_keeps_the_refusal) {
     auto tls = four_kib_program(0x22c0);
     tls.put<std::uint64_t>(64 + 56 + 48, 0x4000);                       // the code segment's p_align
@@ -862,7 +864,7 @@ TEST(a_16_kib_tls_block_keeps_the_refusal) {
     tls.put<std::uint64_t>(sixth + 32, 0x40).put<std::uint64_t>(sixth + 40, 0x40);    // p_filesz, p_memsz
     tls.put<std::uint64_t>(sixth + 48, 0x4000);                        // p_align: the TLS block wants 16 KiB
     tls.put<std::uint16_t>(56, 6);                                     // e_phnum
-    CHECK_THROWS(Incompatible, convert(tls), "a section or the TLS block needs 0x4000 alignment");
+    CHECK_THROWS(Incompatible, convert(tls), "the TLS block (align 0x4000)");
 }
 
 TEST(refuses_what_cannot_run) {

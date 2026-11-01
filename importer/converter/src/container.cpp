@@ -315,6 +315,30 @@ std::string segments_text(const elf::File &file) {
     return text + ")";
 }
 
+/// The allocated sections and the TLS block whose alignment a whole-image move by `shift` would break, as a layout
+/// refusal names them, so an app's import shows which to look at: ".text (addr 0x200, size 0x20, align 0x4000), the
+/// TLS block (align 0x4000)". Anything whose alignment already divides the shift (up to a 4 KiB page) keeps it and
+/// is left out.
+std::string alignment_blockers(const elf::File &file, std::span<const elf::Section> sections, std::uint64_t shift) {
+    std::string text;
+    const char *separator = "";
+    for (const auto &section : sections) {
+        if ((section.flags & elf::section_allocated) == 0 || section.addralign == 0 || shift % section.addralign == 0) {
+            continue;
+        }
+        text += std::format("{}{} (addr {:#x}, size {:#x}, align {:#x})", separator,
+                            section.name.empty() ? std::string("<unnamed>") : section.name, section.address,
+                            section.size, section.addralign);
+        separator = ", ";
+    }
+    for (const auto &segment : file.segments) {
+        if (segment.type != elf::SegmentType::tls || segment.alignment == 0 || shift % segment.alignment == 0) continue;
+        text += std::format("{}the TLS block (align {:#x})", separator, segment.alignment);
+        separator = ", ";
+    }
+    return text;
+}
+
 }  // namespace
 
 PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sections) {
@@ -456,9 +480,8 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
                     alignment, layout.shift, segments_text(file)));
             }
             throw Incompatible(std::format(
-                "a section or the TLS block needs {:#x} alignment, which a move by {:#x} for its 4 KiB layout would "
-                "break (ADR-0007) {}",
-                alignment, layout.shift, segments_text(file)));
+                "a move by {:#x} for its 4 KiB layout would break the alignment of {} (ADR-0007) {}",
+                layout.shift, alignment_blockers(file, sections, layout.shift), segments_text(file)));
         }
     }
     layout.runs.front().start = layout.min_vaddr;
