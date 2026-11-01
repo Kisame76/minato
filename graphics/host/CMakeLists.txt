@@ -10,7 +10,7 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
     AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
   add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m angle_vulkan.m probe.m
     provoking.m drawable_probe.m layer.m window.m hardware_buffer.m image.m video_decoder.m
-    video_parameters.c media_player.m)
+    video_parameters.c media_player.m webview.m)
   # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
     "${PROJECT_SOURCE_DIR}/graphics/vulkan")
@@ -52,4 +52,7 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   # naming AVFoundation for the link.
   set_source_files_properties(media_player.m PROPERTIES COMPILE_OPTIONS
     "-fmodules;-fobjc-arc;-fobjc-arc-exceptions;${on_guest_stacks}")
+  # The guest's WebViews (ADR-0056 c1), WKWebView's, with ARC: their handler copies each request on the guest's
+  # thread and carries it out on the main queue; naming WebKit for the link.
+  set_source_files_properties(webview.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")
 endif()

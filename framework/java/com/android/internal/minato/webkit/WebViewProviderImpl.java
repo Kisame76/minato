@@ -1,5 +1,6 @@
 package com.android.internal.minato.webkit;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -34,6 +35,7 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.util.Base64;
+import android.webkit.MimeTypeMap;
 import android.webkit.ConsoleMessage;
 import android.webkit.DownloadListener;
 import android.webkit.JsPromptResult;
@@ -60,15 +62,20 @@ import org.json.JSONObject;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * One WebView's provider (ADR-0056 steps b1 and b2): what Chromium's WebViewChromium is to AOSP's facade, with the
@@ -97,7 +104,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private final WebView mWebView;
     private final WebView.PrivateAccess mPrivate;
     private final WebSettings mSettings;
-    private WebViewClient mClient = new WebViewClient();
+    private volatile WebViewClient mClient = new WebViewClient(); // read by the resource threads too
     private WebChromeClient mChromeClient;
     private WebViewRenderProcessClient mRenderProcessClient;
     private int mBackgroundColor = Color.WHITE;
@@ -327,6 +334,11 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
 
         @Override
+        public void onResource(long requestId, JSONObject request) {
+            RESOURCES.execute(() -> serve(requestId, request));
+        }
+
+        @Override
         public void onChannelEnd() {
             for (ValueCallback<String> callback : mScripts.values()) {
                 callback.onReceiveValue(null);
@@ -334,6 +346,118 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
             mScripts.clear();
         }
     };
+
+    /** The threads that answer the host's RESOURCE records, as Chromium's IO threads ask shouldInterceptRequest. */
+    private static final ExecutorService RESOURCES = Executors.newCachedThreadPool(runnable -> {
+        Thread thread = new Thread(runnable, "MinatoWebView resources");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    /** The most bytes of one answer of a body: an ANSWER's limit is 1 MiB. */
+    private static final int BODY_PIECE = 256 * 1024;
+
+    /**
+     * A request of the page for the app's scheme (step c1): the app's shouldInterceptRequest first, as on Android, then
+     * the asset or resource itself. Answers the head ({"status", "reason", "mimeType", "encoding", "headers"}; 404 for
+     * nothing), then the body in pieces, then an empty answer; an end without a head fails the request at the host.
+     */
+    private void serve(long requestId, JSONObject record) {
+        String url = url(record, "url");
+        Map<String, String> headers = new HashMap<>();
+        JSONObject given = record.optJSONObject("headers");
+        if (given != null) {
+            for (Iterator<String> keys = given.keys(); keys.hasNext();) {
+                String key = keys.next();
+                headers.put(key, given.optString(key));
+            }
+        }
+        Request request = new Request(url, record.optBoolean("mainFrame"), record.optString("method", "GET"), headers);
+        // An exception of the app's escapes on this thread and ends the app, as on Chromium's IO thread.
+        WebResourceResponse response = mClient.shouldInterceptRequest(mWebView, request);
+        if (response == null) {
+            response = local(url);
+        }
+        InputStream body = response != null ? response.getData() : null;
+        try {
+            JSONObject head = new JSONObject();
+            if (response == null) {
+                head.put("status", 404);
+            } else {
+                // A response without a status (its three-argument constructor's) is 200 OK, as Chromium takes it.
+                int status = response.getStatusCode();
+                head.put("status", status == 0 ? 200 : status)
+                        .put("reason", status == 0 ? "OK" : response.getReasonPhrase())
+                        .put("mimeType", response.getMimeType()).put("encoding", response.getEncoding());
+                if (response.getResponseHeaders() != null) {
+                    head.put("headers", new JSONObject(response.getResponseHeaders()));
+                }
+            }
+            mChannel.answer(requestId, head);
+            if (body != null) {
+                byte[] piece = new byte[BODY_PIECE];
+                int filled = 0;
+                for (int count; (count = body.read(piece, filled, piece.length - filled)) > 0;) {
+                    filled += count;
+                    if (filled == piece.length) {
+                        mChannel.answerBytes(requestId, piece, 0, filled);
+                        filled = 0;
+                    }
+                }
+                if (filled > 0) {
+                    mChannel.answerBytes(requestId, piece, 0, filled);
+                }
+            }
+        } catch (IOException | JSONException e) {
+            Log.w(TAG, "a resource's body failed", e);
+        } finally {
+            if (body != null) {
+                try {
+                    body.close();
+                } catch (IOException e) {
+                    // closed anyway
+                }
+            }
+            mChannel.answerBytes(requestId, new byte[0], 0, 0);
+        }
+    }
+
+    /**
+     * An asset (file:///android_asset/<path>) or a resource (file:///android_res/<type>/<name>.<extension>) of the
+     * app, as Chromium's AndroidProtocolHandler opens them, with the MIME type of its extension; null for none.
+     */
+    private WebResourceResponse local(String url) {
+        if (url == null) {
+            return null;
+        }
+        String path = Uri.parse(url).getPath();
+        if (path == null) {
+            return null;
+        }
+        String extension = MimeTypeMap.getFileExtensionFromUrl(url);
+        String mime = extension.isEmpty() ? null : MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+        try {
+            if (url.startsWith(URL_PREFIXES[0][0])) {
+                InputStream stream = mWebView.getContext().getAssets().open(
+                        path.substring("/android_asset/".length()));
+                return new WebResourceResponse(mime, null, stream);
+            }
+            if (url.startsWith(URL_PREFIXES[1][0])) {
+                String[] parts = path.substring("/android_res/".length()).split("/");
+                if (parts.length != 2) {
+                    return null;
+                }
+                String name = parts[1].contains(".") ? parts[1].substring(0, parts[1].lastIndexOf('.')) : parts[1];
+                Context context = mWebView.getContext();
+                int id = context.getResources().getIdentifier(name, parts[0], context.getPackageName());
+                return id == 0 ? null : new WebResourceResponse(mime, null,
+                        context.getResources().openRawResource(id));
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        return null;
+    }
 
     private void navigation(JSONObject record) {
         String phase = record.optString("phase");
@@ -515,18 +639,26 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private static final class Request implements WebResourceRequest {
         private final Uri mUrl;
         private final boolean mMainFrame;
+        private final String mMethod;
+        private final Map<String, String> mHeaders;
 
         Request(String url, boolean mainFrame) {
+            this(url, mainFrame, "GET", Collections.emptyMap());
+        }
+
+        Request(String url, boolean mainFrame, String method, Map<String, String> headers) {
             mUrl = url != null ? Uri.parse(url) : Uri.EMPTY;
             mMainFrame = mainFrame;
+            mMethod = method;
+            mHeaders = headers;
         }
 
         @Override public Uri getUrl() { return mUrl; }
         @Override public boolean isForMainFrame() { return mMainFrame; }
         @Override public boolean isRedirect() { return false; }
         @Override public boolean hasGesture() { return false; }
-        @Override public String getMethod() { return "GET"; }
-        @Override public Map<String, String> getRequestHeaders() { return Collections.emptyMap(); }
+        @Override public String getMethod() { return mMethod; }
+        @Override public Map<String, String> getRequestHeaders() { return mHeaders; }
     }
 
     /** A load's error: Chromium's code and its net:: description. */

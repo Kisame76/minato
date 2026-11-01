@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "APKRuntime/apkrt.h"
 #include "minato_graphics.h"
 #include "test_host.h"
 
@@ -16,6 +17,12 @@
 int apk_run_sets_window_buffers(void);
 int apk_run_sets_window_buffers(void) {
     return 1;
+}
+
+/* The WebViews of the app on graphics/host's WKWebView (ADR-0056 c1), which apk-run's session takes. */
+apkrt_webview_handler apk_run_webview(void);
+apkrt_webview_handler apk_run_webview(void) {
+    return minato_webview_handle;
 }
 
 __attribute__((constructor)) static void set_providers(void) {

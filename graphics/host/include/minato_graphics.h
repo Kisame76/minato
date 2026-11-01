@@ -130,6 +130,13 @@ struct apkrt_media_players;
 /* For tests: the functions minato_graphics_set_media_players gives the runtime. */
 const struct apkrt_media_players *minato_graphics_media_players(void);
 
+struct apkrt_webview_call;
+
+/* ADR-0056 c1: graphics/host's WebViews (webview.m), WKWebView's: the runtime's WebView handler
+   (apkrt_session.webview), which takes each request of the guest at once and carries it out on the main queue, whose
+   run loop must run. `context` is unused. */
+void minato_webview_handle(void *context, const struct apkrt_webview_call *call);
+
 /* For b)'s EGL images, e1)'s Vulkan imports and tests: the IOSurfaceRef of one of their handles, retained for the
    caller, who releases it, or NULL for a handle they do not have. */
 void *minato_graphics_hardware_buffer_surface(uint64_t handle);

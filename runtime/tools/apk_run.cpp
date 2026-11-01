@@ -165,6 +165,10 @@ extern "C" __attribute__((weak)) int apk_run_sets_window_buffers(void) { return 
 /// The window host's layers, which graphics-run defines (graphics/tests/window_host.m); apk-run alone has none.
 extern "C" __attribute__((weak)) const apk_run_layer_hooks *apk_run_layers(void) { return nullptr; }
 
+/// The host's WebView handler, which graphics-run defines (graphics/host's WKWebView, ADR-0056 c1); apk-run alone has
+/// none, and --webview-fake's wins over it.
+extern "C" __attribute__((weak)) apkrt_webview_handler apk_run_webview(void) { return nullptr; }
+
 namespace {
 
 int usage() {
@@ -1458,7 +1462,7 @@ int main(int argc, char **argv) {
             session.surface = on_surface;
             session.window = on_window;
         }
-        if (webview_fake) session.webview = webview_fake::handle;
+        session.webview = webview_fake ? webview_fake::handle : apk_run_webview();
         if (apkrt_session_begin(&session) != 0) {
             std::fprintf(stderr, "apk-run: the session did not begin\n");
             return 2;

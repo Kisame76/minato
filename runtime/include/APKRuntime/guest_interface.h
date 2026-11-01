@@ -593,7 +593,7 @@ enum apkrt_webview_record_type {
                                     // waits for an ANSWER
     APKRT_WEBVIEW_REC_JS_RESULT,    // the answer to a CALL (evaluateJavascript), by request_id
     APKRT_WEBVIEW_REC_JS_BRIDGE,    // an addJavascriptInterface call into the guest; waits for an ANSWER
-    APKRT_WEBVIEW_REC_RESOURCE,     // a minato-asset:// response body, may span several records
+    APKRT_WEBVIEW_REC_RESOURCE,     // the page asks for a minato-asset:// resource; waits for its ANSWERs (below)
     APKRT_WEBVIEW_REC_PERMISSION,   // an onPermissionRequest; waits for an ANSWER
     APKRT_WEBVIEW_REC_ERROR,        // a load or render error; its payload says onReceivedError or onReceivedHttpError
                                     // (an HTTP status and the URL)
@@ -608,10 +608,12 @@ enum apkrt_webview_record_type {
 #define APKRT_WEBVIEW_MORE       1u          // apkrt_webview_record_header.flags: more records of this payload follow
 #define APKRT_WEBVIEW_ANSWER_FD  1u          // apkrt_webview_request.flags: the ANSWER's body is the fd, not inline
 
-// The intercept/resource response (shouldInterceptRequest, minato-asset://): the guest ANSWERs with the response head
-// first -- status, MIME, encoding, headers, and an optional total length (omit it when unknown, as a Java InputStream
-// often is) -- then the body as inline bytes or, when large, an APKRT_WEBVIEW_ANSWER_FD, and ends with an explicit end
-// or error. The head's serialization is settled in step c2); a) fixes only the ops, the fd fields and the flag.
+// The intercept/resource response (shouldInterceptRequest, minato-asset://; step c1): the host's RESOURCE record asks
+// with {"url", "method", "headers", "mainFrame"}; the guest ANSWERs the head first, inline JSON {"status", "reason",
+// "mimeType", "encoding", "headers"} (a status of 400 or more fails the request: no such resource), then the body as
+// inline raw bytes in pieces of 1 to APKRT_WEBVIEW_RECORD_MAX bytes, or an APKRT_WEBVIEW_ANSWER_FD, and then an empty
+// inline ANSWER, its end (only the last answer is empty). The host drops the answers of a request that WebKit stopped,
+// and fails the open ones when the view is removed.
 //
 // Answer timeouts (the host's, step c) sets the values; named here so a slow guest's fallback is not a surprise):
 // Android has no timeout -- its WebViewClient/WebChromeClient callbacks block Chromium's IO thread -- so the fallback

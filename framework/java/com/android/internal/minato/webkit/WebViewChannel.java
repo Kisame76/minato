@@ -7,13 +7,16 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * One WebView's link to the host (ADR-0056 step b2): APKRT_REQUEST_WEBVIEW's MAKE, PLACE, REMOVE, CALL and ANSWER, and
  * a pump thread that reads the host's records from the channel MAKE opened and hands each, in order, to the main
  * Looper. A CALL is a JSON object; one whose JSON passes a record's limit (1 MiB) goes in parts under one request_id,
- * its large field cut, {"part": n, "last": true|false}, which the host joins (Runtime's review of b2).
+ * its large field cut, {"part": n, "last": true|false}, which the host joins (Runtime's review of b2). A RESOURCE, the
+ * host's ask for a page's request of the app's scheme (step c1), goes to the provider on the pump itself, which
+ * answers it from a thread of its own, as Chromium asks shouldInterceptRequest off the UI thread.
  */
 final class WebViewChannel {
     /** APKRT_WEBVIEW_*'s ops (guest_interface.h). */
@@ -43,9 +46,12 @@ final class WebViewChannel {
     /** The characters of a cut field in one part: JSON's worst escape, six bytes a character, stays under 1 MiB. */
     static final int PART_CHARS = 128 * 1024;
 
-    /** What the provider does with each record, on the main Looper. */
+    /** What the provider does with each record, on the main Looper, but RESOURCE's, on the pump. */
     interface Records {
         void onRecord(int type, long requestId, JSONObject payload);
+
+        /** A RESOURCE record, on the pump: the provider answers it, without blocking the pump. */
+        void onResource(long requestId, JSONObject request);
 
         /** The host closed the channel, or it failed: no more records come. */
         void onChannelEnd();
@@ -119,6 +125,13 @@ final class WebViewChannel {
                 answer.toString().getBytes(StandardCharsets.UTF_8));
     }
 
+    /** ANSWER with raw bytes, `length` of them from `offset`: a piece of a resource's body (its end has none). */
+    int answerBytes(long requestId, byte[] bytes, int offset, int length) {
+        byte[] piece = offset == 0 && length == bytes.length ? bytes
+                : Arrays.copyOfRange(bytes, offset, offset + length);
+        return nativeRequest(ANSWER, mToken, requestId, 0, null, piece);
+    }
+
     /** PLACE: the frame and clip in the window's pixels, as left, top, right, bottom of each. */
     int place(long window, int[] frameAndClip) {
         return nativeRequest(PLACE, mToken, 0, window, frameAndClip, null);
@@ -149,7 +162,11 @@ final class WebViewChannel {
                 object = new JSONObject();
             }
             JSONObject record = object;
-            mMain.post(() -> records.onRecord(type, requestId, record));
+            if (type == REC_RESOURCE) {
+                records.onResource(requestId, record);
+            } else {
+                mMain.post(() -> records.onRecord(type, requestId, record));
+            }
         }
         nativeClose(fd);
         mMain.post(records::onChannelEnd);
