@@ -998,6 +998,33 @@ TEST(c_rename_register_allows_a_recursive_call_to_begin) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x208).has_value());
 }
 
+// Hole 5 (lead review): a call island leaves x30 pointing into the stub. A `bl .+4` PC-getter (its next instruction
+// reads x30 as its own address) would then compute a wrong address, so (c) refuses the function.
+TEST(c_rename_register_refuses_a_pc_getter_call) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // [0x200, 0x218), ret at 0x214
+    prog.put<std::uint32_t>(0x208, 0x9400'0001);  // bl .+4: x30 would point into the call island, not at 0x20c
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
+}
+
+// Hole 5 rule 3 (lead review): a direct BL to a sized in-file callee that reads x30 as a value is refused -- that
+// callee runs with x30 pointing into our call island and would read it as data (inline data after a call).
+TEST(c_rename_register_refuses_a_bl_to_a_callee_that_reads_x30) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}, {"callee", 0x218, 0x8}});
+    prog.put<std::uint32_t>(0x210, 0x9400'0002);  // bl 0x218 (callee), a direct call inside fn
+    prog.put<std::uint32_t>(0x218, 0xaa1e'03e0);  // callee: mov x0, x30 -- reads the link register as a value
+    prog.put<std::uint32_t>(0x21c, 0xd65f'03c0);  // callee: ret
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
+}
+
+// A direct BL to a clean sized callee (never reads x30 as a value) does not refuse the caller.
+TEST(c_rename_register_allows_a_bl_to_a_clean_callee) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}, {"callee", 0x218, 0x8}});
+    prog.put<std::uint32_t>(0x210, 0x9400'0002);  // bl 0x218 (callee)
+    prog.put<std::uint32_t>(0x218, 0xd503'201f);  // callee: nop
+    prog.put<std::uint32_t>(0x21c, 0xd65f'03c0);  // callee: ret -- never reads x30 as a value
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208).has_value());
+}
+
 // The per-site facts ride in the refusal reason itself: on the iPhone the library never runs through apk-convert,
 // so the Incompatible string is the only way the (b)/(c) counts reach an import.
 TEST(the_refusal_text_carries_the_per_site_facts) {

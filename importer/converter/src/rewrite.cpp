@@ -1628,6 +1628,42 @@ bool has_internal_branch_to_begin(std::span<const std::byte> code, std::size_t b
     return false;
 }
 
+/// A store that spills x30 to the stack (STR x30, [sp, ...], STP x29/x30, [sp, ...]): a load/store with base sp that
+/// reads x30 and does not write it (which would be a load). The spilled return address, returned to later, lands in
+/// the call island and is handled there, so it is not a leak.
+bool is_x30_stack_store(std::uint32_t word) {
+    if (!is_load_store(word) || rn_field(word) != sp) return false;
+    const auto use = a64::register_use(word);
+    return (use.reads & (1u << x30)) != 0 && (use.writes & (1u << x30)) == 0;
+}
+
+bool reads_link_register_as_value(std::span<const std::byte> code) {
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        const auto word = word_at(code, offset);
+        const auto use = a64::register_use(word);
+        if ((use.reads & (1u << x30)) != 0 && !is_register_return(word) && !is_x30_stack_store(word)) {
+            return true;  // x30 read as a value, not a return (RET/RETAA/RETAB) or a stack spill
+        }
+    }
+    return false;
+}
+
+bool call_leaks_link_register(std::span<const std::byte> code) {
+    bool has_call = false;
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        const auto word = word_at(code, offset);
+        if ((word & 0xfc00'0000) == 0x9400'0000) {  // BL
+            if (*branch_displacement(word) == 4) return true;  // bl .+4: a PC-getter
+            has_call = true;
+        } else if (is_register_call(word)) {  // BLR and its forms
+            has_call = true;
+        }
+    }
+    // The read and the call need no order: a branch or loop can run a read before the call after it, so any call
+    // plus any such read is unsafe. Sound without a CFG, at the cost of the rare read-only-before-a-call function.
+    return has_call && reads_link_register_as_value(code);
+}
+
 std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code) {
     std::uint32_t used = 0;
     bool leaf = true;  // no call and no branch out of the function; then the argument registers are safe to rename into
@@ -1975,6 +2011,37 @@ std::uint32_t emit_c_branch_exit(unsigned reg, std::uint32_t branch, std::uint64
     } else {
         write(b(write.next_address(), target));              // an unconditional tail: straight to the target
     }
+    write.finish();
+    return b(site_address, stub_address);
+}
+
+std::size_t c_call_stub_size(std::uint32_t) {
+    // push x16, mrs, bic, str reg -> slot 11, pop x16; the call; reload reg <- slot 11 (mrs, bic, ldr); the branch back
+    return 4 * 10;
+}
+
+std::uint32_t emit_c_call(unsigned reg, std::uint32_t call, std::uint64_t site_address, std::uint64_t stub_address,
+                          std::span<std::byte> stub) {
+    if (stub.size() != c_call_stub_size(call)) throw RewriteError("the stub buffer has the wrong size");
+    const bool is_bl = (call & 0xfc00'0000) == 0x9400'0000;
+    const bool is_blr = (call & 0xffff'fc1f) == 0xd63f'0000;
+    if (!is_bl && !is_blr) throw RewriteError("option (c) call island needs a BL or a BLR");
+    StubWriter write(stub, stub_address);
+    write(str_pre_index(x16, sp, -16));               // preserve x16 (the TSD base scratch), signal-safe push
+    write(mrs_tpidrro_el0(x16));
+    write(bic_7(x16, x16));
+    write(str_unsigned(reg, x16, guest_x18_offset));  // slot 11 <- reg before the call, so a callee reads it current
+    write(ldr_post_index(x16, sp, 16));
+    if (is_bl) {
+        const std::int64_t target = static_cast<std::int64_t>(site_address) + *branch_displacement(call);
+        write(with_any_branch_displacement(call, target - static_cast<std::int64_t>(write.next_address())));  // the BL
+    } else {
+        write(call);  // BLR: reads a register, carried through unchanged
+    }
+    write(mrs_tpidrro_el0(reg));                       // reload reg <- slot 11 after the call (reg itself as the base)
+    write(bic_7(reg, reg));
+    write(ldr_unsigned(reg, reg, guest_x18_offset));
+    write(b(write.next_address(), site_address + 4));  // back to the instruction after the call
     write.finish();
     return b(site_address, stub_address);
 }

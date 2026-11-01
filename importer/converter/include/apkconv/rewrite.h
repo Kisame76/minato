@@ -174,6 +174,21 @@ bool has_external_entry(std::span<const std::byte> code, std::uint64_t base, std
 /// leaving slot 11 current for the reload. Indirect branches (BR/BLR) cannot be seen -- a named limit.
 bool has_internal_branch_to_begin(std::span<const std::byte> code, std::size_t begin, std::size_t end);
 
+/// Whether `code` reads x30 (the link register) as a value somewhere: any read but a return (RET/RETAA/RETAB) or a
+/// store of x30 to the stack (a spill, returned to later). For ADR-0020 option (c): a renamed function's call island
+/// leaves x30 pointing into the stub, so a callee it reaches must not read x30 as data (inline data after a call).
+bool reads_link_register_as_value(std::span<const std::byte> code);
+
+/// Whether a renamed `code`'s call islands would corrupt a use of x30 (ADR-0020 option c, lead review). A call
+/// island leaves x30 pointing into the stub, not at the real return address. Compiled code never reads x30 as a value
+/// after a call, but protection code does: a `bl .+4` PC-getter (its next instruction reads x30 as its own address),
+/// or a callee that reads inline data through x30. Returns true for a `bl .+4`, or when the function both makes a
+/// call (BL or BLR) and reads x30 as a value somewhere -- any read but a return (RET/RETAA/RETAB) or a store of x30
+/// to the stack (a spill, returned to later through the island). The read and the call need no order: a branch or
+/// loop can run a read before the call after it, so the test is sound without a control-flow graph, at the cost of
+/// refusing the rare function that only reads x30 before any call. A BLR to a callee we cannot see is a named limit.
+bool call_leaks_link_register(std::span<const std::byte> code);
+
 /// Rewrites every instruction in `code` that uses x18 to use `reg` instead -- a whole-function rename (ADR-0020
 /// option c), where `reg` must be free across the function and not x18. Returns false and leaves `code` untouched
 /// when some instruction uses x18 with no register field to redirect (a CASP pair, an ST64B block), so the function
@@ -221,6 +236,21 @@ std::size_t c_branch_exit_stub_size(std::uint32_t branch);
 /// replaces `branch` at `site_address`. `site_address` and `stub_address` are container addresses.
 std::uint32_t emit_c_branch_exit(unsigned reg, std::uint32_t branch, std::uint64_t site_address,
                                  std::uint64_t stub_address, std::span<std::byte> stub);
+
+/// A call sync island of a renamed function (ADR-0020 option c), for a BL or BLR inside it. Bytes it needs in the
+/// stub area.
+std::size_t c_call_stub_size(std::uint32_t call);
+
+/// Writes the call sync island into `stub` (exactly c_call_stub_size bytes): it stores `reg` (the register the rename
+/// uses for x18) to TSD slot 11 before the call, so a callee reading the guest x18 sees it current; makes the
+/// function's `call` (a direct BL relocated to its target, or a BLR verbatim); then reloads `reg` from slot 11 (the
+/// caller-saved register may have been clobbered, and the callee may have updated the guest x18) and branches back to
+/// the instruction after the call. x16 (the TSD base) is preserved around the store with a push/pop; the reload uses
+/// `reg` itself as the transient base. The call's link register becomes the reload word, invisible to the guest.
+/// Throws RewriteError when `call` is neither a BL nor a BLR. Returns the branch that replaces `call` at
+/// `site_address`. `site_address` and `stub_address` are container addresses.
+std::uint32_t emit_c_call(unsigned reg, std::uint32_t call, std::uint64_t site_address, std::uint64_t stub_address,
+                          std::span<std::byte> stub);
 
 /// Bytes the stub of `site` needs in the stub area; 0 when the site is replaced in place.
 std::size_t stub_size(const Site &site);

@@ -497,6 +497,44 @@ TEST(the_c_branch_exit_island_refuses_a_call) {
                  "call");
 }
 
+// ADR-0020 option (c): a call inside a renamed function stores the register to slot 11 before the call (a callee
+// that reads the guest x18 sees it current), then reloads it after (the caller-saved register may be clobbered, and
+// the callee may have updated x18). A direct BL is relocated to its target.
+TEST(the_c_call_island_stores_before_and_reloads_after_a_direct_call) {
+    const std::uint32_t call = 0x9400'0010;  // bl .+0x40
+    std::vector<std::byte> stub(apk::rewrite::c_call_stub_size(call));
+    const auto patch = apk::rewrite::emit_c_call(9, call, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(stub.size() == 10 * 4);
+    if (stub.size() == 10 * 4) {
+        CHECK(word(stub, 1) == 0xd53b'd070u);  // mrs x16 (store: TSD base)
+        CHECK(word(stub, 3) == 0xf900'2e09u);  // str x9, [x16, #88]  (slot 11 <- x9, before the call)
+        CHECK((word(stub, 5) & 0xfc00'0000u) == 0x9400'0000u);  // still a BL (a call, not a plain branch)
+        CHECK(branch_target_at(stub, 5, address_of(ref_x18)) == address_of(ref_site) + 0x40);  // its original target
+        CHECK(word(stub, 6) == 0xd53b'd069u);  // mrs x9 (reload: TSD base in x9 itself)
+        CHECK(word(stub, 8) == 0xf940'2d29u);  // ldr x9, [x9, #88]  (x9 <- slot 11, after the call)
+        CHECK(branch_target_at(stub, 9, address_of(ref_x18)) == address_of(ref_site) + 4);  // back after the call
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);  // the call site goes to the island
+}
+
+// An indirect call (BLR) is carried through verbatim, between the same store and reload.
+TEST(the_c_call_island_carries_an_indirect_call_verbatim) {
+    const std::uint32_t call = 0xd63f'0140;  // blr x10
+    std::vector<std::byte> stub(apk::rewrite::c_call_stub_size(call));
+    apk::rewrite::emit_c_call(9, call, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(word(stub, 3) == 0xf900'2e09u);  // str x9, [x16, #88] before
+    CHECK(word(stub, 5) == call);          // the blr, unchanged
+    CHECK(word(stub, 8) == 0xf940'2d29u);  // ldr x9, [x9, #88] after
+}
+
+// Only a BL or BLR is a call; anything else is not this island's job, so emit refuses it.
+TEST(the_c_call_island_refuses_a_non_call) {
+    std::vector<std::byte> stub(apk::rewrite::c_call_stub_size(0));
+    CHECK_THROWS(apk::rewrite::RewriteError,
+                 apk::rewrite::emit_c_call(9, 0xd65f'03c0u /* ret */, address_of(ref_site), address_of(ref_x18), stub),
+                 "BL or a BLR");
+}
+
 TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::uint32_t code[] = {
         0x8b01'0252,  // add x18, x18, x1: island
@@ -1219,6 +1257,44 @@ TEST(free_caller_saved_register_skips_callee_saved_and_reserved) {
                std::span(reinterpret_cast<const std::byte *>(every_caller_saved.data()),
                          every_caller_saved.size() * 4))
                .has_value());
+}
+
+// ADR-0020 option (c), lead review: a call island leaves x30 in the stub, so a function that reads x30 as a value
+// after a call (a `bl .+4` PC-getter, or inline data through x30) must stay out of (c).
+TEST(call_leaks_link_register_flags_a_bl_to_the_next_instruction) {
+    const std::uint32_t code[] = {0x9400'0001};  // bl .+4: a PC-getter
+    CHECK(apk::rewrite::call_leaks_link_register(std::span(reinterpret_cast<const std::byte *>(code), sizeof code)));
+}
+
+TEST(call_leaks_link_register_flags_a_read_of_x30_as_a_value_after_a_call) {
+    const std::uint32_t code[] = {0x9400'0010, 0xaa1e'03e0, 0xd65f'03c0};  // bl .+0x40; mov x0, x30; ret
+    CHECK(apk::rewrite::call_leaks_link_register(std::span(reinterpret_cast<const std::byte *>(code), sizeof code)));
+}
+
+// A spill of x30 to the stack and a return are the normal link-register reads; a non-leaf function with them is fine.
+TEST(call_leaks_link_register_allows_a_spilled_link_register_and_a_return) {
+    const std::uint32_t code[] = {0xa9bf'7bfd, 0x9400'0010, 0xa8c1'7bfd, 0xd65f'03c0};  // stp;bl;ldp;ret
+    CHECK(!apk::rewrite::call_leaks_link_register(std::span(reinterpret_cast<const std::byte *>(code), sizeof code)));
+}
+
+// Without a call, x30 is the real caller return (the entry island never touches it), so reading it is safe.
+TEST(call_leaks_link_register_allows_a_read_of_x30_without_a_call) {
+    const std::uint32_t code[] = {0xaa1e'03e0, 0xd65f'03c0};  // mov x0, x30; ret
+    CHECK(!apk::rewrite::call_leaks_link_register(std::span(reinterpret_cast<const std::byte *>(code), sizeof code)));
+}
+
+// reads_link_register_as_value is the bare predicate the callee check (rule 3) uses: any x30 read but a return or a
+// stack spill. A mov from x30 is a value read; a plain ret and a spill are not.
+TEST(reads_link_register_as_value_sees_a_value_read_but_not_a_return_or_spill) {
+    const std::uint32_t reads[] = {0xaa1e'03e0};  // mov x0, x30
+    CHECK(apk::rewrite::reads_link_register_as_value(
+        std::span(reinterpret_cast<const std::byte *>(reads), sizeof reads)));
+    const std::uint32_t ret_only[] = {0xd65f'03c0};  // ret
+    CHECK(!apk::rewrite::reads_link_register_as_value(
+        std::span(reinterpret_cast<const std::byte *>(ret_only), sizeof ret_only)));
+    const std::uint32_t spill[] = {0xa9bf'7bfd};  // stp x29, x30, [sp, #-16]!
+    CHECK(!apk::rewrite::reads_link_register_as_value(
+        std::span(reinterpret_cast<const std::byte *>(spill), sizeof spill)));
 }
 
 // ADR-0020 option (c): a whole-function rename redirects every x18 use to a free register, in place.

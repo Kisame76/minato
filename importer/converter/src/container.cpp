@@ -645,6 +645,45 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> sized_function_bounds(std
     return std::pair{std::max(base, best->value), std::min(limit, best->value + best->size)};
 }
 
+namespace {
+
+/// Whether a direct BL in [begin, end) of the section `code` (its first byte at virtual address `base`) calls a
+/// sized function in the same file that reads x30 as a value (ADR-0020 option c, lead review rule 3): that callee
+/// runs with x30 pointing into our call island, so reading it as data is wrong. A BL whose target is not a sized
+/// function of the file (external, or an unsized region) cannot be checked -- a named limit, not refused.
+bool a_called_sized_function_reads_x30(const elf::File &file, std::span<const std::byte> elf_bytes,
+                                       std::span<const elf::Symbol> symbols, std::span<const elf::Section> sections,
+                                       std::span<const std::byte> code, std::uint64_t base, std::size_t begin,
+                                       std::size_t end) {
+    for (std::size_t offset = begin; offset + 4 <= end; offset += 4) {
+        std::uint32_t word;
+        std::memcpy(&word, code.data() + offset, sizeof word);
+        if ((word & 0xfc00'0000) != 0x9400'0000) continue;  // only a direct BL
+        std::int64_t imm = static_cast<std::int64_t>(word & 0x03ff'ffff);
+        if ((imm & 0x0200'0000) != 0) imm -= 0x0400'0000;  // sign-extend the 26-bit displacement
+        const std::uint64_t target = base + offset + static_cast<std::uint64_t>(imm * 4);
+        const auto *callee = section_of(sections, target);
+        if (callee == nullptr) continue;
+        const auto bounds = sized_function_bounds(symbols, callee->address, callee->address + callee->size, target);
+        if (!bounds) continue;  // not a sized function of the file: a named limit, not refused
+        std::span<const std::byte> callee_code;
+        try {
+            callee_code = file_bytes_at(file, elf_bytes, callee->address, callee->size, "section");
+        } catch (const Incompatible &) {
+            continue;
+        }
+        const auto [callee_begin, callee_end] = *bounds;
+        if (rewrite::reads_link_register_as_value(
+                callee_code.subspan(static_cast<std::size_t>(callee_begin - callee->address),
+                                    static_cast<std::size_t>(callee_end - callee_begin)))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> elf_bytes, std::uint64_t address) {
     const auto file = elf::read(elf_bytes);
     const auto symbols = elf::read_symbols(elf_bytes);
@@ -693,6 +732,13 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     // A non-call branch inside the function back to begin would rerun the entry reload with a stale slot 11 (lead
     // review); a BL to begin is fine, as its call island stores first.
     if (rewrite::has_internal_branch_to_begin(code, begin_off, end_off)) return std::nullopt;
+    // A call island leaves x30 pointing into the stub, so refuse a function that reads x30 as a value after a call,
+    // or a bl .+4 PC-getter (lead review).
+    if (rewrite::call_leaks_link_register(code.subspan(begin_off, end_off - begin_off))) return std::nullopt;
+    // ...and refuse when a direct BL calls a sized in-file function that reads x30 as data (lead review rule 3).
+    if (a_called_sized_function_reads_x30(file, elf_bytes, symbols, sections, code, base, begin_off, end_off)) {
+        return std::nullopt;
+    }
     return WholeFunctionRename{begin, end, *reg};
 }
 
