@@ -1311,6 +1311,120 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
     };
 
+    /**
+     * Called when the panel key is pushed down.
+     * @param featureId The feature ID of the relevant panel (defaults to FEATURE_OPTIONS_PANEL}.
+     * @param event The key event.
+     * @return Whether the key was handled.
+     */
+    public final boolean onKeyDownPanel(int featureId, KeyEvent event) {
+        final int keyCode = event.getKeyCode();
+
+        if (event.getRepeatCount() == 0) {
+            // The panel key was pushed, so set the chording key
+            mPanelChordingKey = keyCode;
+
+            PanelFeatureState st = getPanelState(featureId, false);
+            if (st != null && !st.isOpen) {
+                return preparePanel(st, event);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Called when the panel key is released.
+     * @param featureId The feature ID of the relevant panel (defaults to FEATURE_OPTIONS_PANEL}.
+     * @param event The key event.
+     */
+    public final void onKeyUpPanel(int featureId, KeyEvent event) {
+        // The panel key was released, so clear the chording key
+        if (mPanelChordingKey != 0) {
+            mPanelChordingKey = 0;
+
+            final PanelFeatureState st = getPanelState(featureId, false);
+
+            if (event.isCanceled() || (mDecor != null && mDecor.mPrimaryActionMode != null) ||
+                    (st == null)) {
+                return;
+            }
+
+            boolean playSoundEffect = false;
+            if (featureId == FEATURE_OPTIONS_PANEL && mDecorContentParent != null &&
+                    mDecorContentParent.canShowOverflowMenu() &&
+                    !ViewConfiguration.get(getContext()).hasPermanentMenuKey()) {
+                if (!mDecorContentParent.isOverflowMenuShowing()) {
+                    if (!isDestroyed() && preparePanel(st, event)) {
+                        playSoundEffect = mDecorContentParent.showOverflowMenu();
+                    }
+                } else {
+                    playSoundEffect = mDecorContentParent.hideOverflowMenu();
+                }
+            } else {
+                if (st.isOpen || st.isHandled) {
+
+                    // Play the sound effect if the user closed an open menu (and not if
+                    // they just released a menu shortcut)
+                    playSoundEffect = st.isOpen;
+
+                    // Close menu
+                    closePanel(st, true);
+
+                } else if (st.isPrepared) {
+                    boolean show = true;
+                    if (st.refreshMenuContent) {
+                        // Something may have invalidated the menu since we prepared it.
+                        // Re-prepare it to refresh.
+                        st.isPrepared = false;
+                        show = preparePanel(st, event);
+                    }
+
+                    if (show) {
+                        // Write 'menu opened' to event log
+                        EventLog.writeEvent(50001, 0);
+
+                        // Show menu
+                        openPanel(st, event);
+
+                        playSoundEffect = true;
+                    }
+                }
+            }
+
+            if (playSoundEffect) {
+                AudioManager audioManager = (AudioManager) getContext().getSystemService(
+                        Context.AUDIO_SERVICE);
+                if (audioManager != null) {
+                    audioManager.playSoundEffect(AudioManager.FX_KEY_CLICK);
+                } else {
+                    Log.w(TAG, "Couldn't get audio manager");
+                }
+            }
+        }
+    }
+
+    /**
+     * As AOSP's onKeyDown for the keys of a window's own: the MENU key, which pushes the options panel's key down. The
+     * volume, media, camera and search keys AOSP's handles there come with ADR-0041 a)'s input.
+     */
+    protected boolean onKeyDown(int featureId, int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            onKeyDownPanel((featureId < 0) ? FEATURE_OPTIONS_PANEL : featureId, event);
+            return true;
+        }
+        return false;
+    }
+
+    /** As AOSP's onKeyUp for the MENU key, which opens or closes the options panel (the action bar's overflow). */
+    protected boolean onKeyUp(int featureId, int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            onKeyUpPanel(featureId < 0 ? FEATURE_OPTIONS_PANEL : featureId, event);
+            return true;
+        }
+        return false;
+    }
+
     private void closeContextMenu() {
     }
 

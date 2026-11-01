@@ -225,7 +225,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
-  "$app" == action-bar-test || "$app" == action-bar-test-34 ||
+  "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -948,6 +948,12 @@ run_app() {
     toolbar-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToolbarActivity
       ;;
+    # action-bar-menu-test (the platform action bar's options menu, step 4): the MENU key opens the overflow, the arrow
+    # and enter keys choose its first item, and after the app's invalidateOptionsMenu the MENU key opens and closes it;
+    # ends with "done".
+    action-bar-menu-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MenuActivity
+      ;;
     # action-bar-test (the platform action bar, compatibility plan gap 5): a default-theme activity that uses
     # getActionBar(), an options menu with an overflow, hide and show, and an action mode; ends with "done".
     action-bar-test | action-bar-test-34)
@@ -1153,6 +1159,14 @@ run_app() {
     { wait_for "$app" "pad: ready" && sleep 1 && run input tap 645 1398 &&
       wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
       run input swipe 300 1398 1000 1398 200; } || return 1
+  fi
+  if [[ "$app" == action-bar-menu-test ]]; then
+    # The keys of tools/action-bar-menu-check.sh's lifecycle, a second and a half apart: MENU, DOWN, ENTER, then, after
+    # the app's invalidation, MENU twice.
+    { wait_for "$app" ready 90 && sleep 1.5 && run input keyevent KEYCODE_MENU && sleep 1.5 &&
+      run input keyevent KEYCODE_DPAD_DOWN && sleep 1.5 && run input keyevent KEYCODE_ENTER &&
+      wait_for "$app" "invalidateOptionsMenu" 20 && sleep 1.5 && run input keyevent KEYCODE_MENU && sleep 1.5 &&
+      run input keyevent KEYCODE_MENU; } || return 1
   fi
   if [[ "$app" == views-test* ]]; then
     # ADR-0043 test 1: a tap on the Button's middle, from its logged bounds in the window, which fills the screen, a

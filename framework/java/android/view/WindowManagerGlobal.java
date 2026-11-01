@@ -529,6 +529,18 @@ public final class WindowManagerGlobal {
     }
 
     /**
+     * @hide The session's receiver's, for a key on the session's channel: the window that has the focus, as Android
+     * 15's InputDispatcher gives a key to the focused window; the session's own window without one.
+     */
+    ViewRootImpl routeKey(ViewRootImpl session) {
+        if (session != mSessionRoot) {
+            return session;
+        }
+        final ViewRootImpl focused = mFocusedRoot;
+        return focused != null ? focused : session;
+    }
+
+    /**
      * @hide The session's receiver's, for a touch on the session's channel, in the display's pixels: the window that
      * takes it, as Android 15's InputDispatcher.findTouchedWindowTargetsLocked picks it at a gesture's DOWN, the
      * topmost shown touchable window that holds the point or is touch-modal (focusable without

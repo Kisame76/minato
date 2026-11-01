@@ -19,6 +19,8 @@ All notable changes to Minato are documented in this file. The format follows
   showing it, and action modes, as on Android 15
 - Above the on-screen keyboard, a bar shows the text of the field you type in, with its cursor; tap in it to move the
   cursor
+- A hardware keyboard's Menu key opens an app's options menu, the arrow and Enter keys work inside its overflow, and
+  the menu follows the app's changes to it
 
 ### Changed
 

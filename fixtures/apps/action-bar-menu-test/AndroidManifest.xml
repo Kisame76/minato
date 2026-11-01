@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- action-bar-menu-test (the platform action bar's options menu, compatibility plan gap 5, step 4): an activity of a
+     theme with an action bar (Theme.DeviceDefault.Light) whose options menu is opened by the MENU key and walked with
+     the arrow and enter keys, then invalidated. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.actionbarmenu" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.actionbarmenu.MenuActivity" android:exported="true"
+        android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.Light">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

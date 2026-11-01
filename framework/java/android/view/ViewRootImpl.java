@@ -1928,6 +1928,16 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                     return;
                 }
             }
+            // The session's keys go to the window that has the focus, as Android's dispatcher gives them (an open
+            // overflow menu's popup takes the arrow, enter and menu keys).
+            if (event instanceof KeyEvent) {
+                final ViewRootImpl target = WindowManagerGlobal.getInstance().routeKey(ViewRootImpl.this);
+                if (target != null && target != ViewRootImpl.this) {
+                    target.deliverRouted(new KeyEvent((KeyEvent) event));
+                    finishInputEvent(event, true);
+                    return;
+                }
+            }
             deliverInputEvent(event, this, false);
         }
 

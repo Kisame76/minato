@@ -197,22 +197,84 @@ public class DecorView extends FrameLayout {
     }
 
     /**
-     * As AOSP's without panels: the callback, else the views. AOSP's then gives an unhandled key to the window's
-     * own keys (volume, media, menu), which come with ADR-0041 a)'s input.
+     * As AOSP's: a panel key that is held lets the next key try a shortcut in the panel, an open panel is given the
+     * key as a shortcut, then the callback or the views, and a key they leave goes to the window's own keys (the MENU
+     * key, which opens the options panel).
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (mWindow.isDestroyed()) {
-            return false;
+        final int keyCode = event.getKeyCode();
+        final int action = event.getAction();
+        final boolean isDown = action == KeyEvent.ACTION_DOWN;
+
+        if (isDown && (event.getRepeatCount() == 0)) {
+            // First handle chording of panel key: if a panel key is held but not released, try to execute a shortcut in
+            // it.
+            if ((mWindow.mPanelChordingKey > 0) && (mWindow.mPanelChordingKey != keyCode)) {
+                boolean handled = dispatchKeyShortcutEvent(event);
+                if (handled) {
+                    return true;
+                }
+            }
+
+            // If a panel is open, perform a shortcut on it without the chorded panel key
+            if ((mWindow.mPreparedPanel != null) && mWindow.mPreparedPanel.isOpen) {
+                if (mWindow.performPanelShortcut(mWindow.mPreparedPanel, keyCode, event, 0)) {
+                    return true;
+                }
+            }
         }
-        final Window.Callback cb = mWindow.getCallback();
-        return cb != null && mFeatureId < 0 ? cb.dispatchKeyEvent(event) : super.dispatchKeyEvent(event);
+
+        if (!mWindow.isDestroyed()) {
+            final Window.Callback cb = mWindow.getCallback();
+            final boolean handled = cb != null && mFeatureId < 0 ? cb.dispatchKeyEvent(event)
+                    : super.dispatchKeyEvent(event);
+            if (handled) {
+                return true;
+            }
+        }
+
+        return isDown ? mWindow.onKeyDown(mFeatureId, event.getKeyCode(), event)
+                : mWindow.onKeyUp(mFeatureId, event.getKeyCode(), event);
     }
 
+    /** As AOSP's: the prepared panel first, then the callback or the views, then a panel prepared for the shortcut. */
     @Override
     public boolean dispatchKeyShortcutEvent(KeyEvent ev) {
-        final Window.Callback cb = callback();
-        return cb != null ? cb.dispatchKeyShortcutEvent(ev) : super.dispatchKeyShortcutEvent(ev);
+        // If the panel is already prepared, then perform the shortcut using it.
+        boolean handled;
+        if (mWindow.mPreparedPanel != null) {
+            handled = mWindow.performPanelShortcut(mWindow.mPreparedPanel, ev.getKeyCode(), ev,
+                    Menu.FLAG_PERFORM_NO_CLOSE);
+            if (handled) {
+                if (mWindow.mPreparedPanel != null) {
+                    mWindow.mPreparedPanel.isHandled = true;
+                }
+                return true;
+            }
+        }
+
+        // Shortcut not handled by the panel. Dispatch to the view hierarchy.
+        final Window.Callback cb = mWindow.getCallback();
+        handled = cb != null && !mWindow.isDestroyed() && mFeatureId < 0
+                ? cb.dispatchKeyShortcutEvent(ev) : super.dispatchKeyShortcutEvent(ev);
+        if (handled) {
+            return true;
+        }
+
+        // If the panel is not prepared, then we may be trying to handle a shortcut key combination such as Control+C.
+        // Temporarily prepare the panel then mark it unprepared again when finished to ensure that the panel will
+        // again be prepared the next time it is shown for real.
+        PhoneWindow.PanelFeatureState st = mWindow.getPanelState(Window.FEATURE_OPTIONS_PANEL, false);
+        if (st != null && mWindow.mPreparedPanel == null) {
+            mWindow.preparePanel(st, ev);
+            handled = mWindow.performPanelShortcut(st, ev.getKeyCode(), ev, Menu.FLAG_PERFORM_NO_CLOSE);
+            st.isPrepared = false;
+            if (handled) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -353,7 +415,7 @@ public class DecorView extends FrameLayout {
     }
 
     /** As AOSP's: the primary action mode of the action bar, which the window callback hands out. */
-    private ActionMode mPrimaryActionMode;
+    ActionMode mPrimaryActionMode;
 
     @Override
     public ActionMode startActionModeForChild(View originalView, ActionMode.Callback callback) {

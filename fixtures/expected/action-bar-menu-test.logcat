@@ -1,0 +1,26 @@
+I/action-bar-menu-test: onCreateOptionsMenu
+I/action-bar-menu-test: onPrepareOptionsMenu 1, items 4, third "Third"
+I/action-bar-menu-test: ready
+I/action-bar-menu-test: onKeyDown KEYCODE_MENU
+I/action-bar-menu-test: onKeyUp KEYCODE_MENU
+I/action-bar-menu-test: onMenuOpened 1 feature 8, items -1
+I/action-bar-menu-test: onPrepareOptionsMenu 2, items 4, third "Third"
+I/action-bar-menu-test: onMenuOpened 2 feature 8, items 4
+I/action-bar-menu-test: onOptionsItemSelected Third
+I/action-bar-menu-test: onPanelClosed 1 feature 8
+I/action-bar-menu-test: onPanelClosed 2 feature 8
+I/action-bar-menu-test: invalidateOptionsMenu
+I/action-bar-menu-test: onCreateOptionsMenu
+I/action-bar-menu-test: onPrepareOptionsMenu 3, items 4, third "Third (changed)"
+I/action-bar-menu-test: onKeyDown KEYCODE_MENU
+I/action-bar-menu-test: onKeyUp KEYCODE_MENU
+I/action-bar-menu-test: onMenuOpened 3 feature 8, items -1
+I/action-bar-menu-test: onPrepareOptionsMenu 4, items 4, third "Third (changed)"
+I/action-bar-menu-test: onMenuOpened 4 feature 8, items 4
+I/action-bar-menu-test: onPanelClosed 3 feature 8
+I/action-bar-menu-test: onPanelClosed 4 feature 8
+I/action-bar-menu-test: onPanelClosed 5 feature 8
+I/action-bar-menu-test: onPanelClosed 6 feature 8
+I/action-bar-menu-test: onPanelClosed 7 feature 8
+I/action-bar-menu-test: onPanelClosed 8 feature 8
+I/action-bar-menu-test: done
