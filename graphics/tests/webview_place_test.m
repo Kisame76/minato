@@ -3,7 +3,8 @@
 // view, with the WKWebView inside at the full frame, in points; a PLACE before the view's "make" waits for it; a
 // window the host does not show and an empty clip hide the view; REMOVE takes it out. The host hears how many views
 // each window shows, as its layer must let them through. The hit test gives the page the points of its last
-// touchRegion (piece 2), and every other point to the window: none before the first.
+// touchRegion (piece 2), and every other point to the window: none before the first. A page's viewport of
+// "width=device-width" gets the view's width in CSS pixels, as Android's WebView gives it, not the screen's.
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
@@ -102,6 +103,21 @@ static NSView *clip_of_web_view(void) {
     return nil;
 }
 
+/// The result of `script` in the page of the WKWebView in the container, once it has loaded, as a string.
+static NSString *page_value(NSString *script) {
+    WKWebView *page = (WKWebView *)clip_of_web_view().subviews[0];
+    for (int i = 0; i < 500 && page.isLoading; i++) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, true);
+    __block NSString *value = nil;
+    __block BOOL done = NO;
+    [page evaluateJavaScript:script
+           completionHandler:^(id result, NSError *error) {
+               value = error == nil ? [NSString stringWithFormat:@"%@", result] : error.localizedDescription;
+               done = YES;
+           }];
+    for (int i = 0; i < 500 && !done; i++) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, true);
+    return value;
+}
+
 /// What the hit test gives `point`, in the container's points, as AppKit asks it: from the root, in its superview's.
 static NSView *container_hit(NSPoint point) {
     return [root hitTest:[root convertPoint:point fromView:container]];
@@ -162,6 +178,14 @@ int main(void) {
         request(APKRT_WEBVIEW_CALL, 1, 0, NULL, NULL, "{\"call\":\"touchRegion\",\"rects\":[]}");
         CHECK(container_hit(NSMakePoint(50, 50)) == container, "an empty touchRegion leaves the page its points");
 
+        // The viewport: device-width is the view's width, 100 points, also after a load and a new width.
+        request(APKRT_WEBVIEW_CALL, 1, 0, NULL, NULL,
+                "{\"call\":\"loadDataWithBaseURL\",\"data\":\"<meta name='viewport' "
+                "content='width=device-width, initial-scale=1'><p>page</p>\",\"mimeType\":\"text/html\"}");
+        NSString *viewport = @"document.querySelector('meta[name=viewport]').content";
+        NSString *got = page_value(viewport);
+        CHECK([got isEqualToString:@"width=100, initial-scale=1"], "viewport %s, want width=100", got.UTF8String);
+
         // A new frame moves it; the count stays.
         const int32_t moved[4] = {0, 0, 300, 300};
         request(APKRT_WEBVIEW_PLACE, 1, 7, moved, moved, NULL);
@@ -170,6 +194,15 @@ int main(void) {
                   same(holder.subviews[0].frame, NSMakeRect(0, 0, 100, 100)),
               "the moved view is not at {0,0,100,100}");
         CHECK(shown_calls == 1, "a move told the host the count again");
+        got = page_value(viewport);
+        CHECK([got isEqualToString:@"width=100, initial-scale=1"], "viewport %s after the move, want width=100",
+              got.UTF8String);
+        const int32_t wide[4] = {0, 0, 600, 300};
+        request(APKRT_WEBVIEW_PLACE, 1, 7, wide, wide, NULL);
+        got = page_value(viewport);
+        CHECK([got isEqualToString:@"width=200, initial-scale=1"], "viewport %s at 200 points, want width=200",
+              got.UTF8String);
+        request(APKRT_WEBVIEW_PLACE, 1, 7, moved, moved, NULL);
 
         // An empty clip hides the view, a clip again shows it.
         const int32_t empty[4] = {0, 0, 0, 0};

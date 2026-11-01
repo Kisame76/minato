@@ -19,6 +19,8 @@
 //   window shows, as its layer must let them through where the guest cleared its pixels. The hit test gives the
 //   page the points of its last CALL "touchRegion" (rectangles in the window's pixels, the WebView's visible part
 //   less the guest's views over it): scrolling, links and text fields; all other points stay the guest's.
+//   A page's viewport "device-width" is the view's width in CSS pixels, as Android's WebView makes it, where WebKit
+//   would take the screen's: a user script rewrites the main frame's viewport meta tags, again at each new width.
 // Not here (later steps): shouldOverrideUrlLoading, the JavaScript bridge, new windows, downloads and permissions.
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
@@ -142,6 +144,30 @@ static NSString *const kTitleScript =
     @"})();";
 
 /// Chromium's error page, which a failed main-frame load commits at its URL.
+/// Rewrites "device-width" in the main frame's viewport meta tags to the view's width (`%@`), now and as the page
+/// adds or changes them; the page's own value is kept, so a new width rewrites it again. In the host's world.
+static NSString *const kViewportScript =
+    @"(() => {"
+     "  const state = window.minatoViewport || (window.minatoViewport = {metas: new Map(), observer: null});"
+     "  state.width = '%@';"
+     "  const fix = (meta) => {"
+     "    if ((meta.getAttribute('name') || '').toLowerCase() !== 'viewport') return;"
+     "    const now = meta.getAttribute('content') || '';"
+     "    let known = state.metas.get(meta);"
+     "    if (!known || now !== known.applied) known = {own: now};"
+     "    known.applied = known.own.replace(/device-width/gi, state.width);"
+     "    state.metas.set(meta, known);"
+     "    if (known.applied !== now) meta.setAttribute('content', known.applied);"
+     "  };"
+     "  const all = () => document.querySelectorAll('meta').forEach(fix);"
+     "  if (!state.observer) {"
+     "    state.observer = new MutationObserver(all);"
+     "    state.observer.observe(document, {childList: true, subtree: true, attributes: true,"
+     "                                      attributeFilter: ['content', 'name']});"
+     "  }"
+     "  all();"
+     "})();";
+
 static NSString *const kErrorPage =
     @"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
     @"<title>Webpage not available</title></head><body><h1>Webpage not available</h1></body></html>";
@@ -263,6 +289,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic, strong) MinatoClipView *holder;             // the clip view, once placed
 @property(nonatomic, copy) NSArray<NSValue *> *touchRegion;      // the last touchRegion, in the window's pixels
 @property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
+@property(nonatomic) CGFloat cssWidth;                           // the viewport's device-width, 0 before a place
 @end
 
 @implementation MinatoWebView
@@ -611,6 +638,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 #endif
     self.holder.frame = clip;
     self.view.frame = page;
+    [self viewportWidth:page.size.width];
     NSMutableArray<NSValue *> *region = [NSMutableArray new];
     for (NSValue *value in self.touchRegion) {
 #if TARGET_OS_IPHONE
@@ -631,6 +659,26 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
     const BOOL visible = !CGRectIsEmpty(self.clip);
     self.holder.hidden = !visible;
     [self count:visible ? self.window : 0];
+}
+
+/// A new width for "device-width", in whole CSS pixels: the scripts of later pages get it, and the page now shows takes
+/// it at once.
+- (void)viewportWidth:(CGFloat)width {
+    width = (CGFloat)lround(width);
+    if (width <= 0 || width == self.cssWidth) return;
+    self.cssWidth = width;
+    NSString *script = [NSString stringWithFormat:kViewportScript, @(lround(width))];
+    WKUserContentController *content = self.view.configuration.userContentController;
+    [content removeAllUserScripts];
+    [content addUserScript:[[WKUserScript alloc] initWithSource:kTitleScript
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                               forMainFrameOnly:YES
+                                                 inContentWorld:host_world()]];
+    [content addUserScript:[[WKUserScript alloc] initWithSource:script
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                               forMainFrameOnly:YES
+                                                 inContentWorld:host_world()]];
+    [self.view evaluateJavaScript:script inFrame:nil inContentWorld:host_world() completionHandler:nil];
 }
 
 /// Moves the view's share of a window's count of shown views to `window` (0: none).
@@ -1080,6 +1128,12 @@ static void on_main(struct webview_request request, NSData *payload, CGRect fram
 void minato_webview_set_windows(const struct minato_webview_windows *windows) {
     dispatch_async(dispatch_get_main_queue(), ^{
         host_windows = windows;
+    });
+}
+
+void minato_webview_windows_changed(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (MinatoWebView *view in views().allValues) [view show];
     });
 }
 

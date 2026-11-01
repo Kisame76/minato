@@ -152,6 +152,9 @@ struct minato_webview_windows {
 /* Sets the host's windows, or NULL for none: then no view is shown. `windows` must stay valid. */
 void minato_webview_set_windows(const struct minato_webview_windows *windows);
 
+/* The host's windows moved or scaled (a fold, a letterbox) without a new PLACE: every view is placed again. */
+void minato_webview_windows_changed(void);
+
 /* For b)'s EGL images, e1)'s Vulkan imports and tests: the IOSurfaceRef of one of their handles, retained for the
    caller, who releases it, or NULL for a handle they do not have. */
 void *minato_graphics_hardware_buffer_surface(uint64_t handle);
