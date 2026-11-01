@@ -49,6 +49,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <pthread.h>
 #include <sys/system_properties.h>
 
@@ -89,7 +90,16 @@ int fail(const char *what) {
 
 }  // namespace
 
+// Seconds since 1970 now, the clock the app's session check stamps its events with (SessionCheck.event), so that a
+// start is read against them: how long the process took to reach main, to create the VM, to enter ActivityThread.
+static double wall_seconds() {
+    timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    return static_cast<double>(now.tv_sec) + static_cast<double>(now.tv_nsec) / 1e9;
+}
+
 int main(int argc, char **argv) {
+    const double main_time = wall_seconds();
     setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc < 1) {
         return fail("no process name");
@@ -151,6 +161,7 @@ int main(int argc, char **argv) {
         return fail("cannot create the VM");
     }
 
+    const double vm_time = wall_seconds();
     if (android::register_framework_natives(env) < 0) {
         return fail("cannot register the framework's natives");
     }
@@ -178,6 +189,8 @@ int main(int argc, char **argv) {
     env->SetObjectArrayElement(arguments, count, env->NewStringUTF("--process"));
     env->SetObjectArrayElement(arguments, count + 1, env->NewStringUTF(process_name.c_str()));
 
+    __android_log_print(ANDROID_LOG_INFO, "app_process", "start-times main=%.3f vm=%.3f app=%.3f", main_time, vm_time,
+                        wall_seconds());
     env->CallStaticVoidMethod(driver, main_method, arguments);
     // An exception that left main stays pending, as in AndroidRuntime::start, whose threadExitUncaughtException is
     // under #if 0 at the tag: the detach below hands it to the thread's uncaught exception handlers (ART's

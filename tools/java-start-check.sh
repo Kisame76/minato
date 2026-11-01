@@ -397,6 +397,9 @@ restore() {
   if [[ -n "${LOGS:-}" ]]; then
     mkdir -p "$LOGS"
     cp "$WORK"/*.log "$WORK"/*.out "$LOGS/" 2>/dev/null || true
+    # The app's events of the session check ("<seconds since 1970> <pid> <event>"), which the guest log's
+    # "app_process: start-times" line (the same clock) is read against.
+    if [[ -f "$EVENTS" ]]; then cp "$EVENTS" "$LOGS/events"; fi
   fi
   rm -rf "${WORK:?}"
 }
