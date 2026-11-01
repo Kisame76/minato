@@ -83,6 +83,8 @@
 //               move to <x>, <y> by <dx>, <dy>, the buttons held after a press or release as
 //               AMOTION_EVENT_BUTTON_* (1 primary, 2 secondary, 4 tertiary, 8 back, 16 forward), a scroll in lines
 //               (positive up and left), the pointer's leaving the window;
+//   imehide     (ADR-0068, the keyboard reopen bug) the user hides the keyboard: APKRT_EVENT_IME_HIDDEN, then
+//               APKRT_EVENT_IME_INSETS 0 as UIKit's keyboard frame would make the host post it;
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set);
@@ -367,7 +369,8 @@ bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) 
     for (std::string step; std::getline(list, step, ',');) {
         Touch touch;
         int level = 0, state = 0;
-        if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state) || step == "back")) {
+        if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state) || step == "back" ||
+                              step == "imehide")) {
             steps.push_back(step);
             continue;
         }
@@ -1047,6 +1050,10 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             apkrt_battery_set(level, state);
         } else if (steps[index] == "back") {
             post(APKRT_EVENT_BACK, APKRT_BACK_COMMIT, 0, 0);
+        } else if (steps[index] == "imehide") {
+            // The user hides the keyboard (the bar's key): the host posts it and, as UIKit's frame changes, the inset.
+            post(APKRT_EVENT_IME_HIDDEN, 0, 0, 0);
+            post(APKRT_EVENT_IME_INSETS, 0, 0, 0);
         } else if (Touch touch; parse_touch(steps[index], touch)) {
             if (apk_run_sets_window_buffers() == 0) {
                 buffers.mark();

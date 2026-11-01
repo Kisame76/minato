@@ -266,6 +266,22 @@ public final class WindowManagerGlobal {
         focused.dispatchSystemBack(phase, Math.min(Math.max(progress, 0), 10000) / 10000f, edge);
     }
 
+    /**
+     * @hide ActivityThread's: the user hid the keyboard (ADR-0068, APKRT_EVENT_IME_HIDDEN), for the window that has the
+     * focus, as Android's input method service hides itself on BACK. Without a window with the focus it goes nowhere.
+     */
+    public void dispatchImeHidden() {
+        final ViewRootImpl focused;
+        synchronized (mLock) {
+            focused = mFocusedRoot;
+        }
+        if (focused == null) {
+            Log.w(TAG, "The keyboard's hide finds no window with the focus");
+            return;
+        }
+        focused.dispatchImeHiddenByUser();
+    }
+
     /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (gap 4 (b3)). */
     void childrenMayAsk(ViewRootImpl parent) {
         final ArrayList<ViewRootImpl> children = new ArrayList<>();

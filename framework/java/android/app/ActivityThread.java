@@ -1183,6 +1183,7 @@ public final class ActivityThread {
     private static final int EVENT_BATTERY = 28;
     private static final int EVENT_IME_INSETS = 29;
     private static final int EVENT_BACK = 30;
+    private static final int EVENT_IME_HIDDEN = 31;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1430,6 +1431,10 @@ public final class ActivityThread {
             case EVENT_BACK:
                 // The system's back (ADR-0041 decision 10), for the window that has the focus.
                 WindowManagerGlobal.getInstance().dispatchBack((int) event[2], (int) event[3], (int) event[4]);
+                break;
+            case EVENT_IME_HIDDEN:
+                // The user hid the keyboard (ADR-0068), for the window that has the focus.
+                WindowManagerGlobal.getInstance().dispatchImeHidden();
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();

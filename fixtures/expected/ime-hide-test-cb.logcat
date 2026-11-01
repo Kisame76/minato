@@ -1,0 +1,6 @@
+I/ime-hide-test-cb: ready: hide
+I/ime-hide-test-cb: Key tap: showSoftInput true
+I/ime-hide-test-cb: ime inset visible true, bottom nonzero
+I/ime-hide-test-cb: ime inset visible false, bottom zero
+I/ime-hide-test-cb: Key tap: believes the keyboard is shown, no showSoftInput
+I/ime-hide-test-cb: done

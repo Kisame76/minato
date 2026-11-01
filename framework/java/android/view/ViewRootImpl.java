@@ -1678,6 +1678,32 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
     }
 
+    /**
+     * @hide WindowManagerGlobal's: the user hid the keyboard (ADR-0068, APKRT_EVENT_IME_HIDDEN). On Android 15 the
+     * input method hides itself on a BACK that went through the window's pre-IME stage first (ViewPreImeInputStage:
+     * dispatchKeyEventPreIme, so a view's onKeyPreIme(BACK) runs, DOWN and UP) and that the activity never sees; an
+     * app that opted in to OnBackInvokedCallback gets no key at all, as NativePreImeInputStage takes its BACK for the
+     * callbacks, and the input method's own callback hides it (ime-hide-test and ime-hide-test-cb, on apk-runner-35).
+     * The window's requested ime() visibility becomes hidden in both. A view that consumes the BACK cannot keep a
+     * keyboard that UIKit has already taken away.
+     */
+    public void dispatchImeHiddenByUser() {
+        mInsetsController.hide(WindowInsets.Type.ime());
+        if (mView == null || mOnBackInvokedDispatcher.isOnBackInvokedCallbackEnabled()) {
+            return;
+        }
+        for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+            final long when = SystemClock.uptimeMillis();
+            // The navigation bar's BACK, measured on apk-runner-35's 3-button bar: source 0x101, flags 0x48.
+            final KeyEvent key = new KeyEvent(when, when, action, KeyEvent.KEYCODE_BACK, 0 /* repeat */, 0 /* meta */,
+                    KeyCharacterMap.VIRTUAL_KEYBOARD, 0 /* scan code */,
+                    KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY, InputDevice.SOURCE_KEYBOARD);
+            if (!shouldDropInputEvent(key)) {
+                mView.dispatchKeyEventPreIme(key);
+            }
+        }
+    }
+
     /** APKRT_BACK_COMMIT of guest_interface.h's apkrt_back_phase. */
     private static final int BACK_COMMIT = 3;
 

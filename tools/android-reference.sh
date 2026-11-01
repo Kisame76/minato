@@ -224,6 +224,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
+  "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -917,6 +918,12 @@ run_app() {
     ime-insets-test | ime-insets-test-34)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ResizeActivity
       ;;
+    # ime-hide-test (ADR-0068, the keyboard reopen bug): two engine-style fields that track the soft keyboard, one by
+    # onKeyPreIme(BACK) and one by the IME inset; ime-hide-test-cb is its twin that opted in to
+    # OnBackInvokedCallback. Ends with "done" 16 seconds after the first focus.
+    ime-hide-test | ime-hide-test-cb)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.HideActivity
+      ;;
     # back-test (ADR-0041 decision 10, the system's back): Root starts Second, and three BACKs pop Second's fragment,
     # finish Second and reach Root, which ends with "done". back-test-callback is its twin that opted in to
     # OnBackInvokedCallback.
@@ -982,6 +989,7 @@ run_app() {
   run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
+    "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
     "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
     "$app" == enter-test || "$app" == enter-test-15 ]]; then
     # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
@@ -1191,6 +1199,15 @@ run_app() {
     # sends a hardware keyboard's keys through Minato's input channel.
     { wait_for "$app" "soft input done" 20 && sleep 1 && run input keyevent 30 && sleep 1 && run input keyevent 67; } ||
       return 1
+  fi
+  if [[ "$app" == ime-hide-test || "$app" == ime-hide-test-cb ]]; then
+    # The keyboard reopen bug: a tap on the first field shows the keyboard, BACK hides it, a tap on the first field
+    # again; then BACK, and the same with the second field. The navigation bar's hide key sends the same BACK, with the
+    # flags 0x48 besides the source 0x101 that `input keyboard` gives.
+    { wait_for "$app" "ready: hide" && sleep 1 && run input tap 645 250 && sleep 2 &&
+      run input keyboard keyevent KEYCODE_BACK && sleep 2 && run input tap 645 250 && sleep 2 &&
+      run input keyboard keyevent KEYCODE_BACK && sleep 2 && run input tap 645 550 && sleep 2 &&
+      run input keyboard keyevent KEYCODE_BACK && sleep 2 && run input tap 645 550; } || return 1
   fi
   if [[ "$app" == gamepad-test || "$app" == gamepad-native-test ]]; then
     # ADR-0068 decision 5: once the window says "ready: pad", `uinput` makes a game controller, plays its buttons,
@@ -1477,6 +1494,7 @@ if [[ -n "$app" ]]; then
   # installs one too: the image's input methods and its default are put back at every exit, as for text-test, and the
   # fixture's own is switched off.
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
+    "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
     "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
     "$app" == enter-test || "$app" == enter-test-15 ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT

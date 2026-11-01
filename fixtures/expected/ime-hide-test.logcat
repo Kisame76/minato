@@ -1,0 +1,19 @@
+I/ime-hide-test: ready: hide
+I/ime-hide-test: Key tap: showSoftInput true
+I/ime-hide-test: ime inset visible true, bottom nonzero
+I/ime-hide-test: Key onKeyPreIme BACK down, source 0x101, believed shown true
+I/ime-hide-test: Key onKeyPreIme BACK up, source 0x101, believed shown true
+I/ime-hide-test: ime inset visible false, bottom zero
+I/ime-hide-test: Key tap: showSoftInput true
+I/ime-hide-test: ime inset visible true, bottom nonzero
+I/ime-hide-test: Key onKeyPreIme BACK down, source 0x101, believed shown true
+I/ime-hide-test: Key onKeyPreIme BACK up, source 0x101, believed shown true
+I/ime-hide-test: ime inset visible false, bottom zero
+I/ime-hide-test: Inset tap: showSoftInput true
+I/ime-hide-test: ime inset visible true, bottom nonzero
+I/ime-hide-test: Inset onKeyPreIme BACK down, source 0x101, believed shown true
+I/ime-hide-test: Inset onKeyPreIme BACK up, source 0x101, believed shown true
+I/ime-hide-test: ime inset visible false, bottom zero
+I/ime-hide-test: Inset tap: showSoftInput true
+I/ime-hide-test: ime inset visible true, bottom nonzero
+I/ime-hide-test: done
