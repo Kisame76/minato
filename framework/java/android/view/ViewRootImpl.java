@@ -532,6 +532,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (mHostWidth > 0 && mHostHeight > 0) {
             size.set(mHostWidth, mHostHeight);
         }
+        boolean insetsDispatched = false;
         if (first) {
             mFullRedrawNeeded = true;
             mAttachInfo.mUse32BitDrawingCache = true;
@@ -541,6 +542,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             host.dispatchAttachedToWindow(mAttachInfo, 0);
             mAttachInfo.mTreeObserver.dispatchOnWindowAttachedChange(true);
             dispatchApplyInsets(host);
+            insetsDispatched = true;
             if (!mOnBackInvokedDispatcher.isOnBackInvokedCallbackEnabled()) {
                 // As AOSP's: for an app that requests the legacy back, a compat callback that dispatches KEYCODE_BACK
                 // to its views.
@@ -549,6 +551,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mLayoutRequested = true;
         } else if (mApplyInsetsRequested) {
             dispatchApplyInsets(host);
+            insetsDispatched = true;
             mLayoutRequested = true;
         }
         if (mAttachInfo.mWindowVisibility != viewVisibility) {
@@ -582,11 +585,17 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 Rect frame = measureRequestedWindow(host, lp, display);
                 width = frame.width();
                 height = frame.height();
+                if (insetsDispatched) {
+                    remeasureAfterInsets(host, lp, width, height);
+                }
             } else {
                 host.measure(getRootMeasureSpec(size.x, lp.width), getRootMeasureSpec(size.y, lp.height));
                 width = host.getMeasuredWidth();
                 height = host.getMeasuredHeight();
                 mWinFrame.set(0, 0, width, height);
+                if (insetsDispatched) {
+                    remeasureAfterInsets(host, lp, width, height);
+                }
             }
             if (width != mWidth || height != mHeight) {
                 // As AOSP's for a new frame size: the whole window again.
@@ -676,6 +685,15 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN, requestedWidth, requestedHeight,
                 WindowInsets.Type.defaultVisible(), 1f, mTmpFrames);
         return new Rect(mTmpFrames.frame);
+    }
+
+    /**
+     * As AOSP's performTraversals measures the tree again after the relayout when the traversal applied the insets
+     * (dispatchApplyInsets, "to ensure the hierarchy is measured below"), at the window's frame: views that are not yet
+     * laid out measure again, and one with a layout by then (a TextView) sizes from it.
+     */
+    private void remeasureAfterInsets(View host, WindowManager.LayoutParams lp, int width, int height) {
+        host.measure(getRootMeasureSpec(width, lp.width), getRootMeasureSpec(height, lp.height));
     }
 
     /** As AOSP's measureHierarchy: a dialog's WRAP_CONTENT width first at config_prefDialogWidth, then wider. */

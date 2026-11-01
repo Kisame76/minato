@@ -49,3 +49,4 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps that embed web pages start instead of closing at once
 - Apps whose native libraries make raw system calls in an unusual form start instead of being refused at import
 - Emoji show in colour, and Arabic, Hebrew, Thai and Hindi text shows instead of boxes
+- Text of mixed directions, such as Arabic or Hebrew next to emoji, gets the same width as on Android

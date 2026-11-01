@@ -14,7 +14,7 @@
 # fixture of a window without one (a NoActionBar or an AppCompat app), which must stay pixel-identical.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-front-libs.sh, tools/build-aapt2.sh
 # and tools/build-framework-res.sh first.
-# Usage: tools/views-check.sh
+# Usage: tools/views-check.sh [app...]   (default: views-test, views-test-default, views-test-fonts, views-test-bidi)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,6 +23,8 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
+APPS=("$@")
+[[ ${#APPS[@]} -gt 0 ]] || APPS=(views-test views-test-default views-test-fonts views-test-bidi)
 PACKAGE=io.github.kisame76.minato.test.views
 NATIVE=build/native/macos-app
 cmake --preset macos -B "$NATIVE" >/dev/null
@@ -31,7 +33,7 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 
 failed=0
-for APP in views-test views-test-default views-test-fonts; do
+for APP in "${APPS[@]}"; do
   for expected in fixtures/expected/$APP.logcat fixtures/expected/$APP.rgba.gz fixtures/expected/$APP.rows; do
     if [[ ! -f "$expected" ]]; then
       echo "FAIL: no $expected: run tools/android-reference.sh --app $APP"

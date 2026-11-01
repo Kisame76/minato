@@ -889,7 +889,7 @@ run_app() {
     # draws in software, changes its label's text once it has the
     # focus, and logs "done" after the draw that follows the click of the script's tap on its Button; its screen follows
     # its log.
-    views-test | views-test-default | views-test-fonts)
+    views-test | views-test-default | views-test-fonts | views-test-bidi)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.views.ViewsActivity
       ;;

@@ -110,6 +110,34 @@ public class ViewsActivity extends Activity {
                 mScriptNames.add(names[i]);
             }
         }
+        if (TAG.endsWith("-bidi")) {
+            // views-test-bidi: one TextView of three lines, a Hebrew and an Arabic word in a right-to-left paragraph, a
+            // Thai and a Devanagari word, and three emoji, as a chat or name field shows them. AOSP's performTraversals
+            // measures the window twice before the first layout (it applies the insets after the first measure), and
+            // the second measure of this TextView, which has a layout by then, takes its width from the bounding box
+            // of its drawing: wider than its lines. The log shows both measures and the width.
+            TextView mixed = new TextView(this) {
+                @Override
+                protected void onMeasure(int widthSpec, int heightSpec) {
+                    final boolean had = getLayout() != null;
+                    final int before = had ? getLayout().getWidth() : -1;
+                    super.onMeasure(widthSpec, heightSpec);
+                    Log.i(TAG, "mixed measure spec " + MeasureSpec.toString(widthSpec) + " x " + MeasureSpec.toString(heightSpec) + ", layout before " + before
+                            + ", measured " + getMeasuredWidth() + ", layout after " + getLayout().getWidth());
+                }
+            };
+            mixed.setText("\u05E9\u05DC\u05D5\u05DD \u0645\u0631\u062D\u0628\u0627\n"
+                    + "\u0E2A\u0E27\u0E31\u0E2A\u0E14\u0E35 \u0928\u092E\u0938\u094D\u0924\u0947\n"
+                    + "\uD83D\uDE00\uD83C\uDF89\uD83D\uDC31");
+            mixed.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            mixed.setTextColor(0xFF1A2B3C);
+            params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            params.topMargin = dp(8);
+            mColumn.addView(mixed, params);
+            mScripts.add(mixed);
+            mScriptNames.add("mixed");
+        }
         setContentView(mColumn);
         mColumn.getViewTreeObserver().addOnGlobalLayoutListener(this::laidOut);
         mColumn.getViewTreeObserver().addOnDrawListener(this::drawing);
@@ -176,6 +204,19 @@ public class ViewsActivity extends Activity {
             Log.i(TAG, mScriptNames.get(i) + " desired "
                     + android.text.Layout.getDesiredWidth(script.getText(), script.getPaint()) + ", layout width "
                     + script.getLayout().getWidth() + ", line width " + script.getLayout().getLineWidth(0));
+            if (mScriptNames.get(i).equals("mixed")) {
+              try {
+                final android.text.Layout layout = script.getLayout();
+                Log.i(TAG, "mixed use bounds " + script.getUseBoundsForWidth() + ", box "
+                        + layout.computeDrawingBoundingBox());
+                for (int line = 0; line < layout.getLineCount(); line++) {
+                    Log.i(TAG, "mixed line " + line + " left " + layout.getLineLeft(line) + " right "
+                            + layout.getLineRight(line) + " max " + layout.getLineMax(line));
+                }
+              } catch (Throwable t) {
+                Log.i(TAG, "mixed failed " + t);
+              }
+            }
         }
     }
 
