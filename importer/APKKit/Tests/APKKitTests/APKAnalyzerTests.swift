@@ -179,7 +179,9 @@ struct APKAnalyzerTests {
         #expect(!new.isCompressed)
         #expect(new.isZipAligned16K == true)
         #expect(report.extractNativeLibs == false)
-        #expect(report.compatibility.issues.contains(.pageAligned4K(["libold.so"])))
+        // The converter lays a 4 KB library out for 16 KB pages at import, or refuses it with its own reason: the
+        // alignment alone is nothing to report.
+        #expect(!report.compatibility.issues.contains { if case .pageAligned4K = $0 { true } else { false } })
     }
 
     @Test func picksHighestDensityRasterIcon() throws {

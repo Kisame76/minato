@@ -9,9 +9,12 @@ public enum StartPath {
         var names: Set<String> = []
         if case .nativeActivity(let library) = report.runtime { names.insert("lib\(library).so") }
         let present = Set(report.nativeLibraries.map(\.name))
-        // Unity's, Godot's, Unreal's, Flutter's, GameMaker's, libGDX's and SDL's core libraries; Cocos2d-x's all.
+        // Unity's, Godot's, Unreal's, Flutter's, GameMaker's, libGDX's, SDL's and Ren'Py's core libraries; Cocos2d-x's
+        // all. Ren'Py's PythonSDLActivity loads librenpython.so at the start through getLibraries() (renpy-build's
+        // RAPT since 7.4), so an app keeps it on its start path even without a dex that names it.
         let core = ["libunity.so", "libil2cpp.so", "libgodot_android.so", "libUE4.so", "libUnreal.so",
-                    "libflutter.so", "libapp.so", "libgdx.so", "libyoyo.so", "libSDL2.so", "libSDL3.so"]
+                    "libflutter.so", "libapp.so", "libgdx.so", "libyoyo.so", "libSDL2.so", "libSDL3.so",
+                    "librenpython.so"]
         names.formUnion(present.intersection(core))
         // libmain.so is Unity's and SDL's own start library, but only there: another app may call a library that.
         if !present.isDisjoint(with: ["libunity.so", "libSDL2.so", "libSDL3.so"]) && present.contains("libmain.so") {

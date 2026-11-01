@@ -297,7 +297,8 @@ enum Texts {
         case .requiresGLES(let version):
             "Requires OpenGL ES \(glesVersion(version)); Minato provides at most 3.1"
         case .pageAligned4K(let libraries):
-            "\(libraries.count) \(libraries.count == 1 ? "library is" : "libraries are") built for 4 KB pages only (matters in M2)"
+            "\(libraries.count) \(libraries.count == 1 ? "library is" : "libraries are") built for 4 KB pages "
+                + "and laid out for 16 KB pages at import"
         case .usesLicenseCheck:
             "Uses Google’s license check (LVL), which we do not bypass"
         case .unreadableLibrary(let library):

@@ -106,6 +106,19 @@ struct JavaStartLibrariesTests {
         #expect(entry.degradedLibraries == ["libgame.so"])
     }
 
+    /// Ren'Py's core library is on the start path by its engine, whatever the dex names: PythonSDLActivity loads it
+    /// at the start through getLibraries() (renpy-build's RAPT since 7.4, "renpython"), and nothing runs without it.
+    @Test func renPysCoreLibraryBlocksWithoutAConstant() async throws {
+        let dex = DexBuilder.make(strings: [], methods: [DexBuilder.returnVoid])
+        let (entry, sandbox) = try await Self.importing(try Self.apk(dex: dex, libraries: ["librenpython.so"]),
+                                                        refusing: ["librenpython.so"])
+        defer { sandbox.remove() }
+
+        #expect(entry.state == .incompatible)
+        #expect(entry.report?.compatibility.issues.contains(
+            .conversionFailed(library: "librenpython.so", reason: Self.twoText)) == true)
+    }
+
     @Test func aReadyAppNamesWhatItRunsWithout() async throws {
         let dex = DexBuilder.make(strings: ["game"], methods: [DexBuilder.constString(0, 0) + DexBuilder.returnVoid])
         let (entry, sandbox) = try await Self.importing(

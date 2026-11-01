@@ -137,7 +137,8 @@ public struct Compatibility: Sendable, Equatable, Codable {
         /// Requires OpenGL ES newer than 3.1, which Minato offers on ANGLE's Vulkan backend (ADR-0013, ADR-0044 d));
         /// such an app runs there with 3.1.
         case requiresGLES(UInt32)
-        /// Libraries linked for 4 KB pages only (ADR-0007).
+        /// Libraries linked for 4 KB pages only (ADR-0007). No longer reported: the converter lays them out for 16 KB
+        /// pages at import, or refuses one with its own reason; kept so that older reports still decode.
         case pageAligned4K([String])
         /// Uses the Play licence check (LVL), which we do not work around.
         case usesLicenseCheck

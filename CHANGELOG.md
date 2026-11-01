@@ -29,3 +29,5 @@ All notable changes to Minato are documented in this file. The format follows
 - The Return key works in text fields that leave its action unset, such as game engines' fields, and in apps made for
   very old Android versions
 - Apps whose native libraries mix 4 KB and 16 KB page alignment start instead of being refused at import
+- An app whose engine library cannot run is marked incompatible, with the reason, instead of starting to a black
+  screen

@@ -220,8 +220,6 @@ public enum APKAnalyzer {
         if hasCode { issues.append(.needsART) }
         // ES 3.1 runs on ANGLE's Vulkan backend (ADR-0044 d)); a higher version gets 3.1 and this note.
         if let gles = report.requiredGLESVersion, gles > 0x0003_0001 { issues.append(.requiresGLES(gles)) }
-        let fourK = report.nativeLibraries.filter { ($0.elf?.pageAlignment ?? 16_384) < 16_384 }.map(\.name)
-        if !fourK.isEmpty { issues.append(.pageAligned4K(fourK)) }
         if report.playDependencies.contains(.licenseCheck) { issues.append(.usesLicenseCheck) }
 
         let status: Compatibility.Status = blocked ? .incompatible : report.requiresSplits ? .needsSplits : .ready
