@@ -208,17 +208,6 @@ std::vector<elf::Section> sections_for_scan(std::span<const std::byte> elf_bytes
     return sections;
 }
 
-/// The section headers for page_layout's alignment decision: the file's, or none when it has none or they cannot be
-/// read. A broken table counts as none here (the layout then trusts the segment p_align); sections_for_scan reports a
-/// broken or missing table as its own refusal for the rewriter.
-std::vector<elf::Section> layout_sections(std::span<const std::byte> elf_bytes) {
-    try {
-        return elf::read_sections(elf_bytes);
-    } catch (const elf::FormatError &) {
-        return {};
-    }
-}
-
 /// Where the tables of jump tables may lie (ADR-0020 X2d): in a section that is loaded but neither
 /// written nor run, backed by the file part of a LOAD segment that is not writable either. Code
 /// could change a table anywhere else, or the rewriter could, taking its words for instructions.
@@ -315,11 +304,10 @@ std::string segments_text(const elf::File &file) {
     return text + ")";
 }
 
-/// The allocated sections and the TLS block whose alignment a whole-image move by `shift` would break, as a layout
-/// refusal names them, so an app's import shows which to look at: ".text (addr 0x200, size 0x20, align 0x4000), the
-/// TLS block (align 0x4000)". Anything whose alignment already divides the shift (up to a 4 KiB page) keeps it and
-/// is left out.
-std::string alignment_blockers(const elf::File &file, std::span<const elf::Section> sections, std::uint64_t shift) {
+/// The allocated sections whose >4 KiB alignment a whole-image move by `shift` would not keep, named for the layout
+/// note so an app's import shows which sections the move put off their 16 KiB boundary: ".text (addr 0x200, size
+/// 0x20, align 0x4000)". Empty when the shift keeps every section's alignment (a zero shift included).
+std::string section_blockers(std::span<const elf::Section> sections, std::uint64_t shift) {
     std::string text;
     const char *separator = "";
     for (const auto &section : sections) {
@@ -331,15 +319,18 @@ std::string alignment_blockers(const elf::File &file, std::span<const elf::Secti
                             section.size, section.addralign);
         separator = ", ";
     }
-    for (const auto &segment : file.segments) {
-        if (segment.type != elf::SegmentType::tls || segment.alignment == 0 || shift % segment.alignment == 0) continue;
-        text += std::format("{}the TLS block (align {:#x})", separator, segment.alignment);
-        separator = ", ";
-    }
     return text;
 }
 
 }  // namespace
+
+std::vector<elf::Section> layout_sections(std::span<const std::byte> elf_bytes) {
+    try {
+        return elf::read_sections(elf_bytes);
+    } catch (const elf::FormatError &) {
+        return {};
+    }
+}
 
 PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sections) {
     constexpr std::uint64_t small_page = 4 * 1024;  // Android's pages before 16 KiB
@@ -418,19 +409,18 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
 
     PageLayout layout;
     layout.min_vaddr = page_down(loads.front()->address);
-    // The alignment a whole-image shift must keep. lld gives every PT_LOAD the same p_align, so a LOAD segment whose
-    // p_align is larger than anything inside needs (16 KiB on a 4 KiB build) is a post-processed library and its
-    // p_align promises nothing about the code: a shift by a 4 KiB multiple is then as safe as for any 4 KiB library,
-    // which is also all Android maps such a library at on a 4 KiB device. The real need is an allocated section that
-    // asks for more, or the TLS block. Without section headers we cannot tell, so the largest p_align stands.
-    // (`small_page` floors it, as the shift is always a multiple of 4 KiB.)
+    // The alignment a whole-image shift must keep. A shift by a 4 KiB multiple keeps the loader's run-based 16 KiB
+    // page boundaries and every relative offset in the image, and bionic on a 4 KiB device maps with a 4 KiB load
+    // bias, so an allocated section's sh_addralign above 4 KiB is honoured in place by no Android phone either: it
+    // does not block the shift (ADR-0007). The sections such a shift moves off their alignment go to
+    // `layout.moved_sections` below as a note, not a refusal. The TLS block stays a hard need: our per-thread TLS
+    // must honour its p_align, which a shift off a 16 KiB boundary would break. Without section headers we cannot
+    // tell a real need from a post-processed p_align, so the largest segment p_align stands. (`small_page` floors it,
+    // as the shift is always a multiple of 4 KiB.)
     std::uint64_t alignment = small_page;
     if (sections.empty()) {
         for (const auto *segment : loads) alignment = std::max(alignment, segment->alignment);
     } else {
-        for (const auto &section : sections) {
-            if ((section.flags & elf::section_allocated) != 0) alignment = std::max(alignment, section.addralign);
-        }
         for (const auto &segment : file.segments) {
             if (segment.type == elf::SegmentType::tls) alignment = std::max(alignment, segment.alignment);
         }
@@ -480,10 +470,13 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
                     alignment, layout.shift, segments_text(file)));
             }
             throw Incompatible(std::format(
-                "a move by {:#x} for its 4 KiB layout would break the alignment of {} (ADR-0007) {}",
-                layout.shift, alignment_blockers(file, sections, layout.shift), segments_text(file)));
+                "a move by {:#x} for its 4 KiB layout would break the alignment of the TLS block (align {:#x}); our "
+                "per-thread TLS must honour it (ADR-0007) {}",
+                layout.shift, alignment, segments_text(file)));
         }
     }
+    // The allocated sections the shift moved off a >4 KiB alignment: a note (above), not a refusal.
+    layout.moved_sections = section_blockers(sections, layout.shift);
     layout.runs.front().start = layout.min_vaddr;
     // The image ends on a 16 KiB page of the container.
     auto &last = layout.runs.back();
@@ -809,6 +802,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     std::memcpy(bytes.data() + runs_offset, run_table.data(), run_table.size() * sizeof(apk_run));
     report.image_offset = image_offset + layout.shift;
     report.image_shift = layout.shift;
+    report.moved_sections_note = layout.moved_sections;
     report.stub_bytes = stubs_size;
     report.island_table_bytes = islands.size() * sizeof(apk_island);
 

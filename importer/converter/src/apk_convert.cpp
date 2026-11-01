@@ -79,19 +79,18 @@ std::string permissions(std::uint32_t flags) {
 
 std::string page_verdict(const apk::elf::File &file, std::span<const std::byte> bytes) {
     // The section headers decide what a mixed p_align really needs, as in convert(); a broken table counts as none.
-    std::vector<apk::elf::Section> sections;
     try {
-        sections = apk::elf::read_sections(bytes);
-    } catch (const apk::elf::FormatError &) {
-    }
-    try {
-        const auto layout = apk::container::page_layout(file, sections);
+        const auto layout = apk::container::page_layout(file, apk::container::layout_sections(bytes));
         if (apk::elf::first_misaligned_load(file) == nullptr) {
             const auto loads = std::ranges::count(file.segments, SegmentType::load, &Segment::type);
             return std::format("yes, all {} LOAD segments fit", loads);
         }
         if (layout.shift == 0) return "yes, a 4 KiB layout with code and data 16 KiB apart (ADR-0007)";
-        return std::format("yes, a 4 KiB layout, the image moved by {:#x} (ADR-0007)", layout.shift);
+        auto verdict = std::format("yes, a 4 KiB layout, the image moved by {:#x} (ADR-0007)", layout.shift);
+        if (!layout.moved_sections.empty()) {
+            verdict += std::format("; moved off 16 KiB alignment: {}", layout.moved_sections);
+        }
+        return verdict;
     } catch (const apk::container::Incompatible &error) {
         return std::format("no, {}", error.what());
     }

@@ -842,18 +842,25 @@ TEST(refuses_a_4_kib_layout_no_shift_fits) {
 TEST(a_16_kib_p_align_the_sections_do_not_need_takes_a_4_kib_shift) {
     auto mixed = four_kib_program(0x22c0);
     mixed.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // the code segment's p_align, as a 16 KiB realignment tool sets it
-    CHECK(convert(mixed).report.image_shift == 0x2000);  // converts, shifting 8 KiB like the 4 KiB library it is
+    const auto container = convert(mixed);
+    CHECK(container.report.image_shift == 0x2000);          // converts, shifting 8 KiB like the 4 KiB library it is
+    CHECK(container.report.moved_sections_note.empty());    // nothing asked for more than 4 KiB, so no note
 }
 
-// The refusal stays when an allocated section truly needs 16 KiB that a 4 KiB-multiple shift cannot keep, and it
-// names that section (name, address, size, alignment) so the import report shows which one to look at.
-TEST(a_section_that_needs_16_kib_keeps_the_refusal) {
+// An allocated section's sh_addralign above 4 KiB (here .text asks for 16 KiB) no longer refuses the file: the
+// 4 KiB-multiple shift keeps every relative offset and the run-based 16 KiB boundaries, and bionic maps such a
+// section at 4 KiB on a 4 KiB device too (ADR-0007). The section is named in report.moved_sections_note so a later
+// misbehaving app shows what was moved.
+TEST(a_section_that_asks_for_16_kib_takes_the_shift_with_a_note) {
     auto needs = four_kib_program(0x22c0, 0x4000);   // .text's sh_addralign asks for 16 KiB
     needs.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // and the code segment's p_align matches
-    CHECK_THROWS(Incompatible, convert(needs), ".text (addr 0x200, size 0x20, align 0x4000)");
+    const auto container = convert(needs);
+    CHECK(container.report.image_shift == 0x2000);
+    CHECK(container.report.moved_sections_note == ".text (addr 0x200, size 0x20, align 0x4000)");
 }
 
-// ... and when a TLS block needs it: a sixth program header, PT_TLS over the data, asking for 16 KiB. The refusal
+// The TLS block still refuses (unlike a section, above): a sixth program header, PT_TLS over the data, asking for
+// 16 KiB. Our per-thread TLS must honour its p_align, which a shift off a 16 KiB boundary would break. The refusal
 // names the TLS block and its alignment.
 TEST(a_16_kib_tls_block_keeps_the_refusal) {
     auto tls = four_kib_program(0x22c0);

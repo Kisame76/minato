@@ -37,6 +37,8 @@ struct Report {
     std::uint64_t image_shift = 0;   // how far a 4 KiB layout moved it past a 16 KiB page (ADR-0007)
     std::uint64_t stub_bytes = 0;    // islands and veneers
     std::uint64_t island_table_bytes = 0;  // one entry per x18 island (ADR-0020 X4)
+    std::string moved_sections_note;  // allocated sections a 4 KiB-multiple shift moved off a >4 KiB alignment
+                                      // (ADR-0007); empty when none. A note, not a refusal: see page_layout.
 };
 
 struct Container {
@@ -72,12 +74,19 @@ struct PageLayout {
     std::uint64_t end = 0;             // past the last LOAD segment, on a 16 KiB page of the container
     std::uint64_t shift = 0;           // 0, 4, 8 or 12 KiB
     std::vector<Run> runs;             // from min_vaddr to end, in address order
+    std::string moved_sections;        // allocated sections the shift moved off their >4 KiB alignment, for the note
 };
 
-/// The layout of `file`. `sections` are its section headers (empty when the file has none, or they cannot be read):
-/// a whole-image shift must keep every allocated section's and the TLS block's alignment, so a LOAD segment's p_align
-/// larger than any of those needs (a post-processed 16 KiB realignment on a 4 KiB build) does not by itself block the
-/// shift; without section headers the largest p_align stands. Throws Incompatible with the reason when no shift fits.
+/// The section headers for page_layout's and page_verdict's alignment decision: the file's, or none when it has
+/// none or they cannot be read (a broken table counts as none; the layout then trusts the segment p_align).
+std::vector<elf::Section> layout_sections(std::span<const std::byte> elf);
+
+/// The layout of `file`. `sections` are its section headers (empty when the file has none, or they cannot be read).
+/// A whole-image shift by a 4 KiB multiple keeps the loader's run-based 16 KiB page boundaries and every relative
+/// offset, and bionic on a 4 KiB device maps with a 4 KiB load bias, so an allocated section's sh_addralign above
+/// 4 KiB does not block the shift (ADR-0007): the sections a non-zero shift moves off such an alignment are reported
+/// in PageLayout::moved_sections, not refused. The TLS block still blocks (our per-thread TLS must honour its
+/// p_align), and without section headers the largest segment p_align stands. Throws Incompatible when no shift fits.
 PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sections);
 
 /// The reason for refusing a file whose x18 `uses` no island handles (at least one), for Incompatible: one use with

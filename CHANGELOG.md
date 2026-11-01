@@ -20,8 +20,6 @@ All notable changes to Minato are documented in this file. The format follows
 - An app that cannot start because a library it needs does not load says why in one line, following the chain of
   libraries to the one that fails ("it needs libpython2.7.so, which cannot load: …")
 - An app whose optional library does not load shows "Ready, without" and that library, and starts without it
-- An app refused because a library cannot be laid out for the iPhone's 16 KB pages names the part of the library
-  that blocks it
 
 ### Fixed
 
