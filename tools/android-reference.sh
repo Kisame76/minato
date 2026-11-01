@@ -226,7 +226,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 ||
-  "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 ||
+  "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
   AVD=apk-runner-35-iphone-gesture
@@ -500,6 +500,7 @@ ime_test_off() {
   run ime disable io.github.kisame76.minato.test.nativeime/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.nativejniime/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.enter/.FixtureInputMethod >/dev/null 2>&1 || true
+  run ime disable io.github.kisame76.minato.test.imeextract/.FixtureInputMethod >/dev/null 2>&1 || true
   # enter-test-15's input method once stayed the default after a run that failed: the app goes, and its method with it.
   device uninstall io.github.kisame76.minato.test.enter >/dev/null 2>&1 || true
 }
@@ -923,6 +924,13 @@ run_app() {
     webview-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WebViewActivity
       ;;
+    # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
+    # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
+    # method's lines under ime-extract-test-device are the numbers that Minato's extract requests must carry. It ends
+    # with "done".
+    ime-extract-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ExtractActivity
+      ;;
     # enter-test (ADR-0068, the return key): seven fields that its fixture input method serves as LatinIME does, one
     # after another; it ends with "done" after the last field. enter-test-15 is its twin of target SDK 15.
     enter-test | enter-test-15)
@@ -1012,7 +1020,7 @@ run_app() {
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
     "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
     "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
-    "$app" == enter-test || "$app" == enter-test-15 ]]; then
+    "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ]]; then
     # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
     # with the exit trap.
     run ime enable "$package/.FixtureInputMethod" >/dev/null
@@ -1527,7 +1535,7 @@ if [[ -n "$app" ]]; then
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
     "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
     "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
-    "$app" == enter-test || "$app" == enter-test-15 ]]; then
+    "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods=$(run ime list -s | tr -d '\r')
     default_input_method=$(run settings get secure default_input_method | tr -d '\r')

@@ -13,7 +13,10 @@
 // view is served (start, with the EditorInfo), when its keyboard is wanted (show), not wanted (hide) and when the view
 // is served no more (stop), and the host answers with text records, which onHostText turns into calls on the served
 // view's InputConnection, as an input method service's would be. Every connection has a serial, and a record for
-// another serial is dropped, so that an edit meant for a view that has since lost the focus reaches no other.
+// another serial is dropped, so that an edit meant for a view that has since lost the focus reaches no other. For the
+// host's text bar and its tap outside the field the manager also tells where the served view is (field) and what text it
+// holds (extract), which it asks of the view's connection as an input method that shows the text does, with
+// getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and then from the view's updateExtractedText and updateSelection.
 import android.app.ActivityThread;
 import android.content.Context;
 import android.os.Handler;
@@ -25,7 +28,9 @@ import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewRootImpl;
+import android.view.ViewTreeObserver;
 import android.view.WindowManager;
+import android.graphics.Rect;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -44,6 +49,8 @@ class InputMethodManager {
     private ServedConnection mServedInputConnection;
     // The serial of the last connection the host was told of; 0 before the first. The host's records name one.
     private long mLastSerial;
+    // Whether the keyboard is wanted: showSoftInput has been asked and no hide since.
+    private boolean mKeyboardWanted;
 
     private InputMethodManager() {
     }
@@ -60,6 +67,23 @@ class InputMethodManager {
         final long mSerial;
         /** The IMM's own BaseInputConnection(imm, false), which a view without a connection is served with. */
         boolean mFallback;
+
+        // The extract the host's text bar shows (ExtractState), guarded by this.
+        private EditorInfo mInfo;
+        private boolean mMonitoring;
+        private String mText = "";
+        private int mTextStart;
+        private int mSelStart;
+        private int mSelEnd;
+        private int mComposingStart = -1;
+        private int mComposingEnd = -1;
+        private String mLastExtract;
+        private boolean mSendPending;
+        // The field's rectangle that the host was last told.
+        private final Rect mField = new Rect();
+        private boolean mFieldSent;
+        private ViewTreeObserver.OnGlobalLayoutListener mLayoutListener;
+        private ViewTreeObserver.OnScrollChangedListener mScrollListener;
 
         ServedConnection(InputConnection connection, Looper looper, View view, long serial) {
             mConnection = connection;
@@ -160,6 +184,204 @@ class InputMethodManager {
                     0, KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE));
         }
 
+        /**
+         * The text bar's feed: the view's text through getExtractedText(GET_EXTRACTED_TEXT_MONITOR), as an input method
+         * that shows it asks, and the view's place in the window. A view whose connection gives no extracted text, such
+         * as an engine's, gets the place only; a view without a connection of its own, neither.
+         */
+        void startFeeding(EditorInfo info) {
+            if (mInfo != null || info == null) {
+                return;
+            }
+            mInfo = info;
+            sendField();
+            final ViewTreeObserver observer = mView.getViewTreeObserver();
+            if (observer.isAlive()) {
+                mLayoutListener = this::sendField;
+                mScrollListener = this::sendField;
+                observer.addOnGlobalLayoutListener(mLayoutListener);
+                observer.addOnScrollChangedListener(mScrollListener);
+            }
+            // On the connection's thread after the call that wanted the keyboard returns, as an input method starts.
+            mHandler.post(() -> {
+                if (mDeactivateRequested.get()) {
+                    return;
+                }
+                final ExtractedTextRequest request = new ExtractedTextRequest();
+                request.token = EXTRACT_TOKEN;
+                request.hintMaxChars = EXTRACT_CHARS;
+                final ExtractedText extracted = mConnection.getExtractedText(request,
+                        InputConnection.GET_EXTRACTED_TEXT_MONITOR);
+                if (extracted == null || extracted.text == null) {
+                    return;
+                }
+                synchronized (this) {
+                    mMonitoring = true;
+                    mText = extracted.text.toString();
+                    mTextStart = extracted.startOffset;
+                    mSelStart = extracted.selectionStart + extracted.startOffset;
+                    mSelEnd = extracted.selectionEnd + extracted.startOffset;
+                    mComposingStart = mComposingEnd = -1;
+                }
+                sendExtract();
+            });
+        }
+
+        /** The view's visible rectangle in the window's pixels, when the host has not had it as it is. */
+        private void sendField() {
+            final Rect visible = new Rect();
+            if (mDeactivateRequested.get() || !mView.getGlobalVisibleRect(visible)) {
+                return;
+            }
+            if (mFieldSent && visible.equals(mField)) {
+                return;
+            }
+            mFieldSent = true;
+            mField.set(visible);
+            requestIme(mSerial, "field\t" + mSerial + "\t" + visible.left + "\t" + visible.top + "\t" + visible.right
+                    + "\t" + visible.bottom);
+        }
+
+        /** The view's updateExtractedText: its text changed, wholly or in part, and where its selection is now. */
+        void onUpdateExtractedText(int token, ExtractedText extracted) {
+            if (token != EXTRACT_TOKEN || extracted == null || extracted.text == null) {
+                return;
+            }
+            synchronized (this) {
+                if (!mMonitoring) {
+                    return;
+                }
+                if (extracted.partialStartOffset < 0) {
+                    mText = extracted.text.toString();
+                    mTextStart = extracted.startOffset;
+                } else {
+                    final int start = Math.max(0, Math.min(mText.length(), extracted.partialStartOffset - mTextStart));
+                    final int end = Math.max(start, Math.min(mText.length(), extracted.partialEndOffset - mTextStart));
+                    mText = mText.substring(0, start) + extracted.text + mText.substring(end);
+                }
+                mSelStart = extracted.selectionStart + extracted.startOffset;
+                mSelEnd = extracted.selectionEnd + extracted.startOffset;
+            }
+            scheduleExtract();
+        }
+
+        /** The view's updateSelection: where the selection and the composing text are, in the whole text. */
+        void onUpdateSelection(int selStart, int selEnd, int candidatesStart, int candidatesEnd) {
+            synchronized (this) {
+                if (!mMonitoring) {
+                    return;
+                }
+                mSelStart = selStart;
+                mSelEnd = selEnd;
+                mComposingStart = candidatesStart;
+                mComposingEnd = candidatesEnd;
+            }
+            scheduleExtract();
+        }
+
+        /** One extract for the changes of a message: the calls of an edit follow one another on the view's thread. */
+        private void scheduleExtract() {
+            synchronized (this) {
+                if (mSendPending) {
+                    return;
+                }
+                mSendPending = true;
+            }
+            mHandler.post(() -> {
+                synchronized (this) {
+                    mSendPending = false;
+                }
+                if (!mDeactivateRequested.get()) {
+                    sendExtract();
+                }
+            });
+        }
+
+        /**
+         * The host's "extract": the selection and composing region in the text sent, which is at most EXTRACT_CHARS
+         * characters around the selection, and the flags. A password's text is only as many bullets as it has
+         * characters. The text is not logged.
+         */
+        private void sendExtract() {
+            final String request;
+            synchronized (this) {
+                if (!mMonitoring) {
+                    return;
+                }
+                final int length = mText.length();
+                final int selStart = Math.max(0, Math.min(length, mSelStart - mTextStart));
+                final int selEnd = Math.max(0, Math.min(length, mSelEnd - mTextStart));
+                final int low = Math.min(selStart, selEnd);
+                final int high = Math.max(selStart, selEnd);
+                int from = 0;
+                int to = length;
+                if (length > EXTRACT_CHARS) {
+                    from = Math.max(0, Math.min(length - EXTRACT_CHARS, (low + high) / 2 - EXTRACT_CHARS / 2));
+                    to = from + EXTRACT_CHARS;
+                    if (Character.isLowSurrogate(mText.charAt(from)) && from > 0) {
+                        from--;
+                    }
+                    if (Character.isHighSurrogate(mText.charAt(to - 1))) {
+                        to--;
+                    }
+                }
+                final int type = mInfo.inputType;
+                final int variation = type & EditorInfo.TYPE_MASK_VARIATION;
+                final int typeClass = type & EditorInfo.TYPE_MASK_CLASS;
+                final boolean password = typeClass == EditorInfo.TYPE_CLASS_TEXT
+                        && (variation == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
+                                || variation == EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                                || variation == EditorInfo.TYPE_TEXT_VARIATION_WEB_PASSWORD)
+                        || typeClass == EditorInfo.TYPE_CLASS_NUMBER
+                                && variation == EditorInfo.TYPE_NUMBER_VARIATION_PASSWORD;
+                final int flags = (type != EditorInfo.TYPE_NULL ? 1 : 0) | (password ? 2 : 0)
+                        | ((type & EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) != 0 && typeClass == EditorInfo.TYPE_CLASS_TEXT
+                                ? 4 : 0);
+                final String shown;
+                if (password) {
+                    final StringBuilder bullets = new StringBuilder();
+                    for (int i = from; i < to; i = mText.offsetByCodePoints(i, 1)) {
+                        bullets.append('\u2022');
+                    }
+                    shown = bullets.toString();
+                } else {
+                    shown = mText.substring(from, to);
+                }
+                request = "extract\t" + mSerial + "\t" + (selStart - from) + "\t" + (selEnd - from) + "\t"
+                        + relative(mComposingStart - mTextStart, from, to) + "\t"
+                        + relative(mComposingEnd - mTextStart, from, to) + "\t" + flags + "\t" + hintOf(mInfo) + "\t"
+                        + shown;
+                if (request.equals(mLastExtract)) {
+                    return;
+                }
+                mLastExtract = request;
+            }
+            requestIme(mSerial, request);
+        }
+
+        /** A position of the text in the window of it that is sent, -1 for none or outside it. */
+        private int relative(int position, int from, int to) {
+            return position < from || position > to ? -1 : position - from;
+        }
+
+        /** The view's place is not followed, and its updates are not sent on (the view keeps its monitor; no call ends it). */
+        private void stopFeeding() {
+            final ViewTreeObserver observer = mView.getViewTreeObserver();
+            if (observer.isAlive()) {
+                if (mLayoutListener != null) {
+                    observer.removeOnGlobalLayoutListener(mLayoutListener);
+                }
+                if (mScrollListener != null) {
+                    observer.removeOnScrollChangedListener(mScrollListener);
+                }
+            }
+            mLayoutListener = null;
+            mScrollListener = null;
+            synchronized (this) {
+                mMonitoring = false;
+            }
+        }
+
         /** As AOSP's (356-402): the connection closes, then its view hears of it on the view's thread. */
         void deactivate() {
             if (mDeactivateRequested.getAndSet(true)) {
@@ -190,6 +412,11 @@ class InputMethodManager {
     private static final int TEXT_SEND_KEY = 7;
     // The longest request the runtime takes, less its NUL.
     private static final int REQUEST_BYTES = 511;
+    // The text bar's extract: the token of the request, which the view's updates name, and the most characters sent.
+    private static final int EXTRACT_TOKEN = 1;
+    private static final int EXTRACT_CHARS = 4096;
+    // The longest hint of an extract, in characters.
+    private static final int EXTRACT_HINT_CHARS = 128;
 
     /**
      * @hide The input event receiver's: a text record of the host, for the connection with `serial`. It is dropped
@@ -231,6 +458,18 @@ class InputMethodManager {
             i += Character.charCount(point);
         }
         return request.toString();
+    }
+
+    /** An editor's hint for an extract: one line, which a tab or a new line would not let the host parse. */
+    private static String hintOf(EditorInfo info) {
+        final CharSequence hint = info.hintText;
+        final StringBuilder line = new StringBuilder();
+        for (int i = 0; hint != null && i < hint.length() && line.length() < EXTRACT_HINT_CHARS;) {
+            final int point = Character.codePointAt(hint, i);
+            line.appendCodePoint(point == 0 || point == '\t' || point == '\n' || point == '\r' ? ' ' : point);
+            i += Character.charCount(point);
+        }
+        return line.toString();
     }
 
     /** @hide View's: the annotation of its handwriting delegation flags. */
@@ -404,6 +643,10 @@ class InputMethodManager {
                     ++mLastSerial);
             mServedInputConnection.mFallback = fallback;
             requestIme(mServedInputConnection.mSerial, startRequest(editorInfo));
+            // A keyboard that is up before this connection (a restart) feeds the host's text bar at once.
+            if (!fallback && mKeyboardWanted) {
+                mServedInputConnection.startFeeding(editorInfo);
+            }
         }
         return true;
     }
@@ -423,6 +666,7 @@ class InputMethodManager {
     private void endServedConnection() {
         if (mServedInputConnection != null) {
             final long serial = mServedInputConnection.mSerial;
+            mServedInputConnection.stopFeeding();
             mServedInputConnection.deactivate();
             mServedInputConnection = null;
             requestIme(serial, "stop");
@@ -478,7 +722,12 @@ class InputMethodManager {
         checkFocus();
         final boolean served = hasServedByInputMethod(view);
         if (served && mServedInputConnection != null) {
+            mKeyboardWanted = true;
             requestIme(mServedInputConnection.mSerial, "show");
+            // As a keyboard that shows the text asks when it starts: the host's text bar hears of the view then.
+            if (!mServedInputConnection.mFallback) {
+                mServedInputConnection.startFeeding(mCurrentEditorInfo);
+            }
         }
         return served;
     }
@@ -509,6 +758,7 @@ class InputMethodManager {
 
     /** The keyboard is not wanted: the host hears it with the live serial, or 0 without a connection. */
     private void hideRequest() {
+        mKeyboardWanted = false;
         requestIme(mServedInputConnection != null ? mServedInputConnection.mSerial : 0, "hide");
     }
 
@@ -592,12 +842,20 @@ class InputMethodManager {
     }
 
     public void updateSelection(View view, int selStart, int selEnd, int candidatesStart, int candidatesEnd) {
+        final ServedConnection served = mServedInputConnection;
+        if (served != null && hasServedByInputMethod(view)) {
+            served.onUpdateSelection(selStart, selEnd, candidatesStart, candidatesEnd);
+        }
     }
 
     public void updateCursorAnchorInfo(View view, CursorAnchorInfo cursorAnchorInfo) {
     }
 
     public void updateExtractedText(View view, int token, ExtractedText text) {
+        final ServedConnection served = mServedInputConnection;
+        if (served != null && hasServedByInputMethod(view)) {
+            served.onUpdateExtractedText(token, text);
+        }
     }
 
     public void displayCompletions(View view, CompletionInfo[] completions) {

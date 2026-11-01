@@ -726,6 +726,8 @@ long permission_cancel(std::uint64_t id) {
 // wanted. The host parses the text, so the runtime checks it whole first, as a pick's; no answer ends the request, the
 // host's text records are the answers, and they carry the serial.
 constexpr std::size_t ime_text_limit = 512;  // "start\t..." with a hint cut to fit, and the NUL
+/// "extract\t..." holds up to 4096 characters of text, each up to four bytes, after a hint and six numbers.
+constexpr std::size_t ime_extract_limit = 17 * 1024;
 std::recursive_mutex ime_handler_lock;
 
 /// Whether `text` holds only an optional '-' and decimal digits, between 1 and 11 of them.
@@ -751,22 +753,57 @@ bool valid_ime_start(std::string_view text) {
     return true;
 }
 
+/// Whether `text` begins with `count` numbers, each followed by a tab, the first of which is `serial`; `text` is left
+/// holding what follows the last tab.
+bool ime_numbers(std::string_view &text, int count, std::uint64_t serial) {
+    for (int field = 0; field < count; ++field) {
+        const std::size_t tab = text.find('\t');
+        if (tab == std::string_view::npos || !ime_number(text.substr(0, tab))) return false;
+        if (field == 0 && std::string(text.substr(0, tab)) != std::to_string(serial)) return false;
+        text.remove_prefix(tab + 1);
+    }
+    return true;
+}
+
+/// Whether `text` is "field", the connection's serial and four numbers, the field's rectangle in the window's pixels,
+/// each after a tab, and nothing more.
+bool valid_ime_field(std::string_view text, std::uint64_t serial) {
+    if (text.substr(0, 6) != "field\t") return false;
+    text.remove_prefix(6);
+    if (!ime_numbers(text, 4, serial)) return false;
+    return ime_number(text);  // the fifth number, the bottom, ends the text
+}
+
+/// Whether `text` is "extract", the connection's serial and five numbers (selStart, selEnd, composingStart,
+/// composingEnd, flags), a hint with no tab, and a tab and the text, which may hold tabs and new lines.
+bool valid_ime_extract(std::string_view text, std::uint64_t serial) {
+    if (text.substr(0, 8) != "extract\t") return false;
+    text.remove_prefix(8);
+    if (!ime_numbers(text, 6, serial)) return false;
+    return text.find('\t') != std::string_view::npos;  // after the hint
+}
+
 /// APKRT_REQUEST_IME: the text at `address` read through a checked copy, checked whole, and handed to the host's
 /// request handler with the serial. 0, or -EFAULT without text or when it cannot be read, -EINVAL for a text of
-/// ime_text_limit bytes or more, one that is not start, show, hide or stop in the form above, or a serial of 0 for all
-/// but hide.
+/// ime_text_limit bytes or more (ime_extract_limit for an extract), one that is not start, show, hide, stop, field or
+/// extract in the forms above, or a serial of 0 for all but hide.
 long ime(std::uint64_t address, std::uint64_t serial) {
     if (address == 0) return -linux_errno::efault;
-    char text[ime_text_limit];
-    const long length = copy_guest_text(text, address, ime_text_limit);
-    if (length < 0) return length;                                                 // -EFAULT: a byte unreadable
-    if (length >= static_cast<long>(ime_text_limit)) return -linux_errno::einval;  // no NUL within the limit
-    const std::string_view view(text, static_cast<std::size_t>(length));
+    std::string text(ime_extract_limit, '\0');
+    const long length = copy_guest_text(text.data(), address, ime_extract_limit);
+    if (length < 0) return length;                                                    // -EFAULT: a byte unreadable
+    if (length >= static_cast<long>(ime_extract_limit)) return -linux_errno::einval;  // no NUL within the limit
+    const std::string_view view(text.data(), static_cast<std::size_t>(length));
+    const bool extract = view.substr(0, 8) == "extract\t";
+    if (!extract && length >= static_cast<long>(ime_text_limit)) return -linux_errno::einval;
     const bool hide = view == "hide";
-    if (!hide && view != "show" && view != "stop" && !valid_ime_start(view)) return -linux_errno::einval;
+    if (!hide && view != "show" && view != "stop" && !valid_ime_start(view) && !valid_ime_field(view, serial) &&
+        !valid_ime_extract(view, serial)) {
+        return -linux_errno::einval;
+    }
     if (!hide && serial == 0) return -linux_errno::einval;
     const std::lock_guard<std::recursive_mutex> handler(ime_handler_lock);
-    report(APKRT_REQUEST_IME, serial, text);
+    report(APKRT_REQUEST_IME, serial, text.c_str());
     return 0;
 }
 

@@ -454,10 +454,19 @@ enum apkrt_request_type {
                                    // view that takes text is served with a new connection (a1 not 0, a fresh one each
                                    // time), "show" and "stop" (a1 the live serial, not 0: the keyboard is wanted, the
                                    // view is no longer served) and "hide" (a1 the live serial or 0: the keyboard is
-                                   // not wanted). The host answers with text records for that serial
+                                   // not wanted), and for the host's text bar and its tap outside the field:
+                                   // "field\t<serial>\t<l>\t<t>\t<r>\t<b>" (the served view's visible rectangle in
+                                   // the window's pixels, with the start and again when it moves) and
+                                   // "extract\t<serial>\t<selStart>\t<selEnd>\t<composingStart>\t<composingEnd>\t
+                                   // <flags>\t<hint>\t<text>" (the text last, which may hold tabs and new lines, at
+                                   // most 4096 characters around the selection, the offsets in that text, -1 for no
+                                   // composing region; flags 1 editable, 2 password, 4 multi-line; a password's text is
+                                   // as many bullets (U+2022) as it has characters, never its own; the host must not
+                                   // log it). The host answers with text records for that serial
                                    // (APKRT_TEXT_*), which the guest drops once the serial is not the live one. No
                                    // answer ends the request. The runtime refuses -EINVAL any other text or a serial
-                                   // of 0 where one is needed, a text of 512 bytes or more, -EFAULT an unreadable one
+                                   // of 0 where one is needed or one in the text that is not a1, a text of 512 bytes
+                                   // or more (17 KB for an extract), -EFAULT an unreadable one
     APKRT_REQUEST_WEBVIEW,         // guest only (ADR-0056 step a): a0 the address of a struct apkrt_webview_request.
                                    // MAKE opens the view's host->guest record channel and returns its fd (>= 0) as the
                                    // result, like a connect; PLACE and REMOVE return 0; CALL returns 0 and its answer
