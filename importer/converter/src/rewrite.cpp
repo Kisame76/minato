@@ -1584,14 +1584,35 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     }
 }
 
-bool has_external_entry(std::span<const std::byte> code, std::size_t begin, std::size_t end) {
+/// The sign-extended 21-bit immediate of an ADR or ADRP (immhi bits 23:5, immlo bits 30:29), in bytes.
+std::int64_t adr_immediate(std::uint32_t word) {
+    const std::int64_t imm = static_cast<std::int64_t>(((word >> 5) & 0x7ffff) << 2 | ((word >> 29) & 0x3));
+    return (imm << 43) >> 43;  // sign-extend from bit 20
+}
+
+bool has_external_entry(std::span<const std::byte> code, std::uint64_t base, std::size_t begin, std::size_t end) {
+    // Strictly inside (begin, end): a reach to begin is the normal entry, end is the next function.
+    const auto interior = [&](std::int64_t offset) {
+        return offset > static_cast<std::int64_t>(begin) && offset < static_cast<std::int64_t>(end);
+    };
     for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
-        if (j >= begin && j < end) continue;  // the function's own branches are internal
-        const auto displacement = branch_displacement(word_at(code, j));
-        if (!displacement) continue;  // not a direct branch; an indirect one cannot be seen
-        const auto target = static_cast<std::int64_t>(j) + *displacement;
-        // Strictly inside (begin, end): a branch to begin is the normal entry, end is the next function.
-        if (target > static_cast<std::int64_t>(begin) && target < static_cast<std::int64_t>(end)) return true;
+        if (j >= begin && j < end) continue;  // the function's own branches and address arithmetic are internal
+        const auto word = word_at(code, j);
+        if (const auto displacement = branch_displacement(word)) {  // B, BL, B.cond, CBZ/CBNZ, TBZ/TBNZ
+            if (interior(static_cast<std::int64_t>(j) + *displacement)) return true;
+        } else if ((word & 0x9f00'0000) == 0x1000'0000) {  // ADR: pc + imm21
+            if (interior(static_cast<std::int64_t>(j) + adr_immediate(word))) return true;
+        } else if ((word & 0x9f00'0000) == 0x9000'0000 && j + 8 <= code.size()) {  // ADRP paired with an adjacent ADD
+            const auto add = word_at(code, j + 4);
+            if ((add & 0xff00'0000) == 0x9100'0000 && ((add >> 5) & 0x1f) == (word & 0x1f)) {  // ADD (imm), Rn = ADRP's Rd
+                const std::int64_t page =
+                    static_cast<std::int64_t>((base + j) & ~std::uint64_t{0xfff}) + (adr_immediate(word) << 12);
+                const std::uint64_t imm12 = (add >> 10) & 0xfff;
+                const std::int64_t added = ((add >> 22) & 1) ? static_cast<std::int64_t>(imm12 << 12)
+                                                             : static_cast<std::int64_t>(imm12);
+                if (interior(page + added - static_cast<std::int64_t>(base))) return true;
+            }
+        }
     }
     return false;
 }

@@ -1044,7 +1044,21 @@ TEST(has_external_entry_flags_a_branch_into_the_function_interior) {
         0xd503'201f, 0xd503'201f, 0xd503'201f, 0xd503'201f  // 0x10..0x1c the function
     };
     const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
-    CHECK(apk::rewrite::has_external_entry(bytes, 0x10, 0x20));
+    CHECK(apk::rewrite::has_external_entry(bytes, 0, 0x10, 0x20));
+}
+
+// A computed address (ADRP+ADD) into the interior refuses too; the same to begin is the normal entry.
+TEST(has_external_entry_flags_a_computed_address_into_the_interior) {
+    std::uint32_t code[] = {
+        0x9000'0009,  // 0x00 adrp x9, page 0
+        0x9100'5129,  // 0x04 add x9, x9, #0x14 -> 0x14, interior of the function [0x10, 0x20)
+        0xd503'201f, 0xd503'201f,                          // 0x08 0x0c nop
+        0xd503'201f, 0xd503'201f, 0xd503'201f, 0xd503'201f  // 0x10..0x1c the function
+    };
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    CHECK(apk::rewrite::has_external_entry(bytes, 0, 0x10, 0x20));
+    code[1] = 0x9100'4129;  // add x9, x9, #0x10 -> 0x10 = begin, the normal entry (not the interior)
+    CHECK(!apk::rewrite::has_external_entry(bytes, 0, 0x10, 0x20));
 }
 
 TEST(has_external_entry_allows_a_branch_to_begin_and_internal_branches) {
@@ -1055,7 +1069,7 @@ TEST(has_external_entry_allows_a_branch_to_begin_and_internal_branches) {
         0xd503'201f, 0xd503'201f, 0xd503'201f               // 0x14 0x18 0x1c nop
     };
     const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
-    CHECK(!apk::rewrite::has_external_entry(bytes, 0x10, 0x20));
+    CHECK(!apk::rewrite::has_external_entry(bytes, 0, 0x10, 0x20));
 }
 
 // ADR-0020 (c): R is the first free caller-saved register, the temporaries x9-x15 before the arguments x0-x7.
