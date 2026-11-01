@@ -195,7 +195,8 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     .put("domStorage", mSettings.getDomStorageEnabled())
                     .put("mediaNeedsGesture", mSettings.getMediaPlaybackRequiresUserGesture())
                     .put("blockNetworkLoads", mSettings.getBlockNetworkLoads())
-                    .put("textZoom", mSettings.getTextZoom());
+                    .put("textZoom", mSettings.getTextZoom())
+                    .put("wideViewPort", mSettings.getUseWideViewPort());
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }

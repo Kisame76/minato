@@ -4,7 +4,8 @@
 // window the host does not show and an empty clip hide the view; REMOVE takes it out. The host hears how many views
 // each window shows, as its layer must let them through. The hit test gives the page the points of its last
 // touchRegion (piece 2), and every other point to the window: none before the first. A page's viewport of
-// "width=device-width" gets the view's width in CSS pixels, as Android's WebView gives it, not the screen's.
+// "width=device-width" gets the view's width in CSS pixels, as Android's WebView gives it, not the screen's; and while
+// useWideViewPort is off, its default, every page lays out at the view's width, one without a viewport tag too.
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 
@@ -118,6 +119,13 @@ static NSString *page_value(NSString *script) {
     return value;
 }
 
+/// Loads `html` in view `token`, as loadDataWithBaseURL without a base.
+static void load_page(uint64_t token, const char *html) {
+    NSString *call = [NSString
+        stringWithFormat:@"{\"call\":\"loadDataWithBaseURL\",\"data\":\"%s\",\"mimeType\":\"text/html\"}", html];
+    request(APKRT_WEBVIEW_CALL, token, 0, NULL, NULL, call.UTF8String);
+}
+
 /// What the hit test gives `point`, in the container's points, as AppKit asks it: from the root, in its superview's.
 static NSView *container_hit(NSPoint point) {
     return [root hitTest:[root convertPoint:point fromView:container]];
@@ -203,6 +211,25 @@ int main(void) {
         CHECK([got isEqualToString:@"width=200, initial-scale=1"], "viewport %s at 200 points, want width=200",
               got.UTF8String);
         request(APKRT_WEBVIEW_PLACE, 1, 7, moved, moved, NULL);
+        NSString *any = @"(document.querySelector('meta[name=viewport]') || {content: 'none'}).content";
+        load_page(1, "<p>no viewport tag</p>");
+        got = page_value(any);
+        CHECK([got isEqualToString:@"width=100"], "viewport %s without a tag, want width=100", got.UTF8String);
+        load_page(1, "<meta name='viewport' content='width=980, initial-scale=0.5'><p>page</p>");
+        got = page_value(any);
+        CHECK([got isEqualToString:@"width=100, initial-scale=0.5"], "viewport %s, want width=100, initial-scale=0.5",
+              got.UTF8String);
+        // With useWideViewPort the page's own width stands, and a page without a tag has WebKit's.
+        request(APKRT_WEBVIEW_CALL, 1, 0, NULL, NULL,
+                "{\"call\":\"settings\",\"settings\":{\"wideViewPort\":true}}");
+        load_page(1, "<meta name='viewport' content='width=980, initial-scale=0.5'><p>page</p>");
+        got = page_value(any);
+        CHECK([got isEqualToString:@"width=980, initial-scale=0.5"], "viewport %s with useWideViewPort, want 980",
+              got.UTF8String);
+        load_page(1, "<p>no viewport tag</p>");
+        got = page_value(any);
+        CHECK([got isEqualToString:@"none"], "viewport %s without a tag with useWideViewPort, want none",
+              got.UTF8String);
 
         // An empty clip hides the view, a clip again shows it.
         const int32_t empty[4] = {0, 0, 0, 0};

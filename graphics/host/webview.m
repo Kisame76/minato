@@ -21,6 +21,8 @@
 //   less the guest's views over it): scrolling, links and text fields; all other points stay the guest's.
 //   A page's viewport "device-width" is the view's width in CSS pixels, as Android's WebView makes it, where WebKit
 //   would take the screen's: a user script rewrites the main frame's viewport meta tags, again at each new width.
+//   While useWideViewPort is off (Android's default) every page lays out at the view's width, as Android's does: the
+//   script sets the tags' width, or adds a tag to a page without one.
 // Not here (later steps): shouldOverrideUrlLoading, the JavaScript bridge, new windows, downloads and permissions.
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
@@ -144,22 +146,44 @@ static NSString *const kTitleScript =
     @"})();";
 
 /// Chromium's error page, which a failed main-frame load commits at its URL.
-/// Rewrites "device-width" in the main frame's viewport meta tags to the view's width (`%@`), now and as the page
-/// adds or changes them; the page's own value is kept, so a new width rewrites it again. In the host's world.
+/// Rewrites the main frame's viewport meta tags for the view's width (the first `%@`), now and as the page adds or
+/// changes them: with useWideViewPort (the second, true or false) only "device-width", without it the tags' width, and
+/// a page without a tag gets one. The page's own value is kept, so a new width rewrites it again. In the host's world.
 static NSString *const kViewportScript =
     @"(() => {"
      "  const state = window.minatoViewport || (window.minatoViewport = {metas: new Map(), observer: null});"
      "  state.width = '%@';"
+     "  state.wide = %@;"
+     "  const narrow = (own) => /(^|[,;\\s])width\\s*=/i.test(own)"
+     "    ? own.replace(/(^|[,;\\s])width\\s*=\\s*[^,;\\s]*/i, '$1width=' + state.width)"
+     "    : (own ? own + ', ' : '') + 'width=' + state.width;"
      "  const fix = (meta) => {"
-     "    if ((meta.getAttribute('name') || '').toLowerCase() !== 'viewport') return;"
+     "    if ((meta.getAttribute('name') || '').toLowerCase() !== 'viewport' || meta === state.added) return;"
      "    const now = meta.getAttribute('content') || '';"
      "    let known = state.metas.get(meta);"
      "    if (!known || now !== known.applied) known = {own: now};"
-     "    known.applied = known.own.replace(/device-width/gi, state.width);"
+     "    known.applied = state.wide ? known.own.replace(/device-width/gi, state.width) : narrow(known.own);"
      "    state.metas.set(meta, known);"
      "    if (known.applied !== now) meta.setAttribute('content', known.applied);"
      "  };"
-     "  const all = () => document.querySelectorAll('meta').forEach(fix);"
+     "  const all = () => {"
+     "    document.querySelectorAll('meta').forEach(fix);"
+     "    const own = [...document.querySelectorAll('meta')].some((meta) => meta !== state.added"
+     "      && (meta.getAttribute('name') || '').toLowerCase() === 'viewport');"
+     "    if (state.wide || own) {"
+     "      if (state.added) state.added.remove();"
+     "      state.added = null;"
+     "    } else if (document.head) {"
+     "      if (!state.added) {"
+     "        state.added = document.createElement('meta');"
+     "        state.added.setAttribute('name', 'viewport');"
+     "      }"
+     "      if (state.added.getAttribute('content') !== 'width=' + state.width) {"
+     "        state.added.setAttribute('content', 'width=' + state.width);"
+     "      }"
+     "      if (!state.added.isConnected) document.head.appendChild(state.added);"
+     "    }"
+     "  };"
      "  if (!state.observer) {"
      "    state.observer = new MutationObserver(all);"
      "    state.observer.observe(document, {childList: true, subtree: true, attributes: true,"
@@ -290,6 +314,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic, copy) NSArray<NSValue *> *touchRegion;      // the last touchRegion, in the window's pixels
 @property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
 @property(nonatomic) CGFloat cssWidth;                           // the viewport's device-width, 0 before a place
+@property(nonatomic) BOOL wideViewPort;                          // the setting useWideViewPort
 @end
 
 @implementation MinatoWebView
@@ -346,6 +371,11 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 - (void)applySettings {
     NSString *agent = self.settings[@"userAgent"];
     self.view.customUserAgent = [agent isKindOfClass:NSString.class] ? agent : nil;
+    const BOOL wide = [self.settings[@"wideViewPort"] boolValue];
+    if (wide != self.wideViewPort) {
+        self.wideViewPort = wide;
+        [self updateViewport];
+    }
 }
 
 /// A call's whole object, once its last part came (Runtime's parts: the cut field split, the rest in part 0).
@@ -667,7 +697,14 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
     width = (CGFloat)lround(width);
     if (width <= 0 || width == self.cssWidth) return;
     self.cssWidth = width;
-    NSString *script = [NSString stringWithFormat:kViewportScript, @(lround(width))];
+    [self updateViewport];
+}
+
+/// The viewport script for the width and the setting now: for later pages and the page now shown.
+- (void)updateViewport {
+    if (self.cssWidth <= 0 || self.view == nil) return;
+    NSString *script = [NSString stringWithFormat:kViewportScript, @(self.cssWidth),
+                                                  self.wideViewPort ? @"true" : @"false"];
     WKUserContentController *content = self.view.configuration.userContentController;
     [content removeAllUserScripts];
     [content addUserScript:[[WKUserScript alloc] initWithSource:kTitleScript
