@@ -82,6 +82,10 @@
 #              show", says what to type, and waits for the editor's action. Up to "showSoftInput true" the log must
 #              be Android 15's; then come the host's records: h and i committed, the delete as
 #              deleteSurroundingText 1,0, and Go as performEditorAction 2, leaving "h"
+#   WEBVIEW_TOUCH set: only webview-touch-test runs (ADR-0056 c2, test 3); the touches are the operator's, as simctl
+#              sends none: once the app is ready the script prints its points in the window's pixels (the Simulator's
+#              points times the screen's scale) and the four touches to make, and waits for its "done". Its lines
+#              must be Android 15's, whose touches tools/android-reference.sh plays from the same points.
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
@@ -176,6 +180,11 @@ GODOT_TEST=${GODOT_TEST-yes}
 if [[ -n "${KEYS:-}" ]]; then
   APPS+=("key-test io.github.kisame76.minato.test.key")
   ONLY=key-test
+fi
+# WEBVIEW_TOUCH: webview-touch-test alone (ADR-0056 c2), whose touches are the operator's.
+if [[ -n "${WEBVIEW_TOUCH:-}" ]]; then
+  APPS+=("webview-touch-test io.github.kisame76.minato.test.webviewtouch")
+  ONLY=webview-touch-test
 fi
 # IME: ime-test alone (ADR-0068 step 2c), whose text comes from the operator's taps on UIKit's keyboard.
 if [[ -n "${IME:-}" ]]; then
@@ -1088,6 +1097,36 @@ else:
         print(f"      | {line}")
     failed = 1
 sys.exit(failed)
+PY
+fi
+# WEBVIEW_TOUCH: webview-touch-test (ADR-0056 c2, test 3); its points come from its device lines.
+if [[ -n "${WEBVIEW_TOUCH:-}" ]]; then
+  if begin_start webview-touch-test io.github.kisame76.minato.test.webviewtouch 1; then
+    if await_line guest-log '^I/webview-touch-test: ready$' 120; then
+      sed -n -E 's/^I\/webview-touch-test-device: (.*)$/point   \1/p' "$CHECK/guest-log"
+      echo "touch   now, a second apart: the Button, the tap point, a swipe up along the swipe line, and after the"
+      echo "        app's \"scrolled back\" the field point"
+      if await_line guest-log '^I/webview-touch-test: done$' 300; then
+        ok "  its last line, $(seconds "$SEEN" "$(now)") s ago"
+        sleep 2
+      else
+        failed_line 'no "done" within 300 s' webview-touch-test-1
+      fi
+    else
+      failed_line 'no "ready"' webview-touch-test-1
+    fi
+  fi
+  end_start webview-touch-test 1
+  python3 - "$WORK/webview-touch-test-1.log" fixtures/expected/webview-touch-test.logcat <<'PY' \
+    || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+path, expected = sys.argv[1:]
+compare_log("webview-touch-test", subprocess.CompletedProcess([], 0, "", open(path, encoding="utf-8",
+                                                                             errors="replace").read()), expected, {})
 PY
 fi
 

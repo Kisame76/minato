@@ -925,6 +925,12 @@ run_app() {
     webview-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WebViewActivity
       ;;
+    # webview-touch-test (ADR-0056 c2, test 3): a translucent activity with a WebView over its window and a Button,
+    # a view that is only focusable and a GONE one after it; the script's touches follow its device lines (above). It
+    # ends with "done" once the page's field has the focus.
+    webview-touch-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TouchActivity
+      ;;
     # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
     # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
     # method's lines under ime-extract-test-device are the numbers that Minato's extract requests must carry. It ends
@@ -1178,6 +1184,23 @@ run_app() {
     read -r left top right bottom <<<"$bounds"
     [[ -n "$bottom" ]] || { echo "views-test logged no button bounds." >&2; return 1; }
     run input tap $(((left + right) / 2)) $(((top + bottom) / 2)) || return 1
+  fi
+  if [[ "$app" == webview-touch-test ]]; then
+    # ADR-0056 c2's test 3: from the app's device lines (the screen's pixels), a tap on the Button, a tap on the page
+    # through the view that is only focusable, a swipe up on the page and, once the app has scrolled the page back to
+    # its top, a tap on its field, each once the app has logged the one before it.
+    local device button tap field swipe
+    { wait_for "$app" ready 60 && sleep 1; } || return 1
+    device=$(app_lines "$app-device" | tr -d '\r')
+    button=$(sed -n 's/.*: button point //p' <<<"$device" | tail -n 1)
+    tap=$(sed -n 's/.*: tap point //p' <<<"$device" | tail -n 1)
+    field=$(sed -n 's/.*: field point //p' <<<"$device" | tail -n 1)
+    swipe=$(sed -n 's/.*: swipe line //p' <<<"$device" | tail -n 1)
+    [[ -n "$button" && -n "$tap" && -n "$field" && -n "$swipe" ]] || { echo "$app logged no points." >&2; return 1; }
+    # shellcheck disable=SC2086 # each is "x y" (the swipe "x1 y1 x2 y2"), split on purpose
+    { run input tap $button && wait_for "$app" "close tapped" && sleep 1 && run input tap $tap &&
+      wait_for "$app" "title: page tapped" && sleep 1 && run input swipe $swipe 300 &&
+      wait_for "$app" "scrolled back" && sleep 1 && run input tap $field; } || return 1
   fi
   if [[ "$app" == picker-test ]]; then
     # ADR-0057 step a: each picker is cancelled with BACK a few seconds after its start line, once it shows.

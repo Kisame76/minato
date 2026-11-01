@@ -23,6 +23,7 @@ All notable changes to Minato are documented in this file. The format follows
   the menu follows the app's changes to it
 - Apps follow a new screen size, as folding or unfolding the iPhone Duo gives one: apps that handle it get the new
   size, and the others keep theirs and are shown letterboxed, as on Android
+- Apps that embed web pages show them inside the app, and you can tap, scroll and type in them
 
 ### Changed
 
@@ -45,6 +46,6 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps that ask how they were installed no longer crash
 - Dialog-styled screens have their full height again
 - Tapping a text field again after hiding the keyboard shows it again in apps that track the keyboard themselves
-- Apps that embed web pages start instead of closing at once; their web parts stay empty for now
+- Apps that embed web pages start instead of closing at once
 - Apps whose native libraries make raw system calls in an unusual form start instead of being refused at import
 - Emoji show in colour, and Arabic, Hebrew, Thai and Hindi text shows instead of boxes

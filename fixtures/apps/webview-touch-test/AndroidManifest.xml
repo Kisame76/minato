@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Touches on a WebView (webview-touch-test, ADR-0056 c2's test 3): an ad-like translucent activity with a WebView
+     over the whole window and a close Button above it; taps on the Button reach the app, the rest reach the page. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewtouch" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.Translucent.NoTitleBar">
+    <activity android:name="io.github.kisame76.minato.test.webviewtouch.TouchActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>touch page</title>
+<style>
+body { margin: 0; }
+#tap { height: 40vh; background: #8cf; font-size: 6vh; }
+#field { display: block; box-sizing: border-box; width: 100%; height: 10vh; font-size: 4vh; }
+#rest { height: 300vh; background: linear-gradient(#fff, #888); }
+</style>
+</head>
+<body>
+<div id="tap">Tap here</div>
+<input id="field" type="text" placeholder="Type here">
+<div id="rest"></div>
+<script>
+document.getElementById("tap").addEventListener("click", () => { document.title = "page tapped"; });
+document.getElementById("field").addEventListener("focus", () => { document.title = "field focused"; });
+let scrolled = false;
+window.addEventListener("scroll", () => {
+  if (!scrolled && window.scrollY > 100) {
+    scrolled = true;
+    document.title = "page scrolled";
+  }
+});
+</script>
+</body>
+</html>
