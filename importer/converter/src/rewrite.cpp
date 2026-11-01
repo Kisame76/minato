@@ -1637,6 +1637,12 @@ bool is_x30_stack_store(std::uint32_t word) {
     return (use.reads & (1u << x30)) != 0 && (use.writes & (1u << x30)) == 0;
 }
 
+bool c_entry_runs_first_instruction(std::uint32_t first) {
+    // A control transfer there would leave the island without the load, or skip the body; a pc-relative instruction
+    // would run at the island's PC, not the function's. Everything else runs correctly in the entry island.
+    return !is_branch(first) && pc_relative_words(first) == 0 && (first & 0x3b00'0000) != 0x1800'0000;
+}
+
 bool reads_link_register_as_value(std::span<const std::byte> code) {
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         const auto word = word_at(code, offset);
@@ -1936,6 +1942,118 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     write(b(write.next_address(), region_address + window_bytes));  // the instruction after the window
     write.finish();
     return b(region_address, stub_address);
+}
+
+std::vector<CSyncPoint> c_sync_points(std::span<const std::byte> function) {
+    std::vector<CSyncPoint> points;
+    const auto size = function.size();
+    for (std::size_t offset = 0; offset + 4 <= size; offset += 4) {
+        if (offset == 0) {  // the function's first instruction: the entry island loads the register there
+            points.push_back({0, CSyncKind::entry});
+            continue;
+        }
+        const auto word = word_at(function, offset);
+        const bool eret = word == 0xd69f'03e0 || word == 0xd69f'0bff || word == 0xd69f'0fff;  // ERET, ERETAA, ERETAB
+        if ((word & 0xfc00'0000) == 0x9400'0000 || is_register_call(word)) {  // BL, or BLR and its forms
+            points.push_back({offset, CSyncKind::call});
+        } else if (is_register_return(word) || eret || is_register_branch(word)) {  // RET/ERET, or an indirect branch
+            points.push_back({offset, CSyncKind::return_or_indirect_exit});
+        } else if (const auto displacement = branch_displacement(word)) {  // B, B.cond, CBZ/CBNZ, TBZ/TBNZ, CMPBR
+            const auto target = static_cast<std::int64_t>(offset) + *displacement;
+            if (target < 0 || target >= static_cast<std::int64_t>(size)) {
+                points.push_back({offset, CSyncKind::branch_exit});  // the branch leaves the function
+            }
+        }
+    }
+    return points;
+}
+
+std::vector<CRange> c_rename_ranges(std::span<const std::byte> function, std::uint64_t function_address, unsigned reg,
+                                    std::uint64_t stub_address) {
+    std::vector<CRange> ranges;
+    const auto r = static_cast<std::uint8_t>(reg);
+    // The body after the entry site: the entry island returns to function_address + 4 with reg holding the guest x18.
+    ranges.push_back({function_address + 4, function_address + function.size(), r});
+    std::uint64_t stub = stub_address;
+    for (const auto &point : c_sync_points(function)) {
+        std::uint32_t word;
+        std::memcpy(&word, function.data() + point.offset, sizeof word);
+        switch (point.kind) {
+            case CSyncKind::entry:
+                ranges.push_back({stub + 3 * 4, stub + c_entry_stub_size(word), r});  // after the ldr (words 3-4)
+                stub += c_entry_stub_size(word);
+                break;
+            case CSyncKind::return_or_indirect_exit:
+                ranges.push_back({stub, stub + 4 * 4, r});  // up to and including the store (words 0-3)
+                stub += c_exit_stub_size(word);
+                break;
+            case CSyncKind::branch_exit:
+                ranges.push_back({stub, stub + 4 * 4, r});  // up to and including the store (words 0-3)
+                stub += c_branch_exit_stub_size(word);
+                break;
+            case CSyncKind::call:
+                ranges.push_back({stub, stub + 4 * 4, r});                             // up to the store (words 0-3)
+                ranges.push_back({stub + 9 * 4, stub + c_call_stub_size(word), r});    // after the reload (word 9)
+                stub += c_call_stub_size(word);
+                break;
+        }
+    }
+    return ranges;
+}
+
+std::size_t c_rename_stub_bytes(std::span<const std::byte> function) {
+    std::size_t total = 0;
+    for (const auto &point : c_sync_points(function)) {
+        std::uint32_t word;
+        std::memcpy(&word, function.data() + point.offset, sizeof word);
+        switch (point.kind) {
+            case CSyncKind::entry: total += c_entry_stub_size(word); break;
+            case CSyncKind::return_or_indirect_exit: total += c_exit_stub_size(word); break;
+            case CSyncKind::branch_exit: total += c_branch_exit_stub_size(word); break;
+            case CSyncKind::call: total += c_call_stub_size(word); break;
+        }
+    }
+    return total;
+}
+
+std::vector<CRange> emit_c_rename(std::span<std::byte> function, std::uint64_t function_address, unsigned reg,
+                                  std::uint64_t stub_address, std::span<std::byte> stub) {
+    if (stub.size() != c_rename_stub_bytes(function)) throw RewriteError("the stub buffer has the wrong size");
+    if (!rename_x18(function, reg)) {
+        throw RewriteError("option (c): the function has an x18 use with no register field");
+    }
+    // The R-ranges before patching, while the sites still carry their real kinds (a patch turns them into branches).
+    const auto ranges = c_rename_ranges(function, function_address, reg, stub_address);
+    std::size_t stub_offset = 0;
+    for (const auto &point : c_sync_points(function)) {
+        std::uint32_t word;
+        std::memcpy(&word, function.data() + point.offset, sizeof word);
+        const auto site_address = function_address + point.offset;
+        const auto stub_at = stub_address + stub_offset;
+        std::size_t size = 0;
+        std::uint32_t patch = 0;
+        switch (point.kind) {
+            case CSyncKind::entry:
+                size = c_entry_stub_size(word);
+                patch = emit_c_entry(reg, word, site_address, stub_at, stub.subspan(stub_offset, size));
+                break;
+            case CSyncKind::return_or_indirect_exit:
+                size = c_exit_stub_size(word);
+                patch = emit_c_exit(reg, word, site_address, stub_at, stub.subspan(stub_offset, size));
+                break;
+            case CSyncKind::branch_exit:
+                size = c_branch_exit_stub_size(word);
+                patch = emit_c_branch_exit(reg, word, site_address, stub_at, stub.subspan(stub_offset, size));
+                break;
+            case CSyncKind::call:
+                size = c_call_stub_size(word);
+                patch = emit_c_call(reg, word, site_address, stub_at, stub.subspan(stub_offset, size));
+                break;
+        }
+        std::memcpy(function.data() + point.offset, &patch, sizeof patch);
+        stub_offset += size;
+    }
+    return ranges;
 }
 
 std::size_t c_entry_stub_size(std::uint32_t) {

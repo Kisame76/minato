@@ -1025,6 +1025,14 @@ TEST(c_rename_register_allows_a_bl_to_a_clean_callee) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x208).has_value());
 }
 
+// ADR-0020 option (c): the entry island runs the function's first instruction, so a function whose first
+// instruction is a control transfer (here a bl) is refused -- the island cannot run it and reach the body.
+TEST(c_rename_register_refuses_a_control_flow_first_instruction) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // [0x200, 0x218)
+    prog.put<std::uint32_t>(0x200, 0x9400'0010);  // first instruction is a bl: the entry island cannot run it
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
+}
+
 // The per-site facts ride in the refusal reason itself: on the iPhone the library never runs through apk-convert,
 // so the Incompatible string is the only way the (b)/(c) counts reach an import.
 TEST(the_refusal_text_carries_the_per_site_facts) {

@@ -725,6 +725,8 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     };
     if (begin != base && !is_hard_transfer(word_at_off(begin_off - 4))) return std::nullopt;  // falls into begin
     if (!is_hard_transfer(word_at_off(end_off - 4))) return std::nullopt;                      // falls past end
+    // The entry island runs the first instruction, so it must be a plain one (not control flow, not pc-relative).
+    if (!rewrite::c_entry_runs_first_instruction(word_at_off(begin_off))) return std::nullopt;
 
     const auto reg = rewrite::free_caller_saved_register(code.subspan(begin_off, end_off - begin_off));
     if (!reg) return std::nullopt;  // must-have 1: no caller-saved register is free across the function

@@ -1283,6 +1283,18 @@ TEST(call_leaks_link_register_allows_a_read_of_x30_without_a_call) {
     CHECK(!apk::rewrite::call_leaks_link_register(std::span(reinterpret_cast<const std::byte *>(code), sizeof code)));
 }
 
+// ADR-0020 option (c): the entry island runs the function's first instruction, so it must be plain -- not a control
+// transfer (it would leave without loading R, or skip the body) and not pc-relative (wrong PC in the island).
+TEST(c_entry_runs_only_a_plain_first_instruction) {
+    CHECK(apk::rewrite::c_entry_runs_first_instruction(0xa9bf'7bfd));   // stp x29, x30, [sp, #-16]! -- plain
+    CHECK(apk::rewrite::c_entry_runs_first_instruction(0x9100'0529));   // add x9, x9, #1 -- plain
+    CHECK(!apk::rewrite::c_entry_runs_first_instruction(0x9400'0010));  // bl .+0x40 -- a call
+    CHECK(!apk::rewrite::c_entry_runs_first_instruction(0xd65f'03c0));  // ret
+    CHECK(!apk::rewrite::c_entry_runs_first_instruction(0x1400'0004));  // b .+16
+    CHECK(!apk::rewrite::c_entry_runs_first_instruction(0x9000'0009));  // adrp x9, . -- pc-relative
+    CHECK(!apk::rewrite::c_entry_runs_first_instruction(0x5800'0040));  // ldr x0, <literal> -- pc-relative
+}
+
 // reads_link_register_as_value is the bare predicate the callee check (rule 3) uses: any x30 read but a return or a
 // stack spill. A mov from x30 is a value read; a plain ret and a spill are not.
 TEST(reads_link_register_as_value_sees_a_value_read_but_not_a_return_or_spill) {
@@ -1295,6 +1307,81 @@ TEST(reads_link_register_as_value_sees_a_value_read_but_not_a_return_or_spill) {
     const std::uint32_t spill[] = {0xa9bf'7bfd};  // stp x29, x30, [sp, #-16]!
     CHECK(!apk::rewrite::reads_link_register_as_value(
         std::span(reinterpret_cast<const std::byte *>(spill), sizeof spill)));
+}
+
+// ADR-0020 option (c) step 3e: c_sync_points marks where a renamed function needs a sync island -- its entry, each
+// exit (RET/ERET/indirect branch, or a direct branch leaving the function), and each call. Internal branches are
+// left out.
+TEST(c_sync_points_classifies_entry_exits_and_calls) {
+    const std::uint32_t code[] = {
+        0xa9bf'7bfd,  // 0x00 stp x29, x30, [sp, #-16]!  (entry)
+        0x9400'0010,  // 0x04 bl .+0x40                   (call)
+        0x1400'0002,  // 0x08 b .+8 (target 0x10, inside) (internal: no sync point)
+        0xb400'0200,  // 0x0c cbz x0, .+0x40 (target 0x4c, outside)  (branch exit)
+        0xd61f'00a0,  // 0x10 br x5                       (indirect exit)
+        0xd65f'03c0,  // 0x14 ret                         (exit)
+    };
+    const auto points = apk::rewrite::c_sync_points(std::span(reinterpret_cast<const std::byte *>(code), sizeof code));
+    using K = apk::rewrite::CSyncKind;
+    const std::vector<apk::rewrite::CSyncPoint> expected = {
+        {0x00, K::entry}, {0x04, K::call}, {0x0c, K::branch_exit},
+        {0x10, K::return_or_indirect_exit}, {0x14, K::return_or_indirect_exit},
+    };
+    CHECK(points == expected);
+}
+
+// ADR-0020 option (c) must-have 6: the R-ranges say where a signal finds the guest x18 in the register rather than
+// slot 11 -- the body after the entry site, the entry stub after its load, each exit/call stub up to its store, and
+// a call stub after its reload. Everywhere else (the entry site, the entry stub before the load, after a store,
+// between a call's store and reload) slot 11 holds it.
+TEST(c_rename_ranges_cover_the_body_after_entry_and_the_live_stub_stretches) {
+    const std::uint32_t code[] = {
+        0xa9bf'7bfd,  // 0x00 stp x29, x30, [sp, #-16]!  (entry)
+        0xaa00'03e1,  // 0x04 mov x1, x0                 (filler)
+        0x9400'0010,  // 0x08 bl .+0x40                  (call)
+        0xaa00'03e2,  // 0x0c mov x2, x0                 (filler)
+        0xaa00'03e3,  // 0x10 mov x3, x0                 (filler)
+        0xd65f'03c0,  // 0x14 ret                        (exit)
+    };
+    const auto ranges = apk::rewrite::c_rename_ranges(
+        std::span(reinterpret_cast<const std::byte *>(code), sizeof code), 0x1000, 9, 0x400);
+    // Stubs lay out from 0x400 in sync-point order: entry (5 words), call (10), exit (6).
+    const std::vector<apk::rewrite::CRange> expected = {
+        {0x1004, 0x1018, 9},  // body after the entry site
+        {0x40c, 0x414, 9},    // entry stub: after its ldr (words 3-4)
+        {0x414, 0x424, 9},    // call stub: up to and including its store (words 0-3)
+        {0x438, 0x43c, 9},    // call stub: after its reload (word 9)
+        {0x43c, 0x44c, 9},    // exit stub: up to and including its store (words 0-3)
+    };
+    CHECK(ranges == expected);
+}
+
+// ADR-0020 option (c) step 3e: emit_c_rename renames x18 in place, writes the sync islands, patches each site to
+// branch to its island, and returns the R-ranges. Here the function sets x18, calls, and returns.
+TEST(emit_c_rename_renames_patches_and_lays_out_the_islands) {
+    std::uint32_t code[] = {
+        0xa9bf'7bfd,  // 0x00 stp x29, x30, [sp, #-16]!  (entry)
+        0x9100'0652,  // 0x04 add x18, x18, #1           (an x18 use)
+        0x9400'0010,  // 0x08 bl .+0x40                  (call)
+        0xd65f'03c0,  // 0x0c ret                        (exit)
+    };
+    const std::span function(reinterpret_cast<std::byte *>(code), sizeof code);
+    std::vector<std::byte> stub(apk::rewrite::c_rename_stub_bytes(function));
+    CHECK(stub.size() == (5 + 10 + 6) * 4);  // entry + call + exit islands
+    const auto ranges = apk::rewrite::emit_c_rename(function, 0x1000, 9, 0x400, stub);
+    CHECK(code[1] == 0x9100'0529);                     // add x18, x18, #1 renamed to add x9, x9, #1, in place
+    CHECK((code[0] & 0xfc00'0000u) == 0x1400'0000u);   // entry site -> entry island
+    CHECK((code[2] & 0xfc00'0000u) == 0x1400'0000u);   // call site -> call island
+    CHECK((code[3] & 0xfc00'0000u) == 0x1400'0000u);   // ret site -> exit island
+    if (stub.size() == 21 * 4) {
+        CHECK(word(stub, 2) == 0xf940'2d29u);          // entry island: ldr x9, [x9, #88]
+        CHECK(word(stub, 3) == 0xa9bf'7bfdu);          // entry island: the original stp, unchanged
+        CHECK(word(stub, 15 + 3) == 0xf900'2e09u);     // exit island (stub word 15): str x9, [x16, #88] at its word 3
+    }
+    const std::vector<apk::rewrite::CRange> expected = {
+        {0x1004, 0x1010, 9}, {0x40c, 0x414, 9}, {0x414, 0x424, 9}, {0x438, 0x43c, 9}, {0x43c, 0x44c, 9},
+    };
+    CHECK(ranges == expected);
 }
 
 // ADR-0020 option (c): a whole-function rename redirects every x18 use to a free register, in place.

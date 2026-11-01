@@ -189,6 +189,12 @@ bool reads_link_register_as_value(std::span<const std::byte> code);
 /// refusing the rare function that only reads x30 before any call. A BLR to a callee we cannot see is a named limit.
 bool call_leaks_link_register(std::span<const std::byte> code);
 
+/// Whether the entry island can run a function's first instruction `first` (ADR-0020 option c): it must be a plain
+/// instruction -- not a branch, call or return (the entry island runs it and then falls to begin+4, so a control
+/// transfer there would leave without the load, or skip the body), and not pc-relative (ADR/ADRP or a literal load,
+/// which the island would run at the wrong PC). The gate refuses a (c) function whose first instruction is neither.
+bool c_entry_runs_first_instruction(std::uint32_t first);
+
 /// Rewrites every instruction in `code` that uses x18 to use `reg` instead -- a whole-function rename (ADR-0020
 /// option c), where `reg` must be free across the function and not x18. Returns false and leaves `code` untouched
 /// when some instruction uses x18 with no register field to redirect (a CASP pair, an ST64B block), so the function
@@ -251,6 +257,61 @@ std::size_t c_call_stub_size(std::uint32_t call);
 /// `site_address`. `site_address` and `stub_address` are container addresses.
 std::uint32_t emit_c_call(unsigned reg, std::uint32_t call, std::uint64_t site_address, std::uint64_t stub_address,
                           std::span<std::byte> stub);
+
+/// The kind of sync island a (c)-renamed function needs at a point (ADR-0020 option c, step 3e).
+enum class CSyncKind : std::uint8_t {
+    entry,                    // the function's first instruction: load the register from slot 11 (emit_c_entry)
+    return_or_indirect_exit,  // a RET/ERET or an indirect BR: store the register, then the exit (emit_c_exit)
+    branch_exit,              // a direct B or conditional whose target leaves the function (emit_c_branch_exit)
+    call,                     // a BL or BLR: store before, reload after (emit_c_call)
+};
+
+/// Where a sync island goes, as a byte offset into the function.
+struct CSyncPoint {
+    std::size_t offset;
+    CSyncKind kind;
+
+    bool operator==(const CSyncPoint &) const = default;
+};
+
+/// The sync points of a function (ADR-0020 option c, step 3e): its first instruction (entry), every exit (a RET,
+/// ERET or an indirect branch; a direct branch or conditional whose target leaves [0, size)), and every call
+/// (BL/BLR). A branch that stays inside the function is left out -- the rename keeps its displacement valid. The
+/// caller renames x18 in place and emits one island per point with the matching emit_c_* unit.
+std::vector<CSyncPoint> c_sync_points(std::span<const std::byte> function);
+
+/// A PC range where the guest x18 of a (c)-renamed function lives in a register, not TSD slot 11 (ADR-0020 option c,
+/// must-have 6). The signal path reads x18 from context.x[reg] for a PC in [start, end); anywhere else in the
+/// function or its stubs, slot 11 holds it.
+struct CRange {
+    std::uint64_t start;
+    std::uint64_t end;
+    std::uint8_t reg;
+
+    bool operator==(const CRange &) const = default;
+};
+
+/// The R-ranges of a (c)-renamed function laid out with `function` at container address `function_address`, its
+/// register `reg`, and its sync stubs consecutively from `stub_address` in c_sync_points order (ADR-0020 must-have
+/// 6). They are: the body after the entry site (the entry site itself still reads x18 from slot 11, as the entry
+/// island loads reg only after it), the entry stub after its load, each exit/branch stub up to and including its
+/// store, and each call stub up to its store and again after its reload. A signal at any other PC -- the entry site,
+/// the entry stub before the load, a stub after its store, or between a call's store and reload -- finds x18 in slot
+/// 11. Matches emit_c_rename's layout and the stub shapes of emit_c_entry/exit/branch_exit/call.
+std::vector<CRange> c_rename_ranges(std::span<const std::byte> function, std::uint64_t function_address, unsigned reg,
+                                    std::uint64_t stub_address);
+
+/// Total stub-area bytes a (c) rename of `function` needs: the sum of the sync islands' sizes over c_sync_points.
+std::size_t c_rename_stub_bytes(std::span<const std::byte> function);
+
+/// Carries out option (c) on `function` (its bytes in the container, at container address `function_address`): it
+/// renames x18 to `reg` in place, writes the sync islands into `stub` (exactly c_rename_stub_bytes bytes, from
+/// container address `stub_address`, in c_sync_points order), patches each site with the branch its island returns,
+/// and returns the R-ranges (c_rename_ranges) for the signal path. Throws RewriteError when some x18 use has no
+/// register field (a CASP pair, an ST64B block), when the first instruction is pc-relative, or when a stub buffer is
+/// the wrong size. The caller must have passed c_rename_register, which guarantees the function is renamable.
+std::vector<CRange> emit_c_rename(std::span<std::byte> function, std::uint64_t function_address, unsigned reg,
+                                  std::uint64_t stub_address, std::span<std::byte> stub);
 
 /// Bytes the stub of `site` needs in the stub area; 0 when the site is replaced in place.
 std::size_t stub_size(const Site &site);
