@@ -1,0 +1,22 @@
+Minato's patch to frameworks/base's core/java/android/view/View.java at android-15.0.0_r1 (Apache-2.0), the
+platform Toolbar's step (the platform action bar): View.getWindowId() of a window that has no window session.
+
+Why: AOSP asks the window session for the window's WindowId, and Minato's windows have none (ADR-0041), so the call is a
+NullPointerException. TransitionManager's pre-draw listener calls it (Transition.playTransition), which every popup and
+menu that animates through a transition reaches. What changes: a window without a session answers null, which Transition
+compares by identity, so the views of the one window still match each other.
+
+--- a/core/java/android/view/View.java
++++ b/core/java/android/view/View.java
+@@ -22747,6 +22747,11 @@
+         if (ai == null) {
+             return null;
+         }
++        if (ai.mSession == null) {
++            // Minato's windows have no window session (ADR-0041), so no window ID: the one every view of the window
++            // answers, which is how Transition tells the views of one window apart.
++            return null;
++        }
+         if (ai.mWindowId == null) {
+             try {
+                 ai.mIWindowId = ai.mSession.getWindowId(ai.mWindowToken);

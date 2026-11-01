@@ -2392,6 +2392,12 @@ frameworks_base/core/java/android/content/MimeTypeFilter.java
 # F4b: widgets and text that apps and AppCompat name (PopupMenu, ActionMenuView, MediaController, ThumbnailUtils...)
 frameworks_base/core/java/android/widget/PopupMenu.java
 frameworks_base/core/java/android/widget/ActionMenuView.java
+frameworks_base/core/java/android/widget/Toolbar.java
+frameworks_base/core/java/com/android/internal/widget/DecorToolbar.java
+frameworks_base/core/java/com/android/internal/widget/ToolbarWidgetWrapper.java
+frameworks_base/core/java/android/widget/RtlSpacingHelper.java
+frameworks_base/core/java/com/android/internal/view/menu/ActionMenuItem.java
+frameworks_base/core/java/com/android/internal/widget/ScrollingTabContainerView.java
 frameworks_base/core/java/android/widget/MediaController.java
 frameworks_base/core/java/android/widget/ZoomButtonsController.java
 frameworks_base/core/java/android/text/method/HideReturnsTransformationMethod.java

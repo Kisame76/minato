@@ -224,7 +224,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == result-flow-test || "$app" == launch-mode-test || "$app" == texture-view-test ||
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
-  "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
+  "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -929,6 +929,9 @@ run_app() {
     # OnBackInvokedCallback. Ends with "done" 16 seconds after the first focus.
     ime-hide-test | ime-hide-test-cb)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.HideActivity
+      ;;
+    toolbar-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToolbarActivity
       ;;
     # back-test (ADR-0041 decision 10, the system's back): Root starts Second, and three BACKs pop Second's fragment,
     # finish Second and reach Root, which ends with "done". back-test-callback is its twin that opted in to

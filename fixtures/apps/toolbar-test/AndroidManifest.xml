@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- toolbar-test (the platform action bar, step 2): an activity without an action bar (a NoActionBar theme) that puts an
+     android.widget.Toolbar into its layout, as apps do and as the action bar's own implementation does. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.toolbar" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.toolbar.ToolbarActivity" android:exported="true"
+        android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

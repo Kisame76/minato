@@ -1,0 +1,22 @@
+I/toolbar-test: laid out true, title Title, subtitle Subtitle, menu items 2, navigation Up
+I/toolbar-test: tree: Toolbar
+I/toolbar-test: tree:   TextView "Title"
+I/toolbar-test: tree:   TextView "Subtitle"
+I/toolbar-test: tree:   ImageButton description Up
+I/toolbar-test: tree:   ActionMenuView
+I/toolbar-test: tree:     ActionMenuItemView "Action"
+I/toolbar-test: tree:     OverflowMenuButton description More options
+I/toolbar-test: navigation clicked
+I/toolbar-test: menu item clicked Action
+I/toolbar-test: performIdentifierAction action: true
+I/toolbar-test: showOverflowMenu true, showing false
+I/toolbar-test: showing before hide true, hideOverflowMenu true, showing false
+I/toolbar-test: inflated, menu items 4
+I/toolbar-test: changed, title Other, subtitle null
+I/toolbar-test: tree after: Toolbar
+I/toolbar-test: tree after:   TextView "Other"
+I/toolbar-test: tree after:   ActionMenuView
+I/toolbar-test: tree after:     ActionMenuItemView "Inflated one"
+I/toolbar-test: tree after:     ActionMenuItemView "Action"
+I/toolbar-test: tree after:     OverflowMenuButton description More options
+I/toolbar-test: done
