@@ -8,9 +8,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace apk::container {
@@ -108,10 +110,37 @@ struct X18SiteCounts {
 std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
                         std::span<const elf::Section> sections, const X18SiteCounts &counts);
 
+/// The [begin, end) of the sized function symbol (`read_symbols`) that contains `address` — the tightest by start —
+/// clamped to the section [base, limit); nullopt when no sized symbol contains it. Option (c) renames x18 across
+/// exactly this run and never guesses a boundary the way the free-register count may (must-have #2): a RET-to-RET
+/// guess that ran long could rename x18 in the next function and clobber it.
+std::optional<std::pair<std::uint64_t, std::uint64_t>> sized_function_bounds(std::span<const elf::Symbol> symbols,
+                                                                             std::uint64_t base, std::uint64_t limit,
+                                                                             std::uint64_t address);
+
+/// What option (c) needs to rename x18 across the function that holds an x18 site: the function's [begin, end)
+/// (virtual addresses) and the caller-saved register (rewrite::free_caller_saved_register) guest x18 moves into.
+struct WholeFunctionRename {
+    std::uint64_t begin = 0;
+    std::uint64_t end = 0;
+    unsigned reg = 0;
+};
+
+/// Decides option (c) for the x18 site at `address` in `elf`: the rename, or nullopt when (c) cannot take it. Refuses
+/// unless a sized symbol bounds the WHOLE function -- sized_function_bounds, with no nested or overlapping sized
+/// symbol, and no word that falls through into `begin` or out past `end` (must-have 2) -- a caller-saved register is
+/// free across it (must-have 1), and no direct branch or computed address from outside enters its interior
+/// (rewrite::has_external_entry -- must-have 3). (c) is not yet wired into convert(); this is the gate the emission
+/// will call per refused site.
+std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> elf, std::uint64_t address);
+
 /// Of the refused x18 `uses` (from scan_code's x18_unsupported), how many sit in a function that has a register a
 /// whole-function rename may use (rewrite::free_caller_saved_register), for the ADR-0020 option (c) split (counts
 /// only; the sites are proprietary). A function's bounds come from the sized symbol (`read_symbols`) that contains
 /// the use, else the run between the returns around it within its executable section. `elf` is the file scan_code saw.
+/// This counts a function as fixable on its free register alone: the stricter gate c_rename_register may still refuse
+/// it (nested symbol, fall-through edge, outside entry), and a function where x18 is live across a BL/BLR is fixable
+/// only because the rename saves and restores the register around the call (the emission's around-call sync).
 std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf,
                                                     std::span<const rewrite::Unsupported> uses);
 

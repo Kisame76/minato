@@ -393,6 +393,110 @@ TEST(the_no_save_island_for_a_write_use_stores_x18_back_through_a_second_dead_re
     CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);              // the site branches to the island
 }
 
+// ADR-0020 option (c): the entry island of a renamed function loads the guest x18 from TSD slot 11 into the rename
+// register (here x9), runs the function's first instruction (a plain prologue, unchanged), and branches back to
+// begin + 4, so the renamed body that follows sees the guest x18 in x9.
+TEST(the_c_entry_island_loads_x18_then_runs_the_first_instruction) {
+    const std::uint32_t first = 0xa9bf'7bfd;  // stp x29, x30, [sp, #-16]! -- a normal prologue, not pc-relative
+    std::vector<std::byte> stub(apk::rewrite::c_entry_stub_size(first));
+    const auto patch = apk::rewrite::emit_c_entry(9, first, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(stub.size() == 5 * 4);
+    if (stub.size() == 5 * 4) {
+        CHECK(word(stub, 0) == 0xd53b'd069u);                   // mrs x9, TPIDRRO_EL0
+        CHECK(word(stub, 2) == 0xf940'2d29u);                   // ldr x9, [x9, #88]  (TSD slot 11)
+        CHECK(word(stub, 3) == first);                          // the first instruction, unchanged
+        CHECK((word(stub, 4) & 0xfc00'0000u) == 0x1400'0000u);  // B back to begin + 4
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);              // begin branches to the island
+}
+
+// A pc-relative first instruction cannot run in the island (its PC would change), so emit refuses it; the gate keeps
+// such a function out of (c).
+TEST(the_c_entry_island_refuses_a_pc_relative_first_instruction) {
+    std::vector<std::byte> stub(apk::rewrite::c_entry_stub_size(0));
+    CHECK_THROWS(apk::rewrite::RewriteError,
+                 apk::rewrite::emit_c_entry(9, 0x9000'0009u /* adrp x9, . */, address_of(ref_site),
+                                            address_of(ref_x18), stub),
+                 "pc-relative");
+}
+
+// ADR-0020 option (c): the exit island of a renamed function stores the register back to TSD slot 11 before the
+// function returns, so the architectural x18 is current when control leaves. x16 (the TSD base scratch) is preserved
+// around the store with a push/pop, so the return itself runs with every register as the function left it.
+TEST(the_c_exit_island_stores_x18_before_a_return) {
+    const std::uint32_t ret = 0xd65f'03c0;  // ret x30
+    std::vector<std::byte> stub(apk::rewrite::c_exit_stub_size(ret));
+    const auto patch = apk::rewrite::emit_c_exit(9, ret, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(stub.size() == 6 * 4);
+    if (stub.size() == 6 * 4) {
+        CHECK(word(stub, 1) == 0xd53b'd070u);  // mrs x16, TPIDRRO_EL0
+        CHECK(word(stub, 3) == 0xf900'2e09u);  // str x9, [x16, #88]  (back to TSD slot 11)
+        CHECK(word(stub, 5) == ret);           // the original ret, unchanged, after x16 is restored
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);  // the ret site branches to the island
+}
+
+// The exit island carries an indirect tail branch through unchanged, after the store.
+TEST(the_c_exit_island_carries_an_indirect_tail_branch) {
+    const std::uint32_t br = 0xd61f'0120;  // br x9
+    std::vector<std::byte> stub(apk::rewrite::c_exit_stub_size(br));
+    apk::rewrite::emit_c_exit(10, br, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(word(stub, 3) == 0xf900'2e0au);  // str x10, [x16, #88]
+    CHECK(word(stub, 5) == br);            // the original br, unchanged
+}
+
+// A direct branch (a tail b or a conditional) has a displacement that must be relocated, which this island does not
+// do, so emit refuses it -- those take the tail/conditional-exit island.
+TEST(the_c_exit_island_refuses_a_direct_branch) {
+    std::vector<std::byte> stub(apk::rewrite::c_exit_stub_size(0));
+    CHECK_THROWS(apk::rewrite::RewriteError,
+                 apk::rewrite::emit_c_exit(9, 0x1400'0004u /* b .+16 */, address_of(ref_site), address_of(ref_x18),
+                                           stub),
+                 "direct");
+}
+
+std::uint64_t branch_target_at(const std::vector<std::byte> &stub, std::size_t index, std::uint64_t stub_address);
+
+// ADR-0020 option (c): a renamed function that leaves through an unconditional tail B stores the register back to
+// slot 11, then branches to the original target (relocated, so it still reaches it from the island).
+TEST(the_c_branch_exit_island_relocates_an_unconditional_tail_branch) {
+    const std::uint32_t tail = 0x1400'0010;  // b .+0x40: a tail branch out of the function
+    std::vector<std::byte> stub(apk::rewrite::c_branch_exit_stub_size(tail));
+    const auto patch = apk::rewrite::emit_c_branch_exit(9, tail, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(stub.size() == 6 * 4);
+    if (stub.size() == 6 * 4) {
+        CHECK(word(stub, 1) == 0xd53b'd070u);  // mrs x16, TPIDRRO_EL0
+        CHECK(word(stub, 3) == 0xf900'2e09u);  // str x9, [x16, #88]  (back to slot 11 before leaving)
+        CHECK(branch_target_at(stub, 5, address_of(ref_x18)) == address_of(ref_site) + 0x40);  // the original target
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);  // the branch site goes to the island
+}
+
+// A conditional exit: the store runs on both paths (harmless not taken), then the conditional skips two words ahead
+// to a wide branch to its target; not taken, a branch back into the function after the site.
+TEST(the_c_branch_exit_island_splits_a_conditional_exit) {
+    const std::uint32_t cond = 0xb400'0209;  // cbz x9, .+0x40: taken leaves the function
+    std::vector<std::byte> stub(apk::rewrite::c_branch_exit_stub_size(cond));
+    const auto patch = apk::rewrite::emit_c_branch_exit(9, cond, address_of(ref_site), address_of(ref_x18), stub);
+    CHECK(stub.size() == 8 * 4);
+    if (stub.size() == 8 * 4) {
+        CHECK(word(stub, 3) == 0xf900'2e09u);              // str x9, [x16, #88]: stored on both paths
+        CHECK(((word(stub, 5) >> 5) & 0x7ffffu) == 2u);    // the cbz now skips two words ahead (to the taken branch)
+        CHECK(branch_target_at(stub, 6, address_of(ref_x18)) == address_of(ref_site) + 4);     // not taken: after site
+        CHECK(branch_target_at(stub, 7, address_of(ref_x18)) == address_of(ref_site) + 0x40);  // taken: the target
+    }
+    CHECK((patch & 0xfc00'0000u) == 0x1400'0000u);
+}
+
+// A BL is a call, not an exit (its sync goes around the call, step 3d), so the branch exit island refuses it.
+TEST(the_c_branch_exit_island_refuses_a_call) {
+    std::vector<std::byte> stub(apk::rewrite::c_branch_exit_stub_size(0x9400'0004u));
+    CHECK_THROWS(apk::rewrite::RewriteError,
+                 apk::rewrite::emit_c_branch_exit(9, 0x9400'0004u /* bl .+16 */, address_of(ref_site),
+                                                  address_of(ref_x18), stub),
+                 "call");
+}
+
 TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::uint32_t code[] = {
         0x8b01'0252,  // add x18, x18, x1: island
@@ -1072,15 +1176,37 @@ TEST(has_external_entry_allows_a_branch_to_begin_and_internal_branches) {
     CHECK(!apk::rewrite::has_external_entry(bytes, 0, 0x10, 0x20));
 }
 
-// ADR-0020 (c): R is the first free caller-saved register, the temporaries x9-x15 before the arguments x0-x7.
-TEST(free_caller_saved_register_prefers_temporaries_then_arguments) {
-    const std::uint32_t nothing[] = {0xd503'201f};  // nop: no register used
+// ADR-0020 (c): R is the first free caller-saved register -- the temporaries x9-x15, then the argument registers
+// x2-x7 (a leaf only, see below), and never x0 or x1 (a caller reads them after RET as a pass-through return).
+TEST(free_caller_saved_register_prefers_temporaries_then_argument_registers) {
+    const std::uint32_t nothing[] = {0xd503'201f};  // nop: a leaf that uses no register
     CHECK(apk::rewrite::free_caller_saved_register(
               std::span(reinterpret_cast<const std::byte *>(nothing), sizeof nothing)) == 9u);
     std::vector<std::uint32_t> temporaries;
-    for (unsigned n = 9; n <= 15; n++) temporaries.push_back(0xd280'0000 | n);  // mov x9..x15, #0
+    for (unsigned n = 9; n <= 15; n++) temporaries.push_back(0xd280'0000 | n);  // mov x9..x15, #0 (a leaf)
     CHECK(apk::rewrite::free_caller_saved_register(
-              std::span(reinterpret_cast<const std::byte *>(temporaries.data()), temporaries.size() * 4)) == 0u);
+              std::span(reinterpret_cast<const std::byte *>(temporaries.data()), temporaries.size() * 4)) == 2u);
+}
+
+// Never x0 or x1: with every temporary and every other argument register used, a leaf still gets nothing rather
+// than x0 or x1, the return registers a caller reads after RET.
+TEST(free_caller_saved_register_never_picks_x0_or_x1) {
+    std::vector<std::uint32_t> used;
+    for (unsigned n : {2u, 3u, 4u, 5u, 6u, 7u, 9u, 10u, 11u, 12u, 13u, 14u, 15u}) used.push_back(0xd280'0000 | n);
+    CHECK(!apk::rewrite::free_caller_saved_register(
+               std::span(reinterpret_cast<const std::byte *>(used.data()), used.size() * 4)).has_value());
+}
+
+// x2-x7 only in a leaf: a callee (or a tail target) reads the argument registers, so a function that calls or
+// branches out may pass a renamed one through untouched. With every temporary used, a BL in the body leaves nothing.
+TEST(free_caller_saved_register_uses_argument_registers_only_in_a_leaf) {
+    std::vector<std::uint32_t> body;
+    for (unsigned n = 9; n <= 15; n++) body.push_back(0xd280'0000 | n);  // mov x9..x15, #0
+    CHECK(apk::rewrite::free_caller_saved_register(  // a leaf hands out an argument register (x2)
+              std::span(reinterpret_cast<const std::byte *>(body.data()), body.size() * 4)) == 2u);
+    body.push_back(0x9400'0001);  // bl .+4: now the body makes a call
+    CHECK(!apk::rewrite::free_caller_saved_register(  // x2-x7 may be the callee's arguments, so none is handed out
+               std::span(reinterpret_cast<const std::byte *>(body.data()), body.size() * 4)).has_value());
 }
 
 // A callee-saved-only function has no register (c) may use: x8, x16/x17 and x19-x28 are never chosen.

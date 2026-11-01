@@ -912,6 +912,92 @@ TEST(x18_sites_with_a_free_function_register_falls_back_to_the_returns_around_th
     CHECK(apk::container::x18_sites_with_a_free_function_register(stripped.bytes, scan.findings.x18_unsupported) == 1);
 }
 
+// Option (c) renames x18 only across bounds a sized symbol gives exactly. A RET-to-RET guess is good enough to count
+// whether a site has a free register, but renaming past a guessed end could rewrite x18 in the next function; so the
+// rename bounds come from a sized function symbol or not at all (must-have #2).
+TEST(sized_function_bounds_are_the_containing_symbol_or_nothing) {
+    const std::vector<apk::elf::Symbol> symbols = {
+        {"outer", 0x200, 0x80},  // 0x200..0x280
+        {"inner", 0x240, 0x20},  // 0x240..0x260, the tighter one over 0x250
+        {"sizeless", 0x300, 0},  // st_size 0: never a boundary
+    };
+    using Bounds = std::pair<std::uint64_t, std::uint64_t>;
+    using apk::container::sized_function_bounds;
+    CHECK(sized_function_bounds(symbols, 0x200, 0x1000, 0x250) == std::optional<Bounds>(Bounds(0x240, 0x260)));
+    CHECK(sized_function_bounds(symbols, 0x200, 0x1000, 0x2c0) == std::nullopt);  // past every sized symbol
+    CHECK(sized_function_bounds(symbols, 0x200, 0x1000, 0x300) == std::nullopt);  // only a size-0 symbol here
+    // Clamped to the section: a symbol running past the section end stops at `limit`.
+    const std::vector<apk::elf::Symbol> spans = {{"spans", 0x200, 0x1000}};  // would end at 0x1200
+    CHECK(sized_function_bounds(spans, 0x200, 0x800, 0x300) == std::optional<Bounds>(Bounds(0x200, 0x800)));
+}
+
+// c_rename_register is option (c)'s gate: it takes a site only when a sized symbol bounds its function (must-have 2),
+// a caller-saved register is free across it (must-have 1) and nothing branches into its interior from outside
+// (must-have 3). Here fn is [0x200, 0x218): it starts the section (nothing falls into it) and ends at the ret at
+// 0x214 (nothing falls out), x9-x15 are untouched, and no outside word branches in.
+TEST(c_rename_register_takes_a_bounded_function_with_a_spare_register_and_no_outside_entry) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});
+    const auto taken = apk::container::c_rename_register(prog.bytes, 0x210);
+    CHECK(taken.has_value());
+    CHECK(taken && taken->begin == 0x200 && taken->end == 0x218 && taken->reg == 9u);
+}
+
+TEST(c_rename_register_refuses_without_a_sized_symbol) {
+    auto stripped = static_program();  // no symbols: the rename has no bounds it can trust (must-have 2)
+    CHECK(apk::container::c_rename_register(stripped.bytes, 0x210) == std::nullopt);
+}
+
+TEST(c_rename_register_refuses_a_branch_into_the_function_interior) {
+    auto prog = static_program(0x4800, {{"fn", 0x208, 0x10}});  // the function is [0x208, 0x218), ret at 0x214
+    prog.put<std::uint32_t>(0x204, 0xd65f'03c0);  // ret before fn, so no word falls into begin -- only the branch refuses
+    prog.put<std::uint32_t>(0x200, 0x1400'0004);  // b 0x210: from outside into the interior, not the entry 0x208
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
+}
+
+// Hole 1 (lead review): "tightest by start" can pick a nested or overlapping sized symbol (an inner label), renaming
+// only part of a real function. Refuse unless every sized symbol overlapping the chosen bounds has exactly them: here
+// inner [0x208, 0x210) is chosen but outer [0x200, 0x218) overlaps it. The rets at 0x204 and 0x20c keep nothing
+// falling into or out of inner, so only the overlap refuses.
+TEST(c_rename_register_refuses_a_nested_or_overlapping_sized_symbol) {
+    auto prog = static_program(0x4800, {{"outer", 0x200, 0x18}, {"inner", 0x208, 0x8}});
+    prog.put<std::uint32_t>(0x204, 0xd65f'03c0);  // ret: nothing falls into inner's begin (0x208)
+    prog.put<std::uint32_t>(0x20c, 0xd65f'03c0);  // ret: inner's last word does not fall past its end (0x210)
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
+}
+
+// Hole 1: a word that falls through into begin means begin is mid-function; the renamed code would run with the
+// register still unset. fn is [0x208, 0x218) and the word at 0x204 (the default ldr) falls straight into it; the
+// ret at 0x214 ends fn, so nothing else refuses.
+TEST(c_rename_register_refuses_a_fallthrough_into_the_function) {
+    auto prog = static_program(0x4800, {{"fn", 0x208, 0x10}});
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
+}
+
+// Hole 1: a last word that falls through past end lets the renamed register escape into the next function. fn is
+// [0x200, 0x210); its last word at 0x20c (the default msr) falls straight out. It starts the section, so nothing
+// falls in.
+TEST(c_rename_register_refuses_a_fallthrough_past_the_function) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x10}});
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
+}
+
+// Hole 3 (lead review): begin's instruction becomes a branch to the entry island, which reloads the rename register
+// from TSD slot 11. A non-call branch inside the function back to begin would rerun that reload mid-function and
+// clobber the live register with a stale slot 11 (stores happen only at exits and calls). Refuse such a function.
+TEST(c_rename_register_refuses_an_internal_branch_back_to_begin) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // [0x200, 0x218), ret at 0x214
+    prog.put<std::uint32_t>(0x210, 0x17ff'fffc);  // b 0x200 (begin): a loop to the top, not through a store
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
+}
+
+// A self-recursive call to begin is fine: a BL is a call, so its island stores the register to slot 11 before the
+// branch, leaving the entry reload current. The function is otherwise renamable, so (c) takes it.
+TEST(c_rename_register_allows_a_recursive_call_to_begin) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // [0x200, 0x218), ret at 0x214
+    prog.put<std::uint32_t>(0x210, 0x97ff'fffc);  // bl 0x200 (begin): a call, so the store comes first
+    CHECK(apk::container::c_rename_register(prog.bytes, 0x208).has_value());
+}
+
 // The per-site facts ride in the refusal reason itself: on the iPhone the library never runs through apk-convert,
 // so the Incompatible string is the only way the (b)/(c) counts reach an import.
 TEST(the_refusal_text_carries_the_per_site_facts) {

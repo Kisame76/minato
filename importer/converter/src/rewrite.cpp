@@ -1617,16 +1617,45 @@ bool has_external_entry(std::span<const std::byte> code, std::uint64_t base, std
     return false;
 }
 
+bool has_internal_branch_to_begin(std::span<const std::byte> code, std::size_t begin, std::size_t end) {
+    for (std::size_t offset = begin; offset + 4 <= end; offset += 4) {
+        const auto word = word_at(code, offset);
+        if ((word & 0xfc00'0000) == 0x9400'0000) continue;  // BL: a call, its island stores before the branch
+        if (const auto displacement = branch_displacement(word)) {  // B, B.cond, CBZ/CBNZ, TBZ/TBNZ
+            if (static_cast<std::int64_t>(offset) + *displacement == static_cast<std::int64_t>(begin)) return true;
+        }
+    }
+    return false;
+}
+
 std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code) {
     std::uint32_t used = 0;
+    bool leaf = true;  // no call and no branch out of the function; then the argument registers are safe to rename into
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
-        const auto use = a64::register_use(word_at(code, offset));
+        const auto word = word_at(code, offset);
+        const auto use = a64::register_use(word);
         used |= use.reads | use.writes;
+        if ((word & 0xfc00'0000) == 0x9400'0000) {  // BL: a call
+            leaf = false;
+        } else if ((word & 0xffff'fc1f) == 0xd63f'0000 || (word & 0xffff'fc1f) == 0xd61f'0000) {  // BLR, BR
+            leaf = false;
+        } else if (const auto displacement = branch_displacement(word)) {  // B, B.cond, CBZ/CBNZ, TBZ/TBNZ
+            const auto target = static_cast<std::int64_t>(offset) + *displacement;
+            if (target < 0 || target >= static_cast<std::int64_t>(code.size())) leaf = false;  // a branch out
+        }
     }
-    // x9-x15 (temporaries) before x0-x7 (arguments); x8, x16/x17, x18, x19-x28, x29, x30 are never eligible.
-    static constexpr unsigned order[] = {9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7};
-    for (const unsigned candidate : order) {
+    // The temporaries x9-x15 are always safe. The argument registers x2-x7 only in a leaf: a callee, or the target of
+    // a tail branch out, reads x0-x7, and the function may pass a register it never touches through untouched. Never
+    // x0 or x1 (the caller reads them after RET as a pass-through return), x8, x16/x17, x18, x19-x28, x29 or x30.
+    static constexpr unsigned temporaries[] = {9, 10, 11, 12, 13, 14, 15};
+    static constexpr unsigned arguments[] = {2, 3, 4, 5, 6, 7};
+    for (const unsigned candidate : temporaries) {
         if ((used & (1u << candidate)) == 0) return candidate;
+    }
+    if (leaf) {
+        for (const unsigned candidate : arguments) {
+            if ((used & (1u << candidate)) == 0) return candidate;
+        }
     }
     return std::nullopt;
 }
@@ -1871,6 +1900,83 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     write(b(write.next_address(), region_address + window_bytes));  // the instruction after the window
     write.finish();
     return b(region_address, stub_address);
+}
+
+std::size_t c_entry_stub_size(std::uint32_t) {
+    return 4 * 5;  // mrs, bic, ldr (load guest x18 into reg); the first instruction; the branch back
+}
+
+std::uint32_t emit_c_entry(unsigned reg, std::uint32_t first, std::uint64_t begin_address, std::uint64_t stub_address,
+                           std::span<std::byte> stub) {
+    if (stub.size() != c_entry_stub_size(first)) throw RewriteError("the stub buffer has the wrong size");
+    if (pc_relative_words(first) != 0 || (first & 0x3b00'0000) == 0x1800'0000) {
+        throw RewriteError("option (c) cannot run a pc-relative first instruction in the entry island");
+    }
+    StubWriter write(stub, stub_address);
+    write(mrs_tpidrro_el0(reg));
+    write(bic_7(reg, reg));
+    write(ldr_unsigned(reg, reg, guest_x18_offset));  // reg = guest x18 from TSD slot 11
+    // The first instruction, already renamed; a direct branch keeps its absolute target from the island.
+    std::uint32_t body = first;
+    if (const auto displacement = branch_displacement(first)) {
+        const auto target = static_cast<std::int64_t>(begin_address) + *displacement;
+        body = with_any_branch_displacement(first, target - static_cast<std::int64_t>(write.next_address()));
+    }
+    write(body);
+    write(b(write.next_address(), begin_address + 4));
+    write.finish();
+    return b(begin_address, stub_address);
+}
+
+std::size_t c_exit_stub_size(std::uint32_t) {
+    return 4 * 6;  // push x16, mrs, bic, str reg -> slot 11, pop x16, the exit
+}
+
+std::uint32_t emit_c_exit(unsigned reg, std::uint32_t exit, std::uint64_t site_address, std::uint64_t stub_address,
+                          std::span<std::byte> stub) {
+    if (stub.size() != c_exit_stub_size(exit)) throw RewriteError("the stub buffer has the wrong size");
+    if (branch_displacement(exit)) {
+        throw RewriteError("option (c) exit island takes a return or an indirect branch, not a direct one");
+    }
+    StubWriter write(stub, stub_address);
+    write(str_pre_index(x16, sp, -16));               // preserve x16 (the TSD base scratch), signal-safe push
+    write(mrs_tpidrro_el0(x16));
+    write(bic_7(x16, x16));
+    write(str_unsigned(reg, x16, guest_x18_offset));  // slot 11 <- reg (the guest x18) before leaving
+    write(ldr_post_index(x16, sp, 16));               // restore x16, so the exit runs with it unchanged
+    write(exit);                                      // the original return or indirect branch, unchanged
+    write.finish();
+    return b(site_address, stub_address);
+}
+
+std::size_t c_branch_exit_stub_size(std::uint32_t branch) {
+    // push x16, mrs, bic, str reg -> slot 11, pop x16, then: a conditional also carries a fall-through branch back
+    // into the function and a wide branch to the target (2 words); an unconditional tail just the one wide branch.
+    return is_two_way_branch(branch) ? 4 * 8 : 4 * 6;
+}
+
+std::uint32_t emit_c_branch_exit(unsigned reg, std::uint32_t branch, std::uint64_t site_address,
+                                 std::uint64_t stub_address, std::span<std::byte> stub) {
+    if (stub.size() != c_branch_exit_stub_size(branch)) throw RewriteError("the stub buffer has the wrong size");
+    if ((branch & 0xfc00'0000) == 0x9400'0000) throw RewriteError("option (c): a BL is a call, not a branch exit");
+    const auto displacement = branch_displacement(branch);
+    if (!displacement) throw RewriteError("option (c) branch exit island needs a direct branch");
+    const auto target = static_cast<std::uint64_t>(static_cast<std::int64_t>(site_address) + *displacement);
+    StubWriter write(stub, stub_address);
+    write(str_pre_index(x16, sp, -16));               // preserve x16 (the TSD base scratch), signal-safe push
+    write(mrs_tpidrro_el0(x16));
+    write(bic_7(x16, x16));
+    write(str_unsigned(reg, x16, guest_x18_offset));  // slot 11 <- reg (the guest x18); harmless when not taken
+    write(ldr_post_index(x16, sp, 16));
+    if (is_two_way_branch(branch)) {
+        write(with_any_branch_displacement(branch, 2 * 4));  // taken: skip the fall-through, to the wide branch below
+        write(b(write.next_address(), site_address + 4));    // not taken: back into the function after the site
+        write(b(write.next_address(), target));              // taken: the branch's original target
+    } else {
+        write(b(write.next_address(), target));              // an unconditional tail: straight to the target
+    }
+    write.finish();
+    return b(site_address, stub_address);
 }
 
 std::size_t jump_table_stub_size(const JumpTable &table) {

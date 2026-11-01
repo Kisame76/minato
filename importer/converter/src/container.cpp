@@ -576,6 +576,16 @@ namespace {
 /// RET xN, any Rn (0xd65f0000 | Rn << 5): the function boundary when there is no symbol.
 constexpr bool is_return(std::uint32_t word) { return (word & 0xffff'fc1f) == 0xd65f'0000; }
 
+/// An instruction that cannot fall through to the next: an unconditional B, an indirect BR, RET or ERET. BL/BLR and
+/// the conditional branches (B.cond, CBZ/CBNZ, TBZ/TBNZ) fall through -- they return, or may not be taken -- so they
+/// are not among these. Used to decide whether the word before a function can fall into it, or its last word out.
+constexpr bool is_hard_transfer(std::uint32_t word) {
+    if ((word & 0xfc00'0000) == 0x1400'0000) return true;  // B (unconditional); BL is 0x94000000, excluded
+    if ((word & 0xffff'fc1f) == 0xd61f'0000) return true;  // BR Xn; BLR is 0xd63f0000, excluded
+    if (is_return(word)) return true;                      // RET Xn
+    return word == 0xd69f'03e0 || word == 0xd69f'0bff || word == 0xd69f'0fff;  // ERET, ERETAA, ERETAB
+}
+
 /// The section that holds `address`, or nullptr.
 const elf::Section *section_of(std::span<const elf::Section> sections, std::uint64_t address) {
     for (const auto &section : sections) {
@@ -587,20 +597,15 @@ const elf::Section *section_of(std::span<const elf::Section> sections, std::uint
 }
 
 /// The [begin, end) of the function that holds the use at `address` (virtual addresses), inside the section `code`
-/// that starts at `base`: the sized symbol that contains it (the tightest), else the run from the instruction after
-/// the previous RET to the next RET (inclusive). Option (c) would rename x18 across this whole run.
+/// that starts at `base`: the sized symbol that contains it (sized_function_bounds), else the run from the
+/// instruction after the previous RET to the next RET (inclusive). This guessed fallback is good enough to count
+/// whether a function has a free register, but not to rename across (must-have #2): option (c) uses
+/// sized_function_bounds directly, which refuses rather than guess.
 std::pair<std::uint64_t, std::uint64_t> enclosing_function(std::span<const elf::Symbol> symbols,
                                                            std::span<const std::byte> code, std::uint64_t base,
                                                            std::uint64_t address) {
-    const elf::Symbol *best = nullptr;
-    for (const auto &symbol : symbols) {
-        if (symbol.size != 0 && address >= symbol.value && address - symbol.value < symbol.size &&
-            (best == nullptr || symbol.value > best->value)) {
-            best = &symbol;
-        }
-    }
     const std::uint64_t limit = base + code.size();
-    if (best != nullptr) return {std::max(base, best->value), std::min(limit, best->value + best->size)};
+    if (const auto bounds = sized_function_bounds(symbols, base, limit, address)) return *bounds;
 
     const auto word = [&](std::uint64_t at) {
         std::uint32_t value;
@@ -625,6 +630,71 @@ std::pair<std::uint64_t, std::uint64_t> enclosing_function(std::span<const elf::
 }
 
 }  // namespace
+
+std::optional<std::pair<std::uint64_t, std::uint64_t>> sized_function_bounds(std::span<const elf::Symbol> symbols,
+                                                                             std::uint64_t base, std::uint64_t limit,
+                                                                             std::uint64_t address) {
+    const elf::Symbol *best = nullptr;
+    for (const auto &symbol : symbols) {
+        if (symbol.size != 0 && address >= symbol.value && address - symbol.value < symbol.size &&
+            (best == nullptr || symbol.value > best->value)) {
+            best = &symbol;  // the tightest by start among the sized symbols that contain the address
+        }
+    }
+    if (best == nullptr) return std::nullopt;
+    return std::pair{std::max(base, best->value), std::min(limit, best->value + best->size)};
+}
+
+std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> elf_bytes, std::uint64_t address) {
+    const auto file = elf::read(elf_bytes);
+    const auto symbols = elf::read_symbols(elf_bytes);
+    const auto sections = layout_sections(elf_bytes);
+    const auto *section = section_of(sections, address);
+    if (section == nullptr) return std::nullopt;
+    std::span<const std::byte> code;
+    try {
+        code = file_bytes_at(file, elf_bytes, section->address, section->size, "section");
+    } catch (const Incompatible &) {
+        return std::nullopt;  // a section not in the file part of a LOAD segment: nothing to read
+    }
+    const std::uint64_t base = section->address;
+    const std::uint64_t limit = base + code.size();
+    const auto bounds = sized_function_bounds(symbols, base, limit, address);
+    if (!bounds) return std::nullopt;  // must-have 2: no sized symbol bounds the function; never guess for a rename
+    const auto [begin, end] = *bounds;
+    const auto begin_off = static_cast<std::size_t>(begin - base);
+    const auto end_off = static_cast<std::size_t>(end - base);
+
+    // Hole 1 (lead review): sized bounds are trustworthy only if they are the WHOLE function. Refuse a nested or
+    // overlapping sized symbol -- renaming part of a real function would leave the rest on x18. Then refuse a word
+    // that falls through into begin (begin would be mid-function, running renamed code with the register unset) or
+    // out past end (the renamed register would escape into the next function). The exit sync will later cover the
+    // fall-out edge; until the emission adds it, (c) refuses that case too.
+    for (const auto &symbol : symbols) {
+        if (symbol.size == 0) continue;
+        const std::uint64_t other_begin = std::max(base, symbol.value);
+        const std::uint64_t other_end = std::min(limit, symbol.value + symbol.size);
+        if (other_begin >= other_end) continue;  // not in this section
+        if (other_begin < end && begin < other_end && (other_begin != begin || other_end != end)) {
+            return std::nullopt;  // overlaps the chosen bounds but is not exactly them
+        }
+    }
+    const auto word_at_off = [&](std::size_t off) {
+        std::uint32_t value;
+        std::memcpy(&value, code.data() + off, sizeof value);
+        return value;
+    };
+    if (begin != base && !is_hard_transfer(word_at_off(begin_off - 4))) return std::nullopt;  // falls into begin
+    if (!is_hard_transfer(word_at_off(end_off - 4))) return std::nullopt;                      // falls past end
+
+    const auto reg = rewrite::free_caller_saved_register(code.subspan(begin_off, end_off - begin_off));
+    if (!reg) return std::nullopt;  // must-have 1: no caller-saved register is free across the function
+    if (rewrite::has_external_entry(code, base, begin_off, end_off)) return std::nullopt;  // must-have 3
+    // A non-call branch inside the function back to begin would rerun the entry reload with a stale slot 11 (lead
+    // review); a BL to begin is fine, as its call island stores first.
+    if (rewrite::has_internal_branch_to_begin(code, begin_off, end_off)) return std::nullopt;
+    return WholeFunctionRename{begin, end, *reg};
+}
 
 std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf_bytes,
                                                     std::span<const rewrite::Unsupported> uses) {

@@ -150,10 +150,12 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
           const ReadOnlyData &read_only_data = {});
 
 /// The general-purpose register a whole-function x18 rename (ADR-0020 option c) may use in `code`: the first one
-/// unused across `code`, preferring the temporaries x9-x15, then the argument registers x0-x7. Never a callee-saved
-/// register (x19-x28 -- an unused one is not saved by the function, so renaming it would clobber the caller's
-/// value), never x16/x17 (linker call veneers clobber them), x8, x29 or x30. Nothing when every eligible register
-/// is used across `code`.
+/// unused across `code`, the temporaries x9-x15 first, then -- only when `code` is a leaf (no BL/BLR/BR and no
+/// branch whose target leaves `code`) -- the argument registers x2-x7. In a non-leaf the arguments are off limits: a
+/// callee, or the target of a tail branch, reads x0-x7, and the function may pass one it never touches through
+/// untouched. Never x0 or x1 (a caller reads them after RET as a pass-through return), never x8, never x16/x17
+/// (linker call veneers clobber them), never x18, a callee-saved register x19-x28 (an unused one is not saved, so
+/// renaming it would clobber the caller's value), x29 or x30. Nothing when every eligible register is used.
 std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code);
 
 /// Whether a direct branch or a computed address from outside the function at offsets [begin, end) in `code` (the
@@ -165,11 +167,60 @@ std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> co
 /// (BR/BLR) and a non-adjacent ADRP+ADD cannot be seen -- a named limit.
 bool has_external_entry(std::span<const std::byte> code, std::uint64_t base, std::size_t begin, std::size_t end);
 
+/// Whether a non-call direct branch inside the function at offsets [begin, end) in `code` targets `begin` (ADR-0020
+/// option c). `begin`'s instruction becomes a branch to the entry island, which reloads the rename register from TSD
+/// slot 11; a branch back to begin would rerun that reload mid-function and clobber the live value, as stores happen
+/// only at exits and calls. A BL to begin is excluded -- it is a call, so its island stores the register first,
+/// leaving slot 11 current for the reload. Indirect branches (BR/BLR) cannot be seen -- a named limit.
+bool has_internal_branch_to_begin(std::span<const std::byte> code, std::size_t begin, std::size_t end);
+
 /// Rewrites every instruction in `code` that uses x18 to use `reg` instead -- a whole-function rename (ADR-0020
 /// option c), where `reg` must be free across the function and not x18. Returns false and leaves `code` untouched
 /// when some instruction uses x18 with no register field to redirect (a CASP pair, an ST64B block), so the function
 /// cannot be renamed this way.
 bool rename_x18(std::span<std::byte> code, unsigned reg);
+
+/// The entry island of a renamed function (ADR-0020 option c). Bytes it needs in the stub area.
+std::size_t c_entry_stub_size(std::uint32_t first);
+
+/// Writes the entry island of a renamed function into `stub` (exactly c_entry_stub_size bytes): it loads the guest
+/// x18 from TSD slot 11 into `reg` (the register the rename uses for x18 across the function), runs the function's
+/// first instruction `first` (already renamed) in the island, and branches back to the instruction after it. A
+/// direct-branch `first` keeps its target; a pc-relative `first` (ADR/ADRP/an LDR literal) throws RewriteError, as
+/// running it in the island would change its PC -- the gate refuses such a function. Returns the branch that
+/// replaces `first` at `begin_address`. `begin_address` and `stub_address` are container addresses.
+std::uint32_t emit_c_entry(unsigned reg, std::uint32_t first, std::uint64_t begin_address, std::uint64_t stub_address,
+                           std::span<std::byte> stub);
+
+/// An exit island of a renamed function (ADR-0020 option c), for a return or an indirect tail branch. Bytes it
+/// needs in the stub area.
+std::size_t c_exit_stub_size(std::uint32_t exit);
+
+/// Writes the exit island of a renamed function into `stub` (exactly c_exit_stub_size bytes): it stores `reg` (the
+/// register the rename uses for x18) back to TSD slot 11, so the guest's architectural x18 is current when control
+/// leaves, then runs the function's original `exit` (a RET, ERET, or an indirect BR) unchanged. x16 holds the TSD
+/// base and is preserved around the store with a push/pop, so even a `br x16` is carried through correctly. A direct
+/// branch (a tail B or a conditional) has a displacement that must be relocated, which this island does not do, so
+/// emit throws RewriteError for one -- those take the conditional/tail-branch exit island. Returns the branch that
+/// replaces `exit` at `site_address`. `site_address` and `stub_address` are container addresses.
+std::uint32_t emit_c_exit(unsigned reg, std::uint32_t exit, std::uint64_t site_address, std::uint64_t stub_address,
+                          std::span<std::byte> stub);
+
+/// A branch exit island of a renamed function (ADR-0020 option c), for a direct branch that leaves the function: an
+/// unconditional tail B, or a conditional (B.cond, CBZ/CBNZ, TBZ/TBNZ, CMPBR) whose target is outside it. Bytes it
+/// needs in the stub area (more for a conditional, which also carries a fall-through back into the function).
+std::size_t c_branch_exit_stub_size(std::uint32_t branch);
+
+/// Writes the branch exit island into `stub` (exactly c_branch_exit_stub_size bytes): it stores `reg` (the register
+/// the rename uses for x18) back to TSD slot 11, then takes the function's `branch` to its original target. For an
+/// unconditional tail B the store is followed by the relocated branch. For a conditional, the store runs on both
+/// paths (harmless when not taken, as `reg` is unchanged), then the conditional -- retargeted two words ahead -- and,
+/// not taken, a branch back to the instruction after it; taken, a wide branch to the original target. x16 (the TSD
+/// base) is preserved around the store with a push/pop, so the branch sees every register unchanged. Throws
+/// RewriteError when `branch` is not a direct branch, or is a BL (a call, not an exit). Returns the branch that
+/// replaces `branch` at `site_address`. `site_address` and `stub_address` are container addresses.
+std::uint32_t emit_c_branch_exit(unsigned reg, std::uint32_t branch, std::uint64_t site_address,
+                                 std::uint64_t stub_address, std::span<std::byte> stub);
 
 /// Bytes the stub of `site` needs in the stub area; 0 when the site is replaced in place.
 std::size_t stub_size(const Site &site);
