@@ -28,6 +28,9 @@ bouncycastle.jar from ART's javalib after core-libart, in that order, as Android
 namespace it configures for a class loader: they must be Android 15's lines of logcat in <reference>, which
 tools/android-reference.sh --art writes (ADR-0040 test 4).
 --nterp runs nterp, ART's default interpreter, where --nterp is absent -Xint runs the switch interpreter (M6 a).
+--time prints "guest time: <s> s" after the run, the wall time of the guest program alone (M6 c3,
+tools/compiled-apps-check.sh); with --compiled, --oat-proof also runs ART with -verbose:oat and fails unless its log
+says ART opened our oat: the odex as the best oat file, executable, up to date with the filter speed.
 --stress checks the line "stress-test stats: ..." that stress-test writes to stderr (ADR-0033 test 4): at least one
 of its signals must have been handled while the main thread collected, so that the run covered a signal handler
 during ART's stop-the-world.
@@ -39,7 +42,7 @@ missing, or the guest system lacks the public libraries' list that libnativeload
 
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
                   <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
-                  [--bouncycastle] [--nativeloader <reference>] [--stress] [--gc <collector>]
+                  [--time] [--oat-proof] [--bouncycastle] [--nativeloader <reference>] [--stress] [--gc <collector>]
 """
 import contextlib
 import fcntl
@@ -48,6 +51,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 ART_ROOT = "/apex/com.android.art"
 BOOT_JARS = ["core-oj", "core-libart", "core-icu4j"]
@@ -205,6 +209,15 @@ def dalvikvm_options(debug=False, conscrypt=False, added_jars=(), library=False,
     return options
 
 
+def oat_failure(stderr):
+    """Why ART's -verbose:oat log does not show that it ran our oat, or None when it does (M6 c3): the odex is the
+    best oat file, loaded executable, and up to date with the filter speed."""
+    for needed in (r"GetBestOatFile\(\)=\S+\.odex \(executable=1\)", r"\.odex is kOatUpToDate with filter speed"):
+        if not re.search(needed, stderr):
+            return f"ART's log does not match {needed}"
+    return None
+
+
 def offsets_failure(stderr):
     """Why the offsets on stderr's last line do not show a window filled from the top, or None when they do."""
     lines = stderr.splitlines()
@@ -298,10 +311,12 @@ def main():
     stress = "--stress" in arguments
     nterp = "--nterp" in arguments
     compiled = "--compiled" in arguments
+    timed = "--time" in arguments
+    oat_proof = "--oat-proof" in arguments
     added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
     arguments = [argument for argument in arguments
                  if argument not in ("--debug", "--offsets", "--upper-half", "--conscrypt", "--okhttp",
-                                     "--bouncycastle", "--stress", "--nterp", "--compiled")]
+                                     "--bouncycastle", "--stress", "--nterp", "--compiled", "--time", "--oat-proof")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -359,6 +374,8 @@ def main():
         shutil.copy(library, os.path.join(run, "data", "local", "tmp"))
 
     options = dalvikvm_options(debug, conscrypt, added_jars, library is not None, collector, nterp or compiled)
+    if oat_proof:
+        options.append("-verbose:oat")
     jni = ["--libraries", f"/data/local/tmp={os.path.join(work, 'jni')}"] if library is not None else []
     if compiled:
         jni += compiled_oat(art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, run, jar, debug)
@@ -366,6 +383,7 @@ def main():
                               options + ["-cp", f"/data/local/tmp/{os.path.basename(jar)}", main_class], jni=jni,
                               conscrypt=conscrypt,
                               environment=["APKRT_HEAP_WINDOW_UPPER_HALF=1"] if upper_half else ())
+    began = time.monotonic()
     try:
         result = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired as timeout:
@@ -373,7 +391,10 @@ def main():
         sys.exit(1)
     with open(expected) as handle:
         wanted = handle.read()
+    guest_time = time.monotonic() - began
     failure = offsets_failure(result.stderr) if offsets else None
+    if failure is None and oat_proof:
+        failure = oat_failure(result.stderr)
     if failure is None and (offsets or upper_half):
         failure = window_failure(result.stderr, upper_half)
     if failure is None and nativeloader is not None:
@@ -389,6 +410,8 @@ def main():
               (f"; {result.stderr.splitlines()[-1]}" if offsets else "") +
               (f"; {stress_line(result.stderr)}" if stress else "") +
               (f"; ART runs {collector}" if collector else ""))
+        if timed:
+            print(f"guest time: {guest_time:.3f} s")
         return
     print(f"FAIL: exit status {result.returncode}" + (f"; {failure}" if failure else ""))
     print(f"stdout: [{result.stdout}]")
