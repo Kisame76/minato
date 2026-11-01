@@ -14,6 +14,9 @@
 //   again (a named difference: Chromium shows its cached page). A title comes after its page's commit, as Chromium's.
 // - Answers the guest owes (a dialog, a resource's head) wait up to 10 s; then the default goes on: a closed dialog,
 //   a failed resource.
+// - Views (c2): at PLACE the WKWebView goes into a clip view at the clip rectangle, just below its window's own view in
+//   the host's tree (minato_webview_set_windows), at the full frame, in points; the host hears how many views each
+//   window shows, as its layer must let them through where the guest cleared its pixels.
 // Not here (later steps): shouldOverrideUrlLoading, the JavaScript bridge, new windows, downloads and permissions.
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
@@ -170,6 +173,38 @@ static NSString *const kErrorPage =
 
 @class MinatoWebView;
 
+#if TARGET_OS_IPHONE
+typedef UIView MinatoHostView;
+#else
+typedef NSView MinatoHostView;
+
+/// A clip view that counts y from its top, as the guest's frames do.
+@interface MinatoClipView : NSView
+@end
+
+@implementation MinatoClipView
+- (BOOL)isFlipped {
+    return YES;
+}
+@end
+#endif
+
+static const struct minato_webview_windows *host_windows;
+
+/// The count of views each window shows, by window, as its host last heard it.
+static NSMutableDictionary<NSNumber *, NSNumber *> *shown_counts(void) {
+    static NSMutableDictionary *all;
+    if (all == nil) all = [NSMutableDictionary new];
+    return all;
+}
+
+static void count_shown(uint64_t window, int change) {
+    if (window == 0) return;
+    const uint32_t count = (uint32_t)((int)shown_counts()[@(window)].unsignedIntValue + change);
+    shown_counts()[@(window)] = @(count);
+    if (host_windows != NULL && host_windows->shown != NULL) host_windows->shown(host_windows->context, window, count);
+}
+
 /// The views by token, and the WKWebViews' delegates' way back to theirs, on the main queue only.
 static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
     static NSMutableDictionary *all;
@@ -193,6 +228,12 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic, copy) NSString *heldTitle;                  // a title that came before its page's commit
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, void (^)(NSData *, int, int64_t, int64_t)> *waiting;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, MinatoResource *> *resources;
+@property(nonatomic) BOOL placed;                                // a PLACE came: window, frame and clip hold
+@property(nonatomic) uint64_t window;
+@property(nonatomic) CGRect frame;                               // in the window's pixels
+@property(nonatomic) CGRect clip;
+@property(nonatomic, strong) MinatoHostView *holder;             // the clip view, once placed
+@property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
 @end
 
 @implementation MinatoWebView
@@ -243,6 +284,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
     [view addObserver:self forKeyPath:@"title" options:NSKeyValueObservingOptionNew context:NULL];
     self.view = view;
     [self applySettings];
+    [self show];
 }
 
 - (void)applySettings {
@@ -461,12 +503,87 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
     NSArray *waiters = self.waiting.allValues;
     [self.waiting removeAllObjects];
     for (void (^waiter)(NSData *, int, int64_t, int64_t) in waiters) waiter(nil, -1, 0, 0);
+    self.placed = NO;
+    [self show];
     [self.view stopLoading];
     [self.view removeObserver:self forKeyPath:@"title"];
     [self.view.configuration.userContentController removeAllScriptMessageHandlers];
     self.view.navigationDelegate = nil;
     self.view.UIDelegate = nil;
     self.view = nil;
+}
+
+// MARK: The view's place (c2)
+
+- (void)placeIn:(uint64_t)window frame:(CGRect)frame clip:(CGRect)clip {
+    self.placed = YES;
+    self.window = window;
+    self.frame = frame;
+    self.clip = clip;
+    [self show];
+}
+
+/// Puts the view where its last PLACE says, or takes it out: before its "make", after REMOVE, or for a window the
+/// host does not show. An empty clip hides it.
+- (void)show {
+    void *above = NULL;
+    double scale = 1;
+    MinatoHostView *container = nil;
+    if (self.view != nil && self.placed && host_windows != NULL && host_windows->container != NULL) {
+        container = (__bridge MinatoHostView *)host_windows->container(host_windows->context, self.window, &above,
+                                                                       &scale);
+    }
+    MinatoHostView *windowView = (__bridge MinatoHostView *)above;
+    if (container == nil || windowView.superview != container) {
+        [self.holder removeFromSuperview];
+        [self count:0];
+        return;
+    }
+    if (self.holder == nil) {
+#if TARGET_OS_IPHONE
+        self.holder = [[UIView alloc] initWithFrame:CGRectZero];
+        self.holder.userInteractionEnabled = NO;  // the touches stay the guest's until the touch region (c2)
+#else
+        self.holder = [[MinatoClipView alloc] initWithFrame:CGRectZero];
+#endif
+        self.holder.clipsToBounds = YES;
+        [self.holder addSubview:self.view];
+    }
+    const NSUInteger at = [container.subviews indexOfObject:windowView];
+    if (self.holder.superview != container || at == 0 || container.subviews[at - 1] != self.holder) {
+        [self.holder removeFromSuperview];
+#if TARGET_OS_IPHONE
+        [container insertSubview:self.holder belowSubview:windowView];
+#else
+        [container addSubview:self.holder positioned:NSWindowBelow relativeTo:windowView];
+#endif
+    }
+    const CGFloat points = scale > 0 ? (CGFloat)scale : 1;
+    // In the container's points, from the window's view's origin.
+    CGRect clip = CGRectMake(windowView.frame.origin.x + self.clip.origin.x / points,
+                             windowView.frame.origin.y + self.clip.origin.y / points, self.clip.size.width / points,
+                             self.clip.size.height / points);
+    const CGRect page = CGRectMake((self.frame.origin.x - self.clip.origin.x) / points,
+                                   (self.frame.origin.y - self.clip.origin.y) / points,
+                                   self.frame.size.width / points, self.frame.size.height / points);
+#if !TARGET_OS_IPHONE
+    if (!container.isFlipped) {
+        clip.origin.y = NSMaxY(windowView.frame) - (self.clip.origin.y + self.clip.size.height) / points;
+    }
+#endif
+    self.holder.frame = clip;
+    self.view.frame = page;
+    const BOOL visible = !CGRectIsEmpty(self.clip);
+    self.holder.hidden = !visible;
+    [self count:visible ? self.window : 0];
+}
+
+/// Moves the view's share of a window's count of shown views to `window` (0: none).
+- (void)count:(uint64_t)window {
+    if (window == self.shownIn) return;
+    count_shown(self.shownIn, -1);
+    self.shownIn = window;
+    count_shown(window, 1);
 }
 
 // MARK: Records
@@ -865,12 +982,13 @@ struct webview_request {
     uint32_t op;
     uint64_t token;
     uint64_t request_id;
+    uint64_t window;
     int fd;
     int64_t offset;
     int64_t length;
 };
 
-static void on_main(struct webview_request request, NSData *payload) {
+static void on_main(struct webview_request request, NSData *payload, CGRect frame, CGRect clip) {
     NSNumber *key = @(request.token);
     MinatoWebView *view = views()[key];
     switch (request.op) {
@@ -896,14 +1014,27 @@ static void on_main(struct webview_request request, NSData *payload) {
                 close(request.fd);
             }
             break;
-        default:  // PLACE: the view's frame, on the iPhone (c2)
+        case APKRT_WEBVIEW_PLACE:
+            [view placeIn:request.window frame:frame clip:clip];
+            break;
+        default:
             break;
     }
 }
 
+void minato_webview_set_windows(const struct minato_webview_windows *windows) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        host_windows = windows;
+    });
+}
+
 void minato_webview_handle(void *context, const struct apkrt_webview_call *call) {
     (void)context;
-    struct webview_request request = {call->op, call->token, call->request_id, call->fd, call->offset, call->length};
+    struct webview_request request = {call->op, call->token, call->request_id, call->window,
+                                      call->fd, call->offset, call->length};
+    const CGRect frame = CGRectMake(call->left, call->top, call->right - call->left, call->bottom - call->top);
+    const CGRect clip = CGRectMake(call->clip_left, call->clip_top, call->clip_right - call->clip_left,
+                                   call->clip_bottom - call->clip_top);
     NSData *payload = call->payload != NULL && call->payload_length > 0
                           ? [NSData dataWithBytes:call->payload length:call->payload_length]
                           : (call->op == APKRT_WEBVIEW_ANSWER ? [NSData data] : nil);
@@ -913,6 +1044,6 @@ void minato_webview_handle(void *context, const struct apkrt_webview_call *call)
         apkrt_webview_post(call->token, APKRT_WEBVIEW_REC_PLACED, 0, "{}", 2);
     }
     dispatch_async(dispatch_get_main_queue(), ^{
-        on_main(request, payload);
+        on_main(request, payload, frame, clip);
     });
 }

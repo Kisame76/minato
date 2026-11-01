@@ -672,7 +672,7 @@ final class GameSession {
             // The request handler gave it to the frame clock already.
             break
         case .windowOpaque(let opaque):
-            layer?.isOpaque = opaque
+            if let runtime { runtime.windowOpaque = opaque } else { layer?.isOpaque = opaque }
             #if DEBUG
             SessionCheck.event("layer opaque \(layerIsOpaque ? 1 : 0)")
             #endif

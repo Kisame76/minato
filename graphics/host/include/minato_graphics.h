@@ -137,6 +137,21 @@ struct apkrt_webview_call;
    run loop must run. `context` is unused. */
 void minato_webview_handle(void *context, const struct apkrt_webview_call *call);
 
+/* ADR-0056 c2: where the WebViews' views go, the host's windows. Both functions run on the main queue. */
+struct minato_webview_windows {
+    void *context;
+    /* The view (a UIView, an NSView on the Mac) whose subviews window `window`'s WebViews join, or NULL for a window
+       the host does not show; `*above` is the window's own view among them, which they go just below, and `*scale`
+       the window's pixels per point. */
+    void *(*container)(void *context, uint64_t window, void **above, double *scale);
+    /* The count of WebViews `window` shows changed: while it is not 0, the window's layer must let them through
+       where the guest cleared its pixels (not opaque, no background). */
+    void (*shown)(void *context, uint64_t window, uint32_t count);
+};
+
+/* Sets the host's windows, or NULL for none: then no view is shown. `windows` must stay valid. */
+void minato_webview_set_windows(const struct minato_webview_windows *windows);
+
 /* For b)'s EGL images, e1)'s Vulkan imports and tests: the IOSurfaceRef of one of their handles, retained for the
    caller, who releases it, or NULL for a handle they do not have. */
 void *minato_graphics_hardware_buffer_surface(uint64_t handle);

@@ -319,6 +319,10 @@ final class SurfaceLayers {
     private var windowBackground: CGColor?
     /// Runs with each new surface's layer before the guest gets its window: a benchmark records it.
     var onAdd: (CAMetalLayer) -> Void = { _ in }
+    /// Whether a WebView lies below the window (ADR-0056 c2), whose background then goes as for a surface below it.
+    var webViewsBelow = false {
+        didSet { updateBackgrounds() }
+    }
 
     init(backdrop: CALayer, windowLayer: CAMetalLayer) {
         self.backdrop = backdrop
@@ -386,7 +390,7 @@ final class SurfaceLayers {
     }
 
     private func updateBackgrounds() {
-        let hasBelow = entries.values.contains { SurfaceOrder.isBelowWindow(z: $0.key.z) }
+        let hasBelow = webViewsBelow || entries.values.contains { SurfaceOrder.isBelowWindow(z: $0.key.z) }
         guard hasBelow != surfaceBelow else { return }
         surfaceBelow = hasBelow
         // The layers' own property, not the view's backgroundColor, which would also clear the layer's opacity.

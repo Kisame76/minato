@@ -215,6 +215,13 @@ if(TARGET minato_graphics_host)
   set_source_files_properties(hardware_buffers_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.hardware_buffers COMMAND graphics-hardware-buffers-test)
   set_tests_properties(graphics.hardware_buffers PROPERTIES TIMEOUT 60)
+  # ADR-0056 c2: graphics/host's WebViews (webview.m) placed in a window's views through the runtime's handler.
+  add_executable(graphics-webview-place-test webview_place_test.m)
+  target_link_libraries(graphics-webview-place-test PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework AppKit" "-framework WebKit")
+  set_source_files_properties(webview_place_test.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc")
+  add_test(NAME graphics.webview_place COMMAND graphics-webview-place-test)
+  set_tests_properties(graphics.webview_place PROPERTIES TIMEOUT 60)
   # ADR-0058 decision 7: graphics/host's import of a hardware buffer into an image (vulkan.m) against a guest that skips
   # libvulkan's checks, on a fake MoltenVK.
   add_executable(graphics-vulkan-import-test vulkan_import_test.cpp)

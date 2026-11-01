@@ -2,6 +2,7 @@ import APKRuntime
 import APKSession
 import Foundation
 import QuartzCore
+import UIKit
 import os
 
 private let log = Logger(subsystem: "io.github.kisame76.minato", category: "session")
@@ -14,6 +15,14 @@ final class RuntimeSessionHost: SessionHost {
     var layer: CAMetalLayer?
     /// The SurfaceViews' layers beside the window's (ADR-0043 c4), once the view exists.
     var surfaces: SurfaceLayers?
+    /// The guest's wish for its window layer's opacity (ADR-0030 V5), which a WebView below the window overrides.
+    var windowOpaque = true {
+        didSet { updateWindowLayer() }
+    }
+    /// The windows on `layer`, whose WebViews graphics/host puts into the session's view (ADR-0056 c2).
+    private var windows: Set<UInt64> = []
+    /// How many WebViews each window shows, where it shows any.
+    private var webViews: [UInt64: UInt32] = [:]
     /// The frame clock's `setPreferredRate`: the request handler calls it on the guest's thread, and a
     /// window's removal with 0.
     private let preferRate: @Sendable (Float) -> Void
@@ -39,7 +48,9 @@ final class RuntimeSessionHost: SessionHost {
     }
 
     func addWindow(width: Int32, height: Int32) -> UInt64 {
-        apkrt_window_add(layer.map { Unmanaged.passUnretained($0).toOpaque() }, width, height)
+        let window = apkrt_window_add(layer.map { Unmanaged.passUnretained($0).toOpaque() }, width, height)
+        if window != 0 { windows.insert(window) }
+        return window
     }
 
     func setGate(_ window: UInt64, open: Bool) {
@@ -54,6 +65,9 @@ final class RuntimeSessionHost: SessionHost {
         presentsOfRemovedWindows += apkrt_window_presents(window)
         #endif
         _ = apkrt_window_remove(window)
+        windows.remove(window)
+        // Its WebViews go with it: the next window starts opaque, as the guest wants it.
+        if webViews.removeValue(forKey: window) != nil { updateWindowLayer() }
         preferRate(0)
     }
 
@@ -81,6 +95,56 @@ final class RuntimeSessionHost: SessionHost {
     /// A turn's new size (ADR-0038); the bridge never gives a size below 1 for a window it has.
     func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {
         _ = apkrt_window_set_size(window, width, height)
+    }
+
+    /// The window's layer lets the WebViews below it through where the guest cleared its pixels (ADR-0056 c2): not
+    /// opaque, and without the background of its own, which SurfaceLayers moves behind them, as behind a surface below.
+    private func updateWindowLayer() {
+        let below = !webViews.isEmpty
+        layer?.isOpaque = windowOpaque && !below
+        surfaces?.webViewsBelow = below
+        #if DEBUG
+        SessionCheck.event("webviews \(webViews.values.reduce(0, +)) layer opaque \(layer?.isOpaque == true ? 1 : 0)")
+        #endif
+    }
+
+    /// graphics/host's way into the session's view for the WebViews (ADR-0056 c2), set when the session begins; its
+    /// functions run on the main queue: a window on `layer` takes the WebViews just below the layer's own view, at the
+    /// layer's scale. The context is the session's host.
+    nonisolated(unsafe) private static let webViewWindows = UnsafeMutablePointer<minato_webview_windows>.allocate(
+        capacity: 1)
+
+    private static func setWebViewWindows(_ context: UnsafeMutableRawPointer?) {
+        webViewWindows.initialize(to: minato_webview_windows(
+            context: context,
+            container: { context, window, above, scale in
+                let address = UInt(bitPattern: context)
+                let found: (container: UInt, view: UInt, scale: Double)? = MainActor.assumeIsolated {
+                    guard let host = RuntimeSessionHost.from(address), host.windows.contains(window),
+                          let layer = host.layer, let view = layer.delegate as? UIView,
+                          let container = view.superview else { return nil }
+                    return (UInt(bitPattern: Unmanaged.passUnretained(container).toOpaque()),
+                            UInt(bitPattern: Unmanaged.passUnretained(view).toOpaque()), Double(layer.contentsScale))
+                }
+                guard let found else { return nil }
+                above?.pointee = UnsafeMutableRawPointer(bitPattern: found.view)
+                scale?.pointee = found.scale
+                return UnsafeMutableRawPointer(bitPattern: found.container)
+            },
+            shown: { context, window, count in
+                let address = UInt(bitPattern: context)
+                MainActor.assumeIsolated {
+                    guard let host = RuntimeSessionHost.from(address) else { return }
+                    host.webViews[window] = count == 0 ? nil : count
+                    host.updateWindowLayer()
+                }
+            }))
+        minato_webview_set_windows(webViewWindows)
+    }
+
+    /// The host whose address a C function's context carries, or nil for none.
+    private static func from(_ address: UInt) -> RuntimeSessionHost? {
+        UnsafeRawPointer(bitPattern: address).map { Unmanaged<RuntimeSessionHost>.fromOpaque($0).takeUnretainedValue() }
     }
 
     /// A SurfaceView's window on a layer of its own beside the window's (ADR-0043 c4); the registry retains the layer
@@ -174,6 +238,9 @@ final class RuntimeSessionHost: SessionHost {
         session.end = Self.endHandler
         session.request = Self.requestHandler
         session.surface = Self.surfaceHandler
+        // The guest's WebViews on graphics/host's WKWebView, in the session's view (ADR-0056 c2).
+        session.webview = minato_webview_handle
+        Self.setWebViewWindows(session.context)
         session.configuration = Self.record(configuration)
         guard apkrt_session_begin(&session) == 0 else { return "the session did not begin" }
         return nil
