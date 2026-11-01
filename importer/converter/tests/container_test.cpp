@@ -885,6 +885,15 @@ TEST(a_refusal_names_the_enclosing_symbol) {
     CHECK_THROWS(Incompatible, convert(named), "x18 at 0x21c in guest_atomic+0x1c (.text) cannot run on iOS");
 }
 
+// A mangled or hostile symbol name is capped so it cannot grow the reason and the import report without bound.
+TEST(a_refusal_caps_a_long_symbol_name) {
+    const std::string long_name(200, 'z');
+    auto named = static_program(0x4800, {{long_name, 0x200, 0x20}});
+    named.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18
+    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: refused, no island follows it
+    CHECK_THROWS(Incompatible, convert(named), std::string(157, 'z') + "...");
+}
+
 TEST(refuses_what_cannot_run) {
 
     auto darwin_syscall = static_program();

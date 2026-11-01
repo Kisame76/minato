@@ -347,9 +347,12 @@ std::string describe_site(std::span<const elf::Symbol> symbols, std::span<const 
         if (best == nullptr || symbol.value > best->value) best = &symbol;
     }
     if (best == nullptr) return {};  // a stripped library names no symbol: the address alone, as before
+    // Cap a mangled or hostile symbol name so it cannot grow the reason and the import report without bound.
+    constexpr std::size_t name_cap = 160;
+    const auto name = best->name.size() > name_cap ? best->name.substr(0, name_cap - 3) + "..." : best->name;
     const auto in_section = section != nullptr && !section->name.empty() ? std::format(" ({})", section->name)
                                                                          : std::string();
-    return std::format(" in {}+{:#x}{}", best->name, address - best->value, in_section);
+    return std::format(" in {}+{:#x}{}", name, address - best->value, in_section);
 }
 
 }  // namespace

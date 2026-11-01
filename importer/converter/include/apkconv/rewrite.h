@@ -86,9 +86,13 @@ struct JumpTable {
 
 struct Findings {
     std::vector<Site> sites;
-    /// `svc #imm` with imm != 0. Left alone it would run whatever Darwin syscall x16 names (F5), and
-    /// Android code has no reason to use one, so the converter refuses such a file.
+    /// `svc #imm` (imm != 0) that is neither proven data nor a proven Linux syscall: the converter refuses such a
+    /// file. Linux takes the syscall number from x8 and ignores the immediate, so a reachable one is a syscall and
+    /// goes to `sites` (SiteKind::syscall); a data word that decodes as svc #imm goes to `data_syscalls`.
     std::vector<std::uint64_t> other_syscalls;
+    /// `svc #imm` kept verbatim as data: a word in read-only data, or an LDR-literal target. Not rewritten and not
+    /// refused; counted in the import report so a later case is visible.
+    std::vector<std::uint64_t> data_syscalls;
     /// `mrs xN, TPIDRRO_EL0` (any destination, x18 included). It reads the Darwin TSD base, where the x18
     /// islands keep the guest's x18 (slot 11, ADR-0020). XNU and Linux leave TPIDRRO_EL0 zero at EL0 and Android
     /// userspace never reads it, so Android code has no reason to; a guest that did could name an island's TSD

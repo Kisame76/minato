@@ -133,9 +133,11 @@ void inspect(const std::string &path) {
         const auto &findings = scan.findings;
         // The same islands convert() counts: single sites, relocated LL/SC windows, jump tables.
         x18_islands += findings.exclusive_regions.size() + findings.jump_tables.size();
-        std::cout << std::format("  code: {} bytes; TPIDR_EL0: {} reads, {} writes; svc #0: {}, other svc: {}\n",
-                                 scan.code_bytes, thread_pointer_reads, thread_pointer_writes, syscalls,
-                                 findings.other_syscalls.size())
+        std::cout << std::format(
+                         "  code: {} bytes; TPIDR_EL0: {} reads, {} writes; svc #0: {}, other svc: {}, svc #imm "
+                         "kept as data: {}\n",
+                         scan.code_bytes, thread_pointer_reads, thread_pointer_writes, syscalls,
+                         findings.other_syscalls.size(), findings.data_syscalls.size())
                   << std::format("  x18: {} reads, {} write{}, {} saved in register dumps; islands: {}, windows in "
                                  "place: {}, refused: {}",
                                  findings.x18_reads.size(), findings.x18_writes.size(),

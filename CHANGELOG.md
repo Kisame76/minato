@@ -37,3 +37,4 @@ All notable changes to Minato are documented in this file. The format follows
 - Dialog-styled screens have their full height again
 - Tapping a text field again after hiding the keyboard shows it again in apps that track the keyboard themselves
 - Apps that embed web pages start instead of closing at once; their web parts stay empty for now
+- Apps whose native libraries make raw system calls in an unusual form start instead of being refused at import
