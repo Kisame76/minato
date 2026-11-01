@@ -363,8 +363,11 @@ def main():
         return
 
     art_lib64 = convert_guest(art, bionic_lib, apk_convert, work, debug, library)
+    # One folder per kind of run: ctest runs the interpreted, nterp and compiled runs of a jar in parallel, and a
+    # shared folder let one run's make_run_folder delete the other's jar mid-run (ClassNotFoundException).
     run = os.path.join(work, os.path.splitext(os.path.basename(jar))[0] + ("-debug" if debug else "")
-                       + ("-upper-half" if upper_half else "") + (f"-{collector.lower()}" if collector else ""))
+                       + ("-upper-half" if upper_half else "") + (f"-{collector.lower()}" if collector else "")
+                       + ("-nterp" if nterp else "") + ("-compiled" if compiled else ""))
     make_run_folder(run, icu_data, bionic_system, conscrypt_jar)
     # Read-only, as an app's dex must be: at SDK 34 and later ART refuses a writable one to every uid but root,
     # system and shell (dalvik_system_DexFile.cc), and the guest runs as the app uid; the reference ran as shell.
