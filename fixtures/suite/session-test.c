@@ -38,10 +38,12 @@ int main(void) {
         char language[2], country[2];
         AConfiguration_getLanguage(config, language);
         AConfiguration_getCountry(config, country);
-        printf("AConfiguration: density %d, screen %d x %d dp, smallest %d dp, orientation %d, locale %c%c-%c%c\n",
+        printf("AConfiguration: density %d, screen %d x %d dp, smallest %d dp, orientation %d, size %d, long %d, "
+               "locale %c%c-%c%c\n",
                AConfiguration_getDensity(config), AConfiguration_getScreenWidthDp(config),
                AConfiguration_getScreenHeightDp(config), AConfiguration_getSmallestScreenWidthDp(config),
-               AConfiguration_getOrientation(config), language[0], language[1], country[0], country[1]);
+               AConfiguration_getOrientation(config), AConfiguration_getScreenSize(config),
+               AConfiguration_getScreenLong(config), language[0], language[1], country[0], country[1]);
     }
     AConfiguration_delete(config);
     return 0;

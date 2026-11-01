@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """apk-run's --configuration (ADR-0039, config-test): a session begins before the program starts, so the fixture
 session-test sees its configuration through the private syscall session_configuration and through libandroid's
-minato_AConfiguration_fromSession. apk-run runs it four times:
+minato_AConfiguration_fromSession. apk-run runs it seven times:
+  - with the iPhone 18 Pro's display (the device-size plan, step 1), 1206x2622@3: 402 x 874 dp, normal and long;
+  - with the iPhone Duo's two displays, folded 1398x2034@3 and open 2007x2853@3:
+    466 x 678 dp, a normal screen that is not long, and 669 x 951 dp, smallest 669, a large one, whose apps take
+    their sw600dp layouts, as Android's reduceScreenLayout sizes them;
   - with --configuration 1290x2796@3,de-DE: that screen, portrait from its shape, night NO, 120 Hz, and decision 9's
-    AConfiguration from it (density 480, 430 x 932 dp);
+    AConfiguration from it (density 480, 430 x 932 dp, normal and long);
   - with --configuration 2796x1290@3: landscape, and en-US without a locale;
   - without the option: no session, so both answer ENOENT;
   - with a malformed configuration: apk-run's usage, exit status 2.
@@ -23,13 +27,30 @@ import subprocess
 import sys
 
 EXPECTED = {
+    "iphone-18-pro": [
+        "session_configuration: screen 1206 x 2622 px at scale 3.0, orientation 1, night 1, refresh 120, locale en-US",
+        "AConfiguration: density 480, screen 402 x 874 dp, smallest 402 dp, orientation 1, size 2, long 2, "
+        "locale en-US",
+    ],
+    "duo-folded": [
+        "session_configuration: screen 1398 x 2034 px at scale 3.0, orientation 1, night 1, refresh 120, locale en-US",
+        "AConfiguration: density 480, screen 466 x 678 dp, smallest 466 dp, orientation 1, size 2, long 1, "
+        "locale en-US",
+    ],
+    "duo-open": [
+        "session_configuration: screen 2007 x 2853 px at scale 3.0, orientation 1, night 1, refresh 120, locale en-US",
+        "AConfiguration: density 480, screen 669 x 951 dp, smallest 669 dp, orientation 1, size 3, long 1, "
+        "locale en-US",
+    ],
     "portrait": [
         "session_configuration: screen 1290 x 2796 px at scale 3.0, orientation 1, night 1, refresh 120, locale de-DE",
-        "AConfiguration: density 480, screen 430 x 932 dp, smallest 430 dp, orientation 1, locale de-DE",
+        "AConfiguration: density 480, screen 430 x 932 dp, smallest 430 dp, orientation 1, size 2, long 2, "
+        "locale de-DE",
     ],
     "landscape": [
         "session_configuration: screen 2796 x 1290 px at scale 3.0, orientation 2, night 1, refresh 120, locale en-US",
-        "AConfiguration: density 480, screen 932 x 430 dp, smallest 430 dp, orientation 2, locale en-US",
+        "AConfiguration: density 480, screen 932 x 430 dp, smallest 430 dp, orientation 2, size 2, long 2, "
+        "locale en-US",
     ],
     "none": [
         "session_configuration: error 2",
@@ -85,7 +106,10 @@ def main():
             sys.exit(1)
 
     failures = []
-    for name, options in (("portrait", ["--configuration", "1290x2796@3,de-DE"]),
+    for name, options in (("iphone-18-pro", ["--configuration", "1206x2622@3"]),
+                          ("duo-folded", ["--configuration", "1398x2034@3"]),
+                          ("duo-open", ["--configuration", "2007x2853@3"]),
+                          ("portrait", ["--configuration", "1290x2796@3,de-DE"]),
                           ("landscape", ["--configuration", "2796x1290@3"]),
                           ("none", [])):
         result = run(*options)
@@ -106,7 +130,8 @@ def main():
                             f"{result.returncode}, not {status}; stdout {result.stdout.splitlines()}, "
                             f"stderr's end {result.stderr.splitlines()[-5:]}")
     if not failures:
-        print("--configuration began the session whose configuration session-test saw, portrait and landscape; "
+        print("--configuration began the session whose configuration session-test saw, at the iPhone 18 Pro's "
+              "and the Duo's folded and open displays, portrait and landscape; "
               "without it, ENOENT; malformed, usage." +
               (" kill-self-test's SIGKILL to itself ended the program through the session's end handler with 137, "
                "by kill, tgkill and sigqueue, and without a session by the host's SIGKILL"
