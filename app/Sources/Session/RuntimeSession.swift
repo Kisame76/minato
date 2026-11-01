@@ -145,6 +145,12 @@ final class RuntimeSessionHost: SessionHost {
         minato_webview_set_windows(webViewWindows)
     }
 
+    /// The windows' views moved or scaled without a new place from the guest (a new size, a letterbox): graphics/host
+    /// places every WebView again.
+    static func windowsMoved() {
+        minato_webview_windows_changed()
+    }
+
     /// The host whose address a C function's context carries, or nil for none.
     private static func from(_ address: UInt) -> RuntimeSessionHost? {
         UnsafeRawPointer(bitPattern: address).map { Unmanaged<RuntimeSessionHost>.fromOpaque($0).takeUnretainedValue() }

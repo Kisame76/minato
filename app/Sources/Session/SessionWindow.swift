@@ -115,6 +115,11 @@ final class SessionLayersView: UIView {
     }
     /// The size last reported, in pixels.
     private var reportedPixels: CGSize?
+    /// Runs after a layout that moved or scaled the window's view (a new size, a letterbox), for the WebViews over it,
+    /// which graphics/host places in the view's points (ADR-0056 c2).
+    var onWindowMoved: () -> Void = {}
+    /// The window's view's frame at the last layout.
+    private var placedFrame: CGRect?
     /// The guest's soft keyboard (ADR-0068 step 2c): first responder while the guest's editor wants UIKit's keyboard.
     let textView = SoftKeyboardView(frame: .zero)
     private(set) lazy var surfaces = SurfaceLayers(backdrop: layer, windowLayer: hostView.metalLayer)
@@ -154,6 +159,11 @@ final class SessionLayersView: UIView {
         super.layoutSubviews()
         placeWindowView()
         surfaces.laidOut()
+        if hostView.frame != placedFrame {
+            let first = placedFrame == nil
+            placedFrame = hostView.frame
+            if !first { onWindowMoved() }
+        }
         let scale = hostView.metalLayer.contentsScale
         let pixels = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         guard pixels != reportedPixels else { return }

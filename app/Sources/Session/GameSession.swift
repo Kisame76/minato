@@ -229,6 +229,7 @@ final class GameSession {
     /// The session's view, once, as it is made.
     func attach(_ view: SessionLayersView) {
         layersView = view
+        view.onWindowMoved = { RuntimeSessionHost.windowsMoved() }
     }
 
     /// The view's layer, the host side of every window the guest gets, and its SurfaceViews' layers (ADR-0043 c4).

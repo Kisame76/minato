@@ -2,7 +2,7 @@
 # The display a check's session runs at and the reference it compares with (the device-size plan, step 1), sourced
 # by the size-relevant checks and tools/android-reference.sh. MINATO_DISPLAY=<width>x<height>@<scale> names the
 # screen in pixels; without it, the M4 plan's: the iPhone 15 Pro Max's 1290 x 2796 px at scale 3. The sweep's
-# displays are the iPhone Duo's (tools/display-sweep.sh): folded 1398x2034@3 and open 2007x2853@3.
+# displays are the iPhone Duo's: folded 1398x2034@3 and open 2007x2853@3.
 # Sets CHECK_DISPLAY, CHECK_WIDTH, CHECK_HEIGHT, CHECK_SCALE and CHECK_DENSITY (scale x 160, Android's dpi) and
 # defines expected_at_display.
 CHECK_DEFAULT_DISPLAY=1290x2796@3

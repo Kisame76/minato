@@ -150,8 +150,13 @@ let half = Letterbox(frame: PixelRect(left: display.width / 4, top: 0, right: di
                                       bottom: display.height / 2), scale: 0.5,
                      size: PixelSize(width: display.width, height: display.height))
 reported = []
+var moved = 0
+view.onWindowMoved = { moved += 1 }
 view.letterbox = half
 view.layoutIfNeeded()
+view.setNeedsLayout()
+view.layoutIfNeeded()
+check(moved == 1, "the window's view moving is told once, for the WebViews over it")
 // From the frame's corner, at the guest's size times the scale, which the frame's pixels round.
 let boxed = CGRect(x: CGFloat(display.width / 4) / display.scale, y: 0,
                    width: CGFloat(display.width) / 2 / display.scale,
@@ -164,6 +169,11 @@ view.letterbox = nil
 view.layoutIfNeeded()
 check(view.hostView.frame == CGRect(origin: .zero, size: points) && below?.frame == view.bounds,
       "without, the window's view and the containers span the view again")
+view.frame = CGRect(origin: .zero, size: CGSize(width: points.height, height: points.width))
+view.layoutIfNeeded()
+check(moved == 3, "the letterbox's end and a new size move the window's view too")
+view.frame = CGRect(origin: .zero, size: points)
+view.layoutIfNeeded()
 
 print(failures == 0 ? "session window check: fine" : "session window check: \(failures) failed")
 exit(failures == 0 ? 0 : 1)
