@@ -36,6 +36,7 @@ struct SectionHeader {
     std::uint64_t address;
     std::uint64_t offset;
     std::uint64_t size;
+    std::uint64_t addralign = 1;  // sh_addralign
 };
 
 struct ProgramHeader {
@@ -113,7 +114,8 @@ public:
         std::size_t at = table_offset + 64;  // entry 0 stays all zero
         std::size_t index = 0;
         for (const auto &header : headers) {
-            section(at, name_offsets[index++], header.type, header.flags, header.address, header.offset, header.size);
+            section(at, name_offsets[index++], header.type, header.flags, header.address, header.offset, header.size,
+                    header.addralign);
             at += 64;
         }
         section(at, names_name, 3 /* SHT_STRTAB */, 0, 0, names_offset, names.size());
@@ -121,9 +123,10 @@ public:
     }
 
     ElfBuilder &section(std::size_t at, std::uint32_t name, std::uint32_t type, std::uint64_t flags,
-                        std::uint64_t address, std::uint64_t offset, std::uint64_t size) {
+                        std::uint64_t address, std::uint64_t offset, std::uint64_t size,
+                        std::uint64_t addralign = 1) {
         put(at, name).put(at + 4, type).put(at + 8, flags).put(at + 16, address).put(at + 24, offset);
-        put(at + 32, size).put<std::uint64_t>(at + 48, 1);  // sh_addralign
+        put(at + 32, size).put<std::uint64_t>(at + 48, addralign);  // sh_addralign
         return *this;
     }
 

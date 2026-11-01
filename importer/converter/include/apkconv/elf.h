@@ -80,6 +80,7 @@ struct Section {
     std::uint64_t address;  // sh_addr
     std::uint64_t offset;
     std::uint64_t size;
+    std::uint64_t addralign;  // sh_addralign, the alignment the section's content needs (0 or a power of two)
 };
 
 /// One entry of the dynamic table (Elf64_Dyn).

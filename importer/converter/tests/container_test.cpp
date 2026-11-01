@@ -87,7 +87,7 @@ ElfBuilder static_program(std::uint64_t relocated_address = 0x4800) {
 
 /// static_program with 4 KiB pages (ADR-0007 decision 2): both LOAD segments aligned to 4 KiB, the rw- one at
 /// `writable`, which must lie 0x2c0 into a 4 KiB page, as its file offset does.
-ElfBuilder four_kib_program(std::uint64_t writable) {
+ElfBuilder four_kib_program(std::uint64_t writable, std::uint64_t code_section_align = 1) {
     ElfBuilder builder;
     builder.put<std::uint64_t>(24, 0x200);  // e_entry
     builder
@@ -103,7 +103,7 @@ ElfBuilder four_kib_program(std::uint64_t writable) {
     std::memcpy(builder.bytes.data() + 0x200, code, sizeof code);
     builder.sections({
         {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
-        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof code},
+        {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof code, code_section_align},
         {".dynamic", sht_dynamic, shf_alloc | shf_write, writable, 0x2c0, 0x40},
         {".bss", sht_nobits, shf_alloc | shf_write, writable + 0x40, 0x300, 0xfc0},
     });
@@ -832,11 +832,37 @@ TEST(refuses_a_4_kib_layout_no_shift_fits) {
     auto small = four_kib_program(0x42c0);
     small.put<std::uint64_t>(64 + 56 + 48, 0x800);  // p_align of the code segment
     CHECK_THROWS(Incompatible, convert(small), "4 KiB pages");
+}
 
-    // A segment that asks for 16 KiB alignment, which a shift of 8 KiB would break.
+// A library built for 4 KiB pages but post-processed to 16 KiB: only the code segment's p_align is 0x4000 (lld gives
+// every PT_LOAD the same, so a mix is a realignment tool's mark), and nothing inside asks for more than 4 KiB. A
+// whole-image shift by a 4 KiB multiple keeps every section aligned, so it converts exactly as the 4 KiB library it
+// is -- the user's Ren'Py test case (librenpython.so, ADR-0007). Android maps such a library at 4 KiB on a 4 KiB
+// device too, so this gives up no alignment Android promises.
+TEST(a_16_kib_p_align_the_sections_do_not_need_takes_a_4_kib_shift) {
     auto mixed = four_kib_program(0x22c0);
-    mixed.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // p_align of the code segment
-    CHECK_THROWS(Incompatible, convert(mixed), "cannot move by 0x2000");
+    mixed.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // the code segment's p_align, as a 16 KiB realignment tool sets it
+    CHECK(convert(mixed).report.image_shift == 0x2000);  // converts, shifting 8 KiB like the 4 KiB library it is
+}
+
+// The refusal stays when an allocated section truly needs 16 KiB that a 4 KiB-multiple shift cannot keep.
+TEST(a_section_that_needs_16_kib_keeps_the_refusal) {
+    auto needs = four_kib_program(0x22c0, 0x4000);   // .text's sh_addralign asks for 16 KiB
+    needs.put<std::uint64_t>(64 + 56 + 48, 0x4000);  // and the code segment's p_align matches
+    CHECK_THROWS(Incompatible, convert(needs), "a section or the TLS block needs 0x4000 alignment");
+}
+
+// ... and when a TLS block needs it: a sixth program header, PT_TLS over the data, asking for 16 KiB.
+TEST(a_16_kib_tls_block_keeps_the_refusal) {
+    auto tls = four_kib_program(0x22c0);
+    tls.put<std::uint64_t>(64 + 56 + 48, 0x4000);                       // the code segment's p_align
+    const std::size_t sixth = 64 + 5 * 56;                             // right after four_kib_program's five headers
+    tls.put<std::uint32_t>(sixth, 7).put<std::uint32_t>(sixth + 4, 4);  // p_type PT_TLS, p_flags R
+    tls.put<std::uint64_t>(sixth + 8, 0x2c0).put<std::uint64_t>(sixth + 16, 0x22c0);  // p_offset, p_vaddr (in the data)
+    tls.put<std::uint64_t>(sixth + 32, 0x40).put<std::uint64_t>(sixth + 40, 0x40);    // p_filesz, p_memsz
+    tls.put<std::uint64_t>(sixth + 48, 0x4000);                        // p_align: the TLS block wants 16 KiB
+    tls.put<std::uint16_t>(56, 6);                                     // e_phnum
+    CHECK_THROWS(Incompatible, convert(tls), "a section or the TLS block needs 0x4000 alignment");
 }
 
 TEST(refuses_what_cannot_run) {

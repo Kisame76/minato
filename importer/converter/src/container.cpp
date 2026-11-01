@@ -208,6 +208,17 @@ std::vector<elf::Section> sections_for_scan(std::span<const std::byte> elf_bytes
     return sections;
 }
 
+/// The section headers for page_layout's alignment decision: the file's, or none when it has none or they cannot be
+/// read. A broken table counts as none here (the layout then trusts the segment p_align); sections_for_scan reports a
+/// broken or missing table as its own refusal for the rewriter.
+std::vector<elf::Section> layout_sections(std::span<const std::byte> elf_bytes) {
+    try {
+        return elf::read_sections(elf_bytes);
+    } catch (const elf::FormatError &) {
+        return {};
+    }
+}
+
 /// Where the tables of jump tables may lie (ADR-0020 X2d): in a section that is loaded but neither
 /// written nor run, backed by the file part of a LOAD segment that is not writable either. Code
 /// could change a table anywhere else, or the rewriter could, taking its words for instructions.
@@ -306,7 +317,7 @@ std::string segments_text(const elf::File &file) {
 
 }  // namespace
 
-PageLayout page_layout(const elf::File &file) {
+PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sections) {
     constexpr std::uint64_t small_page = 4 * 1024;  // Android's pages before 16 KiB
     if (const auto *segment = elf::first_misaligned_load(file, small_page)) {
         throw Incompatible(std::format(
@@ -383,8 +394,23 @@ PageLayout page_layout(const elf::File &file) {
 
     PageLayout layout;
     layout.min_vaddr = page_down(loads.front()->address);
+    // The alignment a whole-image shift must keep. lld gives every PT_LOAD the same p_align, so a LOAD segment whose
+    // p_align is larger than anything inside needs (16 KiB on a 4 KiB build) is a post-processed library and its
+    // p_align promises nothing about the code: a shift by a 4 KiB multiple is then as safe as for any 4 KiB library,
+    // which is also all Android maps such a library at on a 4 KiB device. The real need is an allocated section that
+    // asks for more, or the TLS block. Without section headers we cannot tell, so the largest p_align stands.
+    // (`small_page` floors it, as the shift is always a multiple of 4 KiB.)
     std::uint64_t alignment = small_page;
-    for (const auto *segment : loads) alignment = std::max(alignment, segment->alignment);
+    if (sections.empty()) {
+        for (const auto *segment : loads) alignment = std::max(alignment, segment->alignment);
+    } else {
+        for (const auto &section : sections) {
+            if ((section.flags & elf::section_allocated) != 0) alignment = std::max(alignment, section.addralign);
+        }
+        for (const auto &segment : file.segments) {
+            if (segment.type == elf::SegmentType::tls) alignment = std::max(alignment, segment.alignment);
+        }
+    }
     if (auto pages = runs_on(page_size); pages.crossing == nullptr) {
         // As it is: built for 16 KiB pages, or for 4 KiB pages with code and data apart.
         layout.runs = std::move(pages.runs);
@@ -423,8 +449,15 @@ PageLayout page_layout(const elf::File &file) {
         }
         layout.shift = offset ? (page_size - *offset) % page_size : 0;
         if (layout.shift % alignment != 0) {
+            if (sections.empty()) {
+                throw Incompatible(std::format(
+                    "a LOAD segment aligned to {:#x} cannot move by {:#x}, which its 4 KiB layout needs, and the "
+                    "section headers that would show whether that alignment is real are missing (ADR-0007) {}",
+                    alignment, layout.shift, segments_text(file)));
+            }
             throw Incompatible(std::format(
-                "a LOAD segment aligned to {:#x} cannot move by {:#x}, which its 4 KiB layout needs (ADR-0007) {}",
+                "a section or the TLS block needs {:#x} alignment, which a move by {:#x} for its 4 KiB layout would "
+                "break (ADR-0007) {}",
                 alignment, layout.shift, segments_text(file)));
         }
     }
@@ -521,7 +554,7 @@ void refuse_unsupported_x18(const rewrite::Findings &findings) {
 Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
     const auto file = elf::read(elf_bytes);
     require_aarch64_shared(file);
-    const auto layout = page_layout(file);
+    const auto layout = page_layout(file, layout_sections(elf_bytes));
 
     std::vector<const elf::Segment *> loads;
     for (const auto &segment : file.segments) {
@@ -814,7 +847,7 @@ std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
     // The scan runs even when page_layout refused the file, which convert() never gets to: scan_sections reads only
     // what it checks itself (a 300k-mutation fuzz found nothing), so a step added after it must not assume
     // page_layout's invariants.
-    attempt([&] { (void)page_layout(*file); });
+    attempt([&] { (void)page_layout(*file, layout_sections(elf_bytes)); });
     std::optional<std::vector<elf::Section>> sections;
     attempt([&] { sections = sections_for_scan(elf_bytes); });
     attempt([&] { (void)check_relocations(*file, elf_bytes, elf::read_dynamic(*file, elf_bytes)); });

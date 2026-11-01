@@ -13,6 +13,7 @@ All notable changes to Minato are documented in this file. The format follows
   it can play, as on a phone without sounds set, instead of crashing
 - Games made with Ren'Py are recognized as such at import
 - AAC audio through MediaCodec, for apps that decode their music and sounds themselves
+- Back in the overlay menu, which closes the current screen as Android's back button does
 
 ### Changed
 
@@ -27,3 +28,4 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps lay out their content above the on-screen keyboard instead of under it
 - The Return key works in text fields that leave its action unset, such as game engines' fields, and in apps made for
   very old Android versions
+- Apps whose native libraries mix 4 KB and 16 KB page alignment start instead of being refused at import

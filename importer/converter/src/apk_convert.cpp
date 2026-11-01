@@ -77,9 +77,15 @@ std::string permissions(std::uint32_t flags) {
     return text;
 }
 
-std::string page_verdict(const apk::elf::File &file) {
+std::string page_verdict(const apk::elf::File &file, std::span<const std::byte> bytes) {
+    // The section headers decide what a mixed p_align really needs, as in convert(); a broken table counts as none.
+    std::vector<apk::elf::Section> sections;
     try {
-        const auto layout = apk::container::page_layout(file);
+        sections = apk::elf::read_sections(bytes);
+    } catch (const apk::elf::FormatError &) {
+    }
+    try {
+        const auto layout = apk::container::page_layout(file, sections);
         if (apk::elf::first_misaligned_load(file) == nullptr) {
             const auto loads = std::ranges::count(file.segments, SegmentType::load, &Segment::type);
             return std::format("yes, all {} LOAD segments fit", loads);
@@ -110,7 +116,7 @@ void inspect(const std::string &path) {
                                  segment.offset, segment.address, segment.file_size, segment.memory_size,
                                  segment.alignment, permissions(segment.flags));
     }
-    std::cout << "  16 KiB pages: " << page_verdict(file) << '\n';
+    std::cout << "  16 KiB pages: " << page_verdict(file, bytes) << '\n';
 
     // What the rewriter finds in the executable sections (ADR-0010, ADR-0019).
     try {

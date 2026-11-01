@@ -74,8 +74,11 @@ struct PageLayout {
     std::vector<Run> runs;             // from min_vaddr to end, in address order
 };
 
-/// The layout of `file`. Throws Incompatible with the reason when no shift fits it.
-PageLayout page_layout(const elf::File &file);
+/// The layout of `file`. `sections` are its section headers (empty when the file has none, or they cannot be read):
+/// a whole-image shift must keep every allocated section's and the TLS block's alignment, so a LOAD segment's p_align
+/// larger than any of those needs (a post-processed 16 KiB realignment on a 4 KiB build) does not by itself block the
+/// shift; without section headers the largest p_align stands. Throws Incompatible with the reason when no shift fits.
+PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sections);
 
 /// The reason for refusing a file whose x18 `uses` no island handles (at least one), for Incompatible: one use with
 /// its address, or every reason with its count and first addresses, so that one refusal names all a library needs.

@@ -242,6 +242,7 @@ std::vector<Section> read_sections(std::span<const std::byte> bytes) {
             .address = raw.address,
             .offset = raw.offset,
             .size = raw.size,
+            .addralign = raw.alignment,
         });
     }
     return sections;
