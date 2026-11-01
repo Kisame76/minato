@@ -3,6 +3,7 @@ import APKLibrary
 import APKSession
 import APKSigning
 import Foundation
+import MachO
 import Observation
 import os
 
@@ -132,6 +133,8 @@ final class LibraryModel {
     private(set) var resigningIDs: Set<String> = []
     /// Entries whose native code is being signed before they start (ADR-0032), shown as "Updating" too.
     private(set) var signingBeforeStart: Set<String> = []
+    /// Entries being checked again after a Minato update (ADR-0055 decision 5), shown as "Updating" too.
+    private(set) var recheckingIDs: Set<String> = []
     /// The app whose restart into game mode did not work: the user opens Minato again, and its launch
     /// request is still there (ADR-0032, decision 2).
     var restartFailedFor: LibraryEntry?
@@ -179,6 +182,40 @@ final class LibraryModel {
         library = openedLibrary
         if let openedLibrary {
             checks = Task { await Self.useChecks(in: openedLibrary, guest: Bundle.main.bundleURL.appending(path: "Guest")) }
+            Task { await recheckAll() }
+        }
+    }
+
+    /// This build's identity, which every report records (ADR-0055 decision 5): the LC_UUID of the image that holds the
+    /// app's code, its analyzer and its converter (Minato.debug.dylib in a Debug build), which every build changes. So
+    /// any new Minato, a release or a test build, checks the library again once.
+    nonisolated static let checkStamp: String = {
+        let header = #dsohandle.assumingMemoryBound(to: mach_header_64.self)
+        var command = UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
+        for _ in 0..<header.pointee.ncmds {
+            let load = command.assumingMemoryBound(to: load_command.self).pointee
+            if load.cmd == UInt32(LC_UUID) {
+                return UUID(uuid: command.assumingMemoryBound(to: uuid_command.self).pointee.uuid).uuidString
+            }
+            command = command.advanced(by: Int(load.cmdsize))
+        }
+        return "no-uuid"
+    }()
+
+    /// Checks again, in the background after the launch, every entry another Minato checked (ADR-0055 decision 5),
+    /// one after the other, each shown as "Updating" while it runs; the import's checks are set up first.
+    private func recheckAll() async {
+        guard let library else { return }
+        await checks?.value
+        guard !(await library.entriesToRecheck()).isEmpty else { return }
+        let summary = await library.recheckAll { [weak self] id in
+            await MainActor.run { self?.recheckingIDs = [id] }
+        }
+        recheckingIDs = []
+        entries = await library.entries
+        log.info("Checked again: \(summary.checked.count, privacy: .public) apps")
+        for failure in summary.failures {
+            log.error("Not checked again: \(failure, privacy: .public)")
         }
     }
 
@@ -195,6 +232,7 @@ final class LibraryModel {
                 return nil
             }
         }
+        await library.use(checkStamp: checkStamp)
         await library.use(checker: ELFChecker())
         await library.use(publicLibraries: list("public.libraries.txt"))
         do {
@@ -292,7 +330,7 @@ final class LibraryModel {
     }
 
     func isUpdating(_ entry: LibraryEntry) -> Bool {
-        resigningIDs.contains(entry.id) || signingBeforeStart.contains(entry.id)
+        resigningIDs.contains(entry.id) || signingBeforeStart.contains(entry.id) || recheckingIDs.contains(entry.id)
     }
 
     /// One tap on an installed app (decision 3): starts it, after signing its native code when the current

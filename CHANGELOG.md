@@ -13,6 +13,8 @@ All notable changes to Minato are documented in this file. The format follows
   it can play, as on a phone without sounds set, instead of crashing
 - Games made with Ren'Py are recognized as such at import
 - AAC, MP3, FLAC and uncompressed audio through MediaCodec, for apps that decode their music and sounds themselves
+- Apps already in the library are checked again after a Minato update, so an app a newer Minato can run turns Ready
+  without importing it again
 
 ### Changed
 

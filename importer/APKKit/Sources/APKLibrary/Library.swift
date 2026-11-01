@@ -37,9 +37,9 @@ extension LibraryError: LocalizedError {
 public actor Library {
     public nonisolated let paths: LibraryPaths
     public private(set) var entries: [LibraryEntry]
-    private let preferredLanguages: [String]
+    let preferredLanguages: [String]
     /// What a set's splits are chosen for (ADR-0048, decision 4).
-    private let device: DeviceProfile
+    let device: DeviceProfile
     /// During one `importUnit`, each APK taken out of a container with the name it shows, "<container>/<file>", the
     /// container as the file the user picked (ADR-0049 a3), and the container itself, whose OBBs go with its sets (c2).
     private var fromContainers: [URL: (name: String, source: SourceFile, container: URL)] = [:]
@@ -52,6 +52,9 @@ public actor Library {
     var exportTable: ExportTable?
     /// The SHA-256 of the texts the two lists above were read from (ADR-0055 decision 5).
     var listDigests = Compatibility.Checks()
+    /// The installed Minato's identity, which each report records (`APKReport.checkedBy`); an entry another Minato
+    /// checked is checked again (`recheckAll`, ADR-0055 decision 5). Nil until the app sets it.
+    var checkStamp: String?
 
     /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
@@ -218,6 +221,12 @@ public actor Library {
         self.checker = checker
     }
 
+    /// Sets the installed Minato's identity, which every report the library makes from now on records, and against
+    /// which `recheckAll` finds the entries another Minato checked (ADR-0055 decision 5).
+    public func use(checkStamp stamp: String?) {
+        checkStamp = stamp
+    }
+
     /// Sets the guest's public libraries, the content of its public.libraries.txt, so that the import checks the
     /// NEEDED names of every native library (ADR-0055 a3).
     public func use(publicLibraries text: String?) {
@@ -333,6 +342,7 @@ public actor Library {
                          discarding pickedCopy: URL?, progress: @Sendable (Double) -> Void) throws -> ImportResult {
         let fileManager = FileManager.default
         var report = new.report
+        report.checkedBy = checkStamp
         let package = report.packageName
         var state: LibraryEntry.State = switch report.compatibility.status {
         case .ready: .ready
@@ -1295,7 +1305,7 @@ public actor Library {
     /// The APKs of an installed version as members of a set, under their names in its folder: none where it keeps no
     /// base, where one of them cannot be read or has other bytes than its entry names, or where they no longer pass
     /// as a set, which Android, taking them unverified, would not notice (PackageInstallerSession.java:3680-3681).
-    private func installedAPKs(of entry: LibraryEntry) -> [(member: SetMember, url: URL, archive: ZipArchive)] {
+    func installedAPKs(of entry: LibraryEntry) -> [(member: SetMember, url: URL, archive: ZipArchive)] {
         guard let base = entry.base else { return [] }
         let folder = paths.versionDirectory(for: entry)
         var apks: [(member: SetMember, url: URL, archive: ZipArchive)] = []

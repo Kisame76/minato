@@ -61,6 +61,9 @@ public struct APKReport: Sendable, Equatable, Codable {
     public var iconPath: String?
     public var signature: SignatureInfo
     public var compatibility: Compatibility
+    /// Which Minato made this report, its analyzer and its converter's check (ADR-0055 decision 5): the library's check
+    /// stamp at the import or the last check again. Nil in reports from before, which count as another Minato's.
+    public var checkedBy: String? = nil
 }
 
 public struct NativeLibrary: Sendable, Equatable, Codable {
