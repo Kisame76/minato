@@ -729,6 +729,24 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
     }
 
+    /// The user's hide of the keyboard (ADR-0068, APKRT_EVENT_IME_HIDDEN): posted while the app runs, once per hide,
+    /// not after its end.
+    @Test func theUsersHideOfTheKeyboardIsPostedWhileTheAppRuns() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        bridge.keyboardHidden(host: host)
+        #expect(host.take() == [.post(.imeHidden)])
+        bridge.keyboardHidden(host: host)
+        #expect(host.take() == [.post(.imeHidden)])
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        _ = bridge.finished(second, result: 0, host: host)
+        _ = host.take()
+        bridge.keyboardHidden(host: host)
+        #expect(host.take() == [])
+    }
+
     /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
     /// return.
     @Test func aSurfaceMadeInTheBackgroundOpensWithTheReturn() throws {

@@ -147,6 +147,7 @@ final class RuntimeSessionHost: SessionHost {
         case .imeInsets(let bottom): (APKRT_EVENT_IME_INSETS, UInt64(max(bottom, 0)), 0, 0)
         case .back(let phase, let progress, let edge):
             (APKRT_EVENT_BACK, UInt64(phase.rawValue), UInt64(max(progress, 0)), UInt64(max(edge, 0)))
+        case .imeHidden: (APKRT_EVENT_IME_HIDDEN, 0, 0, 0)
         }
     }
 

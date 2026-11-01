@@ -48,6 +48,9 @@ public enum SessionEvent: Sendable, Equatable {
     /// The system's back (ADR-0041 decision 10), APKRT_EVENT_BACK: its phase, the gesture's progress in 1/10000 and
     /// its edge, BackEvent's EDGE_LEFT 0 or EDGE_RIGHT 1.
     case back(phase: BackPhase, progress: Int32, edge: Int32)
+    /// UIKit's keyboard went away by the user's doing, not the guest's (ADR-0068), APKRT_EVENT_IME_HIDDEN: the guest
+    /// handles it as Android's input method hiding itself on BACK.
+    case imeHidden
 }
 
 /// APKRT_EVENT_BACK's phases (`apkrt_back_phase`): a gesture's start, progress, then commit or cancel; a back without
@@ -307,6 +310,15 @@ public struct SessionBridge: Sendable {
         guard pixels != keyboardCover, !isBroken, !lifecycle.hasEnded else { return Handled() }
         keyboardCover = pixels
         _ = posted(.imeInsets(bottom: pixels), host: host)
+        return Handled()
+    }
+
+    /// The user hid UIKit's keyboard (ADR-0068, APKRT_EVENT_IME_HIDDEN): the bar's key, an iPad's dismiss key, a back
+    /// the keyboard took; posted each time unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func keyboardHidden(host: SessionHost) -> Handled {
+        guard !isBroken, !lifecycle.hasEnded else { return Handled() }
+        _ = posted(.imeHidden, host: host)
         return Handled()
     }
 

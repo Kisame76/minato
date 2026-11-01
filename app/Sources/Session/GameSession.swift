@@ -540,6 +540,7 @@ final class GameSession {
             #if DEBUG
             SessionCheck.event("back hid the keyboard")
             #endif
+            keyboardHidden()
             return
         }
         #if DEBUG
@@ -691,8 +692,8 @@ final class GameSession {
         }
     }
 
-    /// UIKit took the keyboard away on its own: an iPad's dismiss key. The menu's sheet and the background give it back
-    /// afterwards, so they change nothing.
+    /// UIKit took the keyboard away on its own: the bar's key, an iPad's dismiss key. The menu's sheet and the
+    /// background give it back afterwards, so they change nothing.
     private func keyboardDismissed() {
         guard !menuIsOpen, UIApplication.shared.applicationState == .active, softKeyboard.isShown else { return }
         softKeyboard.userHid()
@@ -700,6 +701,15 @@ final class GameSession {
         #if DEBUG
         SessionCheck.event("keyboard dismissed")
         #endif
+        keyboardHidden()
+    }
+
+    /// The guest hears of the user's hide as Android's input method hiding itself on BACK (ADR-0068): an app that tracks
+    /// its keyboard itself asks for it again at the next tap.
+    private func keyboardHidden() {
+        let wasBroken = bridge.isBroken
+        let handled = bridge.keyboardHidden(host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
     }
 
     private func type(_ records: [TextRecord]) {
