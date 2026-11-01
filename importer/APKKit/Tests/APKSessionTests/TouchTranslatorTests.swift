@@ -230,6 +230,42 @@ struct TouchTranslatorTests {
         #expect(translator.translate(.cancelled, [Self.touch(2, 10, 10, at: 5)]).map(\.action) == [.cancel])
     }
 
+    // ADR-0041, decision 12 b: in size compat the guest's window shows in a frame of the view, scaled as Android 15
+    // scales it (WindowState's global scale): its touches come in the guest's pixels.
+
+    static let scaledDown = Letterbox(frame: PixelRect(left: 100, top: 0, right: 600, bottom: 1000), scale: 0.5)
+
+    /// From the frame's corner, by the inverse of the scale; the touch's size too.
+    @Test func inSizeCompatTouchesComeInTheGuestsPixels() {
+        var translator = TouchTranslator(scale: Self.scale)
+        translator.letterbox = Self.scaledDown
+
+        #expect(translator.began([Self.touch(1, 100, 50, at: 1)]) == [
+            MotionEvent(action: .down, downTime: Self.ns(1), eventTime: Self.ns(1),
+                        pointers: [MotionEvent.Pointer(id: 0, x: 400, y: 300, pressure: 1, touchMajor: 120)]),
+        ])
+    }
+
+    /// A touch that begins on the letterbox is not the guest's, to its end, as Android's letterbox takes it.
+    @Test func aTouchThatBeginsOnTheLetterboxIsNotTheGuests() {
+        var translator = TouchTranslator(scale: Self.scale)
+        translator.letterbox = Self.scaledDown
+
+        #expect(translator.began([Self.touch(1, 10, 50, at: 1)]) == [])
+        #expect(translator.began([Self.touch(2, 100, 400, at: 1)]) == [])
+        #expect(translator.moved([Self.touch(1, 100, 50, at: 2)]) == [])
+        #expect(translator.ended([Self.touch(1, 100, 50, at: 3)]) == [])
+    }
+
+    /// A touch that begins in the frame stays the guest's when it leaves it, outside the guest's window.
+    @Test func aTouchThatLeavesTheFrameStaysTheGuests() {
+        var translator = TouchTranslator(scale: Self.scale)
+        translator.letterbox = Self.scaledDown
+        _ = translator.began([Self.touch(1, 100, 50, at: 1)])
+
+        #expect(translator.moved([Self.touch(1, 10, 50, at: 2)]).first?.pointers.first?.x == -140)
+    }
+
     /// A touch whose object address UIKit reuses is a new touch.
     @Test func aTouchThatBeginsAgainIsNew() {
         var translator = TouchTranslator(scale: Self.scale)

@@ -139,6 +139,17 @@ public protocol SessionHost: AnyObject {
     func removeSurface(_ window: UInt64)
 }
 
+/// The guest's window in size compat (ADR-0041, decision 12 b): its frame in the host's window, in pixels, and
+/// its pixels' scale there, 1 or less.
+public struct Letterbox: Sendable, Equatable {
+    public var frame: PixelRect
+    public var scale: Float
+    public init(frame: PixelRect, scale: Float) {
+        self.frame = frame
+        self.scale = scale
+    }
+}
+
 /// The lifecycle (ADR-0032, decision 7) on ADR-0028's session: each callback becomes an event for
 /// activity-host, the window is added and removed around them, and its gate follows the focus.
 public struct SessionBridge: Sendable {
@@ -176,6 +187,43 @@ public struct SessionBridge: Sendable {
     public var windowSize = PixelSize(width: 0, height: 0)
     /// The session turns with the device (ADR-0038, decision 1.3): a layout in another size turns the window.
     public var turns = false
+    /// The activity handles a size change itself (ADR-0041, decision 12 a): another size in the same orientation
+    /// reaches it as a turn does. Without, the guest keeps its size in size compat (decision 12 b).
+    public var resizes = false
+    /// The guest's size kept in size compat, nil while it has the window's.
+    private var keptSize: PixelSize?
+    /// The guest has had a window: its size changes only by a change it handles.
+    private var guestIsSized = false
+
+    /// The size of the guest's windows: the window's at its last layout, or in size compat the one it kept.
+    public var guestSize: PixelSize { keptSize ?? windowSize }
+
+    /// Where the host shows the guest's window in size compat, nil outside it. As Android 15's ActivityRecord
+    /// places it: scaled down to fit, never up (updateSizeCompatScale, with Rect.scale's rounding), centered
+    /// across and at the top (config_letterboxHorizontalPositionMultiplier 0.5, VerticalPositionMultiplier 0).
+    public var letterbox: Letterbox? {
+        guard let kept = keptSize, kept.width > 0, kept.height > 0 else { return nil }
+        let fits = kept.width <= windowSize.width && kept.height <= windowSize.height
+        let scale = fits ? 1 : min(Float(windowSize.width) / Float(kept.width),
+                                   Float(windowSize.height) / Float(kept.height))
+        let width = Int32(Float(kept.width) * scale + 0.5)
+        let height = Int32(Float(kept.height) * scale + 0.5)
+        let left = max(0, Int32((Float(windowSize.width - width) * 0.5).rounded(.up)))
+        return Letterbox(frame: PixelRect(left: left, top: 0, right: left + width, bottom: height), scale: scale)
+    }
+
+    /// ActivityInfo's CONFIG_SCREEN_LAYOUT, CONFIG_SCREEN_SIZE and CONFIG_SMALLEST_SCREEN_SIZE.
+    static let sizeFlags = 0x0100 | 0x0400 | 0x0800
+
+    /// Whether the launcher activity handles a size change itself (decision 12 a): its `android:configChanges`
+    /// hold the screen layout and both sizes; Android adds the sizes itself below targetSdk 13
+    /// (ActivityInfo.getRealConfigChanged).
+    public static func resizes(configChanges: Int?, targetSdk: Int?) -> Bool {
+        var flags = configChanges ?? 0
+        if (targetSdk ?? 0) < 13 { flags |= 0x0400 | 0x0800 }
+        return flags & sizeFlags == sizeFlags
+    }
+
     /// A post failed: the channel is broken for good, and nothing more reaches the host.
     public private(set) var isBroken = false
 
@@ -217,15 +265,36 @@ public struct SessionBridge: Sendable {
         self.lifecycle = lifecycle
     }
 
-    /// The window was laid out in `size`: the size the next window gets and, when it changed while the guest
-    /// has a window in a session that turns, a turn of that window (ADR-0038, decision 1.4). A turn between
-    /// the landscape sides keeps the size and changes nothing for the guest.
+    /// The window was laid out in `size` (ADR-0041, decision 12). Before the guest has a window, that is the size
+    /// it gets. After, a change the guest handles reaches it: a turn (ADR-0038, decision 1.4) in a session that
+    /// turns, another size in one that resizes, as a turn of its window while it has one, as the next window's
+    /// size while it has none. A change it does not handle leaves it its size in size compat, which a layout back
+    /// at that size ends. A turn between the landscape sides keeps the size and changes nothing for the guest.
     @discardableResult
     public mutating func windowLaidOut(_ size: PixelSize, host: SessionHost) -> Handled {
         guard size != windowSize else { return Handled() }
+        let guest = guestSize
         windowSize = size
-        guard turns, window != 0 else { return Handled() }
+        guard guestIsSized else { return Handled() }
+        guard size != guest else {
+            keptSize = nil
+            return Handled()
+        }
+        guard handles(from: guest, to: size) else {
+            keptSize = guest
+            return Handled()
+        }
+        keptSize = nil
+        guard window != 0 else { return Handled() }
         return handle(.turned, host: host)
+    }
+
+    /// A turn swaps the sides, which changes the orientation and the screen size only (ADR-0038); another size
+    /// changes the smallest width and the screen layout as well, and the orientation where the longer side moves.
+    private func handles(from old: PixelSize, to new: PixelSize) -> Bool {
+        if new.width == old.height, new.height == old.width { return turns }
+        let turned = (new.width > new.height) != (old.width > old.height)
+        return resizes && (turns || !turned)
     }
 
     /// Hands `event` to the lifecycle and its callbacks to the host.
@@ -397,7 +466,8 @@ public struct SessionBridge: Sendable {
         for (index, callback) in callbacks.enumerated() {
             if window == 0, callback == .onCreate || callback == .onStart,
                callbacks[index...].contains(.onNativeWindowCreated) {
-                window = host.addWindow(width: windowSize.width, height: windowSize.height)
+                window = host.addWindow(width: guestSize.width, height: guestSize.height)
+                guestIsSized = true
             }
             if givesUpWindow, window != 0, !gateIsOpen, !Self.isFocus(callback) {
                 gone = window
@@ -462,10 +532,10 @@ public struct SessionBridge: Sendable {
             inputChannel = channel
             return [event, .inputQueueCreated(channel: channel)]
         case .onNativeWindowCreated:
-            let (width, height) = (windowSize.width, windowSize.height)
+            let (width, height) = (guestSize.width, guestSize.height)
             var events = [event, .nativeWindowResized(window: window, width: width, height: height)]
-            if contentRect != windowSize {
-                contentRect = windowSize
+            if contentRect != guestSize {
+                contentRect = guestSize
                 events.append(.contentRectChanged(left: 0, top: 0, right: width, bottom: height))
             }
             return events + [.nativeWindowRedrawNeeded(window: window)]
@@ -479,11 +549,11 @@ public struct SessionBridge: Sendable {
             }
             return events + [event]
         case .onNativeWindowResized:
-            host.setWindowSize(window, width: windowSize.width, height: windowSize.height)
+            host.setWindowSize(window, width: guestSize.width, height: guestSize.height)
             var events = [event]
-            if contentRect != windowSize {
-                contentRect = windowSize
-                events.append(.contentRectChanged(left: 0, top: 0, right: windowSize.width, bottom: windowSize.height))
+            if contentRect != guestSize {
+                contentRect = guestSize
+                events.append(.contentRectChanged(left: 0, top: 0, right: guestSize.width, bottom: guestSize.height))
             }
             return events + [.nativeWindowRedrawNeeded(window: window)]
         default:
@@ -496,7 +566,8 @@ public struct SessionBridge: Sendable {
         case .onCreate: .create
         case .onStart: .start
         case .onResume: .resume
-        case .onNativeWindowCreated: .nativeWindowCreated(window: window, width: windowSize.width, height: windowSize.height)
+        case .onNativeWindowCreated:
+            .nativeWindowCreated(window: window, width: guestSize.width, height: guestSize.height)
         case .onWindowFocusChanged(let focus): .windowFocusChanged(focus)
         case .onPause: .pause
         case .onNativeWindowDestroyed: .nativeWindowDestroyed(window: gone)
@@ -505,7 +576,8 @@ public struct SessionBridge: Sendable {
         case .onDestroy: .destroy
         case .onLowMemory: .lowMemory
         case .onConfigurationChanged: .configurationChanged
-        case .onNativeWindowResized: .nativeWindowResized(window: window, width: windowSize.width, height: windowSize.height)
+        case .onNativeWindowResized:
+            .nativeWindowResized(window: window, width: guestSize.width, height: guestSize.height)
         }
     }
 }

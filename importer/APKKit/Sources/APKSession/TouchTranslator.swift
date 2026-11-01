@@ -113,6 +113,10 @@ public struct TouchTranslator: Sendable {
 
     /// The window's pixels per point.
     public var scale: Double
+    /// In size compat (ADR-0041, decision 12 b), where the guest's window shows: touches come from its frame's
+    /// corner in the guest's pixels, by the inverse of its scale, as Android 15's window takes them at its global
+    /// scale; a touch that begins outside it is the letterbox's, not the guest's.
+    public var letterbox: Letterbox?
 
     /// The gesture's pointers by touch. Touches not in it, those beyond `maxPointers` and those of a
     /// cancelled gesture, are ignored until they end.
@@ -127,7 +131,7 @@ public struct TouchTranslator: Sendable {
         var events: [MotionEvent] = []
         for change in changes {
             guard let sample = change.samples.last else { continue }
-            guard pointers.count < Self.maxPointers else { continue }
+            guard pointers.count < Self.maxPointers, isInFrame(sample) else { continue }
             let time = Self.nanoseconds(sample.timestamp)
             if pointers.isEmpty { downTime = time }
             let id = Self.lowestFreeID(in: pointers.values)
@@ -218,10 +222,19 @@ public struct TouchTranslator: Sendable {
     }
 
     private func pointer(_ id: Int32, _ sample: TouchSample) -> MotionEvent.Pointer {
-        MotionEvent.Pointer(
-            id: id, x: Float(sample.x * scale), y: Float(sample.y * scale),
+        let left = Double(letterbox?.frame.left ?? 0)
+        let top = Double(letterbox?.frame.top ?? 0)
+        let guest = Double(letterbox?.scale ?? 1)
+        return MotionEvent.Pointer(
+            id: id, x: Float((sample.x * scale - left) / guest), y: Float((sample.y * scale - top) / guest),
             pressure: sample.maximumForce > 0 ? Float(sample.force / sample.maximumForce) : 1,
-            touchMajor: Float(2 * sample.majorRadius * scale))
+            touchMajor: Float(2 * sample.majorRadius * scale / guest))
+    }
+
+    private func isInFrame(_ sample: TouchSample) -> Bool {
+        guard let frame = letterbox?.frame else { return true }
+        let (x, y) = (sample.x * scale, sample.y * scale)
+        return x >= Double(frame.left) && x < Double(frame.right) && y >= Double(frame.top) && y < Double(frame.bottom)
     }
 
     private func orderedPointers() -> [MotionEvent.Pointer] {

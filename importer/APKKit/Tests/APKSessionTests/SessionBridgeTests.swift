@@ -487,15 +487,127 @@ struct SessionBridgeTests {
         #expect(host.take().first == .addWindow(width: Self.height, height: Self.width))
     }
 
-    /// A session that holds its orientation does not turn its window: a layout in another size, as iOS gives
-    /// one late, only sets the size the next window gets (ADR-0038, decision 1.3).
-    @Test func aSessionThatHoldsItsOrientationOnlySetsTheNextWindowsSize() {
+    /// A session that holds its orientation does not turn its window (ADR-0038, decision 1.3): a layout in another
+    /// size, as iOS gives one late, keeps the guest's size in size compat (ADR-0041, decision 12 b).
+    @Test func aSessionThatHoldsItsOrientationKeepsTheGuestsSize() {
         let host = FakeHost()
         var bridge = Self.running(host)
 
         #expect(bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host) == .init())
         #expect(host.take() == [])
         #expect(bridge.windowSize == PixelSize(width: Self.height, height: Self.width))
+        #expect(bridge.guestSize == Self.fullSize)
+    }
+
+    // ADR-0041, decision 12: a size change outside a turn, as the iPhone Duo's fold makes one.
+
+    static let duoOpen = PixelSize(width: 2007, height: 2853)
+    static let duoFolded = PixelSize(width: 1398, height: 2034)
+
+    /// a) An activity that handles the change gets a turn's order with the new size.
+    @Test func aSizeChangeTheActivityHandlesReachesItAsATurnDoes() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.resizes = true
+
+        bridge.windowLaidOut(Self.duoOpen, host: host)
+        #expect(host.take() == [
+            .post(.configurationChanged),
+            .setWindowSize(1, width: 2007, height: 2853),
+            .post(.nativeWindowResized(window: 1, width: 2007, height: 2853)),
+            .post(.contentRectChanged(left: 0, top: 0, right: 2007, bottom: 2853)),
+            .post(.nativeWindowRedrawNeeded(window: 1)),
+        ])
+        #expect(bridge.guestSize == Self.duoOpen)
+        #expect(bridge.letterbox == nil)
+    }
+
+    /// b) Without, the guest keeps its window and size, and the host shows it as Android 15's size compat
+    /// (ActivityRecord): not scaled when it fits, centered across, at the top (the letterbox's position
+    /// multipliers 0.5 and 0).
+    @Test func withoutTheChangesTheGuestKeepsItsSizeInSizeCompat() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        #expect(bridge.windowLaidOut(Self.duoOpen, host: host) == .init())
+        #expect(host.take() == [])
+        #expect(bridge.guestSize == Self.fullSize)
+        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1))
+    }
+
+    /// A guest larger than the window is scaled down to fit, never up.
+    @Test func aGuestLargerThanTheWindowIsScaledDown() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.windowLaidOut(Self.duoFolded, host: host)
+        #expect(host.take() == [])
+        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 230, top: 0, right: 1168, bottom: 2034),
+                                             scale: Float(2034) / Float(2796)))
+    }
+
+    /// Back at the guest's size, size compat ends, and the guest hears nothing.
+    @Test func backAtTheGuestsSizeSizeCompatEnds() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.windowLaidOut(Self.duoOpen, host: host)
+        bridge.windowLaidOut(Self.fullSize, host: host)
+        #expect(host.take() == [])
+        #expect(bridge.letterbox == nil)
+    }
+
+    /// The window of the foreground has the guest's size while it is in size compat, as Android keeps an
+    /// activity's size until it is created anew.
+    @Test func aNewWindowInSizeCompatHasTheGuestsSize() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.windowLaidOut(Self.duoOpen, host: host)
+        bridge.handle(.inactive, host: host)
+        let wait = bridge.handle(.background, host: host).wait
+        bridge.finished(try #require(wait), result: 1, host: host)
+        _ = host.take()
+
+        bridge.handle(.foreground, host: host)
+        #expect(host.take().contains(.addWindow(width: Self.width, height: Self.height)))
+        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1))
+    }
+
+    /// A session that turns but does not handle the other changes keeps its size at a fold: a turn changes the
+    /// orientation and the screen size only, a fold also the smallest width and the screen layout.
+    @Test func aTurningSessionKeepsItsSizeAtAFold() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.turns = true
+
+        bridge.windowLaidOut(Self.duoOpen, host: host)
+        #expect(host.take() == [])
+        #expect(bridge.guestSize == Self.fullSize)
+    }
+
+    /// Before the guest has a window, any layout sets its size.
+    @Test func beforeTheStartALayoutSetsTheGuestsSize() {
+        let host = FakeHost()
+        var bridge = Self.bridge()
+        bridge.windowLaidOut(Self.duoOpen, host: host)
+        #expect(bridge.guestSize == Self.duoOpen)
+        #expect(bridge.letterbox == nil)
+
+        bridge.handle(.start, host: host)
+        #expect(host.take().first == .addWindow(width: 2007, height: 2853))
+    }
+
+    /// ActivityInfo's CONFIG_SCREEN_LAYOUT, CONFIG_SCREEN_SIZE and CONFIG_SMALLEST_SCREEN_SIZE, all three; below
+    /// targetSdk 13 Android adds the two sizes (ActivityInfo.getRealConfigChanged), so screenLayout alone is enough
+    /// there.
+    @Test func anActivityResizesWhenItsConfigChangesHoldTheSizes() {
+        #expect(SessionBridge.resizes(configChanges: 0x0D00, targetSdk: 35))
+        #expect(SessionBridge.resizes(configChanges: 0x0DB0, targetSdk: 35))
+        #expect(!SessionBridge.resizes(configChanges: 0x0C00, targetSdk: 35))
+        #expect(!SessionBridge.resizes(configChanges: 0x0500, targetSdk: 35))
+        #expect(!SessionBridge.resizes(configChanges: nil, targetSdk: 35))
+        #expect(SessionBridge.resizes(configChanges: 0x0100, targetSdk: 12))
+        #expect(!SessionBridge.resizes(configChanges: 0x0100, targetSdk: 13))
     }
 
     /// A turn while the window is gone: the window of the foreground has the new size.
