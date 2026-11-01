@@ -249,6 +249,10 @@ final class GameSession {
             type(softKeyboard.returnKey())
         }
         textView.onDismissed = { [weak self] in self?.keyboardDismissed() }
+        textView.onSelect = { [weak self] offset in
+            guard let self else { return }
+            type(softKeyboard.select(at: offset))
+        }
     }
 
     /// The window was laid out: the size the guest starts with, and the next window's; while the guest has a
@@ -657,7 +661,7 @@ final class GameSession {
     /// A request of the guest (ADR-0028, decision 4), on the main thread.
     func received(_ request: SessionRequest) {
         #if DEBUG
-        SessionCheck.event("request \(request)")
+        SessionCheck.event("request \(request.checkLine)")
         #endif
         switch request {
         case .finish:
@@ -692,10 +696,30 @@ final class GameSession {
         }
     }
 
-    /// The guest's input method (ADR-0068 step 2c): UIKit's keyboard follows its served editor.
+    /// The guest's input method (ADR-0068 step 2c): UIKit's keyboard follows its served editor, the bar above it the
+    /// field's text (keyboard plan b), and a tap outside the keyboard and the field puts it away (plan a). An extract's
+    /// text is never logged, only its length.
     private func imeRequested(serial: Int64, text: String) {
         guard let request = ImeRequest(text: text, serial: serial) else { return }
-        if case .show = request { outsideTap.showRequested() }
+        switch request {
+        case .show:
+            outsideTap.showRequested()
+        case .start, .stop:
+            outsideTap.field = nil  // the new editor's view comes with its next field
+        case .field:
+            _ = softKeyboard.handle(request)
+            outsideTap.field = softKeyboard.field.map(inPoints)
+            return
+        case .extract:
+            _ = softKeyboard.handle(request)
+            #if DEBUG
+            SessionCheck.event("keyboard \(softKeyboard.bar.map(String.init(describing:)) ?? "no text bar")")
+            #endif
+            textView?.showText(softKeyboard.bar)
+            return
+        case .hide:
+            break
+        }
         guard let command = softKeyboard.handle(request) else { return }
         #if DEBUG
         SessionCheck.event("keyboard \(command)")
@@ -711,6 +735,13 @@ final class GameSession {
                 textView?.hide()
             }
         }
+    }
+
+    /// A rectangle in the window's pixels in the session view's points.
+    private func inPoints(_ rect: FieldRect) -> FieldRect {
+        let scale = Double(runtime?.layer?.contentsScale ?? 1)
+        return FieldRect(left: rect.left / scale, top: rect.top / scale, right: rect.right / scale,
+                         bottom: rect.bottom / scale)
     }
 
     /// UIKit took the keyboard away on its own: a tap outside the field (hideForTap), an iPad's dismiss key. The menu's

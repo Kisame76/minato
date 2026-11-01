@@ -421,9 +421,9 @@ final class SurfaceLayers {
 /// The host's view of the guest's input method (ADR-0068 step 2c): an invisible UIKeyInput in the session's view that
 /// becomes first responder when the guest shows its keyboard, so UIKit shows its own with the editor's traits, and
 /// hands what it types on. A hardware keyboard's presses stay keys, as on Android, where they reach the focused
-/// view as KeyEvents: the view gives them to the session's view. Every keyboard has a bar with a key that puts it
-/// away, as Android's Back does while an IME is shown (UIKit's iPhone keyboard has none), and the pads without a
-/// return key have the editor's action there too.
+/// view as KeyEvents: the view gives them to the session's view. Above the keyboard sits a bar (KeyboardBarView) with
+/// the served field's text once the guest has sent it (keyboard plan b), and the editor's action for the pads, which
+/// have no return key; a tap outside the field puts the keyboard away (OutsideTap).
 final class SoftKeyboardView: UIView, UIKeyInput {
     /// Typed text, the delete key, and the return key or the bar's button.
     var onInsert: (String) -> Void = { _ in }
@@ -432,6 +432,8 @@ final class SoftKeyboardView: UIView, UIKeyInput {
     /// UIKit took the keyboard away without the guest asking (a tap outside the field, an iPad's dismiss key, another
     /// first responder).
     var onDismissed: () -> Void = {}
+    /// A tap in the bar's text, at this offset in UTF-16 units of its text.
+    var onSelect: (Int) -> Void = { _ in }
 
     var keyboardType: UIKeyboardType = .default
     var returnKeyType: UIReturnKeyType = .default
@@ -448,7 +450,9 @@ final class SoftKeyboardView: UIView, UIKeyInput {
     /// While the guest's editor wants the keyboard: UIKit may give the view the focus back (after a sheet).
     private var active = false
     private var resigning = false
-    private var bar: UIToolbar?
+    private var bar: KeyboardBarView?
+    private var barAction: ReturnKeyKind?
+    private var textBar: TextBar?
 
     override var canBecomeFirstResponder: Bool { active }
     override var inputAccessoryView: UIView? { bar }
@@ -534,27 +538,34 @@ final class SoftKeyboardView: UIView, UIKeyInput {
         spellCheckingType = traits.corrects ? .default : .no
         isSecureTextEntry = traits.secure
         hasText = !traits.cursorAtStart
-        bar = keyboardBar(traits.barAction)
+        barAction = traits.barAction
+        // A new editor: its text comes with its next extract.
+        textBar = nil
+        bar = nil
+        rebuildBar()
     }
 
-    /// The bar of the pads, which have no return key: its action at the right, as the return key is; none for the other
-    /// keyboards. A tap outside the field puts the keyboard away (ADR-0068 a, OutsideTap).
-    private func keyboardBar(_ action: ReturnKeyKind?) -> UIToolbar? {
-        guard let action else { return nil }
-        let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
-        let title = switch action {
-        case .standard: "Return"
-        case .go: "Go"
-        case .search: "Search"
-        case .send: "Send"
-        case .next: "Next"
-        case .done: "Done"
+    /// The served field's text for the bar, nil before the guest has sent it or once its editor has gone.
+    func showText(_ textBar: TextBar?) {
+        let height = bar?.frame.height
+        let had = bar != nil
+        self.textBar = textBar
+        rebuildBar()
+        if isFirstResponder, had != (bar != nil) || height != bar?.frame.height { reloadInputViews() }
+    }
+
+    /// The bar while it has something to show: the field's text, the pads' action, or both.
+    private func rebuildBar() {
+        guard textBar != nil || barAction != nil else {
+            bar = nil
+            return
         }
-        let button = UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.onReturn() })
-        button.style = .prominent
-        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), button]
-        bar.sizeToFit()
-        return bar
+        if bar == nil {
+            let made = KeyboardBarView(action: barAction) { [weak self] in self?.onReturn() }
+            made.onSelect = { [weak self] in self?.onSelect($0) }
+            bar = made
+        }
+        bar?.show(textBar)
     }
 }
 

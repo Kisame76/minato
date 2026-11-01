@@ -36,16 +36,35 @@ public enum ImeRequest: Sendable, Equatable {
     case hide(serial: Int64)
     /// The connection ended.
     case stop(serial: Int64)
+    /// The served view's visible rectangle, in the window's pixels (keyboard plan a).
+    case field(serial: Int64, FieldRect)
+    /// The served field's text (keyboard plan b).
+    case extract(serial: Int64, ExtractedField)
 
-    /// The request of `text`, or nil for any text but the four: "start\t<inputType>\t<imeOptions>\t<capsMode>\t
+    /// The request of `text`, or nil for any text but these: "start\t<inputType>\t<imeOptions>\t<capsMode>\t
     /// <selStart>\t<selEnd>\t<fieldId>\t<actionId>\t<actionLabel 1 or 0>\t<hint>" in decimal (the hint last, so it may
-    /// hold tabs), "show", "hide" and "stop".
+    /// hold tabs), "show", "hide", "stop", "field\t<serial>\t<l>\t<t>\t<r>\t<b>" and "extract\t<serial>\t..."
+    /// (ExtractedField), the last two naming the request's own serial.
     public init?(text: String, serial: Int64) {
         switch text {
         case "show": self = .show(serial: serial)
         case "hide": self = .hide(serial: serial)
         case "stop": self = .stop(serial: serial)
         default:
+            if text.hasPrefix("extract\t") {
+                let fields = text.split(separator: "\t", maxSplits: 9, omittingEmptySubsequences: false)
+                guard let field = ExtractedField(fields: Array(fields.dropFirst()), serial: serial) else { return nil }
+                self = .extract(serial: serial, field)
+                return
+            }
+            if text.hasPrefix("field\t") {
+                let fields = text.split(separator: "\t", omittingEmptySubsequences: false)
+                let numbers = fields.dropFirst().compactMap { Int64($0) }
+                guard fields.count == 6, numbers.count == 5, numbers[0] == serial else { return nil }
+                self = .field(serial: serial, FieldRect(left: Double(numbers[1]), top: Double(numbers[2]),
+                                                        right: Double(numbers[3]), bottom: Double(numbers[4])))
+                return
+            }
             let fields = text.split(separator: "\t", maxSplits: 9, omittingEmptySubsequences: false)
             guard fields.count == 10, fields[0] == "start" else { return nil }
             let numbers = fields[1...8].compactMap { Int32($0) }
@@ -142,7 +161,7 @@ public struct KeyboardTraits: Sendable, Equatable {
 
 /// What a text record asks of the connection (guest_interface.h's APKRT_TEXT_*; the app maps each to its constant).
 public enum TextOp: Sendable, Equatable {
-    case commit, deleteSurrounding, performAction, sendKey
+    case commit, deleteSurrounding, setSelection, performAction, sendKey
 }
 
 /// One text record for the guest's input channel (`struct apkrt_text_event`).
@@ -185,6 +204,10 @@ public struct SoftKeyboard: Sendable {
 
     private var serial: Int64 = 0
     private var editor: EditorSpec?
+    /// The live editor's text, from its last "extract" (keyboard plan b).
+    private var extracted: ExtractedField?
+    /// The live editor's view in the window's pixels, from its last "field" (keyboard plan a).
+    public private(set) var field: FieldRect?
     public private(set) var isShown = false
     /// A stop released the shown keyboard and no start has come since.
     private var released = false
@@ -201,6 +224,8 @@ public struct SoftKeyboard: Sendable {
         case .start(let serial, let editor):
             self.serial = serial
             self.editor = editor
+            extracted = nil
+            field = nil
             if isShown { return .update(KeyboardTraits(editor: editor)) }
             guard released else { return nil }
             released = false
@@ -217,10 +242,31 @@ public struct SoftKeyboard: Sendable {
         case .stop(let serial):
             guard editor != nil, serial == self.serial else { return nil }
             editor = nil
+            extracted = nil
+            field = nil
             guard resign() != nil else { return nil }
             released = true
             return .release
+        case .extract(let serial, let field):
+            // A stale serial's text is dropped: its connection has gone.
+            if editor != nil, serial == self.serial { extracted = field }
+            return nil
+        case .field(let serial, let rect):
+            if editor != nil, serial == self.serial { field = rect }
+            return nil
         }
+    }
+
+    /// The bar above the keyboard, once the live editor's text has come (keyboard plan b).
+    public var bar: TextBar? { extracted.map(TextBar.init) }
+
+    /// A tap in the bar at `offset`, in UTF-16 units of its text: the guest's cursor goes there, in the field's own
+    /// offsets, as Android's extract mode moves it (InputMethodService.onExtractedSelectionChanged); nothing for a
+    /// field that cannot be edited, or before its text has come.
+    public func select(at offset: Int) -> [TextRecord] {
+        guard let extracted, extracted.editable, isShown else { return [] }
+        let position = extracted.startOffset + Int32(min(max(offset, 0), extracted.text.utf16.count))
+        return [record(.setSelection, position, position)]
     }
 
     /// The release's time is up: whether the keyboard is to go, as no start came since the stop.

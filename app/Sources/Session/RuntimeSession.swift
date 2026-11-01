@@ -478,6 +478,7 @@ final class TextChannelSink {
             record.op = switch text.op {
             case .commit: Int32(APKRT_TEXT_COMMIT)
             case .deleteSurrounding: Int32(APKRT_TEXT_DELETE_SURROUNDING)
+            case .setSelection: Int32(APKRT_TEXT_SET_SELECTION)
             case .performAction: Int32(APKRT_TEXT_PERFORM_ACTION)
             case .sendKey: Int32(APKRT_TEXT_SEND_KEY)
             }

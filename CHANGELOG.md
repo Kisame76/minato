@@ -17,6 +17,8 @@ All notable changes to Minato are documented in this file. The format follows
   without importing it again
 - Android's action bar for apps with the default theme: the title, the options menu with its overflow, hiding and
   showing it, and action modes, as on Android 15
+- Above the on-screen keyboard, a bar shows the text of the field you type in, with its cursor; tap in it to move the
+  cursor
 
 ### Changed
 
