@@ -744,12 +744,12 @@ TEST(an_ime_field_and_extract_request_reach_the_handler_with_their_text) {
     take_requests();
     static const char field[] = "field\t7\t120\t-30\t1170\t900";
     // A hint and a text with tabs and new lines, which only the last field may hold.
-    static const char extract[] = "extract\t7\t3\t3\t0\t3\t5\thint\ta\tb\nc \xE2\x80\xA2";
+    static const char extract[] = "extract\t7\t0\t3\t3\t0\t3\t5\thint\ta\tb\nc \xE2\x80\xA2";
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address(field), 7) == 0);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address(extract), 7) == 0);
-    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address("extract\t7\t0\t0\t-1\t-1\t0\t\t"), 7) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address("extract\t7\t0\t0\t0\t-1\t-1\t0\t\t"), 7) == 0);
     // The cap of 4 KB around the selection is 4096 characters of up to four bytes.
-    const std::string big = "extract\t7\t0\t0\t-1\t-1\t1\t\t" + std::string(4 * 4096, 'x');
+    const std::string big = "extract\t7\t0\t0\t0\t-1\t-1\t1\t\t" + std::string(4 * 4096, 'x');
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address(big.c_str()), 7) == 0);
     const auto seen = take_requests();
     CHECK(seen.size() == 4);
@@ -765,7 +765,7 @@ TEST(a_malformed_ime_field_or_extract_request_is_refused_before_the_host_sees_it
         return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_IME, address(text.c_str()), serial);
     };
     CHECK(ask("field\t7\t1\t2\t3\t4") == 0);
-    CHECK(ask("extract\t7\t1\t2\t3\t4\t5\t\t") == 0);  // an empty hint and text
+    CHECK(ask("extract\t7\t0\t1\t2\t3\t4\t5\t\t") == 0);  // an empty hint and text
     take_requests();
     CHECK(ask("field") == -einval);
     CHECK(ask("field\t7\t1\t2\t3") == -einval);            // four numbers after the tag
@@ -773,12 +773,12 @@ TEST(a_malformed_ime_field_or_extract_request_is_refused_before_the_host_sees_it
     CHECK(ask("field\t7\t1\t2\t3\ta") == -einval);        // not a number
     CHECK(ask("field\t8\t1\t2\t3\t4") == -einval);        // another serial than the request's
     CHECK(ask("field\t7\t1\t2\t3\t4", 0) == -einval);     // no serial
-    CHECK(ask("extract\t7\t1\t2\t3\t4\t5\thint") == -einval);  // no tab before the text
-    CHECK(ask("extract\t7\t1\t2\t3\t4\thint\ttext") == -einval);  // five numbers
-    CHECK(ask("extract\t7\t1\t2\t3\t4\tx\thint\ttext") == -einval);  // not a number
-    CHECK(ask("extract\t9\t1\t2\t3\t4\t5\t\ttext") == -einval);  // another serial
-    CHECK(ask("extract\t7\t1\t2\t3\t4\t5\t\ttext", 0) == -einval);
-    CHECK(ask("extract\t7\t1\t2\t3\t4\t5\t\t" + std::string(4 * 4096 + 2048, 'x')) == -einval);  // too long
+    CHECK(ask("extract\t7\t0\t1\t2\t3\t4\t5\thint") == -einval);  // no tab before the text
+    CHECK(ask("extract\t7\t1\t2\t3\t4\t5\thint\ttext") == -einval);  // five numbers after the serial
+    CHECK(ask("extract\t7\t0\t1\t2\t3\t4\tx\thint\ttext") == -einval);  // not a number
+    CHECK(ask("extract\t9\t0\t1\t2\t3\t4\t5\t\ttext") == -einval);  // another serial
+    CHECK(ask("extract\t7\t0\t1\t2\t3\t4\t5\t\ttext", 0) == -einval);
+    CHECK(ask("extract\t7\t0\t1\t2\t3\t4\t5\t\t" + std::string(4 * 4096 + 2048, 'x')) == -einval);  // too long
     CHECK(ask("start\t1\t2\t3\t4\t5\t6\t7\t1\t" + std::string(520, 'x')) == -einval);  // a start keeps its limit
     CHECK(take_requests().empty());
 }

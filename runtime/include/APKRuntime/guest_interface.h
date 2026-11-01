@@ -457,9 +457,10 @@ enum apkrt_request_type {
                                    // not wanted), and for the host's text bar and its tap outside the field:
                                    // "field\t<serial>\t<l>\t<t>\t<r>\t<b>" (the served view's visible rectangle in
                                    // the window's pixels, with the start and again when it moves) and
-                                   // "extract\t<serial>\t<selStart>\t<selEnd>\t<composingStart>\t<composingEnd>\t
-                                   // <flags>\t<hint>\t<text>" (the text last, which may hold tabs and new lines, at
-                                   // most 4096 characters around the selection, the offsets in that text, -1 for no
+                                   // "extract\t<serial>\t<startOffset>\t<selStart>\t<selEnd>\t<composingStart>\t
+                                   // <composingEnd>\t<flags>\t<hint>\t<text>" (the text last, which may hold tabs and
+                                   // new lines, at most 4096 characters around the selection; startOffset is where it
+                                   // starts in the field's text, the other offsets are in the text sent, -1 for no
                                    // composing region; flags 1 editable, 2 password, 4 multi-line; a password's text is
                                    // as many bullets (U+2022) as it has characters, never its own; the host must not
                                    // log it). The host answers with text records for that serial

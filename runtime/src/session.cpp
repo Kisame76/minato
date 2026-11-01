@@ -774,12 +774,12 @@ bool valid_ime_field(std::string_view text, std::uint64_t serial) {
     return ime_number(text);  // the fifth number, the bottom, ends the text
 }
 
-/// Whether `text` is "extract", the connection's serial and five numbers (selStart, selEnd, composingStart,
+/// Whether `text` is "extract", the connection's serial and six numbers (startOffset, selStart, selEnd, composingStart,
 /// composingEnd, flags), a hint with no tab, and a tab and the text, which may hold tabs and new lines.
 bool valid_ime_extract(std::string_view text, std::uint64_t serial) {
     if (text.substr(0, 8) != "extract\t") return false;
     text.remove_prefix(8);
-    if (!ime_numbers(text, 6, serial)) return false;
+    if (!ime_numbers(text, 7, serial)) return false;
     return text.find('\t') != std::string_view::npos;  // after the hint
 }
 

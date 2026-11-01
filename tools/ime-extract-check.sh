@@ -4,8 +4,9 @@
 # framework.jar and ime-extract-test (seconds) every time, so it never tests an old binary; then starts ime-extract-test
 # through app_process in a session on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at scale 3 in en-US.
 # The guest asks its note field for its extracted text with GET_EXTRACTED_TEXT_MONITOR as a keyboard with a text bar
-# does, and tells the host where the field is (field) and what it holds (extract); the host plays a commit, a composing
-# text, its end and a selection (apk-run's text steps). The app's log is compared with
+# does, and tells the host where the field is (field) and what it holds (extract, with where its window of the text
+# starts); the host plays a commit, a composing text, its end and a selection (apk-run's text steps).
+# The app's log is compared with
 # fixtures/expected/ime-extract-test.logcat, which is the Android 15 emulator's with the fixture input method making the
 # same calls (tools/android-reference.sh), and the host must have heard of the field and of each extract in order, whose
 # selections and composing regions are those the fixture method's updates carried (ime-extract-test-device's lines);
@@ -34,13 +35,13 @@ python3 framework/tests/java_app_run.py \
   --in-order 'apk-run: ime 1: field\t1\t0\t0\t1290\t' \
   --in-order 'apk-run: ime 1: stop' --in-order 'apk-run: ime 2: start\t131073\t' \
   --in-order 'apk-run: ime 2: field\t2\t0\t0\t1290\t' \
-  --in-order 'apk-run: ime 2: extract\t2\t8\t8\t-1\t-1'"$head"'héllo 😀' \
-  --in-order 'apk-run: ime 2: extract\t2\t9\t9\t-1\t-1'"$head"'héllo 😀!' \
-  --in-order 'apk-run: ime 2: extract\t2\t11\t11\t9\t11'"$head"'héllo 😀!ab' \
-  --in-order 'apk-run: ime 2: extract\t2\t11\t11\t-1\t-1'"$head"'héllo 😀!ab' \
-  --in-order 'apk-run: ime 2: extract\t2\t2\t4\t-1\t-1'"$head"'héllo 😀!ab' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t8\t8\t-1\t-1'"$head"'héllo 😀' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t9\t9\t-1\t-1'"$head"'héllo 😀!' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t11\t11\t9\t11'"$head"'héllo 😀!ab' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t11\t11\t-1\t-1'"$head"'héllo 😀!ab' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t2\t4\t-1\t-1'"$head"'héllo 😀!ab' \
   --in-order 'apk-run: ime 2: stop' --in-order 'apk-run: ime 3: start\t129\t' \
-  --in-order 'apk-run: ime 3: extract\t3\t6\t6\t-1\t-1\t3\t\t••••••' \
+  --in-order 'apk-run: ime 3: extract\t3\t0\t6\t6\t-1\t-1\t3\t\t••••••' \
   --never 'secret' \
   --lifecycle "$steps" \
   ime-extract-test io.github.kisame76.minato.test.imeextract android.app.Application \

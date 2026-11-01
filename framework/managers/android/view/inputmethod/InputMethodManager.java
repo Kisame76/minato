@@ -298,9 +298,9 @@ class InputMethodManager {
         }
 
         /**
-         * The host's "extract": the selection and composing region in the text sent, which is at most EXTRACT_CHARS
-         * characters around the selection, and the flags. A password's text is only as many bullets as it has
-         * characters. The text is not logged.
+         * The host's "extract": where the text sent starts in the field's text, the selection and composing region in
+         * the text sent, which is at most EXTRACT_CHARS characters around the selection, and the flags. A password's
+         * text is only as many bullets as it has characters. The text is not logged.
          */
         private void sendExtract() {
             final String request;
@@ -347,8 +347,8 @@ class InputMethodManager {
                 } else {
                     shown = mText.substring(from, to);
                 }
-                request = "extract\t" + mSerial + "\t" + (selStart - from) + "\t" + (selEnd - from) + "\t"
-                        + relative(mComposingStart - mTextStart, from, to) + "\t"
+                request = "extract\t" + mSerial + "\t" + (mTextStart + from) + "\t" + (selStart - from) + "\t"
+                        + (selEnd - from) + "\t" + relative(mComposingStart - mTextStart, from, to) + "\t"
                         + relative(mComposingEnd - mTextStart, from, to) + "\t" + flags + "\t" + hintOf(mInfo) + "\t"
                         + shown;
                 if (request.equals(mLastExtract)) {
