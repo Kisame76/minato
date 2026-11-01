@@ -52,7 +52,10 @@
 # (build/fixtures/apks/rotation-test.apk), whose activity handles a turn itself: game mode turns its scene to
 # landscape and back, as a turned device would, and the app ends itself after the second turn; its log must be
 # Android 15's (fixtures/expected/rotation-test.logcat) but for test 7's departure, its window must take the
-# turned size and then the size at start again, and its callbacks must turn the same window twice. AUDIO_LIVE=1
+# turned size and then the size at start again, and its callbacks must turn the same window twice. RESIZE=1 runs
+# decision 12 b of ADR-0041 with rotation-test, which does not handle a fold's change: game mode takes a smaller size
+# 2 s after the start, and the guest keeps its own in a letterbox, as Android 15's size compat places it, with no
+# callback. AUDIO_LIVE=1
 # runs audio-live (build/fixtures/apks/audio-live.apk), a guest stream playing a sine until Quit: Home and back,
 # then the audio host disconnects its stream as a reroute that changes the rate would, and the menu quits it 5 s
 # later. Its log must be Android 15's (fixtures/expected/audio-live.logcat), with the error callback, the close
@@ -92,6 +95,7 @@
 #   GUEST_AUDIO only the rounds of aaudio-test and opensl-test
 #   PORTRAIT    only the round of the library's orientation
 #   ROTATION    only test 3 of ADR-0038, with rotation-test
+#   RESIZE      only decision 12 b of ADR-0041: rotation-test kept at its size at a fold's size, letterboxed
 #   AUDIO_LIVE  only the round of audio-live
 #   WINDOW      only test 3 of ADR-0043, with window-test
 #   ANGLE_VULKAN  only ADR-0044 c2's rounds on ANGLE's Vulkan backend; with LIVE, gles-live is installed once and
@@ -160,7 +164,7 @@ if [[ -n "${ACTIVITY_SET:-}" ]]; then
 fi
 [[ -z "${ACTIVITY:-}${GUEST_ENV:-}" ]] || GUEST_APPS+="$ACTIVITY_PKG $ACTIVITY_APK"$'\n'
 [[ -z "${LIVE:-}" ]] || GUEST_APPS+="$GLES_LIVE_PKG build/fixtures/apks/gles-live.apk"$'\n'
-[[ -z "${ROTATION:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
+[[ -z "${ROTATION:-}${RESIZE:-}" ]] || GUEST_APPS+="$ROTATION_PKG build/fixtures/apks/rotation-test.apk"$'\n'
 [[ -z "${AUDIO_LIVE:-}" ]] || GUEST_APPS+="$AUDIO_LIVE_PKG build/fixtures/apks/audio-live.apk"$'\n'
 [[ -z "${WINDOW:-}" ]] || GUEST_APPS+="$WINDOW_PKG build/fixtures/apks/window-test.apk"$'\n'
 [[ -z "${SHADERS:-}" ]] || GUEST_APPS+="$SHADER_BENCH_PKG build/fixtures/apks/shader-bench.apk"$'\n'
@@ -1104,6 +1108,46 @@ run_activity() {
   fi
 }
 
+# Decision 12 b of ADR-0041: a size the session's app does not handle, as the iPhone Duo's fold gives one.
+# rotation-test turns itself (orientation|screenSize) but declares neither the smallest width nor the screen layout,
+# so its guest keeps its size: 2 s after the start the request "resize" hands game mode a smaller size, and the guest
+# shows in a letterbox as Android 15's size compat places it (scaled down, centered across, at the top), with no
+# callback; the menu quits it.
+RESIZE_TO=1206x1700
+run_resize() {
+  begin_round "decision 12 b of ADR-0041: rotation-test kept at its size" || return 0
+  rm -f "$CHECK/no-guest"
+  echo "$ROTATION_PKG" > "$CHECK/tap"
+  echo "$RESIZE_TO" > "$CHECK/resize"
+  echo 4 > "$CHECK/quit"
+  send_requests
+  launch
+  await_event "process gameMode $ROTATION_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
+  local pid start expected
+  pid=$(pid_of "$EVENT")
+  await_event "start window [0-9]+x[0-9]+" && start=${EVENT##* } || { abort_round "no start window"; return; }
+  # ActivityRecord's scale and place, in Float as the bridge computes them.
+  expected=$(python3 - "$start" "$RESIZE_TO" <<'EOF'
+import math, struct, sys
+f = lambda x: struct.unpack("f", struct.pack("f", x))[0]
+(gw, gh), (ww, wh) = ([int(n) for n in a.split("x")] for a in sys.argv[1:3])
+scale = f(1.0) if gw <= ww and gh <= wh else min(f(f(ww) / f(gw)), f(f(wh) / f(gh)))
+width, height = int(f(f(f(gw) * scale) + 0.5)), int(f(f(f(gh) * scale) + 0.5))
+left = max(0, math.ceil(f(f(ww - width) * 0.5)))
+print(f"guest {gw}x{gh} letterbox {left},0,{left + width},{height} scale {scale:.4f}")
+EOF
+)
+  await_event "resize .*" 20 || { abort_round "no resize"; return; }
+  expect "  the guest keeps its size, letterboxed" "resize $RESIZE_TO $expected" "$(event_of "$EVENT")"
+  shot "resize-letterboxed" 1
+  if await_event "process library.*" 30; then
+    expect "  Quit returns to the library" "process library" "$(event_of "$EVENT")"
+  else
+    fail "  no library after Quit"
+  fi
+  expect "  no callback for the size" "$START $MENU $QUIT" "$(callbacks_of "$pid")"
+}
+
 # Test 3 of ADR-0038: rotation-test turns to landscape and back with the session, on the same window, and ends
 # itself after the second turn.
 run_rotation() {
@@ -1575,7 +1619,7 @@ if [[ -n "${BY_HAND:-}" && "$ON_DEVICE" == yes ]]; then
 fi
 
 if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLUCENT:-}${GUEST_ENV:-}${LIVE:-}" ||
-      -n "${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}${WINDOW:-}" ||
+      -n "${LIVE_BY_HAND:-}${GUEST_AUDIO:-}${PORTRAIT:-}${ROTATION:-}${AUDIO_LIVE:-}${WINDOW:-}${RESIZE:-}" ||
       -n "${ANGLE_VULKAN:-}${SHADERS:-}" ]]; then
   [[ -n "${TOUCH:-}" ]] && run_touch
   [[ -n "${FRAMES:-}" ]] && run_frames
@@ -1587,6 +1631,7 @@ if [[ -n "${TOUCH:-}${FRAMES:-}${ENDS:-}${AUDIO:-}${FPS:-}${ACTIVITY:-}${TRANSLU
   [[ -n "${TRANSLUCENT:-}" ]] && run_translucent
   [[ -n "${GUEST_ENV:-}" ]] && run_guest_env
   [[ -n "${ROTATION:-}" ]] && run_rotation
+  [[ -n "${RESIZE:-}" ]] && run_resize
   [[ -n "${AUDIO_LIVE:-}" ]] && run_audio_live
   [[ -n "${WINDOW:-}" ]] && run_window
   if [[ -n "${SHADERS:-}" ]]; then
