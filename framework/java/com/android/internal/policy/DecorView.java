@@ -12,6 +12,7 @@ package com.android.internal.policy;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
@@ -37,6 +38,10 @@ public class DecorView extends FrameLayout {
     ViewGroup mContentRoot;
     /** As AOSP's: what the app asks of the insets controller before the attach, which ViewRootImpl.setView replays. */
     private final PendingInsetsController mPendingInsetsController = new PendingInsetsController();
+    /** As AOSP's: the window background's padding, which pads the decor. */
+    private final Rect mBackgroundPadding = new Rect();
+    /** The keyboard's ime() inset that pads the decor's bottom beside the background's (onApplyWindowInsets). */
+    private int mImeBottom;
 
     /**
      * As AOSP's for a floating window's WRAP_CONTENT (ADR-0041 gap 4 (b)): the theme's fixed width and height, in
@@ -122,6 +127,14 @@ public class DecorView extends FrameLayout {
     public void setWindowBackground(Drawable drawable) {
         if (getBackground() != drawable) {
             super.setBackgroundDrawable(drawable);
+            if (drawable != null) {
+                drawable.getPadding(mBackgroundPadding);
+            } else {
+                mBackgroundPadding.setEmpty();
+            }
+            if (mImeBottom != 0) {
+                padBottom();
+            }
             if (mWindow != null) {
                 drawableChanged();
             }
@@ -277,8 +290,9 @@ public class DecorView extends FrameLayout {
      * As Android's for a window that is not edge to edge (target SDK below 35 or the theme's opt-out) with
      * SOFT_INPUT_ADJUST_RESIZE: the keyboard's ime() inset takes room from the content, whose views are laid out above
      * the keyboard. On Android the window manager shrinks the window's frame; here the decor pads its bottom, which
-     * lays out and draws the same (ADR-0068 step 2d). Every other window leaves the inset to its views, as one that is
-     * edge to edge does. The views still get the ime() inset in the insets they apply.
+     * lays out and draws the same (ADR-0068 step 2d), below the background's padding, which a floating window's
+     * background has. Every other window leaves the inset to its views, as one that is edge to edge does. The views
+     * still get the ime() inset in the insets they apply.
      */
     @Override
     @SuppressWarnings("deprecation")
@@ -286,11 +300,17 @@ public class DecorView extends FrameLayout {
         final int adjust = mWindow.getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST;
         final boolean resize = !mWindow.isEdgeToEdgeEnforced()
                 && adjust == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
-        final int bottom = resize ? insets.getInsets(WindowInsets.Type.ime()).bottom : 0;
-        if (getPaddingBottom() != bottom) {
-            setPadding(getPaddingLeft(), getPaddingTop(), getPaddingRight(), bottom);
+        final int ime = resize ? insets.getInsets(WindowInsets.Type.ime()).bottom : 0;
+        if (ime != mImeBottom) {
+            mImeBottom = ime;
+            padBottom();
         }
         return super.onApplyWindowInsets(insets);
+    }
+
+    /** The decor's bottom padding: the background's, as AOSP's drawableChanged sets it, and the keyboard's. */
+    private void padBottom() {
+        setPadding(getPaddingLeft(), getPaddingTop(), getPaddingRight(), mBackgroundPadding.bottom + mImeBottom);
     }
 
     /** As AOSP's: the pending controller until the window is attached, then the window's own. */

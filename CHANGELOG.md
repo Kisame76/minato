@@ -33,3 +33,4 @@ All notable changes to Minato are documented in this file. The format follows
 - An app whose engine library cannot run is marked incompatible, with the reason, instead of starting to a black
   screen
 - Apps that ask how they were installed no longer crash
+- Dialog-styled screens have their full height again
