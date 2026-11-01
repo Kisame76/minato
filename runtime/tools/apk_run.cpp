@@ -86,7 +86,7 @@
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set);
-//   back        (ADR-0041 decision 10) the system's back without a gesture, as the App's overlay menu sends it:
+//   back        (ADR-0041 decision 10) the system's back without a gesture, as a button sends it:
 //               APKRT_EVENT_BACK with COMMIT, progress 0 and EDGE_LEFT, whose answer it does not wait for. The guest's
 //               BACK_AT_ROOT request, where Android moves the task to the back and the App opens its menu, prints
 //               "apk-run: back at root" on stderr and plays nothing.

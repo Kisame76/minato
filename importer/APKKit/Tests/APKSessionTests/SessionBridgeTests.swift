@@ -713,7 +713,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
     }
 
-    /// The system's back (ADR-0041 decision 10), as the menu's Back sends it: posted while the app runs, not after its
+    /// The system's back (ADR-0041 decision 10), as a button sends it: posted while the app runs, not after its
     /// end.
     @Test func theSystemsBackIsPostedWhileTheAppRuns() throws {
         let host = FakeHost()

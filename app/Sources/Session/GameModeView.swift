@@ -66,10 +66,6 @@ struct GameModeView: View {
                 // Not the cancel role: iOS leaves that button out of the dialog, and a tap beside it closes
                 // the menu anyway.
                 Button("Continue") { session.closeMenu() }
-                // Android's back button (ADR-0041 decision 10); a back at the task's root opened this menu itself.
-                if !session.menuIsAtRoot {
-                    Button("Back") { session.back() }
-                }
                 Button(session.showsFPS ? "Hide FPS" : "Show FPS") {
                     session.showFPS(!session.showsFPS)
                     session.closeMenu()

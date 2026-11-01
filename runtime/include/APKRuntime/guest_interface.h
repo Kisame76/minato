@@ -300,7 +300,7 @@ enum apkrt_event_type {
                                           // makes the ime() inset of every window from the last one
     APKRT_EVENT_BACK,                     // the system's back (ADR-0041 decision 10): a0 the phase, enum
                                           // apkrt_back_phase; a1 the progress in 1/10000 (0 to 10000); a2 the edge,
-                                          // BackEvent's EDGE_LEFT 0 or EDGE_RIGHT 1. The overlay menu's Back posts
+                                          // BackEvent's EDGE_LEFT 0 or EDGE_RIGHT 1. A back without a gesture posts
                                           // COMMIT alone (progress 0, EDGE_LEFT), which the guest handles as Android's
                                           // BACK key; the edge gesture posts START, PROGRESS..., then COMMIT or
                                           // CANCEL. The guest's top OnBackInvokedCallback gets it, or the compat
@@ -309,7 +309,7 @@ enum apkrt_event_type {
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and
 /// BackEvent: a predictive-back gesture runs START, PROGRESS (repeated), then COMMIT or CANCEL, while a plain
-/// back (a button, or the overlay menu's Back) is COMMIT on its own.
+/// back (a button) is COMMIT on its own.
 enum apkrt_back_phase {
     APKRT_BACK_START = 1,
     APKRT_BACK_PROGRESS,

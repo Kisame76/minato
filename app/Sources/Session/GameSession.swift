@@ -16,8 +16,7 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "sess
 final class GameSession {
     let entry: LibraryEntry
     private(set) var menuIsOpen = false
-    /// The menu opened for a back at the task's root (ADR-0041 decision 10): its Quit leaves the app stopped, and it
-    /// has no Back of its own.
+    /// The menu opened for a back at the task's root (ADR-0041 decision 10): its Quit leaves the app stopped.
     private(set) var menuIsAtRoot = false
     private(set) var showsHint: Bool
     /// The FPS label is on (ADR-0032, decision 9); off by default, since it makes Core Animation composite
@@ -530,9 +529,9 @@ final class GameSession {
         if softKeyboard.isShown, let textView, !textView.isFirstResponder { textView.becomeFirstResponder() }
     }
 
-    /// "Back" in the menu (ADR-0041 decision 10): the system's back, as Android's back button gives it, once the menu
-    /// has given the focus back. With UIKit's keyboard up it only puts the keyboard away, as Android's input method
-    /// takes the first BACK.
+    /// The system's back (ADR-0041 decision 10), as Android's back button gives it, for the edge gesture (step b2),
+    /// once a menu that is open has given the focus back. With UIKit's keyboard up it only puts the keyboard away, as
+    /// Android's input method takes the first BACK.
     func back() {
         let keyboardTook = softKeyboard.takesBack()
         closeMenu()

@@ -13,7 +13,6 @@ All notable changes to Minato are documented in this file. The format follows
   it can play, as on a phone without sounds set, instead of crashing
 - Games made with Ren'Py are recognized as such at import
 - AAC audio through MediaCodec, for apps that decode their music and sounds themselves
-- Back in the overlay menu, which closes the current screen as Android's back button does
 
 ### Changed
 

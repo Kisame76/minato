@@ -3,7 +3,7 @@
 # legacy back) and back-test-callback (opted in to OnBackInvokedCallback): it builds apk-run and apk-convert for macOS
 # into build/native/macos-app, app_process with libandroid_runtime.so (incremental), framework.jar and the apps every
 # time, then starts each app through app_process in a session on the M4 plan's display, the iPhone 15 Pro Max's
-# 1290 x 2796 px at scale 3 in en-US. The host sends the back that Minato's overlay menu sends (apk-run's back step):
+# 1290 x 2796 px at scale 3 in en-US. The host sends the system's back without a gesture (apk-run's back step):
 # three for back-test, which pop Second's fragment, finish Second and reach Root, whose back the host must hear as
 # BACK_AT_ROOT ("apk-run: back at root"), where Android moves the task to the back and Minato opens its menu, and four
 # for back-test-callback, whose third goes to Root's own callback and its fourth to Root's default one. Each app's log
