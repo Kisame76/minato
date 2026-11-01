@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- views-test-fonts: views-test-default with a TextView below the Button in Hebrew, Arabic, Thai, Devanagari and colour
+     emoji (the guest's script and emoji fonts), and a label that draws its text, a block of color and a view that
+     draws a Bitmap, drawn in software (hardwareAccelerated="false") in colors of the test's own, edge to edge with the
+     system bars shown; the label's text changes once the window has the focus. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.views" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:hardwareAccelerated="false">
+    <activity android:name="io.github.kisame76.minato.test.views.ViewsActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

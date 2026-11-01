@@ -885,10 +885,11 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.javatest.JavaActivity
       ;;
     # views-test (ADR-0043 step c3, test 1; views-test-default is its twin in the default theme, whose action bar the
-    # screen shows too): its activity draws in software, changes its label's text once it has the
+    # screen shows too, and views-test-fonts adds a text in Hebrew, Arabic, Thai, Devanagari and emoji): its activity
+    # draws in software, changes its label's text once it has the
     # focus, and logs "done" after the draw that follows the click of the script's tap on its Button; its screen follows
     # its log.
-    views-test | views-test-default)
+    views-test | views-test-default | views-test-fonts)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.views.ViewsActivity
       ;;

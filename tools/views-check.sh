@@ -31,7 +31,7 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 
 failed=0
-for APP in views-test views-test-default; do
+for APP in views-test views-test-default views-test-fonts; do
   for expected in fixtures/expected/$APP.logcat fixtures/expected/$APP.rgba.gz fixtures/expected/$APP.rows; do
     if [[ ! -f "$expected" ]]; then
       echo "FAIL: no $expected: run tools/android-reference.sh --app $APP"

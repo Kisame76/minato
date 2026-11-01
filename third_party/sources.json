@@ -1144,6 +1144,35 @@
       "digest": "1479539ee506c708c2492f0efcad5a41ea7446787faed15eb7ad279fa7d96480"
     },
     {
+      "name": "noto_fonts",
+      "project": "platform/external/noto-fonts",
+      "commit": "1763da7de494446263d6e6b7b9e9328eac8ecdd8",
+      "license": "OFL-1.1 (per font; NOTICE of each folder)",
+      "files": [
+        "notonaskharabic/NOTICE",
+        "notonaskharabic/NotoNaskhArabic-Regular.ttf",
+        "notosanshebrew/NOTICE",
+        "notosanshebrew/1.04/NotoSansHebrew-Regular.ttf",
+        "notosansthai/NOTICE",
+        "notosansthai/NotoSansThai-Regular.ttf",
+        "notosansdevanagari/NOTICE",
+        "notosansdevanagari/NotoSansDevanagari-VF.ttf"
+      ],
+      "digest": "4bd16fc3e5dcc239ea45f6180af710201a8b9b2747fc9b2582124c14a1985ab8"
+    },
+    {
+      "name": "noto_emoji",
+      "project": "googlefonts/noto-emoji",
+      "commit": "d79d23e6822e0f6e5731b114cbfb26b2a4e380da",
+      "license": "OFL-1.1 (fonts/LICENSE)",
+      "raw": "https://raw.githubusercontent.com/googlefonts/noto-emoji/d79d23e6822e0f6e5731b114cbfb26b2a4e380da",
+      "files": [
+        "fonts/LICENSE",
+        "fonts/Noto-COLRv1-noflags.ttf"
+      ],
+      "digest": "35e0349c7012da60a66981eb3e15962d1b5a7d495817acc4e8be3485d1f12116"
+    },
+    {
       "name": "roboto_fonts",
       "project": "platform/external/roboto-fonts",
       "commit": "4029d6e45cb3ed68e3141332f91ce6ea561c0e1d",

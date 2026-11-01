@@ -43,6 +43,8 @@ public class ViewsActivity extends Activity {
     private boolean mLaidOut;
     private boolean mChanged;
     private Button mButton;
+    private final java.util.ArrayList<TextView> mScripts = new java.util.ArrayList<>();
+    private final java.util.ArrayList<String> mScriptNames = new java.util.ArrayList<>();
     private boolean mTouched;
     private boolean mClicked;
     private boolean mSettled;
@@ -87,6 +89,27 @@ public class ViewsActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         params.topMargin = dp(24);
         mColumn.addView(mButton, params);
+        if (TAG.endsWith("-fonts")) {
+            // views-test-fonts: the scripts and the emoji that the system fonts of Android 15 cover (Hebrew, Arabic,
+            // Thai, Devanagari, colour emoji), each in a TextView of its own in the default typeface, below the Button
+            // where the bounds above stay.
+            final String[] names = {"hebrew", "arabic", "thai", "hindi", "emoji"};
+            final String[] texts = {"\u05E9\u05DC\u05D5\u05DD", "\u0645\u0631\u062D\u0628\u0627",
+                "\u0E2A\u0E27\u0E31\u0E2A\u0E14\u0E35", "\u0928\u092E\u0938\u094D\u0924\u0947",
+                "\uD83D\uDE00\uD83C\uDF89\uD83D\uDC31"};
+            for (int i = 0; i < names.length; i++) {
+                TextView script = new TextView(this);
+                script.setText(texts[i]);
+                script.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+                script.setTextColor(0xFF1A2B3C);
+                params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                params.topMargin = dp(8);
+                mColumn.addView(script, params);
+                mScripts.add(script);
+                mScriptNames.add(names[i]);
+            }
+        }
         setContentView(mColumn);
         mColumn.getViewTreeObserver().addOnGlobalLayoutListener(this::laidOut);
         mColumn.getViewTreeObserver().addOnDrawListener(this::drawing);
@@ -146,6 +169,14 @@ public class ViewsActivity extends Activity {
         Log.i(TAG, "textview bounds " + bounds(mColumn.getChildAt(3)));
         Log.i(TAG, "button bounds " + bounds(mButton));
         Log.i(TAG, "text advance " + mLabel.advance());
+        for (int i = 0; i < mScripts.size(); i++) {
+            // views-test-fonts: where each script's TextView is laid out, and its widths.
+            final TextView script = mScripts.get(i);
+            Log.i(TAG, mScriptNames.get(i) + " bounds " + bounds(script));
+            Log.i(TAG, mScriptNames.get(i) + " desired "
+                    + android.text.Layout.getDesiredWidth(script.getText(), script.getPaint()) + ", layout width "
+                    + script.getLayout().getWidth() + ", line width " + script.getLayout().getLineWidth(0));
+        }
     }
 
     /** The window's insets, once the bars have settled. */

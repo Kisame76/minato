@@ -37,8 +37,8 @@ from canvas_compare import compare  # noqa: E402
 
 POST = re.compile(r"^(\d+) window (\d+) (\d+)x(\d+) format (\d+) dirty (-?\d+) (-?\d+) (-?\d+) (-?\d+)$")
 ROWS = re.compile(r"^width (\d+) height (\d+) top (\d+) bottom (\d+)$")
-INSETS = re.compile(r"views-test(?:-default)?-device: insets top (\d+) bottom (\d+)$")
-VIEW_BOUNDS = re.compile(r"views-test(?:-default)?: (\w+) bounds (\d+) (\d+) (\d+) (\d+)$")
+INSETS = re.compile(r"views-test(?:-default|-fonts)?-device: insets top (\d+) bottom (\d+)$")
+VIEW_BOUNDS = re.compile(r"views-test(?:-default|-fonts)?: (\w+) bounds (\d+) (\d+) (\d+) (\d+)$")
 RGBA_8888 = 1
 RGBX_8888 = 2
 

@@ -457,7 +457,7 @@ stand in their components' license lines.
 
 ## Guest fonts (ADR-0043 test 2)
 
-From the graphics set above. The guest's `/system/fonts` holds these 4 fonts (6.8 MB), and its `/system/etc` our cuts of
+From the graphics set above. The guest's `/system/fonts` holds these fonts (9.6 MB), and its `/system/etc` our cuts of
 AOSP's two font lists, `graphics/fonts/fonts.xml` and `font_fallback.xml` (Apache-2.0, as the originals; each names its
 source). `tools/build-bionic.sh` puts them into `build/bionic/system` (`graphics/fonts/fonts.cmake`), and the app
 carries them in `Guest/system` (`tools/embed-guest-system.sh`).
@@ -466,6 +466,8 @@ carries them in `Guest/system` (`tools/embed-guest-system.sh`).
 |---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 (`data/fonts/NOTICE`) | from `data/fonts`: `DroidSansMono.ttf`, `DroidSansFallbackFull.ttf`, and `fonts.xml` and `font_fallback.xml`, which ours are cut from |
 | `platform/external/roboto-fonts` | `4029d6e45cb3` | Apache-2.0 (`NOTICE`) | `Roboto-Regular.ttf`, `RobotoStatic-Regular.ttf` |
+| `platform/external/noto-fonts` | `1763da7de494` | OFL-1.1 (`NOTICE` of each folder, copied to `third_party/fonts/`) | `NotoNaskhArabic-Regular.ttf`, `NotoSansHebrew-Regular.ttf` (1.04), `NotoSansThai-Regular.ttf`, `NotoSansDevanagari-VF.ttf` |
+| `googlefonts/noto-emoji` | tag `v2.042`, `d79d23e6822e` | OFL-1.1 (`fonts/LICENSE`, copied to `third_party/fonts/`) | `fonts/Noto-COLRv1-noflags.ttf`, the COLRv1 emoji font of Android 15 without flags, installed as `NotoColorEmoji.ttf` |
 
 ## Test 2 with Godot (ADR-0042)
 

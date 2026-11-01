@@ -243,6 +243,43 @@
     <alias name="sans-serif-monospace" to="monospace" />
     <alias name="monaco" to="monospace" />
 
+    <!-- Minato (ADR-0043 decision 5): Arabic, Hebrew, Thai, Devanagari and colour emoji as Android 15 lists them, with the fonts we ship only (no bold, serif or UI cuts, no flags). -->
+    <family lang="und-Arab" variant="elegant">
+        <font weight="400" style="normal" postScriptName="NotoNaskhArabic">
+            NotoNaskhArabic-Regular.ttf
+        </font>
+    </family>
+    <family lang="und-Hebr">
+        <font weight="400" style="normal" postScriptName="NotoSansHebrew">
+            NotoSansHebrew-Regular.ttf
+        </font>
+    </family>
+    <family lang="und-Thai" variant="elegant">
+        <font weight="400" style="normal" postScriptName="NotoSansThai">NotoSansThai-Regular.ttf
+        </font>
+    </family>
+    <family lang="und-Deva" variant="elegant">
+        <font weight="400" style="normal" postScriptName="NotoSansDevanagari-Regular">
+            NotoSansDevanagari-VF.ttf
+            <axis tag="wght" stylevalue="400"/>
+        </font>
+        <font weight="500" style="normal" postScriptName="NotoSansDevanagari-Regular">
+            NotoSansDevanagari-VF.ttf
+            <axis tag="wght" stylevalue="500"/>
+        </font>
+        <font weight="600" style="normal" postScriptName="NotoSansDevanagari-Regular">
+            NotoSansDevanagari-VF.ttf
+            <axis tag="wght" stylevalue="600"/>
+        </font>
+        <font weight="700" style="normal" postScriptName="NotoSansDevanagari-Regular">
+            NotoSansDevanagari-VF.ttf
+            <axis tag="wght" stylevalue="700"/>
+        </font>
+    </family>
+    <family lang="und-Zsye">
+        <font weight="400" style="normal">NotoColorEmoji.ttf</font>
+    </family>
+
     <!-- Minato (ADR-0043 decision 5): the last fallback for every other script, CJK among them. -->
     <family>
         <font weight="400" style="normal">DroidSansFallbackFull.ttf</font>
