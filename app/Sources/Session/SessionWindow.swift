@@ -429,8 +429,8 @@ final class SoftKeyboardView: UIView, UIKeyInput {
     var onInsert: (String) -> Void = { _ in }
     var onDelete: () -> Void = {}
     var onReturn: () -> Void = {}
-    /// UIKit took the keyboard away without the guest asking (the bar's key, an iPad's dismiss key, another first
-    /// responder).
+    /// UIKit took the keyboard away without the guest asking (a tap outside the field, an iPad's dismiss key, another
+    /// first responder).
     var onDismissed: () -> Void = {}
 
     var keyboardType: UIKeyboardType = .default
@@ -537,29 +537,22 @@ final class SoftKeyboardView: UIView, UIKeyInput {
         bar = keyboardBar(traits.barAction)
     }
 
-    /// The bar: the key that puts the keyboard away at the left, and the return key's action, if any, at the right as
-    /// the return key is. The guest hears of it as of an iPad's dismiss key: its field keeps the focus, and a tap on it
-    /// shows the keyboard again.
-    private func keyboardBar(_ action: ReturnKeyKind?) -> UIToolbar {
+    /// The bar of the pads, which have no return key: its action at the right, as the return key is; none for the other
+    /// keyboards. A tap outside the field puts the keyboard away (ADR-0068 a, OutsideTap).
+    private func keyboardBar(_ action: ReturnKeyKind?) -> UIToolbar? {
+        guard let action else { return nil }
         let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
-        let hide = UIBarButtonItem(image: UIImage(systemName: "chevron.down"),
-                                   primaryAction: UIAction { [weak self] _ in _ = self?.resignFirstResponder() })
-        hide.accessibilityLabel = "Hide Keyboard"
-        var items = [hide, UIBarButtonItem(systemItem: .flexibleSpace)]
-        if let action {
-            let title = switch action {
-            case .standard: "Return"
-            case .go: "Go"
-            case .search: "Search"
-            case .send: "Send"
-            case .next: "Next"
-            case .done: "Done"
-            }
-            let button = UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.onReturn() })
-            button.style = .prominent
-            items.append(button)
+        let title = switch action {
+        case .standard: "Return"
+        case .go: "Go"
+        case .search: "Search"
+        case .send: "Send"
+        case .next: "Next"
+        case .done: "Done"
         }
-        bar.items = items
+        let button = UIBarButtonItem(title: title, primaryAction: UIAction { [weak self] _ in self?.onReturn() })
+        button.style = .prominent
+        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), button]
         bar.sizeToFit()
         return bar
     }

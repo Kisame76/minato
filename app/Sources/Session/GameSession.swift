@@ -65,6 +65,8 @@ final class GameSession {
 
     /// The guest's touches (ADR-0036, decision 3), and where they go.
     @ObservationIgnored private var touches = TouchTranslator(scale: 1)
+    /// Whether a touch was a tap outside the focused field, which hides the keyboard (ADR-0068 a).
+    @ObservationIgnored private var outsideTap = OutsideTap()
     @ObservationIgnored private let motionSink = InputChannelSink()
     /// The hardware keyboard's keys (ADR-0068 step 7c2), and where they go.
     @ObservationIgnored private var keyboard = HardwareKeyboard()
@@ -604,6 +606,25 @@ final class GameSession {
         #endif
         touches.scale = scale
         post(touches.translate(phase, changes))
+        switch outsideTap.touched(phase, changes, keyboardShown: softKeyboard.isShown) {
+        case .none:
+            break
+        case .hide:
+            hideForTap()
+        case .hideAfterGrace(let token):
+            DispatchQueue.main.asyncAfter(deadline: .now() + OutsideTap.grace) { [weak self] in
+                guard let self, outsideTap.graceEnded(token) else { return }
+                hideForTap()
+            }
+        }
+    }
+
+    /// A tap outside the field (ADR-0068 a): UIKit's keyboard goes as by the user's hide, which the guest hears of.
+    private func hideForTap() {
+        #if DEBUG
+        SessionCheck.event("keyboard tapped away")
+        #endif
+        _ = textView?.resignFirstResponder()
     }
 
     /// A press callback of a hardware keyboard's keys, on the main thread.
@@ -673,9 +694,9 @@ final class GameSession {
 
     /// The guest's input method (ADR-0068 step 2c): UIKit's keyboard follows its served editor.
     private func imeRequested(serial: Int64, text: String) {
-        guard let request = ImeRequest(text: text, serial: serial), let command = softKeyboard.handle(request) else {
-            return
-        }
+        guard let request = ImeRequest(text: text, serial: serial) else { return }
+        if case .show = request { outsideTap.showRequested() }
+        guard let command = softKeyboard.handle(request) else { return }
         #if DEBUG
         SessionCheck.event("keyboard \(command)")
         #endif
@@ -692,8 +713,8 @@ final class GameSession {
         }
     }
 
-    /// UIKit took the keyboard away on its own: the bar's key, an iPad's dismiss key. The menu's sheet and the
-    /// background give it back afterwards, so they change nothing.
+    /// UIKit took the keyboard away on its own: a tap outside the field (hideForTap), an iPad's dismiss key. The menu's
+    /// sheet and the background give it back afterwards, so they change nothing.
     private func keyboardDismissed() {
         guard !menuIsOpen, UIApplication.shared.applicationState == .active, softKeyboard.isShown else { return }
         softKeyboard.userHid()

@@ -18,7 +18,8 @@ All notable changes to Minato are documented in this file. The format follows
 
 ### Changed
 
-- The on-screen keyboard has a button to put it away, as Android's back gesture does while a keyboard is up
+- A tap outside the on-screen keyboard puts it away, as many iPhone apps do, while a drag or a scroll keeps it up;
+  the button above the keyboard is gone
 - An app that cannot start because a library it needs does not load says why in one line, following the chain of
   libraries to the one that fails ("it needs libpython2.7.so, which cannot load: …")
 - An app whose optional library does not load shows "Ready, without" and that library, and starts without it

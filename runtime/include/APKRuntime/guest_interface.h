@@ -305,8 +305,8 @@ enum apkrt_event_type {
                                           // BACK key; the edge gesture posts START, PROGRESS..., then COMMIT or
                                           // CANCEL. The guest's top OnBackInvokedCallback gets it, or the compat
                                           // callback, which makes KEYCODE_BACK down and up in the app's own window
-    APKRT_EVENT_IME_HIDDEN,               // the keyboard went away by the user's doing, not the guest's (the keyboard
-                                          // bar's key, a tap outside, an iPad's dismiss key, the system's back that
+    APKRT_EVENT_IME_HIDDEN,               // the keyboard went away by the user's doing, not the guest's (a tap
+                                          // outside the field, an iPad's dismiss key, the system's back that
                                           // the keyboard took): a0, a1, a2 0. The guest handles it as Android's input
                                           // method hiding itself on BACK (ADR-0068): an app that has not opted in to
                                           // OnBackInvokedCallback gets KEYCODE_BACK down and up through the pre-IME

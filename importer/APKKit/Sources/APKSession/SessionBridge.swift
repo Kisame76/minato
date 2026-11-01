@@ -313,8 +313,8 @@ public struct SessionBridge: Sendable {
         return Handled()
     }
 
-    /// The user hid UIKit's keyboard (ADR-0068, APKRT_EVENT_IME_HIDDEN): the bar's key, an iPad's dismiss key, a back
-    /// the keyboard took; posted each time unless the channel broke or the session ended.
+    /// The user hid UIKit's keyboard (ADR-0068, APKRT_EVENT_IME_HIDDEN): a tap outside the field, an iPad's dismiss key,
+    /// a back the keyboard took; posted each time unless the channel broke or the session ended.
     @discardableResult
     public mutating func keyboardHidden(host: SessionHost) -> Handled {
         guard !isBroken, !lifecycle.hasEnded else { return Handled() }
