@@ -894,19 +894,6 @@ TEST(a_refusal_caps_a_long_symbol_name) {
     CHECK_THROWS(Incompatible, convert(named), std::string(157, 'z') + "...");
 }
 
-// ADR-0020 option (c) needs a register free across the whole enclosing function to rename x18 to.
-TEST(has_free_register_is_false_only_when_every_register_is_used) {
-    std::vector<std::uint32_t> saturated;
-    for (unsigned n = 0; n < 29; ++n) saturated.push_back(0xd280'0000 | n);  // mov x0..x28, #0
-    const std::span full(reinterpret_cast<const std::byte *>(saturated.data()), saturated.size() * 4);
-    CHECK(!apk::container::has_free_register(full));
-    std::vector<std::uint32_t> gap;
-    for (unsigned n = 0; n < 29; ++n)
-        if (n != 7) gap.push_back(0xd280'0000 | n);  // x7 left out
-    const std::span some(reinterpret_cast<const std::byte *>(gap.data()), gap.size() * 4);
-    CHECK(apk::container::has_free_register(some));
-}
-
 // The refused x18 sites are counted (ADR-0020 (c)) by whether their enclosing function has a free register. The
 // function bounds come from the symbol that contains the site, or, with none, the run between the returns around it.
 TEST(x18_sites_with_a_free_function_register_uses_the_enclosing_symbol) {

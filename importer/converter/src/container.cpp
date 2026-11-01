@@ -626,20 +626,6 @@ std::pair<std::uint64_t, std::uint64_t> enclosing_function(std::span<const elf::
 
 }  // namespace
 
-bool has_free_register(std::span<const std::byte> code) {
-    std::uint32_t used = 0;
-    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
-        std::uint32_t word;
-        std::memcpy(&word, code.data() + offset, sizeof word);
-        const auto use = a64::register_use(word);
-        used |= use.reads | use.writes;
-    }
-    for (unsigned candidate = 0; candidate < 29; ++candidate) {
-        if (candidate != 18 && (used & (1u << candidate)) == 0) return true;
-    }
-    return false;
-}
-
 std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf_bytes,
                                                     std::span<const rewrite::Unsupported> uses) {
     if (uses.empty()) return 0;
@@ -657,8 +643,8 @@ std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> e
             continue;  // a section not in the file part of a LOAD segment: nothing to read
         }
         const auto [begin, end] = enclosing_function(symbols, code, section->address, use.address);
-        if (has_free_register(code.subspan(static_cast<std::size_t>(begin - section->address),
-                                           static_cast<std::size_t>(end - begin)))) {
+        if (rewrite::free_caller_saved_register(code.subspan(static_cast<std::size_t>(begin - section->address),
+                                                             static_cast<std::size_t>(end - begin)))) {
             ++count;
         }
     }

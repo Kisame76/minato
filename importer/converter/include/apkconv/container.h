@@ -108,14 +108,10 @@ struct X18SiteCounts {
 std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
                         std::span<const elf::Section> sections, const X18SiteCounts &counts);
 
-/// Whether the instructions in `code` leave a general-purpose register (x0..x28, other than x18) unused
-/// throughout -- the register a whole-function x18 rename (ADR-0020 option c) would take.
-bool has_free_register(std::span<const std::byte> code);
-
-/// Of the refused x18 `uses` (from scan_code's x18_unsupported), how many sit in a function that has such a free
-/// register, for the ADR-0020 option (c) split (counts only; the sites are proprietary). A function's bounds come
-/// from the sized symbol (`read_symbols`) that contains the use, else the run between the returns around it within
-/// its executable section. `elf` is the same file scan_code saw.
+/// Of the refused x18 `uses` (from scan_code's x18_unsupported), how many sit in a function that has a register a
+/// whole-function rename may use (rewrite::free_caller_saved_register), for the ADR-0020 option (c) split (counts
+/// only; the sites are proprietary). A function's bounds come from the sized symbol (`read_symbols`) that contains
+/// the use, else the run between the returns around it within its executable section. `elf` is the file scan_code saw.
 std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf,
                                                     std::span<const rewrite::Unsupported> uses);
 

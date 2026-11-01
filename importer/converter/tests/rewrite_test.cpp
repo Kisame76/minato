@@ -1036,6 +1036,55 @@ TEST(scan_splits_an_in_sequence_refused_use_by_its_load_exclusive) {
     CHECK(findings.x18_live_in == 0);
 }
 
+// ADR-0020 (c): R is the first free caller-saved register, the temporaries x9-x15 before the arguments x0-x7.
+TEST(free_caller_saved_register_prefers_temporaries_then_arguments) {
+    const std::uint32_t nothing[] = {0xd503'201f};  // nop: no register used
+    CHECK(apk::rewrite::free_caller_saved_register(
+              std::span(reinterpret_cast<const std::byte *>(nothing), sizeof nothing)) == 9u);
+    std::vector<std::uint32_t> temporaries;
+    for (unsigned n = 9; n <= 15; n++) temporaries.push_back(0xd280'0000 | n);  // mov x9..x15, #0
+    CHECK(apk::rewrite::free_caller_saved_register(
+              std::span(reinterpret_cast<const std::byte *>(temporaries.data()), temporaries.size() * 4)) == 0u);
+}
+
+// A callee-saved-only function has no register (c) may use: x8, x16/x17 and x19-x28 are never chosen.
+TEST(free_caller_saved_register_skips_callee_saved_and_reserved) {
+    std::vector<std::uint32_t> every_caller_saved;
+    for (unsigned n : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 9u, 10u, 11u, 12u, 13u, 14u, 15u}) {
+        every_caller_saved.push_back(0xd280'0000 | n);  // mov xN, #0 (x8, x16, x17 and the callee-saved regs stay free)
+    }
+    CHECK(!apk::rewrite::free_caller_saved_register(
+               std::span(reinterpret_cast<const std::byte *>(every_caller_saved.data()),
+                         every_caller_saved.size() * 4))
+               .has_value());
+}
+
+// ADR-0020 option (c): a whole-function rename redirects every x18 use to a free register, in place.
+TEST(rename_x18_redirects_every_use_to_the_free_register) {
+    std::uint32_t code[] = {
+        0x9100'0432,  // add x18, x1, #1
+        0x8b12'0023,  // add x3, x1, x18
+        0xd503'201f,  // nop (no x18, untouched)
+    };
+    const std::span bytes(reinterpret_cast<std::byte *>(code), sizeof code);
+    CHECK(apk::rewrite::rename_x18(bytes, 5));
+    CHECK(code[0] == 0x9100'0425);  // add x5, x1, #1
+    CHECK(code[1] == 0x8b05'0023);  // add x3, x1, x5
+    CHECK(code[2] == 0xd503'201f);
+}
+
+// A use where x18 has no register field of its own (a CASP pair) cannot be renamed; the bytes stay untouched.
+TEST(rename_x18_refuses_and_keeps_the_bytes_when_x18_has_no_field) {
+    std::uint32_t code[] = {
+        0x4832'7c82,  // casp x18, x19, x2, x3, [x4]
+        0xd503'201f,  // nop
+    };
+    const std::span bytes(reinterpret_cast<std::byte *>(code), sizeof code);
+    CHECK(!apk::rewrite::rename_x18(bytes, 5));
+    CHECK(code[0] == 0x4832'7c82);  // unchanged
+    CHECK(code[1] == 0xd503'201f);
+}
+
 // Each window that is not relocated says why, so that one refusal names every cause at once.
 TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     // No longer refused here: a window with no store-exclusive at all (step C C3) and a nested

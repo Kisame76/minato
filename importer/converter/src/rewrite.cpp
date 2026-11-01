@@ -1584,6 +1584,39 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     }
 }
 
+std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code) {
+    std::uint32_t used = 0;
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        const auto use = a64::register_use(word_at(code, offset));
+        used |= use.reads | use.writes;
+    }
+    // x9-x15 (temporaries) before x0-x7 (arguments); x8, x16/x17, x18, x19-x28, x29, x30 are never eligible.
+    static constexpr unsigned order[] = {9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7};
+    for (const unsigned candidate : order) {
+        if ((used & (1u << candidate)) == 0) return candidate;
+    }
+    return std::nullopt;
+}
+
+bool rename_x18(std::span<std::byte> code, unsigned reg) {
+    // First pass: every x18 use must be redirectable to `reg`, or the function cannot be renamed this way.
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        const auto word = word_at(code, offset);
+        const auto use = a64::register_use(word);
+        if (((use.reads | use.writes) & x18_bit) == 0) continue;
+        if (!a64::substitute(word, guest_x18, reg)) return false;
+    }
+    // Second pass: redirect them in place (same instruction size, so nothing shifts).
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        const auto word = word_at(code, offset);
+        const auto use = a64::register_use(word);
+        if (((use.reads | use.writes) & x18_bit) == 0) continue;
+        const auto renamed = *a64::substitute(word, guest_x18, reg);
+        std::memcpy(code.data() + offset, &renamed, sizeof renamed);
+    }
+    return true;
+}
+
 std::size_t stub_size(const Site &site) {
     switch (site.kind) {
         case SiteKind::thread_pointer_read: return site.reg == zero_register ? 0 : 4 * read_island_words;

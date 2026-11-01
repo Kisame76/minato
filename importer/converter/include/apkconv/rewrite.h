@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -147,6 +148,19 @@ inline constexpr std::uint32_t guest_x18_offset = 8 * 11;
 /// jump tables are read through `read_only_data`; without it, a br x18 is refused.
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings,
           const ReadOnlyData &read_only_data = {});
+
+/// The general-purpose register a whole-function x18 rename (ADR-0020 option c) may use in `code`: the first one
+/// unused across `code`, preferring the temporaries x9-x15, then the argument registers x0-x7. Never a callee-saved
+/// register (x19-x28 -- an unused one is not saved by the function, so renaming it would clobber the caller's
+/// value), never x16/x17 (linker call veneers clobber them), x8, x29 or x30. Nothing when every eligible register
+/// is used across `code`.
+std::optional<unsigned> free_caller_saved_register(std::span<const std::byte> code);
+
+/// Rewrites every instruction in `code` that uses x18 to use `reg` instead -- a whole-function rename (ADR-0020
+/// option c), where `reg` must be free across the function and not x18. Returns false and leaves `code` untouched
+/// when some instruction uses x18 with no register field to redirect (a CASP pair, an ST64B block), so the function
+/// cannot be renamed this way.
+bool rename_x18(std::span<std::byte> code, unsigned reg);
 
 /// Bytes the stub of `site` needs in the stub area; 0 when the site is replaced in place.
 std::size_t stub_size(const Site &site);
