@@ -560,11 +560,13 @@ TEST(requests_reach_the_handler_on_the_calling_thread) {
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_FINISH) == 0);
     static const char reason[] = "dlopen failed: library \"libmain.so\" not found";
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_START_FAILED, address(reason)) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_BACK_AT_ROOT) == 0);  // fire-and-forget, like FINISH
     const auto seen = take_requests();
-    CHECK(seen.size() == 2);
-    if (seen.size() != 2) return;
+    CHECK(seen.size() == 3);
+    if (seen.size() != 3) return;
     CHECK(seen[0].type == APKRT_REQUEST_FINISH && seen[0].argument == 0 && !seen[0].had_text);
     CHECK(seen[1].type == APKRT_REQUEST_START_FAILED && seen[1].had_text && seen[1].text == reason);
+    CHECK(seen[2].type == APKRT_REQUEST_BACK_AT_ROOT && seen[2].argument == 0 && !seen[2].had_text);
     for (const auto &request : seen) CHECK(request.thread == ::pthread_self() && request.runtime_signal_blocked);
     CHECK(!runtime_signal_blocked());  // as before the request
 }

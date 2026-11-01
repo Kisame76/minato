@@ -298,6 +298,23 @@ enum apkrt_event_type {
                                           // whenever the keyboard's frame changes (UIKit's keyboard notifications,
                                           // apk-run's model), also while it moves (the last value counts); the guest
                                           // makes the ime() inset of every window from the last one
+    APKRT_EVENT_BACK,                     // the system's back (ADR-0041 decision 10): a0 the phase, enum
+                                          // apkrt_back_phase; a1 the progress in 1/10000 (0 to 10000); a2 the edge,
+                                          // BackEvent's EDGE_LEFT 0 or EDGE_RIGHT 1. The overlay menu's Back posts
+                                          // COMMIT alone (progress 0, EDGE_LEFT), which the guest handles as Android's
+                                          // BACK key; the edge gesture posts START, PROGRESS..., then COMMIT or
+                                          // CANCEL. The guest's top OnBackInvokedCallback gets it, or the compat
+                                          // callback, which makes KEYCODE_BACK down and up in the app's own window
+};
+
+/// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and
+/// BackEvent: a predictive-back gesture runs START, PROGRESS (repeated), then COMMIT or CANCEL, while a plain
+/// back (a button, or the overlay menu's Back) is COMMIT on its own.
+enum apkrt_back_phase {
+    APKRT_BACK_START = 1,
+    APKRT_BACK_PROGRESS,
+    APKRT_BACK_COMMIT,
+    APKRT_BACK_CANCEL,
 };
 
 /// One record of the event pipe, written whole or not at all. Serial numbers start at 1 and follow the
@@ -438,6 +455,9 @@ enum apkrt_request_type {
                                    // comes back as a record on the channel keyed by request_id; ANSWER returns 0 and
                                    // carries the guest's answer to a waiting host record. -EFAULT for an unreadable
                                    // address, -EINVAL for an unknown op, a malformed field or a payload over the cap
+    APKRT_REQUEST_BACK_AT_ROOT,    // guest only (ADR-0041 decision 10): a0, a1 0. A root launcher activity's back,
+                                   // which Android answers by moving its task to the back: the host opens its menu
+                                   // instead; no answer comes
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)
