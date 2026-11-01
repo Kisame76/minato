@@ -911,6 +911,11 @@ run_app() {
     ime-fallback-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FallbackActivity
       ;;
+    # webview-start-test (ADR-0056 step b1): its launcher activity makes a WebView as its content and logs what it
+    # answers before any page loads; it ends with "done" at the view's first pre-draw.
+    webview-start-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WebViewStartActivity
+      ;;
     # enter-test (ADR-0068, the return key): seven fields that its fixture input method serves as LatinIME does, one
     # after another; it ends with "done" after the last field. enter-test-15 is its twin of target SDK 15.
     enter-test | enter-test-15)
@@ -1404,6 +1409,16 @@ run_app() {
     device exec-out screencap >"$RESULTS/$app.screencap"
     python3 framework/tests/views_compare.py --crop "$RESULTS/$app.screencap" "$RESULTS/$app-device.logcat" \
       "$RESULTS/$app.rgba.gz" "$RESULTS/$app.rows"
+  fi
+  if [[ "$app" == webview-start-test ]]; then
+    # The screen a second after "done", while the empty WebView fills it between the bars: the color it shows, which
+    # its software draw (webview-start-test-device) need not be.
+    device exec-out screencap >"$RESULTS/$app.screencap"
+    python3 -c 'import struct, sys
+data = open(sys.argv[1], "rb").read()
+width, height = struct.unpack("<II", data[:8])
+offset = 16 + 4 * (width * (height // 2) + width // 2)
+print("  screen center (RGBA): " + data[offset:offset + 4].hex())' "$RESULTS/$app.screencap"
   fi
   if [[ "$app" == texture-view-test ]]; then
     # The screen a second after "done", while the app shows it, where the views are.

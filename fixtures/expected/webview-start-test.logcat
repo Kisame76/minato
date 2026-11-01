@@ -1,0 +1,18 @@
+I/webview-start-test: the webview feature: true
+I/webview-start-test: new WebView: made
+I/webview-start-test: settings: javaScript false, domStorage false, database false, fileAccess false, contentAccess true
+I/webview-start-test: settings: loadsImages true, blockNetworkImage false, blockNetworkLoads true, mixedContent 1, cacheMode -1, safeBrowsing true
+I/webview-start-test: settings: textZoom 100, defaultFontSize 16, minimumFontSize 8, encoding UTF-8, standardFont sans-serif, layout NARROW_COLUMNS
+I/webview-start-test: settings: wideViewPort false, overview false, supportZoom true, builtInZoom false, displayZoom true, multipleWindows false, jsOpensWindows false
+I/webview-start-test: settings: mediaNeedsGesture true, offscreenPreRaster false, disabledActionModeItems 0, forceDark 1
+I/webview-start-test: user agent: default true, Mozilla/5.0 (Linux; Android true, model and build true, engine true, end true
+I/webview-start-test: user agent: Chrome/124.0.6367.219, the package's versionName true
+I/webview-start-test: WebView.getCurrentWebViewPackage: 124.0.6367.219 (636771901), enabled true
+I/webview-start-test: getPackageInfo: 124.0.6367.219 (636771901)
+I/webview-start-test: getApplicationInfo: enabled true, system true
+I/webview-start-test: cookies: accept true, thirdParty false, has false, example.com null
+I/webview-start-test: view: url null, original null, title , progress 100, back false, forward false, history 0
+I/webview-start-test: view: client android.webkit.WebViewClient, chrome client null, background null
+I/webview-start-test: drawn before a load: center ff000000
+I/webview-start-test: drawn a second after loadData: center ffffffff
+I/webview-start-test: done

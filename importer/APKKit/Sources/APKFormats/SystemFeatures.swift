@@ -10,7 +10,7 @@ public enum SystemFeatures {
         "android.hardware.touchscreen.multitouch", "android.hardware.touchscreen.multitouch.distinct",
         "android.hardware.touchscreen.multitouch.jazzhand", "android.hardware.vulkan.compute",
         "android.hardware.vulkan.level", "android.hardware.vulkan.version", "android.hardware.wifi",
-        "android.software.app_enumeration",
+        "android.software.app_enumeration", "android.software.webview",
     ]
     /// Those that need the session's Vulkan driver, MoltenVK.
     public static let vulkan: Set<String> = ["android.hardware.vulkan.compute", "android.hardware.vulkan.level",

@@ -1,42 +1,33 @@
 /*
- * Ours in place of AOSP's WebViewFactory (the Unity test APK probe's batch C): the WebView provider's loader, as Android 15's
- * answers it on a device without the webview feature (PackageManager.FEATURE_WEBVIEW), which Minato does not report
- * (SystemFeatures). AOSP's getProvider throws UnsupportedOperationException without a message there, before it looks
- * for a provider package, and getUpdateService answers null; so a new WebView, CookieManager.getInstance and
- * WebSettings.getDefaultUserAgent throw, and WebView.getCurrentWebViewPackage answers null [verified:
- * WebViewFactory.java at android-15.0.0_r1]. With the feature, AOSP would load the package WebViewUpdateService
- * names; Minato has none, so getProvider then fails as AOSP does for a device without the package. The data
- * directory suffix and disableWebView keep AOSP's checks. Kept out: the provider's loading, its native library and
- * RELRO, the zygote and the update service, which only a provider package needs (the real WebView on WKWebView is a
- * later ADR).
+ * Ours in place of AOSP's WebViewFactory (the Unity test APK probe's batch C; ADR-0056 step b1): the WebView provider's
+ * loader. Minato reports the webview feature (PackageManager.FEATURE_WEBVIEW, SystemFeatures), and its provider is
+ * com.android.internal.minato.webkit's, in framework.jar, where AOSP loads the one of the package WebViewUpdateService
+ * names (Chromium's). The loaded package is the one a phone has, com.google.android.webview (WebViewPackage), which
+ * WebView.getCurrentWebViewPackage reads here first. Without the feature, AOSP's getProvider throws
+ * UnsupportedOperationException without a message before it looks for a package [verified: WebViewFactory.java at
+ * android-15.0.0_r1], which stays. The data directory suffix and disableWebView keep AOSP's checks. Kept out: the
+ * provider package's loading, its native library and RELRO, the zygote and the update service.
  */
 package android.webkit;
 
 import android.app.AppGlobals;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.util.AndroidRuntimeException;
-import android.util.Log;
+
+import com.android.internal.minato.webkit.WebViewFactoryProviderImpl;
+import com.android.internal.minato.webkit.WebViewPackage;
 
 import java.io.File;
 
 /** @hide */
 public final class WebViewFactory {
-    private static final String LOGTAG = "WebViewFactory";
-
     private static final Object sProviderLock = new Object();
     private static Boolean sWebViewSupported;
     private static boolean sWebViewDisabled;
+    private static WebViewFactoryProvider sProviderInstance;
     private static String sDataDirectorySuffix;
 
     private WebViewFactory() {}
-
-    @SuppressWarnings("serial")
-    static class MissingWebViewPackageException extends Exception {
-        MissingWebViewPackageException(String message) {
-            super(message);
-        }
-    }
 
     private static boolean isWebViewSupported() {
         if (sWebViewSupported == null) {
@@ -46,9 +37,9 @@ public final class WebViewFactory {
         return sWebViewSupported;
     }
 
-    /** No provider is ever loaded. */
+    /** The provider's package, on a device with the feature: ours is in framework.jar, so loaded from the start. */
     public static PackageInfo getLoadedPackageInfo() {
-        return null;
+        return isWebViewSupported() ? WebViewPackage.packageInfo() : null;
     }
 
     static void setDataDirectorySuffix(String suffix) {
@@ -81,11 +72,16 @@ public final class WebViewFactory {
             if (sWebViewDisabled) {
                 throw new IllegalStateException("WebView.disableWebView() was called: WebView is disabled");
             }
-            MissingWebViewPackageException e = new MissingWebViewPackageException(
-                    "Failed to load WebView provider: No WebView installed");
-            Log.e(LOGTAG, "Chromium WebView package does not exist", e);
-            throw new AndroidRuntimeException(e);
+            if (sProviderInstance == null) {
+                sProviderInstance = new WebViewFactoryProviderImpl();
+            }
+            return sProviderInstance;
         }
+    }
+
+    /** FindAddress for Minato's provider's statics (WebView.findAddress): the class is package-private. */
+    public static String findAddress(String addr) {
+        return FindAddress.findAddress(addr);
     }
 
     /** The update service, which only a device with the webview feature has. */

@@ -92,8 +92,8 @@ import java.util.concurrent.Callable;
  * constructors an app cannot reach (ADR-0058 d)).
  * What a WebView needs a provider for (a new WebView, CookieManager, the default user agent, the provider package and
  * the webview feature) goes to the tag webview-camera-test-device, which the check shows and does not compare: the AVD
- * has a WebView, and Minato reports none (Android 15's answers without the feature are UnsupportedOperationException,
- * and no package). So do RenderScript.create, a blur through it with an app's fallback and RenderScriptGL's
+ * has Chromium's WebView, and Minato its own provider (ADR-0056 step b1), whose package's name and version are a
+ * phone's. So do RenderScript.create, a blur through it with an app's fallback and RenderScriptGL's
  * constructor: the AVD runs RenderScript on its drivers, and Minato has none (both throw RSRuntimeException). Only
  * public API, as an app has it on Android, but for RenderScript's hidden classes, as an app reaches them. It logs
  * with the tag webview-camera-test and ends with "done"; tools/android-reference.sh compares it with

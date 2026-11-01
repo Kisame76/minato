@@ -28,10 +28,10 @@ sensors, location, file pickers and links are bridged to their iOS counterparts.
 
 Native games and apps (C and C++ with OpenGL ES or Vulkan) run, and so do Java and Kotlin apps that stay within the
 parts of Android Minato already provides. A self-built Godot game runs as fast as its native iOS build. Many real
-apps still stop at something that is missing: WebView, the camera, microphone recording, game controllers, and
-parts of the framework. Java code runs in ART's interpreter for now, so Java-heavy apps are slower than on a phone
-until compiled code becomes the default. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists what works, what is
-missing and what each engine does.
+apps still stop at something that is missing: the camera, microphone recording, game controllers, and parts of the
+framework. Apps that embed web pages start, but their web parts stay empty for now. Java code runs in ART's
+interpreter for now, so Java-heavy apps are slower than on a phone until compiled code becomes the default.
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists what works, what is missing and what each engine does.
 
 The performance goal is parity with the native iOS version of the same app on the same iPhone: at least 95 % of its
 frames per second, with a p99 frame time at most 5 % longer. Measurements are in

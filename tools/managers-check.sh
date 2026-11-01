@@ -53,8 +53,7 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.media.session.MediaController --class android.widget.Toolbar --class android.app.VoiceInteractor \
   --class android.window.SplashScreen \
   --class android.app.LocaleManager --class android.os.storage.OnObbStateChangeListener \
-  --class android.net.http.SslCertificate --class android.webkit.WebStorage \
-  --class android.webkit.GeolocationPermissions \
+  --class android.net.http.SslCertificate \
   --class android.net.TransportInfo --class android.net.IpPrefix --class android.net.RouteInfo \
   --class android.net.DhcpInfo --class android.net.http.SslError --class android.telephony.BarringInfo \
   --class android.telephony.ims.ImsReasonInfo \

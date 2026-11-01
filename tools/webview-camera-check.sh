@@ -7,10 +7,10 @@
 # (fixtures/expected/webview-camera-test.logcat, from tools/android-reference.sh --app webview-camera-test):
 # a WebViewClient's defaults, WebResourceResponse with the arguments it refuses, a WebResourceRequest, WebSettings'
 # enums, the WebView class, the camera count, Camera.open() and Camera.Area. The lines that depend on
-# the device's WebView (webview-camera-test-device) are shown, and must be what Android 15 answers without the
-# webview feature, which Minato does not report (WebViewFactory.getProvider at android-15.0.0_r1): no feature, an
-# UnsupportedOperationException without a message for a new WebView, CookieManager and the default user agent, and no
-# provider package; and RenderScript.create and RenderScriptGL's constructor (also through RSSurfaceView, which
+# the device's WebView (webview-camera-test-device) are shown, and must be what Android 15 answers with the webview
+# feature, which Minato reports with its own provider since ADR-0056 step b1 (webview-start-check has the details): the
+# feature, a WebView made, a CookieManager and a default user agent, and a provider package; and RenderScript.create
+# and RenderScriptGL's constructor (also through RSSurfaceView, which
 # Android's hidden API policy blocks and Minato has none of), which the AVD runs on its drivers, must throw Minato's
 # RSRuntimeException, which the blur's fallback catches (a named departure, framework/patches).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
@@ -40,16 +40,14 @@ python3 framework/tests/java_app_run.py webview-camera-test io.github.kisame76.m
   | tee build/webview-camera-check/run.txt
 missing=0
 unavailable="android.renderscript.RSRuntimeException: RenderScript is not available on this device"
-for line in "the webview feature: false" "new WebView: java.lang.UnsupportedOperationException: null" \
-    "CookieManager.getInstance: java.lang.UnsupportedOperationException: null" \
-    "WebSettings.getDefaultUserAgent: java.lang.UnsupportedOperationException: null" \
-    "WebView.getCurrentWebViewPackage: null" \
+for line in "the webview feature: true" "new WebView: made" "CookieManager.getInstance: true" \
+    "WebSettings.getDefaultUserAgent: true" "WebView.getCurrentWebViewPackage: a package" \
     "RenderScript.create: android.renderscript.RSRuntimeException: RenderScript is not available on this device" \
     "RenderScript blur: RSRuntimeException, the app's fallback" \
     "new RenderScriptGL: android.renderscript.RSRuntimeException: RenderScript is not available on this device" \
     "RSSurfaceView.createRenderScriptGL: $unavailable"; do
   if ! grep -qxF "  device: I/webview-camera-test-device: $line" build/webview-camera-check/run.txt; then
-    echo "FAIL: no device line \"$line\" (Android 15 without the webview feature, Minato without RenderScript)"
+    echo "FAIL: no device line \"$line\" (Android 15 with the webview feature, Minato without RenderScript)"
     missing=1
   fi
 done

@@ -1715,6 +1715,10 @@ frameworks_base/core/java/android/webkit/WebMessagePort.java
 frameworks_base/core/java/android/webkit/WebResourceError.java
 frameworks_base/core/java/android/webkit/WebViewRenderProcess.java
 frameworks_base/core/java/android/webkit/WebViewRenderProcessClient.java
+# ADR-0056 step b1 (App), webview-start-test: the two process-wide objects of android.webkit that are plain classes,
+# which Minato's WebView provider factory gives as AOSP's base answers them.
+frameworks_base/core/java/android/webkit/GeolocationPermissions.java
+frameworks_base/core/java/android/webkit/WebStorage.java
 
 # The Unity test APK probe's gap sort, category 1 (Grafik), package 2, webview-camera-test: camera2's plain types that Unity's
 # Camera2Wrapper names (the exception, a metering area, the session's callbacks and a capture failure), android.print's

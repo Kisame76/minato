@@ -97,7 +97,7 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **Flutter:** untested. Release builds compile Dart ahead of time and need no JIT.
 - **React Native with Hermes:** untested.
 - **.NET, Xamarin, MAUI, MonoGame:** not expected to work, since they need a JIT.
-- **Cordova, Capacitor, HTML5 games:** not yet. They are a WebView, which is missing.
+- **Cordova, Capacitor, HTML5 games:** not yet. They are a WebView, which shows no web pages yet.
 
 ## The gaps, counted
 
@@ -145,8 +145,8 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-3
 
 **Open:**
 
-- WebView: the classes exist and the channel between the app and the iPhone's web view has its first step, but there is
-  no provider yet, so creating a WebView still fails (ADR-0056).
+- WebView: an app that makes one starts, and the WebView answers as an empty one does on Android, but it shows no web
+  pages yet: the iPhone's web view behind it is the next step (ADR-0056).
 - Runtimes that need a JIT: they are not yet named at import; they fail at run time.
 
 ## What the library tells you

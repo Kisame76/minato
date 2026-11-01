@@ -51,6 +51,8 @@ public final class SystemFeatures {
         features.put("android.hardware.wifi", 0);
         // Android 11's package visibility holds: the app sees no other package (ADR-0039 decision 7).
         features.put("android.software.app_enumeration", 0);
+        // WebView (ADR-0056): AOSP's android.webkit with Minato's provider; its pages are the host's WKWebView (step c).
+        features.put("android.software.webview", 0);
         FEATURES = Collections.unmodifiableMap(features);
 
         Map<String, String> departures = new TreeMap<>();
@@ -124,7 +126,6 @@ public final class SystemFeatures {
         left.put("android.software.print", "no print service");
         left.put("android.software.sdksandbox.sdk_install_work_profile", "no SDK sandbox or work profile");
         left.put("android.software.voice_recognizers", "no speech recognition service");
-        left.put("android.software.webview", "no WebView in M4");
         left.put("android.software.window_magnification", "no magnifier");
         left.put("android.software.cts", "not a device Android's compatibility test suite passed");
         left.put("android.software.verified_boot", "not Android's verified boot");

@@ -41,6 +41,7 @@ import com.android.externalstorage.ExternalStorageProvider;
 import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
+import com.android.internal.minato.webkit.WebViewPackage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -88,6 +89,9 @@ class ApplicationPackageManager {
         if (ANDROID.equals(packageName)) {
             return androidPackageInfo(flags.getValue());
         }
+        if (WebViewPackage.PACKAGE_NAME.equals(packageName)) {
+            return WebViewPackage.packageInfo();
+        }
         return own(packageName).packageInfo(flags.getValue());
     }
 
@@ -100,6 +104,9 @@ class ApplicationPackageManager {
         if (ANDROID.equals(packageName)) {
             return androidApplicationInfo();
         }
+        if (WebViewPackage.PACKAGE_NAME.equals(packageName)) {
+            return WebViewPackage.applicationInfo();
+        }
         return own(packageName).applicationInfo(flags.getValue());
     }
 
@@ -107,7 +114,9 @@ class ApplicationPackageManager {
     // uid's packages and name, its uid and gids, its PackageInfo by version (PackageManagerService checks the version
     // only for a static shared library, so any one finds the package), its enabled setting, and "android", the
     // platform's package, which every app sees: framework-res as the system's uid 1000. The installed packages an app
-    // sees are its own and "android"; a device's other force-queryable system packages are not there.
+    // sees are its own and "android"; a device's other force-queryable system packages are not there. By name, an app
+    // also finds the WebView provider's package (ADR-0056 step b1, webview-start-test on apk-runner-35), as WebView's
+    // getCurrentWebViewPackage names it.
 
     private static final String ANDROID = "android";
 
