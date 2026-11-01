@@ -604,6 +604,7 @@ run_app() {
       | noted-app-op-test | app-services-test | image-reader-test | autocomplete-test | bound-services-test | package-answers-test \
       | image-writer-test | media-codec-test | media-codec-audio-test | open-test | sensors-java-test \
       | location-manager-test \
+      | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | device-profile-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity

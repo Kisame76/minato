@@ -1,0 +1,42 @@
+I/gms-absent-test: getPackageInfo gms flags 0: android.content.pm.PackageManager$NameNotFoundException: com.google.android.gms
+I/gms-absent-test: getPackageInfo gms signing: android.content.pm.PackageManager$NameNotFoundException: com.google.android.gms
+I/gms-absent-test: getPackageInfo vending meta-data: android.content.pm.PackageManager$NameNotFoundException: com.android.vending
+I/gms-absent-test: getPackageInfo maps: android.content.pm.PackageManager$NameNotFoundException: com.google.android.apps.maps
+I/gms-absent-test: getPackageInfo play games: android.content.pm.PackageManager$NameNotFoundException: com.google.android.play.games
+I/gms-absent-test: getLaunchIntentForPackage gms: null
+I/gms-absent-test: getLaunchIntentForPackage vending: null
+I/gms-absent-test: getInstallerPackageName own: null
+I/gms-absent-test: getInstallerPackageName gms: java.lang.IllegalArgumentException: Unknown package: com.google.android.gms
+I/gms-absent-test: getInstallSourceInfo own installing: initiating null, installing null, originating null, update owner null, signing false, source 1
+I/gms-absent-test: getInstallSourceInfo gms: android.content.pm.PackageManager$NameNotFoundException: com.google.android.gms
+I/gms-absent-test: hasSystemFeature GOOGLE_EXPERIENCE: false
+I/gms-absent-test: hasSystemFeature GOOGLE_BUILD: false
+I/gms-absent-test: system shared libraries have gms: false
+I/gms-absent-test: installed packages have gms or vending: false
+I/gms-absent-test: getComponentEnabledSetting gms: java.lang.IllegalArgumentException: Unknown component: ComponentInfo{com.google.android.gms/com.google.android.gms.Missing}
+I/gms-absent-test: getPackageUid gms: android.content.pm.PackageManager$NameNotFoundException: com.google.android.gms
+I/gms-absent-test: checkSignatures own gms: -4
+I/gms-absent-test: bindService billing: false
+I/gms-absent-test: bindService gms measurement: false
+I/gms-absent-test: bindService gms component: false
+I/gms-absent-test: bindService implicit: java.lang.IllegalArgumentException: Service Intent must be explicit: Intent { act=com.android.vending.billing.InAppBillingService.BIND }
+I/gms-absent-test: unbindService never bound: returned
+I/gms-absent-test: startService c2dm register: null
+I/gms-absent-test: startService gms component: null
+I/gms-absent-test: stopService gms component: false
+I/gms-absent-test: sendBroadcast c2dm: returned
+I/gms-absent-test: resolveActivity market: null
+I/gms-absent-test: startActivity market: android.content.ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=market://details/... flg=0x10000000 }
+I/gms-absent-test: startActivity market vending: android.content.ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=market://details/... flg=0x10000000 pkg=com.android.vending }
+I/gms-absent-test: startActivity market gms: android.content.ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=market://details/... flg=0x10000000 pkg=com.android.vending }
+I/gms-absent-test: startActivity web play vending: android.content.ActivityNotFoundException: No Activity found to handle Intent { act=android.intent.action.VIEW dat=https://play.google.com/... flg=0x10000000 pkg=com.android.vending }
+I/gms-absent-test: resolveActivity geo: null
+I/gms-absent-test: query gservices: null
+I/gms-absent-test: query chimera: null
+I/gms-absent-test: getType gservices: null
+I/gms-absent-test: acquireContentProviderClient chimera: null
+I/gms-absent-test: resolveContentProvider gservices: null
+I/gms-absent-test: createPackageContext gms code: android.content.pm.PackageManager$NameNotFoundException: Application package com.google.android.gms not found
+I/gms-absent-test: createPackageContext vending: android.content.pm.PackageManager$NameNotFoundException: Application package com.android.vending not found
+I/gms-absent-test: android_id set: true
+I/gms-absent-test: done

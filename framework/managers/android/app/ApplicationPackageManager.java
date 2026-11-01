@@ -724,6 +724,20 @@ class ApplicationPackageManager {
         return null;
     }
 
+    // How the app was installed (gap "Play services absent, gracefully"): an app asks it on API 30 and later to see
+    // whether a store installed it. Minato installs the app, and no Android package did, so the app's own package has
+    // no initiating, originating, installing or update-owner package and no signing info, with the source OTHER, as
+    // Android 15 answers for an app that adb installed [verified: gms-absent-test on apk-runner-35, whose initiating
+    // package, the shell, the test counts as none]. Any other package is unknown, as PackageManagerService answers it
+    // with a null that ApplicationPackageManager turns into a NameNotFoundException. No store is ever named: Minato is
+    // not Google Play.
+    @Override
+    public android.content.pm.InstallSourceInfo getInstallSourceInfo(String packageName) throws NameNotFoundException {
+        own(packageName);
+        return new android.content.pm.InstallSourceInfo(null, null, null, null, null,
+                android.content.pm.PackageInstaller.PACKAGE_SOURCE_OTHER);
+    }
+
     // A component's enabled state (gap 9, WorkManager's start enables its job service and receivers): kept for the
     // process, where PackageManagerService keeps it in its package settings, which Minato has none of. The default
     // state keeps nothing. The app's own components only; another package is unknown [verified: jobs-test on

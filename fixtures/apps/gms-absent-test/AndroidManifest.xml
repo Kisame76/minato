@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of what an app meets when Google Play services and the Play Store are not installed (gms-absent-test,
+     the compatibility plan's open gap "Play services absent, gracefully"): the calls that client libraries make before
+     they take their fallback path, on Android 15's emulator without Play (a system image of the AOSP, not Google
+     APIs). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.gmsabsent" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Gms Absent Test"
+      android:name="io.github.kisame76.minato.test.gmsabsent.GmsAbsentApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

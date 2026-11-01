@@ -43,7 +43,11 @@ SOURCES=build/sources
 AIDL=build/aidl/aidl
 R_JAVA=build/framework-res/java
 FEATURE_FLAGS=build/framework-res/feature-flags.txt
-OUT=build/framework
+FINAL=build/framework
+# Built beside build/framework and swapped in at the end, so that a run that reads build/framework.jar, stubs.jar or
+# the system image meanwhile (a test app's build, an iPhone build, a measurement) never finds it missing or half
+# written.
+OUT=$FINAL.new.$$
 GEN=$OUT/gen
 for needed in "$JDK/bin/javac" "$R8" "$BOOT_CLASSES" build/art/boot_jars.json "$AIDL" "$R_JAVA/android/R.java" \
     "$FEATURE_FLAGS" "$SOURCES/modules_utils/java" "$SOURCES/frameworks_base_api/core/api/current.txt"; do
@@ -54,7 +58,8 @@ for needed in "$JDK/bin/javac" "$R8" "$BOOT_CLASSES" build/art/boot_jars.json "$
   fi
 done
 
-rm -rf "$OUT"
+find build -maxdepth 1 -name "$(basename "$FINAL").new.*" -mmin +720 -exec rm -rf {} + 2>/dev/null || true
+trap 'rm -rf "$OUT"' EXIT
 mkdir -p "$OUT/jmod" "$OUT/classes" "$OUT/dex" "$OUT/src" "$GEN/aidl" "$GEN/r" "$GEN/logtags" "$OUT/stubs-src" \
   "$OUT/stub-classes"
 "$JDK/bin/jmod" create --module-version 17 --target-platform android --class-path "$BOOT_CLASSES" \
@@ -358,4 +363,6 @@ with zipfile.ZipFile(path + ".tmp", "w") as jar:
         jar.writestr(info, minimized(source))
 os.replace(path + ".tmp", path)
 PY
-echo "build-framework: $OUT/framework.jar ($(wc -c <"$OUT/framework.jar" | tr -d ' ') bytes)"
+python3 tools/swap-dir.py "$OUT" "$FINAL"
+trap - EXIT
+echo "build-framework: $FINAL/framework.jar ($(wc -c <"$FINAL/framework.jar" | tr -d ' ') bytes)"

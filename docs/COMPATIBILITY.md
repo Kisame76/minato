@@ -1,6 +1,6 @@
 # Compatibility
 
-What runs in Minato today, what is missing, and what will never work. Status as of 2026-10-30. Numbers in
+What runs in Minato today, what is missing, and what will never work. Status as of 2026-10-31. Numbers in
 parentheses refer to the records indexed in [DESIGN.md](DESIGN.md).
 
 The goal is that every app whose purpose fits the limits at the end of this page works after its import, without
@@ -37,11 +37,16 @@ itself still starts without Java, where such calls fail, until ADR-0069 moves it
 - `SurfaceView`, `GLSurfaceView`, `TextureView`, `SurfaceTexture` and hardware buffers;
 - resources, assets, `SharedPreferences`, SQLite, the app's file paths, OBB files;
 - Java cryptography and TLS (Conscrypt with BoringSSL), sockets and DNS;
-- the soft keyboard and hardware keys in text fields;
+- the soft keyboard and hardware keys in text fields: the keyboard's height reaches the app as the keyboard inset, and
+  the Return key does what Android's keyboard does for the field (a new line, or the field's action such as Done or
+  Search);
+- game controllers, a mouse and a trackpad as far as the app is concerned: an app sees the same devices, key and motion
+  events, hover, scroll and buttons that Android 15 gives it. The iPhone side that reads a real controller, mouse or
+  trackpad is not written yet, so none of them reaches an app today;
 - sensors (CoreMotion), location (CoreLocation, after iOS's prompt);
 - document and photo pickers, sharing, and links that open in a Safari view;
 - `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer`, `MediaExtractor` and video
-  `MediaCodec` (H.264 and HEVC);
+  `MediaCodec` (H.264 and HEVC video, AAC audio);
 - started and bound services and broadcasts inside the app;
 - Play Asset Delivery and Play Feature Delivery packs that were imported with the app.
 
@@ -96,8 +101,8 @@ Only what the project has evidence for is stated as working; "untested" means th
 
 ## The gaps, counted
 
-The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-30: **10 closed, 9 partly closed,
-3 open.**
+The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-31: **11 closed, 9 partly closed,
+2 open.**
 
 **Closed:**
 
@@ -112,6 +117,10 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-3
   that MoltenVK lacks stay limits.
 - Play Asset Delivery at run time (ADR-0050).
 - Time zone data for ICU.
+- Google Play services absent: an app that looks for Google Play services or the Play Store gets the answers an Android
+  phone without them gives (package lookups, binds and starts, store links, content providers, package contexts, the
+  install source), and a test compares them with Android 15 (`gms-absent-test`). Minato never names a store as the
+  installer. What an app's own libraries do with those answers is the app's behavior.
 
 **Partly closed:**
 
@@ -123,11 +132,12 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-3
 - Services, broadcasts, jobs, alarms and notifications: services and broadcasts work inside the app; jobs and
   alarms are kept but never run, and notifications are not shown.
 - Speed of Java code: nterp and compiled code pass their tests but are not the default (ADR-0053).
-- Text input, keys and controllers: the keyboard and hardware keys work; the keyboard's inset (resize and pan) and
-  game controllers are missing (ADR-0068).
+- Text input, keys and controllers: the keyboard, the Return key, hardware keys and the keyboard's inset work; an app
+  sees controllers, a mouse and a trackpad, but the iPhone side that reads them is still to come, so they do not
+  reach an app yet; panning the content above the keyboard is not done (ADR-0068).
 - Java media and video: `AudioTrack`, `MediaPlayer`, `MediaCodec` for video and `MediaExtractor` are in. `SoundPool`
-  arrived after the recount and plays WAV, Ogg Vorbis, MP3, AAC and FLAC (Opus not yet); audio codecs in
-  `MediaCodec` come later (ADR-0060).
+  arrived after the recount and plays WAV, Ogg Vorbis, MP3, AAC and FLAC (Opus not yet); `MediaCodec` decodes AAC audio,
+  other audio codecs come later (ADR-0060).
 - Device features and permissions: sensors and location are in; the camera and microphone recording are missing
   (only the microphone's permission path exists, ADR-0064).
 - Framework breadth: 577 public types of Android 15's API are still missing from `framework.jar` (297 pure Java, 125
@@ -135,8 +145,8 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-3
 
 **Open:**
 
-- WebView: the classes exist, but there is no provider yet, so creating a WebView fails (ADR-0056).
-- Google Play services absent, gracefully: the paths apps take when Play services are missing are not tested yet.
+- WebView: the classes exist and the channel between the app and the iPhone's web view has its first step, but there is
+  no provider yet, so creating a WebView still fails (ADR-0056).
 - Runtimes that need a JIT: they are not yet named at import; they fail at run time.
 
 ## What the library tells you

@@ -31,3 +31,4 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps whose native libraries mix 4 KB and 16 KB page alignment start instead of being refused at import
 - An app whose engine library cannot run is marked incompatible, with the reason, instead of starting to a black
   screen
+- Apps that ask how they were installed no longer crash
