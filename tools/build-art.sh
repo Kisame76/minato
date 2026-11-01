@@ -15,8 +15,11 @@ if [[ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]]; then
 fi
 
 python3 tools/fetch-sources.py --set art
+# Keep the Mac's build paths out of the guest libraries (tools/check-no-build-paths.sh enforces it).
+pfx="$(tools/prefix-map-flags.sh)"
 cmake -S runtime/art -B build/art -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=none \
+  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/art "$@"

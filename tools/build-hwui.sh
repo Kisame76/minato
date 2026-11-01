@@ -22,8 +22,11 @@ python3 tools/fetch-sources.py --set graphics
 python3 tools/fetch-sources.py --set framework \
   frameworks_base libpng system_core_framework incremental_delivery build_release
 build="${HWUI_BUILD:-build/hwui}"
+# Keep the Mac's build paths out of the guest libraries (tools/check-no-build-paths.sh enforces it).
+pfx="$(tools/prefix-map-flags.sh)"
 cmake -S graphics/hwui -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=none \
+  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$build" "$@"

@@ -15,9 +15,12 @@ if [[ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]]; then
 fi
 
 python3 tools/fetch-sources.py
+# Keep the Mac's build paths out of the guest libraries (tools/check-no-build-paths.sh enforces it).
+pfx="$(tools/prefix-map-flags.sh)"
 cmake -S runtime/bionic -B build/bionic -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=none \
+  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/bionic "$@"
 python3 tools/make-tzdata.py build/bionic/system/usr/share/zoneinfo/tzdata

@@ -73,6 +73,9 @@ xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Release -dest
   MINATO_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
 app="$out/Minato.xcarchive/Products/Applications/Minato.app"
 
+# A public release carries no local build paths: the guest libraries must not embed the build root or $HOME.
+tools/check-no-build-paths.sh "$app"
+
 # SideStore and AltStore sign the app with the user's certificate. An ad-hoc signature, from the inside out, carries
 # the entitlements that they compare with the source entry's.
 find "$app" -depth \( -name '*.framework' -o -name '*.dylib' -o -name '*.appex' \) -print0 |

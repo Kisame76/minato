@@ -45,9 +45,12 @@ for file in "${GLES_FILES[@]}"; do
   cmp -s "$GLES_WORK/$file" "$GLES_PATCHED/$file" || cp "$GLES_WORK/$file" "$GLES_PATCHED/$file"
 done
 rm -rf "${GLES_WORK:?}"
+# Keep the Mac's build paths out of the guest libraries (tools/check-no-build-paths.sh enforces it).
+pfx="$(tools/prefix-map-flags.sh)"
 cmake -S framework -B build/framework-native -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=c++_static \
+  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/framework-native -j 6
 echo "build-framework-native: build/framework-native"
