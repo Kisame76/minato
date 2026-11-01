@@ -126,5 +126,44 @@ registry.refuses = true
 check(surfaces.add(frame: full, z: -2, opaque: true) { registry.register($0) } == 0
       && (below?.sublayers?.isEmpty ?? true), "a surface without a window is no layer")
 
+// ADR-0041, decision 12: the view reports its size in pixels, once per size, whatever the window's view shows.
+var reported: [CGSize] = []
+view.onLayout = { reported.append($0) }
+view.frame = CGRect(origin: .zero, size: CGSize(width: points.height, height: points.width))
+view.layoutIfNeeded()
+view.setNeedsLayout()
+view.layoutIfNeeded()
+check(reported == [CGSize(width: CGFloat(display.height), height: CGFloat(display.width))],
+      "a new size is reported once, in pixels")
+view.frame = CGRect(origin: .zero, size: points)
+view.layoutIfNeeded()
+
+/// Whether two rectangles agree to a hundredth of a point.
+func near(_ a: CGRect?, _ b: CGRect) -> Bool {
+    guard let a else { return false }
+    return [a.minX - b.minX, a.minY - b.minY, a.width - b.width, a.height - b.height].allSatisfy { abs($0) < 0.01 }
+}
+
+// Decision 12 b: in size compat the window's view shows the guest's size in the letterbox's frame, at its scale, and
+// the containers follow it; a letterbox is no new size.
+let half = Letterbox(frame: PixelRect(left: display.width / 4, top: 0, right: display.width / 4 + display.width / 2,
+                                      bottom: display.height / 2), scale: 0.5,
+                     size: PixelSize(width: display.width, height: display.height))
+reported = []
+view.letterbox = half
+view.layoutIfNeeded()
+// From the frame's corner, at the guest's size times the scale, which the frame's pixels round.
+let boxed = CGRect(x: CGFloat(display.width / 4) / display.scale, y: 0,
+                   width: CGFloat(display.width) / 2 / display.scale,
+                   height: CGFloat(display.height) / 2 / display.scale)
+check(near(view.hostView.frame, boxed), "in size compat the window's view lies in the letterbox's frame, in points")
+check(view.hostView.bounds.size == points, "at the guest's size, which the letterbox's scale shows smaller")
+check(near(below?.frame, boxed) && near(above?.frame, boxed), "the containers lie where the window's view lies")
+check(reported.isEmpty, "a letterbox is no new size")
+view.letterbox = nil
+view.layoutIfNeeded()
+check(view.hostView.frame == CGRect(origin: .zero, size: points) && below?.frame == view.bounds,
+      "without, the window's view and the containers span the view again")
+
 print(failures == 0 ? "session window check: fine" : "session window check: \(failures) failed")
 exit(failures == 0 ? 0 : 1)

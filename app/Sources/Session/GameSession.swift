@@ -31,6 +31,8 @@ final class GameSession {
     @ObservationIgnored private(set) var windowPixels = CGSize.zero
     /// The view's layer, whose opacity follows the window's (ADR-0030 V5).
     @ObservationIgnored private weak var layer: CAMetalLayer?
+    /// The session's view, which shows the guest's window in size compat in its letterbox (ADR-0041, decision 12 b).
+    @ObservationIgnored private weak var layersView: SessionLayersView?
     /// What the guest asks to open (ADR-0062), over game mode.
     @ObservationIgnored private lazy var opens = OpenPresenter(
         dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data")
@@ -211,6 +213,8 @@ final class GameSession {
     func holds(_ orientation: SessionOrientation) {
         heldOrientation = orientation
         bridge.turns = orientation == .turns
+        bridge.resizes = SessionBridge.resizes(configChanges: entry.report?.configChanges,
+                                               targetSdk: entry.report?.targetSdk)
         startIfLaidOut()
         // iOS turns the window within a fraction of a second; should it never do so, nor refuse, the
         // guest still starts, with the size the window has.
@@ -220,6 +224,11 @@ final class GameSession {
             heldOrientation = .atStart
             startIfLaidOut()
         }
+    }
+
+    /// The session's view, once, as it is made.
+    func attach(_ view: SessionLayersView) {
+        layersView = view
     }
 
     /// The view's layer, the host side of every window the guest gets, and its SurfaceViews' layers (ADR-0043 c4).
@@ -256,11 +265,14 @@ final class GameSession {
     }
 
     /// The window was laid out: the size the guest starts with, and the next window's; while the guest has a
-    /// window in a session that turns, a turn of that window (ADR-0038, decision 1.4).
+    /// window, a change it handles (ADR-0038, decision 1.4; ADR-0041, decision 12 a), or size compat, whose letterbox
+    /// the view and the touches take (decision 12 b).
     func windowLaidOut(_ pixels: CGSize) {
         windowPixels = pixels
         let size = PixelSize(width: Int32(pixels.width.rounded()), height: Int32(pixels.height.rounded()))
         let handled = bridge.windowLaidOut(size, host: host)
+        layersView?.letterbox = bridge.letterbox
+        touches.letterbox = bridge.letterbox
         // A layout that turned nothing must not report again a session that has ended.
         if !handled.callbacks.isEmpty { report(handled) }
         startIfLaidOut()
@@ -656,6 +668,14 @@ final class GameSession {
     #if DEBUG
     /// The layer's opacity, as session-check logs it.
     var layerIsOpaque: Bool { layer?.isOpaque ?? false }
+
+    /// The guest's size and the letterbox, as session-check logs them (ADR-0041, decision 12).
+    var sizeLine: String {
+        let guest = bridge.guestSize
+        guard let box = bridge.letterbox else { return "guest \(guest.width)x\(guest.height) letterbox none" }
+        return "guest \(guest.width)x\(guest.height) letterbox \(box.frame.left),\(box.frame.top),\(box.frame.right),"
+            + "\(box.frame.bottom) scale " + String(format: "%.4f", box.scale)
+    }
     #endif
 
     /// A request of the guest (ADR-0028, decision 4), on the main thread.

@@ -532,7 +532,8 @@ struct SessionBridgeTests {
         #expect(bridge.windowLaidOut(Self.duoOpen, host: host) == .init())
         #expect(host.take() == [])
         #expect(bridge.guestSize == Self.fullSize)
-        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1))
+        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1,
+                                             size: Self.fullSize))
     }
 
     /// A guest larger than the window is scaled down to fit, never up.
@@ -543,7 +544,7 @@ struct SessionBridgeTests {
         bridge.windowLaidOut(Self.duoFolded, host: host)
         #expect(host.take() == [])
         #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 230, top: 0, right: 1168, bottom: 2034),
-                                             scale: Float(2034) / Float(2796)))
+                                             scale: Float(2034) / Float(2796), size: Self.fullSize))
     }
 
     /// Back at the guest's size, size compat ends, and the guest hears nothing.
@@ -570,7 +571,8 @@ struct SessionBridgeTests {
 
         bridge.handle(.foreground, host: host)
         #expect(host.take().contains(.addWindow(width: Self.width, height: Self.height)))
-        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1))
+        #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1,
+                                             size: Self.fullSize))
     }
 
     /// A session that turns but does not handle the other changes keeps its size at a fold: a turn changes the

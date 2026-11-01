@@ -233,7 +233,8 @@ struct TouchTranslatorTests {
     // ADR-0041, decision 12 b: in size compat the guest's window shows in a frame of the view, scaled as Android 15
     // scales it (WindowState's global scale): its touches come in the guest's pixels.
 
-    static let scaledDown = Letterbox(frame: PixelRect(left: 100, top: 0, right: 600, bottom: 1000), scale: 0.5)
+    static let scaledDown = Letterbox(frame: PixelRect(left: 100, top: 0, right: 600, bottom: 1000), scale: 0.5,
+                                      size: PixelSize(width: 1000, height: 2000))
 
     /// From the frame's corner, by the inverse of the scale; the touch's size too.
     @Test func inSizeCompatTouchesComeInTheGuestsPixels() {

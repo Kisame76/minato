@@ -21,6 +21,8 @@ All notable changes to Minato are documented in this file. The format follows
   cursor
 - A hardware keyboard's Menu key opens an app's options menu, the arrow and Enter keys work inside its overflow, and
   the menu follows the app's changes to it
+- Apps follow a new screen size, as folding or unfolding the iPhone Duo gives one: apps that handle it get the new
+  size, and the others keep theirs and are shown letterboxed, as on Android
 
 ### Changed
 

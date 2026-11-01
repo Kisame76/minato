@@ -59,9 +59,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 final class MetalLayerHostView: UIView {
     override class var layerClass: AnyClass { MinatoMetalLayer.self }
 
-    /// Runs after every layout, with the window's size in pixels.
-    var onLayout: (CGSize) -> Void = { _ in }
-
     var metalLayer: CAMetalLayer {
         // layerClass makes it one.
         layer as! CAMetalLayer
@@ -94,12 +91,6 @@ final class MetalLayerHostView: UIView {
     var sizeInPixels: CGSize {
         CGSize(width: bounds.width * metalLayer.contentsScale, height: bounds.height * metalLayer.contentsScale)
     }
-
-    // A hidden view is laid out all the same, so a turn's size comes while the hide rule hides the layer.
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        onLayout(sizeInPixels)
-    }
 }
 
 /// The session's view (ADR-0043 c4 (d)): the window's view, with the SurfaceViews' layers beside its layer as siblings,
@@ -114,6 +105,16 @@ final class SessionLayersView: UIView {
     static let swipeDistance: CGFloat = 60
 
     let hostView = MetalLayerHostView(frame: .zero)
+    /// Runs after a layout in a new size, with the view's size in pixels, the window's (ADR-0041, decision 12). The
+    /// session's view is never hidden, so a turn's size comes while the hide rule hides the window's layer.
+    var onLayout: (CGSize) -> Void = { _ in }
+    /// In size compat (ADR-0041, decision 12 b), where the window's view shows the guest's window; nil while it spans
+    /// the view.
+    var letterbox: Letterbox? {
+        didSet { if letterbox != oldValue { setNeedsLayout() } }
+    }
+    /// The size last reported, in pixels.
+    private var reportedPixels: CGSize?
     /// The guest's soft keyboard (ADR-0068 step 2c): first responder while the guest's editor wants UIKit's keyboard.
     let textView = SoftKeyboardView(frame: .zero)
     private(set) lazy var surfaces = SurfaceLayers(backdrop: layer, windowLayer: hostView.metalLayer)
@@ -151,8 +152,30 @@ final class SessionLayersView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        hostView.frame = bounds
+        placeWindowView()
         surfaces.laidOut()
+        let scale = hostView.metalLayer.contentsScale
+        let pixels = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        guard pixels != reportedPixels else { return }
+        reportedPixels = pixels
+        onLayout(pixels)
+    }
+
+    /// The window's view spans the view, or in size compat has the guest's size, shown at the letterbox's scale in
+    /// its frame.
+    private func placeWindowView() {
+        guard let letterbox else {
+            hostView.transform = .identity
+            hostView.frame = bounds
+            return
+        }
+        let points = hostView.metalLayer.contentsScale
+        let scale = CGFloat(letterbox.scale)
+        let (width, height) = (CGFloat(letterbox.size.width), CGFloat(letterbox.size.height))
+        hostView.transform = CGAffineTransform(scaleX: scale, y: scale)
+        hostView.bounds = CGRect(x: 0, y: 0, width: width / points, height: height / points)
+        hostView.center = CGPoint(x: (CGFloat(letterbox.frame.left) + width * scale / 2) / points,
+                                  y: (CGFloat(letterbox.frame.top) + height * scale / 2) / points)
     }
 
     // The keys of a hardware keyboard go to the first responder: the session's view, while it is in a window, or its
@@ -187,7 +210,7 @@ final class SessionLayersView: UIView {
         guard let screen = window?.windowScene?.screen else { return }
         let view = hostView.convert(hostView.bounds, to: screen.coordinateSpace)
         onKeyboardCover(KeyboardCover.pixels(keyboard: frame ?? .zero, view: view, screen: screen.bounds,
-                                             scale: hostView.metalLayer.contentsScale))
+                                             scale: hostView.metalLayer.contentsScale / CGFloat(letterbox?.scale ?? 1)))
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -367,12 +390,16 @@ final class SurfaceLayers {
         updateBackgrounds()
     }
 
-    /// The session's view was laid out: the containers span it, as the window's layer does.
+    /// The session's view was laid out: the containers lie where the window's layer lies, at its scale (ADR-0041,
+    /// decision 12 b), so that the surfaces' frames stay the window's pixels.
     func laidOut() {
         guard below.superlayer != nil else { return }
         Self.withoutAnimation {
-            below.frame = backdrop.bounds
-            above.frame = backdrop.bounds
+            for container in [below, above] {
+                container.setAffineTransform(windowLayer.affineTransform())
+                container.bounds = windowLayer.bounds
+                container.position = windowLayer.position
+            }
         }
     }
 
@@ -588,10 +615,13 @@ struct MetalLayerView: UIViewRepresentable {
     var onTextView: (SoftKeyboardView) -> Void = { _ in }
     /// The part of the session's view UIKit's keyboard covers, in pixels (ADR-0068 step 2d).
     var onKeyboardCover: (Int32) -> Void = { _ in }
+    /// The session's view, once, as it is made.
+    var onView: (SessionLayersView) -> Void = { _ in }
 
     func makeUIView(context: Context) -> SessionLayersView {
         let view = SessionLayersView(frame: .zero)
         updateUIView(view, context: context)
+        onView(view)
         onLayer(view.hostView.metalLayer, view.surfaces)
         onTextView(view.textView)
         return view
@@ -599,7 +629,7 @@ struct MetalLayerView: UIViewRepresentable {
 
     func updateUIView(_ view: SessionLayersView, context: Context) {
         view.onTopEdgeSwipe = onTopEdgeSwipe
-        view.hostView.onLayout = onLayout
+        view.onLayout = onLayout
         view.onTouches = onTouches
         view.onKeys = onKeys
         view.onKeyboardCover = onKeyboardCover

@@ -123,8 +123,11 @@ final class RuntimeSessionHost: SessionHost {
                     guard let host = RuntimeSessionHost.from(address), host.windows.contains(window),
                           let layer = host.layer, let view = layer.delegate as? UIView,
                           let container = view.superview else { return nil }
+                    // The window's pixels per container point: in size compat (ADR-0041, decision 12 b) the
+                    // window's view shows them at the letterbox's scale.
                     return (UInt(bitPattern: Unmanaged.passUnretained(container).toOpaque()),
-                            UInt(bitPattern: Unmanaged.passUnretained(view).toOpaque()), Double(layer.contentsScale))
+                            UInt(bitPattern: Unmanaged.passUnretained(view).toOpaque()),
+                            Double(layer.contentsScale) / Double(view.transform.a))
                 }
                 guard let found else { return nil }
                 above?.pointee = UnsafeMutableRawPointer(bitPattern: found.view)

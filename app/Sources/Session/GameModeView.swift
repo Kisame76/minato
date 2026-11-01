@@ -31,7 +31,8 @@ struct GameModeView: View {
             session.touched(phase, changes, scale: scale)
         }, onKeys: { phase, presses in
             session.keyed(phase, presses)
-        }, onTextView: { session.attach($0) }, onKeyboardCover: { session.keyboardCovers($0) })
+        }, onTextView: { session.attach($0) }, onKeyboardCover: { session.keyboardCovers($0) },
+                       onView: { session.attach($0) })
             .ignoresSafeArea()
             .overlay(alignment: .top) {
                 if session.showsHint {

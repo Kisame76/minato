@@ -40,6 +40,9 @@ import UIKit
 ///   status-bar  game mode shows the status bar, for the Game Mode check of ADR-0038 step e.
 ///   audio-disconnect  that many seconds after the guest's start (1 for "yes"), the audio host disconnects every
 ///            open stream, as a reroute that changes the rate does, for audio-live's error callback; the file goes.
+///   resize   <width>x<height> in pixels: 2 s after the guest's start, game mode takes that size as a layout would,
+///            as the iPhone Duo's fold gives one (ADR-0041, decision 12), and logs the guest's size and the letterbox;
+///            the file goes. The view itself keeps its size.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -196,6 +199,19 @@ enum SessionCheck {
             + "window \(Int(session.windowPixels.width))x\(Int(session.windowPixels.height))")
     }
 
+    /// Hands game mode's session the size `text` names, 2 s after the guest's start, as a fold's layout would.
+    @MainActor
+    private static func resize(_ session: GameSession, to text: String) {
+        try? FileManager.default.removeItem(at: folder.appending(path: "resize"))
+        let parts = text.split(separator: "x").compactMap { Double($0) }
+        guard parts.count == 2, parts.allSatisfy({ $0 > 0 }) else { return event("resize malformed \(text)") }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            session.windowLaidOut(CGSize(width: parts[0], height: parts[1]))
+            event("resize \(text) \(session.sizeLine)")
+        }
+    }
+
     private static func orientationName(_ orientation: UIInterfaceOrientation) -> String {
         switch orientation {
         case .portrait: "portrait"
@@ -245,6 +261,7 @@ enum SessionCheck {
         }
         if requested("tone") { playTone(session.audio, seconds: text(of: "tone").flatMap(Double.init) ?? 2) }
         if requested("turn-session") { turn(session) }
+        if let size = text(of: "resize") { resize(session, to: size) }
         if requested("audio-disconnect") {
             let seconds = text(of: "audio-disconnect").flatMap(Double.init) ?? 1
             try? FileManager.default.removeItem(at: folder.appending(path: "audio-disconnect"))

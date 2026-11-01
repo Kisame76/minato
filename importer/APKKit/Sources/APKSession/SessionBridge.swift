@@ -139,14 +139,16 @@ public protocol SessionHost: AnyObject {
     func removeSurface(_ window: UInt64)
 }
 
-/// The guest's window in size compat (ADR-0041, decision 12 b): its frame in the host's window, in pixels, and
-/// its pixels' scale there, 1 or less.
+/// The guest's window in size compat (ADR-0041, decision 12 b): its frame in the host's window, in pixels, its
+/// pixels' scale there, 1 or less, and its own size in pixels.
 public struct Letterbox: Sendable, Equatable {
     public var frame: PixelRect
     public var scale: Float
-    public init(frame: PixelRect, scale: Float) {
+    public var size: PixelSize
+    public init(frame: PixelRect, scale: Float, size: PixelSize) {
         self.frame = frame
         self.scale = scale
+        self.size = size
     }
 }
 
@@ -209,7 +211,8 @@ public struct SessionBridge: Sendable {
         let width = Int32(Float(kept.width) * scale + 0.5)
         let height = Int32(Float(kept.height) * scale + 0.5)
         let left = max(0, Int32((Float(windowSize.width - width) * 0.5).rounded(.up)))
-        return Letterbox(frame: PixelRect(left: left, top: 0, right: left + width, bottom: height), scale: scale)
+        return Letterbox(frame: PixelRect(left: left, top: 0, right: left + width, bottom: height), scale: scale,
+                         size: kept)
     }
 
     /// ActivityInfo's CONFIG_SCREEN_LAYOUT, CONFIG_SCREEN_SIZE and CONFIG_SMALLEST_SCREEN_SIZE.
