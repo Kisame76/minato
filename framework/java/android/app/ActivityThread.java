@@ -980,6 +980,7 @@ public final class ActivityThread {
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
         intent.setComponent(new ComponentName(info.packageName, info.name));
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        mTaskActivity = intent.getComponent();
         ActivityClientRecord r = newRecord(intent, info);
         // A cold launch, which Android times from its request, before the process starts; ours from the start.
         r.launchStartTime = android.os.Process.getStartElapsedRealtime();
@@ -1181,8 +1182,10 @@ public final class ActivityThread {
     private static final int EVENT_LOCATION = 27;
     private static final int EVENT_BATTERY = 28;
     private static final int EVENT_IME_INSETS = 29;
+    private static final int EVENT_BACK = 30;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
+    private static final int REQUEST_BACK_AT_ROOT = 19;
     private static final int SURFACE_MAKE = 1;
     private static final int SURFACE_PLACE = 2;
     private static final int SURFACE_REMOVE = 3;
@@ -1194,6 +1197,8 @@ public final class ActivityThread {
 
     /** The session's event pipe; null without a session. */
     private FileDescriptor mSessionEvents;
+    /** The activity the app's task was made for, its launcher activity, as Android's Task.realActivity. */
+    private ComponentName mTaskActivity;
     /** Whether the session's lifecycle has the app resumed, so that starts and finishes run; true without a session. */
     private boolean mSessionResumed;
     /**
@@ -1421,6 +1426,10 @@ public final class ActivityThread {
             case EVENT_IME_INSETS:
                 // The soft keyboard's height (ADR-0068 step 2d): every window's ime() inset follows it.
                 WindowManagerGlobal.getInstance().dispatchImeInsets((int) event[2]);
+                break;
+            case EVENT_BACK:
+                // The system's back (ADR-0041 decision 10), for the window that has the focus.
+                WindowManagerGlobal.getInstance().dispatchBack((int) event[2], (int) event[3], (int) event[4]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2302,6 +2311,40 @@ public final class ActivityThread {
             }
         }
         return index >= 0 && index <= root;
+    }
+
+    /**
+     * As Android 15's ActivityClientController.shouldMoveTaskToBack, for Minato's one task, which the host starts from
+     * its library as Android's launcher does (LAUNCH_SOURCE_TYPE_HOME): whether a back moves the task to the back
+     * rather than finishing the activity. It does for the task's root that is its top, when it is the activity the task
+     * was made for, started with a main intent (ActivityRecord.isMainIntent).
+     */
+    boolean backMovesTaskToBack(IBinder token) {
+        ActivityClientRecord r = mActivities.get(token);
+        if (r == null || r.intent == null || !isTaskRoot(token) || !isTopOfTask(token)
+                || mTaskActivity == null || !mTaskActivity.equals(r.intent.getComponent())) {
+            return false;
+        }
+        Intent intent = r.intent;
+        return Intent.ACTION_MAIN.equals(intent.getAction()) && intent.getCategories() != null
+                && intent.getCategories().size() == 1 && intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+                && intent.getData() == null && intent.getType() == null;
+    }
+
+    /**
+     * The task's move to the back (ADR-0041 decision 10): with a session, the host opens its menu instead, where
+     * Android leaves a warm task behind and Minato's would end; whether the request went. Without a session nothing
+     * moves.
+     */
+    boolean moveTaskToBack() {
+        if (mSessionEvents == null) {
+            return false;
+        }
+        int error = nativeSessionRequest(REQUEST_BACK_AT_ROOT, 0, 0);
+        if (error != 0) {
+            Log.e(TAG, "The session refused BACK_AT_ROOT: " + error);
+        }
+        return error == 0;
     }
 
     /** As Android's isTopOfTask: whether the activity is the task's top one that is not finishing. */

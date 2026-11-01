@@ -178,6 +178,19 @@ import Testing
         #expect(keyboard.handle(.show(serial: 5)) == .show(traits(Self.text)))
     }
 
+    /// The menu's Back (ADR-0041 decision 10): as Android's input method takes the first BACK, the keyboard that is up
+    /// takes it and goes; the next goes to the app.
+    @Test func theKeyboardTakesTheFirstBackAndGoes() {
+        var keyboard = shown()
+        let first = keyboard.takesBack()
+        #expect(first && !keyboard.isShown)
+        let second = keyboard.takesBack()
+        #expect(!second)
+        var hidden = SoftKeyboard()
+        let none = hidden.takesBack()
+        #expect(!none)
+    }
+
     @Test func aRestartWhileShownSwapsTheTraitsAndTheSerialWithoutAHide() {
         var keyboard = shown()
         #expect(keyboard.handle(.start(serial: 6, editor: editor(Self.number))) == .update(traits(Self.number)))

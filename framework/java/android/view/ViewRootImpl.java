@@ -18,8 +18,10 @@
  *   - the insets are none until ADR-0041 decision 8, so a window that fits the system windows keeps its whole size,
  *     as an edge-to-edge window does on Android 15. The window's InsetsController, ours, keeps what the app asks of it,
  *     and setView replays into it what the app asked of the decor view's pending one (ADR-0042 b's start stops);
- *   - the back dispatcher is AOSP's, local: without a window session it keeps the callbacks and tells no one
- *     (ADR-0041 c) wires the back gesture);
+ *   - the back dispatcher is AOSP's, local: without a window session it keeps the callbacks and tells no one. The
+ *     system's back reaches the focused window from the session (ADR-0041 decision 10): an app that has not opted in
+ *     to OnBackInvokedCallback gets AOSP's compat callback, which makes KEYCODE_BACK in its own window, and a BACK key
+ *     goes to an opted-in app's top callback before the views, as AOSP's NativePreImeInputStage takes it;
  *   - touches come through the session's input channel, which ActivityThread hands over (ADR-0045 step 7b2): a
  *     WindowInputEventReceiver delivers them as AOSP's input stages deliver a touch, MOVEs at the frame's
  *     CALLBACK_INPUT;
@@ -47,6 +49,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.SparseArray;
 import android.util.TimeUtils;
@@ -56,7 +59,12 @@ import android.view.Window.OnContentApplyWindowInsetsListener;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.window.ActivityWindowInfo;
+import android.window.BackEvent;
 import android.window.ClientWindowFrames;
+import android.window.CompatOnBackInvokedCallback;
+import android.window.OnBackAnimationCallback;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.window.WindowOnBackInvokedDispatcher;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.policy.DecorView;
@@ -155,6 +163,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private final Display mDisplay;
     private final W mWindow = new W();
     private final WindowOnBackInvokedDispatcher mOnBackInvokedDispatcher;
+    /** AOSP's: the callback that makes KEYCODE_BACK for an app that has not opted in, null for one that has. */
+    private CompatOnBackInvokedCallback mCompatOnBackInvokedCallback;
     private final Rect mTempRect = new Rect();
     private final UnhandledKeyManager mUnhandledKeyManager = new UnhandledKeyManager();
     private final ImeFocusController mImeFocusController;
@@ -531,6 +541,11 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             host.dispatchAttachedToWindow(mAttachInfo, 0);
             mAttachInfo.mTreeObserver.dispatchOnWindowAttachedChange(true);
             dispatchApplyInsets(host);
+            if (!mOnBackInvokedDispatcher.isOnBackInvokedCallbackEnabled()) {
+                // As AOSP's: for an app that requests the legacy back, a compat callback that dispatches KEYCODE_BACK
+                // to its views.
+                registerCompatOnBackInvokedCallback();
+            }
             mLayoutRequested = true;
         } else if (mApplyInsetsRequested) {
             dispatchApplyInsets(host);
@@ -1642,6 +1657,97 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return mOnBackInvokedDispatcher;
     }
 
+    /**
+     * @hide WindowManagerGlobal's: the system's back for this window, which has the focus (ADR-0041 decision 10).
+     * A back without a gesture, COMMIT alone as the host's menu sends it, is Android's BACK key: the compat callback
+     * makes KEYCODE_BACK DOWN and UP in this window, as AOSP's sendBackKeyEvent; for an app that opted in, the same
+     * keys go through the input stages, which give them to the top callback before the views (doOnBackKeyEvent). The
+     * gesture's other phases come with its step (b2).
+     */
+    public void dispatchSystemBack(int phase, float progress, int edge) {
+        if (phase != BACK_COMMIT) {
+            Log.w(TAG, "The back's phase " + phase + " is not handled yet (ADR-0041 decision 10, step b2)");
+            return;
+        }
+        final OnBackInvokedCallback top = mOnBackInvokedDispatcher.getTopCallback();
+        if (top != null && top == mCompatOnBackInvokedCallback) {
+            top.onBackInvoked();
+        } else {
+            sendBackKeyEvent(KeyEvent.ACTION_DOWN);
+            sendBackKeyEvent(KeyEvent.ACTION_UP);
+        }
+    }
+
+    /** APKRT_BACK_COMMIT of guest_interface.h's apkrt_back_phase. */
+    private static final int BACK_COMMIT = 3;
+
+    /** AOSP's: a BACK key the system makes in this window, through its input stages at once. */
+    private void sendBackKeyEvent(int action) {
+        long when = SystemClock.uptimeMillis();
+        final KeyEvent ev = new KeyEvent(when, when, action, KeyEvent.KEYCODE_BACK, 0 /* repeat */, 0 /* metaState */,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0 /* scancode */,
+                KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY, InputDevice.SOURCE_KEYBOARD);
+        deliverInputEvent(ev, null, false);
+    }
+
+    /** AOSP's, without the input method's dispatcher and back animation, which Minato's keyboard has not. */
+    private void registerCompatOnBackInvokedCallback() {
+        mCompatOnBackInvokedCallback = () -> {
+            sendBackKeyEvent(KeyEvent.ACTION_DOWN);
+            sendBackKeyEvent(KeyEvent.ACTION_UP);
+        };
+        mOnBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                mCompatOnBackInvokedCallback);
+    }
+
+    /** As AOSP's NativePreImeInputStage: whether it takes a BACK key from the stages for the back's callbacks. */
+    private boolean takesBackKey(KeyEvent event) {
+        return event.getKeyCode() == KeyEvent.KEYCODE_BACK && mOnBackInvokedDispatcher.isOnBackInvokedCallbackEnabled();
+    }
+
+    /**
+     * AOSP's NativePreImeInputStage.doOnBackKeyEvent: the top callback gets the key, an animation callback
+     * onBackStarted at the first DOWN and onBackCancelled at a cancelled UP; whether it was handled. AOSP leaves out
+     * its input method's ImeBackAnimationController here, which Minato's windows never register.
+     */
+    private boolean doOnBackKeyEvent(KeyEvent keyEvent) {
+        final OnBackInvokedCallback topCallback = mOnBackInvokedDispatcher.getTopCallback();
+        if (mOnBackInvokedDispatcher.isBackGestureInProgress()) {
+            return false;
+        }
+        if (topCallback instanceof OnBackAnimationCallback) {
+            final OnBackAnimationCallback animationCallback = (OnBackAnimationCallback) topCallback;
+            switch (keyEvent.getAction()) {
+                case KeyEvent.ACTION_DOWN:
+                    // ACTION_DOWN comes again while the button is held, with a repeat count above 0.
+                    if (keyEvent.getRepeatCount() == 0) {
+                        animationCallback.onBackStarted(new BackEvent(0, 0, 0f, BackEvent.EDGE_LEFT));
+                    }
+                    break;
+                case KeyEvent.ACTION_UP:
+                    if (keyEvent.isCanceled()) {
+                        animationCallback.onBackCancelled();
+                    } else {
+                        topCallback.onBackInvoked();
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } else if (topCallback != null) {
+            if (keyEvent.getAction() == KeyEvent.ACTION_UP) {
+                if (!keyEvent.isCanceled()) {
+                    topCallback.onBackInvoked();
+                    return true;
+                } else {
+                    Log.d(TAG, "Skip onBackInvoked(), reason: keyEvent.isCanceled=true");
+                }
+            }
+        }
+        return false;
+    }
+
     public void setRootSystemGestureExclusionRects(List<Rect> rects) {
         mRootGestureExclusionRects = new ArrayList<>(rects);
     }
@@ -1938,6 +2044,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             final KeyEvent key = (KeyEvent) event;
             if (shouldDropInputEvent(key)) {
                 finishQueuedDelivery(event, receiver, false);
+            } else if (!postIme && takesBackKey(key)) {
+                finishQueuedDelivery(event, receiver, doOnBackKeyEvent(key));
             } else if (!postIme) {
                 mInputQueue.sendInputEvent(key, key, true, (token, handled) -> {
                     if (handled) {
@@ -2062,6 +2170,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean processKeyEvent(KeyEvent event, boolean postIme) {
         if (shouldDropInputEvent(event)) {
             return false;
+        }
+        if (!postIme && takesBackKey(event)) {
+            return doOnBackKeyEvent(event);
         }
         if (!postIme && mView.dispatchKeyEventPreIme(event)) {
             return true;

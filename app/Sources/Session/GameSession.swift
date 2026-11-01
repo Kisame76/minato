@@ -16,6 +16,9 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "sess
 final class GameSession {
     let entry: LibraryEntry
     private(set) var menuIsOpen = false
+    /// The menu opened for a back at the task's root (ADR-0041 decision 10): its Quit leaves the app stopped, and it
+    /// has no Back of its own.
+    private(set) var menuIsAtRoot = false
     private(set) var showsHint: Bool
     /// The FPS label is on (ADR-0032, decision 9); off by default, since it makes Core Animation composite
     /// the layer. One setting for every app, kept across sessions.
@@ -502,12 +505,13 @@ final class GameSession {
         deliver(.memoryWarning)
     }
 
-    func openMenu() {
+    func openMenu(atRoot: Bool = false) {
         guard !menuIsOpen else { return }
         #if BENCHMARK
         guard benchmark == nil else { return }
         #endif
         menuIsOpen = true
+        menuIsAtRoot = atRoot
         #if DEBUG
         SessionCheck.event("menu opened")
         #endif
@@ -517,12 +521,34 @@ final class GameSession {
     func closeMenu() {
         guard menuIsOpen else { return }
         menuIsOpen = false
+        menuIsAtRoot = false
         #if DEBUG
         SessionCheck.event("menu closed")
         #endif
         deliver(.menuClosed)
         // A sheet may have taken the keyboard's focus.
         if softKeyboard.isShown, let textView, !textView.isFirstResponder { textView.becomeFirstResponder() }
+    }
+
+    /// "Back" in the menu (ADR-0041 decision 10): the system's back, as Android's back button gives it, once the menu
+    /// has given the focus back. With UIKit's keyboard up it only puts the keyboard away, as Android's input method
+    /// takes the first BACK.
+    func back() {
+        let keyboardTook = softKeyboard.takesBack()
+        closeMenu()
+        if keyboardTook {
+            textView?.hide()
+            #if DEBUG
+            SessionCheck.event("back hid the keyboard")
+            #endif
+            return
+        }
+        #if DEBUG
+        SessionCheck.event("back")
+        #endif
+        let wasBroken = bridge.isBroken
+        let handled = bridge.back(.commit, progress: 0, edge: 0, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
     }
 
     /// "Show FPS" or "Hide FPS" in the menu.
@@ -559,13 +585,16 @@ final class GameSession {
         #endif
     }
 
-    /// Quit in the menu: the guest ends, then Minato restarts into the library.
+    /// Quit in the menu: the guest ends, then Minato restarts into the library. In the menu of a back at the task's
+    /// root, the app stops as Android leaves a task in the back, and ends without onDestroy (ADR-0041 decision 10).
     func quit() {
+        let atRoot = menuIsAtRoot
         menuIsOpen = false
+        menuIsAtRoot = false
         #if DEBUG
-        SessionCheck.event("quit")
+        SessionCheck.event(atRoot ? "quit at root" : "quit")
         #endif
-        deliver(.quit)
+        deliver(atRoot ? .quitAtRoot : .quit)
     }
 
     /// A touch callback of the window, with its pixels per point.
@@ -636,6 +665,9 @@ final class GameSession {
             picks.cancelled(id: id)
         case .ime(let serial, let text):
             imeRequested(serial: serial, text: text)
+        case .backAtRoot:
+            // Where Android moves the task to the back, which would end Minato's session (ADR-0041 decision 10).
+            openMenu(atRoot: true)
         }
     }
 

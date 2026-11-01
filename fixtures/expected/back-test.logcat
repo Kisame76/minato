@@ -1,0 +1,31 @@
+I/back-test: root onCreate
+I/back-test: root onStart
+I/back-test: root onResume
+I/back-test: root starts second
+I/back-test: root onPause
+I/back-test: second onCreate
+I/back-test: second fragment A onCreate
+I/back-test: second fragment B onCreate
+I/back-test: second back stack 1
+I/back-test: second onStart
+I/back-test: second onResume
+I/back-test: root onStop
+I/back-test: second KEYCODE_BACK down repeat 0 source 0x101 device -1
+I/back-test: second KEYCODE_BACK up repeat 0 source 0x101 device -1 tracking
+I/back-test: second onBackPressed
+I/back-test: second fragment B onDestroy
+I/back-test: second back stack 0
+I/back-test: second KEYCODE_BACK down repeat 0 source 0x101 device -1
+I/back-test: second KEYCODE_BACK up repeat 0 source 0x101 device -1 tracking
+I/back-test: second onBackPressed
+I/back-test: second onPause
+I/back-test: root onRestart
+I/back-test: root onStart
+I/back-test: root onResume
+I/back-test: second onStop
+I/back-test: second fragment A onDestroy
+I/back-test: second onDestroy
+I/back-test: root KEYCODE_BACK down repeat 0 source 0x101 device -1
+I/back-test: root KEYCODE_BACK up repeat 0 source 0x101 device -1 tracking
+I/back-test: root onBackPressed
+I/back-test: done

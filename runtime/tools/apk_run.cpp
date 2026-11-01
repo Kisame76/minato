@@ -85,7 +85,11 @@
 //               (positive up and left), the pointer's leaving the window;
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
-//               UIDevice side sets it (apkrt_battery_set).
+//               UIDevice side sets it (apkrt_battery_set);
+//   back        (ADR-0041 decision 10) the system's back without a gesture, as the App's overlay menu sends it:
+//               APKRT_EVENT_BACK with COMMIT, progress 0 and EDGE_LEFT, whose answer it does not wait for. The guest's
+//               BACK_AT_ROOT request, where Android moves the task to the back and the App opens its menu, prints
+//               "apk-run: back at root" on stderr and plays nothing.
 // The program starts on a fixed battery, 100 % charging, as a phone on its cable: the emulator's battery that
 // Android's reference scripts set (tools/android-reference.sh's battery-test).
 // The guest's surfaces (ADR-0043 c4) get windows of their own without a layer (headless_host.h): SURFACE_CREATED for a
@@ -355,15 +359,15 @@ bool parse_battery(const std::string &step, int &level, int &state) {
            state >= APKRT_BATTERY_STATE_UNKNOWN && state <= APKRT_BATTERY_STATE_FULL;
 }
 
-/// --lifecycle's steps: start first, then background and foreground in turn, and touches and battery changes after
-/// the start or a foreground; false for any other list.
+/// --lifecycle's steps: start first, then background and foreground in turn, and touches, battery changes and backs
+/// after the start or a foreground; false for any other list.
 bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) {
     std::istringstream list(value);
     std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
     for (std::string step; std::getline(list, step, ',');) {
         Touch touch;
         int level = 0, state = 0;
-        if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state))) {
+        if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state) || step == "back")) {
             steps.push_back(step);
             continue;
         }
@@ -685,6 +689,10 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
     }
     if (type == APKRT_REQUEST_WINDOW_OPAQUE) {
         if (const auto *layers = apk_run_layers()) layers->window_opaque(argument != 0);
+        return;
+    }
+    if (type == APKRT_REQUEST_BACK_AT_ROOT) {
+        std::fprintf(stderr, "apk-run: back at root\n");
         return;
     }
     if (type != APKRT_REQUEST_FINISH) return;
@@ -1037,6 +1045,8 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             std::fprintf(stderr, "apk-run: the start was answered\n");
         } else if (int level = 0, state = 0; parse_battery(steps[index], level, state)) {
             apkrt_battery_set(level, state);
+        } else if (steps[index] == "back") {
+            post(APKRT_EVENT_BACK, APKRT_BACK_COMMIT, 0, 0);
         } else if (Touch touch; parse_touch(steps[index], touch)) {
             if (apk_run_sets_window_buffers() == 0) {
                 buffers.mark();

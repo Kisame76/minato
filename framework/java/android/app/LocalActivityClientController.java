@@ -23,7 +23,11 @@
  *   - up navigation (step b3.5b2-2b): navigateUpTo finishes up to the destination in the task and starts it there,
  *     and shouldUpRecreateTask compares the destination's affinity with the task's;
  *   - translucency (ADR-0041 gap 4 (b3)): convertFromTranslucent and convertToTranslucent change whether the activity
- *     occludes the ones below it, as ActivityRecord.setOccludesParent, answering whether that changed.
+ *     occludes the ones below it, as ActivityRecord.setOccludesParent, answering whether that changed;
+ *   - the back (ADR-0041 decision 10): onBackPressed moves the task to the back where Android 15's
+ *     ActivityClientController.shouldMoveTaskToBack would, and finishes any other activity through its callback;
+ *     moveActivityTaskToBack moves it for the task's root, or for any activity with nonRoot. Minato's move to the back
+ *     is the host's menu (ActivityThread.moveTaskToBack).
  */
 package android.app;
 
@@ -34,6 +38,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Process;
+import android.os.RemoteException;
+import android.util.Log;
 
 final class LocalActivityClientController extends IActivityClientController.Default {
     /** The app's one task. Android numbers tasks from 1 since boot; Minato's first is the app's. */
@@ -88,6 +94,30 @@ final class LocalActivityClientController extends IActivityClientController.Defa
     @Override
     public boolean convertToTranslucent(IBinder token, Bundle options) {
         return mThread.setOccludesParent(token, false);
+    }
+
+    @Override
+    public void onBackPressed(IBinder token, IRequestFinishCallback callback) {
+        if (mThread.mActivities.get(token) == null) {
+            return;
+        }
+        if (mThread.backMovesTaskToBack(token)) {
+            mThread.moveTaskToBack();
+            return;
+        }
+        try {
+            callback.requestFinish();
+        } catch (RemoteException e) {
+            Log.w("ActivityClientController", "The activity's finish callback failed", e);
+        }
+    }
+
+    @Override
+    public boolean moveActivityTaskToBack(IBinder token, boolean nonRoot) {
+        if (mThread.mActivities.get(token) == null || (!nonRoot && !mThread.isTaskRoot(token))) {
+            return false;
+        }
+        return mThread.moveTaskToBack();
     }
 
     @Override

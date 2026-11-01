@@ -236,6 +236,35 @@ struct LifecycleTests {
         #expect(lifecycle.gate == .gone)
     }
 
+    /// Quit in the menu that a back at the task's root opened (ADR-0041 decision 10): the background row, as Android
+    /// leaves a task in the back stopped with its state saved by targetSdk, then the end without onDestroy, as Android
+    /// may end any stopped app.
+    @Test(arguments: [35, 27, 10])
+    func quitAtTheRootStopsAndEndsWithoutOnDestroy(targetSdk: Int) {
+        var lifecycle = Lifecycle(targetSdk: targetSdk)
+        _ = Self.run([.start, .active, .menuOpened], on: &lifecycle)
+        let stop: [Lifecycle.Callback] = targetSdk >= 28 ? [.onStop, .onSaveInstanceState]
+            : targetSdk >= 11 ? [.onSaveInstanceState, .onStop] : [.onStop]
+        let pause: [Lifecycle.Callback] = targetSdk >= 11 ? [.onPause, .onNativeWindowDestroyed]
+            : [.onSaveInstanceState, .onPause, .onNativeWindowDestroyed]
+
+        #expect(lifecycle.handle(.quitAtRoot) == pause)
+        #expect(lifecycle.gate == .gone)
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == stop)
+        #expect(lifecycle.awaits == stop.last)
+        #expect(!lifecycle.hasEnded)
+        #expect(lifecycle.handle(.timedOut(stop.last!)) == [])
+        #expect(lifecycle.hasEnded)
+    }
+
+    @Test func quitAtTheRootInTheBackgroundEndsAtOnce() {
+        var lifecycle = Self.running()
+        _ = Self.run([.menuOpened, .inactive, .background, .answered(.onNativeWindowDestroyed)], on: &lifecycle)
+
+        #expect(lifecycle.handle(.quitAtRoot) == [])
+        #expect(lifecycle.hasEnded)
+    }
+
     @Test func finishesInTheBackground() {
         var lifecycle = Self.running()
         _ = Self.run([.inactive, .background, .answered(.onNativeWindowDestroyed)], on: &lifecycle)

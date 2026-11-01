@@ -45,6 +45,18 @@ public enum SessionEvent: Sendable, Equatable {
     case pickResult(id: UInt64, code: Int32, count: UInt64)
     /// The part of the session's view UIKit's keyboard covers, in pixels (ADR-0068 step 2d), APKRT_EVENT_IME_INSETS.
     case imeInsets(bottom: Int32)
+    /// The system's back (ADR-0041 decision 10), APKRT_EVENT_BACK: its phase, the gesture's progress in 1/10000 and
+    /// its edge, BackEvent's EDGE_LEFT 0 or EDGE_RIGHT 1.
+    case back(phase: BackPhase, progress: Int32, edge: Int32)
+}
+
+/// APKRT_EVENT_BACK's phases (`apkrt_back_phase`): a gesture's start, progress, then commit or cancel; a back without
+/// a gesture, the menu's, is a commit alone.
+public enum BackPhase: Int32, Sendable, Equatable {
+    case start = 1
+    case progress
+    case commit
+    case cancel
 }
 
 /// What the guest asks of the host (ADR-0028, decision 4), as the runtime reports it.
@@ -75,6 +87,9 @@ public enum SessionRequest: Sendable, Equatable {
     /// The guest's input method tells the host about the served editor (ADR-0068 step 2b): the connection's serial and
     /// the request's text (ImeRequest).
     case ime(serial: Int64, text: String)
+    /// A back at the task's root (ADR-0041 decision 10), where Android moves the task to the back: the host opens its
+    /// menu instead.
+    case backAtRoot
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {
@@ -292,6 +307,14 @@ public struct SessionBridge: Sendable {
         guard pixels != keyboardCover, !isBroken, !lifecycle.hasEnded else { return Handled() }
         keyboardCover = pixels
         _ = posted(.imeInsets(bottom: pixels), host: host)
+        return Handled()
+    }
+
+    /// The system's back (ADR-0041 decision 10): posted unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func back(_ phase: BackPhase, progress: Int32, edge: Int32, host: SessionHost) -> Handled {
+        guard !isBroken, !lifecycle.hasEnded else { return Handled() }
+        _ = posted(.back(phase: phase, progress: progress, edge: edge), host: host)
         return Handled()
     }
 

@@ -713,6 +713,22 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
     }
 
+    /// The system's back (ADR-0041 decision 10), as the menu's Back sends it: posted while the app runs, not after its
+    /// end.
+    @Test func theSystemsBackIsPostedWhileTheAppRuns() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        bridge.back(.commit, progress: 0, edge: 0, host: host)
+        #expect(host.take() == [.post(.back(phase: .commit, progress: 0, edge: 0))])
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        _ = bridge.finished(second, result: 0, host: host)
+        _ = host.take()
+        bridge.back(.commit, progress: 0, edge: 0, host: host)
+        #expect(host.take() == [])
+    }
+
     /// A surface made in the background gets its window with a closed gate, which opens after the window's at the
     /// return.
     @Test func aSurfaceMadeInTheBackgroundOpensWithTheReturn() throws {

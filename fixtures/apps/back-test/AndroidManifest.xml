@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The system's back (back-test, ADR-0041 decision 10): Root starts Second, which holds a fragment on its back stack.
+     Three BACKs pop the fragment, finish Second and reach Root, each logged as the app sees it: its keys,
+     onBackPressed and the lifecycle. The app has not opted in to OnBackInvokedCallback, so its own process makes
+     KEYCODE_BACK; back-test-callback is its twin that has. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.back" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.back.RootActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.back.SecondActivity" android:exported="false"/>
+  </application>
+</manifest>

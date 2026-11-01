@@ -145,6 +145,8 @@ final class RuntimeSessionHost: SessionHost {
         case .pickResult(let id, let code, let count):
             (APKRT_EVENT_PICK_RESULT, id, UInt64(UInt32(bitPattern: code)), count)
         case .imeInsets(let bottom): (APKRT_EVENT_IME_INSETS, UInt64(max(bottom, 0)), 0, 0)
+        case .back(let phase, let progress, let edge):
+            (APKRT_EVENT_BACK, UInt64(phase.rawValue), UInt64(max(progress, 0)), UInt64(max(edge, 0)))
         }
     }
 
@@ -290,6 +292,7 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_PICK_CANCEL.rawValue: .pickCancel(id: argument)
         case APKRT_REQUEST_IME.rawValue:
             .ime(serial: Int64(bitPattern: argument), text: text.map { String(cString: $0) } ?? "")
+        case APKRT_REQUEST_BACK_AT_ROOT.rawValue: .backAtRoot
         default: nil
         }
     }

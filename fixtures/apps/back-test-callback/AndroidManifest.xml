@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- back-test's twin (ADR-0041 decision 10) that has opted in to OnBackInvokedCallback on its application: a BACK goes
+     to the window's top callback before the views, Second's an OnBackAnimationCallback, Root's a plain one, and then
+     to each activity's own default callback, which asks the system as onBackPressed does. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.back" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+      android:enableOnBackInvokedCallback="true">
+    <activity android:name="io.github.kisame76.minato.test.back.RootActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.back.SecondActivity" android:exported="false"/>
+  </application>
+</manifest>

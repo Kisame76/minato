@@ -18,6 +18,9 @@ public struct Lifecycle: Sendable, Equatable {
         case menuClosed
         /// Quit in the menu.
         case quit
+        /// Quit in the menu that a back at the task's root opened (ADR-0041 decision 10): the background's row, then
+        /// the end without onDestroy, as Android may end a task it moved to the back once it is stopped.
+        case quitAtRoot
         /// The guest called ANativeActivity_finish.
         case finish
         /// The window took another size while the session turns (ADR-0038, decision 1.4).
@@ -79,6 +82,8 @@ public struct Lifecycle: Sendable, Equatable {
     private var hasFocus = false
     /// Whether the window now given up ends the app (Quit, finish) rather than going to the background.
     private var isEnding = false
+    /// Whether the app ends once it is stopped (quitAtRoot).
+    private var endsStopped = false
     private var waiting: [Event] = []
 
     /// The callback whose answer the host waits for.
@@ -179,17 +184,31 @@ public struct Lifecycle: Sendable, Equatable {
             case .ended:
                 return []
             }
+        case .quitAtRoot:
+            switch phase {
+            case .resumed:
+                isEnding = false
+                endsStopped = true
+                return giveUpWindow()
+            case .stopped, .notStarted:
+                phase = .ended
+                return []
+            case .ended:
+                return []
+            }
         case .answered, .timedOut:
             let waited = awaits
             awaits = nil
             switch waited {
             case .onNativeWindowDestroyed:
                 guard isEnding else {
-                    switch targetSdk {
-                    case ..<Self.honeycomb: return [.onStop]
-                    case ..<Self.pie: return [.onSaveInstanceState, .onStop]
-                    default: return [.onStop, .onSaveInstanceState]
+                    let stop: [Callback] = switch targetSdk {
+                    case ..<Self.honeycomb: [.onStop]
+                    case ..<Self.pie: [.onSaveInstanceState, .onStop]
+                    default: [.onStop, .onSaveInstanceState]
                     }
+                    if endsStopped { awaits = stop.last }
+                    return stop
                 }
                 awaits = .onDestroy
                 return [.onStop, .onDestroy]
@@ -197,6 +216,8 @@ public struct Lifecycle: Sendable, Equatable {
                 phase = .ended
                 return []
             default:
+                // The stop that quitAtRoot waited for ends the app.
+                if endsStopped, waited != nil { phase = .ended }
                 return []
             }
         }

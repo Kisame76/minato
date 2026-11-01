@@ -1,0 +1,25 @@
+I/back-test-callback: root onCreate
+I/back-test-callback: root onStart
+I/back-test-callback: root onResume
+I/back-test-callback: root starts second
+I/back-test-callback: root onPause
+I/back-test-callback: second onCreate
+I/back-test-callback: second fragment A onCreate
+I/back-test-callback: second fragment B onCreate
+I/back-test-callback: second back stack 1
+I/back-test-callback: second onStart
+I/back-test-callback: second onResume
+I/back-test-callback: root onStop
+I/back-test-callback: second callback onBackStarted edge 0 progress 0.0
+I/back-test-callback: second callback onBackInvoked
+I/back-test-callback: second fragment B onDestroy
+I/back-test-callback: second back stack 0
+I/back-test-callback: second onPause
+I/back-test-callback: root onRestart
+I/back-test-callback: root onStart
+I/back-test-callback: root onResume
+I/back-test-callback: second onStop
+I/back-test-callback: second fragment A onDestroy
+I/back-test-callback: second onDestroy
+I/back-test-callback: root callback onBackInvoked
+I/back-test-callback: done

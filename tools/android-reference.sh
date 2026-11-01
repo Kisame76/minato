@@ -225,7 +225,8 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == second-windows-test || "$app" == toast-test || "$app" == windows-return-test ||
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 ||
-  "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
+  "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
+  "$app" == back-test-callback ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -915,6 +916,12 @@ run_app() {
     ime-insets-test | ime-insets-test-34)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ResizeActivity
       ;;
+    # back-test (ADR-0041 decision 10, the system's back): Root starts Second, and three BACKs pop Second's fragment,
+    # finish Second and reach Root, which ends with "done". back-test-callback is its twin that opted in to
+    # OnBackInvokedCallback.
+    back-test | back-test-callback)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RootActivity
+      ;;
     # native-ime-test (ADR-0068 step 2e): a NativeActivity that asks for the keyboard, which Android 15 ignores, so its
     # fixture input method never starts; after its "soft input done" the script sends B and DEL as keys from outside,
     # and the DEL's release ends it with "done".
@@ -1205,6 +1212,22 @@ run_app() {
     # logs "channel: ready", as the host sends them through Minato's input channel.
     { wait_for "$app" "channel: ready" && sleep 1 && run input keyevent 9 && sleep 1 && run input keyevent 30 &&
       sleep 1 && run input keyevent 67 && wait_for "$app" done && run input tap 645 1398; } || return 1
+  fi
+  if [[ "$app" == back-test || "$app" == back-test-callback ]]; then
+    # ADR-0041 decision 10: a back a second after Second's focus, after its fragment's pop and after Root's return, as
+    # apk-run's back steps in tools/back-check.sh. back-test's is a swipe in from the left edge under gesture
+    # navigation, whose compat callback makes the BACK keys in the app's process, as Minato's menu does: a key from
+    # `input keyevent` has another source (0). back-test-callback's is that BACK key, which an opted-in app's window
+    # gives to its top callback as Minato's keys; its last, after "done", reaches Root's default callback, which moves
+    # the task to the back.
+    local back=(input keyevent KEYCODE_BACK)
+    [[ "$app" == back-test-callback ]] || back=(input swipe 10 1398 800 1398 400)
+    { wait_for "$app-steps" "ready: second" && sleep 1 && run "${back[@]}" &&
+      wait_for "$app" "second back stack 0" && sleep 1 && run "${back[@]}" &&
+      wait_for "$app-steps" "ready: root" && sleep 1 && run "${back[@]}"; } || return 1
+    if [[ "$app" == back-test-callback ]]; then
+      { wait_for "$app" done && sleep 1 && run "${back[@]}"; } || return 1
+    fi
   fi
   if [[ "$app" == second-windows-test ]]; then
     # ADR-0041 gap 4 (b2): a tap a second after each of the touches part's ready lines, at the places

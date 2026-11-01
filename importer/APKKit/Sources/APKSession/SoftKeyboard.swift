@@ -234,6 +234,14 @@ public struct SoftKeyboard: Sendable {
         isShown = false
     }
 
+    /// The system's back (ADR-0041 decision 10): the keyboard that is up takes it and goes, as Android's input method
+    /// takes the first BACK; whether it did. The guest hears of it as of the user's hide, its field keeps the focus.
+    public mutating func takesBack() -> Bool {
+        guard isShown else { return false }
+        isShown = false
+        return true
+    }
+
     /// insertText: the text as commits, each new line the return key unless the editor takes it as text, and each
     /// digit its key on the pads and without an editor (LatinIME's sendKeyCodePoint).
     public func insert(_ text: String) -> [TextRecord] {

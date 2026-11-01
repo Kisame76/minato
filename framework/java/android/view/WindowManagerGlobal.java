@@ -11,7 +11,7 @@
  *     SYSTEM_ALERT_WINDOW. A window's sub-windows go before it, as WMS's removeImmediately takes the children;
  *   - the windows' input and focus (gap 4 (b2), decision 4): the session's touches go to the window Android 15's
  *     InputDispatcher picks among the shown windows in decision 1's order, and the session's focus to the topmost
- *     focusable one;
+ *     focusable one, which also gets the system's back (ADR-0041 decision 10);
  *   - every other window (a toast, a system window) is a gap that is logged and never shown, so that its
  *     updateViewLayout and removeView still answer (ADR-0041 decision 2, step 8);
  *   - no window session: getWindowSession is null, as Minato has no system_server, and ViewRootImpl lays out
@@ -247,6 +247,23 @@ public final class WindowManagerGlobal {
         for (ViewRootImpl root : roots) {
             root.imeInsetsChanged();
         }
+    }
+
+    /**
+     * @hide ActivityThread's: the session's back (ADR-0041 decision 10, APKRT_EVENT_BACK) with its phase, its progress
+     * in 1/10000 and its edge, for the window that has the focus, as Android 15's window manager gives a back to the
+     * focused window's callback. Without one it goes nowhere.
+     */
+    public void dispatchBack(int phase, int progress, int edge) {
+        final ViewRootImpl focused;
+        synchronized (mLock) {
+            focused = mFocusedRoot;
+        }
+        if (focused == null) {
+            Log.w(TAG, "The session's back finds no window with the focus");
+            return;
+        }
+        focused.dispatchSystemBack(phase, Math.min(Math.max(progress, 0), 10000) / 10000f, edge);
     }
 
     /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (gap 4 (b3)). */

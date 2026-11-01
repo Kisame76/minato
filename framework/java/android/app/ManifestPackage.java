@@ -1162,6 +1162,10 @@ final class ManifestPackage {
                     | flag(sa, R.styleable.AndroidManifestApplication_multiArch, false, ApplicationInfo.FLAG_MULTIARCH);
             // FLAG_PERSISTENT is the system's alone (ScanPackageUtils.applyPolicy clears it for an app).
             ai.flags = flags;
+            // The back's opt-in (ADR-0041 decision 10), as ParsingPackageUtils.setOnBackInvokedCallbackEnabled.
+            if (sa.getBoolean(R.styleable.AndroidManifestApplication_enableOnBackInvokedCallback, false)) {
+                ai.privateFlagsExt |= ApplicationInfo.PRIVATE_FLAG_EXT_ENABLE_ON_BACK_INVOKED_CALLBACK;
+            }
         } finally {
             sa.recycle();
         }
@@ -1272,6 +1276,12 @@ final class ManifestPackage {
                                 & (ActivityInfo.CONFIG_MCC | ActivityInfo.CONFIG_MNC));
                 info.screenOrientation = sa.getInt(R.styleable.AndroidManifestActivity_screenOrientation,
                         ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                // An activity's own back opt-in, either way, over the application's (ParsedActivityUtils).
+                if (sa.hasValue(R.styleable.AndroidManifestActivity_enableOnBackInvokedCallback)) {
+                    info.privateFlags |= sa.getBoolean(R.styleable.AndroidManifestActivity_enableOnBackInvokedCallback,
+                            false) ? ActivityInfo.PRIVATE_FLAG_ENABLE_ON_BACK_INVOKED_CALLBACK
+                                    : ActivityInfo.PRIVATE_FLAG_DISABLE_ON_BACK_INVOKED_CALLBACK;
+                }
             } else {
                 info.launchMode = ActivityInfo.LAUNCH_MULTIPLE;
                 info.configChanges = 0;
