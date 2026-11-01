@@ -22,6 +22,7 @@ All notable changes to Minato are documented in this file. The format follows
 
 ### Changed
 
+- Apps written in Java or Kotlin run faster: Android's fast interpreter is now the default
 - A tap outside the on-screen keyboard puts it away, as many iPhone apps do, while a drag or a scroll keeps it up;
   the button above the keyboard is gone
 - An app that cannot start because a library it needs does not load says why in one line, following the chain of

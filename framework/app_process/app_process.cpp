@@ -17,7 +17,7 @@
 //     phone-xhdpi-6144-dalvik-heap.mk, its largest phone, where a property is missing (decision 4);
 //   - the collector from dalvik.vm.gctype as AndroidRuntime reads it (-Xgc:), CMS where it is missing: short pauses
 //     for an app (ADR-0033 decision 5, changed 2026-10-06). ART's own default stays SS, which the tests keep;
-//   - ADR-0033 decision 11's options: the interpreter only, no boot image, no JDWP. No boot image is
+//   - ADR-0033 decision 11's options: nterp as the interpreter (no -Xint, M6), no boot image, no JDWP. No boot image is
 //     -Xforcejitzygote, the option AndroidRuntime adds for the JIT zygote image. Checked at the tag:
 //       - it sets -Ximage to GetJitZygoteBootImageLocation(), "/nonx/boot.art!…", which file_utils.cc calls
 //         intentionally non-existing, so ART falls back to imageless running from the jars;
@@ -52,6 +52,7 @@
 #include <pthread.h>
 #include <sys/system_properties.h>
 
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -112,13 +113,24 @@ int main(int argc, char **argv) {
         property_option("dalvik.vm.heaptargetutilization", "-XX:HeapTargetUtilization=", "0.5"),
         // ADR-0033 decision 5: CMS for an app, where the property area has no value.
         property_option("dalvik.vm.gctype", "-Xgc:", "CMS"),
-        "-Xint",
         "-Xusejit:false",
         "-Xnoimage-dex2oat",
         "-Xforcejitzygote",
         "-XjdwpProvider:none",
         "-Xhidden-api-policy:disabled",
     };
+    // The Mac tests' measurement switch (M6 e0, tools/boot-start-measure.sh): MINATO_MEASURE_ART_OPTIONS adds options,
+    // such as -Xverify:none to measure what verification costs, or -Xint. No app's launch sets it (GuestStart passes
+    // only its own entries); -Xverify:none never becomes a default.
+    if (const char *measured = getenv("MINATO_MEASURE_ART_OPTIONS")) {
+        std::istringstream words(measured);
+        for (std::string word; words >> word;) strings.push_back(word);
+    }
+    // nterp, ART's fast interpreter, is the default as on Android; -Xint would make ART force the switch interpreter
+    // for every method (runtime.cc, Opt::Interpret) and so never use a compiled odex. The line tells the tests which.
+    bool switch_interpreter = false;
+    for (const std::string &option : strings) switch_interpreter = switch_interpreter || option == "-Xint";
+    __android_log_print(ANDROID_LOG_INFO, "app_process", "interpreter: %s", switch_interpreter ? "switch" : "nterp");
     std::vector<JavaVMOption> options(strings.size());
     for (size_t i = 0; i < strings.size(); i++) {
         options[i].optionString = strings[i].c_str();

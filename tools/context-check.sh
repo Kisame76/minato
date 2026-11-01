@@ -36,5 +36,8 @@ check() {
 }
 check context-test io.github.kisame76.minato.test.context io.github.kisame76.minato.test.context.ContextApplication \
   --restart
-check looper-test io.github.kisame76.minato.test.looper io.github.kisame76.minato.test.looper.LooperApplication
+# looper-test also checks that the app runs nterp, ART's fast interpreter, as Android does: app_process logs which
+# interpreter it asked for (M6, instead of -Xint, which forces the switch interpreter and blocks every compiled odex).
+check looper-test io.github.kisame76.minato.test.looper io.github.kisame76.minato.test.looper.LooperApplication \
+  --once "I/app_process: interpreter: nterp"
 exit "$failed"
