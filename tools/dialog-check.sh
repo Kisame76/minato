@@ -9,6 +9,8 @@
 # Usage: tools/dialog-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The display: MINATO_DISPLAY, by default the M4 plan's (tools/check-display.sh).
+source tools/check-display.sh
 
 # Every app process registers hwui's natives and loads the fonts of bionic's /system (ADR-0043 test 2): shared
 # builds, which this check does not make, so it stops while graphics/tests/hwui_ready.py says one is not ready.
@@ -26,4 +28,5 @@ python3 framework/tests/java_app_run.py dialog-test io.github.kisame76.minato.te
   android.app.Application build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" build/dialog-check build/framework-native/app_process64 build/framework/framework.jar \
-  build/framework-res/framework-res build/dialog-test/dialog-test.apk fixtures/expected/dialog-test.logcat 1290x2796@3,en-US
+  build/framework-res/framework-res build/dialog-test/dialog-test.apk fixtures/expected/dialog-test.logcat \
+  "$CHECK_DISPLAY,en-US"

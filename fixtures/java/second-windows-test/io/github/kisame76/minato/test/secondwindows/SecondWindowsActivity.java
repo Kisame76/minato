@@ -22,6 +22,7 @@ import android.widget.PopupWindow;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Second windows (ADR-0041 gap 4 (b)): an AlertDialog and PopupWindows in windows of their own, with their frames and
@@ -75,6 +76,7 @@ public class SecondWindowsActivity extends Activity {
     private AlertDialog mDialog;
     private View mDialogDecor;
     private PopupWindow mPopup;
+    private Runnable mAfterKeyUp;
     private IBinder mDialogToken;
     /** The activity, for the activities of the b3 part. */
     static SecondWindowsActivity sInstance;
@@ -189,6 +191,11 @@ public class SecondWindowsActivity extends Activity {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         log("activity key up " + KeyEvent.keyCodeToString(keyCode));
+        Runnable after = mAfterKeyUp;
+        mAfterKeyUp = null;
+        if (after != null) {
+            mHandler.post(after);
+        }
         return super.onKeyUp(keyCode, event);
     }
 
@@ -233,16 +240,34 @@ public class SecondWindowsActivity extends Activity {
     }
 
     /** "ready: <what>" once `focused`'s window has the focus, or READY_MS after its show for null. */
-    private void ready(String what, View focused) {
+    /**
+     * Says "ready: <what>, tap at <x>,<y>" once `focused` has the focus, or a while after the show without one: where
+     * the host taps next in the display's pixels, from `tap` once the windows are laid out. The scripts tap there, so
+     * that the taps land at every display (the device-size plan, step 1).
+     */
+    private void ready(String what, View focused, Supplier<int[]> tap) {
         Runnable ready = () -> {
             logFocus();
-            log("ready: " + what);
+            int[] place = tap.get();
+            log("ready: " + what + ", tap at " + place[0] + "," + place[1]);
         };
         if (focused != null) {
             whenFocused(focused, ready);
         } else {
             mHandler.postDelayed(ready, READY_MS);
         }
+    }
+
+    /** `view`'s place on the screen moved by (dx, dy), in the display's pixels. */
+    private static int[] on(View view, int dx, int dy) {
+        int[] place = new int[2];
+        view.getLocationOnScreen(place);
+        return new int[] {place[0] + dx, place[1] + dy};
+    }
+
+    /** The target's middle. */
+    private int[] onTarget() {
+        return on(mTarget, mTarget.getWidth() / 2, mTarget.getHeight() / 2);
     }
 
     /** The next step once the activity has the focus back. */
@@ -274,7 +299,7 @@ public class SecondWindowsActivity extends Activity {
         });
         content.setOnClickListener(v -> {
             log(name + " clicked");
-            ready(name + " again", null);
+            ready(name + " again", null, this::onTarget);
         });
         PopupWindow popup = new PopupWindow(content, POPUP_WIDTH, POPUP_HEIGHT, focusable);
         popup.setOutsideTouchable(!focusable);
@@ -295,9 +320,10 @@ public class SecondWindowsActivity extends Activity {
     }
 
     /**
-     * The touches part, a step at each window's end: a dialog for a tap on its OK button (1077, 1549), one for a tap
-     * outside it (645, 700), a popup that watches outside touches for a tap on the target (645, 1398), a focusable one
-     * for a tap in it (695, 1573) and one on the target, then a dialog for keys.
+     * The touches part, a step at each window's end: a dialog for a tap on its OK button, one for a tap outside it,
+     * a popup that watches outside touches for a tap on the target, a focusable one for a tap in it and one on the
+     * target, then a dialog for keys. Each ready line names the tap's place (at the M4 plan's display 1077, 1549;
+     * 644, 552; 645, 1398; 695, 1573; 645, 1398).
      */
     private void input(int step) {
         switch (step) {
@@ -311,22 +337,32 @@ public class SecondWindowsActivity extends Activity {
                     }
                     return false;
                 });
-                ready("dialog 1", dialog.getWindow().getDecorView());
+                View ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+                ready("dialog 1", dialog.getWindow().getDecorView(),
+                        () -> on(ok, ok.getWidth() / 2, ok.getHeight() / 2));
                 break;
             }
-            case 2:
+            case 2: {
                 logFocus();
-                ready("dialog 2", inputDialog("dialog 2").getWindow().getDecorView());
+                // Outside the dialog: halfway between the display's top and the dialog's.
+                View decor = inputDialog("dialog 2").getWindow().getDecorView();
+                ready("dialog 2", decor, () -> {
+                    int[] top = on(decor, decor.getWidth() / 2, 0);
+                    return new int[] {top[0], top[1] / 2};
+                });
                 break;
+            }
             case 3:
                 logFocus();
                 inputPopup("popup 1", false);
-                ready("popup 1", null);
+                ready("popup 1", null, this::onTarget);
                 break;
-            case 4:
+            case 4: {
                 logFocus();
-                ready("popup 2", inputPopup("popup 2", true).getContentView());
+                View content = inputPopup("popup 2", true).getContentView();
+                ready("popup 2", content, () -> on(content, 200, 100));
                 break;
+            }
             case 5: {
                 logFocus();
                 AlertDialog dialog = inputDialog("dialog 3");
@@ -337,8 +373,10 @@ public class SecondWindowsActivity extends Activity {
                 });
                 whenFocused(dialog.getWindow().getDecorView(), () -> {
                     logFocus();
+                    // The activity's key goes through its input method stage, whose answer may come after keys
+                    // injected later into the dialog: BACK waits for the activity's key up, in one order everywhere.
+                    mAfterKeyUp = () -> key(dialog.getWindow(), KeyEvent.KEYCODE_BACK);
                     key(getWindow(), KeyEvent.KEYCODE_A);
-                    key(dialog.getWindow(), KeyEvent.KEYCODE_BACK);
                 });
                 break;
             }

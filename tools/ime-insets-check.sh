@@ -13,6 +13,8 @@
 # Usage: tools/ime-insets-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The display: MINATO_DISPLAY, by default the M4 plan's (tools/check-display.sh).
+source tools/check-display.sh
 
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
@@ -31,5 +33,5 @@ for app in ime-insets-test ime-insets-test-34; do
     build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
     "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" "build/$app-check" \
     build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
-    "build/$app/$app.apk" "fixtures/expected/$app.logcat" 1290x2796@3,en-US
+    "build/$app/$app.apk" "$(expected_at_display "$app" logcat)" "$CHECK_DISPLAY,en-US"
 done

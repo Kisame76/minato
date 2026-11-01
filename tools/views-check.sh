@@ -17,6 +17,8 @@
 # Usage: tools/views-check.sh [app...]   (default: views-test, views-test-default, views-test-fonts, views-test-bidi)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The display: MINATO_DISPLAY, by default the M4 plan's (tools/check-display.sh).
+source tools/check-display.sh
 
 # Every app process registers hwui's natives and loads the fonts of bionic's /system (ADR-0043 test 2): shared
 # builds, which this check does not make, so it stops while graphics/tests/hwui_ready.py says one is not ready.
@@ -34,9 +36,12 @@ tools/build-framework.sh >/dev/null
 
 failed=0
 for APP in "${APPS[@]}"; do
-  for expected in fixtures/expected/$APP.logcat fixtures/expected/$APP.rgba.gz fixtures/expected/$APP.rows; do
+  logcat=$(expected_at_display "$APP" logcat)
+  rgba=$(expected_at_display "$APP" rgba.gz)
+  rows=$(expected_at_display "$APP" rows)
+  for expected in "$logcat" "$rgba" "$rows"; do
     if [[ ! -f "$expected" ]]; then
-      echo "FAIL: no $expected: run tools/android-reference.sh --app $APP"
+      echo "FAIL: no $expected: run MINATO_DISPLAY=$CHECK_DISPLAY tools/android-reference.sh --app $APP"
       exit 1
     fi
   done
@@ -48,9 +53,9 @@ for APP in "${APPS[@]}"; do
   mkdir -p "$WORK/dump"
   : >"$WORK/dump/posts.txt"
   # The Button's middle in the window, from Android's line of its bounds.
-  read -r left top right bottom <<<"$(sed -n 's/.*: button bounds \([0-9 ]*\)$/\1/p' fixtures/expected/$APP.logcat)"
+  read -r left top right bottom <<<"$(sed -n 's/.*: button bounds \([0-9 ]*\)$/\1/p' "$logcat")"
   if [[ -z "$bottom" ]]; then
-    echo "FAIL: fixtures/expected/$APP.logcat has no button bounds: run tools/android-reference.sh --app $APP"
+    echo "FAIL: $logcat has no button bounds: run MINATO_DISPLAY=$CHECK_DISPLAY tools/android-reference.sh --app $APP"
     exit 1
   fi
   MINATO_WINDOW_BUFFERS=fake MINATO_WINDOW_DUMP="$PWD/$WORK/dump" python3 framework/tests/java_app_run.py \
@@ -59,8 +64,7 @@ for APP in "${APPS[@]}"; do
     android.app.Application build/art build/bionic/lib build/bionic/system build/hwui/lib \
     build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
     "$NATIVE/graphics/tests/graphics-run" "$WORK" build/framework-native/app_process64 build/framework/framework.jar \
-    build/framework-res/framework-res build/$APP/$APP.apk fixtures/expected/$APP.logcat 1290x2796@3,en-US || failed=1
-  python3 framework/tests/views_compare.py fixtures/expected/$APP.rgba.gz fixtures/expected/$APP.rows \
-    fixtures/expected/$APP.logcat "$WORK/dump" || failed=1
+    build/framework-res/framework-res build/$APP/$APP.apk "$logcat" "$CHECK_DISPLAY,en-US" || failed=1
+  python3 framework/tests/views_compare.py "$rgba" "$rows" "$logcat" "$WORK/dump" || failed=1
 done
 exit "$failed"

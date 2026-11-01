@@ -1,25 +1,25 @@
 I/second-windows-test: focus: activity false, dialog 1 true
-I/second-windows-test: ready: dialog 1
+I/second-windows-test: ready: dialog 1, tap at 1077,1549
 I/second-windows-test: dialog 1 ok touched inside the button: true
 I/second-windows-test: dialog 1 positive
 I/second-windows-test: dialog 1 dismissed
 I/second-windows-test: focus: activity true
 I/second-windows-test: focus: activity false, dialog 2 true
-I/second-windows-test: ready: dialog 2
+I/second-windows-test: ready: dialog 2, tap at 644,552
 I/second-windows-test: dialog 2 canceled
 I/second-windows-test: dialog 2 dismissed
 I/second-windows-test: focus: activity true
 I/second-windows-test: focus: no change
-I/second-windows-test: ready: popup 1
+I/second-windows-test: ready: popup 1, tap at 645,1398
 I/second-windows-test: popup 1 dismissed
 I/second-windows-test: target clicked
 I/second-windows-test: focus: no change
 I/second-windows-test: focus: activity false, popup 2 true
-I/second-windows-test: ready: popup 2
+I/second-windows-test: ready: popup 2, tap at 695,1573
 I/second-windows-test: popup 2 touched at 200,100
 I/second-windows-test: popup 2 clicked
 I/second-windows-test: focus: no change
-I/second-windows-test: ready: popup 2 again
+I/second-windows-test: ready: popup 2 again, tap at 645,1398
 I/second-windows-test: popup 2 dismissed
 I/second-windows-test: focus: activity true
 I/second-windows-test: focus: activity false, dialog 3 true

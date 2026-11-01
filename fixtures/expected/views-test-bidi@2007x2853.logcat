@@ -1,0 +1,21 @@
+I/views-test-bidi: onCreate
+I/views-test-bidi: onStart
+I/views-test-bidi: onResume
+I/views-test-bidi: mixed measure spec MeasureSpec: AT_MOST 2007 x MeasureSpec: AT_MOST 1908, layout before -1, measured 198, layout after 198
+I/views-test-bidi: mixed measure spec MeasureSpec: AT_MOST 2007 x MeasureSpec: AT_MOST 1908, layout before 198, measured 382, layout after 382
+I/views-test-bidi: label bounds 553 860 1453 1028
+I/views-test-bidi: block bounds 553 1100 1453 1244
+I/views-test-bidi: bitmap bounds 955 1316 1051 1412
+I/views-test-bidi: textview bounds 783 1484 1223 1565
+I/views-test-bidi: button bounds 800 1637 1206 1781
+I/views-test-bidi: text advance 483.0
+I/views-test-bidi: mixed bounds 812 1805 1194 1992
+I/views-test-bidi: mixed desired 197.0, layout width 382, line width 186.58984
+I/views-test-bidi: mixed use bounds true, box RectF(-183.58984, 10.0, 198.0, 186.0)
+I/views-test-bidi: mixed line 0 left 195.41016 right 382.0 max 186.58984
+I/views-test-bidi: mixed line 1 left 0.0 right 198.0 max 198.0
+I/views-test-bidi: mixed line 2 left 0.0 right 156.0 max 156.0
+I/views-test-bidi: focus true
+I/views-test-bidi: text changed
+I/views-test-bidi: button clicked
+I/views-test-bidi: done

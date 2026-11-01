@@ -112,8 +112,12 @@
 #   ART_TEST_JARS     the Java programs' jars for --art, default: build/art/test
 #   BENCH_BUILD       the bench's build directory (tools/build-bench.sh), default: build/graphics/bench
 #   BENCH_CONF        bench.conf's lines for bench-gles and bench-vulkan, written into their internalDataPath
+#   MINATO_DISPLAY    <width>x<height>@<scale> for an app whose AVD has the M4 plan's display (tools/check-display.sh):
+#                     its AVD at that display, apk-runner-35-iphone-<width>x<height> or ...-gesture-<width>x<height>,
+#                     results in build/android-reference/<width>x<height>, compared with <app>@<width>x<height>.*
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source tools/check-display.sh
 
 SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
@@ -247,6 +251,20 @@ if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-mana
   avd_display+=$'hw.camera.back=none\nhw.camera.front=none\n'
 fi
 
+# Another display (the device-size plan, step 1): an AVD of its own for an app whose AVD has the M4 plan's display;
+# the others' references are the same at every display.
+if [[ "$CHECK_DISPLAY" != "$CHECK_DEFAULT_DISPLAY" ]]; then
+  if [[ "$avd_display" != *hw.lcd.width=1290* ]]; then
+    echo "${app:-this run}'s AVD has no display of the M4 plan's, so its reference is the same at every display." >&2
+    exit 1
+  fi
+  AVD="$AVD-${CHECK_WIDTH}x${CHECK_HEIGHT}"
+  avd_display=${avd_display/hw.lcd.width=1290/hw.lcd.width=$CHECK_WIDTH}
+  avd_display=${avd_display/hw.lcd.height=2796/hw.lcd.height=$CHECK_HEIGHT}
+  avd_display=${avd_display/hw.lcd.density=480/hw.lcd.density=$CHECK_DENSITY}
+  RESULTS="$RESULTS/${CHECK_WIDTH}x${CHECK_HEIGHT}"
+fi
+
 create_avd() {
   mkdir -p "$AVD_HOME/$AVD.avd"
   cat >"$AVD_HOME/$AVD.ini" <<EOF
@@ -321,6 +339,15 @@ device() { "$ADB" -s "$serial" "$@" </dev/null; }
 run() { device shell -T "$@"; }
 
 echo "Android $(run getprop ro.build.version.release | tr -d '\r'), build $(run getprop ro.build.fingerprint | tr -d '\r')"
+# The emulator makes a display's width even (the iPhone Duo's open 2007 x 2853 starts as 2008 x 2853): the window
+# manager's override gives the display its size, which the AVD keeps.
+if [[ "$CHECK_DISPLAY" != "$CHECK_DEFAULT_DISPLAY" ]]; then
+  physical=$(run wm size | tr -d '\r' | sed -n -E 's/^Physical size: ([0-9]+x[0-9]+)$/\1/p')
+  if [[ "$physical" != "${CHECK_WIDTH}x${CHECK_HEIGHT}" ]]; then
+    run wm size "${CHECK_WIDTH}x${CHECK_HEIGHT}"
+    sleep 2
+  fi
+fi
 
 # Messages to the device's logger: in the runtime they go to stderr in logcat's "tag" format, on
 # Android to logcat. An expected .err file therefore splits into logcat lines and stderr lines.
@@ -1039,7 +1066,7 @@ run_app() {
     run ime enable "$package/.FixtureInputMethod" >/dev/null
     run ime set "$package/.FixtureInputMethod" >/dev/null
   fi
-  if [[ "$AVD" == apk-runner-35-iphone-gesture ]]; then
+  if [[ "$AVD" == apk-runner-35-iphone-gesture* ]]; then
     # Gesture navigation's overlay, and the screen on past the keyguard, so that the window takes focus.
     run cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural >/dev/null
     run input keyevent KEYCODE_WAKEUP
@@ -1315,14 +1342,17 @@ run_app() {
     fi
   fi
   if [[ "$app" == second-windows-test ]]; then
-    # ADR-0041 gap 4 (b2): a tap a second after each of the touches part's ready lines, at the places
+    # ADR-0041 gap 4 (b2): a tap a second after each of the touches part's ready lines, at the place each names, as
     # tools/second-windows-check.sh's lifecycle taps: the dialog's OK, outside the next dialog, the target under a
     # popup that watches outside touches, in a focusable popup and on the target again.
-    { wait_for "$app" "ready: dialog 1" && sleep 1 && run input tap 1077 1549 &&
-      wait_for "$app" "ready: dialog 2" && sleep 1 && run input tap 645 700 &&
-      wait_for "$app" "ready: popup 1" && sleep 1 && run input tap 645 1398 &&
-      wait_for "$app" "ready: popup 2" && sleep 1 && run input tap 695 1573 &&
-      wait_for "$app" "ready: popup 2 again" && sleep 1 && run input tap 645 1398; } || return 1
+    tap_when_ready() {
+      wait_for "$app" "ready: $1, tap at " || return 1
+      local point
+      point=$(app_lines "$app" | sed -n "s/.*ready: $1, tap at \([0-9]*\),\([0-9]*\)\$/\1 \2/p" | tail -n 1)
+      sleep 1 && run input tap $point
+    }
+    { tap_when_ready "dialog 1" && tap_when_ready "dialog 2" && tap_when_ready "popup 1" &&
+      tap_when_ready "popup 2" && tap_when_ready "popup 2 again"; } || return 1
   fi
   if [[ "$app" == gesture-flow-test ]]; then
     # Step b3.5b2-1b: a 3 s swipe down the window's middle from First's focus on, whose DOWN starts Second, so that the
@@ -1521,19 +1551,19 @@ print("  screen center (RGBA): " + data[offset:offset + 4].hex())' "$RESULTS/$ap
   fi
   device uninstall "$package" >/dev/null 2>&1 || true
   if [[ "$app" == canvas-test || "$app" == views-test* || "$app" == texture-view-test ]] &&
-    ! cmp -s "fixtures/expected/$app.rgba.gz" "$RESULTS/$app.rgba.gz"; then
+    ! cmp -s "$(expected_at_display "$app" rgba.gz)" "$RESULTS/$app.rgba.gz"; then
     echo "DIFFERS  $app's pixels: $RESULTS/$app.rgba.gz"
     return 1
   fi
-  if [[ "$app" == views-test* ]] && ! cmp -s "fixtures/expected/$app.rows" "$RESULTS/$app.rows"; then
+  if [[ "$app" == views-test* ]] && ! cmp -s "$(expected_at_display "$app" rows)" "$RESULTS/$app.rows"; then
     echo "DIFFERS  $app's rows: $RESULTS/$app.rows"
     return 1
   fi
-  if cmp -s "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat"; then
+  if cmp -s "$(expected_at_display "$app" logcat)" "$RESULTS/$app.logcat"; then
     echo "same     $app"
   else
     echo "DIFFERS  $app"
-    diff -u "fixtures/expected/$app.logcat" "$RESULTS/$app.logcat" | sed 's/^/    /' || true
+    diff -u "$(expected_at_display "$app" logcat)" "$RESULTS/$app.logcat" | sed 's/^/    /' || true
     return 1
   fi
   sed 's/^/    /' "$RESULTS/$app-device.logcat"

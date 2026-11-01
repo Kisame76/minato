@@ -1,0 +1,10 @@
+I/config-test: metrics widthPixels 1398, heightPixels 2034
+I/config-test: metrics density 3.0, densityDpi 480, scaledDensity 3.0
+I/config-test: metrics DENSITY_DEVICE_STABLE 480
+I/config-test: config screenWidthDp 466, screenHeightDp 678, smallestScreenWidthDp 466
+I/config-test: config densityDpi 480, fontScale 1.0, fontWeightAdjustment 0
+I/config-test: config orientation 1, screenLayout 0x10000152, uiMode 0x11
+I/config-test: config touchscreen 3, keyboard 1, keyboardHidden 1, hardKeyboardHidden 2
+I/config-test: config navigation 1, navigationHidden 2
+I/config-test: config locales en-US, layoutDirection 0
+I/config-test: done

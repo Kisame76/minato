@@ -1,0 +1,23 @@
+I/views-test-fonts: onCreate
+I/views-test-fonts: onStart
+I/views-test-fonts: onResume
+I/views-test-fonts: label bounds 153 636 1053 804
+I/views-test-fonts: block bounds 153 876 1053 1020
+I/views-test-fonts: bitmap bounds 555 1092 651 1188
+I/views-test-fonts: textview bounds 383 1260 823 1341
+I/views-test-fonts: button bounds 400 1413 806 1557
+I/views-test-fonts: text advance 483.0
+I/views-test-fonts: hebrew bounds 557 1581 649 1638
+I/views-test-fonts: hebrew desired 91.58984, layout width 92, line width 91.58984
+I/views-test-fonts: arabic bounds 560 1662 645 1734
+I/views-test-fonts: arabic desired 85.0, layout width 85, line width 85.0
+I/views-test-fonts: thai bounds 553 1758 652 1817
+I/views-test-fonts: thai desired 99.0, layout width 99, line width 99.0
+I/views-test-fonts: hindi bounds 558 1841 647 1904
+I/views-test-fonts: hindi desired 88.0, layout width 89, line width 89.0
+I/views-test-fonts: emoji bounds 525 1928 681 1985
+I/views-test-fonts: emoji desired 156.0, layout width 156, line width 156.0
+I/views-test-fonts: focus true
+I/views-test-fonts: text changed
+I/views-test-fonts: button clicked
+I/views-test-fonts: done

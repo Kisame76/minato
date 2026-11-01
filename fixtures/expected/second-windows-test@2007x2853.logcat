@@ -1,0 +1,78 @@
+I/second-windows-test: focus: activity false, dialog 1 true
+I/second-windows-test: ready: dialog 1, tap at 1626,1566
+I/second-windows-test: dialog 1 ok touched inside the button: true
+I/second-windows-test: dialog 1 positive
+I/second-windows-test: dialog 1 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: focus: activity false, dialog 2 true
+I/second-windows-test: ready: dialog 2, tap at 1003,561
+I/second-windows-test: dialog 2 canceled
+I/second-windows-test: dialog 2 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: focus: no change
+I/second-windows-test: ready: popup 1, tap at 1003,1426
+I/second-windows-test: popup 1 dismissed
+I/second-windows-test: target clicked
+I/second-windows-test: focus: no change
+I/second-windows-test: focus: activity false, popup 2 true
+I/second-windows-test: ready: popup 2, tap at 1053,1601
+I/second-windows-test: popup 2 touched at 200,100
+I/second-windows-test: popup 2 clicked
+I/second-windows-test: focus: no change
+I/second-windows-test: ready: popup 2 again, tap at 1003,1426
+I/second-windows-test: popup 2 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: focus: activity false, dialog 3 true
+I/second-windows-test: activity key up KEYCODE_A
+I/second-windows-test: dialog 3 key down KEYCODE_BACK
+I/second-windows-test: dialog 3 key up KEYCODE_BACK
+I/second-windows-test: dialog 3 canceled
+I/second-windows-test: dialog 3 dismissed
+I/second-windows-test: focus: activity true
+I/second-windows-test: touches part over
+I/second-windows-test: activity key down KEYCODE_A
+I/second-windows-test: activity key up KEYCODE_A
+I/second-windows-test: activity decor 2007x2853, anchor at 0,0 size 264x144
+I/second-windows-test: dialog showing true, type 2, activity's token false, dim behind true 0.6
+I/second-windows-test: dialog shown
+I/second-windows-test: dialog decor attached true, size 1605x585, left 201, centered true, window token true
+I/second-windows-test: dialog ok at 1329,363 in the dialog, size 192x162
+I/second-windows-test: popup inner showing true, attached true, at 0,0 from the button's bottom left, size 116x81, above false, own window true
+I/second-windows-test: popup inner dismissed
+I/second-windows-test: dialog dismissed
+I/second-windows-test: dialog decor attached false, showing false
+I/second-windows-test: popup outer showing true, attached true, at 0,0 from the anchor's bottom left, size 121x81, above false
+I/second-windows-test: popup outer dismissed
+I/second-windows-test: popup long size 1740x130, lines 2
+I/second-windows-test: popup long dismissed
+I/second-windows-test: application context: android.view.WindowManager$BadTokenException: Unable to add window -- token null is not valid; is your activity running?
+I/second-windows-test: popup detached dismissed
+I/second-windows-test: detached anchor: showing true
+I/second-windows-test: dismissed dialog's token: android.view.WindowManager$BadTokenException: Unable to add window -- token <token> is not valid; is your activity running?
+I/second-windows-test: finished activity: android.view.WindowManager$BadTokenException: Unable to add window -- token <token> is not valid; is your activity running?
+I/second-windows-test: activity onPause
+I/second-windows-test: focus: activity false, translucent true
+I/second-windows-test: translucent decor 2007x2853, type 1, own window true
+I/second-windows-test: focus: translucent false, translucent dialog true
+I/second-windows-test: translucent dialog type 2, its activity's token true
+I/second-windows-test: focus: translucent true
+I/second-windows-test: activity dialog showing true
+I/second-windows-test: setTranslucent(false): true
+I/second-windows-test: activity onStop
+I/second-windows-test: convertToTranslucent: true
+I/second-windows-test: activity onRestart
+I/second-windows-test: activity onStart
+I/second-windows-test: translucent conversion complete true
+I/second-windows-test: setTranslucent(true) when translucent: false
+I/second-windows-test: activity dialog showing true
+I/second-windows-test: activity onResume
+I/second-windows-test: translucent destroyed
+I/second-windows-test: focus: activity true
+I/second-windows-test: translucent surface: created, canvas true, changed 300x300, destroyed
+I/second-windows-test: activity onPause
+I/second-windows-test: focus: activity false, floating true
+I/second-windows-test: floating decor 295x201, left 856, centered true, type 1, dim behind true 0.6
+I/second-windows-test: activity onResume
+I/second-windows-test: floating destroyed
+I/second-windows-test: focus: activity true
+I/second-windows-test: done
