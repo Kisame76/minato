@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace apkrt::islands {
@@ -32,6 +33,11 @@ const Container *container_at(std::uint64_t pc);
 /// The x18 island of `container` that holds `pc`, or null: the stub area holds thread pointer
 /// islands and syscall veneers as well. Safe in signal handlers.
 const apk_island *island_at(const Container &container, std::uint64_t pc);
+
+/// The (c)-function R-ranges of `container` (ADR-0020 must-have 6), or empty for a container below
+/// APK_CONTAINER_RANGES_VERSION, which has none. A signal whose pc is in one of these ranges finds the guest x18 in
+/// that range's register; the signal path reads them to hand a handler the right x18. Safe in signal handlers.
+std::span<const apk_c_range> c_ranges(const Container &container);
 
 /// A thread's state after it left an island, and the x18 it has then.
 struct Settled {

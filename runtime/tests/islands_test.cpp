@@ -428,6 +428,29 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
 // returns to the exact guest instruction; the trace holds the whole guest state at the window's entry
 // and exit (compared exactly here), and a body word in between is checked by its pc. All registers,
 // sp, pc, flags and x18 count.
+// ADR-0020 must-have 6: a container's (c) R-ranges are the table for a version-6 container and empty for an older
+// one (whose __apk_info ends before the fields), so a signal in an old container reads x18 from slot 11 as before.
+TEST(c_ranges_are_the_table_for_a_new_container_and_empty_for_an_old_one) {
+    alignas(apk_container_info) std::byte buffer[sizeof(apk_container_info) + 2 * sizeof(apk_c_range)] = {};
+    auto *info = reinterpret_cast<apk_container_info *>(buffer);
+    auto *table = reinterpret_cast<apk_c_range *>(buffer + sizeof(apk_container_info));
+    table[0] = {0x100, 0x200, 9, {}};
+    table[1] = {0x300, 0x340, 10, {}};
+    info->c_ranges = sizeof(apk_container_info);
+    info->c_range_count = 2;
+    const apkrt::islands::Container container{
+        .header = reinterpret_cast<std::uint64_t>(buffer), .info = info, .name = {}, .next = nullptr};
+    info->version = APK_CONTAINER_RANGES_VERSION - 1;  // an old container: no ranges
+    CHECK(apkrt::islands::c_ranges(container).empty());
+    info->version = APK_CONTAINER_RANGES_VERSION;  // a version-6 container: the table
+    const auto ranges = apkrt::islands::c_ranges(container);
+    CHECK(ranges.size() == 2);
+    if (ranges.size() == 2) {
+        CHECK(ranges[0].start == 0x100u && ranges[0].end == 0x200u && ranges[0].reg == 9);
+        CHECK(ranges[1].start == 0x300u && ranges[1].reg == 10);
+    }
+}
+
 TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     const auto &loaded = program();
     Covered covered;

@@ -80,6 +80,12 @@ const apk_island *island_at(const Container &container, std::uint64_t pc) {
     return offset - island.stub < 4 * std::uint64_t{island.words} ? &island : nullptr;
 }
 
+std::span<const apk_c_range> c_ranges(const Container &container) {
+    if (container.info->version < APK_CONTAINER_RANGES_VERSION) return {};  // an older container has no ranges
+    return {reinterpret_cast<const apk_c_range *>(container.header + container.info->c_ranges),
+            container.info->c_range_count};
+}
+
 Settled settle(const apk_island &island, std::uint64_t header, const GuestContext &context,
                std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18, bool resumable) {
     const std::uint64_t word = (context.pc - (header + island.stub)) / 4;

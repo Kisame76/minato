@@ -27,9 +27,16 @@
 /* 2: the table of x18 islands (ADR-0020 X4); 3: the runs (ADR-0008 amendment); 4: exclusive-window
    islands are resumable (ADR-0020 X4h), so an EXCLUSIVE island's `commit` field changed meaning; 5: the
    APK_ISLAND_SINGLE_NOSAVE kind (ADR-0020 C7), an in-sequence x18 use over a dead register with no red-zone
-   save. The converter writes this current version; the loader reads back to APK_CONTAINER_OLDEST_VERSION. */
-#define APK_CONTAINER_VERSION 5
+   save; 6: the (c)-function R-range table (ADR-0020 option c, must-have 6), where a signal finds the guest
+   x18 in a register. The converter writes this current version; the loader reads back to
+   APK_CONTAINER_OLDEST_VERSION, each at the size its own version had. */
+#define APK_CONTAINER_VERSION 6
 #define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
+/* From this version a container may hold the (c) R-range table (apk_c_range): the PC ranges where a renamed
+   function keeps the guest x18 in a register, so the signal path hands a handler that register's value rather
+   than the stale TSD slot 11 (ADR-0020 must-have 6). A container below this version has no ranges; its
+   __apk_info ends before the c_ranges fields, so the loader requires only that shorter size for it. */
+#define APK_CONTAINER_RANGES_VERSION 6
 /* From this version an EXCLUSIVE island is resumable (its `commit` is the preamble length); an older
    container's EXCLUSIVE islands are restartable (`commit` a commit point), so settle() reads them the
    old way and reenter() leaves them alone. */
@@ -79,6 +86,11 @@ struct apk_container_info {
     uint64_t runs;       // from the Mach-O header to the table of runs (struct apk_run), in __TEXT
     uint32_t run_count;
     uint32_t reserved;
+    // Version 6 (ADR-0020 must-have 6): the (c)-function R-ranges, sorted by `start`, together covering where a
+    // renamed function keeps the guest x18 in a register. A container below version 6 ends before these fields.
+    uint64_t c_ranges;        // from the Mach-O header to the table of R-ranges (struct apk_c_range), in __TEXT
+    uint32_t c_range_count;
+    uint32_t reserved2;
 };
 
 /// apk_run.flags
@@ -92,6 +104,17 @@ struct apk_run {
     uint64_t end;
     uint32_t flags;
     uint32_t reserved;
+};
+
+/// One PC range of a (c)-renamed function where the guest x18 lives in register `reg`, not TSD slot 11 (ADR-0020
+/// option c, must-have 6). `start` and `end` are from the Mach-O header, like apk_island.site. A signal whose pc is
+/// in [start, end) hands the handler x18 from that register; anywhere else, slot 11 holds it. The table is sorted by
+/// `start`, so the runtime binary-searches it.
+struct apk_c_range {
+    uint32_t start;
+    uint32_t end;
+    uint8_t reg;
+    uint8_t reserved[3];
 };
 
 /// apk_island.kind

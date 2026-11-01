@@ -344,11 +344,13 @@ std::vector<std::byte> shorten_info(std::vector<std::byte> container) {
 
 TEST(a_container_of_another_version_is_refused) {
     CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-1", container_of_version(1))),
-                 "container version 1, this runtime reads versions 2 to 5");
-    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-6", container_of_version(6))),
-                 "container version 6, this runtime reads versions 2 to 5");
-    // Version 5 (the current version, ADR-0020 C7's no-save island) loads; a v4 runtime would refuse it and
-    // reconvert on tap (X4h LaunchDecision).
+                 "container version 1, this runtime reads versions 2 to 6");
+    CHECK_THROWS(apkrt::loader::LoadError, apkrt::loader::load(write_signed("version-7", container_of_version(7))),
+                 "container version 7, this runtime reads versions 2 to 6");
+    // Version 6 (the current version, ADR-0020 must-have 6's (c) R-ranges) loads; an older runtime would refuse it
+    // and reconvert on tap (X4h LaunchDecision).
+    CHECK(apkrt::loader::load(write_signed("version-6", container_of_version(6))).info->version == 6);
+    // An older container still loads, read as having no (c) ranges: the app keeps it.
     CHECK(apkrt::loader::load(write_signed("version-5", container_of_version(5))).info->version == 5);
     // Containers converted before the runs (ADR-0008 amendment) still load: the app keeps them. Their __apk_info
     // ends before the runs; from version 3 the runs are part of it, so a short version 3 or 4 is refused for its
@@ -356,10 +358,10 @@ TEST(a_container_of_another_version_is_refused) {
     CHECK(apkrt::loader::load(write_signed("version-2", shorten_info(container_of_version(2)))).info->version == 2);
     CHECK_THROWS(apkrt::loader::LoadError,
                  apkrt::loader::load(write_signed("version-3-short", shorten_info(container_of_version(3)))),
-                 "container version 3, this runtime reads versions 2 to 5");
+                 "container version 3, this runtime reads versions 2 to 6");
     CHECK_THROWS(apkrt::loader::LoadError,
                  apkrt::loader::load(write_signed("version-4-short", shorten_info(container_of_version(4)))),
-                 "container version 4, this runtime reads versions 2 to 5");
+                 "container version 4, this runtime reads versions 2 to 6");
 }
 
 /// A container in four runs (ADR-0008 amendment): r-x with the program headers and the RELR table, rw- with the

@@ -418,7 +418,7 @@ TEST(the_island_table_describes_every_x18_island) {
     builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
     const auto singles = convert(builder);
     const auto image = read_info(singles.bytes).image_offset;
-    CHECK(read_info(singles.bytes).version == 5);
+    CHECK(read_info(singles.bytes).version == 6);
     const auto islands = island_table(singles);
     CHECK(islands.size() == 2);
     if (islands.size() == 2) {
@@ -468,7 +468,7 @@ TEST(the_island_table_describes_every_x18_island) {
 // before its load-exclusive, a backward branch) that no whole-window island took becomes a no-save island
 // over a register proven dead. The container records it as APK_ISLAND_SINGLE_NOSAVE, and a container that
 // holds one needs a v5 runtime (APK_CONTAINER_RECONSTRUCT_VERSION).
-TEST(the_container_records_a_no_save_island_at_version_5) {
+TEST(the_container_records_a_no_save_island_at_version_6) {
     auto builder = static_program();
     builder.put<std::uint32_t>(0x200, 0x1400'0003);  // b 0x20c
     builder.put<std::uint32_t>(0x204, 0xc802'7c03);  // stxr w2, x3, [x0]: the store-exclusive, before its ldxr
@@ -480,7 +480,7 @@ TEST(the_container_records_a_no_save_island_at_version_5) {
     builder.put<std::uint32_t>(0x21c, 0xd503'201f);  // nop
     const auto container = convert(builder);
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 5);
+    CHECK(info.version == 6);
     CHECK(info.version >= APK_CONTAINER_RECONSTRUCT_VERSION);  // the kind needs a reconstruction-capable runtime
     const auto islands = island_table(container);
     CHECK(islands.size() == 1);
@@ -674,7 +674,7 @@ TEST(splits_an_image_into_runs_of_protection) {
     const auto container = convert(builder);
     const auto &bytes = container.bytes;
     const auto info = read_info(bytes);
-    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 5);
+    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 6);
     CHECK(info.min_vaddr == 0);
     CHECK(container.report.image_shift == 0);
     CHECK(info.image_size == 0x1c000);
