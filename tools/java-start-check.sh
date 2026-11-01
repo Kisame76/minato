@@ -50,7 +50,8 @@
 # media-absent-test (the Unity test APK gap sort, category 2) is one too: android.media's classes for hardware Minato lacks.
 # media-extractor-test (ADR-0060 e2d parts 2a and 2b) is one too: the NDK's AMediaExtractor and
 # android.media.MediaExtractor on Minato's own mp4 files.
-# media-codec-audio-test (ADR-0060 e2f) is one too: MediaCodec's AAC decoder on the host's AudioToolbox.
+# media-codec-audio-test (ADR-0060 e2f) is one too: MediaCodec's AAC decoder on the host's AudioToolbox; and
+# media-codec-decoders-test (e2f.2): its MP3, FLAC and raw decoders.
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
 # performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD
@@ -136,7 +137,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "package-installer-test io.github.kisame76.minato.test.packageinstaller"
       "media-absent-test io.github.kisame76.minato.test.mediaabsent"
       "media-extractor-test io.github.kisame76.minato.test.mediaextractor"
-      "media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio")
+      "media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio"
+      "media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -768,6 +770,7 @@ run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
 run_one media-extractor-test io.github.kisame76.minato.test.mediaextractor
 run_one media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio
+run_one media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders
 # ADR-0043's test 1: views, a TextView and a Button drawn in software. This check plays no touches, so the Button's
 # click comes from the app's performClick, 5 s after its label's change, which its device line names; the Mac's
 # tools/views-check.sh and the AVD tap it.

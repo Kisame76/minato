@@ -4,11 +4,16 @@
 // IDs count up from 1 and are never used again. An AAC codec's configuration, csd-0's AudioSpecificConfig, goes to
 // AudioToolbox inside an MPEG-4 ES descriptor, the magic cookie of an MP4 file's esds, from which AudioToolbox names
 // the format, the rate, the channels and the frames a unit gives, of its richest layer (HE-AAC's SBR at the full rate,
-// as Android's decoder gives it); only the AAC family is taken. A DECODE hands the
-// converter its one unit and copies the frames it gives into the guest's buffer, each size checked first: a unit
-// the converter cannot decode gives no frames, and the codec goes on with the next. The guest's struct is read once
-// and the unit copied into host memory before AudioToolbox sees it. AudioToolbox is opened by its path, not linked,
-// as audio_decode.cpp opens it.
+// as Android's decoder gives it); only the AAC family is taken. An MP3 codec's configuration is a frame's header,
+// which names the format, the rate, the channels and the frames a frame gives, Layer III only; AudioToolbox's decoder
+// cuts its own delay of 529 frames from the first frame, as Android's does. A FLAC codec's configuration is
+// STREAMINFO, which goes to AudioToolbox inside a dfLa box, the magic cookie of a CAF or MP4 file's FLAC; its frames
+// come out as 32-bit samples, the sample's bits at the top, so that the guest shifts them as Android does; a frame
+// gives at most 65535 frames of 8 channels, 2 MiB, more than a unit's limit, which bounds only the input. A DECODE
+// hands the converter its one unit and copies the frames it gives into the guest's buffer, each size checked first: a
+// unit the converter cannot decode gives no frames, and the codec goes on with the next. The guest's struct is read
+// once and the unit copied into host memory before AudioToolbox sees it. AudioToolbox is opened by its path, not
+// linked, as audio_decode.cpp opens it.
 #include "audio_codec.h"
 
 #include "APKRuntime/guest_interface.h"
@@ -69,6 +74,7 @@ struct Codec {
     AudioConverterRef converter = nullptr;
     std::uint32_t channels = 0;
     std::uint32_t frames = 0;  // the most a unit gives
+    std::uint32_t sample = 2;  // a sample's bytes
     std::mutex mutex;          // around each converter call, and for `gone`
     bool gone = false;         // destroyed: no more calls
 };
@@ -127,11 +133,12 @@ bool aac(AudioFormatID format) {
            format == kAudioFormatMPEG4AAC_ELD;
 }
 
-/// The format `cookie` describes, its richest layer: FormatList's first entry, HE-AAC's at its full rate where
-/// FormatInfo names the core's; false where AudioToolbox cannot read it.
-bool describe(const Toolbox &calls, const std::vector<unsigned char> &cookie, AudioStreamBasicDescription &source) {
+/// The format `cookie` describes, read as `format`'s, its richest layer: FormatList's first entry, HE-AAC's at its
+/// full rate where FormatInfo names the core's; false where AudioToolbox cannot read it.
+bool describe(const Toolbox &calls, AudioFormatID format, const std::vector<unsigned char> &cookie,
+              AudioStreamBasicDescription &source) {
     AudioFormatInfo info{};
-    info.mASBD.mFormatID = kAudioFormatMPEG4AAC;  // the cookie read as this format's
+    info.mASBD.mFormatID = format;
     info.mMagicCookie = cookie.data();
     info.mMagicCookieSize = static_cast<UInt32>(cookie.size());
     UInt32 length = 0;
@@ -147,6 +154,34 @@ bool describe(const Toolbox &calls, const std::vector<unsigned char> &cookie, Au
     }
     source = items[0].mASBD;
     return true;
+}
+
+/// An MP3 frame's header as its format, as Android's decoder reads one (C2SoftMp3Dec's parseMp3Header): MPEG-1,
+/// MPEG-2 or MPEG-2.5, Layer III only, neither the free nor a bad bitrate, nor a reserved rate; false for another.
+bool mp3_format(const std::vector<unsigned char> &header, AudioStreamBasicDescription &source) {
+    if (header.size() != 4 || header[0] != 0xff || (header[1] & 0xe0) != 0xe0) return false;
+    const unsigned version = header[1] >> 3 & 3u, layer = header[1] >> 1 & 3u;
+    const unsigned bitrate = header[2] >> 4, rate = header[2] >> 2 & 3u;
+    if (version == 1 || layer != 1 || bitrate == 0 || bitrate == 15 || rate == 3) return false;
+    static constexpr unsigned rates[] = {44100, 48000, 32000};
+    source = {};
+    source.mSampleRate = rates[rate] >> (version == 3 ? 0 : version == 2 ? 1 : 2);
+    source.mFormatID = kAudioFormatMPEGLayer3;
+    source.mFramesPerPacket = version == 3 ? 1152 : 576;
+    source.mChannelsPerFrame = (header[3] >> 6) == 3 ? 1 : 2;
+    return true;
+}
+
+/// The dfLa box around STREAMINFO, FLAC's magic cookie: its size and type, version and flags 0, and STREAMINFO as the
+/// last metadata block; empty where `info` is not STREAMINFO's 34 bytes with Android's bits a sample (8, 16, 24, 32;
+/// FLACDecoder's parseMetadata refuses the others).
+std::vector<unsigned char> flac_cookie(const std::vector<unsigned char> &info) {
+    if (info.size() != 34) return {};
+    const unsigned bits = ((info[12] & 1u) << 4 | info[13] >> 4) + 1;
+    if (bits != 8 && bits != 16 && bits != 24 && bits != 32) return {};
+    std::vector<unsigned char> cookie = {0, 0, 0, 50, 'd', 'f', 'L', 'a', 0, 0, 0, 0, 0x80, 0, 0, 34};
+    cookie.insert(cookie.end(), info.begin(), info.end());
+    return cookie;
 }
 
 long destroy(std::uint64_t id) {
@@ -165,34 +200,53 @@ long destroy(std::uint64_t id) {
     return 0;
 }
 
+/// The source format and magic cookie of a codec of `type` with `config`, and its samples' bytes; false for a
+/// configuration the host does not decode.
+bool source_format(const Toolbox &calls, std::uint32_t type, const std::vector<unsigned char> &config,
+                   AudioStreamBasicDescription &source, std::vector<unsigned char> &cookie, std::uint32_t &sample) {
+    sample = 2;
+    if (type == APKRT_AUDIO_CODEC_MP3) return mp3_format(config, source);
+    if (type == APKRT_AUDIO_CODEC_AAC) {
+        cookie = es_descriptor(config);
+        return describe(calls, kAudioFormatMPEG4AAC, cookie, source) && aac(source.mFormatID) &&
+               source.mChannelsPerFrame >= 1 && source.mChannelsPerFrame <= 8 &&
+               source.mSampleRate >= 1 && source.mSampleRate <= 96000 && source.mFramesPerPacket >= 1 &&
+               source.mFramesPerPacket <= 4096;
+    }
+    sample = 4;
+    cookie = flac_cookie(config);
+    return !cookie.empty() && describe(calls, kAudioFormatFLAC, cookie, source) &&
+           source.mFormatID == kAudioFormatFLAC && source.mChannelsPerFrame >= 1 && source.mChannelsPerFrame <= 8 &&
+           source.mSampleRate >= 1 && source.mSampleRate <= 655350 && source.mFramesPerPacket >= 1 &&
+           source.mFramesPerPacket <= 65535;
+}
+
 long create(std::uint64_t argument, apkrt_audio_codec &asked) {
-    if (asked.type != APKRT_AUDIO_CODEC_AAC || asked.size == 0 || asked.size > APKRT_AUDIO_CODEC_MAX_CONFIG) {
+    if (asked.type < APKRT_AUDIO_CODEC_AAC || asked.type > APKRT_AUDIO_CODEC_FLAC || asked.size == 0 ||
+        asked.size > APKRT_AUDIO_CODEC_MAX_CONFIG) {
         return -linux_errno::einval;
     }
     std::vector<unsigned char> config;
     if (!take(asked.data, asked.size, config)) return -linux_errno::efault;
     const Toolbox &calls = toolbox();
     if (!calls.found()) return -linux_errno::enosys;
-    const std::vector<unsigned char> cookie = es_descriptor(config);
     AudioStreamBasicDescription source{};
-    if (!describe(calls, cookie, source) || !aac(source.mFormatID) || source.mChannelsPerFrame < 1 ||
-        source.mChannelsPerFrame > 8 || !(source.mSampleRate >= 1 && source.mSampleRate <= 96000) ||
-        source.mFramesPerPacket < 1 || source.mFramesPerPacket > 4096) {
-        return -linux_errno::einval;
-    }
+    std::vector<unsigned char> cookie;
+    std::uint32_t sample = 2;
+    if (!source_format(calls, asked.type, config, source, cookie, sample)) return -linux_errno::einval;
     AudioStreamBasicDescription pcm{};
     pcm.mSampleRate = source.mSampleRate;
     pcm.mFormatID = kAudioFormatLinearPCM;
     pcm.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
     pcm.mChannelsPerFrame = source.mChannelsPerFrame;
-    pcm.mBitsPerChannel = 16;
-    pcm.mBytesPerFrame = 2 * pcm.mChannelsPerFrame;
+    pcm.mBitsPerChannel = 8 * sample;
+    pcm.mBytesPerFrame = sample * pcm.mChannelsPerFrame;
     pcm.mFramesPerPacket = 1;
     pcm.mBytesPerPacket = pcm.mBytesPerFrame;
     AudioConverterRef converter = nullptr;
     if (calls.make(&source, &pcm, &converter) != noErr) return -linux_errno::einval;
-    if (calls.set(converter, kAudioConverterDecompressionMagicCookie, static_cast<UInt32>(cookie.size()),
-                  cookie.data()) != noErr) {
+    if (!cookie.empty() && calls.set(converter, kAudioConverterDecompressionMagicCookie,
+                                     static_cast<UInt32>(cookie.size()), cookie.data()) != noErr) {
         calls.dispose(converter);
         return -linux_errno::einval;
     }
@@ -209,6 +263,7 @@ long create(std::uint64_t argument, apkrt_audio_codec &asked) {
                 codec->converter = converter;
                 codec->channels = source.mChannelsPerFrame;
                 codec->frames = source.mFramesPerPacket;
+                codec->sample = sample;
                 all.codecs.emplace(all.next_id, std::move(codec));
                 id = all.next_id++;
             } catch (const std::bad_alloc &) {
@@ -260,7 +315,7 @@ long decode(std::uint64_t argument, apkrt_audio_codec &asked) {
     const auto codec = find(asked.id);
     if (codec == nullptr) return -linux_errno::ebadf;
     if (asked.size == 0 || asked.size > APKRT_AUDIO_CODEC_MAX_UNIT) return -linux_errno::einval;
-    const std::uint64_t frame_bytes = 2 * std::uint64_t{codec->channels};
+    const std::uint64_t frame_bytes = std::uint64_t{codec->sample} * codec->channels;
     if (asked.capacity < codec->frames * frame_bytes) {
         asked.frames = codec->frames;
         if (!sys::memory::copy_checked(argument, reinterpret_cast<std::uint64_t>(&asked), sizeof asked)) {
@@ -269,10 +324,10 @@ long decode(std::uint64_t argument, apkrt_audio_codec &asked) {
         return -linux_errno::enospc;
     }
     std::vector<unsigned char> unit;
-    std::vector<std::int16_t> pcm;
+    std::vector<std::int32_t> pcm;  // 16-bit samples use its first half
     try {
         if (!take(asked.data, asked.size, unit)) return -linux_errno::efault;
-        pcm.resize(std::size_t{codec->frames} * codec->channels);
+        pcm.resize(std::size_t{codec->frames} * codec->channels * codec->sample / sizeof(std::int32_t) + 1);
     } catch (const std::bad_alloc &) {
         return -linux_errno::enomem;
     }
@@ -284,7 +339,7 @@ long decode(std::uint64_t argument, apkrt_audio_codec &asked) {
         AudioBufferList list{};
         list.mNumberBuffers = 1;
         list.mBuffers[0].mNumberChannels = codec->channels;
-        list.mBuffers[0].mDataByteSize = static_cast<UInt32>(pcm.size() * sizeof(std::int16_t));
+        list.mBuffers[0].mDataByteSize = static_cast<UInt32>(codec->frames * frame_bytes);
         list.mBuffers[0].mData = pcm.data();
         toolbox().fill(codec->converter, feed, &fed, &frames, &list, nullptr);  // frames: what came out
     }

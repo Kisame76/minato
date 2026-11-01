@@ -603,7 +603,8 @@ run_app() {
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \
       | preferences-test | service-exceptions-test | network-security-test | network-security-config-test \
       | noted-app-op-test | app-services-test | image-reader-test | autocomplete-test | bound-services-test | package-answers-test \
-      | image-writer-test | media-codec-test | media-codec-audio-test | open-test | sensors-java-test \
+      | image-writer-test | media-codec-test | media-codec-audio-test | media-codec-decoders-test | open-test \
+      | sensors-java-test \
       | location-manager-test \
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \

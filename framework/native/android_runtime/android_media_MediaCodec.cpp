@@ -20,10 +20,11 @@
 //   [verified: media-window-test].
 // - MediaCodecList lists libmediandk's codecs (minato_media_codec_at) with capabilities that VideoToolbox decodes on
 //   Apple's chips: H.264's Baseline, Constrained Baseline, Main, High and Constrained High to level 5.2, HEVC's Main
-//   and Main 10 to level 5.1, up to 4096 x 4096, with adaptive playback; hardware-accelerated and vendor. AAC's
-//   decoder (e2f) and its alias are listed as Android 15 lists c2.android.aac.decoder [verified:
-//   media-codec-audio-test]: software only, its canonical name, its profiles, bitrates 8000 to 510000, 8 channels,
-//   the rates 7350 to 48000 and 32 instances.
+//   and Main 10 to level 5.1, up to 4096 x 4096, with adaptive playback; hardware-accelerated and vendor. The audio
+//   decoders (e2f) and their aliases are listed as Android 15 lists c2.android.aac.decoder [verified:
+//   media-codec-audio-test] and c2.android.mp3.decoder, c2.android.flac.decoder and c2.android.raw.decoder
+//   [verified: media-codec-decoders-test]: software only, their canonical names, AAC's profiles, and the limits of
+//   Android's media_codecs_sw.xml, 32 instances each.
 // Left out, their natives not registered: secure input, the block model, input surfaces, tunneling, vendor parameters
 // and audio presentations (UnsatisfiedLinkError, as no codec of ours has them).
 #define LOG_TAG "MediaCodec_JNI"
@@ -800,13 +801,26 @@ void put_integer(JNIEnv *env, jobject map, const char *key, jint value) {
     env->DeleteLocalRef(v);
 }
 
-/// AAC's decoder's capabilities, C2SoftAacDec's: its profiles (LEVEL_UNUSED, 0), no color formats, and the details
-/// MediaCodecInfo's AudioCapabilities reads.
-jobject aac_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
+/// An audio decoder's capabilities: AAC's profiles as C2SoftAacDec lists them (LEVEL_UNUSED, 0), none for the
+/// others, no color formats, and the details MediaCodecInfo's AudioCapabilities reads, media_codecs_sw.xml's limits.
+jobject audio_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
+    struct Limits {
+        const char *type, *bitrates, *channels, *rates;
+    };
+    static const Limits limits[] = {
+            {"audio/mp4a-latm", "8000-510000", "8", "7350,8000,11025,12000,16000,22050,24000,32000,44100,48000"},
+            {"audio/mpeg", "8000-320000", "2", "8000,11025,12000,16000,22050,24000,32000,44100,48000"},
+            {"audio/flac", "1-21000000", "8", "1-655350"},
+            {"audio/raw", "1-10000000", "12", "8000-192000"},
+    };
+    const Limits *limit = &limits[0];
+    for (const Limits &each : limits) {
+        if (strcmp(each.type, info->type) == 0) limit = &each;
+    }
     // CodecProfileLevel's AACObjectLC 2, HE 5, LD 23, ERLC... as C2SoftAacDec lists them: LC, HE, HE_PS 29, LD,
     // ELD 39, ER_SCALABLE 20, XHE 42.
     const jint aac[] = {2, 5, 29, 23, 39, 20, 42};
-    const jsize count = sizeof aac / sizeof *aac;
+    const jsize count = limit == &limits[0] ? sizeof aac / sizeof *aac : 0;
     jobjectArray profiles = env->NewObjectArray(count, gFields.profileLevelClass, nullptr);
     for (jsize n = 0; profiles != nullptr && n < count; n++) {
         jobject level = env->NewObject(gFields.profileLevelClass, gFields.profileLevelConstructor);
@@ -820,9 +834,9 @@ jobject aac_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
     put_string(env, defaults, "mime", info->type);
     jobject details = env->NewObject(gFields.hashMapClass, gFields.hashMapConstructor);
     put_string(env, details, "mime", info->type);
-    put_string(env, details, "bitrate-range", "8000-510000");
-    put_string(env, details, "max-channel-count", "8");
-    put_string(env, details, "sample-rate-ranges", "7350,8000,11025,12000,16000,22050,24000,32000,44100,48000");
+    put_string(env, details, "bitrate-range", limit->bitrates);
+    put_string(env, details, "max-channel-count", limit->channels);
+    put_string(env, details, "sample-rate-ranges", limit->rates);
     put_string(env, details, "max-concurrent-instances", "32");
     jobject capabilities = env->NewObject(gFields.capabilitiesClass, gFields.capabilitiesConstructor, profiles,
                                           colors, static_cast<jboolean>(info->encoder != 0), defaults, details);
@@ -836,7 +850,7 @@ jobject aac_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
 jobject MediaCodecList_getCodecCapabilities(JNIEnv *env, jclass, jint index, jstring type) {
     const minato_media_codec_info *info = codec_at(env, index);
     if (info == nullptr || type == nullptr) return nullptr;
-    if (strncmp(info->type, "audio/", 6) == 0) return aac_capabilities(env, info);
+    if (strncmp(info->type, "audio/", 6) == 0) return audio_capabilities(env, info);
     const bool hevc = strcmp(info->type, "video/hevc") == 0;
     // CodecProfileLevel's values (MediaCodecInfo.java): AVC's Baseline 1, Constrained Baseline 0x10000, Main 2,
     // High 8, Constrained High 0x80000 at AVCLevel52 0x10000; HEVC's Main 1 and Main10 2 at HEVCMainTierLevel51

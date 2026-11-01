@@ -4,7 +4,8 @@
 # cannot encode), tone.m4a and tone.aac (AAC in MP4 and in ADTS, afconvert, 128 kbit/s at 44100 Hz), tone.flac and
 # tone-alac.m4a (afconvert), tone-ac3.mp4 (AC-3 in MP4, ffmpeg) and tone.aiff (afconvert, 16-bit big endian); and
 # the sine in mono at 22050 Hz as tone-mono.mp3 (lame). Which of them Android 15's SoundPool
-# decodes is soundpool-codec-test's reference. The encoders' bytes may differ between versions, so the files are
+# decodes is soundpool-codec-test's reference. tone-24.flac (FLAC of 24 bits a sample, ffmpeg) is
+# runtime.audio_codec's. The encoders' bytes may differ between versions, so the files are
 # committed and only remade on purpose.
 # Usage: tools/make-tone-samples.sh [<output directory>]   (default: fixtures/apps/soundpool-codec-test/assets)
 set -euo pipefail
@@ -22,3 +23,5 @@ afconvert -f flac -d flac "$WORK/tone.wav" "$OUT/tone.flac"
 afconvert -f m4af -d alac "$WORK/tone.wav" "$OUT/tone-alac.m4a"
 ffmpeg -loglevel error -y -i "$WORK/tone.wav" -c:a ac3 -b:a 128k -f mp4 "$OUT/tone-ac3.mp4"
 afconvert -f AIFF -d BEI16 "$WORK/tone.wav" "$OUT/tone.aiff"
+ffmpeg -loglevel error -y -i "$WORK/tone.wav" -c:a flac -sample_fmt s32 -bits_per_raw_sample 24 -map_metadata -1 \
+  -fflags +bitexact "$OUT/tone-24.flac"

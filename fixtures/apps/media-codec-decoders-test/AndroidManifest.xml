@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0060 e2f.2's test (media-codec-decoders-test): MediaCodec's MP3, FLAC and raw decoders on the tones of
+     soundpool-codec-test (assets/) and on samples the app makes, each unit queued by the app itself. The launcher
+     activity is the framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mediacodecdecoders" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <application android:label="Media Codec Decoders Test"
+      android:name="io.github.kisame76.minato.test.mediacodecdecoders.DecodersApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

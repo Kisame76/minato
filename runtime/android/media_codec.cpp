@@ -1,9 +1,9 @@
 // libmediandk.so's AMediaCodec (ADR-0060 e2b3): the codec core, which the framework's MediaCodec natives run on too.
 // Minato's codecs are video decoders on the host's (video_decoder in guest_interface.h): c2.apple.avc.decoder and
-// c2.apple.hevc.decoder; and AAC's audio decoder (e2f) on the host's (audio_codec): c2.android.aac.decoder, Android's
-// name, and OMX.google.aac.decoder, its alias, as Android 15 lists them. Encoders and crypto are not here yet: their
-// calls answer AMEDIA_ERROR_UNSUPPORTED, and an encoder or another type cannot be made (NULL), as on a device without
-// it.
+// c2.apple.hevc.decoder; and the audio decoders (e2f) under Android's names with their OMX.google aliases, as Android
+// 15 lists them: c2.android.aac.decoder, c2.android.mp3.decoder and c2.android.flac.decoder on the host's
+// (audio_codec), and c2.android.raw.decoder in the guest. Encoders and crypto are not here yet: their calls answer
+// AMEDIA_ERROR_UNSUPPORTED, and an encoder or another type cannot be made (NULL), as on a device without it.
 // - States as Android's: made, configured (configure), started (start: the host's decoder), and back to made at
 //   stop; flush keeps it started. A call in the wrong state answers AMEDIA_ERROR_INVALID_OPERATION.
 // - Input: four buffers of max-input-size bytes (the format's, else width x height x 3 / 2, at least 1 MiB); a queued
@@ -47,8 +47,22 @@
 //   The output format is C2SoftAacDec's: audio/raw with its rate, channels and channel mask, encoder-delay and
 //   encoder-padding as configured, and its fixed DRC and batch keys; configure's has the format's rate and channels
 //   with channel mask 0. A format change rides the buffer it comes with: INFO_OUTPUT_FORMAT_CHANGED comes when that
-//   buffer would. A flush before the app has seen a decoded format brings configure's again, on an empty buffer, and
-//   the decoded one after it, as Android 15's resume reports them [verified: media-codec-audio-test].
+//   buffer would. A flush before the app has seen a decoded format brings configure's again, alone (no buffer with
+//   it), and the decoded one after it, as Android 15's resume reports them [verified: media-codec-audio-test and
+//   media-codec-decoders-test]. A buffer whose frames the trimming took is given out empty, as Android's are.
+// - MP3, FLAC and raw (e2f.2), as Android 15's C2SoftMp3Dec, C2SoftFlacDec and C2SoftRawDec [verified:
+//   media-codec-decoders-test]. Their output formats have no channel mask nor AAC's keys; FLAC's and raw's have the
+//   PCM encoding, 16-bit or float as configured (raw's also 8-bit, 24-bit packed and 32-bit). The trimming above is
+//   theirs too. MP3: a buffer's frames, split by their headers, decode into one output buffer, at the time of the
+//   first unit since the start or a flush plus the frames given since; the host's codec is made from the first
+//   frame's header, and again from a header of another rate or channels (a named limit: the new one cuts the delay
+//   again and starts without the bit reservoir, where C2SoftMp3Dec goes on); a frame the host decodes to nothing gives
+//   silence, as C2SoftMp3Dec's recoverable errors do; the end of the stream adds the 529 frames of silence that
+//   C2SoftMp3Dec adds for the delay it cut from the start. FLAC: csd-0's metadata, or the first unit's, gives
+//   STREAMINFO to the host, one frame a unit (after a frame the host cannot decode, none until a flush, as libFLAC
+//   under C2SoftFlacDec), its samples shifted to 16 bits or made float as FLACDecoder does. Raw:
+//   each unit's bytes come out as they went in, in whole frames. For every audio codec, a unit queued with the end
+//   of the stream comes out as its frames and then the end on its own, as CCodec's buffer channel splits it.
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
 #include <android/hardware_buffer.h>
 #include <android/log.h>
@@ -128,13 +142,29 @@ bool is_surface(ANativeWindow *window, uint64_t *host) {
 }
 
 constexpr char kAacType[] = "audio/mp4a-latm", kAacDecoder[] = "c2.android.aac.decoder";
+constexpr char kMp3Type[] = "audio/mpeg", kMp3Decoder[] = "c2.android.mp3.decoder";
+constexpr char kFlacType[] = "audio/flac", kFlacDecoder[] = "c2.android.flac.decoder";
+constexpr char kRawType[] = "audio/raw", kRawDecoder[] = "c2.android.raw.decoder";
 
 const minato_media_codec_info kCodecs[] = {
     {"c2.apple.avc.decoder", "video/avc", 0, 1, "c2.apple.avc.decoder", 1},
     {"c2.apple.hevc.decoder", "video/hevc", 0, 1, "c2.apple.hevc.decoder", 1},
     {kAacDecoder, kAacType, 0, 0, kAacDecoder, 0},
     {"OMX.google.aac.decoder", kAacType, 0, 0, kAacDecoder, 0},
+    {kMp3Decoder, kMp3Type, 0, 0, kMp3Decoder, 0},
+    {"OMX.google.mp3.decoder", kMp3Type, 0, 0, kMp3Decoder, 0},
+    {kFlacDecoder, kFlacType, 0, 0, kFlacDecoder, 0},
+    {"OMX.google.flac.decoder", kFlacType, 0, 0, kFlacDecoder, 0},
+    {kRawDecoder, kRawType, 0, 0, kRawDecoder, 0},
+    {"OMX.google.raw.decoder", kRawType, 0, 0, kRawDecoder, 0},
 };
+
+/// Raw's type of ours, beside the host's audio codec types: its samples are copied in the guest.
+constexpr uint32_t kRawCodec = 0x100;
+/// android.media.AudioFormat's PCM encodings.
+constexpr int32_t kPcm16 = 2, kPcm8 = 3, kPcmFloat = 4, kPcm24Packed = 21, kPcm32 = 22;
+/// The frames of C2SoftMp3Dec's decoder delay, which it cuts from the start and adds as silence at the end.
+constexpr uint32_t kMp3Delay = 529;
 
 /// A unit's flag of ours: BUFFER_FLAG_CODEC_CONFIG's configuration, not a unit to decode.
 constexpr uint32_t kUnitConfig = 1u << 31;
@@ -146,9 +176,47 @@ uint32_t decoder_type(const char *type) {
     return 0;
 }
 
-/// The host's audio codec type of a media type, 0 for none.
+/// The audio codec type of a media type (the host's, or kRawCodec), 0 for none.
 uint32_t audio_type(const char *type) {
-    return type != nullptr && strcasecmp(type, kAacType) == 0 ? APKRT_AUDIO_CODEC_AAC : 0;
+    if (type == nullptr) return 0;
+    if (strcasecmp(type, kAacType) == 0) return APKRT_AUDIO_CODEC_AAC;
+    if (strcasecmp(type, kMp3Type) == 0) return APKRT_AUDIO_CODEC_MP3;
+    if (strcasecmp(type, kFlacType) == 0) return APKRT_AUDIO_CODEC_FLAC;
+    return strcasecmp(type, kRawType) == 0 ? kRawCodec : 0;
+}
+
+/// A sample's bytes in a PCM encoding.
+size_t sample_bytes(int32_t encoding) {
+    return encoding == kPcm8 ? 1 : encoding == kPcm24Packed ? 3 : encoding == kPcmFloat || encoding == kPcm32 ? 4 : 2;
+}
+
+/// An MP3 frame's size, rate and channels from its header, as C2SoftMp3Dec's parseMp3Header reads them, Layer III
+/// only; 0 for another header.
+size_t mp3_frame(const uint8_t *header, int32_t *rate, int32_t *channels) {
+    if (header[0] != 0xff || (header[1] & 0xe0) != 0xe0) return 0;
+    const unsigned version = header[1] >> 3 & 3u, layer = header[1] >> 1 & 3u;
+    const unsigned bitrate = header[2] >> 4, rate_index = header[2] >> 2 & 3u, padding = header[2] >> 1 & 1u;
+    if (version == 1 || layer != 1 || bitrate == 0 || bitrate == 15 || rate_index == 3) return 0;
+    static constexpr unsigned rates[] = {44100, 48000, 32000};
+    static constexpr unsigned v1[] = {32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
+    static constexpr unsigned v2[] = {8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
+    const unsigned hz = rates[rate_index] >> (version == 3 ? 0 : version == 2 ? 1 : 2);
+    *rate = static_cast<int32_t>(hz);
+    *channels = (header[3] >> 6) == 3 ? 1 : 2;
+    return (version == 3 ? 144000 * v1[bitrate - 1] : 72000 * v2[bitrate - 1]) / hz + padding;
+}
+
+/// STREAMINFO's 34 bytes in FLAC metadata ("fLaC" and its blocks, csd-0's or a config unit's); NULL where there is
+/// none.
+const uint8_t *flac_info(const uint8_t *data, size_t size) {
+    if (data == nullptr || size < 8 || memcmp(data, "fLaC", 4) != 0) return nullptr;
+    for (size_t at = 4; at + 4 <= size;) {
+        const size_t length = size_t{data[at + 1]} << 16 | size_t{data[at + 2]} << 8 | data[at + 3];
+        if ((data[at] & 0x7f) == 0) return length == 34 && at + 4 + length <= size ? data + at + 4 : nullptr;
+        if ((data[at] & 0x80) != 0) return nullptr;
+        at += 4 + length;
+    }
+    return nullptr;
 }
 
 long host_call(long number, uint64_t op, uintptr_t argument) {
@@ -217,6 +285,8 @@ struct Output {
     uint64_t token;  // a surface decoder's frame, 0 for none
     enum { kFree, kReady, kHeld } state;
     AMediaFormat *format;  // an audio decoder's format change that comes with the buffer, NULL for none
+    bool decoded;          // the format is the decoder's, not configure's again after a flush
+    bool format_only;      // no buffer for the app: the format change alone (configure's again after a flush)
 };
 
 /// An audio format's rate, channels and channel mask, which decide whether it changed.
@@ -264,12 +334,18 @@ struct AMediaCodec {
     media_status_t error;
     // An audio codec's.
     AudioShape configured, decoded, attached;  // configure's format; the host's; the last one a buffer came with
-    int32_t told_mask;                // the channel mask of the last format the app was given
+    bool told_decoded;                // the app was given a decoder's format since configure
     bool input_ended;                 // the end of the stream queued: no more input until a flush
     int32_t delay, padding;           // encoder-delay and encoder-padding frames, -1 for none in the format
-    uint32_t channels, unit_frames;   // the host's, from its configuration
+    int32_t encoding;                 // the output's PCM encoding
+    uint32_t channels, unit_frames;   // the host's, from its configuration (raw's: configure's channels)
     uint32_t skip;                    // frames still to skip
-    Bytes pcm, held;                  // one unit's frames; the frames held back, the padding's
+    Bytes pcm, held;                  // one buffer's frames; the frames held back, the padding's
+    bool first, gapless;              // MP3: no frames since the start or a flush; frames since the end's silence
+    bool stuck;                       // FLAC: a frame the host could not decode since the start or a flush
+    bool announce;                    // FLAC: its configuration's format due with the next buffer, frames or not
+    int64_t anchor_us;                // MP3: the time of the first unit since the start or a flush
+    uint64_t processed;               // MP3: the frames given since then
     // Asynchronous mode.
     AMediaCodecOnAsyncNotifyCallback callbacks;
     void *userdata;
@@ -370,16 +446,23 @@ void pull_frames(AMediaCodec *codec) {
     }
 }
 
-/// An audio codec's output format of `shape`, C2SoftAacDec's keys.
+/// An audio codec's output format of `shape`, its decoder's keys: C2SoftAacDec's, or the others' fewer.
 AMediaFormat *audio_format(const AMediaCodec *codec, const AudioShape &shape) {
     AMediaFormat *format = AMediaFormat_new();
     if (format == nullptr) return nullptr;
     AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "audio/raw");
     if (shape.rate > 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, shape.rate);
     if (shape.channels > 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, shape.channels);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_MASK, shape.mask);
+    const bool aac = codec->type == APKRT_AUDIO_CODEC_AAC;
+    if (aac) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_MASK, shape.mask);
     if (codec->delay >= 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_ENCODER_DELAY, codec->delay);
     if (codec->padding >= 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_ENCODER_PADDING, codec->padding);
+    if (codec->type == APKRT_AUDIO_CODEC_FLAC || codec->type == kRawCodec) {
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_PCM_ENCODING, codec->encoding);
+    }
+    AMediaFormat_setInt32(format, "buffer-batch-max-output-size", 0);
+    AMediaFormat_setInt32(format, "buffer-batch-threshold-output-size", 0);
+    if (!aac) return format;
     const struct {
         const char *key;
         int32_t value;
@@ -388,30 +471,91 @@ AMediaFormat *audio_format(const AMediaCodec *codec, const AudioShape &shape) {
             {"aac-drc-cut-level", 127},      {"aac-drc-effect-type", 3},
             {"aac-drc-output-loudness", -1}, {"aac-encoded-target-level", -1},
             {"aac-max-output-channel_count", 8}, {"aac-target-ref-level", 64},
-            {"buffer-batch-max-output-size", 0}, {"buffer-batch-threshold-output-size", 0},
             {"max-output-channel-count", 8},
     };
     for (const auto &entry : fixed) AMediaFormat_setInt32(format, entry.key, entry.value);
     return format;
 }
 
-/// The host's audio codec configured by `config`, with the codec's lock held; false where it refuses it.
+/// The host's audio codec configured by `config` (AAC's AudioSpecificConfig, FLAC's metadata, MP3's frame header),
+/// in place of the one before, with the codec's lock held; false where it refuses it.
 bool make_audio(AMediaCodec *codec, const uint8_t *config, size_t size) {
+    if (codec->type == APKRT_AUDIO_CODEC_FLAC) {
+        config = flac_info(config, size);
+        size = 34;
+        if (config == nullptr) return false;
+    }
     apkrt_audio_codec call{};
     call.type = codec->type;
     call.data = reinterpret_cast<uintptr_t>(config);
     call.size = size;
     if (audio_call(APKRT_AUDIO_CODEC_CREATE, reinterpret_cast<uintptr_t>(&call)) != 0) return false;
-    if (!resize(&codec->pcm, size_t{call.frames} * call.channels * 2)) {
+    // FLAC's samples come as 32 bits, the others' as 16.
+    if (!resize(&codec->pcm, size_t{call.frames} * call.channels * 4)) {
         audio_call(APKRT_AUDIO_CODEC_DESTROY, call.id);
         return false;
     }
+    if (codec->decoder != 0) audio_call(APKRT_AUDIO_CODEC_DESTROY, codec->decoder);
     codec->decoder = call.id;
     codec->channels = call.channels;
     codec->unit_frames = static_cast<uint32_t>(call.frames);
     codec->decoded = AudioShape{static_cast<int32_t>(call.rate), static_cast<int32_t>(call.channels),
-                                channel_mask(call.channels)};
+                                codec->type == APKRT_AUDIO_CODEC_AAC ? channel_mask(call.channels) : 0};
     return true;
+}
+
+/// One unit decoded by the host at `at` frames into the codec's pcm, with the codec's lock held: the frames it
+/// gave, or -1 for an error.
+long decode_unit(AMediaCodec *codec, const uint8_t *data, size_t size, size_t at) {
+    const size_t frame_bytes = size_t{codec->channels} * (codec->type == APKRT_AUDIO_CODEC_FLAC ? 4 : 2);
+    if (codec->decoder == 0 || !resize(&codec->pcm, (at + codec->unit_frames) * frame_bytes)) return -1;
+    apkrt_audio_codec call{};
+    call.id = codec->decoder;
+    call.data = reinterpret_cast<uintptr_t>(data);
+    call.size = size;
+    call.out = reinterpret_cast<uintptr_t>(codec->pcm.data + at * frame_bytes);
+    call.capacity = codec->unit_frames * frame_bytes;
+    if (audio_call(APKRT_AUDIO_CODEC_DECODE, reinterpret_cast<uintptr_t>(&call)) != 0) return -1;
+    return static_cast<long>(call.frames);
+}
+
+/// An MP3 buffer's frames decoded one by one into the codec's pcm, as C2SoftMp3Dec's process: the frames, or -1 for
+/// a header it does not take, a buffer without a frame or the host's error. Four bytes or fewer after the last frame
+/// are left, as its calculateOutSize leaves them.
+long decode_mp3(AMediaCodec *codec, const uint8_t *data, size_t size) {
+    size_t out = 0;
+    if (size <= 4) return -1;
+    for (size_t at = 0; at + 4 < size;) {
+        int32_t rate = 0, channels = 0;
+        size_t length = mp3_frame(data + at, &rate, &channels);
+        if (length == 0) return -1;
+        if (length > size - at) length = size - at;
+        if (codec->decoder == 0 || rate != codec->decoded.rate || channels != codec->decoded.channels) {
+            if (!make_audio(codec, data + at, 4)) return -1;  // C2SoftMp3Dec reconfigures for another rate
+        }
+        const long got = decode_unit(codec, data + at, length, out);
+        if (got < 0) return -1;
+        if (got == 0) {  // silence, as for C2SoftMp3Dec's recoverable errors
+            memset(codec->pcm.data + out * 2 * codec->channels, 0, size_t{codec->unit_frames} * 2 * codec->channels);
+        }
+        out += got > 0 ? static_cast<size_t>(got) : codec->unit_frames;
+        at += length;
+    }
+    return static_cast<long>(out);
+}
+
+/// FLAC's `frames` 32-bit samples in the codec's pcm as the output's encoding, as FLACDecoder's copyTo16Signed and
+/// copyToFloat make them from the top of 32 bits: shifted to 16 bits, or a float of full scale 2^31.
+void flac_samples(AMediaCodec *codec, size_t frames) {
+    const size_t count = frames * codec->channels;
+    const auto *words = reinterpret_cast<const int32_t *>(codec->pcm.data);
+    if (codec->encoding == kPcmFloat) {
+        auto *floats = reinterpret_cast<float *>(codec->pcm.data);
+        for (size_t i = 0; i < count; i++) floats[i] = static_cast<float>(words[i]) * (1.0f / 2147483648.0f);
+    } else {
+        auto *shorts = reinterpret_cast<int16_t *>(codec->pcm.data);
+        for (size_t i = 0; i < count; i++) shorts[i] = static_cast<int16_t>(words[i] >> 16);
+    }
 }
 
 /// A free output buffer's index, or -1.
@@ -431,7 +575,7 @@ void make_ready(AMediaCodec *codec, int index) {
 /// `frames` decoded frames in the codec's pcm, trimmed as SkipCutBuffer trims them, into `output`'s bytes: the frames
 /// to skip dropped, the rest after the held ones, and all but the padding's last frames out. False without memory.
 bool trim(AMediaCodec *codec, size_t frames, Output &output) {
-    const size_t frame_bytes = size_t{codec->channels} * 2;
+    const size_t frame_bytes = size_t{codec->channels} * sample_bytes(codec->encoding);
     const size_t skipped = frames < codec->skip ? frames : codec->skip;
     codec->skip -= static_cast<uint32_t>(skipped);
     const size_t kept = (frames - skipped) * frame_bytes, held = codec->held.data != nullptr ? codec->held.size : 0;
@@ -448,48 +592,108 @@ bool trim(AMediaCodec *codec, size_t frames, Output &output) {
     return true;
 }
 
+/// A unit's frames into the codec's pcm, as its decoder gives them, with the codec's lock held: the frames, or -1 for
+/// an error. Sets `time_us` to the output's time.
+long unit_frames(AMediaCodec *codec, const Unit &unit, int64_t *time_us) {
+    const bool end = (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0;
+    *time_us = unit.time_us;
+    if (codec->type == kRawCodec) {
+        const size_t frame_bytes = size_t{codec->channels} * sample_bytes(codec->encoding);
+        if (!resize(&codec->pcm, unit.bytes.size)) return -1;
+        if (unit.bytes.size > 0) memcpy(codec->pcm.data, unit.bytes.data, unit.bytes.size);
+        return static_cast<long>(unit.bytes.size / frame_bytes);
+    }
+    if (codec->type == APKRT_AUDIO_CODEC_MP3) {
+        if (unit.bytes.size == 0 && (!codec->gapless || !end)) return 0;
+        const long decoded = unit.bytes.size > 0 ? decode_mp3(codec, unit.bytes.data, unit.bytes.size) : 0;
+        if (decoded < 0) return -1;
+        size_t frames = static_cast<size_t>(decoded);
+        const bool cut = codec->first && unit.bytes.size == 0;  // the silence then is what the start's cut takes
+        if (codec->first) {
+            codec->first = false;
+            codec->gapless = true;
+            codec->anchor_us = unit.time_us;
+        }
+        if (end && !cut) {
+            const size_t frame_bytes = size_t{codec->channels} * 2;
+            if (!resize(&codec->pcm, (frames + kMp3Delay) * frame_bytes)) return -1;
+            memset(codec->pcm.data + frames * frame_bytes, 0, kMp3Delay * frame_bytes);
+            frames += kMp3Delay;
+            codec->gapless = false;
+        }
+        if (codec->decoded.rate > 0) {
+            *time_us = codec->anchor_us + static_cast<int64_t>(codec->processed * 1000000 /
+                                                               static_cast<uint64_t>(codec->decoded.rate));
+        }
+        codec->processed += frames;
+        return static_cast<long>(frames);
+    }
+    if (unit.bytes.size == 0) return 0;
+    if (codec->type == APKRT_AUDIO_CODEC_FLAC && codec->stuck) return 0;
+    const long frames = decode_unit(codec, unit.bytes.data, unit.bytes.size, 0);
+    if (codec->type != APKRT_AUDIO_CODEC_FLAC) return frames;
+    // libFLAC reads on past a frame it cannot decode, finds C2SoftFlacDec's input at its end and decodes nothing more
+    // until a flush [verified: media-codec-decoders-test].
+    if (frames == 0) codec->stuck = true;
+    if (frames > 0) flac_samples(codec, static_cast<size_t>(frames));
+    return frames;
+}
+
 /// Decodes the waiting units into free output buffers, one each, with the codec's lock held.
 void push_audio(AMediaCodec *codec) {
     while (codec->waiting_count > 0 && codec->error == AMEDIA_OK && !codec->ended) {
         Unit &unit = codec->waiting[codec->waiting_head];
-        if ((unit.flags & kUnitConfig) != 0) {
+        // AAC and FLAC take a configuration; FLAC's first unit is one, flagged or not, as C2SoftFlacDec forces it.
+        // MP3's and raw's decoders take a flagged unit as any other.
+        const bool takes = codec->type == APKRT_AUDIO_CODEC_AAC || codec->type == APKRT_AUDIO_CODEC_FLAC;
+        const bool flac_config = codec->type == APKRT_AUDIO_CODEC_FLAC && codec->decoder == 0 && unit.bytes.size > 0;
+        if ((takes && (unit.flags & kUnitConfig) != 0) || flac_config) {
             // The configuration again (an app's, or after a flush) leaves a configured codec as it is.
-            if (codec->decoder == 0 && !make_audio(codec, unit.bytes.data, unit.bytes.size)) {
-                codec->error = AMEDIA_ERROR_UNKNOWN;
-                return;
+            if (codec->decoder == 0) {
+                if (!make_audio(codec, unit.bytes.data, unit.bytes.size)) {
+                    codec->error = AMEDIA_ERROR_UNKNOWN;
+                    return;
+                }
+                // C2SoftFlacDec's STREAMINFO is a configuration update of its own, which the next buffer brings
+                // even without frames [verified: media-codec-decoders-test].
+                codec->announce = codec->type == APKRT_AUDIO_CODEC_FLAC;
+            }
+            if ((unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0) {
+                unit.bytes.size = 0;  // the end on its own after it, as CCodec's buffer channel queues it
+                unit.flags &= ~kUnitConfig;
+                continue;
             }
         } else {
             const int index = free_output(codec);
             if (index < 0) return;
             Output &output = codec->outputs[index];
-            size_t frames = 0;
-            if (unit.bytes.size > 0) {
-                apkrt_audio_codec call{};
-                call.id = codec->decoder;
-                call.data = reinterpret_cast<uintptr_t>(unit.bytes.data);
-                call.size = unit.bytes.size;
-                call.out = reinterpret_cast<uintptr_t>(codec->pcm.data);
-                call.capacity = codec->pcm.size;
-                if (codec->decoder == 0 ||
-                    audio_call(APKRT_AUDIO_CODEC_DECODE, reinterpret_cast<uintptr_t>(&call)) != 0) {
-                    codec->error = AMEDIA_ERROR_UNKNOWN;
-                    return;
-                }
-                frames = call.frames;
-            }
-            if (!trim(codec, frames, output)) {
+            // A unit with the end of the stream is its bytes, then the end on its own at its time, as CCodec's
+            // buffer channel queues them.
+            const uint32_t flags_then = unit.flags;
+            const bool split = (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0 && unit.bytes.size > 0;
+            if (split) unit.flags &= ~uint32_t{APKRT_VIDEO_DECODER_END_OF_STREAM};
+            int64_t time_us = 0;
+            const long frames = unit_frames(codec, unit, &time_us);
+            if (frames < 0 || !trim(codec, static_cast<size_t>(frames), output)) {
                 codec->error = AMEDIA_ERROR_UNKNOWN;
                 return;
             }
             const bool end = (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0;
-            if (frames > 0 && !(codec->decoded == codec->attached)) {
+            if ((frames > 0 || codec->announce) && !(codec->decoded == codec->attached)) {
                 output.format = audio_format(codec, codec->decoded);
+                output.decoded = true;
                 codec->attached = codec->decoded;
             }
+            codec->announce = false;
             const uint32_t flags = end ? static_cast<uint32_t>(AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) : 0u;
-            output.info = AMediaCodecBufferInfo{0, static_cast<int32_t>(output.bytes.size), unit.time_us, flags};
+            output.info = AMediaCodecBufferInfo{0, static_cast<int32_t>(output.bytes.size), time_us, flags};
             make_ready(codec, index);
             if (end) codec->ended = true;  // the padding still held is never given out
+            if (split) {
+                unit.bytes.size = 0;
+                unit.flags = flags_then;
+                continue;  // the end, as the next unit
+            }
         }
         codec->waiting_head = (codec->waiting_head + 1) % kInputs;
         codec->waiting_count--;
@@ -504,8 +708,12 @@ bool take_format(AMediaCodec *codec) {
     AMediaFormat_delete(codec->output_format);
     codec->output_format = next.format;
     next.format = nullptr;
-    if (!AMediaFormat_getInt32(codec->output_format, AMEDIAFORMAT_KEY_CHANNEL_MASK, &codec->told_mask)) {
-        codec->told_mask = 0;
+    codec->told_decoded = codec->told_decoded || next.decoded;
+    if (next.format_only) {  // the change comes alone, as Android's after a flush
+        next.format_only = false;
+        next.state = Output::kFree;
+        codec->ready_head = (codec->ready_head + 1) % kOutputs;
+        codec->ready_count--;
     }
     return true;
 }
@@ -560,6 +768,7 @@ void drop_buffers(AMediaCodec *codec) {
     codec->ready_head = codec->ready_count = 0;
     for (auto &output : codec->outputs) {
         output.state = Output::kFree, output.token = 0;  // the runtime ended the tokens
+        output.format_only = false;
         AMediaFormat_delete(output.format);
         output.format = nullptr;
     }
@@ -779,17 +988,22 @@ media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
     codec->codec_data.size = 0;
     void *data = nullptr;
     size_t size = 0;
+    // AAC's AudioSpecificConfig goes to the host whole; FLAC's metadata may hold pictures, of which only STREAMINFO
+    // goes.
+    const size_t most =
+            codec->type == APKRT_AUDIO_CODEC_AAC ? APKRT_AUDIO_CODEC_MAX_CONFIG : APKRT_AUDIO_CODEC_MAX_UNIT;
     if (AMediaFormat_getBuffer(asked, AMEDIAFORMAT_KEY_CSD_0, &data, &size) && size > 0) {
-        if (size > APKRT_AUDIO_CODEC_MAX_CONFIG || !resize(&codec->codec_data, size)) {
-            return AMEDIA_ERROR_INVALID_PARAMETER;
-        }
+        if (size > most || !resize(&codec->codec_data, size)) return AMEDIA_ERROR_INVALID_PARAMETER;
         memcpy(codec->codec_data.data, data, size);
     }
-    // C2SoftAacDec's input buffers are 8192 bytes, or the format's max-input-size where larger.
+    // The decoders' input buffers: C2SoftAacDec's and C2SoftMp3Dec's 8192 bytes, C2SoftFlacDec's 32768 and
+    // C2SoftRawDec's 65536, or the format's max-input-size where larger.
+    const size_t least = codec->type == APKRT_AUDIO_CODEC_FLAC ? 32768 : codec->type == kRawCodec ? 65536 : 8192;
     int32_t max_input = 0;
-    size_t capacity = AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE, &max_input) && max_input > 8192
+    size_t capacity = AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE, &max_input) &&
+                                      static_cast<size_t>(max_input) > least
                               ? static_cast<size_t>(max_input)
-                              : 8192;
+                              : least;
     if (capacity > APKRT_AUDIO_CODEC_MAX_UNIT) capacity = APKRT_AUDIO_CODEC_MAX_UNIT;
     for (auto &input : codec->inputs) {
         if (!resize(&input, capacity)) return AMEDIA_ERROR_UNKNOWN;
@@ -797,19 +1011,31 @@ media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
     if (codec->input_format == nullptr) codec->input_format = AMediaFormat_new();
     if (codec->input_format == nullptr) return AMEDIA_ERROR_UNKNOWN;
     AMediaFormat_copy(codec->input_format, asked);
+    // CCodec refuses an audio format without its rate or channels [verified: media-codec-decoders-test]; neither
+    // can be 0 or less for the decoders' ranges either.
     int32_t rate = 0, channels = 0;
-    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_SAMPLE_RATE, &rate)) rate = 0;
-    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &channels)) channels = 0;
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_SAMPLE_RATE, &rate) ||
+        !AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &channels) || rate <= 0 || channels <= 0) {
+        return AMEDIA_ERROR_INVALID_PARAMETER;
+    }
     if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_ENCODER_DELAY, &codec->delay) || codec->delay < 0) {
         codec->delay = -1;
     }
     if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_ENCODER_PADDING, &codec->padding) || codec->padding < 0) {
         codec->padding = -1;
     }
+    // The PCM encodings FLAC's and raw's decoders take; another one is 16-bit here (unverified on Android).
+    int32_t encoding = kPcm16;
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_PCM_ENCODING, &encoding)) encoding = kPcm16;
+    const bool flac_takes = encoding == kPcm16 || encoding == kPcmFloat;
+    const bool raw_takes = flac_takes || encoding == kPcm8 || encoding == kPcm24Packed || encoding == kPcm32;
+    codec->encoding = (codec->type == APKRT_AUDIO_CODEC_FLAC && flac_takes) || (codec->type == kRawCodec && raw_takes)
+                              ? encoding
+                              : kPcm16;
     codec->configured = AudioShape{rate, channels, 0};
     AMediaFormat_delete(codec->output_format);
     codec->output_format = audio_format(codec, codec->configured);
-    codec->told_mask = 0;
+    codec->told_decoded = false;
     codec->state = AMediaCodec::kConfigured;
     return AMEDIA_OK;
 }
@@ -817,13 +1043,22 @@ media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
 /// start for an audio codec, with the codec's lock held: the host's codec now where csd-0 configures it, else at
 /// the unit that does.
 media_status_t start_audio(AMediaCodec *codec) {
-    if (codec->codec_data.data != nullptr && codec->codec_data.size > 0 &&
+    const bool configures = codec->type == APKRT_AUDIO_CODEC_AAC || codec->type == APKRT_AUDIO_CODEC_FLAC;
+    if (configures && codec->codec_data.data != nullptr && codec->codec_data.size > 0 &&
         !make_audio(codec, codec->codec_data.data, codec->codec_data.size)) {
         return AMEDIA_ERROR_UNKNOWN;
     }
+    if (codec->type == kRawCodec) {
+        codec->channels = static_cast<uint32_t>(codec->configured.channels);
+        codec->decoded = codec->configured;
+    }
     codec->skip = codec->delay > 0 ? static_cast<uint32_t>(codec->delay) : 0;
     codec->held.size = 0;
-    codec->attached = codec->configured;
+    codec->attached = AudioShape{-1, -1, -1};  // the first frames come with the decoder's format
+    codec->first = true;
+    codec->gapless = false;
+    codec->stuck = false;
+    codec->processed = 0;
     return AMEDIA_OK;
 }
 
@@ -834,9 +1069,14 @@ media_status_t flush_audio(AMediaCodec *codec) {
     drop_buffers(codec);
     codec->skip = codec->delay > 0 ? static_cast<uint32_t>(codec->delay) : 0;
     codec->held.size = 0;
-    if (codec->told_mask == 0) {
+    codec->first = true;
+    codec->stuck = false;
+    codec->processed = 0;
+    if (!codec->told_decoded) {
         Output &output = codec->outputs[0];
         output.format = audio_format(codec, codec->configured);
+        output.decoded = false;
+        output.format_only = true;
         output.bytes.size = 0;
         output.info = AMediaCodecBufferInfo{0, 0, 0, 0};
         make_ready(codec, 0);

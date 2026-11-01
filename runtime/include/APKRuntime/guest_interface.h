@@ -1003,11 +1003,12 @@ struct apkrt_audio_decode {
 
 // MARK: - Audio codecs (ADR-0060 e2f)
 //
-// MediaCodec's audio decoders (c2.android.aac.decoder and its alias) decode on the host (AudioToolbox's
-// AudioConverter on macOS and iOS). One syscall carries every operation, as the video decoder's does: x0 the op, x1
-// the argument. A unit is decoded in the call itself, into the guest's buffer as 16-bit interleaved frames, so the
-// runtime keeps no unit and no frame between calls; the guest's codec trims the stream's encoder delay and padding
-// itself, as Android's codec does above its decoder. The runtime checks every argument before the host sees it.
+// MediaCodec's audio decoders (c2.android.aac.decoder, c2.android.mp3.decoder, c2.android.flac.decoder and their
+// aliases) decode on the host (AudioToolbox's AudioConverter on macOS and iOS). One syscall carries every operation,
+// as the video decoder's does: x0 the op, x1 the argument. A unit is decoded in the call itself, into the guest's
+// buffer as interleaved frames (16-bit samples, FLAC's 32-bit), so the runtime keeps no unit and no frame between
+// calls; the guest's codec trims the stream's encoder delay and padding itself, as Android's codec does above its
+// decoder. The runtime checks every argument before the host sees it.
 #define APKRT_AUDIO_CODEC_CREATE  0  // x1 the address of an apkrt_audio_codec (type, data and size the configuration);
                                      // sets id, rate, channels and frames (the most a unit gives); 0 or -errno
 #define APKRT_AUDIO_CODEC_DECODE  1  // x1 the address of an apkrt_audio_codec (id, data and size one unit, out and
@@ -1015,8 +1016,14 @@ struct apkrt_audio_decode {
 #define APKRT_AUDIO_CODEC_FLUSH   2  // x1 an ID; the decoder as new, for the units after a seek; 0 or -errno
 #define APKRT_AUDIO_CODEC_DESTROY 3  // x1 an ID; 0 or -errno
 
-/// The codec types: AAC (MPEG-4 audio), its configuration csd-0's AudioSpecificConfig.
-#define APKRT_AUDIO_CODEC_AAC 1
+/// The codec types. AAC (MPEG-4 audio): its configuration csd-0's AudioSpecificConfig, 16-bit samples. MP3 (MPEG-1,
+/// MPEG-2 or MPEG-2.5 Layer III): its configuration a frame's 4-byte header, a unit one frame, 16-bit samples; the
+/// decoder's own delay of 529 frames is cut from the first frame and again after a flush, as Android's decoder cuts
+/// it. FLAC: its configuration STREAMINFO's 34 bytes, a unit one frame, signed 32-bit samples with the sample's bits
+/// at the top (as Android's decoder shifts them to 16 bits or float).
+#define APKRT_AUDIO_CODEC_AAC  1
+#define APKRT_AUDIO_CODEC_MP3  2
+#define APKRT_AUDIO_CODEC_FLAC 3
 
 struct apkrt_audio_codec {
     uint64_t id;        // CREATE: out, from 1; the others: in
@@ -1031,7 +1038,7 @@ struct apkrt_audio_codec {
     uint32_t reserved;  // 0
 };
 
-#define APKRT_AUDIO_CODEC_MAX_CODECS 32           // MediaCodecInfo's max instances of Android's AAC decoder
+#define APKRT_AUDIO_CODEC_MAX_CODECS 32           // MediaCodecInfo's max instances of Android's audio decoders
 #define APKRT_AUDIO_CODEC_MAX_CONFIG 256
 #define APKRT_AUDIO_CODEC_MAX_UNIT   (1u << 20)
 

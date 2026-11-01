@@ -1,0 +1,131 @@
+I/media-codec-decoders-test: decoder c2.android.mp3.decoder: canonical c2.android.mp3.decoder, alias false, software true, hardware false, vendor false
+I/media-codec-decoders-test: c2.android.mp3.decoder audio: bitrates [8000, 320000], channels 2, rates 8000-8000 11025-11025 12000-12000 16000-16000 22050-22050 24000-24000 32000-32000 44100-44100 48000-48000, max instances 32
+I/media-codec-decoders-test: c2.android.mp3.decoder default format: mime="audio/mpeg"
+I/media-codec-decoders-test: decoder OMX.google.mp3.decoder: canonical c2.android.mp3.decoder, alias true, software true, hardware false, vendor false
+I/media-codec-decoders-test: decoder c2.android.flac.decoder: canonical c2.android.flac.decoder, alias false, software true, hardware false, vendor false
+I/media-codec-decoders-test: c2.android.flac.decoder audio: bitrates [1, 21000000], channels 8, rates 7350-192000, max instances 32
+I/media-codec-decoders-test: c2.android.flac.decoder default format: mime="audio/flac"
+I/media-codec-decoders-test: decoder OMX.google.flac.decoder: canonical c2.android.flac.decoder, alias true, software true, hardware false, vendor false
+I/media-codec-decoders-test: decoder c2.android.raw.decoder: canonical c2.android.raw.decoder, alias false, software true, hardware false, vendor false
+I/media-codec-decoders-test: c2.android.raw.decoder audio: bitrates [1, 10000000], channels 12, rates 8000-192000, max instances 32
+I/media-codec-decoders-test: c2.android.raw.decoder default format: mime="audio/raw"
+I/media-codec-decoders-test: decoder OMX.google.raw.decoder: canonical c2.android.raw.decoder, alias true, software true, hardware false, vendor false
+I/media-codec-decoders-test: mp3 track: channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/mpeg", sample-rate=44100, 21 units
+I/media-codec-decoders-test: mp3: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3: end of stream, 2116 bytes with it
+I/media-codec-decoders-test: mp3: input capacity 8192
+I/media-codec-decoders-test: mp3: 20 output buffers and 2 empty ones, times 40249 to 536575, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3: 22050 frames, rms 34 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: mp3 by three: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 by three: end of stream, 2116 bytes with it
+I/media-codec-decoders-test: mp3 by three: input capacity 8192
+I/media-codec-decoders-test: mp3 by three: 8 output buffers and 0 empty ones, times 0 to 536575, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3 by three: 22050 frames, rms 34 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: mp3 seek: flushed after 2 units, on at 261224
+I/media-codec-decoders-test: mp3 seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 seek: end of stream, 2116 bytes with it
+I/media-codec-decoders-test: mp3 seek: input capacity 8192
+I/media-codec-decoders-test: mp3 seek: 10 output buffers and 2 empty ones, times 301473 to 536575, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3 seek: 10530 frames, rms 33 %, 105 rising zero crossings, the first at 118
+I/media-codec-decoders-test: mp3 end with the last: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 end with the last: end of stream, 2116 bytes with it
+I/media-codec-decoders-test: mp3 end with the last: input capacity 8192
+I/media-codec-decoders-test: mp3 end with the last: 20 output buffers and 2 empty ones, times 40249 to 536575, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3 end with the last: 22050 frames, rms 34 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: mp3 mono track: channel-count=1, encoder-delay=576, encoder-padding=1071, mime="audio/mpeg", sample-rate=22050, 22 units
+I/media-codec-decoders-test: mp3 mono: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, encoder-delay=576, encoder-padding=1071, mime="audio/raw", sample-rate=22050
+I/media-codec-decoders-test: mp3 mono: end of stream, 1058 bytes with it
+I/media-codec-decoders-test: mp3 mono: input capacity 8192
+I/media-codec-decoders-test: mp3 mono: 20 output buffers and 3 empty ones, times 54376 to 550702, the first 128 frames, the last 529
+I/media-codec-decoders-test: mp3 mono: 11025 frames, rms 34 %, 219 rising zero crossings, the first at 51
+I/media-codec-decoders-test: mp3 async: ended: true
+I/media-codec-decoders-test: mp3 async: 1 format changes, the last: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 async: 20 output buffers, 22050 frames, rms 34 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: mp3 by name: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=576, encoder-padding=1566, mime="audio/raw", sample-rate=44100
+I/media-codec-decoders-test: mp3 by name: end of stream, 2116 bytes with it
+I/media-codec-decoders-test: mp3 by name: input capacity 8192
+I/media-codec-decoders-test: mp3 by name: 20 output buffers and 2 empty ones, times 40249 to 536575, the first 785 frames, the last 529
+I/media-codec-decoders-test: mp3 by name: 22050 frames, rms 34 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac track: channel-count=2, csd-0=buffer 100, mime="audio/flac", sample-rate=44100, 5 units
+I/media-codec-decoders-test: flac: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac: input capacity 32768
+I/media-codec-decoders-test: flac: 5 output buffers and 0 empty ones, times 0 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac: 22050 frames, rms 35 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac: samples' CRC32 9139b57d
+I/media-codec-decoders-test: flac float: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=4, sample-rate=44100
+I/media-codec-decoders-test: flac float: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac float: input capacity 32768
+I/media-codec-decoders-test: flac float: 5 output buffers and 0 empty ones, times 0 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac float: 22050 frames, rms 35 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac float: samples' CRC32 c3257105
+I/media-codec-decoders-test: flac seek: flushed after 2 units, on at 208979
+I/media-codec-decoders-test: flac seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac seek: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac seek: input capacity 32768
+I/media-codec-decoders-test: flac seek: 3 output buffers and 0 empty ones, times 208979 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac seek: 12834 frames, rms 35 %, 128 rising zero crossings, the first at 5
+I/media-codec-decoders-test: flac seek: samples' CRC32 bb4471e8
+I/media-codec-decoders-test: flac config unit: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac config unit: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac config unit: input capacity 32768
+I/media-codec-decoders-test: flac config unit: 5 output buffers and 0 empty ones, times 0 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac config unit: 22050 frames, rms 35 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac config unit: samples' CRC32 9139b57d
+I/media-codec-decoders-test: flac header as a unit: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac header as a unit: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac header as a unit: input capacity 32768
+I/media-codec-decoders-test: flac header as a unit: 5 output buffers and 0 empty ones, times 0 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac header as a unit: 22050 frames, rms 35 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac header as a unit: samples' CRC32 9139b57d
+I/media-codec-decoders-test: flac config with the end: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac config with the end: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac config with the end: input capacity -1
+I/media-codec-decoders-test: flac config with the end: 0 output buffers and 0 empty ones, times 0 to 0, the first -1 frames, the last 0
+I/media-codec-decoders-test: flac config with the end: 0 frames, rms 0 %, 0 rising zero crossings, the first at -1
+I/media-codec-decoders-test: flac config with the end: samples' CRC32 0
+I/media-codec-decoders-test: flac corrupt frame: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac corrupt frame: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac corrupt frame: input capacity 32768
+I/media-codec-decoders-test: flac corrupt frame: 2 output buffers and 3 empty ones, times 0 to 104489, the first 4608 frames, the last 4608
+I/media-codec-decoders-test: flac corrupt frame: 9216 frames, rms 35 %, 91 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac corrupt frame: samples' CRC32 61ec1595
+I/media-codec-decoders-test: flac corrupt then flush: flushed after 2 units, on at 208979
+I/media-codec-decoders-test: flac corrupt then flush: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac corrupt then flush: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac corrupt then flush: input capacity 32768
+I/media-codec-decoders-test: flac corrupt then flush: 3 output buffers and 0 empty ones, times 208979 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac corrupt then flush: 12834 frames, rms 35 %, 128 rising zero crossings, the first at 5
+I/media-codec-decoders-test: flac corrupt then flush: samples' CRC32 bb4471e8
+I/media-codec-decoders-test: flac by name: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: flac by name: end of stream, 0 bytes with it
+I/media-codec-decoders-test: flac by name: input capacity 32768
+I/media-codec-decoders-test: flac by name: 5 output buffers and 0 empty ones, times 0 to 417959, the first 4608 frames, the last 3618
+I/media-codec-decoders-test: flac by name: 22050 frames, rms 35 %, 219 rising zero crossings, the first at 101
+I/media-codec-decoders-test: flac by name: samples' CRC32 9139b57d
+I/media-codec-decoders-test: raw: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: raw: end of stream, 0 bytes with it
+I/media-codec-decoders-test: raw: input capacity 65536
+I/media-codec-decoders-test: raw: 11 output buffers and 0 empty ones, times 0 to 232199, the first 1024 frames, the last 785
+I/media-codec-decoders-test: raw: 11025 frames, rms 35 %, 110 rising zero crossings, the first at 100
+I/media-codec-decoders-test: raw: samples' CRC32 8a875de0
+I/media-codec-decoders-test: raw float: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=4, sample-rate=44100
+I/media-codec-decoders-test: raw float: end of stream, 0 bytes with it
+I/media-codec-decoders-test: raw float: input capacity 65536
+I/media-codec-decoders-test: raw float: 11 output buffers and 0 empty ones, times 0 to 232199, the first 1024 frames, the last 785
+I/media-codec-decoders-test: raw float: 11025 frames, rms 35 %, 110 rising zero crossings, the first at 101
+I/media-codec-decoders-test: raw float: samples' CRC32 733eeabb
+I/media-codec-decoders-test: raw trimmed: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, encoder-delay=100, encoder-padding=50, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: raw trimmed: end of stream, 0 bytes with it
+I/media-codec-decoders-test: raw trimmed: input capacity 65536
+I/media-codec-decoders-test: raw trimmed: 11 output buffers and 0 empty ones, times 0 to 232199, the first 874 frames, the last 785
+I/media-codec-decoders-test: raw trimmed: 10875 frames, rms 35 %, 108 rising zero crossings, the first at 100
+I/media-codec-decoders-test: raw trimmed: samples' CRC32 be69354e
+I/media-codec-decoders-test: raw without a rate: configure java.lang.IllegalArgumentException
+I/media-codec-decoders-test: raw by name: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", pcm-encoding=2, sample-rate=44100
+I/media-codec-decoders-test: raw by name: end of stream, 0 bytes with it
+I/media-codec-decoders-test: raw by name: input capacity 65536
+I/media-codec-decoders-test: raw by name: 11 output buffers and 0 empty ones, times 0 to 232199, the first 1024 frames, the last 785
+I/media-codec-decoders-test: raw by name: 11025 frames, rms 35 %, 110 rising zero crossings, the first at 100
+I/media-codec-decoders-test: raw by name: samples' CRC32 8a875de0
+I/media-codec-decoders-test: done
