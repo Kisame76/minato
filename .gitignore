@@ -67,3 +67,11 @@ graphify-out/*
 .claude/
 CLAUDE.md
 .graphifyignore
+
+# Internal working notes, kept out of the repository (decisions log, status, plans, research)
+/docs/DECISIONS.md
+/docs/STATUS.md
+/docs/TEST-APKS.md
+/docs/plans/
+/docs/research/
+/docs/corpus/
