@@ -1,6 +1,7 @@
 #include "apkconv/container.h"
 
 #include "APKRuntime/container_format.h"
+#include "apkconv/a64.h"
 #include "apkconv/elf.h"
 #include "apkconv/rewrite.h"
 
@@ -534,10 +535,16 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
 }
 
 std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
-                        std::span<const elf::Section> sections) {
+                        std::span<const elf::Section> sections, const X18SiteCounts &counts) {
+    // The (b)/(c) split, after the reason(s): the only way the counts reach an import on the iPhone, where the
+    // library never runs through apk-convert (no user libraries on the Mac).
+    const auto facts = std::format(
+        "; of the {}: {} defined in their loop, {} live into it, {} in no window; {} in a function with a free "
+        "register",
+        uses.size(), counts.defined_in_loop, counts.live_in, counts.no_exclusive, counts.with_free_register);
     if (uses.size() == 1) {
-        return std::format("x18 at {:#x}{} cannot run on iOS: {}", uses[0].address,
-                           describe_site(symbols, sections, uses[0].address), uses[0].reason);
+        return std::format("x18 at {:#x}{} cannot run on iOS: {}{}", uses[0].address,
+                           describe_site(symbols, sections, uses[0].address), uses[0].reason, facts);
     }
     // One class per reason, the most common first, then the one met first; the first three addresses the scan met,
     // each with the symbol it sits in.
@@ -561,7 +568,110 @@ std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<co
         if (addresses.size() > shown) text += std::format(" and {} more", addresses.size() - shown);
         text += ')';
     }
-    return text;
+    return text + facts;
+}
+
+namespace {
+
+/// RET xN, any Rn (0xd65f0000 | Rn << 5): the function boundary when there is no symbol.
+constexpr bool is_return(std::uint32_t word) { return (word & 0xffff'fc1f) == 0xd65f'0000; }
+
+/// The section that holds `address`, or nullptr.
+const elf::Section *section_of(std::span<const elf::Section> sections, std::uint64_t address) {
+    for (const auto &section : sections) {
+        if (section.size != 0 && address >= section.address && address - section.address < section.size) {
+            return &section;
+        }
+    }
+    return nullptr;
+}
+
+/// The [begin, end) of the function that holds the use at `address` (virtual addresses), inside the section `code`
+/// that starts at `base`: the sized symbol that contains it (the tightest), else the run from the instruction after
+/// the previous RET to the next RET (inclusive). Option (c) would rename x18 across this whole run.
+std::pair<std::uint64_t, std::uint64_t> enclosing_function(std::span<const elf::Symbol> symbols,
+                                                           std::span<const std::byte> code, std::uint64_t base,
+                                                           std::uint64_t address) {
+    const elf::Symbol *best = nullptr;
+    for (const auto &symbol : symbols) {
+        if (symbol.size != 0 && address >= symbol.value && address - symbol.value < symbol.size &&
+            (best == nullptr || symbol.value > best->value)) {
+            best = &symbol;
+        }
+    }
+    const std::uint64_t limit = base + code.size();
+    if (best != nullptr) return {std::max(base, best->value), std::min(limit, best->value + best->size)};
+
+    const auto word = [&](std::uint64_t at) {
+        std::uint32_t value;
+        std::memcpy(&value, code.data() + (at - base), sizeof value);
+        return value;
+    };
+    std::uint64_t begin = base;
+    for (std::uint64_t at = address; at > base; at -= 4) {  // the instruction after the previous RET
+        if (is_return(word(at - 4))) {
+            begin = at;
+            break;
+        }
+    }
+    std::uint64_t end = limit;
+    for (std::uint64_t at = address; at + 4 <= limit; at += 4) {  // up to and including the next RET
+        if (is_return(word(at))) {
+            end = at + 4;
+            break;
+        }
+    }
+    return {begin, end};
+}
+
+}  // namespace
+
+bool has_free_register(std::span<const std::byte> code) {
+    std::uint32_t used = 0;
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        std::uint32_t word;
+        std::memcpy(&word, code.data() + offset, sizeof word);
+        const auto use = a64::register_use(word);
+        used |= use.reads | use.writes;
+    }
+    for (unsigned candidate = 0; candidate < 29; ++candidate) {
+        if (candidate != 18 && (used & (1u << candidate)) == 0) return true;
+    }
+    return false;
+}
+
+std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf_bytes,
+                                                    std::span<const rewrite::Unsupported> uses) {
+    if (uses.empty()) return 0;
+    const auto file = elf::read(elf_bytes);
+    const auto symbols = elf::read_symbols(elf_bytes);
+    const auto sections = layout_sections(elf_bytes);
+    std::size_t count = 0;
+    for (const auto &use : uses) {
+        const auto *section = section_of(sections, use.address);
+        if (section == nullptr) continue;  // not in a known section: no function to bound, leave it out
+        std::span<const std::byte> code;
+        try {
+            code = file_bytes_at(file, elf_bytes, section->address, section->size, "section");
+        } catch (const Incompatible &) {
+            continue;  // a section not in the file part of a LOAD segment: nothing to read
+        }
+        const auto [begin, end] = enclosing_function(symbols, code, section->address, use.address);
+        if (has_free_register(code.subspan(static_cast<std::size_t>(begin - section->address),
+                                           static_cast<std::size_t>(end - begin)))) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+X18SiteCounts x18_site_counts(std::span<const std::byte> elf_bytes, const rewrite::Findings &findings) {
+    X18SiteCounts counts;
+    counts.defined_in_loop = findings.x18_defined_in_loop;
+    counts.live_in = findings.x18_live_in;
+    counts.no_exclusive = findings.x18_unsupported.size() - counts.defined_in_loop - counts.live_in;
+    counts.with_free_register = x18_sites_with_a_free_function_register(elf_bytes, findings.x18_unsupported);
+    return counts;
 }
 
 /// The tests convert() and refusals() both make, so that the two cannot drift: the machine and the file type, a
@@ -606,7 +716,8 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
 
 void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite::Findings &findings) {
     if (findings.x18_unsupported.empty()) return;
-    throw Incompatible(x18_refusal(findings.x18_unsupported, elf::read_symbols(elf_bytes), layout_sections(elf_bytes)));
+    throw Incompatible(x18_refusal(findings.x18_unsupported, elf::read_symbols(elf_bytes), layout_sections(elf_bytes),
+                                   x18_site_counts(elf_bytes, findings)));
 }
 
 Container convert(std::span<const std::byte> elf_bytes, const Options &options) {

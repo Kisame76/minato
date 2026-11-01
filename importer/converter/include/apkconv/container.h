@@ -89,12 +89,39 @@ std::vector<elf::Section> layout_sections(std::span<const std::byte> elf);
 /// p_align), and without section headers the largest segment p_align stands. Throws Incompatible when no shift fits.
 PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sections);
 
+/// The per-site facts an x18 refusal carries, for the ADR-0020 (b)/(c) split (counts only; the sites are
+/// proprietary, so a protected library reaches us only through this refusal string on the iPhone). The first three
+/// (how x18 reaches each refused use) sum to the number of uses; the last is how many sit in a function with a
+/// spare register for a whole-function rename.
+struct X18SiteCounts {
+    std::size_t defined_in_loop = 0;     // x18 written in its exclusive construct before any read (a retry recomputes it)
+    std::size_t live_in = 0;             // x18 live into the construct (zeroing corrupts it; no retry helps)
+    std::size_t no_exclusive = 0;        // the use is in no exclusive construct
+    std::size_t with_free_register = 0;  // the enclosing function has a register free for a whole-function rename
+};
+
 /// The reason for refusing a file whose x18 `uses` no island handles (at least one), for Incompatible: one use with
-/// its address, or every reason with its count and first addresses, so that one refusal names all a library needs.
-/// Each address is named with the symbol it sits in (`symbols` from read_symbols) and its section (`sections`), so
-/// an import of a protected library shows which component; a stripped library names only the section, or nothing.
+/// its address, or every reason with its count and first addresses, so that one refusal names all a library needs,
+/// then the per-site `counts` (ADR-0020 (b)/(c)). Each address is named with the symbol it sits in (`symbols` from
+/// read_symbols) and its section (`sections`), so an import of a protected library shows which component; a stripped
+/// library names only the section, or nothing.
 std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
-                        std::span<const elf::Section> sections);
+                        std::span<const elf::Section> sections, const X18SiteCounts &counts);
+
+/// Whether the instructions in `code` leave a general-purpose register (x0..x28, other than x18) unused
+/// throughout -- the register a whole-function x18 rename (ADR-0020 option c) would take.
+bool has_free_register(std::span<const std::byte> code);
+
+/// Of the refused x18 `uses` (from scan_code's x18_unsupported), how many sit in a function that has such a free
+/// register, for the ADR-0020 option (c) split (counts only; the sites are proprietary). A function's bounds come
+/// from the sized symbol (`read_symbols`) that contains the use, else the run between the returns around it within
+/// its executable section. `elf` is the same file scan_code saw.
+std::size_t x18_sites_with_a_free_function_register(std::span<const std::byte> elf,
+                                                    std::span<const rewrite::Unsupported> uses);
+
+/// The per-site facts for `findings.x18_unsupported`: the (b)/(c) split from the scan (defined-in-loop, live-in,
+/// the rest in no exclusive construct) and the free-register count over `elf`. Assembled for x18_refusal.
+X18SiteCounts x18_site_counts(std::span<const std::byte> elf, const rewrite::Findings &findings);
 
 /// Converts `elf`. Throws Incompatible, or elf::FormatError when the file is broken.
 Container convert(std::span<const std::byte> elf, const Options &options);

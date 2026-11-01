@@ -894,6 +894,55 @@ TEST(a_refusal_caps_a_long_symbol_name) {
     CHECK_THROWS(Incompatible, convert(named), std::string(157, 'z') + "...");
 }
 
+// ADR-0020 option (c) needs a register free across the whole enclosing function to rename x18 to.
+TEST(has_free_register_is_false_only_when_every_register_is_used) {
+    std::vector<std::uint32_t> saturated;
+    for (unsigned n = 0; n < 29; ++n) saturated.push_back(0xd280'0000 | n);  // mov x0..x28, #0
+    const std::span full(reinterpret_cast<const std::byte *>(saturated.data()), saturated.size() * 4);
+    CHECK(!apk::container::has_free_register(full));
+    std::vector<std::uint32_t> gap;
+    for (unsigned n = 0; n < 29; ++n)
+        if (n != 7) gap.push_back(0xd280'0000 | n);  // x7 left out
+    const std::span some(reinterpret_cast<const std::byte *>(gap.data()), gap.size() * 4);
+    CHECK(apk::container::has_free_register(some));
+}
+
+// The refused x18 sites are counted (ADR-0020 (c)) by whether their enclosing function has a free register. The
+// function bounds come from the symbol that contains the site, or, with none, the run between the returns around it.
+TEST(x18_sites_with_a_free_function_register_uses_the_enclosing_symbol) {
+    auto named = static_program(0x4800, {{"small_fn", 0x200, 0x20}});
+    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18 (refused: a register branch)
+    const auto scan = apk::container::scan_code(named.bytes);
+    CHECK(scan.findings.x18_unsupported.size() == 1);
+    CHECK(apk::container::x18_sites_with_a_free_function_register(named.bytes, scan.findings.x18_unsupported) == 1);
+}
+
+TEST(x18_sites_with_a_free_function_register_falls_back_to_the_returns_around_the_site) {
+    auto stripped = static_program();  // no symbols
+    stripped.put<std::uint32_t>(0x218, 0xd65f'0240);  // ret x18 (refused), after the ret at 0x214
+    const auto scan = apk::container::scan_code(stripped.bytes);
+    CHECK(scan.findings.x18_unsupported.size() == 1);
+    CHECK(apk::container::x18_sites_with_a_free_function_register(stripped.bytes, scan.findings.x18_unsupported) == 1);
+}
+
+// The per-site facts ride in the refusal reason itself: on the iPhone the library never runs through apk-convert,
+// so the Incompatible string is the only way the (b)/(c) counts reach an import.
+TEST(the_refusal_text_carries_the_per_site_facts) {
+    auto prog = static_program();
+    const std::uint32_t window[] = {
+        0x1400'0002,  // 0x200 b .+8, into the add (a branch from outside refuses the window)
+        0xc85f'7db1,  // 0x204 ldxr x17, [x13]
+        0x8b0e'0232,  // 0x208 add x18, x17, x14: x18 written before the store (defined in the loop)
+        0xc810'fdb2,  // 0x20c stlxr w16, x18, [x13]
+        0x35ff'ffb0,  // 0x210 cbnz w16, ldxr
+        0xd65f'03c0,  // 0x214 ret
+    };
+    for (std::size_t i = 0; i < std::size(window); ++i) prog.put<std::uint32_t>(0x200 + 4 * i, window[i]);
+    CHECK_THROWS(Incompatible, convert(prog),
+                 "of the 2: 2 defined in their loop, 0 live into it, 0 in no window; 2 in a function with a free "
+                 "register");
+}
+
 TEST(refuses_what_cannot_run) {
 
     auto darwin_syscall = static_program();

@@ -1363,9 +1363,11 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     std::vector<std::tuple<std::size_t, std::size_t, const char *>> refused_windows;
     std::vector<std::size_t> lone_loads;  // load-exclusives that pair with no store-exclusive (step C C3)
     std::vector<std::size_t> unclosed_loads;  // window_unclosed loads whose uses go through C6 (step D)
+    std::vector<std::pair<std::size_t, std::size_t>> all_windows;  // every load-exclusive's [open, extent], for (b)/(c)
     for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
         if (!is_load_exclusive(word_at(code, offset))) continue;
         const auto end = exclusive_window_end(code, offset);
+        all_windows.emplace_back(offset, end ? *end : unclosed_window(code, offset).first);
         if (!end) {
             if (lone_load_exclusive(code, offset)) {
                 lone_loads.push_back(offset);  // not a window: its x18 uses run in ordinary islands (C3)
@@ -1417,6 +1419,16 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             if (offset >= open && offset <= end) return problem;
         }
         return nullptr;
+    };
+    // The innermost load-exclusive construct [open, extent] that holds `offset`, for the (b)/(c) split: a refused
+    // window, or a lone/unclosed/in-sequence construct. None when the use is in no exclusive construct (a register
+    // branch, the thread pointer). live_into_window() below decides defined-in-loop vs live-in over it.
+    const auto enclosing_window = [&](std::size_t offset) -> std::optional<std::pair<std::size_t, std::size_t>> {
+        std::optional<std::pair<std::size_t, std::size_t>> best;
+        for (const auto &[open, extent] : all_windows) {
+            if (offset >= open && offset <= extent && (!best || open > best->first)) best = {open, extent};
+        }
+        return best;
     };
     const auto is_covered = [&](std::size_t offset) {
         return std::ranges::any_of(covered, [&](const auto &span) { return offset >= span.first && offset <= span.second; });
@@ -1534,7 +1546,18 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             } else if (!reason && !nosave) {
                 findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});
             }
-            if (reason) findings.x18_unsupported.push_back({at, reason});
+            if (reason) {
+                findings.x18_unsupported.push_back({at, reason});
+                // Split the refused use (ADR-0020 (b)/(c)): x18 defined in its exclusive construct before any read,
+                // or live into it; a use in no exclusive construct is in neither count.
+                if (const auto window = enclosing_window(offset)) {
+                    if (live_into_window(code, window->first, window->second, x18_bit)) {
+                        ++findings.x18_live_in;
+                    } else {
+                        ++findings.x18_defined_in_loop;
+                    }
+                }
+            }
         } else if ((instruction & register_mask) == mrs_tpidr_el0) {
             findings.sites.push_back({at, SiteKind::thread_pointer_read, rt});
         } else if ((instruction & register_mask) == msr_tpidr_el0) {

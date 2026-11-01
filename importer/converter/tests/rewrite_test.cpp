@@ -987,6 +987,55 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
     }
 }
 
+// The refused window sites are split (counts only, ADR-0020 (b)/(c)) by how the guest x18 reaches them: written in
+// the window before use (a retry after a context switch recomputes it) or live into the window (zeroing corrupts it).
+TEST(scan_counts_a_refused_window_with_x18_written_as_defined_in_the_loop) {
+    const std::uint32_t code[] = {
+        0x1400'0002,  // b .+8, onto the add (refuses the window: a branch leads in)
+        0xc85f'7db1,  // ldxr x17, [x13]
+        0x8b0e'0232,  // add x18, x17, x14   (x18 written before the store: defined in the loop)
+        0xc810'fdb2,  // stlxr w16, x18, [x13]
+        0x35ff'ffb0,  // cbnz w16, ldxr
+    };
+    const auto findings = scan_words(code, code + 5, 0x4000);
+    CHECK(findings.x18_unsupported.size() == 2);  // the add and the stlxr
+    CHECK(findings.x18_defined_in_loop == 2);
+    CHECK(findings.x18_live_in == 0);
+}
+
+TEST(scan_counts_a_refused_window_with_x18_live_in) {
+    const std::uint32_t code[] = {
+        0x1400'0002,  // b .+8, onto the add (refuses the window: a branch leads in)
+        0xc85f'7db1,  // ldxr x17, [x13]
+        0x8b0e'0240,  // add x0, x18, x14    (x18 read, never written: live into the window)
+        0xc810'fdb1,  // stlxr w16, x17, [x13]
+        0x35ff'ffb0,  // cbnz w16, ldxr
+    };
+    const auto findings = scan_words(code, code + 5, 0x4000);
+    CHECK(findings.x18_unsupported.size() == 1);  // only the add uses x18
+    CHECK(findings.x18_live_in == 1);
+    CHECK(findings.x18_defined_in_loop == 0);
+}
+
+// The split covers in-sequence refused uses, not only refused windows: the use sits in its load-exclusive's
+// construct, so live_into_window classifies it. Here x18 is written in the loop before the store (defined-in-loop).
+TEST(scan_splits_an_in_sequence_refused_use_by_its_load_exclusive) {
+    const std::uint32_t code[] = {
+        0x1400'0003,  // 0x1000 b 0x100c
+        0xc802'7c03,  // 0x1004 stxr w2, x3, [x0]
+        0x3400'00a2,  // 0x1008 cbz w2, 0x101c
+        0xc85f'7c01,  // 0x100c ldxr x1, [x0]
+        0x8b03'0032,  // 0x1010 add x18, x1, x3: the write use, refused in sequence
+        0xd280'0005,  // 0x1014 mov x5, #0
+        0x17ff'fffb,  // 0x1018 b 0x1004
+        0xd503'201f,  // 0x101c nop
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.x18_unsupported.size() == 1);
+    CHECK(findings.x18_defined_in_loop == 1);  // classified although it is in no refused window
+    CHECK(findings.x18_live_in == 0);
+}
+
 // Each window that is not relocated says why, so that one refusal names every cause at once.
 TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
     // No longer refused here: a window with no store-exclusive at all (step C C3) and a nested

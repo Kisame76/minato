@@ -107,6 +107,15 @@ struct Findings {
     std::vector<std::uint64_t> x18_saves;
     /// Uses of x18 that no island handles; the converter refuses a file with any of them.
     std::vector<Unsupported> x18_unsupported;
+    /// Of the refused uses that sit in a load-exclusive construct (a relocated-or-refused window, or a lone,
+    /// unclosed or in-sequence one), how the guest x18 reaches each one, for the ADR-0020 (b)/(c) split:
+    /// `x18_defined_in_loop` = x18 is written in the construct before any read, so a context switch that zeroes it
+    /// is undone and a retry recomputes it (option (b) could cover it); `x18_live_in` = x18 is live into the
+    /// construct, so zeroing corrupts the result and no retry helps (only option (c) could). Counts only -- the
+    /// sites are proprietary. A refused use in no exclusive construct (a register branch, the thread pointer through
+    /// x18) is in neither count.
+    std::size_t x18_defined_in_loop = 0;
+    std::size_t x18_live_in = 0;
     /// Load-/store-exclusive windows with x18 inside, each relocated as one island (ADR-0020 X2c).
     std::vector<ExclusiveRegion> exclusive_regions;
     /// Each `br x18` that ends a jump table, run in an island with landing pads (ADR-0020 X2d).

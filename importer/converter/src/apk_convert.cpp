@@ -145,7 +145,8 @@ void inspect(const std::string &path) {
                                  findings.in_place_windows.size(), findings.x18_unsupported.size());
         if (!findings.x18_unsupported.empty()) {
             std::cout << " (" << apk::container::x18_refusal(findings.x18_unsupported, apk::elf::read_symbols(bytes),
-                                                             apk::container::layout_sections(bytes))
+                                                             apk::container::layout_sections(bytes),
+                                                             apk::container::x18_site_counts(bytes, findings))
                       << ')';
         }
         std::cout << '\n';
