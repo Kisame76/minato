@@ -27,6 +27,7 @@ cmake --build "$NATIVE" --target apk-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh ime-extract-test >/dev/null
+tools/build-java-test-app.sh ime-surrounding-test >/dev/null
 
 head='\t5\tnote\t'
 steps='start,text:0:1:0:!,text:1:1:0:ab,text:2:0:0:,text:4:2:4:'
@@ -49,3 +50,21 @@ python3 framework/tests/java_app_run.py \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/ime-extract-check \
   build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
   build/ime-extract-test/ime-extract-test.apk fixtures/expected/ime-extract-test.logcat 1290x2796@3,en-US
+
+# An engine's field (ime-surrounding-test, as SDL2's DummyEdit in Ren'Py): its connection gives no extracted text, so
+# the bar is fed from getTextBeforeCursor, getSelectedText and getTextAfterCursor, as Android's input methods read
+# such a field, again after each of the host's edits.
+surrounding='\t1\t\t'
+python3 framework/tests/java_app_run.py \
+  --in-order 'apk-run: ime 1: start\t1\t' --in-order 'apk-run: ime 1: stop' \
+  --in-order 'apk-run: ime 2: start\t1\t' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t0\t0\t-1\t-1'"$surrounding" \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t3\t3\t-1\t-1'"$surrounding"'Ren' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t6\t6\t-1\t-1'"$surrounding"'Renpy!' \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t5\t5\t-1\t-1'"$surrounding"'Renpy' \
+  --lifecycle 'start,text:0:1:0:Ren,text:0:1:0:py!,text:3:1:0:' \
+  ime-surrounding-test io.github.kisame76.minato.test.imesurrounding android.app.Application \
+  build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
+  "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/ime-surrounding-check \
+  build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
+  build/ime-surrounding-test/ime-surrounding-test.apk fixtures/expected/ime-surrounding-test.txt 1290x2796@3,en-US

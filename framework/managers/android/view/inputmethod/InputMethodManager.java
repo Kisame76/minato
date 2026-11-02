@@ -79,6 +79,9 @@ class InputMethodManager {
         private int mComposingEnd = -1;
         private String mLastExtract;
         private boolean mSendPending;
+        // An engine's field (SDL2's DummyEdit) gives no extracted text: the text around the cursor instead, read again
+        // after each of the host's edits, since such a view tells of no change.
+        private boolean mSurrounding;
         // The field's rectangle that the host was last told.
         private final Rect mField = new Rect();
         private boolean mFieldSent;
@@ -147,6 +150,9 @@ class InputMethodManager {
                     default:
                         break;
                 }
+                if (mSurrounding && readSurrounding()) {
+                    sendExtract();
+                }
             });
         }
 
@@ -187,7 +193,8 @@ class InputMethodManager {
         /**
          * The text bar's feed: the view's text through getExtractedText(GET_EXTRACTED_TEXT_MONITOR), as an input method
          * that shows it asks, and the view's place in the window. A view whose connection gives no extracted text, such
-         * as an engine's, gets the place only; a view without a connection of its own, neither.
+         * as an engine's (SDL2's SDLInputConnection), is read around the cursor instead, as input methods read it; a
+         * view without a connection of its own gets neither.
          */
         void startFeeding(EditorInfo info) {
             if (mInfo != null || info == null) {
@@ -213,6 +220,13 @@ class InputMethodManager {
                 final ExtractedText extracted = mConnection.getExtractedText(request,
                         InputConnection.GET_EXTRACTED_TEXT_MONITOR);
                 if (extracted == null || extracted.text == null) {
+                    if (readSurrounding()) {
+                        synchronized (this) {
+                            mSurrounding = true;
+                            mMonitoring = true;
+                        }
+                        sendExtract();
+                    }
                     return;
                 }
                 synchronized (this) {
@@ -225,6 +239,31 @@ class InputMethodManager {
                 }
                 sendExtract();
             });
+        }
+
+        /**
+         * The text around the cursor from getTextBeforeCursor, getSelectedText and getTextAfterCursor, half the
+         * extract's characters on each side, as the text from the field's start: such a connection does not say where
+         * it begins.
+         * False when the connection gives none of the three.
+         */
+        private boolean readSurrounding() {
+            final CharSequence before = mConnection.getTextBeforeCursor(EXTRACT_CHARS / 2, 0);
+            final CharSequence selected = mConnection.getSelectedText(0);
+            final CharSequence after = mConnection.getTextAfterCursor(EXTRACT_CHARS / 2, 0);
+            if (before == null && selected == null && after == null) {
+                return false;
+            }
+            final String head = before == null ? "" : before.toString();
+            final String middle = selected == null ? "" : selected.toString();
+            synchronized (this) {
+                mText = head + middle + (after == null ? "" : after);
+                mTextStart = 0;
+                mSelStart = head.length();
+                mSelEnd = head.length() + middle.length();
+                mComposingStart = mComposingEnd = -1;
+            }
+            return true;
         }
 
         /** The view's visible rectangle in the window's pixels, when the host has not had it as it is. */

@@ -1,0 +1,7 @@
+# ime-surrounding-test's lines in Minato's log (tools/ime-extract-check.sh): the editable after the host's three text
+# steps, a commit, another and a delete of one character before the cursor. The text bar's lines are the check's.
+logcat I/ime-surrounding-test: showSoftInput true
+logcat I/ime-surrounding-test: call commitText "Ren" -> true, text "Ren"
+logcat I/ime-surrounding-test: call commitText "py!" -> true, text "Renpy!"
+logcat I/ime-surrounding-test: call deleteSurroundingText 1,0 -> true, text "Renpy"
+logcat I/ime-surrounding-test: done

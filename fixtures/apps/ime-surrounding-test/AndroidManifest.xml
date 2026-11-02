@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ime-surrounding-test (ADR-0068, the host's text bar for engines): one view as SDL2's DummyEdit, whose
+     connection is a BaseInputConnection with an editable of its own and no extracted text, as Ren'Py's
+     SDLInputConnection. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.imesurrounding" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.imesurrounding.SurroundingActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="stateHidden">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

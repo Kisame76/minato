@@ -17,8 +17,8 @@ All notable changes to Minato are documented in this file. The format follows
   without importing it again
 - Android's action bar for apps with the default theme: the title, the options menu with its overflow, hiding and
   showing it, and action modes, as on Android 15
-- Above the on-screen keyboard, a bar shows the text of the field you type in, with its cursor; tap in it to move the
-  cursor
+- Above the on-screen keyboard, a bar shows the text of the field you type in, with its cursor, also in apps made with
+  game engines such as Ren'Py; tap in it to move the cursor
 - A hardware keyboard's Menu key opens an app's options menu, the arrow and Enter keys work inside its overflow, and
   the menu follows the app's changes to it
 - Apps follow a new screen size, as folding or unfolding the iPhone Duo gives one: apps that handle it get the new
