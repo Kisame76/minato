@@ -183,6 +183,12 @@ let threeFingers = pans.filter { $0.minimumNumberOfTouches == MenuSwipe.fingers 
 check(threeFingers.count == 1 && threeFingers.allSatisfy { $0.cancelsTouchesInView && !$0.delaysTouchesBegan },
       "one pan recognizer takes three fingers, and the guest has the touches until the menu takes them")
 check(pans.contains { $0.maximumNumberOfTouches == 1 }, "the top edge's one-finger swipe stays")
+// A WKWebView of the app brings WebKit's own recognizers (its scroll view's pan, tap and long press), which start on
+// the first finger and would hold the menu's swipe back.
+let webKits = [UIPanGestureRecognizer(), UITapGestureRecognizer(), UILongPressGestureRecognizer()]
+check(threeFingers.allSatisfy { pan in
+          webKits.allSatisfy { pan.delegate?.gestureRecognizer?(pan, shouldRecognizeSimultaneouslyWith: $0) == true }
+      }, "three fingers open the menu over the app's web views too")
 check(view.editingInteractionConfiguration == .none && view.textView.editingInteractionConfiguration == .none,
       "iOS's three-finger editing gestures are off")
 

@@ -26,8 +26,8 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps that embed web pages show them inside the app, and you can tap, scroll and type in them; the pages keep their
   cookies, so logins and settings in them stay, and can call the app's own code, as many HTML5 apps and games need;
   deleting the app removes its web data too
-- A three-finger swipe down anywhere opens Minato's menu while an app runs, every time; the swipe down from the top
-  edge, which iOS lets through only every other time, still works too
+- A three-finger swipe down anywhere, over an app's web pages too, opens Minato's menu while an app runs, every time;
+  the swipe down from the top edge, which iOS lets through only every other time, still works too
 - A tab bar with Home, Library and Settings; the library keeps its search field
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
 - When iOS closed an app, for example because it used too much memory, or the app ended with an error status, the

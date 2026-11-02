@@ -138,6 +138,8 @@ final class SessionLayersView: UIView {
     /// The three-finger swipe's state (ADR-0032 decision 9, amended 2026-11-01).
     private var menuSwipe = MenuSwipe()
     private let threeFingers = UIPanGestureRecognizer()
+    /// The three-finger pan's delegate, which the recognizer holds weakly.
+    private let alongside = AlongsideOthers()
     private var keyboardObservers: [any NSObjectProtocol] = []
 
     override init(frame: CGRect) {
@@ -158,6 +160,8 @@ final class SessionLayersView: UIView {
         threeFingers.minimumNumberOfTouches = MenuSwipe.fingers
         threeFingers.cancelsTouchesInView = true
         threeFingers.delaysTouchesBegan = false
+        // Over an app's WKWebView, WebKit's recognizers start on the first finger and are exclusive by default.
+        threeFingers.delegate = alongside
         addGestureRecognizer(threeFingers)
     }
 
@@ -685,5 +689,13 @@ extension UIInterfaceOrientationMask {
         if orientations.contains(.portrait) { insert(.portrait) }
         if orientations.contains(.landscapeLeft) { insert(.landscapeLeft) }
         if orientations.contains(.landscapeRight) { insert(.landscapeRight) }
+    }
+}
+
+/// Lets the menu's three-finger pan begin while another recognizer, such as one of a WKWebView, has begun already.
+private final class AlongsideOthers: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
     }
 }
