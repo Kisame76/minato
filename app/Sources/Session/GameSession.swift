@@ -458,6 +458,8 @@ final class GameSession {
     /// Back to the library, once the exports to Photos under way are done or 5 s have passed (ADR-0057 step e) and the
     /// app's edits of the user's files are written back, 5 s at most (its addendum).
     private func restart() {
+        // The end is the user's or the app's: no notice at the library's next start (ADR-0032, decision 8).
+        SessionEndReport.ended()
         Task { [weak self, photos = runtime?.photos] in
             await photos?.settle(within: 5)
             await WriteBackHost.shared.endSession()

@@ -138,6 +138,9 @@ enum SessionCheck {
             switch notice.cause {
             case .signal(let number): event("process library quitUnexpectedly \(notice.name) signal \(number)\(seconds)")
             case .failure(let reason): event("process library quitUnexpectedly \(notice.name) failure \(reason)\(seconds)")
+            case .endedByIOS: event("process library quitUnexpectedly \(notice.name) endedByIOS\(seconds)")
+            case .exitStatus(let status):
+                event("process library quitUnexpectedly \(notice.name) status \(status)\(seconds)")
             }
         }
     }

@@ -49,20 +49,36 @@ struct LastSessionTests {
         #expect(store.take() == nil)
     }
 
-    /// Android shows nothing when an app ends itself, whatever its exit code.
-    @Test func anExitCodeShowsNothing() throws {
+    /// Android shows nothing when an app ends itself with an exit code; Minato does, since the app is gone without a
+    /// word otherwise (the lead's decision, 2026-11-01), also after the end handler ran.
+    @Test func anExitCodeIsShown() throws {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)
         Self.report(3, to: descriptor)
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .exitStatus(3)))
 
-        #expect(store.take() == nil)
+        let again = store.begin(Self.session)
+        try #require(again >= 0)
+        Self.report(1, to: again)
+        store.ended()
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .exitStatus(1)))
     }
 
-    /// iOS ended the process, or Quit restarted it before a program ran: no status.
-    @Test func noStatusShowsNothing() throws {
+    /// iOS ended the process, as for using too much memory: no status and no end, since a kill by iOS runs nothing.
+    @Test func noStatusAndNoEndIsAnEndByIOS() throws {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)
         close(descriptor)
+
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .endedByIOS))
+    }
+
+    /// Quit restarted Minato before a program ran: no status, but the end was the user's.
+    @Test func aQuitBeforeTheProgramRanShowsNothing() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        close(descriptor)
+        store.ended()
 
         #expect(store.take() == nil)
     }

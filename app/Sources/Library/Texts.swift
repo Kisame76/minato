@@ -60,6 +60,10 @@ enum Texts {
             "It ended with signal \(number)" + (LastSessionNotice.signalName(number).map { " (\($0))" } ?? "") + "."
         case .failure(let reason):
             "It could not start: \(reason)"
+        case .endedByIOS:
+            "iOS may have closed it because it used too much memory."
+        case .exitStatus(let status):
+            "It ended with status \(status)."
         }
     }
 

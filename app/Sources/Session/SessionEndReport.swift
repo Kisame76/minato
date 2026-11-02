@@ -21,8 +21,9 @@ enum SessionEndReport {
         apkrt_report_exit_status(descriptor)
     }
 
-    /// The program ended through the end handler: no notice at the library's next start, whatever the status, as a
-    /// kill of itself reports 137 and ends the program as an exit does (ADR-0028, decision 5).
+    /// The program ended through the end handler, or game mode restarts to the library: no notice at the library's
+    /// next start, whatever the status, as a kill of itself reports 137 and ends the program as an exit does (ADR-0028,
+    /// decision 5). Without it and without a status, iOS ended the process.
     static func ended() {
         store?.ended()
     }

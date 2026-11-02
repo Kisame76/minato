@@ -25,6 +25,10 @@ public struct LastSessionNotice: Equatable, Sendable {
         /// Linux's signal number.
         case signal(Int32)
         case failure(String)
+        /// No status and no end: iOS ended the process, which runs nothing, as for using too much memory.
+        case endedByIOS
+        /// The app ended itself with exit(N), N from 1 to 128: Minato's own notice, since Android shows nothing.
+        case exitStatus(Int32)
     }
 
     public var name: String
@@ -72,8 +76,8 @@ public struct LastSessionStore: Sendable {
     }
 
     /// The program ended through the end handler (ADR-0032, decision 7): an exit, a quit or a kill of itself, which
-    /// the runtime reports as 137 and ends as an exit (ADR-0028, decision 5). A crash ends the process without the
-    /// handler, so its record keeps no end.
+    /// the runtime reports as 137 and ends as an exit (ADR-0028, decision 5); or game mode restarts to the library.
+    /// A crash ends the process without the handler, and iOS's kill runs nothing, so their records keep no end.
     public func ended() {
         guard var session = read() else { return }
         session.endedItself = true
@@ -96,10 +100,17 @@ public struct LastSessionStore: Sendable {
         try? FileManager.default.removeItem(at: statusFile)
         guard let session else { return nil }
         if let failure = session.failure { return LastSessionNotice(name: session.name, cause: .failure(failure)) }
-        // An end through the end handler is no crash, whatever the status, a kill of itself's 137 too.
+        // An exit code, through the end handler or not (the lead's decision, 2026-11-01).
+        if let status, (1...128).contains(status) {
+            return LastSessionNotice(name: session.name, cause: .exitStatus(status))
+        }
+        // Otherwise an end through the end handler is no crash, a kill of itself's 137 too; nor is a restart to the
+        // library, which marks the end too.
         if session.endedItself == true { return nil }
+        // Neither the runtime's status nor an end: iOS ended the process (a kill by iOS runs nothing).
+        guard let status else { return LastSessionNotice(name: session.name, cause: .endedByIOS) }
         // A shell's 128 + the signal.
-        guard let status, status > 128 else { return nil }
+        guard status > 128 else { return nil }
         return LastSessionNotice(name: session.name, cause: .signal(status - 128))
     }
 

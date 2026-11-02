@@ -30,6 +30,8 @@ All notable changes to Minato are documented in this file. The format follows
   edge, which iOS lets through only every other time, still works too
 - A tab bar with Home, Library, Settings and Search
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
+- When iOS closed an app, for example because it used too much memory, or the app ended with an error status, the
+  library says so the next time Minato opens
 
 ### Changed
 
