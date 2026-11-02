@@ -24,7 +24,8 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps follow a new screen size, as folding or unfolding the iPhone Duo gives one: apps that handle it get the new
   size, and the others keep theirs and are shown letterboxed, as on Android
 - Apps that embed web pages show them inside the app, and you can tap, scroll and type in them; the pages keep their
-  cookies, so logins and settings in them stay, and can call the app's own code, as many HTML5 apps and games need
+  cookies, so logins and settings in them stay, and can call the app's own code, as many HTML5 apps and games need;
+  deleting the app removes its web data too
 - A three-finger swipe down anywhere opens Minato's menu while an app runs, every time; the swipe down from the top
   edge, which iOS lets through only every other time, still works too
 - A tab bar with Home, Library, Settings and Search

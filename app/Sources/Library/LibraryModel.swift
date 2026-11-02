@@ -5,6 +5,7 @@ import APKSigning
 import Foundation
 import MachO
 import Observation
+import WebKit
 import os
 
 private let log = Logger(subsystem: "io.github.kisame76.minato", category: "import")
@@ -457,6 +458,19 @@ final class LibraryModel {
                 try await library.remove(id: entry.id)
             } catch {
                 errorMessage = "“\(entry.displayName)” could not be deleted: \(error.localizedDescription)"
+                continue
+            }
+            // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7); an app that never showed one has
+            // no store.
+            if !entry.id.hasPrefix("file:") {
+                do {
+                    try await WKWebsiteDataStore.remove(forIdentifier: WebDataStore.identifier(forPackage: entry.id))
+                } catch {
+                    log.info("""
+                        \(entry.id, privacy: .public): no web data removed: \
+                        \(error.localizedDescription, privacy: .public)
+                        """)
+                }
             }
         }
         self.entries = await library.entries
