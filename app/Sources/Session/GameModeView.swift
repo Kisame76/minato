@@ -42,6 +42,8 @@ struct GameModeView: View {
                         .padding(.vertical, 10)
                         .background(.regularMaterial, in: Capsule())
                         .padding(.top, 24)
+                        // The app's touches and the menu's swipe go through it, before the app's first frame too.
+                        .allowsHitTesting(false)
                         .transition(.opacity)
                 }
             }
