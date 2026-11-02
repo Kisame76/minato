@@ -3,7 +3,8 @@ import Testing
 
 /// A tap outside the focused field hides the keyboard (ADR-0068 a, a named departure: Android never does): only a tap,
 /// within the slop and with one finger, while the keyboard is up; at once outside a field the guest placed, and without
-/// one only after the grace, unless the guest asks to show the keyboard in between.
+/// one only after the grace, unless the guest asks to show the keyboard in between. The tap that hides never reaches
+/// the guest: a one-finger touch waits while the keyboard is up until it is known.
 @Suite struct OutsideTapTests {
     static let field = FieldRect(left: 0, top: 100, right: 400, bottom: 160)
 
@@ -120,5 +121,76 @@ import Testing
         #expect(r14 == .none)
         let r15 = Self.tap(&tap, 200, 400)
         #expect(r15 == .hide)
+    }
+
+    static func callback(_ phase: TouchPhase, _ touch: UInt, _ x: Double, _ y: Double) -> OutsideTap.Callback {
+        OutsideTap.Callback(phase: phase, changes: [change(touch, x, y)])
+    }
+
+    /// The touch callback goes in, and what reaches the guest now comes out.
+    static func pass(_ tap: inout OutsideTap, _ callback: OutsideTap.Callback, shown: Bool = true)
+        -> [OutsideTap.Callback] {
+        _ = tap.touched(callback.phase, callback.changes, keyboardShown: shown)
+        return tap.release()
+    }
+
+    @Test func theTapThatHidesNeverReachesTheGuest() {
+        // A game that asks for its keyboard on every touch would show it again at once.
+        var placed = OutsideTap()
+        placed.field = Self.field
+        var unplaced = OutsideTap()
+        for tap in [placed, unplaced] {
+            var tap = tap
+            let down = Self.pass(&tap, Self.callback(.began, 1, 200, 400))
+            #expect(down.isEmpty)
+            let up = Self.pass(&tap, Self.callback(.ended, 1, 202, 401))
+            #expect(up.isEmpty)
+        }
+        _ = unplaced.touched(.began, [Self.change(1, 200, 400)], keyboardShown: true)
+        #expect(unplaced.release().isEmpty)
+    }
+
+    @Test func aTouchThatIsNoTapGoesOutLateInOrder() {
+        var tap = OutsideTap()
+        tap.field = Self.field
+        let down = Self.callback(.began, 1, 200, 400)
+        let near = Self.callback(.moved, 1, 203, 404)
+        let far = Self.callback(.moved, 1, 200, 340)
+        #expect(Self.pass(&tap, down).isEmpty)
+        #expect(Self.pass(&tap, near).isEmpty)
+        #expect(Self.pass(&tap, far) == [down, near, far])
+        let up = Self.callback(.ended, 1, 200, 340)
+        #expect(Self.pass(&tap, up) == [up])
+    }
+
+    @Test func aSecondFingerSendsTheHeldTouch() {
+        var tap = OutsideTap()
+        let down = Self.callback(.began, 1, 200, 400)
+        let second = Self.callback(.began, 2, 300, 500)
+        #expect(Self.pass(&tap, down).isEmpty)
+        #expect(Self.pass(&tap, second) == [down, second])
+    }
+
+    @Test func aTapOnThePlacedFieldReachesIt() {
+        var tap = OutsideTap()
+        tap.field = Self.field
+        let down = Self.callback(.began, 1, 200, 130)
+        let up = Self.callback(.ended, 1, 200, 130)
+        #expect(Self.pass(&tap, down) == [down])
+        #expect(Self.pass(&tap, up) == [up])
+    }
+
+    @Test func withoutTheKeyboardNothingWaits() {
+        var tap = OutsideTap()
+        let down = Self.callback(.began, 1, 200, 400)
+        let up = Self.callback(.ended, 1, 200, 400)
+        #expect(Self.pass(&tap, down, shown: false) == [down])
+        #expect(Self.pass(&tap, up, shown: false) == [up])
+    }
+
+    @Test func aCancelledHeldTouchNeverReachesTheGuest() {
+        var tap = OutsideTap()
+        #expect(Self.pass(&tap, Self.callback(.began, 1, 200, 400)).isEmpty)
+        #expect(Self.pass(&tap, Self.callback(.cancelled, 1, 200, 400)).isEmpty)
     }
 }
