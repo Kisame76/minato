@@ -7,6 +7,7 @@ struct LibraryScene: View {
     let library: LibraryModel
     @Bindable var signing: SigningCoordinator
     @State private var problem: LaunchMode.Problem?
+    @AppStorage(RootTab.storageKey) private var tab = RootTab.library
     @Environment(\.scenePhase) private var scenePhase
 
     init(library: LibraryModel, signing: SigningCoordinator, problem: LaunchMode.Problem?) {
@@ -16,7 +17,7 @@ struct LibraryScene: View {
     }
 
     var body: some View {
-        LibraryView()
+        RootView()
             .environment(library)
             .environment(signing)
             .onOpenURL { url in
@@ -24,6 +25,8 @@ struct LibraryScene: View {
                 // minato:// too; anything else is a file.
                 guard !Restart.isRestart(url) else { return }
                 if !signing.handle(url) {
+                    // "Open with" shows the file installing in Library (the app navigation's design, section 1).
+                    tab = .library
                     Task { await library.open(url) }
                 }
             }

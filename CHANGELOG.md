@@ -27,6 +27,8 @@ All notable changes to Minato are documented in this file. The format follows
   cookies, so logins and settings in them stay
 - A three-finger swipe down anywhere opens Minato's menu while an app runs, every time; the swipe down from the top
   edge, which iOS lets through only every other time, still works too
+- A tab bar with Home, Library, Settings and Search
+- Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
 
 ### Changed
 
@@ -38,6 +40,7 @@ All notable changes to Minato are documented in this file. The format follows
 - An app whose optional library does not load shows "Ready, without" and that library, and starts without it
 - Pulling down in the library shows the search field without a refresh getting in its way; the library still updates
   itself whenever Minato comes to the front
+- The signing certificate moved from the library's "…" menu to Settings
 
 ### Fixed
 

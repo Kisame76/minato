@@ -119,3 +119,23 @@ private func fetchStep(_ inputs: SigningInputs) -> NextStep {
     }
     return .offerFileImport
 }
+
+extension SigningState {
+    /// Whether signing needs a step by the user, which the Settings tab's badge shows (the app navigation's design,
+    /// section 4): the setup put off with Not Now (the store's export waits for a tap), a certificate only a file can
+    /// give, an expired one, a failed self-test, or the app's own certificate unreadable. While the automation works
+    /// (ADR-0023) there is none.
+    public func needsUser(next: NextStep) -> Bool {
+        switch self {
+        case .notNeeded, .valid:
+            return false
+        case .expired, .selfTestFailed, .ownCertificateUnreadable:
+            return true
+        case .missing, .changed:
+            switch next {
+            case .requestExport(_, automatically: false), .offerFileImport: return true
+            default: return false
+            }
+        }
+    }
+}

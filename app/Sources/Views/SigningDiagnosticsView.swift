@@ -1,7 +1,7 @@
 import APKSigning
 import SwiftUI
 
-/// The hidden diagnostics (ADR-0023), reached through More › Signing Certificate › Diagnostics:
+/// The hidden diagnostics (ADR-0023), reached through Settings › Diagnostics:
 /// everything the signing automation knows and did, and the actions to run parts of it by hand.
 struct SigningDiagnosticsView: View {
     @Environment(SigningCoordinator.self) private var signing
@@ -24,6 +24,7 @@ struct SigningDiagnosticsView: View {
             }
             Section {
                 Button("Run Self-Test") { run { await signing.runSelfTest() } }
+                CertificateFileButton()
                 if case .store(let store) = signing.environment.installer {
                     Button("Get Certificate from \(store.name) Again") { run { await signing.getCertificate(from: store) } }
                 }

@@ -88,7 +88,7 @@ cmake --build --preset macos --target apk-convert >/dev/null
 password=$(/usr/bin/openssl rand -hex 24)
 echo "  macOS now asks whether apk-convert may export the key from your keychain: enter your Mac's password and choose Allow."
 if ! APK_P12_PASSWORD="$password" "$APK_CONVERT" export-identity "$APP/Minato" "$WORK/identity.p12" >/dev/null; then
-  echo "Not handed over. Allow the export, or import a .p12 file in the app (More > Signing Certificate)." >&2
+  echo "Not handed over. Allow the export, or import a .p12 file in the app (Settings > Diagnostics)." >&2
   exit 1
 fi
 copied=0
