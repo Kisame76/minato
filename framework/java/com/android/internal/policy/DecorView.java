@@ -300,6 +300,13 @@ public class DecorView extends FrameLayout {
      * then the unhandled-key listeners of the window's views, as AOSP's but for action modes (ADR-0045 step 7c1).
      */
     boolean superDispatchKeyEvent(KeyEvent event) {
+        // As AOSP's: a primary action mode takes the BACK key before any view and ends with its up.
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && mPrimaryActionMode != null) {
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                mPrimaryActionMode.finish();
+            }
+            return true;
+        }
         if (super.dispatchKeyEvent(event)) {
             return true;
         }

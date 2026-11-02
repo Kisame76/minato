@@ -4,7 +4,8 @@
 # app_process with libandroid_runtime.so (incremental), framework.jar and the app every time, then starts the app through
 # app_process on the M4 plan's display and plays the keys that the AVD's adb shell input keyevent plays in
 # tools/android-reference.sh: MENU (the overflow opens), DPAD_DOWN and ENTER (the popup's first item is chosen), and,
-# after the app's invalidateOptionsMenu, MENU twice (the overflow opens and closes). The app's log is compared with
+# after the app's invalidateOptionsMenu, MENU twice (the overflow opens and closes) and BACK (it finishes the action
+# mode that the app starts then, step 5). The app's log is compared with
 # Android 15's (fixtures/expected/action-bar-menu-test.logcat, from tools/android-reference.sh).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/action-bar-menu-check.sh
@@ -23,7 +24,7 @@ tools/build-framework.sh >/dev/null
 app=action-bar-menu-test
 tools/build-java-test-app.sh "$app" >/dev/null
 python3 framework/tests/java_app_run.py \
-  --lifecycle start,key:82,key:20,key:66,key:82,key:82 \
+  --lifecycle start,key:82,key:20,key:66,key:82,key:82,key:4 \
   "$app" io.github.kisame76.minato.test.actionbarmenu android.app.Application \
   build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" "build/$app-check" \

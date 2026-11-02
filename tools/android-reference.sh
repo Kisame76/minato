@@ -983,8 +983,8 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToolbarActivity
       ;;
     # action-bar-menu-test (the platform action bar's options menu, step 4): the MENU key opens the overflow, the arrow
-    # and enter keys choose its first item, and after the app's invalidateOptionsMenu the MENU key opens and closes it;
-    # ends with "done".
+    # and enter keys choose its first item, and after the app's invalidateOptionsMenu the MENU key opens and closes it,
+    # then the BACK key finishes the action mode the app starts; ends with "done".
     action-bar-menu-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MenuActivity
       ;;
@@ -1196,11 +1196,12 @@ run_app() {
   fi
   if [[ "$app" == action-bar-menu-test ]]; then
     # The keys of tools/action-bar-menu-check.sh's lifecycle, a second and a half apart: MENU, DOWN, ENTER, then, after
-    # the app's invalidation, MENU twice.
+    # the app's invalidation, MENU twice, and BACK once the action mode has started.
     { wait_for "$app" ready 90 && sleep 1.5 && run input keyevent KEYCODE_MENU && sleep 1.5 &&
       run input keyevent KEYCODE_DPAD_DOWN && sleep 1.5 && run input keyevent KEYCODE_ENTER &&
       wait_for "$app" "invalidateOptionsMenu" 20 && sleep 1.5 && run input keyevent KEYCODE_MENU && sleep 1.5 &&
-      run input keyevent KEYCODE_MENU; } || return 1
+      run input keyevent KEYCODE_MENU && wait_for "$app" "onActionModeStarted" 20 && sleep 1.5 &&
+      run input keyevent KEYCODE_BACK; } || return 1
   fi
   if [[ "$app" == views-test* ]]; then
     # ADR-0043 test 1: a tap on the Button's middle, from its logged bounds in the window, which fills the screen, a

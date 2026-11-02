@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.ActionMode;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -15,8 +16,9 @@ import android.widget.TextView;
  * Compatibility plan gap 5, step 4: the options menu of the platform action bar, driven from outside by keys. The MENU
  * key opens the overflow (onMenuOpened), the arrow down and enter keys walk the popup and choose its first item
  * (onOptionsItemSelected), the app then invalidates the menu (onPrepareOptionsMenu again, with the changed title),
- * and the MENU key opens and a second one closes the overflow. The script behind the keys: the AVD's adb shell input
- * keyevent in tools/android-reference.sh, apk-run's key steps in tools/action-bar-menu-check.sh. Ends with "done".
+ * and the MENU key opens and a second one closes the overflow. The app then starts an action mode, which the BACK key
+ * finishes before the activity sees it (step 5). The script behind the keys: the AVD's adb shell input keyevent in
+ * tools/android-reference.sh, apk-run's key steps in tools/action-bar-menu-check.sh. Ends with "done".
  */
 public class MenuActivity extends Activity {
     private static String TAG;
@@ -31,6 +33,7 @@ public class MenuActivity extends Activity {
     private boolean mInvalidated;
     private int mOpenedAfterInvalidation;
     private final Runnable mDone = () -> log("done");
+    private final Runnable mStartMode = this::startMode;
     private String mLabel = "Third";
 
     private static void log(String line) {
@@ -90,9 +93,51 @@ public class MenuActivity extends Activity {
         // The MENU key that opens the overflow after the invalidation and the one that closes it: the run is over once
         // the closes have stopped.
         if (mInvalidated && mOpenedAfterInvalidation >= 2) {
-            mHandler.removeCallbacks(mDone);
-            mHandler.postDelayed(mDone, 1500);
+            mHandler.removeCallbacks(mStartMode);
+            mHandler.postDelayed(mStartMode, 300);
         }
+    }
+
+    /** An action mode that only the BACK key ends: its callbacks and the activity's are logged. */
+    private void startMode() {
+        startActionMode(new ActionMode.Callback() {
+            @Override
+            public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+                log("onCreateActionMode");
+                mode.setTitle("mode");
+                menu.add("Act");
+                return true;
+            }
+
+            @Override
+            public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+                log("onPrepareActionMode");
+                return false;
+            }
+
+            @Override
+            public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+                return false;
+            }
+
+            @Override
+            public void onDestroyActionMode(ActionMode mode) {
+                log("onDestroyActionMode");
+            }
+        });
+    }
+
+    @Override
+    public void onActionModeStarted(ActionMode mode) {
+        log("onActionModeStarted");
+        super.onActionModeStarted(mode);
+    }
+
+    @Override
+    public void onActionModeFinished(ActionMode mode) {
+        log("onActionModeFinished");
+        super.onActionModeFinished(mode);
+        mHandler.postDelayed(mDone, 1500);
     }
 
     @Override

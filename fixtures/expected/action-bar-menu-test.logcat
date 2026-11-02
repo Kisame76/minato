@@ -23,4 +23,9 @@ I/action-bar-menu-test: onPanelClosed 5 feature 8
 I/action-bar-menu-test: onPanelClosed 6 feature 8
 I/action-bar-menu-test: onPanelClosed 7 feature 8
 I/action-bar-menu-test: onPanelClosed 8 feature 8
+I/action-bar-menu-test: onCreateActionMode
+I/action-bar-menu-test: onPrepareActionMode
+I/action-bar-menu-test: onActionModeStarted
+I/action-bar-menu-test: onDestroyActionMode
+I/action-bar-menu-test: onActionModeFinished
 I/action-bar-menu-test: done
