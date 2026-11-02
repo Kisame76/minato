@@ -460,20 +460,30 @@ final class LibraryModel {
                 errorMessage = "“\(entry.displayName)” could not be deleted: \(error.localizedDescription)"
                 continue
             }
-            // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7); an app that never showed one has
-            // no store.
-            if !entry.id.hasPrefix("file:") {
-                do {
-                    try await WKWebsiteDataStore.remove(forIdentifier: WebDataStore.identifier(forPackage: entry.id))
-                } catch {
-                    log.info("""
-                        \(entry.id, privacy: .public): no web data removed: \
-                        \(error.localizedDescription, privacy: .public)
-                        """)
-                }
-            }
+            // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7).
+            if !entry.id.hasPrefix("file:") { await removeWebData(of: entry) }
         }
         self.entries = await library.entries
+    }
+
+    /// The app's WKWebsiteDataStore, if it made one. WebKit's class calls go out from the main thread with completion
+    /// handlers: their async forms run on a worker, and the removal crashed on WebKit's IO queue (RunLoop::dispatch)
+    /// in a process that had made no web view yet. The default store sets up WebKit in the process first; an app that
+    /// never showed a WebView has no store, and none is asked to go.
+    private func removeWebData(of entry: LibraryEntry) async {
+        let id = WebDataStore.identifier(forPackage: entry.id)
+        _ = WKWebsiteDataStore.default()
+        let stores = await withCheckedContinuation { done in
+            WKWebsiteDataStore.fetchAllDataStoreIdentifiers { done.resume(returning: $0) }
+        }
+        guard stores.contains(id) else { return }
+        let error = await withCheckedContinuation { done in
+            WKWebsiteDataStore.remove(forIdentifier: id) { done.resume(returning: $0) }
+        }
+        if let error {
+            let reason = error.localizedDescription
+            log.info("\(entry.id, privacy: .public): no web data removed: \(reason, privacy: .public)")
+        }
     }
 
     // MARK: - Updates (ADR-0034)

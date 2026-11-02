@@ -15,13 +15,10 @@ extension UTType {
     static let obb = UTType(importedAs: "io.github.kisame76.minato.obb")
 }
 
-/// The library, laid out like a folder in the Files app: icon grid, a "…" menu with Select, and +. The tab bar's
-/// search tab shows it too, filtered by the search (the app navigation's design, section 1).
+/// The library, laid out like a folder in the Files app: icon grid, a "…" menu with Select, +, and the search above the
+/// grid (the app navigation's design, section 1).
 /// Tapping an app starts it; touch and hold offers Get Info and Delete.
 struct LibraryView: View {
-    /// The search tab's library: the grid filtered by `query`, without the library's own bar items and alerts.
-    var searching = false
-    @Binding var query: String
     @Environment(LibraryModel.self) private var model
     @Environment(SigningCoordinator.self) private var signing
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
@@ -31,6 +28,7 @@ struct LibraryView: View {
     @State private var isSelecting = false
     @State private var selection: Set<LibraryItem.ID> = []
     @State private var deletion: Deletion?
+    @State private var query = ""
 
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 8, alignment: .top)]
 
@@ -39,8 +37,10 @@ struct LibraryView: View {
             content
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
-                .modifier(SearchField(active: searching, query: $query))
+                .searchable(text: $query)
                 .toolbar { toolbar }
+                // Select's bottom bar takes the tab bar's place, as in Files.
+                .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
                 // An app's APKs, or their folder, as one pick (ADR-0048, decision 1); a set of APKs in one .apks or .zip
                 // (ADR-0049 a3), in an .xapk with its OBBs (c2) or an .apkm (e), and an app's OBB on its own (d).
                 .fileImporter(isPresented: $isImporting,
@@ -166,7 +166,7 @@ struct LibraryView: View {
                 .disabled(selectedEntries.isEmpty)
                 .deletionDialog(isPresented: deletionShown(from: .selection), entries: deletion?.entries, perform: delete)
             }
-        } else if !searching {
+        } else {
             // Without a back button the leading side would stay empty; like Clock (Edit left, + right).
             ToolbarItem(placement: .topBarLeading) {
                 Menu("More", systemImage: "ellipsis") {
@@ -200,7 +200,7 @@ struct LibraryView: View {
     }
 
     private var title: String {
-        guard isSelecting else { return searching ? "Search" : "Library" }
+        guard isSelecting else { return "Library" }
         return switch selectedEntries.count {
         case 0: "Select Items"
         case 1: "1 Item Selected"
@@ -310,21 +310,20 @@ struct LibraryView: View {
     }
 
     private var restartAlertShown: Binding<Bool> {
-        Binding(get: { !searching && model.restartFailedFor != nil }, set: { if !$0 { model.restartFailedFor = nil } })
+        Binding(get: { model.restartFailedFor != nil }, set: { if !$0 { model.restartFailedFor = nil } })
     }
 
     private var rejectionShown: Binding<Bool> {
-        Binding(get: { !searching && model.updateRejected != nil }, set: { if !$0 { model.updateRejected = nil } })
+        Binding(get: { model.updateRejected != nil }, set: { if !$0 { model.updateRejected = nil } })
     }
 
     private var questionTitle: String {
         model.questions.first.map { Texts.unitQuestion($0).title } ?? ""
     }
 
-    /// Dismissing it without a button leaves the question: the unit waits, and the next launch asks again. The model's
-    /// alerts come from the library's tab only, not the search tab's copy too.
+    /// Dismissing it without a button leaves the question: the unit waits, and the next launch asks again.
     private var questionShown: Binding<Bool> {
-        Binding(get: { !searching && !model.questions.isEmpty }, set: { _ in })
+        Binding(get: { !model.questions.isEmpty }, set: { _ in })
     }
 
     private var obbQuestionTitle: String {
@@ -333,25 +332,11 @@ struct LibraryView: View {
 
     /// Dismissing it without a button leaves the question, as for an update's.
     private var obbQuestionShown: Binding<Bool> {
-        Binding(get: { !searching && !model.obbQuestions.isEmpty }, set: { _ in })
+        Binding(get: { !model.obbQuestions.isEmpty }, set: { _ in })
     }
 
     private var errorShown: Binding<Bool> {
-        Binding(get: { !searching && model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
-    }
-}
-
-/// The search tab's field, inside the tab's NavigationStack: Apple's searchable, for the search tab's library only.
-private struct SearchField: ViewModifier {
-    let active: Bool
-    @Binding var query: String
-
-    func body(content: Content) -> some View {
-        if active {
-            content.searchable(text: $query)
-        } else {
-            content
-        }
+        Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
     }
 }
 

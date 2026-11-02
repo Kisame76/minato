@@ -2,18 +2,17 @@ import APKSigning
 import SwiftUI
 
 /// The library's tabs (docs/plans/2026-09-24-app-navigation-design.md, section 1), Apple's tab bar at the bottom:
-/// Home, Library and Settings, and the search as the bar's own search tab. The last tab is kept, so the restart
-/// after an app comes back to it (ADR-0003).
+/// Home, Library and Settings; Library has the search. The last tab is kept, so the restart after an app comes back
+/// to it (ADR-0003).
 enum RootTab: String {
     static let storageKey = "selectedTab"
 
-    case home, library, settings, search
+    case home, library, settings
 }
 
 struct RootView: View {
     @Environment(SigningCoordinator.self) private var signing
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
-    @State private var query = ""
 
     var body: some View {
         TabView(selection: $tab) {
@@ -21,16 +20,13 @@ struct RootView: View {
                 HomeView()
             }
             Tab("Library", systemImage: "square.grid.2x2", value: RootTab.library) {
-                LibraryView(query: .constant(""))
+                LibraryView()
             }
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
                 SettingsView()
             }
             // Only when a step by the user is needed; otherwise signing stays invisible (ADR-0023).
             .badge(signing.state.needsUser(next: signing.next) ? 1 : 0)
-            Tab(value: RootTab.search, role: .search) {
-                LibraryView(searching: true, query: $query)
-            }
         }
     }
 }
