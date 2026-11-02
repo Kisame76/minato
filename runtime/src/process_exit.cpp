@@ -128,9 +128,79 @@ void report_measures() {
     static_cast<void>(::write(descriptor, lines.text, lines.length));
 }
 
-/// The end's report: the status, then the measures.
-void report(int status) {
-    report_status(status);
+/// The program's end kinds, which pick the log line below.
+enum class EndKind { exited, signaled };
+
+std::atomic<bool> end_logged{false};  // the end goes to the log once, whichever path reaches it first
+
+/// Appends `text` to buf[at..cap), advancing `at`. Signal-safe: no allocation.
+void append_text(char *buffer, std::size_t capacity, std::size_t &at, const char *text) {
+    while (*text != '\0' && at < capacity) buffer[at++] = *text++;
+}
+
+/// Appends the decimal of `value` (>= 0) to buf[at..cap), advancing `at`. Signal-safe.
+void append_decimal(char *buffer, std::size_t capacity, std::size_t &at, long value) {
+    char digits[20];  // as many as 2^64 - 1 has
+    int count = 0;
+    auto rest = static_cast<unsigned long>(value);
+    do {
+        digits[count++] = static_cast<char>('0' + rest % 10);
+        rest /= 10;
+    } while (rest != 0);
+    while (count > 0 && at < capacity) buffer[at++] = digits[--count];
+}
+
+/// bionic's name for a Linux signal number (libc/private/bionic_sigdefs.h), for the signal log line.
+const char *signal_name(int signal) {
+    switch (signal) {
+        case 1: return "Hangup";
+        case 2: return "Interrupt";
+        case 3: return "Quit";
+        case 4: return "Illegal instruction";
+        case 5: return "Trap";
+        case 6: return "Aborted";
+        case 7: return "Bus error";
+        case 8: return "Floating point exception";
+        case 9: return "Killed";
+        case 11: return "Segmentation fault";
+        case 13: return "Broken pipe";
+        case 15: return "Terminated";
+        case 31: return "Bad system call";
+        default: return "Unknown signal";
+    }
+}
+
+/// Logs the program's end to stderr once, in `logcat -v tag` form (liblog.cpp), with the line Android's
+/// Zygote writes for a child that ended (com_android_internal_os_Zygote.cpp SigChldHandler): "exited
+/// cleanly (<status>)" for an exit, "exited due to signal <n> (<name>)" for a signal. Signal-safe: one
+/// write() of a stack buffer, no snprintf and no malloc, because the caller may be a signal handler.
+void log_end(EndKind kind, int value) {
+    // Only an app process gets this line: Android's Zygote logs it for its child app processes, not for a
+    // program run from the shell (our NDK fixtures), which begins no session.
+    if (session::end_handler().function == nullptr) return;
+    if (end_logged.exchange(true)) return;
+    char line[128];
+    std::size_t at = 0;
+    append_text(line, sizeof line, at, "I/Zygote  : Process ");
+    append_decimal(line, sizeof line, at, ::getpid());
+    if (kind == EndKind::exited) {
+        append_text(line, sizeof line, at, " exited cleanly (");
+        append_decimal(line, sizeof line, at, value);
+        append_text(line, sizeof line, at, ")\n");
+    } else {
+        append_text(line, sizeof line, at, " exited due to signal ");
+        append_decimal(line, sizeof line, at, value);
+        append_text(line, sizeof line, at, " (");
+        append_text(line, sizeof line, at, signal_name(value));
+        append_text(line, sizeof line, at, ")\n");
+    }
+    static_cast<void>(::write(STDERR_FILENO, line, at));
+}
+
+/// The end's report: the log line, the status, then the measures.
+void report(EndKind kind, int value) {
+    log_end(kind, value);
+    report_status(kind == EndKind::signaled ? 128 + value : value);
     report_measures();
 }
 
@@ -167,11 +237,11 @@ void program_starts() {
 }
 
 void report_death_by(int signal) {
-    report(128 + signal);
+    report(EndKind::signaled, signal);
 }
 
 void exit(int status) {
-    report(status & 0xff);
+    report(EndKind::exited, status & 0xff);
     ::_exit(status & 0xff);
 }
 
@@ -181,7 +251,7 @@ void end(int status) {
     // Before the other threads hear of it: whichever of them goes back to guest code then stops, and a
     // thread that ends the program as well stops here.
     if (program_ended.exchange(true)) stop();
-    report(status & 0xff);
+    report(EndKind::exited, status & 0xff);
     signals::stop_other_threads();
     session::end();  // the host's waits for answers end, and its posts fail
     // The handler's host calls must not end with EINTR: a runtime signal to this thread waits.
