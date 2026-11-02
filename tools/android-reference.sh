@@ -974,6 +974,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ConsoleActivity
       also_tag=chromium
       ;;
+    # webview-bridge-test (ADR-0056 c3): objects added with addJavascriptInterface, which the page calls synchronously
+    # (their @JavascriptInterface methods only), seen from the next load on and gone after a removal and a load. It
+    # ends with "done".
+    webview-bridge-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BridgeActivity
+      ;;
     # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
     # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
     # method's lines under ime-extract-test-device are the numbers that Minato's extract requests must carry. It ends

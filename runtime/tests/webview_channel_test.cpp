@@ -218,4 +218,19 @@ TEST(a_cookies_record_round_trips) {
     apkrt::channels::webview_close(token);
 }
 
+TEST(a_js_bridge_record_round_trips) {
+    // ADR-0056 c3's JS_BRIDGE (6), a page's call of an app object, which the guest answers: known to the reader, with
+    // its request id.
+    const std::uint64_t token = 12;
+    const long fd = apkrt::channels::webview_make(token);
+    CHECK(fd >= 0);
+    WebViewReader reader(read_fd(fd));
+    const Bytes body = pattern(100);
+    CHECK(post(token, APKRT_WEBVIEW_REC_JS_BRIDGE, 7, body) == 0);
+    WebViewRecord record;
+    CHECK(reader.next(record) == 1);
+    CHECK(record.type == APKRT_WEBVIEW_REC_JS_BRIDGE && record.request_id == 7 && record.payload == body);
+    apkrt::channels::webview_close(token);
+}
+
 int main() { return apk::testing::run_all(); }

@@ -1,0 +1,22 @@
+I/webview-bridge-test: bridge added
+I/webview-bridge-test: bridge: page: bridge object, late undefined
+I/webview-bridge-test: bridge: hello: hello page, on the main thread: false
+I/webview-bridge-test: bridge: add: 5
+I/webview-bridge-test: bridge: half: 1.5
+I/webview-bridge-test: bridge: not: true
+I/webview-bridge-test: bridge: nothing: undefined
+I/webview-bridge-test: bridge: typeof hello: function, hidden: undefined
+I/webview-bridge-test: bridge: page end
+I/webview-bridge-test: late added, before a load: "undefined"
+I/webview-bridge-test: bridge: page: bridge object, late object
+I/webview-bridge-test: bridge: hello: hello page, on the main thread: false
+I/webview-bridge-test: bridge: add: 5
+I/webview-bridge-test: bridge: half: 1.5
+I/webview-bridge-test: bridge: not: true
+I/webview-bridge-test: bridge: nothing: undefined
+I/webview-bridge-test: bridge: typeof hello: function, hidden: undefined
+I/webview-bridge-test: bridge: page end
+I/webview-bridge-test: bridge removed, before a load: "object"
+I/webview-bridge-test: late: page: bridge undefined, late object
+I/webview-bridge-test: late: page end
+I/webview-bridge-test: done

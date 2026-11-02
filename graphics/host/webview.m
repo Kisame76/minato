@@ -175,6 +175,29 @@ static NSString *const kConsoleScript =
     @"  });"
     @"})();";
 
+/// The app's objects (addJavascriptInterface), in the page's world of every frame at each document's start: each
+/// method calls the app at once through prompt(), which the host answers from the guest's JS_BRIDGE answer
+/// {"value"} or {"error"}, thrown as an Error. The `%@` is the objects, {name: [method, ...]}.
+static NSString *const kBridgeScript =
+    @"(function(objects) {"
+    @"  Object.keys(objects).forEach(function(name) {"
+    @"    var object = {};"
+    @"    objects[name].forEach(function(method) {"
+    @"      object[method] = function() {"
+    @"        var answer = prompt('%@' + JSON.stringify({object: name, method: method,"
+    @"                                                     args: Array.prototype.slice.call(arguments)}));"
+    @"        if (answer === null) return undefined;"
+    @"        answer = JSON.parse(answer);"
+    @"        if (answer.error !== undefined) throw new Error(answer.error);"
+    @"        return answer.value;"
+    @"      };"
+    @"    });"
+    @"    window[name] = object;"
+    @"  });"
+    @"})(%@);";
+/// The start of a prompt that is a call of the app's objects.
+static NSString *const kBridgePrompt = @"minato-bridge:";
+
 /// Chromium's error page, which a failed main-frame load commits at its URL.
 /// Rewrites the main frame's viewport meta tags for the view's width (the first `%@`), now and as the page adds or
 /// changes them: with useWideViewPort (the second, true or false) only "device-width", without it the tags' width, and
@@ -327,6 +350,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic) uint64_t token;
 @property(nonatomic, strong) WKWebView *view;
 @property(nonatomic, copy) NSDictionary *settings;
+@property(nonatomic, copy) NSDictionary *interfaces;  // the app's objects for the next pages: {name: [method, ...]}
 @property(nonatomic, strong) NSMutableDictionary *parts;         // a CALL that comes in parts, so far
 @property(nonatomic, strong) NSMutableArray<MinatoWebItem *> *entries;  // the history
 @property(nonatomic) NSInteger index;                            // the current entry, -1 before the first
@@ -498,6 +522,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                forMainFrameOnly:NO
                                                  inContentWorld:WKContentWorld.pageWorld]];
+    [self addBridgeTo:content];
     [content addScriptMessageHandler:self contentWorld:host_world() name:@"minatoTitle"];
     [content addScriptMessageHandler:self contentWorld:WKContentWorld.pageWorld name:@"minatoConsole"];
     WKWebView *view = [[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 1, 1) configuration:configuration];
@@ -554,6 +579,11 @@ static WKWebsiteDataStore *data_store(id identifier) {
     if ([name isEqualToString:@"settings"]) {
         self.settings = call[@"settings"];
         [self applySettings];
+        return;
+    }
+    if ([name isEqualToString:@"interfaces"]) {
+        self.interfaces = [call[@"objects"] isKindOfClass:NSDictionary.class] ? call[@"objects"] : nil;
+        [self updateBridge];
         return;
     }
     if ([name isEqualToString:@"evaluateJavascript"]) {
@@ -854,6 +884,63 @@ static WKWebsiteDataStore *data_store(id identifier) {
     [self updateViewport];
 }
 
+/// The app's objects' script, if it has any, to `content`.
+- (void)addBridgeTo:(WKUserContentController *)content {
+    if (self.interfaces.count == 0) return;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:self.interfaces options:0 error:nil];
+    if (json == nil) return;
+    NSString *objects = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    [content addUserScript:[[WKUserScript alloc]
+                                 initWithSource:[NSString stringWithFormat:kBridgeScript, kBridgePrompt, objects]
+                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                               forMainFrameOnly:NO
+                                 inContentWorld:WKContentWorld.pageWorld]];
+}
+
+/// The scripts again with the app's objects now, for the next pages; the page now shown keeps its own, as Android's.
+- (void)updateBridge {
+    if (self.view == nil) return;
+    if (self.cssWidth > 0) {
+        [self updateViewport];
+        return;
+    }
+    WKUserContentController *content = self.view.configuration.userContentController;
+    [content removeAllUserScripts];
+    [content addUserScript:[[WKUserScript alloc] initWithSource:kTitleScript
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                               forMainFrameOnly:YES
+                                                 inContentWorld:host_world()]];
+    [content addUserScript:[[WKUserScript alloc] initWithSource:kConsoleScript
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                               forMainFrameOnly:NO
+                                                 inContentWorld:WKContentWorld.pageWorld]];
+    [self addBridgeTo:content];
+}
+
+/// A page's call of the app's objects: the JS_BRIDGE record, then the guest's answer, as the prompt's text; none
+/// (undefined) after 10 s or at the view's end.
+- (void)bridge:(NSString *)prompt done:(void (^)(NSString *))done {
+    NSData *data = [[prompt substringFromIndex:kBridgePrompt.length] dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *call = data != nil ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![call isKindOfClass:NSDictionary.class]) {
+        done(nil);
+        return;
+    }
+    const uint64_t rid = next_record_id();
+    [self wait:rid
+        answered:^(NSData *payload, int fd, int64_t offset, int64_t length) {
+            (void)offset;
+            (void)length;
+            if (fd >= 0) close(fd);
+            [self.waiting removeObjectForKey:@(rid)];
+            done(payload != nil ? [[NSString alloc] initWithData:payload encoding:NSUTF8StringEncoding] : nil);
+        }
+        fallback:^{
+            done(nil);
+        }];
+    post(self.token, APKRT_WEBVIEW_REC_JS_BRIDGE, rid, call);
+}
+
 /// The viewport script for the width and the setting now: for later pages and the page now shown.
 - (void)updateViewport {
     if (self.cssWidth <= 0 || self.view == nil) return;
@@ -869,6 +956,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                forMainFrameOnly:NO
                                                  inContentWorld:WKContentWorld.pageWorld]];
+    [self addBridgeTo:content];
     [content addUserScript:[[WKUserScript alloc] initWithSource:script
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                forMainFrameOnly:YES
@@ -1170,6 +1258,10 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 - (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt
           defaultText:(NSString *)text initiatedByFrame:(WKFrameInfo *)frame
     completionHandler:(void (^)(NSString *))completion {
+    if ([prompt hasPrefix:kBridgePrompt]) {
+        [self bridge:prompt done:completion];
+        return;
+    }
     [self dialog:@"prompt" frame:frame message:prompt default:either(text, @"") done:^(BOOL result, NSString *value) {
         completion(result ? either(value, @"") : nil);
     }];

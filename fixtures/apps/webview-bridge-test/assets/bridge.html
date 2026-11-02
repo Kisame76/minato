@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>bridge</title></head>
+<body>
+<script>
+function note(text) {
+  if (window.bridge) bridge.note(text); else if (window.late) late.note(text);
+}
+note("page: bridge " + typeof window.bridge + ", late " + typeof window.late);
+if (window.bridge) {
+  note("hello: " + bridge.hello("page"));
+  note("add: " + bridge.add(2, 3));
+  note("half: " + bridge.half(3));
+  note("not: " + bridge.not(false));
+  note("nothing: " + bridge.nothing());
+  note("typeof hello: " + typeof bridge.hello + ", hidden: " + typeof bridge.hidden);
+}
+note("page end");
+</script>
+</body>
+</html>

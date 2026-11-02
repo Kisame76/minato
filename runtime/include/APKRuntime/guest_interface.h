@@ -593,7 +593,8 @@ enum apkrt_webview_record_type {
                                     // onPageFinished, doUpdateVisitedHistory, or shouldOverrideUrlLoading, which
                                     // waits for an ANSWER
     APKRT_WEBVIEW_REC_JS_RESULT,    // the answer to a CALL (evaluateJavascript), by request_id
-    APKRT_WEBVIEW_REC_JS_BRIDGE,    // an addJavascriptInterface call into the guest; waits for an ANSWER
+    APKRT_WEBVIEW_REC_JS_BRIDGE,    // an addJavascriptInterface call into the guest; waits for an ANSWER: the call
+                                    // {"object", "method", "args"}, answered {"value"} or {"error"} (ADR-0056 c3)
     APKRT_WEBVIEW_REC_RESOURCE,     // the page asks for a minato-asset:// resource; waits for its ANSWERs (below)
     APKRT_WEBVIEW_REC_PERMISSION,   // an onPermissionRequest; waits for an ANSWER
     APKRT_WEBVIEW_REC_ERROR,        // a load or render error; its payload says onReceivedError or onReceivedHttpError

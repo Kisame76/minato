@@ -47,12 +47,18 @@ final class WebViewChannel {
     /** The characters of a cut field in one part: JSON's worst escape, six bytes a character, stays under 1 MiB. */
     static final int PART_CHARS = 128 * 1024;
 
-    /** What the provider does with each record, on the main Looper, but RESOURCE's, on the pump (COOKIES: sCookies). */
+    /**
+     * What the provider does with each record, on the main Looper, but RESOURCE's and JS_BRIDGE's, on the pump
+     * (COOKIES: sCookies).
+     */
     interface Records {
         void onRecord(int type, long requestId, JSONObject payload);
 
         /** A RESOURCE record, on the pump: the provider answers it, without blocking the pump. */
         void onResource(long requestId, JSONObject request);
+
+        /** A JS_BRIDGE record, on the pump: the provider answers it, without blocking the pump or the main Looper. */
+        default void onJavaCall(long requestId, JSONObject call) {}
 
         /** The host closed the channel, or it failed: no more records come. */
         void onChannelEnd();
@@ -168,6 +174,8 @@ final class WebViewChannel {
             java.util.function.Consumer<JSONObject> cookies = sCookies;
             if (type == REC_RESOURCE) {
                 records.onResource(requestId, record);
+            } else if (type == REC_JS_BRIDGE) {
+                records.onJavaCall(requestId, record);
             } else if (type == REC_COOKIES) {
                 // On the pump, before the records after it reach the main Looper: a getCookie in onPageFinished, or
                 // the main thread's first getCookie waiting for the list, sees it.

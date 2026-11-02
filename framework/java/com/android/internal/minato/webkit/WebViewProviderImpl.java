@@ -35,6 +35,7 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.util.Base64;
+import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
 import android.webkit.ConsoleMessage;
 import android.webkit.DownloadListener;
@@ -64,6 +65,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -339,6 +341,17 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
 
         @Override
+        public void onJavaCall(long requestId, JSONObject call) {
+            BRIDGE.execute(() -> {
+                try {
+                    mChannel.answer(requestId, invoke(call));
+                } catch (JSONException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+        }
+
+        @Override
         public void onChannelEnd() {
             for (ValueCallback<String> callback : mScripts.values()) {
                 callback.onReceiveValue(null);
@@ -346,6 +359,15 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
             mScripts.clear();
         }
     };
+
+    /** The thread of the app's objects, which the pages call (addJavascriptInterface), as Chromium's JavaBridge. */
+    private static final ExecutorService BRIDGE = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "JavaBridge");
+        thread.setDaemon(true);
+        return thread;
+    });
+    /** The app's objects for the pages, by name. */
+    private final Map<String, Object> mInterfaces = new HashMap<>();
 
     /** The threads that answer the host's RESOURCE records, as Chromium's IO threads ask shouldInterceptRequest. */
     private static final ExecutorService RESOURCES = Executors.newCachedThreadPool(runnable -> {
@@ -974,8 +996,110 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public void setWebChromeClient(WebChromeClient client) { mChromeClient = client; }
     @Override public WebChromeClient getWebChromeClient() { return mChromeClient; }
     @Override public void setPictureListener(WebView.PictureListener listener) {}
-    @Override public void addJavascriptInterface(Object obj, String interfaceName) {}
-    @Override public void removeJavascriptInterface(String interfaceName) {}
+    @Override
+    public void addJavascriptInterface(Object obj, String interfaceName) {
+        if (obj == null || interfaceName == null) {
+            return;
+        }
+        synchronized (mInterfaces) {
+            mInterfaces.put(interfaceName, obj);
+        }
+        sendInterfaces();
+    }
+
+    @Override
+    public void removeJavascriptInterface(String interfaceName) {
+        synchronized (mInterfaces) {
+            mInterfaces.remove(interfaceName);
+        }
+        sendInterfaces();
+    }
+
+    /** The app's objects to the host, by name, with their @JavascriptInterface methods: for the next pages. */
+    private void sendInterfaces() {
+        if (!hostOpen()) {
+            return;
+        }
+        JSONObject objects = new JSONObject();
+        try {
+            synchronized (mInterfaces) {
+                for (Map.Entry<String, Object> entry : mInterfaces.entrySet()) {
+                    JSONArray methods = new JSONArray();
+                    List<String> names = new ArrayList<>();
+                    for (Method method : entry.getValue().getClass().getMethods()) {
+                        if (method.isAnnotationPresent(JavascriptInterface.class)
+                                && !names.contains(method.getName())) {
+                            names.add(method.getName());
+                            methods.put(method.getName());
+                        }
+                    }
+                    objects.put(entry.getKey(), methods);
+                }
+            }
+            send(call("interfaces").put("objects", objects), null, 0);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * A page's call of an app object, on the thread of the app's objects, as Chromium's Java bridge thread: the method
+     * of its name and number of arguments with @JavascriptInterface, the arguments converted to its parameters' types;
+     * the answer {"value"} (none for void), or {"error"} as the page's exception.
+     */
+    private JSONObject invoke(JSONObject call) throws JSONException {
+        Object target;
+        synchronized (mInterfaces) {
+            target = mInterfaces.get(call.optString("object"));
+        }
+        JSONArray args = call.optJSONArray("args");
+        int count = args == null ? 0 : args.length();
+        Method method = null;
+        for (Method candidate : target == null ? new Method[0] : target.getClass().getMethods()) {
+            if (candidate.getName().equals(call.optString("method")) && candidate.getParameterCount() == count
+                    && candidate.isAnnotationPresent(JavascriptInterface.class)) {
+                method = candidate;
+                break;
+            }
+        }
+        JSONObject answer = new JSONObject();
+        if (method == null) {
+            return answer.put("error", "Method not found");
+        }
+        Class<?>[] types = method.getParameterTypes();
+        Object[] values = new Object[count];
+        for (int i = 0; i < count; i++) {
+            values[i] = toJava(args.opt(i), types[i]);
+        }
+        Object result;
+        try {
+            result = method.invoke(target, values);
+        } catch (ReflectiveOperationException | IllegalArgumentException e) {
+            return answer.put("error", "Java exception was raised during method invocation");
+        }
+        if (method.getReturnType() != void.class) {
+            answer.put("value", result instanceof Number || result instanceof Boolean || result instanceof String
+                    ? result : result instanceof Character ? result.toString() : JSONObject.NULL);
+        }
+        return answer;
+    }
+
+    /** A page's argument as the parameter's type: a number for a primitive number, a string for a String. */
+    private static Object toJava(Object value, Class<?> type) {
+        Number number = value instanceof Number ? (Number) value : 0;
+        if (type == int.class) return number.intValue();
+        if (type == long.class) return number.longValue();
+        if (type == double.class) return number.doubleValue();
+        if (type == float.class) return number.floatValue();
+        if (type == short.class) return number.shortValue();
+        if (type == byte.class) return number.byteValue();
+        if (type == char.class) return (char) number.intValue();
+        if (type == boolean.class) return value instanceof Boolean && (Boolean) value;
+        if (type == String.class) {
+            return value == null || value == JSONObject.NULL ? null : value.toString();
+        }
+        return null;
+    }
     @Override public WebMessagePort[] createWebMessageChannel() { return new WebMessagePort[0]; }
     @Override public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {}
     @Override public WebSettings getSettings() { return mSettings; }

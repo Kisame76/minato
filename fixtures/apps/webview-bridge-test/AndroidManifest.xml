@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A page calls the app (webview-bridge-test, ADR-0056 c3): objects added with addJavascriptInterface, their
+     @JavascriptInterface methods only, called synchronously on a thread of their own, seen from the next load on, and
+     gone after removeJavascriptInterface and a load. No network. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewbridge" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.webviewbridge.BridgeActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
