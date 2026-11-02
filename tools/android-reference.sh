@@ -611,6 +611,9 @@ run_app() {
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
   local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity mask=
   local tag="$app"
+  # A tag whose lines are the app's too (a WebView's console messages, under chromium, without its other lines);
+  # empty: none.
+  local also_tag=
   # A benchmark's APK ends after the line of its run, which gives its frames and failures.
   case "$app" in
     bench-gles | bench-vulkan)
@@ -963,6 +966,13 @@ run_app() {
     # with "done".
     webview-cookie-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CookieActivity
+      ;;
+    # webview-console-test (ADR-0056 c3): an asset page's console messages, three times: with no WebChromeClient and
+    # with one whose onConsoleMessage returns false the WebView logs them under chromium, which are the app's lines
+    # too; with one that returns true it does not. It ends with "done".
+    webview-console-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ConsoleActivity
+      also_tag=chromium
       ;;
     # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
     # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
@@ -1484,7 +1494,10 @@ run_app() {
   fi
   wait_for "$tag" "$last" "$limit" || return 1
   sleep 1
-  if [[ "$tag" == "$app" ]]; then
+  if [[ -n "$also_tag" ]]; then
+    run logcat -d -v tag -s "$app:V" "$also_tag:V" | grep -v '^--------- ' |
+      awk -v tag="$also_tag" '$0 !~ "^[VDIWEF]/" tag ": " || /: \[INFO:CONSOLE\(/' >"$RESULTS/$app.logcat" || true
+  elif [[ "$tag" == "$app" ]]; then
     app_lines "$app" >"$RESULTS/$app.logcat"
   else
     app_lines "$tag" | grep -F ": $app: " >"$RESULTS/$app.logcat" || true

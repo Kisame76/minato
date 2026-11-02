@@ -149,6 +149,32 @@ static NSString *const kTitleScript =
     @"  new MutationObserver(report).observe(document, {subtree: true, childList: true, characterData: true});"
     @"})();";
 
+/// A script of the page's world, at each document's start in every frame: it reports the page's console messages and
+/// its uncaught errors as onConsoleMessage has them (Chromium's levels: info is a log, debug a tip; an uncaught error
+/// "Uncaught <message>"), with the line and source of the call, from the stack's frame of the caller; WebKit's frame
+/// leaves out the document's query, which Chromium's source has.
+static NSString *const kConsoleScript =
+    @"(function() {"
+    @"  var handler = window.webkit.messageHandlers.minatoConsole;"
+    @"  function report(level, message, source, line) {"
+    @"    try { handler.postMessage({level: level, message: message, source: source, line: line}); } catch (e) {}"
+    @"  }"
+    @"  var levels = {log: 'log', info: 'log', warn: 'warning', error: 'error', debug: 'tip'};"
+    @"  Object.keys(levels).forEach(function(name) {"
+    @"    var original = console[name];"
+    @"    console[name] = function() {"
+    @"      var frame = /@(.*):(\\d+):\\d+$/.exec((new Error().stack || '').split('\\n')[1] || '');"
+    @"      var source = frame ? frame[1] : location.href;"
+    @"      if (source === location.href.split(/[?#]/)[0]) source = location.href;"
+    @"      report(levels[name], Array.prototype.map.call(arguments, String).join(' '), source, frame ? +frame[2] : 0);"
+    @"      return original.apply(console, arguments);"
+    @"    };"
+    @"  });"
+    @"  window.addEventListener('error', function(event) {"
+    @"    report('error', 'Uncaught ' + event.message, event.filename || location.href, event.lineno || 0);"
+    @"  });"
+    @"})();";
+
 /// Chromium's error page, which a failed main-frame load commits at its URL.
 /// Rewrites the main frame's viewport meta tags for the view's width (the first `%@`), now and as the page adds or
 /// changes them: with useWideViewPort (the second, true or false) only "device-width", without it the tags' width, and
@@ -468,7 +494,12 @@ static WKWebsiteDataStore *data_store(id identifier) {
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                forMainFrameOnly:YES
                                                  inContentWorld:host_world()]];
+    [content addUserScript:[[WKUserScript alloc] initWithSource:kConsoleScript
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                               forMainFrameOnly:NO
+                                                 inContentWorld:WKContentWorld.pageWorld]];
     [content addScriptMessageHandler:self contentWorld:host_world() name:@"minatoTitle"];
+    [content addScriptMessageHandler:self contentWorld:WKContentWorld.pageWorld name:@"minatoConsole"];
     WKWebView *view = [[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 1, 1) configuration:configuration];
     view.navigationDelegate = self;
     view.UIDelegate = self;
@@ -834,6 +865,10 @@ static WKWebsiteDataStore *data_store(id identifier) {
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                forMainFrameOnly:YES
                                                  inContentWorld:host_world()]];
+    [content addUserScript:[[WKUserScript alloc] initWithSource:kConsoleScript
+                                                  injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                               forMainFrameOnly:NO
+                                                 inContentWorld:WKContentWorld.pageWorld]];
     [content addUserScript:[[WKUserScript alloc] initWithSource:script
                                                   injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                forMainFrameOnly:YES
@@ -1073,6 +1108,14 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     (void)controller;
     if ([message.name isEqualToString:@"minatoTitle"] && [message.body isKindOfClass:NSString.class]) {
         [self title:message.body];
+    } else if ([message.name isEqualToString:@"minatoConsole"] && [message.body isKindOfClass:NSDictionary.class]) {
+        NSDictionary *body = message.body;
+        post(self.token, APKRT_WEBVIEW_REC_CONSOLE, 0, @{
+            @"level" : [body[@"level"] isKindOfClass:NSString.class] ? body[@"level"] : @"log",
+            @"message" : [body[@"message"] isKindOfClass:NSString.class] ? body[@"message"] : @"",
+            @"source" : [body[@"source"] isKindOfClass:NSString.class] ? body[@"source"] : @"",
+            @"line" : [body[@"line"] isKindOfClass:NSNumber.class] ? body[@"line"] : @0,
+        });
     }
 }
 

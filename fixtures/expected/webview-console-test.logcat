@@ -1,0 +1,28 @@
+I/webview-console-test: no client
+I/chromium: [INFO:CONSOLE(6)] "a log", source: file:///android_asset/console.html (6)
+I/chromium: [INFO:CONSOLE(7)] "an info", source: file:///android_asset/console.html (7)
+I/chromium: [INFO:CONSOLE(8)] "a warning", source: file:///android_asset/console.html (8)
+I/chromium: [INFO:CONSOLE(9)] "an error", source: file:///android_asset/console.html (9)
+I/chromium: [INFO:CONSOLE(10)] "a debug", source: file:///android_asset/console.html (10)
+I/chromium: [INFO:CONSOLE(11)] "Uncaught Error: boom", source: file:///android_asset/console.html (11)
+I/webview-console-test: a client that returns false
+I/webview-console-test: client: LOG a log at 6, false
+I/chromium: [INFO:CONSOLE(6)] "a log", source: file:///android_asset/console.html?2 (6)
+I/webview-console-test: client: LOG an info at 7, false
+I/chromium: [INFO:CONSOLE(7)] "an info", source: file:///android_asset/console.html?2 (7)
+I/webview-console-test: client: WARNING a warning at 8, false
+I/chromium: [INFO:CONSOLE(8)] "a warning", source: file:///android_asset/console.html?2 (8)
+I/webview-console-test: client: ERROR an error at 9, false
+I/chromium: [INFO:CONSOLE(9)] "an error", source: file:///android_asset/console.html?2 (9)
+I/webview-console-test: client: TIP a debug at 10, false
+I/chromium: [INFO:CONSOLE(10)] "a debug", source: file:///android_asset/console.html?2 (10)
+I/webview-console-test: client: ERROR Uncaught Error: boom at 11, false
+I/chromium: [INFO:CONSOLE(11)] "Uncaught Error: boom", source: file:///android_asset/console.html?2 (11)
+I/webview-console-test: a client that returns true
+I/webview-console-test: client: LOG a log at 6, true
+I/webview-console-test: client: LOG an info at 7, true
+I/webview-console-test: client: WARNING a warning at 8, true
+I/webview-console-test: client: ERROR an error at 9, true
+I/webview-console-test: client: TIP a debug at 10, true
+I/webview-console-test: client: ERROR Uncaught Error: boom at 11, true
+I/webview-console-test: done

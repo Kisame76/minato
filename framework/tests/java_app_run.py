@@ -330,7 +330,10 @@ def compare_log(app, result, expected, marks, until=None, status=0):
     with open(expected, encoding="utf-8") as handle:
         wanted = until_line(handle.read().splitlines(), app, until)
     log = certificate_mask.mask(result.stderr, marks).splitlines()
-    got = until_line([line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}: ", line)], app, until)
+    # A WebView's console messages, which Android logs under chromium, are the app's lines when Android's have one.
+    console = any(line.startswith("I/chromium: [INFO:CONSOLE(") for line in wanted)
+    got = until_line([line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}: ", line)
+                      or (console and line.startswith("I/chromium: [INFO:CONSOLE("))], app, until)
     device = [line for line in log if re.match(rf"^[VDIWEF]/{re.escape(app)}-device: ", line)]
     if result.returncode == status and got == wanted:
         print(f"{app} logged what Android 15 logs, {len(got)} lines" + (f", and ended with status {status}" if status else ""))

@@ -326,10 +326,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     error(record);
                     break;
                 case WebViewChannel.REC_CONSOLE:
-                    if (mChromeClient != null) {
-                        mChromeClient.onConsoleMessage(new ConsoleMessage(record.optString("message"),
-                                url(record, "source"), record.optInt("line"), level(record.optString("level"))));
-                    }
+                    console(record);
                     break;
                 default:
                     break; // CREATED, PLACED and DESTROYED change nothing the app sees
@@ -546,6 +543,21 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
         if (!handled) {
             result.cancel();
+        }
+    }
+
+    /**
+     * A page's console message: to the client, and, when there is none or it returns false, to the log as Chromium's
+     * WebView logs it, at every level an info line of the tag chromium.
+     */
+    private void console(JSONObject record) {
+        String message = record.optString("message");
+        String source = url(record, "source");
+        int line = record.optInt("line");
+        if (mChromeClient == null || !mChromeClient.onConsoleMessage(new ConsoleMessage(message, source, line,
+                level(record.optString("level"))))) {
+            Log.i("chromium", "[INFO:CONSOLE(" + line + ")] \"" + message + "\", source: " + source
+                    + " (" + line + ")");
         }
     }
 
