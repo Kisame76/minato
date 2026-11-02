@@ -37,6 +37,11 @@ extension LibraryError: LocalizedError {
 public actor Library {
     public nonisolated let paths: LibraryPaths
     public private(set) var entries: [LibraryEntry]
+    /// The favorites' packages in their own order (the navigation design, section 5); only installed apps that are
+    /// valid APKs.
+    public private(set) var favorites: [String]
+    /// When each app was last opened, by package.
+    public private(set) var lastOpened: [String: Date]
     let preferredLanguages: [String]
     /// What a set's splits are chosen for (ADR-0048, decision 4).
     let device: DeviceProfile
@@ -62,7 +67,10 @@ public actor Library {
         self.paths = paths
         self.preferredLanguages = preferredLanguages
         self.device = device ?? .iPhone(nativeScale: 3, languages: preferredLanguages)
-        entries = try Self.entries(in: paths)
+        let index = try Self.index(in: paths)
+        entries = index.entries.map { Self.findingFolder(of: $0, in: paths) }
+        favorites = index.favorites ?? []
+        lastOpened = index.lastOpened ?? [:]
         Self.launched.withLock { launched in
             if launched.insert(paths.incoming.standardizedFileURL.path).inserted { Self.removeUnfinishedPicks(in: paths) }
         }
@@ -84,9 +92,12 @@ public actor Library {
     /// The entries the index holds, read without the actor: at launch, game mode or the library is chosen
     /// from them before anything else (ADR-0032, decision 1).
     public static func entries(in paths: LibraryPaths) throws -> [LibraryEntry] {
-        guard FileManager.default.fileExists(atPath: paths.indexFile.path) else { return [] }
-        return try decoder.decode(Index.self, from: Data(contentsOf: paths.indexFile)).entries
-            .map { findingFolder(of: $0, in: paths) }
+        try index(in: paths).entries.map { findingFolder(of: $0, in: paths) }
+    }
+
+    private static func index(in paths: LibraryPaths) throws -> Index {
+        guard FileManager.default.fileExists(atPath: paths.indexFile.path) else { return Index(entries: []) }
+        return try decoder.decode(Index.self, from: Data(contentsOf: paths.indexFile))
     }
 
     /// The picks that are not installed yet, one URL each and the oldest first, for `importUnit`: a unit's folder, or a
@@ -1418,8 +1429,62 @@ public actor Library {
             try? FileManager.default.removeItem(at: paths.guestDataDirectory(for: id).deletingLastPathComponent())
             try? FileManager.default.removeItem(at: paths.writeBackDirectory(for: id))
         }
-        try save(entries.filter { $0.id != id })
+        let keptFavorites = favorites.filter { $0 != id }
+        var keptOpened = lastOpened
+        keptOpened[id] = nil
+        try save(entries.filter { $0.id != id }, favorites: keptFavorites, lastOpened: keptOpened)
         entries.removeAll { $0.id == id }
+        favorites = keptFavorites
+        lastOpened = keptOpened
+    }
+
+    // MARK: - The navigation's data (docs/plans/2026-09-24-app-navigation-design.md, section 5)
+
+    /// Moves the app `id` in the manual order to just before `before`, or to the end for nil; saves once. Nothing for
+    /// an unknown app or a move before itself.
+    public func move(_ id: String, before: String?) throws {
+        guard id != before, let moving = entries.first(where: { $0.id == id }) else { return }
+        var changed = entries.filter { $0.id != id }
+        guard let position = before.map({ target in changed.firstIndex { $0.id == target } }) ?? changed.endIndex
+        else { return }
+        changed.insert(moving, at: position)
+        try save(changed)
+        entries = changed
+    }
+
+    /// Makes the apps `ids` favorites, at the end in their order, or no favorites any more; saves once. A favorite
+    /// keeps its place; an app that is not installed or is no valid APK is none.
+    public func setFavorite(_ ids: [String], _ favorite: Bool) throws {
+        var changed = favorites
+        if favorite {
+            let valid = Set(entries.filter { if case .invalid = $0.state { false } else { true } }.map(\.id))
+            for id in ids where valid.contains(id) && !changed.contains(id) { changed.append(id) }
+        } else {
+            changed.removeAll { ids.contains($0) }
+        }
+        guard changed != favorites else { return }
+        try save(entries, favorites: changed)
+        favorites = changed
+    }
+
+    /// Moves the favorite `id` to just before `before`, or to the end for nil; saves once.
+    public func moveFavorite(_ id: String, before: String?) throws {
+        guard id != before, favorites.contains(id) else { return }
+        var changed = favorites.filter { $0 != id }
+        guard let position = before.map({ target in changed.firstIndex(of: target) }) ?? changed.endIndex
+        else { return }
+        changed.insert(id, at: position)
+        try save(entries, favorites: changed)
+        favorites = changed
+    }
+
+    /// Records that the app `id` was opened at `date`, before the launcher ends the process (the design's risks).
+    public func recordOpened(_ id: String, at date: Date = Date()) throws {
+        guard entries.contains(where: { $0.id == id }) else { return }
+        var changed = lastOpened
+        changed[id] = date
+        try save(entries, lastOpened: changed)
+        lastOpened = changed
     }
 
     /// The hidden copy `adopt` made is not needed once the app is installed or recorded as invalid. A unit goes with its
@@ -1546,9 +1611,13 @@ public actor Library {
 
     // MARK: - Index
 
+    /// library.json. Version 2 (the navigation design, section 5) adds the favorites and the last openings; a
+    /// version 1 file has neither.
     private struct Index: Codable {
-        var version = 1
+        var version = 2
         var entries: [LibraryEntry]
+        var favorites: [String]? = nil
+        var lastOpened: [String: Date]? = nil
     }
 
     /// Changes every entry in place and saves the index once.
@@ -1581,10 +1650,13 @@ public actor Library {
         entries = changed
     }
 
-    /// Writes the index with these entries; the callers take them over only once it is written.
-    private func save(_ entries: [LibraryEntry]) throws {
+    /// Writes the index with these entries, favorites and last openings, the library's own where none are given; the
+    /// callers take them over only once it is written.
+    private func save(_ entries: [LibraryEntry], favorites: [String]? = nil, lastOpened: [String: Date]? = nil) throws {
         try FileManager.default.createDirectory(at: paths.applicationSupport, withIntermediateDirectories: true)
-        try Self.encoder.encode(Index(entries: entries)).write(to: paths.indexFile, options: .atomic)
+        let index = Index(entries: entries, favorites: favorites ?? self.favorites,
+                          lastOpened: lastOpened ?? self.lastOpened)
+        try Self.encoder.encode(index).write(to: paths.indexFile, options: .atomic)
     }
 
     private static let encoder: JSONEncoder = {
