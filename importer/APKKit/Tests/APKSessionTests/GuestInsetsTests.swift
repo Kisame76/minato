@@ -66,6 +66,20 @@ struct GuestInsetsTests {
         #expect(pad.cutout == nil && pad.corners == nil)
     }
 
+    @Test func theModelComesFromTheSimulatorsEnvironmentOrTheMachine() {
+        // The Simulator names the model it plays; its hw.machine is the Mac's.
+        #expect(GuestInsets.Housing.model(environment: ["SIMULATOR_MODEL_IDENTIFIER": "iPhone19,4"],
+                                          machine: "arm64") == "iPhone19,4")
+        #expect(GuestInsets.Housing.model(environment: [:], machine: "iPhone16,2") == "iPhone16,2")
+        #expect(GuestInsets.Housing.model(environment: ["SIMULATOR_MODEL_IDENTIFIER": ""], machine: "iPad16,3")
+                    == "iPad16,3")
+        #expect(GuestInsets.Housing.model(environment: [:], machine: nil) == "")
+        let duo = GuestInsets.Housing(environment: ["SIMULATOR_MODEL_IDENTIFIER": "iPhone19,4"], machine: "arm64")
+        #expect(duo == GuestInsets.Housing(model: "iPhone19,4"))
+        // Without a name, an unknown iPhone: the top.
+        #expect(GuestInsets.Housing(environment: [:], machine: nil).cutout == .top)
+    }
+
     @Test func theCornersTurnWithTheInterface() {
         let housing = GuestInsets.Housing(model: "iPhone19,4")
         let duo = GuestInsets.Device(housing: housing, scale: 3)

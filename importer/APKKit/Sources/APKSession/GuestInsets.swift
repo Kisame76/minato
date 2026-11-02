@@ -62,6 +62,20 @@ public struct GuestInsets: Sendable, Equatable {
                 corners = nil
             }
         }
+
+        /// The housing of the model the process runs on, from `model(environment:machine:)`.
+        public init(environment: [String: String], machine: String?) {
+            self.init(model: Self.model(environment: environment, machine: machine))
+        }
+
+        /// The model's identifier, the only thing read of the device: the Simulator's SIMULATOR_MODEL_IDENTIFIER (its
+        /// hw.machine is the Mac's), else sysctl's hw.machine, else "", which the table takes for an unknown iPhone.
+        public static func model(environment: [String: String], machine: String?) -> String {
+            if let simulated = environment["SIMULATOR_MODEL_IDENTIFIER"], !simulated.isEmpty {
+                return simulated
+            }
+            return machine ?? ""
+        }
     }
 
     /// The device's housing at the screen's scale.
