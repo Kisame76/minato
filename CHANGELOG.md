@@ -61,3 +61,5 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps whose native libraries make raw system calls in an unusual form start instead of being refused at import
 - Emoji show in colour, and Arabic, Hebrew, Thai and Hindi text shows instead of boxes
 - Text of mixed directions, such as Arabic or Hebrew next to emoji, gets the same width as on Android
+- Apps that read the processor's layout see the iPhone's performance and efficiency cores, as on an Android phone,
+  instead of a single core

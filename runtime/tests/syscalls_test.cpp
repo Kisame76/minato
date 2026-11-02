@@ -2211,8 +2211,25 @@ TEST(the_cpu_files_count_the_device_s_cpus) {
     // them. "online" agrees with sched_getaffinity.
     CHECK(read_guest_file("/sys/devices/system/cpu/possible") == std::format("0-{}\n", cpu_count("hw.ncpu") - 1));
     CHECK(read_guest_file("/sys/devices/system/cpu/online") == std::format("0-{}\n", cpu_count("hw.activecpu") - 1));
-    CHECK(read_guest_file("/sys/devices/system/cpu/present") == "error 2");  // not yet
+    CHECK(read_guest_file("/sys/devices/system/cpu/present") == std::format("0-{}\n", cpu_count("hw.ncpu") - 1));
     CHECK(open_guest(at_fdcwd, "/sys/devices/system/cpu/online", o_wronly) == -eacces);
+}
+
+TEST(the_cores_are_numbered_little_first_and_the_big_ones_have_the_higher_clock_and_capacity) {
+    // Unity reads cpuN/cpufreq/cpuinfo_max_freq and cpu_capacity to split big from little cores (a Pixel: cpu0-3
+    // little, the rest big). The host's performance level 0 is the big cores, level 1 the little ones.
+    const int total = cpu_count("hw.ncpu"), big = cpu_count("hw.perflevel0.physicalcpu"),
+              little = std::max(0, cpu_count("hw.perflevel1.physicalcpu"));
+    CHECK(total > 0 && big > 0);
+    const int little_cores = big + little == total ? little : 0;
+    for (int core = 0; core < total; ++core) {
+        const std::string base = std::format("/sys/devices/system/cpu/cpu{}", core);
+        const bool is_little = core < little_cores;
+        CHECK(read_guest_file((base + "/cpufreq/cpuinfo_max_freq").c_str()) == (is_little ? "2110000\n" : "3780000\n"));
+        CHECK(read_guest_file((base + "/cpu_capacity").c_str()) == (is_little ? "571\n" : "1024\n"));
+    }
+    CHECK(read_guest_file(std::format("/sys/devices/system/cpu/cpu{}/cpu_capacity", total).c_str()) == "error 2");
+    CHECK(open_guest(at_fdcwd, "/sys/devices/system/cpu/cpu0/cpu_capacity", o_wronly) == -eacces);
 }
 
 TEST(linkerconfig_gives_libnativeloader_the_apexes_libraries) {
