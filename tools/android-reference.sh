@@ -958,6 +958,12 @@ run_app() {
     webview-touch-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TouchActivity
       ;;
+    # webview-cookie-test (ADR-0056 c3): CookieManager before any WebView, then a page at an https base whose script
+    # sets cookies, which CookieManager reads, an app's setCookie that the page reads, and removeAllCookies; it ends
+    # with "done".
+    webview-cookie-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CookieActivity
+      ;;
     # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
     # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
     # method's lines under ime-extract-test-device are the numbers that Minato's extract requests must carry. It ends

@@ -23,6 +23,10 @@
 //   would take the screen's: a user script rewrites the main frame's viewport meta tags, again at each new width.
 //   While useWideViewPort is off (Android's default) every page lays out at the view's width, as Android's does: the
 //   script sets the tags' width, or adds a tag to a page without one.
+// - Cookies (c3): each view, and the guest's CookieManager on a channel of its own (a "make" with "cookies", no view),
+//   observes the package's store and posts its whole list (COOKIES) after each change and, for a view, before each
+//   "finished", so onPageFinished's getCookie sees the page's cookies; setCookie and removeAllCookies are CALLs,
+//   answered once the list after them has gone out.
 // Not here (later steps): shouldOverrideUrlLoading, the JavaScript bridge, new windows, downloads and permissions.
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
@@ -291,7 +295,9 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 }
 
 /// One guest WebView.
-@interface MinatoWebView : NSObject <WKNavigationDelegate, WKUIDelegate, WKURLSchemeHandler, WKScriptMessageHandler>
+@interface MinatoWebView : NSObject <WKNavigationDelegate, WKUIDelegate, WKURLSchemeHandler, WKScriptMessageHandler,
+                                     WKHTTPCookieStoreObserver>
+@property(nonatomic, strong) WKHTTPCookieStore *cookieStore;      // the package's store's, once made
 @property(nonatomic) uint64_t token;
 @property(nonatomic, strong) WKWebView *view;
 @property(nonatomic, copy) NSDictionary *settings;
@@ -333,12 +339,119 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 
 // MARK: The guest's calls
 
+/// The store of the data store id `identifier` (a UUID), or a store of the process alone for a bad one: one object per
+/// id for the process, as two of the same id do not share their session cookies.
+static WKWebsiteDataStore *data_store(id identifier) {
+    static NSMutableDictionary<NSUUID *, WKWebsiteDataStore *> *stores;
+    if (stores == nil) stores = [NSMutableDictionary new];
+    NSUUID *store = [[NSUUID alloc] initWithUUIDString:[identifier isKindOfClass:NSString.class] ? identifier : @""];
+    if (store == nil) return [WKWebsiteDataStore nonPersistentDataStore];
+    if (stores[store] == nil) stores[store] = [WKWebsiteDataStore dataStoreForIdentifier:store];
+    return stores[store];
+}
+
+/// The cookies of the store this view (or CookieManager's channel) has, observed from now on.
+- (void)observeCookies:(WKWebsiteDataStore *)store {
+    self.cookieStore = store.httpCookieStore;
+    [self.cookieStore addObserver:self];
+}
+
+- (void)cookiesDidChangeInCookieStore:(WKHTTPCookieStore *)cookieStore {
+    (void)cookieStore;
+    [self postCookies:nil];
+}
+
+/// COOKIES: the store's whole list, then `then`. "created" is only an order: Created's ms since 2001, or the index.
+- (void)postCookies:(void (^)(void))then {
+    const uint64_t token = self.token;
+    [self.cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        NSMutableArray *list = [NSMutableArray new];
+        NSUInteger index = 0;
+        for (NSHTTPCookie *cookie in cookies) {
+            id created = cookie.properties[@"Created"];
+            [list addObject:@{
+                @"name" : cookie.name,
+                @"value" : cookie.value,
+                @"domain" : [cookie.domain hasPrefix:@"."] ? [cookie.domain substringFromIndex:1] : cookie.domain,
+                @"hostOnly" : [cookie.domain hasPrefix:@"."] ? @NO : @YES,
+                @"path" : either(cookie.path, @"/"),
+                @"secure" : @(cookie.isSecure),
+                @"httpOnly" : @(cookie.isHTTPOnly),
+                @"expires" : cookie.expiresDate != nil ? @((int64_t)(cookie.expiresDate.timeIntervalSince1970 * 1000))
+                                                        : NSNull.null,
+                @"created" : [created isKindOfClass:NSNumber.class] ? @((int64_t)([created doubleValue] * 1000))
+                                                                      : @(index),
+            }];
+            index++;
+        }
+        post(token, APKRT_WEBVIEW_REC_COOKIES, 0, @{@"cookies" : list});
+        if (then != nil) then();
+    }];
+}
+
+/// setCookie: `value` as a Set-Cookie header at `url`; answered after the list it is in, true when WebKit took it.
+- (void)setCookie:(NSDictionary *)call requestId:(uint64_t)requestId {
+    NSURL *url = [call[@"url"] isKindOfClass:NSString.class] ? [NSURL URLWithString:call[@"url"]] : nil;
+    NSString *value = [call[@"value"] isKindOfClass:NSString.class] ? call[@"value"] : nil;
+    NSArray<NSHTTPCookie *> *cookies = url != nil && value != nil
+        ? [NSHTTPCookie cookiesWithResponseHeaderFields:@{@"Set-Cookie" : value} forURL:url]
+        : @[];
+    const uint64_t token = self.token;
+    __weak MinatoWebView *weakSelf = self;
+    void (^done)(BOOL) = ^(BOOL result) {
+        [weakSelf postCookies:^{
+            post(token, APKRT_WEBVIEW_REC_JS_RESULT, requestId, @{@"json" : result ? @"true" : @"false"});
+        }];
+    };
+    if (cookies.count == 0) {
+        done(NO);
+        return;
+    }
+    __block NSUInteger left = cookies.count;
+    for (NSHTTPCookie *cookie in cookies) {
+        [self.cookieStore setCookie:cookie
+                  completionHandler:^{
+                      if (--left == 0) done(YES);
+                  }];
+    }
+}
+
+/// removeAllCookies: every cookie of the store; answered after the list without them, true when there were any.
+- (void)removeAllCookies:(uint64_t)requestId {
+    const uint64_t token = self.token;
+    __weak MinatoWebView *weakSelf = self;
+    WKHTTPCookieStore *store = self.cookieStore;
+    [store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        void (^done)(void) = ^{
+            [weakSelf postCookies:^{
+                NSString *removed = cookies.count > 0 ? @"true" : @"false";
+                post(token, APKRT_WEBVIEW_REC_JS_RESULT, requestId, @{@"json" : removed});
+            }];
+        };
+        if (cookies.count == 0) {
+            done();
+            return;
+        }
+        __block NSUInteger left = cookies.count;
+        for (NSHTTPCookie *cookie in cookies) {
+            [store deleteCookie:cookie
+                completionHandler:^{
+                    if (--left == 0) done();
+                }];
+        }
+    }];
+}
+
 - (void)make:(NSDictionary *)call {
-    if (self.view != nil) return;
+    if (self.view != nil || self.cookieStore != nil) return;
+    if ([call[@"cookies"] boolValue]) {  // CookieManager's channel: the store alone
+        [self observeCookies:data_store(call[@"dataStore"])];
+        [self postCookies:nil];
+        return;
+    }
     WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
-    NSUUID *store = [[NSUUID alloc] initWithUUIDString:either(call[@"dataStore"], @"")];
-    configuration.websiteDataStore = store != nil ? [WKWebsiteDataStore dataStoreForIdentifier:store]
-                                                  : [WKWebsiteDataStore nonPersistentDataStore];
+    configuration.websiteDataStore = data_store(call[@"dataStore"]);
+    [self observeCookies:configuration.websiteDataStore];
     for (NSString *scheme in call[@"schemes"]) {
         if ([scheme isKindOfClass:NSString.class] && ![WKWebView handlesURLScheme:scheme]) {
             [configuration setURLSchemeHandler:self forURLScheme:scheme];
@@ -414,6 +527,14 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
     }
     if ([name isEqualToString:@"evaluateJavascript"]) {
         [self evaluate:call[@"script"] requestId:requestId];
+        return;
+    }
+    if ([name isEqualToString:@"setCookie"]) {  // a view's or CookieManager's channel
+        [self setCookie:call requestId:requestId];
+        return;
+    }
+    if ([name isEqualToString:@"removeAllCookies"]) {
+        [self removeAllCookies:requestId];
         return;
     }
     WKWebView *view = self.view;
@@ -592,6 +713,8 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 
 /// The view's end (REMOVE): its open resources fail, the answers it waits for take their defaults.
 - (void)remove {
+    [self.cookieStore removeObserver:self];
+    self.cookieStore = nil;
     for (MinatoResource *resource in self.resources.allValues) {
         if (!resource.stopped) {
             resource.stopped = YES;
@@ -896,8 +1019,13 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
                   MinatoWebView *strong = weakSelf;
                   if (strong == nil) return;
                   if (failure == nil && [value isKindOfClass:NSString.class]) [strong title:value];
-                  [strong progress:100];
-                  if (!error) [strong navigation:@"finished" url:either(strong.currentURL, webView.URL.absoluteString)];
+                  // The store's cookies before onPageFinished, as Chromium's are there at once.
+                  [strong postCookies:^{
+                      [strong progress:100];
+                      if (!error) {
+                          [strong navigation:@"finished" url:either(strong.currentURL, webView.URL.absoluteString)];
+                      }
+                  }];
               }];
 }
 

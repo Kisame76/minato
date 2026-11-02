@@ -204,4 +204,18 @@ TEST(the_webchrome_record_types_round_trip) {
     apkrt::channels::webview_close(token);
 }
 
+TEST(a_cookies_record_round_trips) {
+    // ADR-0056 c3's COOKIES (14), the data store's whole list: known to the reader, joined across MORE like the others.
+    const std::uint64_t token = 11;
+    const long fd = apkrt::channels::webview_make(token);
+    CHECK(fd >= 0);
+    WebViewReader reader(read_fd(fd));
+    const Bytes body = pattern(APKRT_WEBVIEW_RECORD_MAX + 100);
+    CHECK(post(token, APKRT_WEBVIEW_REC_COOKIES, 0, body) == 0);
+    WebViewRecord record;
+    CHECK(reader.next(record) == 1);
+    CHECK(record.type == APKRT_WEBVIEW_REC_COOKIES && record.request_id == 0 && record.payload == body);
+    apkrt::channels::webview_close(token);
+}
+
 int main() { return apk::testing::run_all(); }

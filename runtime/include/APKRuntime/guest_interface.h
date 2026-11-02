@@ -582,8 +582,9 @@ struct apkrt_webview_record_header {
     uint64_t request_id;  // the CALL this answers, the record the guest must ANSWER, or 0 for a plain event
 };
 
-/// The host -> guest record types; extended as steps b) and c2) need each. A new type takes a new number, never a
-/// reused one, so 1 to 9 keep their meaning; 10 to 13 were added for WebChromeClient after App's step-b review.
+/// The host -> guest record types; extended as steps b) to c3) need each. A new type takes a new number, never a
+/// reused one, so 1 to 9 keep their meaning; 10 to 13 were added for WebChromeClient after App's step-b review; 14
+/// for c3's cookie mirror.
 enum apkrt_webview_record_type {
     APKRT_WEBVIEW_REC_CREATED = 1,  // the view is up (the answer to MAKE)
     APKRT_WEBVIEW_REC_PLACED,       // the view's frame changed (the answer to PLACE)
@@ -602,6 +603,8 @@ enum apkrt_webview_record_type {
     APKRT_WEBVIEW_REC_CONSOLE,      // onConsoleMessage: the level, line and source (a plain event)
     APKRT_WEBVIEW_REC_PROGRESS,     // onProgressChanged (a plain event)
     APKRT_WEBVIEW_REC_TITLE,        // onReceivedTitle (a plain event)
+    APKRT_WEBVIEW_REC_COOKIES,      // the data store's cookies, the whole list (a plain event): after each change and
+                                    // before each NAVIGATION "finished" (ADR-0056 c3)
 };
 
 #define APKRT_WEBVIEW_RECORD_MAX (1u << 20)  // 1 MiB: the most payload bytes in one record

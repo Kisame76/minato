@@ -74,6 +74,7 @@ private:
             case APKRT_WEBVIEW_REC_CONSOLE:
             case APKRT_WEBVIEW_REC_PROGRESS:
             case APKRT_WEBVIEW_REC_TITLE:
+            case APKRT_WEBVIEW_REC_COOKIES:
                 return true;
             default:
                 return false;

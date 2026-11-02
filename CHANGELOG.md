@@ -23,7 +23,8 @@ All notable changes to Minato are documented in this file. The format follows
   the menu follows the app's changes to it
 - Apps follow a new screen size, as folding or unfolding the iPhone Duo gives one: apps that handle it get the new
   size, and the others keep theirs and are shown letterboxed, as on Android
-- Apps that embed web pages show them inside the app, and you can tap, scroll and type in them
+- Apps that embed web pages show them inside the app, and you can tap, scroll and type in them; the pages keep their
+  cookies, so logins and settings in them stay
 
 ### Changed
 

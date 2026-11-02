@@ -1,0 +1,11 @@
+I/webview-cookie-test: cookies before a WebView: null
+I/webview-cookie-test: accept true
+I/webview-cookie-test: page finished
+I/webview-cookie-test: cookies of /: site=1; dom=3
+I/webview-cookie-test: cookies of /x/y: deep=2; site=1; dom=3
+I/webview-cookie-test: cookies of a subdomain: dom=3
+I/webview-cookie-test: setCookie true
+I/webview-cookie-test: the page reads, sorted: app=5; dom=3; site=1
+I/webview-cookie-test: removed true
+I/webview-cookie-test: cookies of / after: null
+I/webview-cookie-test: done

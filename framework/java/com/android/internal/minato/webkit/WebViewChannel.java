@@ -40,13 +40,14 @@ final class WebViewChannel {
     static final int REC_CONSOLE = 11;
     static final int REC_PROGRESS = 12;
     static final int REC_TITLE = 13;
+    static final int REC_COOKIES = 14;
 
     /** APKRT_WEBVIEW_RECORD_MAX: the most bytes of one CALL. */
     static final int RECORD_MAX = 1 << 20;
     /** The characters of a cut field in one part: JSON's worst escape, six bytes a character, stays under 1 MiB. */
     static final int PART_CHARS = 128 * 1024;
 
-    /** What the provider does with each record, on the main Looper, but RESOURCE's, on the pump. */
+    /** What the provider does with each record, on the main Looper, but RESOURCE's, on the pump (COOKIES: sCookies). */
     interface Records {
         void onRecord(int type, long requestId, JSONObject payload);
 
@@ -58,6 +59,8 @@ final class WebViewChannel {
     }
 
     private static final AtomicLong sTokens = new AtomicLong();
+    /** Where every channel's COOKIES records go, on its pump: the process's CookieManager (ADR-0056 c3). */
+    static volatile java.util.function.Consumer<JSONObject> sCookies;
 
     private final long mToken = sTokens.incrementAndGet();
     private final AtomicLong mRequestIds = new AtomicLong();
@@ -162,8 +165,15 @@ final class WebViewChannel {
                 object = new JSONObject();
             }
             JSONObject record = object;
+            java.util.function.Consumer<JSONObject> cookies = sCookies;
             if (type == REC_RESOURCE) {
                 records.onResource(requestId, record);
+            } else if (type == REC_COOKIES) {
+                // On the pump, before the records after it reach the main Looper: a getCookie in onPageFinished, or
+                // the main thread's first getCookie waiting for the list, sees it.
+                if (cookies != null) {
+                    cookies.accept(record);
+                }
             } else {
                 mMain.post(() -> records.onRecord(type, requestId, record));
             }
