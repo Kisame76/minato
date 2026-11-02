@@ -175,5 +175,16 @@ check(moved == 3, "the letterbox's end and a new size move the window's view too
 view.frame = CGRect(origin: .zero, size: points)
 view.layoutIfNeeded()
 
+// ADR-0032 decision 9, amended 2026-11-01: a three-finger swipe down anywhere opens the menu, with Apple's own pan
+// recognizer; the guest gets the touches at once and a cancel once the swipe is the menu's; iOS's three-finger
+// editing gestures are off, beside the guest's editor too.
+let pans = (view.gestureRecognizers ?? []).compactMap { $0 as? UIPanGestureRecognizer }
+let threeFingers = pans.filter { $0.minimumNumberOfTouches == MenuSwipe.fingers }
+check(threeFingers.count == 1 && threeFingers.allSatisfy { $0.cancelsTouchesInView && !$0.delaysTouchesBegan },
+      "one pan recognizer takes three fingers, and the guest has the touches until the menu takes them")
+check(pans.contains { $0.maximumNumberOfTouches == 1 }, "the top edge's one-finger swipe stays")
+check(view.editingInteractionConfiguration == .none && view.textView.editingInteractionConfiguration == .none,
+      "iOS's three-finger editing gestures are off")
+
 print(failures == 0 ? "session window check: fine" : "session window check: \(failures) failed")
 exit(failures == 0 ? 0 : 1)

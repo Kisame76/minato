@@ -96,8 +96,9 @@ final class MetalLayerHostView: UIView {
 /// The session's view (ADR-0043 c4 (d)): the window's view, with the SurfaceViews' layers beside its layer as siblings,
 /// below it for a negative z and above it for a positive one, so graphics/host's hide rule, which hides the window's
 /// layer, leaves them alone; a session without a SurfaceView keeps the window's layer alone, as before. It takes the
-/// touches, as it is never hidden: the swipe down from the top edge that opens the menu (ADR-0032, decision 9), and
-/// every touch, which goes to the guest (ADR-0036, decision 3); its points are the window's view's.
+/// touches, as it is never hidden: the swipes down that open the menu, with three fingers anywhere or from the top
+/// edge (ADR-0032, decision 9), and every touch, which goes to the guest (ADR-0036, decision 3); its points are the
+/// window's view's.
 final class SessionLayersView: UIView {
     /// Where the menu's swipe starts: within this many points of the top edge.
     static let topEdge: CGFloat = 40
@@ -134,6 +135,9 @@ final class SessionLayersView: UIView {
     /// hidden (ADR-0068 step 2d).
     var onKeyboardCover: (Int32) -> Void = { _ in }
     private var swipeOpenedMenu = false
+    /// The three-finger swipe's state (ADR-0032 decision 9, amended 2026-11-01).
+    private var menuSwipe = MenuSwipe()
+    private let threeFingers = UIPanGestureRecognizer()
     private var keyboardObservers: [any NSObjectProtocol] = []
 
     override init(frame: CGRect) {
@@ -148,7 +152,18 @@ final class SessionLayersView: UIView {
         swipe.cancelsTouchesInView = true
         swipe.delaysTouchesBegan = false
         addGestureRecognizer(swipe)
+        // The menu's swipe with three fingers anywhere, which iOS leaves to the app, unlike an edge: the guest gets
+        // the touches at once and a cancel once the swipe is the menu's, as above.
+        threeFingers.addTarget(self, action: #selector(threeFingersSwiped(_:)))
+        threeFingers.minimumNumberOfTouches = MenuSwipe.fingers
+        threeFingers.cancelsTouchesInView = true
+        threeFingers.delaysTouchesBegan = false
+        addGestureRecognizer(threeFingers)
     }
+
+    /// iOS's three-finger editing gestures (undo, redo, copy, paste) are off in game mode: three fingers are the
+    /// menu's.
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -256,6 +271,10 @@ final class SessionLayersView: UIView {
     /// screen, so its top is the screen's in every orientation. A Debug build logs each pan near the top.
     override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard let pan = recognizer as? UIPanGestureRecognizer else { return true }
+        if pan === threeFingers {
+            let velocity = pan.velocity(in: self)
+            return MenuSwipe.begins(touches: pan.numberOfTouches, velocityX: velocity.x, velocityY: velocity.y)
+        }
         let location = pan.location(in: self)
         let translation = pan.translation(in: self)
         let start = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
@@ -314,6 +333,17 @@ final class SessionLayersView: UIView {
         case .ended, .cancelled, .failed:
             note(EdgePanReport.end(distance: pan.translation(in: self).y, menu: swipeOpenedMenu))
         #endif
+        default:
+            break
+        }
+    }
+
+    @objc private func threeFingersSwiped(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            menuSwipe.began()
+        case .changed:
+            if menuSwipe.moved(distance: pan.translation(in: self).y) { onTopEdgeSwipe() }
         default:
             break
         }
@@ -466,6 +496,9 @@ final class SurfaceLayers {
 /// the served field's text once the guest has sent it (keyboard plan b), and the editor's action for the pads, which
 /// have no return key; a tap outside the field puts the keyboard away (OutsideTap).
 final class SoftKeyboardView: UIView, UIKeyInput {
+    /// As the session's view's: three fingers are the menu's, also while the guest's editor has the keyboard.
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
+
     /// Typed text, the delete key, and the return key or the bar's button.
     var onInsert: (String) -> Void = { _ in }
     var onDelete: () -> Void = {}

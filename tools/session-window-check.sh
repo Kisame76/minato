@@ -18,6 +18,7 @@ xcrun --sdk macosx swiftc "${FLAGS[@]}" -parse-as-library -emit-library -emit-mo
   -emit-module-path "$OUT/APKSession.swiftmodule" -o "$OUT/libAPKSession.dylib" \
   "$SESSION/SessionBridge.swift" "$SESSION/OpenRequest.swift" "$SESSION/Lifecycle.swift" \
   "$SESSION/SurfaceRequest.swift" "$SESSION/TouchTranslator.swift" "$SESSION/EdgePanReport.swift" \
+  "$SESSION/MenuSwipe.swift" \
   "$SESSION/SessionOrientation.swift" "$SESSION/InterfaceOrientations.swift" "$SESSION/SoftKeyboard.swift" \
   "$SESSION/HardwareKeyboard.swift" "$SESSION/KeyboardCover.swift" "$SESSION/TextBar.swift" \
   "$SESSION/OutsideTap.swift" app/HostChecks/LaunchMode.swift
