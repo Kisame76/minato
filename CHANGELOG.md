@@ -33,6 +33,8 @@ All notable changes to Minato are documented in this file. The format follows
 - An app that cannot start because a library it needs does not load says why in one line, following the chain of
   libraries to the one that fails ("it needs libpython2.7.so, which cannot load: …")
 - An app whose optional library does not load shows "Ready, without" and that library, and starts without it
+- Pulling down in the library shows the search field without a refresh getting in its way; the library still updates
+  itself whenever Minato comes to the front
 
 ### Fixed
 

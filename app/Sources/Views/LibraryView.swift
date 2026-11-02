@@ -114,7 +114,6 @@ struct LibraryView: View {
             }
             // Like Files: content scrolls under a frosted bar with a clear edge.
             .scrollEdgeEffectStyle(.hard, for: .top)
-            .refreshable { await model.refresh() }
             .overlay(alignment: .bottom) {
                 if let note = model.note {
                     Text(note)
