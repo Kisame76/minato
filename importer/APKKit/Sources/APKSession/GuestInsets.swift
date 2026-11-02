@@ -21,18 +21,66 @@ public struct GuestInsets: Sendable, Equatable {
         }
     }
 
-    /// What iOS does not say about the device: the cutout's edge in portrait (the Dynamic Island's top, the iPhone
-    /// Duo's sensor bar on the right) or nil for none, its length along that edge in points [guess: a table per
-    /// model], and the screen's scale.
+    /// The radii of the screen's corners, clockwise from the top left: points in a Housing, pixels in the insets.
+    public struct Corners: Sendable, Equatable {
+        public var topLeft: Int32
+        public var topRight: Int32
+        public var bottomRight: Int32
+        public var bottomLeft: Int32
+
+        public init(topLeft: Int32, topRight: Int32, bottomRight: Int32, bottomLeft: Int32) {
+            self.topLeft = topLeft
+            self.topRight = topRight
+            self.bottomRight = bottomRight
+            self.bottomLeft = bottomLeft
+        }
+    }
+
+    /// What iOS does not say about a model, from the amendment's table (ADR-0041, decision 8 changed): the sensor
+    /// housing's edge in portrait or nil for none, its length along that edge in points [guess], and the corners'
+    /// radii in portrait or nil for none, which Android allows.
+    public struct Housing: Sendable, Equatable {
+        public var cutout: Edge?
+        public var cutoutLength: Double
+        public var corners: Corners?
+
+        /// `model` is the hardware's identifier, as "iPhone19,4". The iPhone Duo's sensor bar is on the right, its
+        /// hinge's corners 8 pt and the outer ones 59 (folded; open [to verify]); an iPad has no cutout; every other
+        /// iPhone, an unknown one too, has the Dynamic Island at the top [its 126 pt a guess], without corners.
+        public init(model: String) {
+            if model == "iPhone19,4" {
+                cutout = .right
+                cutoutLength = 100
+                corners = Corners(topLeft: 8, topRight: 59, bottomRight: 59, bottomLeft: 8)
+            } else if model.hasPrefix("iPad") {
+                cutout = nil
+                cutoutLength = 0
+                corners = nil
+            } else {
+                cutout = .top
+                cutoutLength = 126
+                corners = nil
+            }
+        }
+    }
+
+    /// The device's housing at the screen's scale.
     public struct Device: Sendable, Equatable {
         public var cutout: Edge?
         public var cutoutLength: Double
+        public var corners: Corners?
         public var scale: Double
 
-        public init(cutout: Edge?, cutoutLength: Double, scale: Double) {
+        public init(cutout: Edge?, cutoutLength: Double, corners: Corners? = nil, scale: Double) {
             self.cutout = cutout
             self.cutoutLength = cutoutLength
+            self.corners = corners
             self.scale = scale
+        }
+
+        public init(housing: Housing, scale: Double) {
+            self.init(cutout: housing.cutout, cutoutLength: housing.cutoutLength, corners: housing.corners,
+                      scale: scale)
         }
     }
 
@@ -55,6 +103,8 @@ public struct GuestInsets: Sendable, Equatable {
     public var systemGestures: Edges
     /// The home indicator's inset.
     public var mandatorySystemGestures: Edges
+    /// `WindowInsets.getRoundedCorner`'s radii, turned with the interface, or nil for none.
+    public var roundedCorners: Corners?
 
     public init(safeArea: SafeArea, size: PixelSize, orientation: InterfaceOrientations, device: Device) {
         let pixels = { (points: Double) in Int32((points * device.scale).rounded()) }
@@ -63,9 +113,18 @@ public struct GuestInsets: Sendable, Equatable {
         systemGestures = Edges(left: side, top: 0, right: side, bottom: bottom)
         mandatorySystemGestures = Edges(left: 0, top: 0, right: 0, bottom: bottom)
         cutout = nil
-        guard let natural = device.cutout else { return }
-        // The device's portrait edge turned with the interface: in landscapeRight its top is on the screen's left.
+        // The device's portrait edges and corners turned with the interface: in landscapeRight its top is on the
+        // screen's left.
         let turns = orientation == .landscapeLeft ? 1 : orientation == .landscapeRight ? 3 : 0
+        roundedCorners = device.corners.map { corners in
+            var radii = [Int32](repeating: 0, count: 4)
+            for (index, radius) in [corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft]
+                .enumerated() {
+                radii[(index + turns) % 4] = pixels(Double(radius))
+            }
+            return Corners(topLeft: radii[0], topRight: radii[1], bottomRight: radii[2], bottomLeft: radii[3])
+        }
+        guard let natural = device.cutout else { return }
         let edge = Edge(rawValue: (natural.rawValue + turns) % 4)!
         let inset = pixels([safeArea.top, safeArea.right, safeArea.bottom, safeArea.left][edge.rawValue])
         guard inset > 0 else { return }

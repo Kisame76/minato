@@ -53,6 +53,39 @@ struct GuestInsetsTests {
         #expect(insets.systemGestures == GuestInsets.Edges(left: 60, top: 0, right: 60, bottom: 40))
     }
 
+    @Test func theTableGivesTheHousingsEdgePerModel() {
+        let duo = GuestInsets.Housing(model: "iPhone19,4")
+        #expect(duo.cutout == .right)
+        // The hinge's side (left) 8 pt, outside 59 pt.
+        #expect(duo.corners == GuestInsets.Corners(topLeft: 8, topRight: 59, bottomRight: 59, bottomLeft: 8))
+        #expect(GuestInsets.Housing(model: "iPhone16,2").cutout == .top)
+        #expect(GuestInsets.Housing(model: "iPhone16,2").corners == nil)
+        // An unknown iPhone gets the top, an iPad no cutout; neither has corners.
+        #expect(GuestInsets.Housing(model: "iPhone42,1") == GuestInsets.Housing(model: "iPhone16,2"))
+        let pad = GuestInsets.Housing(model: "iPad16,3")
+        #expect(pad.cutout == nil && pad.corners == nil)
+    }
+
+    @Test func theCornersTurnWithTheInterface() {
+        let housing = GuestInsets.Housing(model: "iPhone19,4")
+        let duo = GuestInsets.Device(housing: housing, scale: 3)
+        let portrait = GuestInsets(safeArea: .init(top: 0, left: 0, bottom: 20, right: 40),
+                                   size: PixelSize(width: 1398, height: 2034), orientation: .portrait, device: duo)
+        #expect(portrait.roundedCorners == GuestInsets.Corners(topLeft: 24, topRight: 177, bottomRight: 177,
+                                                               bottomLeft: 24))
+        // landscapeRight: the device's top left corner is the screen's bottom left, its hinge's side the bottom.
+        let turned = GuestInsets(safeArea: .init(top: 40, left: 0, bottom: 20, right: 0),
+                                 size: PixelSize(width: 2034, height: 1398), orientation: .landscapeRight, device: duo)
+        #expect(turned.roundedCorners == GuestInsets.Corners(topLeft: 177, topRight: 177, bottomRight: 24,
+                                                             bottomLeft: 24))
+        let island = GuestInsets(safeArea: .init(top: 62, left: 0, bottom: 34, right: 0),
+                                 size: PixelSize(width: 1206, height: 2622), orientation: .portrait,
+                                 device: GuestInsets.Device(housing: GuestInsets.Housing(model: "iPhone16,2"),
+                                                            scale: 3))
+        #expect(island.roundedCorners == nil)
+        #expect(island.cutout?.edge == .top)
+    }
+
     @Test func aCutoutEdgeWithoutASafeAreaInsetIsNoCutout() {
         let insets = GuestInsets(safeArea: .init(top: 0, left: 0, bottom: 34, right: 0),
                                  size: PixelSize(width: 1206, height: 2622), orientation: .portrait, device: island)
