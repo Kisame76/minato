@@ -112,6 +112,21 @@ struct NavigationDataTests {
         #expect(await library.favorites.isEmpty)
     }
 
+    @Test func onlyAValidAPKCanBeAFavorite() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try await library(sandbox, ["a.app"])
+        let invalid = try await library.importFile(sandbox.file(Data("not a zip".utf8), named: "broken.apk")).entry
+        #expect(await library.entries.first { $0.id == "a.app" }?.canBeFavorite == true)
+        #expect(!invalid.canBeFavorite)
+    }
+
+    @Test func theSelectionsButtonAddsUnlessAllAreFavoritesAlready() {
+        // The design's section 3: for everything selected; if all are favorites already, it removes them instead.
+        #expect(Library.favoriteAdds(["a", "b"], favorites: ["a"]))
+        #expect(!Library.favoriteAdds(["a", "b"], favorites: ["c", "b", "a"]))
+    }
+
     @Test func aVersionOneIndexLoadsWithoutLossAndIsWrittenAsVersionTwo() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

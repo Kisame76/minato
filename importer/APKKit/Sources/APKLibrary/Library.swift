@@ -1457,7 +1457,7 @@ public actor Library {
     public func setFavorite(_ ids: [String], _ favorite: Bool) throws {
         var changed = favorites
         if favorite {
-            let valid = Set(entries.filter { if case .invalid = $0.state { false } else { true } }.map(\.id))
+            let valid = Set(entries.filter(\.canBeFavorite).map(\.id))
             for id in ids where valid.contains(id) && !changed.contains(id) { changed.append(id) }
         } else {
             changed.removeAll { ids.contains($0) }
@@ -1465,6 +1465,12 @@ public actor Library {
         guard changed != favorites else { return }
         try save(entries, favorites: changed)
         favorites = changed
+    }
+
+    /// What the selection's Favorite button does for `ids` (the navigation design, section 3): it adds them, or removes
+    /// them when every one is a favorite already.
+    public static func favoriteAdds(_ ids: [String], favorites: [String]) -> Bool {
+        !ids.allSatisfy(favorites.contains)
     }
 
     /// Moves the favorite `id` to just before `before`, or to the end for nil; saves once.
@@ -1729,5 +1735,13 @@ public actor Library {
             progress(Double(done) / Double(max(size, 1)))
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+extension LibraryEntry {
+    /// A file that is no valid APK can never start, so it is no favorite; an incompatible app can be one, since a later
+    /// milestone may make it run (the navigation design, section 3).
+    public var canBeFavorite: Bool {
+        if case .invalid = state { false } else { true }
     }
 }
