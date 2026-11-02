@@ -80,8 +80,30 @@ set(certificates "${CMAKE_CURRENT_LIST_DIR}/../build/sources/ca-certificates/fil
 if(IS_DIRECTORY "${certificates}")
   list(APPEND options --mount "/apex/com.android.conscrypt/cacerts=${certificates}")
 endif()
+# apk-run logs the program's end as Android's Zygote does ("I/Zygote  : Process <pid> exited ..."), a line
+# that on Android comes from the zygote process, not the app: leave it out of the stderr we compare, the way
+# the expected output leaves out other processes' lines. The line itself stays; only the comparison drops it.
+function(without_zygote text out)
+  set(kept "")
+  while(NOT text STREQUAL "")
+    string(FIND "${text}" "\n" end)
+    if(end EQUAL -1)
+      string(LENGTH "${text}" end)
+    else()
+      math(EXPR end "${end} + 1")
+    endif()
+    string(SUBSTRING "${text}" 0 ${end} line)
+    string(SUBSTRING "${text}" ${end} -1 text)
+    if(NOT line MATCHES "^I/Zygote  : Process ")
+      string(APPEND kept "${line}")
+    endif()
+  endwhile()
+  set(${out} "${kept}" PARENT_SCOPE)
+endfunction()
+
 execute_process(COMMAND "${RUN}" ${options} "${container}"
   RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
+without_zygote("${error}" error)
 # A program that abort() ends: CMake names the signal, a shell shows 128 + SIGABRT (6), as Android's does; one that
 # SIGKILL ends, 128 + SIGKILL (9).
 if(status STREQUAL "Subprocess aborted")
