@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- webview-bridge-test's twin of target SDK 16 (ADR-0056 c3): below JELLY_BEAN_MR1 a page calls every public method of
+     an object added with addJavascriptInterface, not only its @JavascriptInterface ones, as Chromium's AwContents
+     requires the annotation only from 17 on; Object.getClass stays blocked. No network. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewbridge" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="16" android:targetSdkVersion="16"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.webviewbridge.BridgeActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

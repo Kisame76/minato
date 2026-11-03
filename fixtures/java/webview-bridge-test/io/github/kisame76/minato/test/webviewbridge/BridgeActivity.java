@@ -15,9 +15,11 @@ import android.webkit.WebViewClient;
  * main one; its method without the annotation the page does not see. A second object, "late", added after the first
  * page has finished, the page sees only from the next load on, and "bridge", removed, is gone only after a load too.
  * A second after each page has finished the app logs the next round; it ends with "done".
+ * The tag is the app's label: webview-bridge-test, or its twin webview-bridge-test-16 of target SDK 16, before
+ * JELLY_BEAN_MR1, whose page calls every public method but Object.getClass.
  */
 public class BridgeActivity extends Activity {
-    private static final String TAG = "webview-bridge-test";
+    private static String sTag = "webview-bridge-test";
     private static final String PAGE = "file:///android_asset/bridge.html";
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
@@ -25,7 +27,7 @@ public class BridgeActivity extends Activity {
     private int mRound;
 
     private static void log(String line) {
-        Log.i(TAG, line);
+        Log.i(sTag, line);
     }
 
     /** What the page calls. */
@@ -72,6 +74,7 @@ public class BridgeActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sTag = getPackageManager().getApplicationLabel(getApplicationInfo()).toString();
         mView = new WebView(this);
         setContentView(mView);
         mView.getSettings().setJavaScriptEnabled(true);

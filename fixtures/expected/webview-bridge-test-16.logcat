@@ -1,0 +1,28 @@
+I/webview-bridge-test-16: bridge added
+I/webview-bridge-test-16: bridge: page: bridge object, late undefined
+I/webview-bridge-test-16: bridge: hello: hello page, on the main thread: false
+I/webview-bridge-test-16: bridge: add: 5
+I/webview-bridge-test-16: bridge: half: 1.5
+I/webview-bridge-test-16: bridge: not: true
+I/webview-bridge-test-16: bridge: nothing: undefined
+I/webview-bridge-test-16: bridge: typeof hello: function, hidden: function
+I/webview-bridge-test-16: bridge: hidden: hidden
+I/webview-bridge-test-16: bridge: typeof getClass: function, hashCode: function
+I/webview-bridge-test-16: bridge: getClass: Access to java.lang.Object.getClass is blocked
+I/webview-bridge-test-16: bridge: page end
+I/webview-bridge-test-16: late added, before a load: "undefined"
+I/webview-bridge-test-16: bridge: page: bridge object, late object
+I/webview-bridge-test-16: bridge: hello: hello page, on the main thread: false
+I/webview-bridge-test-16: bridge: add: 5
+I/webview-bridge-test-16: bridge: half: 1.5
+I/webview-bridge-test-16: bridge: not: true
+I/webview-bridge-test-16: bridge: nothing: undefined
+I/webview-bridge-test-16: bridge: typeof hello: function, hidden: function
+I/webview-bridge-test-16: bridge: hidden: hidden
+I/webview-bridge-test-16: bridge: typeof getClass: function, hashCode: function
+I/webview-bridge-test-16: bridge: getClass: Access to java.lang.Object.getClass is blocked
+I/webview-bridge-test-16: bridge: page end
+I/webview-bridge-test-16: bridge removed, before a load: "object"
+I/webview-bridge-test-16: late: page: bridge undefined, late object
+I/webview-bridge-test-16: late: page end
+I/webview-bridge-test-16: done

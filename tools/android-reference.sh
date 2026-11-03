@@ -977,8 +977,8 @@ run_app() {
       ;;
     # webview-bridge-test (ADR-0056 c3): objects added with addJavascriptInterface, which the page calls synchronously
     # (their @JavascriptInterface methods only), seen from the next load on and gone after a removal and a load. It
-    # ends with "done".
-    webview-bridge-test)
+    # ends with "done". webview-bridge-test-16 is its twin of target SDK 16, whose page calls every public method.
+    webview-bridge-test | webview-bridge-test-16)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BridgeActivity
       ;;
     # hang-test: its main thread sleeps 60 s after its first frame; it ends with "awake".
@@ -1081,7 +1081,7 @@ run_app() {
     bundletool=$(/usr/bin/python3 tools/fetch-bundletool.py) || return 1
     "$java/bin/java" -jar "$bundletool" install-apks --apks="$apk" --adb="$ADB" --device-id="$serial" \
       >"$RESULTS/$app-install.log" 2>&1 || { sed 's/^/  /' "$RESULTS/$app-install.log" >&2; return 1; }
-  elif [[ "$app" == enter-test-15 ]]; then
+  elif [[ "$app" == enter-test-15 || "$app" == webview-bridge-test-16 ]]; then
     # Android 14 and later refuse a target SDK below 23 unless install bypasses the block.
     device install --bypass-low-target-sdk-block "$apk" >/dev/null
   else
@@ -1181,7 +1181,7 @@ run_app() {
       run dumpsys battery set level 100 >/dev/null || return 1
   fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
-  if [[ "$app" == enter-test-15 ]]; then
+  if [[ "$app" == enter-test-15 || "$app" == webview-bridge-test-16 ]]; then
     # Android 15 asks to review the permissions of a fresh app of target SDK below 23 (ReviewPermissionsActivity),
     # which ends at the launcher, so the app starts again; then it may warn that the app was built for an older
     # Android (DeprecatedTargetSdkVersionDialog), which a tap on OK keeps away for the package from then on, also

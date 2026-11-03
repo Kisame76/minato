@@ -1015,7 +1015,17 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         sendInterfaces();
     }
 
-    /** The app's objects to the host, by name, with their @JavascriptInterface methods: for the next pages. */
+    /**
+     * Whether a page sees a method of an app object: from target SDK 17 (JELLY_BEAN_MR1) on only one annotated
+     * @JavascriptInterface, below every public one, as Chromium's AwContents.addJavascriptInterface passes the
+     * annotation as required only from 17 on.
+     */
+    private boolean exposes(Method method) {
+        return mWebView.getContext().getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.JELLY_BEAN_MR1
+                || method.isAnnotationPresent(JavascriptInterface.class);
+    }
+
+    /** The app's objects to the host, by name, with the methods a page sees (exposes): for the next pages. */
     private void sendInterfaces() {
         if (!hostOpen()) {
             return;
@@ -1027,8 +1037,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     JSONArray methods = new JSONArray();
                     List<String> names = new ArrayList<>();
                     for (Method method : entry.getValue().getClass().getMethods()) {
-                        if (method.isAnnotationPresent(JavascriptInterface.class)
-                                && !names.contains(method.getName())) {
+                        if (exposes(method) && !names.contains(method.getName())) {
                             names.add(method.getName());
                             methods.put(method.getName());
                         }
@@ -1044,8 +1053,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
 
     /**
      * A page's call of an app object, on the thread of the app's objects, as Chromium's Java bridge thread: the method
-     * of its name and number of arguments with @JavascriptInterface, the arguments converted to its parameters' types;
-     * the answer {"value"} (none for void), or {"error"} as the page's exception.
+     * of its name and number of arguments that a page sees (exposes), the arguments converted to its parameters' types;
+     * the answer {"value"} (none for void), or {"error"} as the page's exception. Object.getClass is blocked whatever
+     * the target SDK, as Chromium's GinJavaMethodInvocationHelper blocks it.
      */
     private JSONObject invoke(JSONObject call) throws JSONException {
         Object target;
@@ -1057,7 +1067,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         Method method = null;
         for (Method candidate : target == null ? new Method[0] : target.getClass().getMethods()) {
             if (candidate.getName().equals(call.optString("method")) && candidate.getParameterCount() == count
-                    && candidate.isAnnotationPresent(JavascriptInterface.class)) {
+                    && exposes(candidate)) {
                 method = candidate;
                 break;
             }
@@ -1065,6 +1075,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         JSONObject answer = new JSONObject();
         if (method == null) {
             return answer.put("error", "Method not found");
+        }
+        if (method.getName().equals("getClass") && count == 0) {
+            return answer.put("error", "Access to java.lang.Object.getClass is blocked");
         }
         Class<?>[] types = method.getParameterTypes();
         Object[] values = new Object[count];
