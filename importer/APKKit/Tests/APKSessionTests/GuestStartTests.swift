@@ -98,6 +98,24 @@ struct GuestStartTests {
             guestSystem: "/b/Minato.app/Guest", localTesting: localTesting, splits: splits, environment: environment)
     }
 
+    /// An app whose dex the library compiled (ADR-0053, M6 c) finds its oat where ART looks for it, next to base.apk
+    /// in oat/arm64: base.odex and base.vdex through a mount, and the odex's signed container as a library file of
+    /// that folder.
+    @Test func anAppWithCompiledCodeGetsItsOatFolderAndContainers() {
+        let oat = GuestStart(
+            javaApp: Self.package, apk: "/v/apps/p/1/base.apk", apkSHA256: Self.sha256, signers: nil,
+            appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", deviceData: "/v/data/p/data_de",
+            external: "/v/data/p/external", obb: "/v/data/p/obb", download: "/v/data/p/download",
+            guestData: "/c/guest/p/data", guestSystem: "/b/Minato.app/Guest",
+            oat: .init(code: "/v/apps/p/1/oat", containers: "/v/apps/p/1/oat-containers"))
+        #expect(oat?.mounts.contains(.init(guest: "\(Self.codePath)/oat/arm64", host: "/v/apps/p/1/oat")) == true)
+        #expect(oat?.libraryDirectories.contains(
+            .init(guest: "\(Self.codePath)/oat/arm64", host: "/v/apps/p/1/oat-containers")) == true)
+        let plain = Self.javaStart()
+        #expect(plain?.mounts.contains { $0.guest.hasSuffix("/oat/arm64") } == false)
+        #expect(plain?.libraryDirectories.contains { $0.guest.hasSuffix("/oat/arm64") } == false)
+    }
+
     @Test func aJavaAppHasTheSameCodePath() {
         #expect(Self.javaStart()?.codePath == Self.codePath)
         #expect(Self.javaStart(sha256: "") == nil)

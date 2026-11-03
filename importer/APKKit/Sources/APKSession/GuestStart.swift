@@ -92,12 +92,13 @@ public struct GuestStart: Sendable, Equatable {
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
                  data: String, deviceData: String, external: String, obb: String, download: String, guestData: String,
                  guestSystem: String, localTesting: Bool = false, splits: [String] = [],
-                 environment extra: [String] = []) {
+                 environment extra: [String] = [], oat: OatFolders? = nil) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "/data", host: guestData),
                   Path(guest: "/data/resource-cache", host: "\(guestSystem)/resource-cache"),
                   Path(guest: "\(app)/base.apk", host: apk)]
+            + (oat.map { [Path(guest: "\(app)/\(Self.oatFolder)", host: $0.code)] } ?? [])
             + Self.splitMounts(splits, app: app)
             + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
             + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb,
@@ -108,7 +109,7 @@ public struct GuestStart: Sendable, Equatable {
             Path(guest: "/apex/com.android.art/lib64", host: "\(guestSystem)/apex-lib64/com.android.art"),
             Path(guest: "/apex/com.android.conscrypt/lib64", host: "\(guestSystem)/apex-lib64/com.android.conscrypt"),
             Path(guest: "\(app)/lib/arm64", host: appLibraries),
-        ]
+        ] + (oat.map { [Path(guest: "\(app)/\(Self.oatFolder)", host: $0.containers)] } ?? [])
         program = "\(guestSystem)/bin/app_process64.dylib"
         arguments = ["/system/bin/app_process64", "--nice-name=\(package)", "--package", package,
                      "--apk", "\(app)/base.apk"]
@@ -117,6 +118,21 @@ public struct GuestStart: Sendable, Equatable {
             + (signers == nil ? [] : ["--signers", "\(app)/signers.json"])
             + (localTesting ? ["--local-testing-dir", "local_testing"] : [])
         environment = extra
+    }
+
+    /// Where ART looks for an app's compiled code, next to base.apk (OatFileAssistant's odex location).
+    static let oatFolder = "oat/arm64"
+
+    /// The folders of an app's compiled code (ADR-0053, M6 c): `code` holds base.odex and base.vdex, which ART opens
+    /// and maps as files; `containers` holds the odex's signed container (base.odex.dylib), which ART's dlopen loads.
+    public struct OatFolders: Equatable, Sendable {
+        public let code: String
+        public let containers: String
+
+        public init(code: String, containers: String) {
+            self.code = code
+            self.containers = containers
+        }
     }
 
     /// A split's file in the code path: the host file's own name, which the library gives `split_<name>.apk`.
