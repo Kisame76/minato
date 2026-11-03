@@ -1,0 +1,7 @@
+I/compute-app-test: sieve: 539777
+I/compute-app-test: matrix: 122101
+I/compute-app-test: calls: 1212172764
+I/compute-app-test: strings: 1861672012
+I/compute-app-test: collections: 735404935897
+I/compute-app-test: allocation: 500490000000
+I/compute-app-test: done
