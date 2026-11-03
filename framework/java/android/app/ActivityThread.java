@@ -575,6 +575,8 @@ public final class ActivityThread {
         // The system's launch transaction comes after the bind, so the app's own posts from Application.onCreate run
         // first [inferred]: the session's events are posted to the main thread too.
         thread.attachSession();
+        // Android's system server reports an app whose main thread stops answering (ANR); Minato's app does it itself.
+        com.android.internal.minato.AnrWatchdog.start(sMainThreadHandler, packageName);
         // As AOSP's main: the Looper runs the app's messages until the process ends. Android ends it from outside (am
         // force-stop, a kill); so do Minato's host and the checks on the Mac (framework/tests/app_process_run.py).
         Looper.loop();

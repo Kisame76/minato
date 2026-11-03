@@ -980,6 +980,11 @@ run_app() {
     webview-bridge-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BridgeActivity
       ;;
+    # hang-test: its main thread sleeps 60 s after its first frame; it ends with "awake".
+    hang-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=awake limit=120
+      activity_class=.HangActivity
+      ;;
     # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
     # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
     # method's lines under ime-extract-test-device are the numbers that Minato's extract requests must carry. It ends
