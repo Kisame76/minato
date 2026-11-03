@@ -9,6 +9,7 @@ struct AppDetailView: View {
     @State private var confirmsRemoval = false
     @State private var confirmsClearing = false
     @State private var profile: AppProfile?
+    @State private var report: AppReport?
 
     var body: some View {
         NavigationStack {
@@ -107,6 +108,10 @@ struct AppDetailView: View {
                 }
 
                 Section {
+                    Button("Report a Problem") { report = model.report(of: entry) }
+                }
+
+                Section {
                     if !entry.id.hasPrefix("file:") {
                         Button("Clear App Data", role: .destructive) { confirmsClearing = true }
                     }
@@ -133,6 +138,9 @@ struct AppDetailView: View {
             }
             .clearDataDialog(isPresented: $confirmsClearing, entry: entry) { entry in
                 Task { await model.clearData(of: entry) }
+            }
+            .sheet(item: $report) { report in
+                ReportSheet(report: report)
             }
         }
     }

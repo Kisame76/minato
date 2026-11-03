@@ -1,3 +1,4 @@
+import APKLibrary
 import APKRuntime
 import APKSigning
 import SwiftUI
@@ -75,12 +76,9 @@ struct SettingsView: View {
         }
     }
 
-    /// MARKETING_VERSION (CURRENT_PROJECT_VERSION), from the Info.plist.
+    /// "1.0.0 (Beta 1)", or "1.0.0 (build 7)" for a developer's build (ADR-0070).
     private var version: String {
-        let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "\(short) (\(build))"
+        MinatoVersion(info: Bundle.main.infoDictionary).text
     }
 }
 
