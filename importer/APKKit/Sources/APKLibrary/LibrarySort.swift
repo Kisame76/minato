@@ -56,6 +56,12 @@ public enum LibrarySort: String, Sendable, CaseIterable, Codable {
         Array(LibrarySort.lastOpened.sorted(entries.filter { lastOpened[$0.id] != nil }, ascending: false,
                                             lastOpened: lastOpened).prefix(count))
     }
+
+    /// Home's Favorites: the favorites' entries in the favorites' own order; an app no longer installed is none.
+    public static func favorites(_ entries: [LibraryEntry], favorites: [String]) -> [LibraryEntry] {
+        let byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return favorites.compactMap { byID[$0] }
+    }
 }
 
 extension LibraryEntry {

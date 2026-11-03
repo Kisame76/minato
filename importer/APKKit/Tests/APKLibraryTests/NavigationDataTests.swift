@@ -212,4 +212,20 @@ struct NavigationDataTests {
         all.removeAll { $0.id == "e" }
         #expect(LibrarySort.recentlyOpened(all, lastOpened: times).map(\.id) == ["f", "b", "d", "a"])
     }
+
+    @Test func homesFavoritesKeepTheirOwnOrderAndSkipDeletedApps() {
+        #expect(LibrarySort.favorites(entries, favorites: ["d", "gone", "b"]).map(\.id) == ["d", "b"])
+        #expect(LibrarySort.favorites(entries, favorites: []).isEmpty)
+    }
+
+    @Test func openingAnAppRecordsItForRecentlyOpened() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try await library(sandbox, ["a.app", "b.app"])
+        try await library.recordOpened("a.app", at: Date(timeIntervalSince1970: 10))
+        try await library.recordOpened("b.app", at: Date(timeIntervalSince1970: 20))
+        let reopened = try Library(paths: sandbox.paths)
+        #expect(LibrarySort.recentlyOpened(await reopened.entries, lastOpened: await reopened.lastOpened).map(\.id)
+            == ["b.app", "a.app"])
+    }
 }

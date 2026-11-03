@@ -131,6 +131,8 @@ final class LibraryModel {
     private(set) var entries: [LibraryEntry] = []
     /// The favorites' packages in their own order (the navigation design, section 3).
     private(set) var favorites: [String] = []
+    /// When each app was last opened (the navigation design, section 2).
+    private(set) var lastOpened: [String: Date] = [:]
     private(set) var pending: [WaitingUnit] = []
     private(set) var progress: [URL: Double] = [:]
     /// Entries whose converted code is being signed again, shown as "Updating".
@@ -285,6 +287,7 @@ final class LibraryModel {
             needsAnotherScan = false
             entries = await library.entries
             favorites = await library.favorites
+            lastOpened = await library.lastOpened
             do {
                 pending = try await library.scanUnits().filter { !held.contains($0) }.map(WaitingUnit.init)
             } catch {
@@ -364,7 +367,7 @@ final class LibraryModel {
         #endif
         switch decision {
         case .start:
-            start(entry)
+            await start(entry)
         case .signFirst:
             guard let library, let fingerprint = signer.fingerprint, let converter = converter(signer) else {
                 errorMessage = "“\(entry.displayName)” could not be signed. Check the signing certificate."
@@ -389,7 +392,7 @@ final class LibraryModel {
                 entries = await library.entries
                 return nil
             }
-            start(entry)
+            await start(entry)
         case .openSigning, .waitForSigner:
             return .openSigning
         case .explain(let reason):
@@ -398,14 +401,21 @@ final class LibraryModel {
         return nil
     }
 
-    /// Writes the launch request, then restarts Minato into game mode for `entry` (decisions 1 and 2).
-    private func start(_ entry: LibraryEntry) {
+    /// Writes the launch request, then restarts Minato into game mode for `entry` (decisions 1 and 2). The app counts
+    /// as opened for Home's Recently Opened now, since the process ends right after.
+    private func start(_ entry: LibraryEntry) async {
         guard let paths else { return }
         do {
             try LaunchRequestStore(folder: paths.applicationSupport).write(LaunchRequest(package: entry.id, time: .now))
         } catch {
             errorMessage = "“\(entry.displayName)” could not be started: \(error.localizedDescription)"
             return
+        }
+        do {
+            try await library?.recordOpened(entry.id)
+        } catch {
+            let reason = error.localizedDescription
+            log.error("\(entry.id, privacy: .public): its opening was not recorded: \(reason, privacy: .public)")
         }
         log.info("Starting \(entry.id, privacy: .public)")
         Restart.now { [weak self] in self?.restartFailedFor = entry }
@@ -470,6 +480,7 @@ final class LibraryModel {
         }
         self.entries = await library.entries
         favorites = await library.favorites
+        lastOpened = await library.lastOpened
     }
 
     /// Makes the apps favorites, or no favorites any more (the navigation design, section 3).
