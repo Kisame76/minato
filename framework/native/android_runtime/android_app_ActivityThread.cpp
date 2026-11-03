@@ -317,6 +317,13 @@ jlong Battery(JNIEnv *, jclass) {
     return result < 0 ? -errno : static_cast<jlong>(result);
 }
 
+// The host's network (ADR-0054 step d)): APKRT_NR_NETWORK's GET, the APKRT_NETWORK_* flags, or the negative errno
+// (-ENODATA before the host's first state).
+jlong Network(JNIEnv *, jclass) {
+    const long result = syscall(APKRT_NR_NETWORK, APKRT_NETWORK_GET, 0, 0);
+    return result < 0 ? -errno : static_cast<jlong>(result);
+}
+
 // The location hub (ADR-0063): APKRT_NR_LOCATION's operations, 0 or the negative errno.
 jint LocationStart(JNIEnv *, jclass, jint accuracy, jint distance) {
     apkrt_location_control control = {accuracy, distance};
@@ -418,6 +425,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeLocationCancel", "(J)I", reinterpret_cast<void *>(LocationCancel)},
         {"nativeLocationFix", "(ZJ[D[J)I", reinterpret_cast<void *>(LocationFix)},
         {"nativeBattery", "()J", reinterpret_cast<void *>(Battery)},
+        {"nativeNetwork", "()J", reinterpret_cast<void *>(Network)},
         {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},

@@ -9,7 +9,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/proc.cpp src/sys_cpu.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp
   src/netlink.cpp
   src/video_decoders.cpp src/media_players.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp
-  src/battery.cpp src/audio_decode.cpp src/audio_codec.cpp)
+  src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
@@ -110,6 +110,13 @@ if(APK_HOST_BUILD)
   target_link_libraries(battery_transport_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.battery_transport COMMAND battery_transport_test)
   set_tests_properties(runtime.battery_transport PROPERTIES TIMEOUT 60)
+  # The network transport (ADR-0054 step d)): APKRT_NR_NETWORK (GET) through the dispatcher, and apkrt_network_set
+  # announcing APKRT_EVENT_NETWORK in a session.
+  add_executable(network_transport_test tests/network_transport_test.cpp)
+  target_include_directories(network_transport_test PRIVATE src)
+  target_link_libraries(network_transport_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.network_transport COMMAND network_transport_test)
+  set_tests_properties(runtime.network_transport PROPERTIES TIMEOUT 60)
 
   # The SoundPool plan's step 3: APKRT_NR_AUDIO_DECODE through the dispatcher, on soundpool-codec-test's files.
   add_executable(audio_decode_test tests/audio_decode_test.cpp)

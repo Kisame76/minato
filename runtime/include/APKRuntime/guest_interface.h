@@ -320,6 +320,10 @@ enum apkrt_event_type {
                                           // bars (SystemBarInsets). The host posts it right before
                                           // APKRT_EVENT_CONFIGURATION_CHANGED at a turn, never at the start, which
                                           // passes them as MINATO_BAR_INSETS in the environment
+    APKRT_EVENT_NETWORK,                  // the host's network changed (ADR-0054 step d)): a0 its state, the
+                                          // APKRT_NETWORK_* flags below (NWPathMonitor's path); a1, a2 0. Posted only
+                                          // on a change while a session runs; ConnectivityManager reads the current
+                                          // state with APKRT_NR_NETWORK (GET) before any event
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and
@@ -1237,6 +1241,27 @@ struct apkrt_location_fix {
 #define APKRT_BATTERY_STATE_UNPLUGGED 1
 #define APKRT_BATTERY_STATE_CHARGING  2
 #define APKRT_BATTERY_STATE_FULL      3
+
+// MARK: - Network (ADR-0054 step d))
+//
+// The host (graphics/host's NWPathMonitor, on the iPhone and the Mac) reports its network with apkrt_network_set
+// (apkrt.h). It stores the state and, while a session runs, posts APKRT_EVENT_NETWORK on a change.
+// ConnectivityManager's answers and callbacks live on the framework side, which checks ACCESS_NETWORK_STATE as
+// ConnectivityService does; this is only the transport.
+
+/// One syscall carries every network operation, like the battery's: x0 the op.
+#define APKRT_NR_NETWORK 4135
+
+#define APKRT_NETWORK_GET 0  // x0 0: the current state, APKRT_NETWORK_* flags (never negative); -ENODATA before the
+                             // host's first apkrt_network_set, as on a host that reports none: no network
+
+/// APKRT_EVENT_NETWORK's a0 and APKRT_NETWORK_GET's value: the path's status and what it goes over.
+#define APKRT_NETWORK_SATISFIED   0x1   // nw_path_status_satisfied: the path can reach the network
+#define APKRT_NETWORK_WIFI        0x2   // it uses Wi-Fi (nw_interface_type_wifi)
+#define APKRT_NETWORK_CELLULAR    0x4   // it uses the cellular network
+#define APKRT_NETWORK_WIRED       0x8   // it uses Ethernet
+#define APKRT_NETWORK_EXPENSIVE   0x10  // nw_path_is_expensive: metered (cellular, a personal hotspot)
+#define APKRT_NETWORK_CONSTRAINED 0x20  // nw_path_is_constrained: Low Data Mode
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //

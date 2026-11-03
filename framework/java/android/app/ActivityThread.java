@@ -1188,6 +1188,7 @@ public final class ActivityThread {
     private static final int EVENT_BACK = 30;
     private static final int EVENT_IME_HIDDEN = 31;
     private static final int EVENT_BAR_INSETS = 32;
+    private static final int EVENT_NETWORK = 33;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1444,6 +1445,10 @@ public final class ActivityThread {
                 // The system bars' heights changed at a turn (ADR-0041 decision 8): floating windows opened from now
                 // on are laid out between them; the host's values win over the start's environment.
                 SystemBarInsets.set((int) event[2], (int) event[3]);
+                break;
+            case EVENT_NETWORK:
+                // The host's network changed (ADR-0054 step d)): ConnectivityManager's callbacks hear of it.
+                com.android.internal.minato.LocalNetwork.onEvent((int) event[2]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2636,6 +2641,14 @@ public final class ActivityThread {
         return nativeBattery();
     }
 
+    /**
+     * @hide LocalNetwork's: the host's network as APKRT_NETWORK_* flags, or a negative errno, -ENODATA before the
+     * host's first state. No session needed: the state is the runtime's.
+     */
+    public static long network() {
+        return nativeNetwork();
+    }
+
     /** The thread when a session drives it, else null: the requests to the host have no one to answer without. */
     private static ActivityThread sessionOf() {
         final ActivityThread thread = sCurrentActivityThread;
@@ -2862,6 +2875,7 @@ public final class ActivityThread {
 
     /** APKRT_NR_BATTERY's GET: level | state << 32, or a negative errno. */
     private static native long nativeBattery();
+    private static native long nativeNetwork();
     private static native int nativeSessionRequestExportMedia(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */

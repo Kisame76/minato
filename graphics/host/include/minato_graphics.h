@@ -130,6 +130,11 @@ struct apkrt_media_players;
 /* For tests: the functions minato_graphics_set_media_players gives the runtime. */
 const struct apkrt_media_players *minato_graphics_media_players(void);
 
+/* ADR-0054 step d): the host's network (network.m), Network.framework's path monitor, which reports each path to the
+   runtime (apkrt_network_set) from now on. minato_graphics_set_providers calls it. Returns 0, or -1 when no monitor
+   was made. */
+int minato_graphics_set_network(void);
+
 struct apkrt_webview_call;
 
 /* ADR-0056 c1: graphics/host's WebViews (webview.m), WKWebView's: the runtime's WebView handler

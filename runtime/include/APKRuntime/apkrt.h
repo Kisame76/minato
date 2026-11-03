@@ -875,6 +875,11 @@ void apkrt_location_push_single(uint64_t token, const struct apkrt_location_fix 
 /// value set before the session is not posted but is readable with GET. Needs no permission.
 void apkrt_battery_set(int32_t level_percent, int32_t state);
 
+/// The host reports its network (ADR-0054 step d)): `state` the APKRT_NETWORK_* flags (guest_interface.h) of
+/// NWPathMonitor's current path. Stores the state on any thread, also before a session exists (APKRT_NETWORK_GET then
+/// reads it). While a session runs it posts APKRT_EVENT_NETWORK only when the state changed since the last post.
+void apkrt_network_set(uint32_t state);
+
 #ifdef __cplusplus
 }
 #endif

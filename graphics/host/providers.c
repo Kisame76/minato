@@ -184,5 +184,7 @@ int minato_graphics_set_providers(const char *moltenvk, const char *angle) {
     }
     /* The guest's media players (ADR-0060 e2e1), whatever the drivers. */
     if (minato_graphics_set_media_players() != 0) result = part_failed("the media players were not set");
+    /* The host's network for ConnectivityManager (ADR-0054 step d)). */
+    if (minato_graphics_set_network() != 0) result = part_failed("the network's monitor was not made");
     return result;
 }

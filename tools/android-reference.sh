@@ -459,6 +459,18 @@ sounds_off() {
     run "[ ! -e $SOUNDS_CACHE/${name}_cache ] || mv $SOUNDS_CACHE/${name}_cache $SOUNDS_CACHE/${name}_cache.saved"
   done
 }
+# network-test's network: the emulator's Wi-Fi alone, its mobile data off until the exit (mobile_data_back), and 10 s
+# for the default network to move to Wi-Fi.
+mobile_data_off() {
+  run svc wifi enable >/dev/null || true
+  run svc data disable >/dev/null
+  sleep 10
+}
+
+mobile_data_back() {
+  run svc data enable >/dev/null || true
+}
+
 sounds_back() {
   local entry name value cache
   for entry in $sounds_was; do
@@ -980,6 +992,12 @@ run_app() {
     # ends with "done". webview-bridge-test-16 is its twin of target SDK 16, whose page calls every public method.
     webview-bridge-test | webview-bridge-test-16)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BridgeActivity
+      ;;
+    # network-test (ADR-0054 step d)): the active network, its NetworkInfo and capabilities, and the default network
+    # callback's first calls, on the emulator's Wi-Fi: its mobile data, the default network otherwise, is off for the
+    # run (mobile_data_off), as a Mac or an iPhone on Wi-Fi has it. It ends with "done".
+    network-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.NetworkActivity
       ;;
     # webview-late-test: a WebView made late, after what HTML5 app wrappers wait on first (a delay, an AsyncTask's copy
     # of the page to the app's files, Safe Browsing, the cookies), each with a limit of 5 s; the copied page as a
@@ -1633,6 +1651,10 @@ if [[ -n "$app" ]]; then
   if [[ "$app" == ringtone-test ]]; then
     trap 'sounds_back; [[ -z "$started" ]] || emulator_stop' EXIT
     sounds_off
+  fi
+  if [[ "$app" == network-test ]]; then
+    trap 'mobile_data_back; [[ -z "$started" ]] || emulator_stop' EXIT
+    mobile_data_off
   fi
   # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
   # as a hardware keyboard's do; so does second-windows-test, whose windows' order an input method's window changed.

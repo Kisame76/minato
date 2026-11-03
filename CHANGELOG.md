@@ -76,3 +76,5 @@ All notable changes to Minato are documented in this file. The format follows
 - Text of mixed directions, such as Arabic or Hebrew next to emoji, gets the same width as on Android
 - Apps that read the processor's layout, or list its cores as many game engines do, see the iPhone's performance and
   efficiency cores, as on an Android phone, instead of a single core
+- Apps see the iPhone's network, over Wi-Fi or cellular, and notice when it changes, instead of finding none, so apps
+  that wait for the network before they load no longer wait forever

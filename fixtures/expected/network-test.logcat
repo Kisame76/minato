@@ -1,0 +1,11 @@
+I/network-test: active network: true
+I/network-test: network info: wifi or ethernet, CONNECTED, CONNECTED, connected true, available true, roaming false
+I/network-test: metered: false
+I/network-test: capabilities: wifi or ethernet, INTERNET true, VALIDATED true, NOT_METERED true, NOT_RESTRICTED true, TRUSTED true, NOT_VPN true, NOT_ROAMING true, NOT_SUSPENDED true
+I/network-test: link properties: true
+I/network-test: all networks: some
+I/network-test: callback: onAvailable, the active network true
+I/network-test: callback: onCapabilitiesChanged, INTERNET true
+I/network-test: callback: onLinkPropertiesChanged
+I/network-test: callback: onBlockedStatusChanged false
+I/network-test: done
