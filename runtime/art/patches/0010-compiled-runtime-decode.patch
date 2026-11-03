@@ -470,15 +470,15 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    MemOperand mem_op(base.X(), offset);
  
    {
-@@ -1461,6 +1463,8 @@
+@@ -1460,6 +1462,8 @@
+     bool new_value_can_be_null = true;  // TODO: Worth finding out this information?
      codegen->MaybeMarkGCCard(base, new_value, new_value_can_be_null);
    }
- 
-+  DecodeReferenceOrNull(masm, base);  // before the scratch registers are taken
 +
++  DecodeReferenceOrNull(masm, base);  // before the scratch registers are taken
+ 
    UseScratchRegisterScope temps(masm);
    Register tmp_ptr = temps.AcquireX();                             // Pointer to actual memory.
-   Register old_value;                                              // Value in memory.
 @@ -1737,6 +1741,7 @@
      codegen->MaybeMarkGCCard(base, /*value=*/arg, new_value_can_be_null);
    }
@@ -507,7 +507,30 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    }
    // out = length diff.
    __ Subs(out, temp0, temp1);
-@@ -2119,6 +2124,9 @@
+@@ -1999,8 +2004,9 @@
+     // `temp1` will hold the compressed data pointer, `temp2` the uncompressed data pointer.
+     // Note that flags have been set by the `str` compression flag extraction to `temp3`
+     // before branching to the `different_compression` label.
+-    __ Csel(temp1, str, arg, eq);   // Pointer to the compressed string.
+-    __ Csel(temp2, str, arg, ne);   // Pointer to the uncompressed string.
++    // The pointers are the decoded X registers (a W select would drop the window's base).
++    __ Csel(temp1.X(), str.X(), arg.X(), eq);   // Pointer to the compressed string.
++    __ Csel(temp2.X(), str.X(), arg.X(), ne);   // Pointer to the uncompressed string.
+ 
+     // We want to free up the temp3, currently holding `str` compression flag, for comparison.
+     // So, we move it to the bottom bit of the iteration count `temp0` which we then need to treat
+@@ -2009,8 +2015,8 @@
+     __ Lsl(temp0, temp0, 1u);
+ 
+     // Adjust temp1 and temp2 from string pointers to data pointers.
+-    __ Add(temp1, temp1, Operand(value_offset));
+-    __ Add(temp2, temp2, Operand(value_offset));
++    __ Add(temp1.X(), temp1.X(), Operand(value_offset));
++    __ Add(temp2.X(), temp2.X(), Operand(value_offset));
+ 
+     // Complete the move of the compression flag.
+     __ Sub(temp0, temp0, Operand(temp3));
+@@ -2119,6 +2125,9 @@
    // Reference equality check, return true if same reference.
    __ Cmp(str, arg);
    __ B(&return_true, eq);
@@ -517,7 +540,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
  
    if (!optimizations.GetArgumentIsString()) {
      // Instanceof check for the argument by comparing class fields.
-@@ -2643,6 +2651,8 @@
+@@ -2643,6 +2652,8 @@
    // Early out for valid zero-length retrievals.
    __ Cbz(num_chr, &done);
  
@@ -526,7 +549,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    // dst address start to copy to.
    __ Add(dst_ptr, dstObj, Operand(data_offset));
    __ Add(dst_ptr, dst_ptr, Operand(dstBegin, LSL, 1));
-@@ -2790,6 +2800,7 @@
+@@ -2790,6 +2801,7 @@
                                           bool length_is_array_length,
                                           bool position_sign_checked) {
    const int32_t length_offset = mirror::Array::LengthOffset().Int32Value();
@@ -534,7 +557,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    if (pos.IsConstant()) {
      int32_t pos_const = pos.GetConstant()->AsIntConstant()->GetValue();
      if (pos_const == 0) {
-@@ -2838,6 +2849,7 @@
+@@ -2838,6 +2850,7 @@
                              Location pos,
                              DataType::Type type,
                              int32_t data_offset) {
@@ -542,7 +565,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    if (pos.IsConstant()) {
      int32_t constant = pos.GetConstant()->AsIntConstant()->GetValue();
      __ Add(dest, base, DataType::Size(type) * constant + data_offset);
-@@ -2891,14 +2903,16 @@
+@@ -2891,14 +2904,16 @@
  
    // If source and destination are the same, take the slow path. Overlapping copy regions must be
    // copied in reverse and we can't know in all cases if it's needed.
@@ -562,7 +585,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
  
    if (!length.IsConstant()) {
      // Merge the following two comparisons into one:
-@@ -3122,12 +3136,12 @@
+@@ -3122,12 +3137,12 @@
            // Checked when building locations.
            DCHECK_GE(src_pos_constant, dest_pos_constant);
          } else if (src_pos_constant < dest_pos_constant) {
@@ -577,7 +600,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
            __ B(&conditions_on_positions_validated, ne);
          }
          __ Cmp(WRegisterFrom(dest_pos), src_pos_constant);
-@@ -3135,7 +3149,7 @@
+@@ -3135,7 +3150,7 @@
        }
      } else {
        if (!optimizations.GetDestinationIsSource()) {
@@ -586,7 +609,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
          __ B(&conditions_on_positions_validated, ne);
        }
        __ Cmp(RegisterFrom(src_pos, invoke->InputAt(1)->GetType()),
-@@ -3148,12 +3162,12 @@
+@@ -3148,12 +3163,12 @@
  
    if (!optimizations.GetSourceIsNotNull()) {
      // Bail out if the source is null.
@@ -601,7 +624,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    }
  
    // We have already checked in the LocationsBuilder for the constant case.
-@@ -3185,17 +3199,20 @@
+@@ -3185,17 +3200,20 @@
                                 optimizations.GetCountIsDestinationLength(),
                                 dest_position_sign_checked);
  
@@ -624,7 +647,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      static_assert(Primitive::kPrimNot == 0, "Expected 0 for kPrimNot");
      __ Cbnz(temp, intrinsic_slow_path->GetEntryLabel());
    };
-@@ -3247,10 +3264,10 @@
+@@ -3247,10 +3265,10 @@
        // No read barrier is needed for reading a chain of constant references
        // for comparing with null, see `ReadBarrierOption`.
        // /* HeapReference<Class> */ temp1 = temp1->component_type_
@@ -637,7 +660,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
        // No need to unpoison the result, we're comparing against null.
        __ Cbnz(temp1, intrinsic_slow_path->GetEntryLabel());
        // Bail out if the source is not a non primitive array.
-@@ -3336,7 +3353,7 @@
+@@ -3336,7 +3354,7 @@
          //   }
  
          // /* int32_t */ monitor = src->monitor_
@@ -646,7 +669,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
          // /* LockWord */ lock_word = LockWord(monitor)
          static_assert(sizeof(LockWord) == sizeof(int32_t),
                        "art::LockWord and int32_t have different sizes.");
-@@ -3497,7 +3514,7 @@
+@@ -3497,7 +3515,7 @@
        // JIT object table.
        allocate_instance();
        __ Mov(temp.W(), value);
@@ -655,7 +678,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
        // Class pointer and `value` final field stores require a barrier before publication.
        codegen_->GenerateMemoryBarrier(MemBarrierKind::kStoreStore);
      }
-@@ -3511,7 +3528,7 @@
+@@ -3511,7 +3529,7 @@
      __ B(&allocate, hs);
      // If the value is within the bounds, load the object directly from the array.
      codegen_->LoadBootImageAddress(temp, info.array_data_boot_image_reference);
@@ -664,7 +687,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
          temp, out.X(), LSL, DataType::SizeShift(DataType::Type::kReference));
      codegen_->Load(DataType::Type::kReference, out, source);
      codegen_->GetAssembler()->MaybeUnpoisonHeapReference(out);
-@@ -3519,7 +3536,7 @@
+@@ -3519,7 +3537,7 @@
      __ Bind(&allocate);
      // Otherwise allocate and initialize a new object.
      allocate_instance();
@@ -673,7 +696,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      // Class pointer and `value` final field stores require a barrier before publication.
      codegen_->GenerateMemoryBarrier(MemBarrierKind::kStoreStore);
      __ Bind(&done);
-@@ -3565,7 +3582,7 @@
+@@ -3565,7 +3583,7 @@
      DCHECK_ALIGNED(disable_intrinsic_offset.Uint32Value(), 2u);
      DCHECK_EQ(disable_intrinsic_offset.Uint32Value() + 1u,
                IntrinsicVisitor::GetReferenceSlowPathEnabledOffset().Uint32Value());
@@ -682,7 +705,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      __ Cbnz(temp, slow_path->GetEntryLabel());
    }
  
-@@ -3580,7 +3597,7 @@
+@@ -3580,7 +3598,7 @@
                                                      /*needs_null_check=*/ true,
                                                      /*use_load_acquire=*/ true);
    } else {
@@ -691,7 +714,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      codegen_->LoadAcquire(
          invoke, DataType::Type::kReference, WRegisterFrom(out), field, /*needs_null_check=*/ true);
      codegen_->MaybeGenerateReadBarrierSlow(invoke, out, out, obj, referent_offset);
-@@ -3605,7 +3622,7 @@
+@@ -3605,7 +3623,7 @@
    uint32_t referent_offset = mirror::Reference::ReferentOffset().Uint32Value();
    uint32_t monitor_offset = mirror::Object::MonitorOffset().Int32Value();
  
@@ -700,7 +723,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    codegen_->LoadAcquire(invoke, DataType::Type::kReference, tmp, field, /*needs_null_check=*/ true);
    codegen_->GetAssembler()->MaybeUnpoisonHeapReference(tmp);
  
-@@ -3630,7 +3647,7 @@
+@@ -3630,7 +3648,7 @@
      // Load the lockword and check if it is a forwarding address.
      static_assert(LockWord::kStateShift == 30u);
      static_assert(LockWord::kStateForwardingAddress == 3u);
@@ -709,7 +732,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      __ Cmp(tmp, Operand(0xc0000000));
      __ B(&calculate_result, lo);   // ZF clear if taken.
  
-@@ -4396,13 +4413,13 @@
+@@ -4396,13 +4414,13 @@
    UseScratchRegisterScope temps(masm);
    Register temp = temps.AcquireW();
  
@@ -725,7 +748,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    codegen->GetAssembler()->MaybeUnpoisonHeapReference(temp);
    __ Cbz(temp, slow_path->GetEntryLabel());
    __ B(&loop);
-@@ -4435,10 +4452,10 @@
+@@ -4435,10 +4453,10 @@
    // We do not need a read barrier when loading a reference only for loading constant
    // primitive field through the reference. Use LDP to load the fields together.
    DCHECK_EQ(var_type_offset.Int32Value() + 4, access_mode_bit_mask_offset.Int32Value());
@@ -738,7 +761,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    if (primitive_type == Primitive::kPrimNot) {
      static_assert(Primitive::kPrimNot == 0);
      __ Cbnz(temp2, slow_path->GetEntryLabel());
-@@ -4480,7 +4497,7 @@
+@@ -4480,7 +4498,7 @@
  
    // Check that the VarHandle references a static field by checking that coordinateType0 == null.
    // Do not emit read barrier (or unpoison the reference) for comparing to null.
@@ -747,7 +770,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    __ Cbnz(temp, slow_path->GetEntryLabel());
  }
  
-@@ -4509,7 +4526,7 @@
+@@ -4509,7 +4527,7 @@
      // coordinateType1 == null. coordinateType0 should not be null, but this is handled by the
      // type compatibility check with the source object's type, which will fail for null.
      DCHECK_EQ(coordinate_type0_offset.Int32Value() + 4, coordinate_type1_offset.Int32Value());
@@ -756,7 +779,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      codegen->GetAssembler()->MaybeUnpoisonHeapReference(temp);
      // No need for read barrier or unpoisoning of coordinateType1 for comparison with null.
      __ Cbnz(temp2, slow_path->GetEntryLabel());
-@@ -4554,7 +4571,7 @@
+@@ -4554,7 +4572,7 @@
    // that coordinateType1 != null. If that's true, coordinateType1 shall be int.class and
    // coordinateType0 shall not be null but we do not explicitly verify that.
    DCHECK_EQ(coordinate_type0_offset.Int32Value() + 4, coordinate_type1_offset.Int32Value());
@@ -765,7 +788,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    codegen->GetAssembler()->MaybeUnpoisonHeapReference(temp);
    // No need for read barrier or unpoisoning of coordinateType1 for comparison with null.
    __ Cbz(temp2, slow_path->GetEntryLabel());
-@@ -4569,7 +4586,7 @@
+@@ -4569,7 +4587,7 @@
    // We do this check without read barrier, so there can be false negatives which we
    // defer to the slow path. There shall be no false negatives for array classes in the
    // boot image (including Object[] and primitive arrays) because they are non-movable.
@@ -774,7 +797,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    codegen->GetAssembler()->MaybeUnpoisonHeapReference(temp2);
    __ Cmp(temp, temp2);
    __ B(slow_path->GetEntryLabel(), ne);
-@@ -4577,12 +4594,12 @@
+@@ -4577,12 +4595,12 @@
    // Check that the coordinateType0 is an array type. We do not need a read barrier
    // for loading constant reference fields (or chains of them) for comparison with null,
    // nor for finally loading a constant primitive field (primitive type) below.
@@ -789,7 +812,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    if (primitive_type == Primitive::kPrimNot) {
      static_assert(Primitive::kPrimNot == 0);
      __ Cbnz(temp2, slow_path->GetEntryLabel());
-@@ -4602,7 +4619,7 @@
+@@ -4602,7 +4620,7 @@
    }
  
    // Check for array index out of bounds.
@@ -798,7 +821,16 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
    __ Cmp(index, temp);
    __ B(slow_path->GetEntryLabel(), hs);
  }
-@@ -4699,7 +4716,7 @@
+@@ -4686,6 +4704,8 @@
+               target.object,
+               TypeReference(&declaring_class->GetDexFile(), declaring_class->GetDexTypeIndex()));
+         }
++        // The class is a reference of the window (the low 32 bits of its address): the access below needs its base.
++        DecodeReference(masm, target.object);
+       }
+       __ Mov(target.offset, target_field->GetOffset().Uint32Value());
+     } else {
+@@ -4699,7 +4719,7 @@
        const MemberOffset offset_offset = ArtField::OffsetOffset();
  
        // Load the ArtField*, the offset and, if needed, declaring class.
@@ -807,7 +839,16 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
        __ Ldr(target.offset, MemOperand(field.X(), offset_offset.Int32Value()));
        if (expected_coordinates_count == 0u) {
          codegen->GenerateGcRootFieldLoad(invoke,
-@@ -5701,14 +5718,14 @@
+@@ -4708,6 +4728,8 @@
+                                          ArtField::DeclaringClassOffset().Int32Value(),
+                                          /*fixup_label=*/nullptr,
+                                          codegen->GetCompilerReadBarrierOption());
++        // The declaring class is a window reference (a root holds the low 32 bits of its address).
++        DecodeReference(masm, target.object);
+       }
+     }
+   } else {
+@@ -5701,14 +5723,14 @@
      // The main path checked that the coordinateType0 is an array class that matches
      // the class of the actual coordinate argument but it does not match the value type.
      // Check if the `varhandle` references a ByteArrayViewVarHandle instance.
@@ -824,7 +865,7 @@ is still the low 32 bits of the object's address (heap_window.h), and C++ reads 
      __ Subs(temp, temp, index);
      __ Ccmp(temp, size, NoFlag, hs);  // If SUBS yields LO (C=false), keep the C flag clear.
      __ B(GetEntryLabel(), lo);
-@@ -5733,7 +5750,7 @@
+@@ -5733,7 +5755,7 @@
        __ B(GetNativeByteOrderLabel());
        return;
      }

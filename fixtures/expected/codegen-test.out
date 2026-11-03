@@ -52,6 +52,20 @@ cast: Main$Tri cannot be cast to java.lang.Object[]
 cast: 1
 cast: 1
 vectors: 17000
+primitive copies: 18430
+offset vectors: 44410
+object copies: s p r
+copy store: source[1] of type java.lang.Integer cannot be stored in destination array of type java.lang.String[] p null
+copy store: source[1] of type java.lang.Integer cannot be stored in destination array of type java.lang.CharSequence[] p
+copy kinds: Incompatible types: src=int[], dst=char[]
+copy kinds: Incompatible types: src=java.lang.Object[], dst=int[]
+copy bounds: src.length=67 srcPos=60 dst.length=67 dstPos=0 length=10
+copy null: src == null
+compareTo: -148131415302343168
+getChars: 304923
+valueOf: [5, 1000, 7, 70000, 3, a, -4] true
+reference: compressed unicodé中 true false false
+varhandles: 1099528538149 swapped
 loops: 33072
 thrown: bottom 5
 cast: java.lang.String cannot be cast to java.lang.Integer

@@ -169,6 +169,16 @@ public class Main {
         static int[][] ints = { new int[67], new int[67], new int[67] };
         static char[][] chars = { new char[67], new char[100] };
         static byte[][] bytes = { new byte[67] };
+        static Object[][] copySources = { { "p", "q", "r", "s" }, { "p", Integer.valueOf(7), "r", "s" } };
+        static Object[][] copyTargets = { new String[4], new Object[4], new CharSequence[4] };
+        static String[] compare = { "abcdefgh", "abcdefgi", "abcdefg", "abcdefghijkl", "abcd\u00e9fgh", "abcd\u00e9fgi",
+                                    "\u4e2dbcdefgh", "", "abcdefgh" };
+        static java.lang.ref.Reference<Object>[] refs = newRefs();
+        @SuppressWarnings("unchecked")
+        static java.lang.ref.Reference<Object>[] newRefs() {
+            return new java.lang.ref.Reference[] { new java.lang.ref.WeakReference<Object>(strings[0]),
+                                                   new java.lang.ref.SoftReference<Object>(strings[1]) };
+        }
         static int pick() { return counter < 0 ? 1 : 0; }
     }
 
@@ -411,12 +421,106 @@ public class Main {
         out("cards", bad + " " + (garbage > 0));
     }
 
+    /** System.arraycopy with every array and class read out of memory at its use: the intrinsic's own decodes. */
+    static void copies() {
+        long total = 0;
+        System.arraycopy(Pool.ints[Pool.pick()], 0, Pool.ints[Pool.pick() + 1], 3, 40);
+        System.arraycopy(Pool.ints[Pool.pick() + 2], 5, Pool.ints[Pool.pick() + 2], 9, 30);
+        System.arraycopy(Pool.chars[Pool.pick()], 1, Pool.chars[Pool.pick() + 1], 2, 50);
+        System.arraycopy(Pool.bytes[Pool.pick()], 0, Pool.bytes[Pool.pick()], 4, 60);
+        for (int i = 0; i < 67; i++) total += Pool.ints[1][i] + Pool.ints[2][i] + Pool.chars[1][i] + Pool.bytes[0][i];
+        out("primitive copies", total);
+        int[] vx = Pool.ints[0], vy = Pool.ints[1], vz = Pool.ints[2];
+        for (int i = 0; i < 60; i++) vx[i + 3] = vy[i + 1] + vz[i + 2];
+        for (int i = 0; i < 60; i++) total += vx[i + 3] * 3L;
+        out("offset vectors", total);
+        System.arraycopy(Pool.copySources[Pool.pick()], 0, Pool.copyTargets[Pool.pick()], 0, 4);
+        System.arraycopy(Pool.copySources[Pool.pick()], 0, Pool.copyTargets[Pool.pick() + 1], 0, 4);
+        System.arraycopy(Pool.copySources[Pool.pick()], 0, Pool.copyTargets[Pool.pick() + 2], 0, 4);
+        System.arraycopy(Pool.copyTargets[Pool.pick() + 1], 0, Pool.copyTargets[Pool.pick() + 1], 1, 3);
+        out("object copies", Pool.copyTargets[0][3] + " " + Pool.copyTargets[1][1] + " " + Pool.copyTargets[2][2]);
+        Pool.copyTargets[0] = new String[4];
+        Pool.copyTargets[1] = new Object[4];
+        Pool.copyTargets[2] = new CharSequence[4];
+        try { System.arraycopy(Pool.copySources[Pool.pick() + 1], 0, Pool.copyTargets[Pool.pick()], 0, 4); }
+        catch (ArrayStoreException e) {
+            out("copy store", e.getMessage() + " " + Pool.copyTargets[0][0] + " " + Pool.copyTargets[0][2]);
+        }
+        try { System.arraycopy(Pool.copySources[Pool.pick() + 1], 0, Pool.copyTargets[Pool.pick() + 2], 0, 4); }
+        catch (ArrayStoreException e) { out("copy store", e.getMessage() + " " + Pool.copyTargets[2][0]); }
+        try { System.arraycopy(Pool.ints[Pool.pick()], 0, Pool.chars[Pool.pick()], 0, 4); }
+        catch (ArrayStoreException e) { out("copy kinds", e.getMessage()); }
+        try { System.arraycopy(Pool.copySources[Pool.pick()], 0, Pool.ints[Pool.pick()], 0, 4); }
+        catch (ArrayStoreException e) { out("copy kinds", e.getMessage()); }
+        try { System.arraycopy(Pool.ints[Pool.pick()], 60, Pool.ints[Pool.pick() + 1], 0, 10); }
+        catch (ArrayIndexOutOfBoundsException e) { out("copy bounds", e.getMessage()); }
+        try { System.arraycopy(nul(), 0, Pool.ints[Pool.pick()], 0, 1); }
+        catch (NullPointerException e) { out("copy null", e.getMessage()); }
+    }
+
+    static class Slots { int count; long wide; static int shared; Object thing; }
+    static final java.lang.invoke.VarHandle COUNT, WIDE, SHARED, THING, INTS, VIEW;
+    static {
+        try {
+            java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
+            COUNT = lookup.findVarHandle(Slots.class, "count", int.class);
+            WIDE = lookup.findVarHandle(Slots.class, "wide", long.class);
+            THING = lookup.findVarHandle(Slots.class, "thing", Object.class);
+            SHARED = lookup.findStaticVarHandle(Slots.class, "shared", int.class);
+            INTS = java.lang.invoke.MethodHandles.arrayElementVarHandle(int[].class);
+            VIEW = java.lang.invoke.MethodHandles.byteArrayViewVarHandle(int[].class, java.nio.ByteOrder.LITTLE_ENDIAN);
+        } catch (ReflectiveOperationException e) { throw new Error(e); }
+    }
+
+    /** String, boxing, Reference and VarHandle intrinsics with every operand read out of memory at its use. */
+    static void intrinsics() {
+        long r = 0;
+        for (String a : Pool.compare) for (String b : Pool.compare) r = r * 31 + a.compareTo(b);
+        out("compareTo", r);
+        char[] d = Pool.chars[1];
+        Pool.strings[Pool.pick()].getChars(1, 6, d, 3);
+        Pool.longStrings[Pool.pick() + 1].getChars(0, 40, d, 10);
+        Pool.compare[Pool.pick() + 4].getChars(0, 8, d, 60);
+        r = 0;
+        for (int i = 0; i < 100; i++) r += d[i] * (i + 1);
+        out("getChars", r);
+        Object[] boxes = { Integer.valueOf(Pool.pick() + 5), Integer.valueOf(Pool.pick() + 1000),
+                           Long.valueOf(Pool.pick() + 7), Long.valueOf(Pool.pick() + 70000L),
+                           Short.valueOf((short) (Pool.pick() + 3)),
+                           Character.valueOf((char) (Pool.pick() + 'a')), Byte.valueOf((byte) (Pool.pick() - 4)) };
+        out("valueOf", java.util.Arrays.toString(boxes) + " " + (boxes[0] == Integer.valueOf(5)));
+        out("reference", Pool.refs[Pool.pick()].get() + " " + Pool.refs[Pool.pick() + 1].get() + " "
+            + Pool.refs[Pool.pick()].refersTo(Pool.strings[Pool.pick()]) + " "
+            + Pool.refs[Pool.pick() + 1].refersTo(Pool.strings[Pool.pick()]) + " " + Pool.refs[0].refersTo(null));
+        Slots slots = new Slots();
+        COUNT.set(slots, 5);
+        WIDE.set(slots, 1L << 40);
+        THING.set(slots, Pool.strings[Pool.pick()]);
+        SHARED.set(9);
+        r = (int) COUNT.get(slots) + (long) WIDE.get(slots) + (int) SHARED.get();
+        r += COUNT.compareAndSet(slots, 5, 8) ? 100 : 0;
+        r += (int) COUNT.getAndAdd(slots, 3) + (int) COUNT.get(slots);
+        r += THING.compareAndSet(slots, Pool.strings[0], "swapped") ? 1000 : 0;
+        int[] ints = Pool.ints[Pool.pick()];
+        INTS.set(ints, 4, 77);
+        r += (int) INTS.get(ints, 4) + (int) INTS.getAndAdd(ints, 4, 1);
+        byte[] bytes = Pool.bytes[Pool.pick()];
+        VIEW.set(bytes, 4, 0x01020304);
+        r += (int) VIEW.get(bytes, 4) + bytes[4] + bytes[7];
+        try { r += (int) INTS.get(ints, 400); } catch (ArrayIndexOutOfBoundsException e) { r += 5; }
+        try { r += (int) VIEW.get(bytes, 400); } catch (IndexOutOfBoundsException e) { r += 7; }
+        try { COUNT.get((Slots) nul()); } catch (NullPointerException e) { r += 9; }
+        out("varhandles", r + " " + slots.thing);
+    }
+
     public static void main(String[] args) {
         instanceOf();
         interfaces();
         arrays();
         fields();
         firstUse();
+        copies();
+        intrinsics();
         loops();
         exceptions();
         allocation();
