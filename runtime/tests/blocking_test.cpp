@@ -70,11 +70,11 @@ constexpr std::uint64_t nr_eventfd2 = 19, nr_epoll_create1 = 20, nr_epoll_ctl = 
                         nr_ioctl = 29, nr_close = 57, nr_pipe2 = 59, nr_read = 63, nr_write = 64, nr_writev = 66,
                         nr_pselect6 = 72, nr_ppoll = 73, nr_futex = 98, nr_nanosleep = 101, nr_clock_nanosleep = 115,
                         nr_tgkill = 131, nr_rt_sigaction = 134, nr_rt_sigprocmask = 135, nr_rt_sigtimedwait = 137,
-                        nr_gettid = 178, nr_epoll_pwait2 = 441;
+                        nr_gettid = 178, nr_epoll_pwait2 = 441, nr_kill = 129;
 constexpr std::uint64_t f_setfl = 4, o_nonblock = 04000, fionread = 0x541b;
 constexpr std::uint64_t futex_wait = 0, futex_wake = 1, futex_private = 128;
 constexpr std::uint64_t everyone = 0x7fff'ffff;  // FUTEX_WAKE's count for all waiters
-constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12, sigpipe = 13;
+constexpr std::uint64_t sigquit = 3, sigusr1 = 10, sigusr2 = 12, sigpipe = 13;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
 constexpr std::uint64_t sig_block = 0, sig_unblock = 1;
 constexpr std::uint64_t clock_monotonic = 1, timer_abstime = 1;
@@ -1118,6 +1118,51 @@ TEST(a_signal_the_thread_blocks_ends_neither_a_futex_wait_nor_a_sleep) {
     CHECK(blocked.sleep_result.load() == 0);
     CHECK(blocked.slept_ns.load() >= 250'000'000);
     CHECK(handled[sigusr2].load() == before + 1);  // once, when the thread unblocked it
+}
+
+/// The guest threads of the next test, as ART has them: SIGQUIT blocked in every thread, one of them (the signal
+/// catcher) waiting for it in sigwait, another sending it to the process.
+struct ProcessQuit {
+    std::atomic<int> phase{0};  // 1: the catcher blocks SIGQUIT and waits
+    std::atomic<long> waited{1};
+    std::atomic<long> sent{1};
+};
+
+void catch_quit(void *argument) {
+    auto &quit = *static_cast<ProcessQuit *>(argument);
+    const std::uint64_t set = bit(sigquit);
+    probe_syscall(nr_rt_sigprocmask, sig_block, address(&set), 0, 8);
+    quit.phase.store(1);
+    const Timespec two_seconds{2, 0};
+    quit.waited.store(probe_syscall(nr_rt_sigtimedwait, address(&set), 0, address(&two_seconds), 8));
+}
+
+void send_quit(void *argument) {
+    auto &quit = *static_cast<ProcessQuit *>(argument);
+    const std::uint64_t set = bit(sigquit);
+    probe_syscall(nr_rt_sigprocmask, sig_block, address(&set), 0, 8);
+    quit.sent.store(probe_syscall(nr_kill, static_cast<std::uint64_t>(::getpid()), sigquit));
+}
+
+TEST(a_signal_every_thread_blocks_waits_with_the_process_for_the_thread_that_waits_for_it) {
+    // Linux keeps it process-pending (shared_pending), where any thread's sigwait takes it: ART's signal catcher
+    // gets the SIGQUIT another thread sends to the process.
+    static ProcessQuit quit;
+    std::uint64_t first_mask = 0;
+    const auto first = [](const std::function<void(apkrt::signals::ThreadSignals &)> &visit) {
+        apkrt::threads::find(::getpid(), [&](apkrt::threads::GuestThread &thread) { visit(thread.signals); });
+    };
+    first([&](apkrt::signals::ThreadSignals &state) { first_mask = state.mask.fetch_or(bit(sigquit)); });
+    {
+        Child catcher(catch_quit, &quit);
+        CHECK(within(2s, [&] { return quit.phase.load() == 1 && sleeping(catcher.host()); }));
+        Child sender(send_quit, &quit);
+        sender.join();
+        catcher.join();
+    }
+    first([&](apkrt::signals::ThreadSignals &state) { state.mask.store(first_mask); });
+    CHECK(quit.sent.load() == 0);
+    CHECK(quit.waited.load() == static_cast<long>(sigquit));
 }
 
 /// The guest thread of the next test: a blocking read and a blocking write on a pipe with SIGUSR2

@@ -103,6 +103,11 @@ std::atomic_flag actions_lock = ATOMIC_FLAG_INIT;
 LinuxSigaction actions[signal_count + 1] = {};
 std::atomic<std::uint64_t> default_restorer{0};
 
+// Linux's shared_pending: a signal sent to the process that every thread blocks waits here, for a thread's
+// sigtimedwait (take) or for the first thread that unblocks it (claim_process_signals). Senders hold its lock
+// while they look at the masks, and a thread looks here after it changed its mask: none of them misses the other.
+ThreadSignals process_signals;
+
 class SpinLock {
 public:
     explicit SpinLock(std::atomic_flag &flag) : flag_(flag) {
@@ -190,8 +195,7 @@ bool is_real_time(int signal) {
 
 /// Adds a signal to the thread's pending ones. Standard signals do not queue; real-time ones do,
 /// up to the queue's size (then EAGAIN, as Linux answers at its RLIMIT_SIGPENDING).
-long enqueue(ThreadSignals &state, int signal, const LinuxSiginfo &info) {
-    const SpinLock lock(state.lock);
+long enqueue_locked(ThreadSignals &state, int signal, const LinuxSiginfo &info) {
     if (is_real_time(signal)) {
         if (state.queued == ThreadSignals::queue_capacity) return -11;  // EAGAIN
         state.queue[state.queued++] = {signal, info};
@@ -200,6 +204,11 @@ long enqueue(ThreadSignals &state, int signal, const LinuxSiginfo &info) {
     }
     state.pending.fetch_or(bit(signal));
     return 0;
+}
+
+long enqueue(ThreadSignals &state, int signal, const LinuxSiginfo &info) {
+    const SpinLock lock(state.lock);
+    return enqueue_locked(state, signal, info);
 }
 
 /// The next signal among `allowed` as Linux picks it: synchronous ones first, then the lowest.
@@ -600,17 +609,19 @@ void set_action(int signal, const LinuxSigaction &value) {
     }
     // POSIX: a signal set to be ignored is dropped where it is pending.
     if (!ignored(value, signal)) return;
-    threads::for_each([&](threads::GuestThread &thread) {
-        const SpinLock lock(thread.signals.lock);
+    const auto drop = [&](ThreadSignals &state) {
+        const SpinLock lock(state.lock);
         if (is_real_time(signal)) {
             int kept = 0;
-            for (int index = 0; index < thread.signals.queued; ++index) {
-                if (thread.signals.queue[index].signal != signal) thread.signals.queue[kept++] = thread.signals.queue[index];
+            for (int index = 0; index < state.queued; ++index) {
+                if (state.queue[index].signal != signal) state.queue[kept++] = state.queue[index];
             }
-            thread.signals.queued = kept;
+            state.queued = kept;
         }
-        thread.signals.pending.fetch_and(~bit(signal));
-    });
+        state.pending.fetch_and(~bit(signal));
+    };
+    threads::for_each([&](threads::GuestThread &thread) { drop(thread.signals); });
+    drop(process_signals);
 }
 
 ThreadSignals::~ThreadSignals() {
@@ -684,20 +695,43 @@ long send_to_process(int signal, const LinuxSiginfo &info) {
     threads::GuestThread *self = threads::current();
     std::int32_t target = self != nullptr ? self->tid : ::getpid();
     if (signal != 0 && self != nullptr && (self->signals.mask.load() & bit(signal)) != 0) {
-        threads::for_each([&](threads::GuestThread &thread) {
-            if (target == self->tid && (thread.signals.mask.load() & bit(signal)) == 0) target = thread.tid;
-        });
+        long kept = 1;
+        {
+            const SpinLock lock(process_signals.lock);
+            threads::for_each([&](threads::GuestThread &thread) {
+                if (target == self->tid && (thread.signals.mask.load() & bit(signal)) == 0) target = thread.tid;
+            });
+            // Every thread blocks it: it waits with the process, as with ART, whose signal catcher takes the
+            // SIGQUIT every thread blocks in sigwait.
+            if (target == self->tid) kept = enqueue_locked(process_signals, signal, info);
+        }
+        if (kept != 1) {
+            if (kept == 0) threads::for_each([](threads::GuestThread &thread) { notify(thread.signals); });
+            return kept;
+        }
     }
     return send_to_thread(target, signal, info);
 }
 
+void claim_process_signals(ThreadSignals &state) {
+    if (process_signals.pending.load() == 0) return;
+    const SpinLock lock(process_signals.lock);
+    int signal;
+    LinuxSiginfo info;
+    while (take_locked(process_signals, ~state.mask.load(), signal, info)) enqueue(state, signal, info);
+}
+
 bool take(ThreadSignals &state, std::uint64_t allowed, int &signal, LinuxSiginfo &info) {
-    const SpinLock lock(state.lock);
-    return take_locked(state, allowed, signal, info);
+    {
+        const SpinLock lock(state.lock);
+        if (take_locked(state, allowed, signal, info)) return true;
+    }
+    const SpinLock lock(process_signals.lock);  // the thread's own first, as Linux's dequeue_signal
+    return take_locked(process_signals, allowed, signal, info);
 }
 
 std::uint64_t pending(const ThreadSignals &state) {
-    return state.pending.load();
+    return state.pending.load() | process_signals.pending.load();
 }
 
 namespace {
@@ -812,6 +846,7 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
     std::memcpy(context.q, fpsimd->v, sizeof context.q);
     auto &state = current();
     state.mask.store(uc.sigmask & ~unblockable);
+    claim_process_signals(state);
     auto stack = uc.stack;
     stack.flags &= ss_disable | ss_autodisarm;
     state.alternate_stack = stack;

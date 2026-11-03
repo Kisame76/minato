@@ -55,6 +55,7 @@ long sys_clone(const apkrt_syscall_frame &frame, std::uint64_t flags, std::uint6
     // The child's signal mask is the parent's; its alternate signal stack is none (CLONE_VM). Its nice value is the
     // parent's (copy_process).
     thread->signals.mask.store(signals::current().mask.load());
+    signals::claim_process_signals(thread->signals);
     if (const threads::GuestThread *parent = threads::current()) thread->nice.store(parent->nice.load());
     // Both IDs are written before the child runs; it shares the parent's memory.
     if (flags & clone_parent_settid) *as_pointer<std::int32_t>(parent_tid) = thread->tid;

@@ -169,8 +169,12 @@ void set_action(int signal, const LinuxSigaction &action);
 long send_to_thread(std::int32_t tid, int signal, const LinuxSiginfo &info);
 
 /// Sends a signal to the process: to the calling thread unless it blocks it, else to a thread
-/// that does not.
+/// that does not. When every thread blocks it, it waits with the process, as Linux's shared_pending:
+/// for take, or for the first thread that unblocks it.
 long send_to_process(int signal, const LinuxSiginfo &info);
+
+/// After the thread's mask changed: the process's waiting signals it no longer blocks become its own.
+void claim_process_signals(ThreadSignals &state);
 
 /// At the program's end (ADR-0028, decision 5), as Linux's exit_group does: makes SIGKILL, which no
 /// mask blocks, pending on every guest thread but the calling one and wakes it, with the runtime signal
@@ -190,11 +194,11 @@ void raise_signal_word(ThreadSignals &state);
 /// first call; -1 when the host cannot make one.
 int wait_queue_of(ThreadSignals &state);
 
-/// Takes the lowest pending signal among `allowed` (a set of signals), for sigtimedwait; false
-/// when there is none.
+/// Takes the lowest pending signal among `allowed` (a set of signals), for sigtimedwait: the
+/// thread's own, then the process's; false when there is none.
 bool take(ThreadSignals &state, std::uint64_t allowed, int &signal, LinuxSiginfo &info);
 
-/// The pending signals of the calling thread.
+/// The pending signals of the calling thread, its own and the process's.
 std::uint64_t pending(const ThreadSignals &state);
 
 /// At the end of every syscall: the state of the calling guest thread, whose in_runtime the exit of

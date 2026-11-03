@@ -153,6 +153,7 @@ void stop_watching(signals::ThreadSignals &state, Watched *watched, int count) {
 WaitMask::WaitMask(signals::ThreadSignals &state, std::uint64_t address) : state_(state), own_(state.mask.load()) {
     if (address == 0) return;
     state.mask.store(*as_pointer<const std::uint64_t>(address) & ~unblockable);
+    signals::claim_process_signals(state);
     applied_ = true;
 }
 
@@ -181,6 +182,7 @@ long sys_rt_sigprocmask(int how, std::uint64_t new_address, std::uint64_t old_ad
             default: return -linux_errno::einval;
         }
         state.mask.store(mask & ~unblockable);  // what it unblocks arrives at the end of this syscall
+        signals::claim_process_signals(state);
     }
     if (old_address != 0) *as_pointer<std::uint64_t>(old_address) = old_mask;
     return 0;
@@ -234,6 +236,7 @@ long sys_rt_sigsuspend(std::uint64_t address, std::uint64_t size) {
     state.frame_mask = state.mask.load();
     state.frame_mask_set = true;
     state.mask.store(temporary);
+    signals::claim_process_signals(state);
     wait_until(state, [] { return false; }, no_deadline);  // only a signal ends it
     return -linux_errno::eintr;  // delivered at the end of this syscall
 }
