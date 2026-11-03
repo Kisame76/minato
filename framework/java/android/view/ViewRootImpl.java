@@ -680,6 +680,26 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             int requestedHeight) {
         final InsetsState state = new InsetsState();
         state.setDisplayFrame(bounds);
+        // A floating window (a dialog, a popup, a floating activity) is laid out inside the system bars, as Android
+        // does, from the host's bar heights (SystemBarInsets); a full-size window keeps its frame (decision 8 is open
+        // for it).
+        final boolean floating = lp.type != WindowManager.LayoutParams.TYPE_BASE_APPLICATION
+                || (mView instanceof com.android.internal.policy.DecorView
+                        && ((com.android.internal.policy.DecorView) mView).isFloatingWindow());
+        if (floating) {
+            final int top = com.android.minato.view.SystemBarInsets.top();
+            final int bottom = com.android.minato.view.SystemBarInsets.bottom();
+            if (top > 0) {
+                state.getOrCreateSource(InsetsSource.createId(null, 0, WindowInsets.Type.statusBars()),
+                        WindowInsets.Type.statusBars())
+                        .setFrame(bounds.left, bounds.top, bounds.right, bounds.top + top).setVisible(true);
+            }
+            if (bottom > 0) {
+                state.getOrCreateSource(InsetsSource.createId(null, 0, WindowInsets.Type.navigationBars()),
+                        WindowInsets.Type.navigationBars())
+                        .setFrame(bounds.left, bounds.bottom - bottom, bounds.right, bounds.bottom).setVisible(true);
+            }
+        }
         mTmpFrames.attachedFrame = attached;
         mWindowLayout.computeFrames(lp, state, bounds, bounds,
                 android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN, requestedWidth, requestedHeight,

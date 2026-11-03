@@ -295,6 +295,11 @@ public class DecorView extends FrameLayout {
         return cb != null ? cb.dispatchGenericMotionEvent(ev) : super.dispatchGenericMotionEvent(ev);
     }
 
+    /** ViewRootImpl's: whether the window is floating (a dialog's or a floating activity's theme). */
+    public boolean isFloatingWindow() {
+        return mWindow != null && mWindow.isFloating();
+    }
+
     /**
      * The view tree's own dispatch, which the activity's default dispatch comes back to through the window; for a key,
      * then the unhandled-key listeners of the window's views, as AOSP's but for action modes (ADR-0045 step 7c1).

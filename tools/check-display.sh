@@ -15,6 +15,13 @@ CHECK_WIDTH=${BASH_REMATCH[1]}
 CHECK_HEIGHT=${BASH_REMATCH[2]}
 CHECK_SCALE=${BASH_REMATCH[3]}
 CHECK_DENSITY=$((CHECK_SCALE * 160))
+# The system bars' heights at the display, as the AVDs report them (the views-test rows of fixtures/expected): the top
+# and bottom insets the guest's floating windows are laid out inside (the framework's SystemBarInsets reads
+# MINATO_BAR_INSETS).
+case "$CHECK_DISPLAY" in
+  2007x2853@3) export MINATO_BAR_INSETS=72,96 ;;
+  *) export MINATO_BAR_INSETS=72,72 ;;
+esac
 
 # expected_at_display <name> <kind>: Android 15's reference fixtures/expected/<name>.<kind> at the M4 plan's display,
 # fixtures/expected/<name>@<width>x<height>.<kind> at another, which tools/android-reference.sh makes with the same

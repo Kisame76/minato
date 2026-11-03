@@ -33,6 +33,8 @@ tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh second-windows-test >/dev/null
 
 EXPECTED=$(expected_at_display second-windows-test logcat)
+# The floating window sits between the system bars (check-display.sh's MINATO_BAR_INSETS).
+IFS=, read -r BAR_TOP BAR_BOTTOM <<<"$MINATO_BAR_INSETS"
 taps=$(sed -n 's/^I\/second-windows-test: ready: .*, tap at \([0-9]*\),\([0-9]*\)$/tap:\1:\2/p' "$EXPECTED" |
   paste -sd , -)
 if [[ $(tr -cd , <<<"$taps" | wc -c) -ne 4 ]]; then
@@ -51,9 +53,10 @@ MINATO_SESSION_LAYERS=1 MINATO_WINDOW_WATCH=hidden python3 framework/tests/java_
   --in-order "I/second-windows-test: convertToTranslucent: true" \
   --in-order "window host: from the bottom: the window, dim, window 14, window 11, window 10" \
   --in-order "window host: window 10 goes" \
-  --in-order "window host: window 15, type 1: at $(((CHECK_WIDTH - 295) / 2)), $(((CHECK_HEIGHT - 201) / 2)),\
- 295 x 201, alpha 1.00, dim 0.60, not opaque" \
+  --in-order "window host: window 15, type 1: at $(((CHECK_WIDTH - 295) / 2)),\
+ $(((BAR_TOP + CHECK_HEIGHT - BAR_BOTTOM - 201) / 2)), 295 x 201, alpha 1.00, dim 0.60, not opaque" \
   --in-order "window host: from the bottom: the window, dim, window 15" \
+  --env "MINATO_BAR_INSETS=$MINATO_BAR_INSETS" \
   --lifecycle "start,$taps" second-windows-test io.github.kisame76.minato.test.secondwindows \
   android.app.Application build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
