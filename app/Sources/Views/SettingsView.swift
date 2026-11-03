@@ -44,6 +44,9 @@ struct SettingsView: View {
                 } footer: {
                     Text("Shows the frame rate while an app runs. The app’s menu turns it on and off too.")
                 }
+                Section {
+                    NavigationLink("Storage") { StorageView() }
+                }
                 Section("About") {
                     LabeledContent("Version", value: version)
                     LabeledContent("Runtime", value: String(cString: apkrt_version()))

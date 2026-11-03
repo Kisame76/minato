@@ -74,6 +74,7 @@ struct SelectionMark: View {
 
 struct AppIcon: View {
     let url: URL?
+    var cornerRadius: CGFloat = 17
 
     var body: some View {
         Group {
@@ -90,7 +91,7 @@ struct AppIcon: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 

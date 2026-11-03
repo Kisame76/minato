@@ -483,6 +483,11 @@ final class LibraryModel {
         lastOpened = await library.lastOpened
     }
 
+    /// Every installed app's space for Settings › Storage, largest first (Library.storage).
+    func storage() async -> [StorageUse] {
+        await library?.storage() ?? []
+    }
+
     /// Clears the app's data as Android's Clear storage does (Library.clearData), with its web data and the report of
     /// its last session; the app stays installed (the navigation design, section 6).
     func clearData(of entry: LibraryEntry) async {

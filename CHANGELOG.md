@@ -34,6 +34,7 @@ All notable changes to Minato are documented in this file. The format follows
 - Home shows the apps you opened last and your favorites; touch and hold an app there works as in the library
 - Clear App Data, in an app's menu and in Get Info: it deletes the app's saved data, such as progress and settings,
   as Android's Clear storage does, and keeps the app and its OBB files
+- Settings › Storage lists each app's space, the app and its data apart, largest first
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
 - When iOS closed an app, for example because it used too much memory, or the app ended with an error status, the
   library says so the next time Minato opens
