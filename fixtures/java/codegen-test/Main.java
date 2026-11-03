@@ -179,6 +179,10 @@ public class Main {
             return new java.lang.ref.Reference[] { new java.lang.ref.WeakReference<Object>(strings[0]),
                                                    new java.lang.ref.SoftReference<Object>(strings[1]) };
         }
+        /** Arrays of every kind behind plain Object references: arraycopy cannot know their types at compile time. */
+        static Object[] anyArrays = { new int[8], new String[8], new Object[8], new long[8], new CharSequence[8],
+                                      new char[8], new Integer[8], new byte[8], new String[8][] };
+        static StringBuilder anyResults = new StringBuilder();
         static int pick() { return counter < 0 ? 1 : 0; }
     }
 
@@ -513,6 +517,25 @@ public class Main {
         out("varhandles", r + " " + slots.thing);
     }
 
+    /** System.arraycopy between arrays seen only as Object: the intrinsic's runtime type checks and its slow path. */
+    static void anyCopies() {
+        for (int i = 0; i < Pool.anyArrays.length; i++) {
+            for (int j = 0; j < Pool.anyArrays.length; j++) {
+                Object source = Pool.anyArrays[i], target = Pool.anyArrays[j];
+                String result;
+                try {
+                    System.arraycopy(source, 1, target, 2, 4);
+                    result = "ok";
+                } catch (ArrayStoreException e) {
+                    result = "store";
+                }
+                Pool.anyResults.append(result.charAt(0));
+            }
+            Pool.anyResults.append(' ');
+        }
+        out("any copies", Pool.anyResults);
+    }
+
     public static void main(String[] args) {
         instanceOf();
         interfaces();
@@ -521,6 +544,7 @@ public class Main {
         firstUse();
         copies();
         intrinsics();
+        anyCopies();
         loops();
         exceptions();
         allocation();

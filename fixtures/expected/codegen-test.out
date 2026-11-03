@@ -66,6 +66,7 @@ getChars: 304923
 valueOf: [5, 1000, 7, 70000, 3, a, -4] true
 reference: compressed unicodé中 true false false
 varhandles: 1099528538149 swapped
+any copies: ossssssss soosososo soosososo sssosssss soosososo sssssosss soosososo sssssssos soosososo 
 loops: 33072
 thrown: bottom 5
 cast: java.lang.String cannot be cast to java.lang.Integer
