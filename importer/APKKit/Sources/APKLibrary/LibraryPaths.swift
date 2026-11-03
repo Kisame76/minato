@@ -55,6 +55,16 @@ public struct LibraryPaths: Sendable {
         versionDirectory(for: entry).appendingPathComponent("lib", isDirectory: true)
     }
 
+    /// The app's oat as dex2oat wrote it, base.odex and base.vdex (ADR-0053, M6 c), in the installed version's folder.
+    public func oatDirectory(for entry: LibraryEntry) -> URL {
+        versionDirectory(for: entry).appendingPathComponent("oat", isDirectory: true)
+    }
+
+    /// The odex's signed container, base.odex.dylib, which ART's dlopen loads.
+    public func oatContainerDirectory(for entry: LibraryEntry) -> URL {
+        versionDirectory(for: entry).appendingPathComponent("oat-containers", isDirectory: true)
+    }
+
     /// Stands in for /data/data/<package>, /data/user_de/0/<package>, /sdcard/Android/data/<package>,
     /// /sdcard/Android/obb/<package> and the app's /sdcard/Download (ADR-0057 step b): data, data_de, external, obb and
     /// download.
