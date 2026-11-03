@@ -33,10 +33,13 @@ public struct LastSessionNotice: Equatable, Sendable {
 
     public var name: String
     public var cause: Cause
+    /// The app's package, for its report (ADR-0070); nil in a notice made without one.
+    public var package: String?
 
-    public init(name: String, cause: Cause) {
+    public init(name: String, cause: Cause, package: String? = nil) {
         self.name = name
         self.cause = cause
+        self.package = package
     }
 
     private static let signalNames = [
@@ -106,19 +109,20 @@ public struct LastSessionStore: Sendable {
         try? FileManager.default.removeItem(at: recordFile)
         try? FileManager.default.removeItem(at: statusFile)
         guard let session else { return nil }
-        if let failure = session.failure { return LastSessionNotice(name: session.name, cause: .failure(failure)) }
+        let notice = { LastSessionNotice(name: session.name, cause: $0, package: session.package) }
+        if let failure = session.failure { return notice(.failure(failure)) }
         // An exit code, through the end handler or not (the lead's decision, 2026-11-01).
         if let status, (1...128).contains(status) {
-            return LastSessionNotice(name: session.name, cause: .exitStatus(status))
+            return notice(.exitStatus(status))
         }
         // Otherwise an end through the end handler is no crash, a kill of itself's 137 too; nor is a restart to the
         // library, which marks the end too.
         if session.endedItself == true { return nil }
         // Neither the runtime's status nor an end: iOS ended the process (a kill by iOS runs nothing).
-        guard let status else { return LastSessionNotice(name: session.name, cause: .endedByIOS) }
+        guard let status else { return notice(.endedByIOS) }
         // A shell's 128 + the signal.
         guard status > 128 else { return nil }
-        return LastSessionNotice(name: session.name, cause: .signal(status - 128))
+        return notice(.signal(status - 128))
     }
 
     private func read() -> LastSession? {

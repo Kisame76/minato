@@ -21,6 +21,8 @@ final class TileActions {
     /// The tile whose Clear App Data asks, by its key.
     var clearingTile: String?
     var clearing: LibraryEntry?
+    /// The report Report a Problem shows (ADR-0070).
+    var reporting: AppReport?
 }
 
 /// One app's tile, the same in Library and on Home: a tap starts the app or says why not, touch and hold offers Get
@@ -58,6 +60,9 @@ struct AppTile: View {
                                 Task { await model.setFavorite([entry], true) }
                             }
                         }
+                    }
+                    Button("Report a Problem", systemImage: "exclamationmark.bubble") {
+                        actions.reporting = model.report(of: entry)
                     }
                     Divider()
                     if !entry.id.hasPrefix("file:") {
@@ -159,14 +164,19 @@ extension View {
 
 private struct TileActionsModifier: ViewModifier {
     @Bindable var actions: TileActions
+    @Environment(LibraryModel.self) private var model
 
     func body(content: Content) -> some View {
         content
             .sheet(item: $actions.shownEntry) { entry in
                 AppDetailView(entry: entry)
             }
+            .sheet(item: $actions.reporting) { report in
+                ReportSheet(report: report)
+            }
             .alert(title, isPresented: blockedShown, presenting: actions.blocked) { blocked in
                 Button("Get Info") { actions.shownEntry = blocked.entry }
+                Button("Report a Problem") { actions.reporting = model.report(of: blocked.entry) }
                 Button("OK", role: .cancel) {}
             } message: { blocked in
                 Text(Texts.launchProblem(of: blocked.entry, reason: blocked.reason).message)

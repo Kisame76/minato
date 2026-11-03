@@ -1,3 +1,4 @@
+import APKLibrary
 import APKSession
 import SwiftUI
 
@@ -7,6 +8,7 @@ struct LibraryScene: View {
     let library: LibraryModel
     @Bindable var signing: SigningCoordinator
     @State private var problem: LaunchMode.Problem?
+    @State private var reporting: AppReport?
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
     @Environment(\.scenePhase) private var scenePhase
 
@@ -34,10 +36,17 @@ struct LibraryScene: View {
                 CertificateSetupView()
                     .environment(signing)
             }
-            .alert(problem.map(Texts.launchProblem)?.title ?? "", isPresented: problemShown) {
-                Button("OK") {}
-            } message: {
-                Text(problem.map(Texts.launchProblem)?.message ?? "")
+            .alert(problem.map(Texts.launchProblem)?.title ?? "", isPresented: problemShown, presenting: problem) {
+                problem in
+                if reportsApp(problem) {
+                    Button("Report a Problem") { reporting = report(for: problem) }
+                }
+                Button("OK", role: .cancel) {}
+            } message: { problem in
+                Text(Texts.launchProblem(problem).message)
+            }
+            .sheet(item: $reporting) { report in
+                ReportSheet(report: report)
             }
             // Finish imports that were interrupted, e.g. because the app was closed while installing, and
             // check the signing certificate, which a store may have changed while the app was away.
@@ -55,6 +64,28 @@ struct LibraryScene: View {
                     Task { await signing.refresh() }
                 }
             }
+    }
+
+    /// Whether the alert names an app to report (ADR-0070): one that is not ready, or that quit unexpectedly.
+    private func reportsApp(_ problem: LaunchMode.Problem) -> Bool {
+        switch problem {
+        case .appNotFound: false
+        case .appNotReady: true
+        case .quitUnexpectedly(let notice): notice.package != nil
+        }
+    }
+
+    /// The app's report, with how its last session ended when it quit unexpectedly.
+    private func report(for problem: LaunchMode.Problem) -> AppReport? {
+        switch problem {
+        case .appNotFound:
+            return nil
+        case .appNotReady(let entry):
+            return library.report(of: entry)
+        case .quitUnexpectedly(let notice):
+            guard let entry = library.items.first(where: { $0.id == notice.package })?.entry else { return nil }
+            return library.report(of: entry, ending: AppReport.Ending(notice.cause))
+        }
     }
 
     private var problemShown: Binding<Bool> {

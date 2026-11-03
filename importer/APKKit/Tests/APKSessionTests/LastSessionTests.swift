@@ -48,7 +48,7 @@ struct LastSessionTests {
         try #require(descriptor >= 0)
         Self.report(128 + 11, to: descriptor)
 
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(11)))
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(11), package: Self.session.package))
     }
 
     @Test func aNormalEndShowsNothing() throws {
@@ -65,13 +65,15 @@ struct LastSessionTests {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)
         Self.report(3, to: descriptor)
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .exitStatus(3)))
+        #expect(store.take() == LastSessionNotice(
+            name: "Example", cause: .exitStatus(3), package: Self.session.package))
 
         let again = store.begin(Self.session)
         try #require(again >= 0)
         Self.report(1, to: again)
         store.ended()
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .exitStatus(1)))
+        #expect(store.take() == LastSessionNotice(
+            name: "Example", cause: .exitStatus(1), package: Self.session.package))
     }
 
     /// iOS ended the process, as for using too much memory: no status and no end, since a kill by iOS runs nothing.
@@ -80,7 +82,7 @@ struct LastSessionTests {
         try #require(descriptor >= 0)
         close(descriptor)
 
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .endedByIOS))
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .endedByIOS, package: Self.session.package))
     }
 
     /// Quit restarted Minato before a program ran: no status, but the end was the user's.
@@ -99,7 +101,8 @@ struct LastSessionTests {
         store.failed("libmain.so is missing")
         Self.report(1, to: descriptor)
 
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .failure("libmain.so is missing")))
+        #expect(store.take() == LastSessionNotice(
+            name: "Example", cause: .failure("libmain.so is missing"), package: Self.session.package))
     }
 
     /// A program that ends through the end handler ends as an exit, a quit or a kill of itself, whose report a
@@ -119,7 +122,7 @@ struct LastSessionTests {
         try #require(descriptor >= 0)
         Self.report(128 + 9, to: descriptor)
 
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(9)))
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(9), package: Self.session.package))
     }
 
     /// A record of an older build, without the end, reads as before: a crash is still shown.
@@ -129,7 +132,7 @@ struct LastSessionTests {
         try Data(#"{"package":"org.example.app","name":"Example"}"#.utf8).write(to: store.recordFile)
         Self.report(128 + 11, to: descriptor)
 
-        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(11)))
+        #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(11), package: Self.session.package))
     }
 
     @Test func itIsReadOnceThenRemoved() throws {
@@ -152,7 +155,7 @@ struct LastSessionTests {
         try #require(second >= 0)
         Self.report(128 + 7, to: second)
 
-        #expect(store.take() == LastSessionNotice(name: "Other", cause: .signal(7)))
+        #expect(store.take() == LastSessionNotice(name: "Other", cause: .signal(7), package: "org.example.other"))
     }
 
     @Test func aDamagedRecordShowsNothingAndIsRemoved() throws {

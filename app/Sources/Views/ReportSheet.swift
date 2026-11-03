@@ -1,4 +1,5 @@
 import APKLibrary
+import APKSession
 import SwiftUI
 import UIKit
 
@@ -57,6 +58,18 @@ struct ReportSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+extension AppReport.Ending {
+    /// How the last session ended, as the library's notice says it.
+    init(_ cause: LastSessionNotice.Cause) {
+        switch cause {
+        case .signal(let number): self = .signal(number, name: LastSessionNotice.signalName(number))
+        case .failure(let reason): self = .startFailed(reason)
+        case .endedByIOS: self = .endedByIOS
+        case .exitStatus(let status): self = .exitStatus(status)
         }
     }
 }
