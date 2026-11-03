@@ -24,7 +24,8 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh dialog-test >/dev/null
 
-python3 framework/tests/java_app_run.py dialog-test io.github.kisame76.minato.test.dialog \
+python3 framework/tests/java_app_run.py --env "MINATO_BAR_INSETS=$MINATO_BAR_INSETS" \
+  dialog-test io.github.kisame76.minato.test.dialog \
   android.app.Application build/art build/bionic/lib build/bionic/system \
   build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
   "$NATIVE/runtime/apk-run" build/dialog-check build/framework-native/app_process64 build/framework/framework.jar \
