@@ -106,6 +106,11 @@ public struct LibraryPaths: Sendable {
         try download.setResourceValues(excluded)
     }
 
+    /// The kept session logs (SessionLog, ADR-0070): Library/Caches/session-logs.
+    public var sessionLogDirectory: URL {
+        caches.appendingPathComponent("session-logs", isDirectory: true)
+    }
+
     /// The host's own records of the app's clones of the user's files (ADR-0057's addendum): never below the app's
     /// folders, which the guest can write.
     public func writeBackDirectory(for package: String) -> URL {

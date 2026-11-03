@@ -1428,6 +1428,7 @@ public actor Library {
             try? FileManager.default.removeItem(at: paths.dataDirectory(for: id))
             try? FileManager.default.removeItem(at: paths.guestDataDirectory(for: id).deletingLastPathComponent())
             try? FileManager.default.removeItem(at: paths.writeBackDirectory(for: id))
+            SessionLog(folder: paths.sessionLogDirectory).remove(package: id)
         }
         let keptFavorites = favorites.filter { $0 != id }
         var keptOpened = lastOpened
@@ -1442,7 +1443,7 @@ public actor Library {
     /// flags): what its data, device protected data and external folders hold goes, and cache and code_cache are made
     /// again as at an install. Its OBBs stay, as installd keeps them until the app is uninstalled, and so do its
     /// Download folder, which stands in for shared storage, and its profile, which is Minato's. The app stays
-    /// installed, with its place, favorite and last opening.
+    /// installed, with its place, favorite and last opening; its kept session log goes (ADR-0070).
     public func clearData(id: String) throws {
         guard entries.contains(where: { $0.id == id }), !id.hasPrefix("file:"), Self.isSafePackageName(id) else {
             return
@@ -1456,6 +1457,7 @@ public actor Library {
             }
         }
         try paths.prepareData(for: id)
+        SessionLog(folder: paths.sessionLogDirectory).remove(package: id)
     }
 
     // MARK: - The navigation's data (docs/plans/2026-09-24-app-navigation-design.md, section 5)

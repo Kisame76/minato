@@ -252,6 +252,23 @@ struct NavigationDataTests {
         #expect(await library.lastOpened["a.app"] == Date(timeIntervalSince1970: 10))
     }
 
+    @Test func clearingDataOrDeletingRemovesTheKeptSessionLog() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try await library(sandbox, ["a.app", "b.app"])
+        let log = SessionLog(folder: sandbox.paths.sessionLogDirectory)
+        for package in ["a.app", "b.app"] {
+            let writer = try log.writer(for: package)
+            writer.append(Data("I/tag: hello\n".utf8))
+            writer.close()
+            try log.keep(package: package)
+        }
+        try await library.clearData(id: "a.app")
+        #expect(!FileManager.default.fileExists(atPath: log.keptFile(for: "a.app").path))
+        try await library.remove(id: "b.app")
+        #expect(!FileManager.default.fileExists(atPath: log.keptFile(for: "b.app").path))
+    }
+
     @Test func homesFavoritesKeepTheirOwnOrderAndSkipDeletedApps() {
         #expect(LibrarySort.favorites(entries, favorites: ["d", "gone", "b"]).map(\.id) == ["d", "b"])
         #expect(LibrarySort.favorites(entries, favorites: []).isEmpty)
