@@ -1629,8 +1629,8 @@ if [[ -n "$app" ]]; then
     sounds_off
   fi
   # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
-  # as a hardware keyboard's do.
-  if [[ "$app" == text-test || "$app" == key-test ]]; then
+  # as a hardware keyboard's do; so does second-windows-test, whose windows' order an input method's window changed.
+  if [[ "$app" == text-test || "$app" == key-test || "$app" == second-windows-test ]]; then
     trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods_off
   fi
