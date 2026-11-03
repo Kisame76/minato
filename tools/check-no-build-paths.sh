@@ -39,7 +39,8 @@ while IFS= read -r file; do
   line="  ${file#"$target"/}:"
   while IFS= read -r needle; do
     [[ -n "$needle" ]] || continue
-    count="$(grep -aoF -- "$needle" "$file" 2>/dev/null | wc -l | tr -d ' ')"
+    # A needle the file lacks fails grep, which pipefail would make the whole check's silent exit.
+    count="$({ grep -aoF -- "$needle" "$file" 2>/dev/null || true; } | wc -l | tr -d ' ')"
     [[ "${count:-0}" -gt 0 ]] && line="$line ${count}x[$needle]"
   done < "$patterns"
   offenders="$offenders$line"$'\n'

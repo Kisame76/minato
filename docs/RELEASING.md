@@ -29,7 +29,9 @@ adds a bullet under `## Unreleased`, in the same commit, under Added, Changed or
    - the full test suite (`docs/TESTING.md`);
    - both iOS slices;
    - a short run on an iPhone with the project's own test APKs.
-2. In a clean clone of `main`, with the sources fetched (`docs/BUILDING.md`), run:
+2. In a clean clone of `main`, with the sources fetched and a full build made there (`docs/BUILDING.md`: Bionic, ART,
+   hwui, the framework, framework-native and the Mac's apk-convert, which the app's embed steps read and release.sh
+   does not build), run:
 
    ```bash
    tools/release.sh 1.0.0-beta.2
