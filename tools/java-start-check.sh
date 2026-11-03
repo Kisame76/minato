@@ -186,6 +186,12 @@ if [[ -n "${WEBVIEW_TOUCH:-}" ]]; then
   APPS+=("webview-touch-test io.github.kisame76.minato.test.webviewtouch")
   ONLY=webview-touch-test
 fi
+# HANG: hang-test alone, whose main thread sleeps 60 s after its first frame; the menu and Quit come 12 s after the
+# start (SessionCheck's "quit"), and the library must be back within 15 s of the Quit, the hung guest ended.
+if [[ -n "${HANG:-}" ]]; then
+  APPS+=("hang-test io.github.kisame76.minato.test.hang")
+  ONLY=hang-test
+fi
 # IME: ime-test alone (ADR-0068 step 2c), whose text comes from the operator's taps on UIKit's keyboard.
 if [[ -n "${IME:-}" ]]; then
   APPS+=("ime-test io.github.kisame76.minato.test.ime")
@@ -491,6 +497,7 @@ begin_start() {
   seen=0
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
+  [[ -z "${QUIT_AFTER:-}" ]] || echo "$QUIT_AFTER" > "$CHECK/quit"
   send_requests
   launch
   if ! await_event "decision .*" 60; then
@@ -1128,6 +1135,30 @@ path, expected = sys.argv[1:]
 compare_log("webview-touch-test", subprocess.CompletedProcess([], 0, "", open(path, encoding="utf-8",
                                                                              errors="replace").read()), expected, {})
 PY
+fi
+
+# HANG: hang-test; the host's menu and Quit while its main thread hangs.
+if [[ -n "${HANG:-}" ]]; then
+  QUIT_AFTER=12
+  if begin_start hang-test io.github.kisame76.minato.test.hang 1; then
+    if ! await_line guest-log '^I/hang-test: hanging$' 120; then
+      failed_line 'no "hanging"' hang-test-1
+    elif ! await_event "menu opened" 30; then
+      failed_line "no menu while the guest hangs" hang-test-1
+    elif ! await_event "quit" 15; then
+      failed_line "no Quit while the guest hangs" hang-test-1
+    else
+      quit_at=${EVENT%% *}
+      if await_event "process library.*" 15; then
+        ok "  the library is back $(seconds "$quit_at" "${EVENT%% *}") s after the Quit, the guest hung"
+      else
+        failed_line "no library within 15 s of the Quit" hang-test-1
+      fi
+    fi
+  fi
+  QUIT_AFTER=
+  end_start hang-test 1
+  sed 's/^/      | /' "$WORK/hang-test-1.log" | grep "hang-test" || true
 fi
 
 echo "java start check: $failures failed"
