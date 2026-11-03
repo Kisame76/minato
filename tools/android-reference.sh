@@ -981,6 +981,12 @@ run_app() {
     webview-bridge-test | webview-bridge-test-16)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BridgeActivity
       ;;
+    # webview-late-test: a WebView made late, after what HTML5 app wrappers wait on first (a delay, an AsyncTask's copy
+    # of the page to the app's files, Safe Browsing, the cookies), each with a limit of 5 s; the copied page as a
+    # file:// URL is refused with file access off and runs with it on. It ends with "done".
+    webview-late-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.LateActivity
+      ;;
     # hang-test: its main thread sleeps 60 s after its first frame; it ends with "awake".
     hang-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=awake limit=120

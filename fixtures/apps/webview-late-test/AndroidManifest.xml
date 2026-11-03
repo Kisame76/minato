@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A WebView made late (webview-late-test), as HTML5 app wrappers start: the launcher activity waits on what such a
+     wrapper waits on before it makes its WebView (a delay, an AsyncTask that copies the page from the assets to the
+     app's files, Safe Browsing, the cookies), each step with a limit of 5 s; then the copied page, loaded as a file://
+     URL, is refused while file access is off and runs once it is on. No network. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewlate" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.webviewlate.LateActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

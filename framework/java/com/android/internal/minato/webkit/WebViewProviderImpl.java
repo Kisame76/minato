@@ -63,6 +63,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
@@ -86,7 +87,8 @@ import java.util.concurrent.Executors;
  * whichever comes first: a CALL "make" first, with the package's data store, the scheme and the settings, then one
  * per call, with "settings" again before a load when they changed (the graphics review of b2). URLs of the app's assets
  * and resources (file:///android_asset/, file:///android_res/) go to the host as minato-asset://asset/ and
- * minato-asset://res/, and come back as the app gave them, in every URL the app sees. The host's records come back on
+ * minato-asset://res/, its other file:// URLs, which name the guest's files, as minato-asset://file/, and they come
+ * back as the app gave them, in every URL the app sees. The host's records come back on
  * the main Looper: they drive the clients and a mirror of the page (URL, original URL, title, progress, history), from
  * which the getters answer. At each pre-draw while attached it places the view in its window's pixels (PLACE).
  * Without a host (none has a WebView yet, MAKE answers -EOPNOTSUPP) it answers as a WebView that has loaded nothing
@@ -259,6 +261,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private static final String[][] URL_PREFIXES = {
         {"file:///android_asset/", SCHEME + "://asset/"},
         {"file:///android_res/", SCHEME + "://res/"},
+        {"file:///", SCHEME + "://file/"},
     };
 
     /** A URL of the app as the host sees it. */
@@ -382,7 +385,8 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     /**
      * A request of the page for the app's scheme (step c1): the app's shouldInterceptRequest first, as on Android, then
      * the asset or resource itself. Answers the head ({"status", "reason", "mimeType", "encoding", "headers"}; 404 for
-     * nothing), then the body in pieces, then an empty answer; an end without a head fails the request at the host.
+     * nothing, with "denied" for a file while file access is off), then the body in pieces, then an empty answer; an
+     * end without a head fails the request at the host.
      */
     private void serve(long requestId, JSONObject record) {
         String url = url(record, "url");
@@ -405,6 +409,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
             JSONObject head = new JSONObject();
             if (response == null) {
                 head.put("status", 404);
+                if (deniedFile(url)) {
+                    head.put("denied", true);
+                }
             } else {
                 // A response without a status (its three-argument constructor's) is 200 OK, as Chromium takes it.
                 int status = response.getStatusCode();
@@ -446,7 +453,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
 
     /**
      * An asset (file:///android_asset/<path>) or a resource (file:///android_res/<type>/<name>.<extension>) of the
-     * app, as Chromium's AndroidProtocolHandler opens them, with the MIME type of its extension; null for none.
+     * app, as Chromium's AndroidProtocolHandler opens them, or another file of the guest, which Chromium reads only
+     * while getAllowFileAccess holds (HTML5 app wrappers serve their pages from the app's files), with the MIME type of
+     * its extension; null for none.
      */
     private WebResourceResponse local(String url) {
         if (url == null) {
@@ -475,10 +484,19 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                 return id == 0 ? null : new WebResourceResponse(mime, null,
                         context.getResources().openRawResource(id));
             }
+            if (url.startsWith(URL_PREFIXES[2][0]) && mSettings.getAllowFileAccess()) {
+                return new WebResourceResponse(mime, null, new FileInputStream(path));
+            }
         } catch (IOException | RuntimeException e) {
             return null;
         }
         return null;
+    }
+
+    /** A file of the guest, not an asset or a resource, while file access is off: Chromium's ERR_ACCESS_DENIED. */
+    private boolean deniedFile(String url) {
+        return url != null && url.startsWith(URL_PREFIXES[2][0]) && !url.startsWith(URL_PREFIXES[0][0])
+                && !url.startsWith(URL_PREFIXES[1][0]) && !mSettings.getAllowFileAccess();
     }
 
     private void navigation(JSONObject record) {

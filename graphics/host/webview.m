@@ -1063,6 +1063,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     if (![error.domain isEqualToString:NSURLErrorDomain]) return;
     switch (error.code) {
         case NSURLErrorFileDoesNotExist: *code = -1; *description = @"net::ERR_FILE_NOT_FOUND"; break;
+        case NSURLErrorNoPermissionsToReadFile: *code = -1; *description = @"net::ERR_ACCESS_DENIED"; break;
         case NSURLErrorCannotFindHost:
         case NSURLErrorDNSLookupFailed: *code = -2; *description = @"net::ERR_NAME_NOT_RESOLVED"; break;
         case NSURLErrorNotConnectedToInternet: *code = -2; *description = @"net::ERR_INTERNET_DISCONNECTED"; break;
@@ -1324,7 +1325,11 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
         const NSInteger status = [head isKindOfClass:NSDictionary.class] ? [head[@"status"] integerValue] : 0;
         if (status < 100 || status >= 400) {
             resource.stopped = YES;
-            [task didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist
+            // A guest file while the app's file access is off is refused, as Chromium's ERR_ACCESS_DENIED.
+            const BOOL denied = [head isKindOfClass:NSDictionary.class] && [head[@"denied"] boolValue];
+            [task didFailWithError:[NSError errorWithDomain:NSURLErrorDomain
+                                                       code:denied ? NSURLErrorNoPermissionsToReadFile
+                                                                   : NSURLErrorFileDoesNotExist
                                                    userInfo:@{NSURLErrorFailingURLErrorKey : task.request.URL}]];
             if (end) {
                 [self.resources removeObjectForKey:@(rid)];

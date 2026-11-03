@@ -1,0 +1,9 @@
+I/webview-late-test: created
+I/webview-late-test: delayed
+I/webview-late-test: copied 2 files from the assets
+I/webview-late-test: safe browsing: answered
+I/webview-late-test: cookies: removed
+I/webview-late-test: without file access: -1 net::ERR_ACCESS_DENIED
+I/webview-late-test: webview made
+I/webview-late-test: page: game.js ran, canvas 2d, localStorage object
+I/webview-late-test: done
