@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs hang-test on the Mac through graphics-run: its main thread sleeps 60 s after its first frame, and the app's ANR
 # watchdog (com.android.internal.minato.AnrWatchdog) must log Android's "ANR in <package>" under ActivityManager and
-# every thread's stack, the main thread's at HangActivity, before the app wakes; the app's own lines are Android 15's
+# send the process SIGQUIT, whose dump by ART's signal catcher, every thread's stack with the main thread's at
+# HangActivity, the palette logs whole, line by line, before the app wakes; the app's own lines are Android 15's
 # (fixtures/expected/hang-test.logcat). The run ends 2 s after "awake".
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/anr-check.sh
@@ -25,8 +26,10 @@ rm -rf "$OUT/home"
 mkdir -p "$OUT/home"
 status=0
 CFFIXED_USER_HOME="$PWD/$OUT/home" python3 framework/tests/java_app_run.py --until awake \
-  --in-order "E/ActivityManager: ANR in io.github.kisame76.minato.test.hang" --in-order 'I/ActivityManager: "main"' \
-  --in-order "I/ActivityManager:   at io.github.kisame76.minato.test.hang.HangActivity" \
+  --in-order "E/ActivityManager: ANR in io.github.kisame76.minato.test.hang" \
+  --in-order "I/libartpalette-system: ----- pid" --in-order 'I/libartpalette-system: "main"' \
+  --in-order "I/libartpalette-system:   at io.github.kisame76.minato.test.hang.HangActivity" \
+  --in-order 'I/libartpalette-system: "Signal Catcher"' --in-order "I/libartpalette-system: ----- end" \
   hang-test io.github.kisame76.minato.test.hang \
   android.app.Application build/art build/bionic/lib build/bionic/system build/hwui/lib \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \

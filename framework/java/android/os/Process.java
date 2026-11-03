@@ -10,7 +10,6 @@ package android.os;
 
 import android.system.ErrnoException;
 import android.system.Os;
-import android.system.OsConstants;
 import android.util.Log;
 
 import dalvik.system.VMRuntime;
@@ -147,16 +146,26 @@ public class Process {
     /** As the tag's: a thread's nice value, the caller's for 0; IllegalArgumentException for an unknown thread. */
     public static final native int getThreadPriority(int tid) throws IllegalArgumentException;
 
-    /** Sends SIGKILL to the process, as the tag's sendSignal does, with its log line. */
-    public static final void killProcess(int pid) {
+    /** As the tag's: the signals of sendSignal. */
+    public static final int SIGNAL_QUIT = 3;
+    public static final int SIGNAL_KILL = 9;
+    public static final int SIGNAL_USR1 = 10;
+
+    /** Sends a signal to the process, as the tag's, with its log line. */
+    public static final void sendSignal(int pid, int signal) {
         if (pid > 0) {
-            Log.i("Process", "Sending signal. PID: " + pid + " SIG: " + OsConstants.SIGKILL);
+            Log.i("Process", "Sending signal. PID: " + pid + " SIG: " + signal);
             try {
-                Os.kill(pid, OsConstants.SIGKILL);
+                Os.kill(pid, signal);
             } catch (ErrnoException e) {
                 // As the tag's: kill's result is not checked.
             }
         }
+    }
+
+    /** Sends SIGKILL to the process, as the tag's. */
+    public static final void killProcess(int pid) {
+        sendSignal(pid, SIGNAL_KILL);
     }
 
     /** Whether the VM runs 64-bit code, as the tag's Process asks VMRuntime. */

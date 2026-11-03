@@ -3,10 +3,11 @@
 // sets its nice value, as Android 15's system palette does at Thread.setPriority and at each Java thread's start
 // (the Unity test APK probe's blocker 7), over the runtime's nice value per thread (ADR-0033 decision 8, changed
 // 2026-10-08), which iOS's scheduling does not see. There is no tracing, no ashmem and nobody to notify of
-// compilations or JNI calls. Crash stacks go to the log.
+// compilations or JNI calls. Crash stacks go to the log, line by line.
 #include <android/log.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <string.h>
 #include <sys/resource.h>
 
 #include "palette/palette.h"
@@ -52,8 +53,16 @@ palette_status_t PaletteSchedGetPriority(int32_t tid, int32_t* java_priority) {
     return PALETTE_STATUS_OK;
 }
 
+// ART's SIGQUIT dump (SignalCatcher::Output), which Android's palette hands to tombstoned for /data/anr: a message
+// per line, since liblog cuts a message at its 4 KB payload and a dump of every thread runs far longer.
 palette_status_t PaletteWriteCrashThreadStacks(const char* stacks, size_t stacks_len) {
-    __android_log_print(ANDROID_LOG_INFO, "libartpalette-system", "%.*s", static_cast<int>(stacks_len), stacks);
+    const char* end = stacks + stacks_len;
+    for (const char* line = stacks; line < end;) {
+        const char* next = static_cast<const char*>(memchr(line, '\n', static_cast<size_t>(end - line)));
+        if (next == nullptr) next = end;
+        __android_log_print(ANDROID_LOG_INFO, "libartpalette-system", "%.*s", static_cast<int>(next - line), line);
+        line = next + 1;
+    }
     return PALETTE_STATUS_OK;
 }
 

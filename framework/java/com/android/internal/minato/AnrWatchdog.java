@@ -5,20 +5,13 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-
 /**
  * Android's ANR report for a hung main Looper: Android's ActivityManager logs "ANR in <package>" when the app does not
  * answer in time and has ART dump every thread's stack (SIGQUIT). Minato has no system server, so this thread of the
  * app asks the main Looper every 5 s; when a question stays unanswered for 5 s it logs the ANR lines under
- * ActivityManager and every thread's Java stack in the layout of ART's thread dump, once per hang. ART's own SIGQUIT
- * dump is not used: the guest's ART runs no signal catcher, so a SIGQUIT does nothing. A wait the watchdog itself
- * overslept by more than a second (the process suspended, as iOS does in the background) counts as no answer due.
+ * ActivityManager and sends the process SIGQUIT, once per hang: ART's signal catcher dumps every thread, and the
+ * palette logs the dump (Android writes it to /data/anr). A wait the watchdog itself overslept by more than a second
+ * (the process suspended, as iOS does in the background) counts as no answer due.
  */
 public final class AnrWatchdog extends Thread {
     private static final String TAG = "ActivityManager";
@@ -73,34 +66,6 @@ public final class AnrWatchdog extends Thread {
         Log.e(TAG, "ANR in " + mPackage);
         Log.e(TAG, "PID: " + pid);
         Log.e(TAG, "Reason: the main Looper did not answer for " + TIMEOUT_MS / 1000 + " s");
-        Log.i(TAG, "----- pid " + pid + " at "
-                + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date()) + " -----");
-        Log.i(TAG, "Cmd line: " + mPackage);
-        List<Map.Entry<Thread, StackTraceElement[]>> threads = new ArrayList<>(Thread.getAllStackTraces().entrySet());
-        // The main thread first, as ART's dump has it.
-        threads.sort((a, b) -> Boolean.compare(b.getKey() == mMain.getLooper().getThread(),
-                a.getKey() == mMain.getLooper().getThread()));
-        for (Map.Entry<Thread, StackTraceElement[]> entry : threads) {
-            Thread thread = entry.getKey();
-            Log.i(TAG, "");
-            Log.i(TAG, "\"" + thread.getName() + "\"" + (thread.isDaemon() ? " daemon" : "") + " prio="
-                    + thread.getPriority() + " tid=" + thread.getId() + " " + state(thread.getState()));
-            for (StackTraceElement frame : entry.getValue()) {
-                Log.i(TAG, "  at " + frame);
-            }
-        }
-        Log.i(TAG, "----- end " + pid + " -----");
-    }
-
-    /** ART's names of the thread states. */
-    private static String state(Thread.State state) {
-        switch (state) {
-            case NEW: return "Starting";
-            case RUNNABLE: return "Runnable";
-            case BLOCKED: return "Blocked";
-            case WAITING: return "Waiting";
-            case TIMED_WAITING: return "TimedWaiting";
-            default: return "Terminated";
-        }
+        Process.sendSignal(pid, Process.SIGNAL_QUIT);
     }
 }
