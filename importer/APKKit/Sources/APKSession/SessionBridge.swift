@@ -54,6 +54,10 @@ public enum SessionEvent: Sendable, Equatable {
     /// The status bar's and the navigation bar's heights in pixels at a turn (ADR-0041 decision 8, finding 3),
     /// APKRT_EVENT_BAR_INSETS: the bars the guest's floating windows are laid out inside.
     case barInsets(top: Int32, bottom: Int32)
+    /// The system trims the app's memory, APKRT_EVENT_TRIM_MEMORY: ComponentCallbacks2's level. Android 15 tells an app
+    /// of TRIM_MEMORY_UI_HIDDEN (20) when its UI is no longer visible, which the host posts after onStop; a memory
+    /// warning stays `lowMemory`.
+    case trimMemory(level: Int32)
 }
 
 /// APKRT_EVENT_BACK's phases (`apkrt_back_phase`): a gesture's start, progress, then commit or cancel; a back without
@@ -532,6 +536,9 @@ public struct SessionBridge: Sendable {
     }
 
     /// The callback's event, and ADR-0028 d)'s that follow it.
+    /// ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN.
+    private static let trimMemoryUIHidden: Int32 = 20
+
     private mutating func sessionEvents(for callback: Lifecycle.Callback, gone: UInt64,
                                         host: SessionHost) -> [SessionEvent] {
         let event = sessionEvent(for: callback, gone: gone)
@@ -557,6 +564,8 @@ public struct SessionBridge: Sendable {
                 events.append(.surfaceDestroyed(token: surfaces[index].token, window: surfaces[index].window))
             }
             return events + [event]
+        case .onStop:
+            return [event, .trimMemory(level: Self.trimMemoryUIHidden)]
         case .onConfigurationChanged:
             // The bars first, so that a floating window laid out again at the turn centers between the new ones.
             return (systemBars.map { [.barInsets(top: $0.top, bottom: $0.bottom)] } ?? []) + [event]

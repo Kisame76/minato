@@ -201,6 +201,7 @@ final class RuntimeSessionHost: SessionHost {
             (APKRT_EVENT_NATIVE_WINDOW_CREATED, window, UInt64(width), UInt64(height))
         case .nativeWindowDestroyed(let window): (APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window, 0, 0)
         case .lowMemory: (APKRT_EVENT_LOW_MEMORY, 0, 0, 0)
+        case .trimMemory(let level): (APKRT_EVENT_TRIM_MEMORY, UInt64(level), 0, 0)
         case .inputQueueCreated(let channel): (APKRT_EVENT_INPUT_QUEUE_CREATED, channel, 0, 0)
         case .nativeWindowResized(let window, let width, let height):
             (APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, UInt64(width), UInt64(height))

@@ -187,6 +187,12 @@ void dispatch(const apkrt_event &event) {
         case APKRT_EVENT_BAR_INSETS:
             // The bars of the framework's floating windows: a NativeActivity has none.
             break;
+        case APKRT_EVENT_NETWORK:
+            // The host's network: ConnectivityManager's, a NativeActivity has no callback for it.
+            break;
+        case APKRT_EVENT_TRIM_MEMORY:
+            // ComponentCallbacks2.onTrimMemory: ANativeActivityCallbacks has no such callback.
+            break;
         default:
             __android_log_print(ANDROID_LOG_WARN, kTag, "an event of type %u", event.type);
             break;

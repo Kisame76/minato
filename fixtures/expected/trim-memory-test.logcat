@@ -1,0 +1,32 @@
+I/trim-memory-test: application onCreate
+I/trim-memory-test: activity onCreate
+I/trim-memory-test: ready
+I/trim-memory-test: registered onTrimMemory 5
+I/trim-memory-test: application onTrimMemory 5
+I/trim-memory-test: activity onTrimMemory 5
+I/trim-memory-test: provider onTrimMemory 5
+I/trim-memory-test: registered onTrimMemory 10
+I/trim-memory-test: application onTrimMemory 10
+I/trim-memory-test: activity onTrimMemory 10
+I/trim-memory-test: provider onTrimMemory 10
+I/trim-memory-test: registered onTrimMemory 15
+I/trim-memory-test: application onTrimMemory 15
+I/trim-memory-test: activity onTrimMemory 15
+I/trim-memory-test: provider onTrimMemory 15
+I/trim-memory-test: registered onTrimMemory 20
+I/trim-memory-test: application onTrimMemory 20
+I/trim-memory-test: activity onTrimMemory 20
+I/trim-memory-test: provider onTrimMemory 20
+I/trim-memory-test: registered onTrimMemory 40
+I/trim-memory-test: application onTrimMemory 40
+I/trim-memory-test: activity onTrimMemory 40
+I/trim-memory-test: provider onTrimMemory 40
+I/trim-memory-test: registered onTrimMemory 60
+I/trim-memory-test: application onTrimMemory 60
+I/trim-memory-test: activity onTrimMemory 60
+I/trim-memory-test: provider onTrimMemory 60
+I/trim-memory-test: registered onTrimMemory 80
+I/trim-memory-test: application onTrimMemory 80
+I/trim-memory-test: activity onTrimMemory 80
+I/trim-memory-test: done
+I/trim-memory-test: provider onTrimMemory 80

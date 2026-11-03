@@ -206,7 +206,7 @@ struct SessionBridgeTests {
         let handled = bridge.handle(.background, host: host)
         #expect(host.take() == [
             .removeWindow(1), .post(.pause), .post(.nativeWindowDestroyed(window: 1)), .waitAnswer(12),
-            .post(.stop), .post(.saveInstanceState),
+            .post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState),
             .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout),
         ])
         #expect(handled.callbacks == [.onPause, .onNativeWindowDestroyed, .onStop, .onSaveInstanceState])
@@ -236,7 +236,7 @@ struct SessionBridgeTests {
         #expect(wait == SessionBridge.Wait(serial: 12, callback: .onNativeWindowDestroyed))
 
         #expect(bridge.finished(wait, result: 1, host: host).wait == nil)
-        #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
+        #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState)])
     }
 
     /// A channel that broke or a program that ended while the background waited goes on at once, as a wait off the
@@ -251,7 +251,7 @@ struct SessionBridgeTests {
         let handled = bridge.handle(.background, host: host)
         #expect(host.take() == [
             .removeWindow(1), .post(.pause), .post(.nativeWindowDestroyed(window: 1)), .waitAnswer(12),
-            .post(.stop), .post(.saveInstanceState),
+            .post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState),
             .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout),
         ])
         #expect(handled.wait == nil)
@@ -286,7 +286,8 @@ struct SessionBridgeTests {
         #expect(host.take() == [.setBackground(false)])
         #expect(bridge.finished(wait!, result: 1, host: host).wait == nil)
         #expect(host.take() == [
-            .post(.stop), .post(.saveInstanceState), .addWindow(width: Self.width, height: Self.height),
+            .post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState),
+            .addWindow(width: Self.width, height: Self.height),
             .post(.start), .post(.resume),
         ] + Self.shown(2, first: false))
     }
@@ -306,7 +307,7 @@ struct SessionBridgeTests {
         #expect(first?.callback == .onNativeWindowDestroyed)
 
         let second = bridge.finished(first!, result: 1, host: host).wait
-        #expect(host.take() == [.post(.stop), .post(.destroy)])
+        #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.destroy)])
         #expect(second?.callback == .onDestroy)
         #expect(!bridge.lifecycle.hasEnded)
 
@@ -347,7 +348,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
         #expect(bridge.lifecycle.awaits == .onNativeWindowDestroyed)
         _ = bridge.finished(later, result: 1, host: host).wait
-        #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
+        #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState)])
     }
 
     @Test func aWaitThatTimesOutOrBreaksGoesOn() {
@@ -359,7 +360,7 @@ struct SessionBridgeTests {
             _ = host.take()
 
             _ = bridge.finished(wait, result: result, host: host).wait
-            #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
+            #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState)])
         }
     }
 
@@ -780,7 +781,7 @@ struct SessionBridgeTests {
         bridge.surfaceRequested(Self.remove(6), host: host)
         #expect(host.take() == [])
         bridge.finished(wait, result: 1, host: host)
-        #expect(host.take() == [.post(.stop), .post(.saveInstanceState)])
+        #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState)])
     }
 
     /// An app that ends with the focus: its surfaces go with the window, after PAUSE and the focus, and their

@@ -1189,6 +1189,7 @@ public final class ActivityThread {
     private static final int EVENT_IME_HIDDEN = 31;
     private static final int EVENT_BAR_INSETS = 32;
     private static final int EVENT_NETWORK = 33;
+    private static final int EVENT_TRIM_MEMORY = 34;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1449,6 +1450,11 @@ public final class ActivityThread {
             case EVENT_NETWORK:
                 // The host's network changed (ADR-0054 step d)): ConnectivityManager's callbacks hear of it.
                 com.android.internal.minato.LocalNetwork.onEvent((int) event[2]);
+                break;
+            case EVENT_TRIM_MEMORY:
+                // The system trims the app's memory (ComponentCallbacks2.onTrimMemory): Android 15 tells an app of
+                // UI_HIDDEN (20) when its UI is gone and of BACKGROUND (40) when it is cached.
+                handleTrimMemory((int) event[2]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2801,6 +2807,28 @@ public final class ActivityThread {
         Context c = activity.getBaseContext();
         if (c instanceof ContextImpl) {
             ((ContextImpl) c).scheduleFinalCleanup(activity.getClass().getName(), "Activity");
+        }
+    }
+
+    /**
+     * As AOSP's handleTrimMemory (ActivityThread.collectComponentCallbacks's order): onTrimMemory(level) of the
+     * Application, which passes it to the callbacks registered with it, of the activities that are not finishing, of
+     * the services and of the providers.
+     */
+    private void handleTrimMemory(int level) {
+        mInitialApplication.onTrimMemory(level);
+        for (int i = mActivities.size() - 1; i >= 0; i--) {
+            Activity activity = mActivities.valueAt(i).activity;
+            if (activity != null && !activity.mFinished) {
+                activity.onTrimMemory(level);
+            }
+        }
+        for (int i = 0; i < mServices.size(); i++) {
+            mServices.valueAt(i).onTrimMemory(level);
+        }
+        java.util.Set<ContentProvider> providers = new java.util.LinkedHashSet<>(mLocalProvidersByAuthority.values());
+        for (ContentProvider provider : providers) {
+            provider.onTrimMemory(level);
         }
     }
 

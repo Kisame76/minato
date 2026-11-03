@@ -324,6 +324,13 @@ enum apkrt_event_type {
                                           // APKRT_NETWORK_* flags below (NWPathMonitor's path); a1, a2 0. Posted only
                                           // on a change while a session runs; ConnectivityManager reads the current
                                           // state with APKRT_NR_NETWORK (GET) before any event
+    APKRT_EVENT_TRIM_MEMORY,              // the system trims the app's memory (ComponentCallbacks2.onTrimMemory):
+                                          // a0 the level, a1, a2 0. Android 15 tells an app only of
+                                          // TRIM_MEMORY_UI_HIDDEN (20), when its UI is no longer visible, and of
+                                          // TRIM_MEMORY_BACKGROUND (40), when it is cached; the levels from
+                                          // RUNNING_MODERATE to COMPLETE are deprecated since API 34 and the system
+                                          // sends no others. The host posts 20 when the scene goes to the
+                                          // background; a memory warning keeps posting APKRT_EVENT_LOW_MEMORY
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and

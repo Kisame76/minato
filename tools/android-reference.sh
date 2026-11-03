@@ -230,7 +230,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
-  "$app" == action-mode-standalone-test ||
+  "$app" == action-mode-standalone-test || "$app" == trim-memory-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -1051,6 +1051,13 @@ run_app() {
     action-bar-menu-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MenuActivity
       ;;
+    # trim-memory-test (the memory-warning step): the callbacks of ComponentCallbacks2 that the Application, the
+    # activity, a provider and a registered callback get when the system trims the app's memory, which the script
+    # asks for with `am send-trim-memory` level by level, with HOME between the running and the background levels;
+    # ends with "done" after level 80.
+    trim-memory-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TrimActivity
+      ;;
     # action-bar-test (the platform action bar, compatibility plan gap 5): a default-theme activity that uses
     # getActionBar(), an options menu with an overflow, hide and show, and an action mode; ends with "done".
     action-bar-test | action-bar-test-34)
@@ -1417,6 +1424,24 @@ run_app() {
     }
     { tap_when_ready "dialog 1" && tap_when_ready "dialog 2" && tap_when_ready "popup 1" &&
       tap_when_ready "popup 2" && tap_when_ready "popup 2 again"; } || return 1
+  fi
+  if [[ "$app" == trim-memory-test ]]; then
+    # The system refuses a background level for a foreground process, so the running levels go first, then HOME,
+    # after which the system itself trims the hidden UI (level 20), before or after onStop, and then the background
+    # levels.
+    wait_for "$app" "ready" || return 1
+    for level in RUNNING_MODERATE RUNNING_LOW RUNNING_CRITICAL; do
+      sleep 1
+      run am send-trim-memory io.github.kisame76.minato.test.trimmemory $level
+    done
+    sleep 1
+    run input keyevent KEYCODE_HOME
+    wait_for "$app-steps" "activity onStop" || return 1
+    wait_for "$app" "activity onTrimMemory 20" || return 1
+    for level in BACKGROUND MODERATE COMPLETE; do
+      sleep 1
+      run am send-trim-memory io.github.kisame76.minato.test.trimmemory $level
+    done
   fi
   if [[ "$app" == gesture-flow-test ]]; then
     # Step b3.5b2-1b: a 3 s swipe down the window's middle from First's focus on, whose DOWN starts Second, so that the
