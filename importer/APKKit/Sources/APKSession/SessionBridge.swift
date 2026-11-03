@@ -51,6 +51,9 @@ public enum SessionEvent: Sendable, Equatable {
     /// UIKit's keyboard went away by the user's doing, not the guest's (ADR-0068), APKRT_EVENT_IME_HIDDEN: the guest
     /// handles it as Android's input method hiding itself on BACK.
     case imeHidden
+    /// The status bar's and the navigation bar's heights in pixels at a turn (ADR-0041 decision 8, finding 3),
+    /// APKRT_EVENT_BAR_INSETS: the bars the guest's floating windows are laid out inside.
+    case barInsets(top: Int32, bottom: Int32)
 }
 
 /// APKRT_EVENT_BACK's phases (`apkrt_back_phase`): a gesture's start, progress, then commit or cancel; a back without
@@ -192,6 +195,9 @@ public struct SessionBridge: Sendable {
     /// The activity handles a size change itself (ADR-0041, decision 12 a): another size in the same orientation
     /// reaches it as a turn does. Without, the guest keeps its size in size compat (decision 12 b).
     public var resizes = false
+    /// The bars at the window's next layout (GuestInsets.systemBars), which a turn posts before the configuration;
+    /// nil posts none. The start's go through the guest's environment.
+    public var systemBars: GuestInsets.Edges?
     /// The guest's size kept in size compat, nil while it has the window's.
     private var keptSize: PixelSize?
     /// The guest has had a window: its size changes only by a change it handles.
@@ -551,6 +557,9 @@ public struct SessionBridge: Sendable {
                 events.append(.surfaceDestroyed(token: surfaces[index].token, window: surfaces[index].window))
             }
             return events + [event]
+        case .onConfigurationChanged:
+            // The bars first, so that a floating window laid out again at the turn centers between the new ones.
+            return (systemBars.map { [.barInsets(top: $0.top, bottom: $0.bottom)] } ?? []) + [event]
         case .onNativeWindowResized:
             host.setWindowSize(window, width: guestSize.width, height: guestSize.height)
             var events = [event]

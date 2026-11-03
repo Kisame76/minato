@@ -314,6 +314,12 @@ enum apkrt_event_type {
                                           // gets no key, and the window's requested ime() visibility is hidden in both.
                                           // The host posts APKRT_EVENT_IME_INSETS 0 on its own, as the keyboard's frame
                                           // changes
+    APKRT_EVENT_BAR_INSETS,               // the system bars' heights changed (a turn of the display): a0 the status
+                                          // bar's, a1 the navigation bar's, in pixels, a2 0. The guest lays the
+                                          // floating windows (dialogs, popups) it opens afterwards out between the
+                                          // bars (SystemBarInsets). The host posts it right before
+                                          // APKRT_EVENT_CONFIGURATION_CHANGED at a turn, never at the start, which
+                                          // passes them as MINATO_BAR_INSETS in the environment
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and

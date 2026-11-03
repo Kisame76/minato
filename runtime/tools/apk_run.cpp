@@ -88,6 +88,8 @@
 //               (positive up and left), the pointer's leaving the window;
 //   imehide     (ADR-0068, the keyboard reopen bug) the user hides the keyboard: APKRT_EVENT_IME_HIDDEN, then
 //               APKRT_EVENT_IME_INSETS 0 as UIKit's keyboard frame would make the host post it;
+//   barinsets:<top>:<bottom>  the system bars' heights in px change, as the host posts APKRT_EVENT_BAR_INSETS at a
+//               turn of the display;
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set);
@@ -370,6 +372,13 @@ bool parse_battery(const std::string &step, int &level, int &state) {
            state >= APKRT_BATTERY_STATE_UNKNOWN && state <= APKRT_BATTERY_STATE_FULL;
 }
 
+/// `step` as barinsets:<top>:<bottom>, the system bars' heights in px; false for any other step.
+bool parse_bar_insets(const std::string &step, int &top, int &bottom) {
+    int used = 0;
+    return std::sscanf(step.c_str(), "barinsets:%d:%d%n", &top, &bottom, &used) == 2 &&
+           used == static_cast<int>(step.size()) && top >= 0 && bottom >= 0;
+}
+
 /// --lifecycle's steps: start first, then background and foreground in turn, and touches, battery changes and backs
 /// after the start or a foreground; false for any other list.
 bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) {
@@ -377,9 +386,9 @@ bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) 
     std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
     for (std::string step; std::getline(list, step, ',');) {
         Touch touch;
-        int level = 0, state = 0;
+        int level = 0, state = 0, top = 0, bottom = 0;
         if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state) || step == "back" ||
-                              step == "imehide")) {
+                              step == "imehide" || parse_bar_insets(step, top, bottom))) {
             steps.push_back(step);
             continue;
         }
@@ -1057,6 +1066,8 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             std::fprintf(stderr, "apk-run: the start was answered\n");
         } else if (int level = 0, state = 0; parse_battery(steps[index], level, state)) {
             apkrt_battery_set(level, state);
+        } else if (int top = 0, bottom = 0; parse_bar_insets(steps[index], top, bottom)) {
+            post(APKRT_EVENT_BAR_INSETS, static_cast<std::uint64_t>(top), static_cast<std::uint64_t>(bottom), 0);
         } else if (steps[index] == "back") {
             post(APKRT_EVENT_BACK, APKRT_BACK_COMMIT, 0, 0);
         } else if (steps[index] == "imehide") {

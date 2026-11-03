@@ -465,6 +465,35 @@ struct SessionBridgeTests {
         #expect(bridge.windowSize == PixelSize(width: Self.height, height: Self.width))
     }
 
+    /// The bars floating windows are laid out inside go to the guest before the configuration (ADR-0041 decision 8,
+    /// finding 3), so a dialog laid out again at the turn centers between the new ones: APKRT_EVENT_BAR_INSETS.
+    @Test func aTurnPostsTheNewBarsBeforeTheConfiguration() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.turns = true
+        bridge.systemBars = GuestInsets.Edges(left: 0, top: 72, right: 0, bottom: 63)
+
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [
+            .post(.barInsets(top: 72, bottom: 63)),
+            .post(.configurationChanged),
+            .setWindowSize(1, width: Self.height, height: Self.width),
+            .post(.nativeWindowResized(window: 1, width: Self.height, height: Self.width)),
+            .post(.contentRectChanged(left: 0, top: 0, right: Self.height, bottom: Self.width)),
+            .post(.nativeWindowRedrawNeeded(window: 1)),
+        ])
+    }
+
+    /// Size compat keeps the guest's window, and its bars with it.
+    @Test func aLayoutTheGuestDoesNotTakePostsNoBars() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.systemBars = GuestInsets.Edges(left: 0, top: 72, right: 0, bottom: 63)
+
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [])
+    }
+
     /// A turn between the landscape sides keeps the window's size: nothing changes for the guest, as on Android.
     @Test func aLayoutOfTheSameSizeGivesNothing() {
         let host = FakeHost()

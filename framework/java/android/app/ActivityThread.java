@@ -108,6 +108,7 @@ import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
 import android.view.WindowSurface;
 import android.widget.WidgetFlags;
+import com.android.minato.view.SystemBarInsets;
 import com.android.externalstorage.ExternalStorageProvider;
 import com.android.providers.media.MediaProvider;
 import com.android.internal.compat.CompatTable;
@@ -1186,6 +1187,7 @@ public final class ActivityThread {
     private static final int EVENT_IME_INSETS = 29;
     private static final int EVENT_BACK = 30;
     private static final int EVENT_IME_HIDDEN = 31;
+    private static final int EVENT_BAR_INSETS = 32;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1437,6 +1439,11 @@ public final class ActivityThread {
             case EVENT_IME_HIDDEN:
                 // The user hid the keyboard (ADR-0068), for the window that has the focus.
                 WindowManagerGlobal.getInstance().dispatchImeHidden();
+                break;
+            case EVENT_BAR_INSETS:
+                // The system bars' heights changed at a turn (ADR-0041 decision 8): floating windows opened from now
+                // on are laid out between them; the host's values win over the start's environment.
+                SystemBarInsets.set((int) event[2], (int) event[3]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();

@@ -271,6 +271,8 @@ final class GameSession {
     func windowLaidOut(_ pixels: CGSize) {
         windowPixels = pixels
         let size = PixelSize(width: Int32(pixels.width.rounded()), height: Int32(pixels.height.rounded()))
+        // The bars at this layout's turn, which a turn posts to the guest (ADR-0041 decision 8, finding 3).
+        bridge.systemBars = barInsets(scale: runtime?.layer?.contentsScale ?? 1).systemBars
         let handled = bridge.windowLaidOut(size, host: host)
         layersView?.letterbox = bridge.letterbox
         touches.letterbox = bridge.letterbox

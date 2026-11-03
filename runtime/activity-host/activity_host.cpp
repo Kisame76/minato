@@ -184,6 +184,9 @@ void dispatch(const apkrt_event &event) {
         case APKRT_EVENT_LOW_MEMORY:
             if (callbacks.onLowMemory != nullptr) callbacks.onLowMemory(activity);
             break;
+        case APKRT_EVENT_BAR_INSETS:
+            // The bars of the framework's floating windows: a NativeActivity has none.
+            break;
         default:
             __android_log_print(ANDROID_LOG_WARN, kTag, "an event of type %u", event.type);
             break;
