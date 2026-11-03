@@ -82,4 +82,41 @@ struct OatCodeTests {
         #expect(!sandbox.exists(sandbox.paths.oatDirectory(for: entry)))
         #expect(!sandbox.exists(sandbox.paths.oatContainerDirectory(for: entry)))
     }
+
+    @Test func adoptsTheOutputOfACompileStartAndRemovesIt() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.installed(sandbox, library)
+        let made = try Self.compiled(sandbox)
+        let output = sandbox.root.appendingPathComponent("oat.work")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: made.odex, to: output.appendingPathComponent("base.odex"))
+        try FileManager.default.copyItem(at: made.vdex, to: output.appendingPathComponent("base.vdex"))
+
+        try await library.adoptCompiledOutput(
+            id: entry.id, output: output, bootClassPath: "bcp-1", converter: NativeCodeTests.Converter())
+
+        #expect(await library.oatFolders(id: entry.id, bootClassPath: "bcp-1") != nil)
+        #expect(!sandbox.exists(output))
+    }
+
+    @Test func aCompileStartThatWroteNothingChangesNothingAndLeavesNoOutput() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.installed(sandbox, library)
+        let output = sandbox.root.appendingPathComponent("oat.work")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try Data("half".utf8).write(to: output.appendingPathComponent("base.odex"))  // no vdex: dex2oat was killed
+
+        await #expect(throws: (any Error).self) {
+            try await library.adoptCompiledOutput(
+                id: entry.id, output: output, bootClassPath: "bcp-1", converter: NativeCodeTests.Converter())
+        }
+
+        #expect(await library.entries.first?.compiled == nil)
+        #expect(await library.oatFolders(id: entry.id, bootClassPath: "bcp-1") == nil)
+        #expect(!sandbox.exists(output))
+    }
 }

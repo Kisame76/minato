@@ -135,6 +135,46 @@ public struct GuestStart: Sendable, Equatable {
         }
     }
 
+    /// The boot class path of an app's start (runtime/src/environment.cpp's boot_class_path), which dex2oat is given
+    /// so that ART takes the odex: for the filters that depend on the boot image its recorded boot class path must be
+    /// a prefix of the runtime's (runtime/tests/dex2oat_make.py's APP_BOOT_CLASS_PATH).
+    static let appBootClassPath = [
+        "/apex/com.android.art/javalib/core-oj.jar", "/apex/com.android.art/javalib/core-libart.jar",
+        "/apex/com.android.art/javalib/okhttp.jar", "/apex/com.android.art/javalib/bouncycastle.jar",
+        "/system/framework/framework.jar", "/apex/com.android.art/javalib/core-icu4j.jar",
+        "/apex/com.android.conscrypt/javalib/conscrypt.jar",
+    ].joined(separator: ":")
+
+    /// A compile start (ADR-0053, M6 c): dex2oat64 for the app's base.apk, as runtime/tests/dex2oat_make.py starts
+    /// it for an app. It compiles at the filter speed for the app's boot class path and class loader context
+    /// ("PCL[];PCL[]", the loader our ActivityThread makes), the APK at its code path as the dex file and as the
+    /// location ART compares with the run-time path, and writes base.odex and base.vdex into /out, the host folder
+    /// `output`. dex2oat's /data is `output`/data (the caller makes data/dalvik-cache/arm64 and data/local/tmp there).
+    /// nil when `apkSHA256` is no SHA-256.
+    public init?(compile package: String, apk: String, apkSHA256: String, output: String, guestSystem: String) {
+        guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
+        codePath = app
+        mounts = [Path(guest: "/data", host: "\(output)/data"),
+                  Path(guest: "\(app)/base.apk", host: apk),
+                  Path(guest: "/out", host: output),
+                  Path(guest: "/system", host: "\(guestSystem)/system"),
+                  Path(guest: "/apex", host: "\(guestSystem)/apex")]
+        libraryDirectories = [
+            Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
+            Path(guest: "/apex/com.android.art/lib64", host: "\(guestSystem)/apex-lib64/com.android.art"),
+            Path(guest: "/apex/com.android.conscrypt/lib64", host: "\(guestSystem)/apex-lib64/com.android.conscrypt"),
+        ]
+        program = "\(guestSystem)/bin/dex2oat.dylib"
+        arguments = ["/apex/com.android.art/bin/dex2oat64", "--dex-file=\(app)/base.apk",
+                     "--dex-location=\(app)/base.apk", "--oat-file=/out/base.odex", "--oat-location=/out/base.odex",
+                     "--instruction-set=arm64",
+                     "--compiler-filter=speed", "--base=0x70000000", "--class-loader-context=PCL[];PCL[]",
+                     "--runtime-arg", "-Xbootclasspath:\(Self.appBootClassPath)",
+                     "--runtime-arg", "-Xbootclasspath-locations:\(Self.appBootClassPath)",
+                     "--runtime-arg", "-Xnoimage-dex2oat"]
+        environment = []
+    }
+
     /// A split's file in the code path: the host file's own name, which the library gives `split_<name>.apk`.
     private static func splitMounts(_ splits: [String], app: String) -> [Path] {
         splits.map { Path(guest: "\(app)/\(($0 as NSString).lastPathComponent)", host: $0) }

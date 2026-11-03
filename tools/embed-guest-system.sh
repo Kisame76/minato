@@ -2,7 +2,7 @@
 # Xcode build phase (project.yml): puts the guest system into every app build (ADR-0028, decision 1 and its
 # consequences; ADR-0032, decision 10), as game mode mounts it for activity-host and, for a Java app, app_process64
 # (ADR-0039 c4). tools/guest-check.py checks the result. In Guest/:
-#   bin/<program>.dylib       the programs /system/bin/activity-host and /system/bin/app_process64
+#   bin/<program>.dylib       the programs /system/bin/activity-host and /system/bin/app_process64, and dex2oat
 #   lib64/<library>.so.dylib  the guest's /system/lib64: bionic, liblog, libnetd_client, libandroid,
 #                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
 #                             libEGL, libGLESv1_CM (ADR-0041 a1), libGLESv2, libGLESv3 and libvulkan (ADR-0029,
@@ -66,7 +66,8 @@ for library in "${FRONT_LIBS[@]}"; do
     exit 1
   fi
 done
-for needed in "$ART/lib/libart.so" "$ART/lib/$CONSCRYPT_LIB" "$ART/javalib/core-oj.jar" "$ART/javalib/conscrypt.jar"; do
+for needed in "$ART/lib/libart.so" "$ART/lib/$CONSCRYPT_LIB" "$ART/javalib/core-oj.jar" "$ART/javalib/conscrypt.jar" \
+              "$ART/bin/dex2oat"; do
   if [[ ! -e "$needed" ]]; then
     echo "error: $needed is missing; tools/build-art.sh builds it" >&2
     exit 1
@@ -127,6 +128,8 @@ cp -R "$BIONIC/system/." "$OUT/system/"
 
 # The Java start (ADR-0039 c4), as framework/tests/app_process_run.py lays it out on the Mac.
 contain "$FRAMEWORK_NATIVE/app_process64" "$OUT/bin"
+# dex2oat for the compile start (ADR-0053, M6 c): the same ART build, whose libraries are all below.
+contain "$ART/bin/dex2oat" "$OUT/bin"
 contain "$FRAMEWORK_NATIVE/libandroid_runtime.so" "$OUT/lib64"
 contain "$FRAMEWORK_NATIVE/libsqlite.so" "$OUT/lib64"
 for library in "$HWUI"/*.so; do

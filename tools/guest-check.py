@@ -3,7 +3,8 @@
 tools/embed-guest-system.sh lays it out and game mode mounts it, beside what a NativeActivity app's start needs; and
 every container in Guest/ passes `codesign -v`.
 
-  bin/              activity-host and app_process64, the programs /system/bin/activity-host and app_process64
+  bin/              activity-host, app_process64 and dex2oat, the programs /system/bin/activity-host and
+                    app_process64, and dex2oat64 of the compile start (GuestStart(compile:))
   lib64/            /system/lib64: bionic, libandroid, the front libs, libandroid_runtime.so with libsqlite.so (the
                     compatibility plan's gap 7), hwui's set with libjnigraphics (ADR-0041 a5) and ART's copies for it
                     (graphics/tests/hwui_load_run.py's PLATFORM_COPIES)
@@ -57,7 +58,7 @@ def monet_files():
 
 
 REQUIRED = (
-    ["bin/activity-host.dylib", "bin/app_process64.dylib"]
+    ["bin/activity-host.dylib", "bin/app_process64.dylib", "bin/dex2oat.dylib"]
     + [f"lib64/{name}.dylib" for name in BIONIC + FRONT_LIBS + ["libandroid_runtime.so", "libsqlite.so"] + HWUI
        + ART_COPIES]
     + ["system/framework/framework.jar", "system/framework/framework-res/AndroidManifest.xml",

@@ -46,6 +46,17 @@ extension Library {
         }
     }
 
+    /// Takes what a compile start left in its output folder (GuestStart(compile:)): base.odex and base.vdex, kept as
+    /// `installCompiledCode` keeps them. The folder is removed in every case, so that a killed or failed dex2oat leaves
+    /// neither a half odex nor a reason to look again; the entry stays as it was and the error says why.
+    public func adoptCompiledOutput(id: String, output: URL, bootClassPath: String,
+                                    converter: any ContainerConverting) throws {
+        defer { try? FileManager.default.removeItem(at: output) }
+        try installCompiledCode(id: id, odex: output.appendingPathComponent("base.odex"),
+                                vdex: output.appendingPathComponent("base.vdex"), bootClassPath: bootClassPath,
+                                converter: converter)
+    }
+
     /// The folders of the app's compiled code for a start whose boot class path has the checksum `bootClassPath`;
     /// nil while it is not compiled, was made for another boot class path, or its files are gone.
     public func oatFolders(id: String, bootClassPath: String) -> (code: URL, containers: URL)? {

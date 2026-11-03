@@ -116,6 +116,58 @@ struct GuestStartTests {
         #expect(plain?.libraryDirectories.contains { $0.guest.hasSuffix("/oat/arm64") } == false)
     }
 
+    // MARK: - A compile start (ADR-0053, M6 c): dex2oat for an app's dex
+
+    static func compileStart() -> GuestStart? {
+        GuestStart(compile: package, apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, output: "/v/apps/p/1/oat.work",
+                   guestSystem: "/b/Minato.app/Guest")
+    }
+
+    /// dex2oat as runtime/tests/dex2oat_make.py starts it for an app (framework_jar=): the app's whole boot class
+    /// path, its class loader context, the filter speed, the APK at its code path as both the dex file and the
+    /// location ART compares with the app's run-time path, and the output in /out.
+    @Test func aCompileStartRunsDex2oatWithTheAppsBootClassPathAndContext() {
+        let start = Self.compileStart()
+        let bootClassPath = [
+            "/apex/com.android.art/javalib/core-oj.jar", "/apex/com.android.art/javalib/core-libart.jar",
+            "/apex/com.android.art/javalib/okhttp.jar", "/apex/com.android.art/javalib/bouncycastle.jar",
+            "/system/framework/framework.jar", "/apex/com.android.art/javalib/core-icu4j.jar",
+            "/apex/com.android.conscrypt/javalib/conscrypt.jar",
+        ].joined(separator: ":")
+        #expect(start?.program == "/b/Minato.app/Guest/bin/dex2oat.dylib")
+        #expect(start?.arguments == [
+            "/apex/com.android.art/bin/dex2oat64", "--dex-file=\(Self.codePath)/base.apk",
+            "--dex-location=\(Self.codePath)/base.apk", "--oat-file=/out/base.odex", "--oat-location=/out/base.odex",
+            "--instruction-set=arm64", "--compiler-filter=speed", "--base=0x70000000",
+            "--class-loader-context=PCL[];PCL[]",
+            "--runtime-arg", "-Xbootclasspath:\(bootClassPath)",
+            "--runtime-arg", "-Xbootclasspath-locations:\(bootClassPath)",
+            "--runtime-arg", "-Xnoimage-dex2oat",
+        ])
+    }
+
+    @Test func aCompileStartMountsTheApkTheOutputAndTheSystem() {
+        let start = Self.compileStart()
+        #expect(start?.mounts == [
+            .init(guest: "/data", host: "/v/apps/p/1/oat.work/data"),
+            .init(guest: "\(Self.codePath)/base.apk", host: "/v/apps/p/1/base.apk"),
+            .init(guest: "/out", host: "/v/apps/p/1/oat.work"),
+            .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
+            .init(guest: "/apex", host: "/b/Minato.app/Guest/apex"),
+        ])
+        #expect(start?.libraryDirectories == [
+            .init(guest: "/system/lib64", host: "/b/Minato.app/Guest/lib64"),
+            .init(guest: "/apex/com.android.art/lib64", host: "/b/Minato.app/Guest/apex-lib64/com.android.art"),
+            .init(guest: "/apex/com.android.conscrypt/lib64",
+                  host: "/b/Minato.app/Guest/apex-lib64/com.android.conscrypt"),
+        ])
+        #expect(Self.compileStart()?.codePath == Self.codePath)
+    }
+
+    @Test func aHashThatIsNotSHA256StartsNoCompile() {
+        #expect(GuestStart(compile: Self.package, apk: "/a", apkSHA256: "", output: "/o", guestSystem: "/g") == nil)
+    }
+
     @Test func aJavaAppHasTheSameCodePath() {
         #expect(Self.javaStart()?.codePath == Self.codePath)
         #expect(Self.javaStart(sha256: "") == nil)
