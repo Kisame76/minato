@@ -4,13 +4,16 @@ import UIKit
 /// One tile of the library grid, styled like an item in the Files app.
 struct AppCard: View {
     let item: LibraryItem
+    var iconSize: CGFloat = 76
+    /// Home shows a status only when it is not Ready (the navigation design, section 2).
+    var showsReadyStatus = true
     var showsSelection = false
     var isSelected = false
 
     var body: some View {
         VStack(spacing: 4) {
             AppIcon(url: item.iconURL)
-                .frame(width: 76, height: 76)
+                .frame(width: iconSize, height: iconSize)
                 // A small star at the icon's bottom left, like the heart in Photos.
                 .overlay(alignment: .bottomLeading) {
                     if item.isFavorite {
@@ -36,11 +39,17 @@ struct AppCard: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 4)
                 .background(isSelected ? Color(.systemGray5) : .clear, in: .rect(cornerRadius: 5))
-            StatusView(status: item.status)
+            if showsReadyStatus || !isReady {
+                StatusView(status: item.status)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var isReady: Bool {
+        if case .ready = item.status { true } else { false }
     }
 }
 

@@ -31,6 +31,7 @@ All notable changes to Minato are documented in this file. The format follows
 - A tab bar with Home, Library and Settings; the library keeps its search field
 - Favorites: mark an app from its menu (touch and hold) or several at once in Select mode, and a small star marks
   them in the library
+- Home shows the apps you opened last and your favorites; touch and hold an app there works as in the library
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
 - When iOS closed an app, for example because it used too much memory, or the app ended with an error status, the
   library says so the next time Minato opens

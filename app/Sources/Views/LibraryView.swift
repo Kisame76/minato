@@ -17,17 +17,15 @@ extension UTType {
 
 /// The library, laid out like a folder in the Files app: icon grid, a "…" menu with Select, +, and the search above the
 /// grid (the app navigation's design, section 1).
-/// Tapping an app starts it; touch and hold offers Get Info and Delete.
+/// Tapping an app starts it; touch and hold offers Get Info, the favorite and Delete (AppTile).
 struct LibraryView: View {
     @Environment(LibraryModel.self) private var model
-    @Environment(SigningCoordinator.self) private var signing
-    @AppStorage(RootTab.storageKey) private var tab = RootTab.library
-    @State private var shownEntry: LibraryEntry?
-    @State private var blockedLaunch: BlockedLaunch?
+    @State private var actions = TileActions()
     @State private var isImporting = false
     @State private var isSelecting = false
     @State private var selection: Set<LibraryItem.ID> = []
-    @State private var deletion: Deletion?
+    /// The selected apps the bottom bar's Delete asks about.
+    @State private var selectionDeletion: [LibraryEntry]?
     @State private var query = ""
 
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 8, alignment: .top)]
@@ -49,15 +47,7 @@ struct LibraryView: View {
                     guard case .success(let urls) = result else { return }
                     Task { await model.open(urls) }
                 }
-                .sheet(item: $shownEntry) { entry in
-                    AppDetailView(entry: entry)
-                }
-                .alert(launchAlertTitle, isPresented: launchAlertShown, presenting: blockedLaunch) { blocked in
-                    Button("Get Info") { shownEntry = blocked.entry }
-                    Button("OK", role: .cancel) {}
-                } message: { blocked in
-                    Text(Texts.launchProblem(of: blocked.entry, reason: blocked.reason).message)
-                }
+                .tileActions(actions)
                 // The restart did not work (ADR-0032, decision 2): the launch request stays, so opening
                 // Minato again starts the app.
                 .alert(restartAlertTitle, isPresented: restartAlertShown) {
@@ -135,30 +125,13 @@ struct LibraryView: View {
     }
 
     private func tile(_ item: LibraryItem) -> some View {
-        AppCard(item: item, showsSelection: isSelecting && item.entry != nil, isSelected: selection.contains(item.id))
-            .contentShape(.rect)
-            .onTapGesture { tap(item) }
-            .contextMenu {
-                if !isSelecting, let entry = item.entry {
-                    Button("Get Info", systemImage: "info.circle") { shownEntry = entry }
-                    if entry.canBeFavorite {
-                        if item.isFavorite {
-                            Button("Remove from Favorites", systemImage: "star.slash") {
-                                Task { await model.setFavorite([entry], false) }
-                            }
-                        } else {
-                            Button("Add to Favorites", systemImage: "star") {
-                                Task { await model.setFavorite([entry], true) }
-                            }
-                        }
-                    }
-                    Divider()
-                    Button("Delete", systemImage: "trash", role: .destructive) {
-                        deletion = Deletion(origin: .tile(item.id), entries: [entry])
-                    }
-                }
+        AppTile(item: item, actions: actions, isSelecting: isSelecting, isSelected: selection.contains(item.id)) {
+            if selection.contains(item.id) {
+                selection.remove(item.id)
+            } else {
+                selection.insert(item.id)
             }
-            .deletionDialog(isPresented: deletionShown(from: .tile(item.id)), entries: deletion?.entries, perform: delete)
+        }
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
@@ -184,10 +157,10 @@ struct LibraryView: View {
             }
             ToolbarItem(placement: .bottomBar) {
                 Button("Delete", systemImage: "trash", role: .destructive) {
-                    deletion = Deletion(origin: .selection, entries: selectedEntries)
+                    selectionDeletion = selectedEntries
                 }
                 .disabled(selectedEntries.isEmpty)
-                .deletionDialog(isPresented: deletionShown(from: .selection), entries: deletion?.entries, perform: delete)
+                .deletionDialog(isPresented: selectionDeletionShown, entries: selectionDeletion, perform: delete)
             }
         } else {
             // Without a back button the leading side would stay empty; like Clock (Edit left, + right).
@@ -249,39 +222,6 @@ struct LibraryView: View {
         !selectableIDs.isEmpty && selectableIDs.allSatisfy(selection.contains)
     }
 
-    private func tap(_ item: LibraryItem) {
-        // Pending files are still being imported: nothing to start or select yet.
-        guard let entry = item.entry else { return }
-        guard isSelecting else {
-            launch(entry)
-            return
-        }
-        if selection.contains(item.id) {
-            selection.remove(item.id)
-        } else {
-            selection.insert(item.id)
-        }
-    }
-
-    /// Starts the app, or explains why not, or opens the signing flow when no certificate signs yet
-    /// (ADR-0032, decision 3).
-    private func launch(_ entry: LibraryEntry) {
-        Task {
-            switch await model.launch(entry) {
-            case nil:
-                break
-            case .openSigning:
-                if signing.fetchesCertificate {
-                    signing.showsSetup = true
-                } else {
-                    tab = .settings
-                }
-            case .explain(let entry, let reason):
-                blockedLaunch = BlockedLaunch(entry: entry, reason: reason)
-            }
-        }
-    }
-
     private func toggleAll() {
         if allSelected {
             selection.removeAll()
@@ -304,33 +244,8 @@ struct LibraryView: View {
 
     // MARK: - Dialogs
 
-    /// What the user is about to delete, and where they asked for it, so the dialog points there.
-    private struct Deletion {
-        enum Origin: Equatable {
-            case selection
-            case tile(LibraryItem.ID)
-        }
-
-        let origin: Origin
-        let entries: [LibraryEntry]
-    }
-
-    private func deletionShown(from origin: Deletion.Origin) -> Binding<Bool> {
-        Binding(get: { deletion?.origin == origin }, set: { if !$0 { deletion = nil } })
-    }
-
-    /// An app that a tap did not start, and why.
-    private struct BlockedLaunch {
-        let entry: LibraryEntry
-        let reason: LaunchDecision.Reason
-    }
-
-    private var launchAlertTitle: String {
-        blockedLaunch.map { Texts.launchProblem(of: $0.entry, reason: $0.reason).title } ?? ""
-    }
-
-    private var launchAlertShown: Binding<Bool> {
-        Binding(get: { blockedLaunch != nil }, set: { if !$0 { blockedLaunch = nil } })
+    private var selectionDeletionShown: Binding<Bool> {
+        Binding(get: { selectionDeletion != nil }, set: { if !$0 { selectionDeletion = nil } })
     }
 
     private var restartAlertTitle: String {
@@ -365,19 +280,5 @@ struct LibraryView: View {
 
     private var errorShown: Binding<Bool> {
         Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
-    }
-}
-
-private extension View {
-    /// Asks before deleting: app data cannot be restored.
-    func deletionDialog(isPresented: Binding<Bool>, entries: [LibraryEntry]?, perform delete: @escaping ([LibraryEntry]) -> Void) -> some View {
-        let title = entries.map { $0.count == 1 ? "Delete “\($0[0].displayName)”?" : "Delete \($0.count) Items?" } ?? ""
-        return confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible, presenting: entries) { entries in
-            Button("Delete", role: .destructive) { delete(entries) }
-        } message: { entries in
-            Text(entries.count == 1
-                ? "Its installed files and app data will be deleted. The original APK is kept."
-                : "Their installed files and app data will be deleted. The original APKs are kept.")
-        }
     }
 }
