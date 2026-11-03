@@ -48,6 +48,23 @@ public class ResizeActivity extends Activity {
             return view.onApplyWindowInsets(insets);
         });
         setContentView(mRoot);
+        // The content's full size and place, taken at the first layout: with adjustResize Android shows the keyboard by
+        // itself once the window has the focus and a field has the focus, as soon as the input method is up, so a
+        // sample after the focus is of a window that is resized already on a fast start.
+        mRoot.getViewTreeObserver().addOnGlobalLayoutListener(
+                new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        if (mRoot.getHeight() == 0) {
+                            return;
+                        }
+                        mRoot.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        mFullHeight = mRoot.getHeight();
+                        int[] at = new int[2];
+                        mRoot.getLocationInWindow(at);
+                        mRootTop = at[1];
+                    }
+                });
     }
 
     @Override
@@ -59,10 +76,6 @@ public class ResizeActivity extends Activity {
         mStarted = true;
         mEdit.requestFocus();
         mHandler.postDelayed(() -> {
-            mFullHeight = mRoot.getHeight();
-            int[] at = new int[2];
-            mRoot.getLocationInWindow(at);
-            mRootTop = at[1];
             getSystemService(InputMethodManager.class).showSoftInput(mEdit, 0);
             mHandler.postDelayed(this::afterShow, SETTLE_MS);
         }, SETTLE_MS);
