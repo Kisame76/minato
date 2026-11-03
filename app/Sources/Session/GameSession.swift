@@ -326,6 +326,23 @@ final class GameSession {
         }
     }
 
+    /// The guest's insets at the start: the scene's safe area at its turn, the window's pixels and the model's housing.
+    private func barInsets(scale: CGFloat) -> GuestInsets {
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let safe = scene?.keyWindow?.safeAreaInsets ?? .zero
+        let orientation: InterfaceOrientations = switch scene?.effectiveGeometry.interfaceOrientation {
+        case .landscapeLeft: .landscapeLeft
+        case .landscapeRight: .landscapeRight
+        default: .portrait
+        }
+        let housing = GuestInsets.Housing(environment: ProcessInfo.processInfo.environment,
+                                          machine: AppReport.Device.machine)
+        return GuestInsets(safeArea: .init(top: safe.top, left: safe.left, bottom: safe.bottom, right: safe.right),
+                           size: PixelSize(width: Int32(windowPixels.width.rounded()),
+                                           height: Int32(windowPixels.height.rounded())),
+                           orientation: orientation, device: .init(housing: housing, scale: scale))
+    }
+
     /// What the program needs for this app, activity-host for a NativeActivity app (ADR-0028, decisions 3 and 14)
     /// or app_process64 for a Java app (ADR-0039 c5), with the window's size as the screen's in the session's
     /// orientation. Nil for an app without base.apk's digest, which names its code path (ADR-0039, decision 6).
@@ -347,6 +364,12 @@ final class GameSession {
         #else
         let environment: [String] = []
         #endif
+        // The bars the guest's floating windows are laid out inside (ADR-0041 decision 8, finding 3).
+        let bars = barInsets(scale: scale).barInsetsEnvironment
+        let guestEnvironment = environment + [bars]
+        #if DEBUG
+        SessionCheck.event("guest \(bars)")
+        #endif
         let version = paths.versionDirectory(for: entry)
         // An installed set keeps each split beside base.apk as split_<name>.apk (ADR-0048 decision 9).
         let splits = ((try? FileManager.default.contentsOfDirectory(atPath: version.path)) ?? [])
@@ -362,7 +385,7 @@ final class GameSession {
                 data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
                 download: data.appending(path: "download").path,
-                guestSystem: bundle.appending(path: "Guest").path, splits: splits, environment: environment)
+                guestSystem: bundle.appending(path: "Guest").path, splits: splits, environment: guestEnvironment)
         case .art:
             // An unsigned APK has no signers.json.
             let signers = version.appending(path: SignersFile.fileName)
@@ -377,7 +400,7 @@ final class GameSession {
                 guestSystem: bundle.appending(path: "Guest").path,
                 // The kept pack slices and the feature modules' splits, which prepareJavaStart lays out in
                 // local_testing (ADR-0050 decisions 2 and 3).
-                localTesting: entry.usesLocalTesting, splits: splits, environment: environment)
+                localTesting: entry.usesLocalTesting, splits: splits, environment: guestEnvironment)
         }
         guard var start else { return nil }
         // ES 3.1 and up on ANGLE's Vulkan backend, by the installed set's highest glEsVersion (ADR-0044 d)).

@@ -119,6 +119,14 @@ public struct GuestInsets: Sendable, Equatable {
     public var mandatorySystemGestures: Edges
     /// `WindowInsets.getRoundedCorner`'s radii, turned with the interface, or nil for none.
     public var roundedCorners: Corners?
+    /// The bars floating windows are laid out inside (decision 8, finding 3): the status bar, Android's 24 dp or the
+    /// safe area's top where the housing makes it taller, and the gesture navigation bar, the home indicator's inset.
+    public var systemBars: Edges
+
+    /// The framework's SystemBarInsets reads the bars from the guest's environment: "<top>,<bottom>" in pixels.
+    public var barInsetsEnvironment: String {
+        "MINATO_BAR_INSETS=\(systemBars.top),\(systemBars.bottom)"
+    }
 
     public init(safeArea: SafeArea, size: PixelSize, orientation: InterfaceOrientations, device: Device) {
         let pixels = { (points: Double) in Int32((points * device.scale).rounded()) }
@@ -126,6 +134,7 @@ public struct GuestInsets: Sendable, Equatable {
         let side = pixels(30)
         systemGestures = Edges(left: side, top: 0, right: side, bottom: bottom)
         mandatorySystemGestures = Edges(left: 0, top: 0, right: 0, bottom: bottom)
+        systemBars = Edges(left: 0, top: max(pixels(safeArea.top), pixels(24)), right: 0, bottom: bottom)
         cutout = nil
         // The device's portrait edges and corners turned with the interface: in landscapeRight its top is on the
         // screen's left.

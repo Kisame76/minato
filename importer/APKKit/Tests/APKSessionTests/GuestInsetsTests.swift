@@ -53,6 +53,32 @@ struct GuestInsetsTests {
         #expect(insets.systemGestures == GuestInsets.Edges(left: 60, top: 0, right: 60, bottom: 40))
     }
 
+    /// The bars floating windows are laid out inside (decision 8, finding 3), which the framework's SystemBarInsets
+    /// reads as MINATO_BAR_INSETS: the status bar is Android's 24 dp, or the safe area's top where the housing makes it
+    /// taller; the gesture navigation bar is the home indicator's inset; both at the display's turn.
+    @Test func theBarsArePerModelAndTurn() {
+        let portrait = GuestInsets(safeArea: .init(top: 62, left: 0, bottom: 34, right: 0),
+                                   size: PixelSize(width: 1206, height: 2622), orientation: .portrait, device: island)
+        #expect(portrait.systemBars == GuestInsets.Edges(left: 0, top: 186, right: 0, bottom: 102))
+        #expect(portrait.barInsetsEnvironment == "MINATO_BAR_INSETS=186,102")
+        let turned = GuestInsets(safeArea: .init(top: 0, left: 62, bottom: 21, right: 62),
+                                 size: PixelSize(width: 2622, height: 1206), orientation: .landscapeRight,
+                                 device: island)
+        #expect(turned.systemBars == GuestInsets.Edges(left: 0, top: 72, right: 0, bottom: 63))
+        let duo = GuestInsets.Device(housing: GuestInsets.Housing(model: "iPhone19,4"), scale: 3)
+        let folded = GuestInsets(safeArea: .init(top: 0, left: 0, bottom: 20, right: 40),
+                                 size: PixelSize(width: 1398, height: 2034), orientation: .portrait, device: duo)
+        #expect(folded.barInsetsEnvironment == "MINATO_BAR_INSETS=72,60")
+        let duoTurned = GuestInsets(safeArea: .init(top: 40, left: 0, bottom: 20, right: 0),
+                                    size: PixelSize(width: 2034, height: 1398), orientation: .landscapeRight,
+                                    device: duo)
+        #expect(duoTurned.barInsetsEnvironment == "MINATO_BAR_INSETS=120,60")
+        let pad = GuestInsets(safeArea: .init(top: 24, left: 0, bottom: 20, right: 0),
+                              size: PixelSize(width: 1640, height: 2360), orientation: .portrait,
+                              device: GuestInsets.Device(housing: GuestInsets.Housing(model: "iPad16,3"), scale: 2))
+        #expect(pad.barInsetsEnvironment == "MINATO_BAR_INSETS=48,40")
+    }
+
     @Test func theTableGivesTheHousingsEdgePerModel() {
         let duo = GuestInsets.Housing(model: "iPhone19,4")
         #expect(duo.cutout == .right)

@@ -83,11 +83,16 @@ extension AppReport.Device {
     }
 
     private static var modelIdentifier: String {
-        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        let model = GuestInsets.Housing.model(environment: ProcessInfo.processInfo.environment, machine: machine)
+        return model.isEmpty ? "?" : model
+    }
+
+    /// sysctl's hw.machine, "iPhone16,2"; the Mac's in the Simulator.
+    static var machine: String? {
         var size = 0
-        guard sysctlbyname("hw.machine", nil, &size, nil, 0) == 0, size > 0 else { return "?" }
+        guard sysctlbyname("hw.machine", nil, &size, nil, 0) == 0, size > 0 else { return nil }
         var machine = [CChar](repeating: 0, count: size)
-        guard sysctlbyname("hw.machine", &machine, &size, nil, 0) == 0 else { return "?" }
+        guard sysctlbyname("hw.machine", &machine, &size, nil, 0) == 0 else { return nil }
         return String(decoding: machine.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 }

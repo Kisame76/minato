@@ -54,6 +54,8 @@ All notable changes to Minato are documented in this file. The format follows
 - Pulling down in the library shows the search field without a refresh getting in its way; the library still updates
   itself whenever Minato comes to the front
 - The signing certificate moved from the library's "…" menu to Settings
+- An app's dialogs and other floating windows are centred between the status bar and the home indicator, as Android
+  centres them between its bars, instead of in the whole screen
 
 ### Fixed
 
