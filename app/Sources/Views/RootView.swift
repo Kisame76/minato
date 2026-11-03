@@ -37,10 +37,7 @@ struct RootView: View {
 struct HomeView: View {
     @Environment(LibraryModel.self) private var model
     @State private var actions = TileActions()
-
-    /// Apple's icon size on the Home Screen.
-    private static let iconSize: CGFloat = 60
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 4)
+    @State private var width: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -64,9 +61,9 @@ struct HomeView: View {
                             if !recentlyOpened.isEmpty { section("Recently Opened", recentlyOpened) }
                             if !favorites.isEmpty { section("Favorites", favorites) }
                         }
-                        .padding(.horizontal)
                         .padding(.top, 8)
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 }
             }
             .navigationTitle("Home")
@@ -78,11 +75,9 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.semibold))
-            LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(items) { item in
-                    AppTile(item: item, actions: actions, key: title, iconSize: Self.iconSize,
-                            showsReadyStatus: false)
-                }
+                .padding(.horizontal)
+            TileGrid(items: items, width: width) { item, iconSize in
+                AppTile(item: item, actions: actions, key: title, iconSize: iconSize, showsReadyStatus: false)
             }
         }
     }

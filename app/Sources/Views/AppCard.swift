@@ -1,17 +1,20 @@
 import SwiftUI
 import UIKit
 
-/// One tile of the library grid, styled like an item in the Files app.
+/// One tile of the grids in Library and on Home, like an app on the iOS Home Screen: its icon, its name in one line
+/// under it.
 struct AppCard: View {
     let item: LibraryItem
-    var iconSize: CGFloat = 76
+    /// The Home Screen's on this device (HomeScreenGrid).
+    var iconSize: CGFloat = 60
     /// Home shows a status only when it is not Ready (the navigation design, section 2).
     var showsReadyStatus = true
     var showsSelection = false
     var isSelected = false
 
     var body: some View {
-        VStack(spacing: 4) {
+        // The label 8 pt below the icon, as on the Home Screen: the icon's 6 pt for the selection and 2.
+        VStack(spacing: 2) {
             AppIcon(url: item.iconURL)
                 .frame(width: iconSize, height: iconSize)
                 // A small star at the icon's bottom left, like the heart in Photos.
@@ -34,8 +37,8 @@ struct AppCard: View {
                 .padding(6)
                 .background(isSelected ? Color(.systemGray5) : .clear, in: .rect(cornerRadius: 12))
             Text(item.title)
-                .font(.subheadline)
-                .lineLimit(2)
+                .font(.caption)
+                .lineLimit(1)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 4)
                 .background(isSelected ? Color(.systemGray5) : .clear, in: .rect(cornerRadius: 5))

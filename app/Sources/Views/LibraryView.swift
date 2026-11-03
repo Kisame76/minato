@@ -27,8 +27,7 @@ struct LibraryView: View {
     /// The selected apps the bottom bar's Delete asks about.
     @State private var selectionDeletion: [LibraryEntry]?
     @State private var query = ""
-
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 8, alignment: .top)]
+    @State private var width: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -93,14 +92,13 @@ struct LibraryView: View {
             emptyLibrary
         } else {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 24) {
-                    ForEach(visibleItems) { item in
-                        tile(item)
-                    }
+                // 4 apps side by side with Home Screen sized icons, as on Home (the navigation design, section 3).
+                TileGrid(items: visibleItems, width: width) { item, iconSize in
+                    tile(item, iconSize: iconSize)
                 }
-                .padding(.horizontal)
                 .padding(.top, 8)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // Like Files: content scrolls under a frosted bar with a clear edge.
             .scrollEdgeEffectStyle(.hard, for: .top)
             .overlay(alignment: .bottom) {
@@ -124,8 +122,9 @@ struct LibraryView: View {
         }
     }
 
-    private func tile(_ item: LibraryItem) -> some View {
-        AppTile(item: item, actions: actions, isSelecting: isSelecting, isSelected: selection.contains(item.id)) {
+    private func tile(_ item: LibraryItem, iconSize: CGFloat) -> some View {
+        AppTile(item: item, actions: actions, iconSize: iconSize, isSelecting: isSelecting,
+                isSelected: selection.contains(item.id)) {
             if selection.contains(item.id) {
                 selection.remove(item.id)
             } else {

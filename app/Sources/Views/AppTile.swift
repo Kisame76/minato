@@ -32,7 +32,7 @@ struct AppTile: View {
     let actions: TileActions
     /// Tells the app's tiles apart where it has more than one.
     var key = ""
-    var iconSize: CGFloat = 76
+    var iconSize: CGFloat = 60
     var showsReadyStatus = true
     var isSelecting = false
     var isSelected = false
@@ -189,5 +189,31 @@ private struct TileActionsModifier: ViewModifier {
 
     private var blockedShown: Binding<Bool> {
         Binding(get: { actions.blocked != nil }, set: { if !$0 { actions.blocked = nil } })
+    }
+}
+
+/// Home's and Library's tiles in 4 columns as the Home Screen lays out its apps on this device (HomeScreenGrid): its
+/// icon size and row pitch, the margins as wide as the gaps, over the `width` the grid has.
+struct TileGrid<Item: Identifiable, Tile: View>: View {
+    let items: [Item]
+    let width: CGFloat
+    @ViewBuilder let tile: (Item, CGFloat) -> Tile
+
+    var body: some View {
+        let grid = HomeScreenGrid(width: width, screenWidth: Self.screenWidth)
+        // A column per icon and gap, centred on the icon, so that a label may be wider than its icon, as there.
+        let columns = Array(repeating: GridItem(.fixed(grid.iconSize + grid.spacing), spacing: 0, alignment: .top),
+                            count: HomeScreenGrid.columns)
+        LazyVGrid(columns: columns,
+                  spacing: grid.rowSpacing(labelLineHeight: UIFont.preferredFont(forTextStyle: .caption1).lineHeight)) {
+            ForEach(items) { tile($0, grid.iconSize) }
+        }
+        .padding(.horizontal, grid.spacing / 2)
+    }
+
+    /// The width of the screen in portrait, which says the device (the iPhone Duo's two screens are two widths).
+    private static var screenWidth: CGFloat {
+        let bounds = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds ?? .zero
+        return min(bounds.width, bounds.height)
     }
 }
