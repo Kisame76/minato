@@ -289,14 +289,23 @@ void report_unsupported(std::uint64_t number) {
 
 // --- Scheduling --------------------------------------------------------------------------------------
 
-/// Guest threads run like ordinary Linux threads: SCHED_OTHER with priority 0.
+/// Whether `id` is 0, the process or one of its guest threads: what a call that takes a thread ID
+/// accepts.
+bool names_own_thread(int id) {
+    if (id == 0 || id == ::getpid()) return true;
+    bool found = false;
+    apkrt::threads::find(id, [&](apkrt::threads::GuestThread &) { found = true; });
+    return found;
+}
+
+/// Guest threads run like ordinary Linux threads: SCHED_OTHER with priority 0, each of them, as ART's thread dump asks.
 long sys_sched_getscheduler(int pid) {
-    if (pid != 0 && pid != ::getpid()) return -linux_errno::esrch;
+    if (!names_own_thread(pid)) return -linux_errno::esrch;
     return 0;  // SCHED_OTHER
 }
 
 long sys_sched_getparam(int pid, std::uint64_t parameters) {
-    if (pid != 0 && pid != ::getpid()) return -linux_errno::esrch;
+    if (!names_own_thread(pid)) return -linux_errno::esrch;
     *as_pointer<int>(parameters) = 0;  // struct sched_param { int sched_priority; }
     return 0;
 }
@@ -312,19 +321,10 @@ std::uint64_t active_cpu_mask() {
 long sys_sched_getaffinity(int pid, std::uint64_t size, std::uint64_t mask) {
     // Linux writes the kernel's CPU mask, 8 bytes up to 64 CPUs, and returns its size.
     constexpr std::uint64_t kernel_mask_size = 8;
-    if (pid != 0 && pid != ::getpid()) return -linux_errno::esrch;
+    if (!names_own_thread(pid)) return -linux_errno::esrch;
     if (size < kernel_mask_size) return -linux_errno::einval;
     *as_pointer<std::uint64_t>(mask) = active_cpu_mask();
     return static_cast<long>(kernel_mask_size);
-}
-
-/// Whether `id` is 0, the process or one of its guest threads: what a call that takes a thread ID
-/// accepts.
-bool names_own_thread(int id) {
-    if (id == 0 || id == ::getpid()) return true;
-    bool found = false;
-    apkrt::threads::find(id, [&](apkrt::threads::GuestThread &) { found = true; });
-    return found;
 }
 
 /// Unity pins its threads to cores and sets their priorities (ADR-0033, decision 8). Both succeed

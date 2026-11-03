@@ -8,6 +8,7 @@
 #include "sys_cpu.h"
 #include "syscall_frame.h"
 #include "syscalls.h"
+#include "threads.h"
 #include "vfs.h"
 #include "watches.h"
 
@@ -589,6 +590,24 @@ TEST(sched_queries_answer_like_an_ordinary_linux_thread) {
     int priority = -1;
     CHECK(call(nr_sched_getparam, {0, reinterpret_cast<std::uint64_t>(&priority)}) == 0);
     CHECK(priority == 0);
+}
+
+TEST(sched_queries_answer_for_every_thread_of_the_process) {
+    // ART's thread dump asks each thread's policy and priority by its ID (Thread::DumpState's sched_getscheduler and
+    // sched_getparam), as Linux answers for any thread of the process; an ID no thread has is ESRCH.
+    static apkrt::threads::GuestThread other{};
+    other.tid = apkrt::threads::new_tid();
+    apkrt::threads::add(other);
+    const auto tid = static_cast<std::uint64_t>(other.tid);
+    CHECK(call(nr_sched_getscheduler, {tid}) == 0);  // SCHED_OTHER
+    int priority = -1;
+    CHECK(call(nr_sched_getparam, {tid, reinterpret_cast<std::uint64_t>(&priority)}) == 0);
+    CHECK(priority == 0);
+    std::uint64_t mask = 0;
+    CHECK(call(nr_sched_getaffinity, {tid, sizeof mask, reinterpret_cast<std::uint64_t>(&mask)}) == 8 && mask != 0);
+    apkrt::threads::forget(other);
+    CHECK(call(nr_sched_getscheduler, {tid}) == -esrch);
+    CHECK(call(nr_sched_getparam, {tid, reinterpret_cast<std::uint64_t>(&priority)}) == -esrch);
 }
 
 TEST(sigaltstack_keeps_the_guest_stack_in_linux_layout) {
