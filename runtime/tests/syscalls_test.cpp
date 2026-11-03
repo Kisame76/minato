@@ -5,6 +5,7 @@
 #include "hwcap.h"
 #include "proc.h"
 #include "sockets.h"
+#include "sys_cpu.h"
 #include "syscall_frame.h"
 #include "syscalls.h"
 #include "vfs.h"
@@ -2230,6 +2231,50 @@ TEST(the_cores_are_numbered_little_first_and_the_big_ones_have_the_higher_clock_
     }
     CHECK(read_guest_file(std::format("/sys/devices/system/cpu/cpu{}/cpu_capacity", total).c_str()) == "error 2");
     CHECK(open_guest(at_fdcwd, "/sys/devices/system/cpu/cpu0/cpu_capacity", o_wronly) == -eacces);
+}
+
+TEST(the_cpu_folder_lists_the_cores_and_masks_as_android_15_does) {
+    // Engines enumerate the cores by listing /sys/devices/system/cpu (Android 15's emulator: cpu0-3, cpufreq, cpuidle,
+    // possible, present, online, offline, kernel_max, ...). Each cpuN links its cpufreq to the policy of its cluster.
+    const int total = cpu_count("hw.ncpu");
+    const auto fd = open_guest(at_fdcwd, "/sys/devices/system/cpu", o_rdonly | o_directory | o_cloexec);
+    CHECK(fd >= 0);
+    alignas(8) char buffer[4096];
+    const auto size = call(nr_getdents64, {unsigned_of(fd), address(buffer), sizeof buffer});
+    CHECK(size > 0);
+    std::set<std::string> names;
+    for (const auto &entry : entries_of(buffer, size)) names.insert(entry.name);
+    std::set<std::string> wanted{".", "..", "cpufreq", "possible", "present", "online", "offline", "kernel_max"};
+    for (int core = 0; core < total; ++core) wanted.insert(std::format("cpu{}", core));
+    CHECK(names == wanted);
+    CHECK(read_guest_file("/sys/devices/system/cpu/offline") == "\n");
+    CHECK(read_guest_file("/sys/devices/system/cpu/kernel_max") == "31\n");
+    CHECK(read_guest_file("/sys/devices/system/cpu/cpu0/online") == "1\n");
+    CHECK(read_guest_file("/sys/devices/system/cpu/cpu0/topology/core_id") == "0\n");
+    // the policy of cpu0's cluster names its cores
+    const std::string related = read_guest_file("/sys/devices/system/cpu/cpu0/cpufreq/related_cpus");
+    CHECK(related.starts_with("0") && related.ends_with("\n"));
+    CHECK(read_guest_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq") ==
+          read_guest_file("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"));
+}
+
+TEST(the_cpu_folder_is_empty_not_thrown_when_it_cannot_be_made_and_is_read_only_when_it_is) {
+    // A guest start must not terminate when the temporary folder cannot be written: the folder is then just not there.
+    CHECK(apkrt::sys_cpu::make_in("/dev/null/nowhere").empty());
+    Scratch scratch;
+    const std::string made = apkrt::sys_cpu::make_in(scratch.host);
+    CHECK(!made.empty());
+    CHECK(::access((made + "/cpu0/cpu_capacity").c_str(), R_OK) == 0);
+    struct stat status{};
+    CHECK(::stat(made.c_str(), &status) == 0 && (status.st_mode & 0777) == 0555);  // no files created in its /sys
+    CHECK(::stat((made + "/cpu0").c_str(), &status) == 0 && (status.st_mode & 0777) == 0555);
+    // a folder of a process that is gone is swept
+    const std::string gone = scratch.host + "/minato-sys-cpu-2147483646";
+    CHECK(::mkdir(gone.c_str(), 0555) == 0);
+    CHECK(!apkrt::sys_cpu::make_in(scratch.host).empty());
+    CHECK(::access(gone.c_str(), F_OK) != 0);
+    // the scratch folder is removed with rm -rf, which does not enter a read-only folder
+    static_cast<void>(std::system(("chmod -R u+w '" + scratch.host + "'").c_str()));
 }
 
 TEST(linkerconfig_gives_libnativeloader_the_apexes_libraries) {

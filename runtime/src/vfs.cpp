@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include "sys_cpu.h"
+
 namespace apkrt::vfs {
 namespace {
 
@@ -40,10 +42,13 @@ void close_folder(Mount &mount) {
 /// bionic's arc4random checks access("/dev/urandom") early and otherwise lives on the 16 bytes of
 /// AT_RANDOM alone.
 std::vector<Mount> devices() {
-    return {{"/dev/null", "/dev/null"},
-            {"/dev/zero", "/dev/zero"},
-            {"/dev/random", "/dev/urandom"},
-            {"/dev/urandom", "/dev/urandom"}};
+    std::vector<Mount> mounts = {{"/dev/null", "/dev/null"},
+                                 {"/dev/zero", "/dev/zero"},
+                                 {"/dev/random", "/dev/urandom"},
+                                 {"/dev/urandom", "/dev/urandom"}};
+    // The CPUs as Android lists them (sys_cpu.h): bionic's sysconf reads possible and online, engines list the folder.
+    if (const std::string &cpu = sys_cpu::folder(); !cpu.empty()) mounts.emplace_back("/sys/devices/system/cpu", cpu);
+    return mounts;
 }
 
 /// A link of Android's that the guest finds where Android 15 puts it in an app's mount namespace, though no mount

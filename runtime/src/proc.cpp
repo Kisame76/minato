@@ -129,62 +129,6 @@ std::pair<std::uint64_t, std::uint64_t> strings_range(const char *const *list) {
     return {reinterpret_cast<std::uint64_t>(list[0]), reinterpret_cast<std::uint64_t>(last + std::strlen(last) + 1)};
 }
 
-// --- /sys/devices/system/cpu -------------------------------------------------------------------------
-
-/// A CPU mask's list, as Linux writes it: "0-5" for six CPUs, "0" for one.
-std::string cpu_list(const char *sysctl_name) {
-    int cpus = 1;
-    std::size_t length = sizeof cpus;
-    if (::sysctlbyname(sysctl_name, &cpus, &length, nullptr, 0) != 0 || cpus < 1) cpus = 1;
-    return cpus == 1 ? std::string("0\n") : std::format("0-{}\n", cpus - 1);
-}
-
-/// The cores of a big.LITTLE phone, as Android numbers them: the efficiency cores first, the performance cores last
-/// (a Pixel's cpu0-3 are its little cores, the rest big). The host knows them by performance level: level 0 is the
-/// performance cores, level 1 the efficiency cores (the A17 Pro has 2 and 4); a device with one level has no little
-/// cores.
-struct CpuLayout {
-    int total = 1, efficiency = 0;
-};
-
-int sysctl_cpus(const char *name) {
-    int cpus = 0;
-    std::size_t length = sizeof cpus;
-    return ::sysctlbyname(name, &cpus, &length, nullptr, 0) == 0 && cpus > 0 ? cpus : 0;
-}
-
-CpuLayout cpu_layout() {
-    CpuLayout layout;
-    layout.total = std::max(1, sysctl_cpus("hw.ncpu"));
-    const int performance = sysctl_cpus("hw.perflevel0.physicalcpu");
-    const int efficiency = sysctl_cpus("hw.perflevel1.physicalcpu");
-    if (performance > 0 && efficiency > 0 && performance + efficiency == layout.total) layout.efficiency = efficiency;
-    return layout;
-}
-
-/// cpuN/cpufreq/cpuinfo_max_freq (kHz) and cpuN/cpu_capacity, which Unity and others read to tell big cores from
-/// little ones. iOS gives an app no clock, so the A17 Pro's are the fixed values of every device, a named
-/// approximation: only their ratio matters for telling big from little. The capacity is Linux's scale (1024 for the
-/// biggest core, the others by clock).
-std::optional<std::string> cpu_core_file(std::string_view path) {
-    constexpr std::string_view root = "/sys/devices/system/cpu/cpu";
-    if (!path.starts_with(root)) return std::nullopt;
-    path.remove_prefix(root.size());
-    int core = -1;
-    const auto [end, error] = std::from_chars(path.data(), path.data() + path.size(), core);
-    if (error != std::errc{} || core < 0) return std::nullopt;
-    const std::string_view entry(end, static_cast<std::size_t>(path.data() + path.size() - end));
-    const CpuLayout layout = cpu_layout();
-    if (core >= layout.total) return std::nullopt;
-    constexpr int performance_khz = 3'780'000, efficiency_khz = 2'110'000;
-    const bool little = core < layout.efficiency;
-    if (entry == "/cpufreq/cpuinfo_max_freq") return std::format("{}\n", little ? efficiency_khz : performance_khz);
-    if (entry == "/cpu_capacity") {
-        return std::format("{}\n", little ? 1024LL * efficiency_khz / performance_khz : 1024LL);
-    }
-    return std::nullopt;
-}
-
 // --- Memory: /proc/meminfo and sysinfo ---------------------------------------------------------------------------
 
 /// The memory the guest is told of, in bytes: the device's, what is free, and what the process may still use. On the
@@ -766,14 +710,7 @@ std::optional<long> open(std::string_view path, int linux_flags) {
     std::string name(path);
     if (path == properties::path) {
         contents = properties::area();  // root's, read-only (sys_files.cpp)
-    } else if (path == "/sys/devices/system/cpu/possible") {
-        contents = cpu_list("hw.ncpu");
-    } else if (path == "/sys/devices/system/cpu/present") {
-        contents = cpu_list("hw.ncpu");
-    } else if (const auto core = cpu_core_file(path)) {
-        contents = *core;
-    } else if (path == "/sys/devices/system/cpu/online") {
-        contents = cpu_list("hw.activecpu");  // as sched_getaffinity
+
     } else if (path == "/proc/cpuinfo") {
         contents = cpuinfo();
     } else if (path == "/proc/meminfo") {
