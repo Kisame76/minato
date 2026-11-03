@@ -7,6 +7,7 @@ struct AppDetailView: View {
     @Environment(LibraryModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsRemoval = false
+    @State private var confirmsClearing = false
     @State private var profile: AppProfile?
 
     var body: some View {
@@ -106,6 +107,9 @@ struct AppDetailView: View {
                 }
 
                 Section {
+                    if !entry.id.hasPrefix("file:") {
+                        Button("Clear App Data", role: .destructive) { confirmsClearing = true }
+                    }
                     Button("Delete", role: .destructive) { confirmsRemoval = true }
                 }
             }
@@ -126,6 +130,9 @@ struct AppDetailView: View {
                 }
             } message: {
                 Text("Its installed files and app data will be deleted. The original APK is kept.")
+            }
+            .clearDataDialog(isPresented: $confirmsClearing, entry: entry) { entry in
+                Task { await model.clearData(of: entry) }
             }
         }
     }

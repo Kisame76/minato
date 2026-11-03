@@ -18,6 +18,9 @@ final class TileActions {
     /// The tile whose Delete asks, by its key: an app can have two tiles on Home.
     var deletingTile: String?
     var deleting: LibraryEntry?
+    /// The tile whose Clear App Data asks, by its key.
+    var clearingTile: String?
+    var clearing: LibraryEntry?
 }
 
 /// One app's tile, the same in Library and on Home: a tap starts the app or says why not, touch and hold offers Get
@@ -57,6 +60,12 @@ struct AppTile: View {
                         }
                     }
                     Divider()
+                    if !entry.id.hasPrefix("file:") {
+                        Button("Clear App Data", systemImage: "eraser", role: .destructive) {
+                            actions.clearing = entry
+                            actions.clearingTile = tileKey
+                        }
+                    }
                     Button("Delete", systemImage: "trash", role: .destructive) {
                         actions.deleting = entry
                         actions.deletingTile = tileKey
@@ -66,6 +75,9 @@ struct AppTile: View {
             .deletionDialog(isPresented: deletionShown, entries: actions.deleting.map { [$0] }) { entries in
                 Task { await model.remove(entries) }
             }
+            .clearDataDialog(isPresented: clearingShown, entry: actions.clearing) { entry in
+                Task { await model.clearData(of: entry) }
+            }
     }
 
     private var tileKey: String { key + item.id }
@@ -73,6 +85,11 @@ struct AppTile: View {
     private var deletionShown: Binding<Bool> {
         Binding(get: { actions.deletingTile == tileKey },
                 set: { if !$0 { actions.deletingTile = nil; actions.deleting = nil } })
+    }
+
+    private var clearingShown: Binding<Bool> {
+        Binding(get: { actions.clearingTile == tileKey },
+                set: { if !$0 { actions.clearingTile = nil; actions.clearing = nil } })
     }
 
     private func tap() {
@@ -122,6 +139,20 @@ extension View {
             Text(entries.count == 1
                 ? "Its installed files and app data will be deleted. The original APK is kept."
                 : "Their installed files and app data will be deleted. The original APKs are kept.")
+        }
+    }
+}
+
+extension View {
+    /// Asks before clearing an app's data, as Android's Clear storage confirms: it cannot be restored.
+    func clearDataDialog(isPresented: Binding<Bool>, entry: LibraryEntry?,
+                         perform clear: @escaping (LibraryEntry) -> Void) -> some View {
+        confirmationDialog(entry.map { "Clear the Data of “\($0.displayName)”?" } ?? "", isPresented: isPresented,
+                           titleVisibility: .visible, presenting: entry) { entry in
+            Button("Clear App Data", role: .destructive) { clear(entry) }
+        } message: { _ in
+            Text("Its saved data, such as progress and settings, will be deleted, as if it were new. The app and its "
+                + "OBB files are kept.")
         }
     }
 }

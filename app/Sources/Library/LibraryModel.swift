@@ -483,6 +483,21 @@ final class LibraryModel {
         lastOpened = await library.lastOpened
     }
 
+    /// Clears the app's data as Android's Clear storage does (Library.clearData), with its web data and the report of
+    /// its last session; the app stays installed (the navigation design, section 6).
+    func clearData(of entry: LibraryEntry) async {
+        guard let library else { return }
+        do {
+            try await library.clearData(id: entry.id)
+        } catch {
+            errorMessage = "The data of “\(entry.displayName)” could not be cleared: \(error.localizedDescription)"
+            return
+        }
+        guard !entry.id.hasPrefix("file:") else { return }
+        await removeWebData(of: entry)
+        if let paths { LastSessionStore(folder: paths.applicationSupport).forget(package: entry.id) }
+    }
+
     /// Makes the apps favorites, or no favorites any more (the navigation design, section 3).
     func setFavorite(_ entries: [LibraryEntry], _ favorite: Bool) async {
         guard let library else { return }
