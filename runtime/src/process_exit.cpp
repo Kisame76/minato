@@ -29,6 +29,8 @@ namespace {
 
 std::atomic<int> report_descriptor{-1};
 std::atomic<int> measures_descriptor{-1};
+std::atomic<apkrt_log_drain> log_drain{nullptr};
+std::atomic<bool> log_drained{false};  // the drain runs once, whichever end reaches it first
 std::atomic<bool> program_ended{false};  // with a session (end)
 
 /// Writes `status` and a newline to the report descriptor, once; only with write(), because the
@@ -201,11 +203,13 @@ void log_end(EndKind kind, int value) {
     static_cast<void>(::write(STDERR_FILENO, line, at));
 }
 
-/// The end's report: the log line, the status, then the measures.
+/// The end's report: the log line, the status, then the measures; then the host's log drain, once.
 void report(EndKind kind, int value) {
     log_end(kind, value);
     report_status(kind == EndKind::signaled ? 128 + value : value);
     report_measures();
+    const apkrt_log_drain drain = log_drain.load();
+    if (drain != nullptr && !log_drained.exchange(true)) drain();
 }
 
 }  // namespace
@@ -294,6 +298,10 @@ void stop() {
 
 extern "C" void apkrt_report_exit_status(int descriptor) {
     apkrt::process::report_exit_status_to(descriptor);
+}
+
+extern "C" void apkrt_drain_log_at_end(apkrt_log_drain drain) {
+    apkrt::process::log_drain.store(drain);
 }
 
 extern "C" void apkrt_report_exit_measures(int descriptor) {

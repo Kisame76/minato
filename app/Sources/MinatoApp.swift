@@ -97,6 +97,8 @@ struct MinatoApp: App {
         if case .library(nil) = mode, let notice = LastSessionStore(folder: paths.applicationSupport).take() {
             mode = .library(.quitUnexpectedly(notice))
         }
+        // A session that crashed or that iOS ended left its raw log: its last lines are kept now (ADR-0070).
+        try? SessionLog(folder: paths.sessionLogDirectory).keepLeftovers()
         if let request {
             let seconds = Date.now.timeIntervalSince(request.time)
             let chosen = if case .gameMode = mode { "game mode" } else { "the library" }

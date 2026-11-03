@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <future>
@@ -306,6 +307,86 @@ TEST(a_loader_held_by_another_thread_gives_addresses_not_a_wait) {
     holder.join();
     CHECK(came);
     CHECK(line.get().starts_with("W/apkrt   : exit_group(1) from "));
+}
+
+/// A drain that marks in the log where it ran.
+void mark_drained() {
+    static_cast<void>(::write(STDERR_FILENO, "drained\n", 8));
+}
+
+// The host's log drain (apkrt_drain_log_at_end, ADR-0070) runs after the end's log line, status and measures, once,
+// for an exit and for a signal death, and with no session too.
+TEST(the_log_drain_runs_once_after_the_end_line) {
+    const auto exited = in_child([](int report) {
+        apkrt_report_exit_status(report);
+        apkrt_drain_log_at_end(mark_drained);
+        become_app_process();
+        apkrt::process::exit(3);
+    });
+    CHECK(WIFEXITED(exited.status) && WEXITSTATUS(exited.status) == 3);
+    CHECK(exited.log == "I/Zygote  : Process " + std::to_string(exited.pid) + " exited cleanly (3)\ndrained\n");
+    const auto signaled = in_child([](int report) {
+        apkrt_report_exit_status(report);
+        apkrt_drain_log_at_end(mark_drained);
+        become_app_process();
+        apkrt::process::report_death_by(6);  // SIGABRT
+        apkrt::process::exit(0);
+    });
+    CHECK(signaled.report == "134\n");
+    CHECK(signaled.log == "I/Zygote  : Process " + std::to_string(signaled.pid) +
+                              " exited due to signal 6 (Aborted)\ndrained\n");
+    const auto plain = in_child([](int) {
+        apkrt_drain_log_at_end(mark_drained);
+        apkrt::process::exit(4);
+    });
+    CHECK(plain.log == "drained\n");
+    const auto off = in_child([](int) {
+        apkrt_drain_log_at_end(mark_drained);
+        apkrt_drain_log_at_end(nullptr);
+        become_app_process();
+        apkrt::process::report_death_by(11);
+        ::_exit(0);
+    });
+    CHECK(off.log.find("drained") == std::string::npos);
+}
+
+/// The app's stderr in a child: a pipe that a thread copies on to the stderr before it, slowly.
+int stderr_before = -1;
+std::atomic<bool> copied{false};
+
+void restore_and_wait() {
+    ::dup2(stderr_before, STDERR_FILENO);  // the pipe's last write end: the thread reads to its end
+    for (int waited = 0; !copied.load() && waited < 1000; ++waited) {
+        const timespec millisecond{0, 1'000'000};
+        ::nanosleep(&millisecond, nullptr);
+    }
+}
+
+// What a drain is for: a crash ends the process at once, and the lines a thread still has to copy out of a pipe
+// would go with it.
+TEST(a_drain_lets_a_piped_log_reach_its_end_before_a_crash) {
+    const auto ended = in_child([](int) {
+        int ends[2];
+        CHECK(::pipe(ends) == 0);
+        stderr_before = ::dup(STDERR_FILENO);
+        ::dup2(ends[1], STDERR_FILENO);
+        ::close(ends[1]);
+        std::thread([reading = ends[0]] {
+            char buffer[256];
+            for (ssize_t count; (count = ::read(reading, buffer, sizeof buffer)) > 0;) {
+                std::this_thread::sleep_for(20ms);
+                static_cast<void>(::write(stderr_before, buffer, static_cast<std::size_t>(count)));
+            }
+            copied.store(true);
+        }).detach();
+        apkrt_drain_log_at_end(restore_and_wait);
+        become_app_process();
+        static_cast<void>(::write(STDERR_FILENO, "F/libc  : Fatal signal 11\n", 26));
+        apkrt::process::report_death_by(11);
+        ::_exit(139);  // as the raised signal ends it: at once
+    });
+    CHECK(ended.log == "F/libc  : Fatal signal 11\nI/Zygote  : Process " + std::to_string(ended.pid) +
+                           " exited due to signal 11 (Segmentation fault)\n");
 }
 
 }  // namespace

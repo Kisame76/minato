@@ -304,6 +304,7 @@ final class GameSession {
         #if DEBUG
         SessionCheck.guestStarts()
         #endif
+        SessionLogTap.begin(package: entry.id)
         if let failure = runtime.begin(start, configuration: configuration) {
             return couldNotStart(failure)
         }
@@ -460,6 +461,7 @@ final class GameSession {
     private func restart() {
         // The end is the user's or the app's: no notice at the library's next start (ADR-0032, decision 8).
         SessionEndReport.ended()
+        SessionLogTap.end()
         Task { [weak self, photos = runtime?.photos] in
             await photos?.settle(within: 5)
             await WriteBackHost.shared.endSession()

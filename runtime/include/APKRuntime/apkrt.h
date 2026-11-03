@@ -146,6 +146,14 @@ void apkrt_report_exit_status(int descriptor);
 /// the measures afterwards, as the status.
 void apkrt_report_exit_measures(int descriptor);
 
+/// Called once when a guest program ends the process, also by a signal, after the end's log line, the exit status
+/// and the measures went out, before the process ends or the session's end handler runs: a host whose stderr goes
+/// through a pipe drains it here, so that the last lines, a crash's among them, reach where they go (ADR-0070). It
+/// may run in a signal handler: it uses only async-signal-safe calls and returns within a bounded time. NULL turns
+/// it off.
+typedef void (*apkrt_log_drain)(void);
+void apkrt_drain_log_at_end(apkrt_log_drain drain);
+
 // MARK: - Session (ADR-0028)
 
 /// Called at the program's end (ADR-0028, decision 5), once, on the thread that ends it (exit_group, or
