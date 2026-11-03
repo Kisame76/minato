@@ -230,6 +230,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
+  "$app" == action-mode-standalone-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -1012,6 +1013,11 @@ run_app() {
     # action-bar-menu-test (the platform action bar's options menu, step 4): the MENU key opens the overflow, the arrow
     # and enter keys choose its first item, and after the app's invalidateOptionsMenu the MENU key opens and closes it,
     # then the BACK key finishes the action mode the app starts; ends with "done".
+    # action-mode-standalone-test (step 5b): an activity without an action bar starts an action mode once it has the
+    # focus, which its window's own bar shows, and finishes it; ends with "done".
+    action-mode-standalone-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ModeActivity
+      ;;
     action-bar-menu-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MenuActivity
       ;;

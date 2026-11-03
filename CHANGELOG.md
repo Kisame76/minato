@@ -16,7 +16,7 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps already in the library are checked again after a Minato update, so an app a newer Minato can run turns Ready
   without importing it again
 - Android's action bar for apps with the default theme: the title, the options menu with its overflow, hiding and
-  showing it, and action modes, as on Android 15
+  showing it, and action modes, also in apps without an action bar, as on Android 15
 - Above the on-screen keyboard, a bar shows the text of the field you type in, with its cursor, also in apps made with
   game engines such as Ren'Py; tap in it to move the cursor
 - A hardware keyboard's Menu key opens an app's options menu, the arrow and Enter keys work inside its overflow, and

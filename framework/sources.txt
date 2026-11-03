@@ -2401,6 +2401,7 @@ frameworks_base/core/java/com/android/internal/widget/ScrollingTabContainerView.
 frameworks_base/core/java/com/android/internal/widget/DecorContentParent.java
 frameworks_base/core/java/com/android/internal/widget/ActionBarOverlayLayout.java
 frameworks_base/core/java/com/android/internal/widget/ActionBarContainer.java
+frameworks_base/core/java/com/android/internal/view/StandaloneActionMode.java
 frameworks_base/core/java/com/android/internal/widget/ActionBarContextView.java
 frameworks_base/core/java/com/android/internal/widget/AbsActionBarView.java
 frameworks_base/core/java/com/android/internal/app/WindowDecorActionBar.java

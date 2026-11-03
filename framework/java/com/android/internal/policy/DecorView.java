@@ -10,6 +10,9 @@
  */
 package com.android.internal.policy;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
@@ -33,6 +36,10 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import com.android.internal.widget.ActionBarContextView;
+import com.android.internal.view.StandaloneActionMode;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.ViewStub;
 
 /** @hide */
 public class DecorView extends FrameLayout {
@@ -428,6 +435,9 @@ public class DecorView extends FrameLayout {
 
     /** As AOSP's: the primary action mode of the action bar, which the window callback hands out. */
     ActionMode mPrimaryActionMode;
+    /** The standalone action mode's bar, inflated from the window's action_mode_bar_stub on its first mode. */
+    private ActionBarContextView mPrimaryActionModeView;
+    private ObjectAnimator mFadeAnim;
 
     @Override
     public ActionMode startActionModeForChild(View originalView, ActionMode.Callback callback) {
@@ -445,8 +455,9 @@ public class DecorView extends FrameLayout {
     }
 
     /**
-     * As AOSP's startActionMode with the window callback's mode only: the activity's action bar starts it. AOSP's
-     * standalone and floating modes, which a window without an action bar gets, come with the popups (ADR-0041 a)).
+     * As AOSP's startActionMode: the activity's action bar starts the mode, and a window without one shows it in its
+     * own standalone bar (the action_mode_bar_stub); the floating mode and the standalone bar of a floating window come
+     * with the popups (ADR-0041 a)).
      */
     @Override
     public ActionMode startActionMode(ActionMode.Callback callback, int type) {
@@ -473,15 +484,81 @@ public class DecorView extends FrameLayout {
                 }
                 mPrimaryActionMode = mode;
             }
-            if (mWindow.getCallback() != null && !mWindow.isDestroyed()) {
-                try {
-                    mWindow.getCallback().onActionModeStarted(mode);
-                } catch (AbstractMethodError ame) {
-                    // Older apps might not implement this callback method.
-                }
+        } else if (type == ActionMode.TYPE_PRIMARY) {
+            // As AOSP's: the window's own standalone bar when no action bar starts the mode.
+            mode = createStandaloneActionMode(wrappedCallback);
+            if (mode != null && wrappedCallback.onCreateActionMode(mode, mode.getMenu())) {
+                setHandledPrimaryActionMode(mode);
+            } else {
+                mode = null;
+            }
+        }
+        if (mode != null && mWindow.getCallback() != null && !mWindow.isDestroyed()) {
+            try {
+                mWindow.getCallback().onActionModeStarted(mode);
+            } catch (AbstractMethodError ame) {
+                // Older apps might not implement this callback method.
             }
         }
         return mode;
+    }
+
+    /** As AOSP's createStandaloneActionMode for a window that is not floating (the stub's bar). */
+    private ActionMode createStandaloneActionMode(ActionMode.Callback callback) {
+        endOnGoingFadeAnimation();
+        if (mPrimaryActionMode != null) {
+            mPrimaryActionMode.finish();
+            mPrimaryActionMode = null;
+        }
+        if (mPrimaryActionModeView != null) {
+            mPrimaryActionModeView.killMode();
+        }
+        if ((mPrimaryActionModeView == null || !mPrimaryActionModeView.isAttachedToWindow()) && !mWindow.isFloating()) {
+            final ViewStub stub = findViewById(com.android.internal.R.id.action_mode_bar_stub);
+            if (stub != null) {
+                mPrimaryActionModeView = (ActionBarContextView) stub.inflate();
+            }
+        }
+        if (mPrimaryActionModeView != null) {
+            mPrimaryActionModeView.killMode();
+            return new StandaloneActionMode(mPrimaryActionModeView.getContext(), mPrimaryActionModeView, callback,
+                    true);
+        }
+        return null;
+    }
+
+    /** As AOSP's setHandledPrimaryActionMode for the stub's bar. */
+    private void setHandledPrimaryActionMode(ActionMode mode) {
+        endOnGoingFadeAnimation();
+        mPrimaryActionMode = mode;
+        mPrimaryActionMode.invalidate();
+        mPrimaryActionModeView.initForMode(mPrimaryActionMode);
+        if (isLaidOut()) {
+            mFadeAnim = ObjectAnimator.ofFloat(mPrimaryActionModeView, View.ALPHA, 0f, 1f);
+            mFadeAnim.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationStart(Animator animation) {
+                    mPrimaryActionModeView.setVisibility(View.VISIBLE);
+                }
+
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    mPrimaryActionModeView.setAlpha(1f);
+                    mFadeAnim = null;
+                }
+            });
+            mFadeAnim.start();
+        } else {
+            mPrimaryActionModeView.setAlpha(1f);
+            mPrimaryActionModeView.setVisibility(View.VISIBLE);
+        }
+        mPrimaryActionModeView.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+    }
+
+    private void endOnGoingFadeAnimation() {
+        if (mFadeAnim != null) {
+            mFadeAnim.end();
+        }
     }
 
     /** As AOSP's: clears the references when the action mode is destroyed. */
@@ -506,6 +583,22 @@ public class DecorView extends FrameLayout {
 
         public void onDestroyActionMode(ActionMode mode) {
             mWrapped.onDestroyActionMode(mode);
+            if (mPrimaryActionModeView != null) {
+                endOnGoingFadeAnimation();
+                mFadeAnim = ObjectAnimator.ofFloat(mPrimaryActionModeView, View.ALPHA, 0f);
+                mFadeAnim.addListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        mPrimaryActionModeView.setVisibility(View.GONE);
+                        if (mPrimaryActionModeView.getParent() instanceof View) {
+                            ((View) mPrimaryActionModeView.getParent()).requestApplyInsets();
+                        }
+                        mPrimaryActionModeView.killMode();
+                        mFadeAnim = null;
+                    }
+                });
+                mFadeAnim.start();
+            }
             if (mode == mPrimaryActionMode) {
                 mPrimaryActionMode = null;
             }

@@ -1,0 +1,11 @@
+I/action-mode-standalone-test: onCreate getActionBar false
+I/action-mode-standalone-test: ready
+I/action-mode-standalone-test: onCreateActionMode
+I/action-mode-standalone-test: onPrepareActionMode
+I/action-mode-standalone-test: onActionModeStarted
+I/action-mode-standalone-test: startActionMode returned a mode
+I/action-mode-standalone-test: title mode, subtitle sub, type 0
+I/action-mode-standalone-test: window has the mode bar true, visible true
+I/action-mode-standalone-test: onDestroyActionMode
+I/action-mode-standalone-test: onActionModeFinished
+I/action-mode-standalone-test: done
