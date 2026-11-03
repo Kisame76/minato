@@ -29,6 +29,8 @@ All notable changes to Minato are documented in this file. The format follows
 - A three-finger swipe down anywhere, over an app's web pages too, opens Minato's menu while an app runs, every time;
   the swipe down from the top edge, which iOS lets through only every other time, still works too
 - A tab bar with Home, Library and Settings; the library keeps its search field
+- Favorites: mark an app from its menu (touch and hold) or several at once in Select mode, and a small star marks
+  them in the library
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
 - When iOS closed an app, for example because it used too much memory, or the app ended with an error status, the
   library says so the next time Minato opens

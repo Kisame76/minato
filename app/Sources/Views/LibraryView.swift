@@ -141,6 +141,17 @@ struct LibraryView: View {
             .contextMenu {
                 if !isSelecting, let entry = item.entry {
                     Button("Get Info", systemImage: "info.circle") { shownEntry = entry }
+                    if entry.canBeFavorite {
+                        if item.isFavorite {
+                            Button("Remove from Favorites", systemImage: "star.slash") {
+                                Task { await model.setFavorite([entry], false) }
+                            }
+                        } else {
+                            Button("Add to Favorites", systemImage: "star") {
+                                Task { await model.setFavorite([entry], true) }
+                            }
+                        }
+                    }
                     Divider()
                     Button("Delete", systemImage: "trash", role: .destructive) {
                         deletion = Deletion(origin: .tile(item.id), entries: [entry])
@@ -159,6 +170,18 @@ struct LibraryView: View {
                 Button(allSelected ? "Deselect All" : "Select All") { toggleAll() }
             }
             ToolbarSpacer(placement: .bottomBar)
+            ToolbarItem(placement: .bottomBar) {
+                // For everything selected; when all are favorites already, it removes them instead.
+                let adds = favoriteCandidates.isEmpty
+                    || Library.favoriteAdds(favoriteCandidates.map(\.id), favorites: model.favorites)
+                Button(adds ? "Favorite" : "Unfavorite", systemImage: adds ? "star" : "star.slash") {
+                    Task {
+                        await model.setFavorite(favoriteCandidates, adds)
+                        endSelection()
+                    }
+                }
+                .disabled(favoriteCandidates.isEmpty)
+            }
             ToolbarItem(placement: .bottomBar) {
                 Button("Delete", systemImage: "trash", role: .destructive) {
                     deletion = Deletion(origin: .selection, entries: selectedEntries)
@@ -215,6 +238,11 @@ struct LibraryView: View {
 
     private var selectedEntries: [LibraryEntry] {
         model.items.filter { selection.contains($0.id) }.compactMap(\.entry)
+    }
+
+    /// The selected apps that can be favorites: files that are no valid APK are left out.
+    private var favoriteCandidates: [LibraryEntry] {
+        selectedEntries.filter(\.canBeFavorite)
     }
 
     private var allSelected: Bool {

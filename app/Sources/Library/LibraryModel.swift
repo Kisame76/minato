@@ -32,6 +32,7 @@ struct LibraryItem: Identifiable {
     let status: Status
     let entry: LibraryEntry?
     let iconURL: URL?
+    var isFavorite = false
 }
 
 /// A pick that waits in incoming/ (ADR-0048, decision 1): a unit's folder, or a file an older build left there.
@@ -128,6 +129,8 @@ struct OBBQuestion: Identifiable {
 @Observable
 final class LibraryModel {
     private(set) var entries: [LibraryEntry] = []
+    /// The favorites' packages in their own order (the navigation design, section 3).
+    private(set) var favorites: [String] = []
     private(set) var pending: [WaitingUnit] = []
     private(set) var progress: [URL: Double] = [:]
     /// Entries whose converted code is being signed again, shown as "Updating".
@@ -260,7 +263,8 @@ final class LibraryModel {
                     title: entry.displayName,
                     status: isUpdating(entry) ? .updating : Texts.status(of: entry),
                     entry: entry,
-                    iconURL: entry.iconFile.flatMap { paths?.applicationSupport.appendingPathComponent($0) })
+                    iconURL: entry.iconFile.flatMap { paths?.applicationSupport.appendingPathComponent($0) },
+                    isFavorite: favorites.contains(entry.id))
             }
         return waiting + installed
     }
@@ -280,6 +284,7 @@ final class LibraryModel {
         repeat {
             needsAnotherScan = false
             entries = await library.entries
+            favorites = await library.favorites
             do {
                 pending = try await library.scanUnits().filter { !held.contains($0) }.map(WaitingUnit.init)
             } catch {
@@ -464,6 +469,18 @@ final class LibraryModel {
             if !entry.id.hasPrefix("file:") { await removeWebData(of: entry) }
         }
         self.entries = await library.entries
+        favorites = await library.favorites
+    }
+
+    /// Makes the apps favorites, or no favorites any more (the navigation design, section 3).
+    func setFavorite(_ entries: [LibraryEntry], _ favorite: Bool) async {
+        guard let library else { return }
+        do {
+            try await library.setFavorite(entries.map(\.id), favorite)
+        } catch {
+            errorMessage = "The favorites could not be saved: \(error.localizedDescription)"
+        }
+        favorites = await library.favorites
     }
 
     /// The app's WKWebsiteDataStore, if it made one. WebKit's class calls go out from the main thread with completion

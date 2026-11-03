@@ -11,6 +11,17 @@ struct AppCard: View {
         VStack(spacing: 4) {
             AppIcon(url: item.iconURL)
                 .frame(width: 76, height: 76)
+                // A small star at the icon's bottom left, like the heart in Photos.
+                .overlay(alignment: .bottomLeading) {
+                    if item.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 1.5)
+                            .padding(5)
+                            .accessibilityLabel("Favorite")
+                    }
+                }
                 .overlay(alignment: .bottom) {
                     if showsSelection {
                         SelectionMark(isSelected: isSelected)
