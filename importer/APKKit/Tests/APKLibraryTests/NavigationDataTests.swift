@@ -213,6 +213,45 @@ struct NavigationDataTests {
         #expect(LibrarySort.recentlyOpened(all, lastOpened: times).map(\.id) == ["f", "b", "d", "a"])
     }
 
+    @Test func clearingDataKeepsTheAppItsOBBsAndItsPlace() async throws {
+        // installd's clearAppData (Android 15): the contents of the app's CE and DE data, Android/data/<package> and
+        // Android/media/<package> go; OBB folders stay until the app is uninstalled.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try await library(sandbox, ["a.app", "b.app"])
+        try await library.setFavorite(["a.app"], true)
+        try await library.recordOpened("a.app", at: Date(timeIntervalSince1970: 10))
+        let paths = sandbox.paths
+        try paths.prepareData(for: "a.app")
+        try paths.prepareData(for: "b.app")
+        let data = paths.dataDirectory(for: "a.app")
+        let gone = ["data/shared_prefs/p.xml", "data/cache/c", "data/code_cache/k", "data_de/d", "external/files/save"]
+        let kept = ["obb/main.1.a.app.obb", "download/picked.txt", "profile.json"]
+        for file in gone + kept {
+            let url = data.appendingPathComponent(file)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        let other = paths.dataDirectory(for: "b.app").appendingPathComponent("data/save")
+        try Data("x".utf8).write(to: other)
+        let before = await library.entries
+
+        try await library.clearData(id: "a.app")
+
+        for file in gone { #expect(!FileManager.default.fileExists(atPath: data.appendingPathComponent(file).path)) }
+        for file in kept { #expect(FileManager.default.fileExists(atPath: data.appendingPathComponent(file).path)) }
+        // As installd makes them at an install.
+        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external"] {
+            #expect(try FileManager.default.contentsOfDirectory(atPath: data.appendingPathComponent(folder).path)
+                .isEmpty)
+        }
+        #expect(FileManager.default.fileExists(atPath: other.path))
+        #expect(await library.entries == before)
+        #expect(await library.favorites == ["a.app"])
+        #expect(await library.lastOpened["a.app"] == Date(timeIntervalSince1970: 10))
+    }
+
     @Test func homesFavoritesKeepTheirOwnOrderAndSkipDeletedApps() {
         #expect(LibrarySort.favorites(entries, favorites: ["d", "gone", "b"]).map(\.id) == ["d", "b"])
         #expect(LibrarySort.favorites(entries, favorites: []).isEmpty)

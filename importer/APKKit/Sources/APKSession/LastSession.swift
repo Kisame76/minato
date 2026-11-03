@@ -91,6 +91,13 @@ public struct LastSessionStore: Sendable {
         write(session)
     }
 
+    /// The app `package`'s data was cleared: its last session is no more to report.
+    public func forget(package: String) {
+        guard read()?.package == package else { return }
+        try? FileManager.default.removeItem(at: recordFile)
+        try? FileManager.default.removeItem(at: statusFile)
+    }
+
     /// Read once, then removed: what the library shows, nil for an end that went right.
     public func take() -> LastSessionNotice? {
         let session = read()

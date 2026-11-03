@@ -1438,6 +1438,26 @@ public actor Library {
         lastOpened = keptOpened
     }
 
+    /// Clears the app's data as Android's Clear storage does (installd's clearAppData with the CE, DE and external
+    /// flags): what its data, device protected data and external folders hold goes, and cache and code_cache are made
+    /// again as at an install. Its OBBs stay, as installd keeps them until the app is uninstalled, and so do its
+    /// Download folder, which stands in for shared storage, and its profile, which is Minato's. The app stays
+    /// installed, with its place, favorite and last opening.
+    public func clearData(id: String) throws {
+        guard entries.contains(where: { $0.id == id }), !id.hasPrefix("file:"), Self.isSafePackageName(id) else {
+            return
+        }
+        let data = paths.dataDirectory(for: id)
+        for folder in ["data", "data_de", "external"] {
+            let url = data.appendingPathComponent(folder, isDirectory: true)
+            // A link the guest put there goes as a link, never followed.
+            if (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+        try paths.prepareData(for: id)
+    }
+
     // MARK: - The navigation's data (docs/plans/2026-09-24-app-navigation-design.md, section 5)
 
     /// Moves the app `id` in the manual order to just before `before`, or to the end for nil; saves once. Nothing for

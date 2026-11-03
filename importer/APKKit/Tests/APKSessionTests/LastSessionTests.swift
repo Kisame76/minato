@@ -33,6 +33,16 @@ struct LastSessionTests {
         #expect(store.take() == nil)
     }
 
+    @Test func clearingAnAppsDataForgetsItsLastSessionOnly() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        Self.report(128 + 9, to: descriptor)
+        store.forget(package: "org.example.other")
+        #expect(files() == ["last-session.json", "last-session.status"])
+        store.forget(package: Self.session.package)
+        #expect(files().isEmpty)
+    }
+
     @Test func aSignalIsShownWithItsNumber() throws {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)
