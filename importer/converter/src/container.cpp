@@ -850,9 +850,44 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
         instruction & 0x1f, address, site, more == 0 ? std::string() : std::format(" (and {} more)", more)));
 }
 
-void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite::Findings &findings) {
-    if (findings.x18_unsupported.empty()) return;
-    throw Incompatible(x18_refusal(findings.x18_unsupported, elf::read_symbols(elf_bytes), layout_sections(elf_bytes),
+// Option (c) and the islands must never rewrite the same site: a (c) function renames x18 across its whole body and
+// patches its own entry/exit/call sites, so a function that also holds an island construct (a thread-pointer or
+// syscall site, an x18 island, an exclusive window or a jump table) is dropped from the plan and stays refused --
+// (c) would rewrite it twice, or a signal in that island's stub would read the stale slot 11. The richer co-resident
+// case (notably the svc that clusters with the hard x18 in protected code) is a later step.
+void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Findings &findings) {
+    const auto overlaps = [&](const WholeFunctionRename &function) {
+        const auto inside = [&](std::uint64_t address) { return address >= function.begin && address < function.end; };
+        for (const auto &site : findings.sites) if (inside(site.address)) return true;
+        for (const auto &region : findings.exclusive_regions) if (inside(region.address)) return true;
+        for (const auto &table : findings.jump_tables) if (inside(table.address)) return true;
+        return false;
+    };
+    std::vector<WholeFunctionRename> kept;
+    for (const auto &function : plan.functions) {
+        if (!overlaps(function)) kept.push_back(function);
+    }
+    std::vector<std::uint64_t> covered;
+    for (const auto address : plan.covered_sites) {
+        for (const auto &function : kept) {
+            if (address >= function.begin && address < function.end) {
+                covered.push_back(address);
+                break;
+            }
+        }
+    }
+    plan.functions = std::move(kept);
+    plan.covered_sites = std::move(covered);
+}
+
+void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite::Findings &findings,
+                            std::span<const std::uint64_t> covered) {
+    std::vector<rewrite::Unsupported> remaining;
+    for (const auto &use : findings.x18_unsupported) {
+        if (std::ranges::find(covered, use.address) == covered.end()) remaining.push_back(use);
+    }
+    if (remaining.empty()) return;
+    throw Incompatible(x18_refusal(remaining, elf::read_symbols(elf_bytes), layout_sections(elf_bytes),
                                    x18_site_counts(elf_bytes, findings)));
 }
 
@@ -901,9 +936,14 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     // A guest mrs TPIDRRO_EL0 would read the Darwin TSD base, where the x18 islands keep the guest's x18; it could
     // then name that granule as an exclusive target and clear an island's monitor (ADR-0020 step C, Q2).
     refuse_tpidrro_read(file, elf_bytes, findings);
-    // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a
-    // scratch register instead (ADR-0020); a form no island handles makes the file incompatible.
-    refuse_unsupported_x18(elf_bytes, findings);
+    // XNU sets x18 to zero at every context switch (F4). Every use of x18 runs in an island with a scratch register
+    // instead (ADR-0020); option (c) instead renames x18 to a free caller-saved register across a whole sized
+    // function, so a function with a hard x18 use (nested, unclosed-register-branch, no island) and a free register
+    // is taken out of the refusal here and renamed below. A form no island handles and no (c) function takes makes
+    // the file incompatible.
+    auto c_plan = c_rename_plan(elf_bytes, findings.x18_unsupported);
+    keep_c_functions_clear_of_islands(c_plan, findings);
+    refuse_unsupported_x18(elf_bytes, findings, c_plan.covered_sites);
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
 
@@ -946,13 +986,27 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
             return site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave;
         })) +
         findings.exclusive_regions.size() + findings.jump_tables.size();
+    // Option (c)'s R-range table (apk_c_range) sits between the runs and the stubs; its sync islands follow the x18
+    // islands in the stub area. The range count is address-independent (c_rename_ranges counts the body plus one or
+    // two per sync point), so a dummy address serves for the pre-count.
+    std::uint64_t c_range_count = 0;
+    for (const auto &function : c_plan.functions) {
+        const auto body = file_bytes_at(file, elf_bytes, function.begin, function.end - function.begin, "function");
+        c_range_count += rewrite::c_rename_ranges(body, 0, function.reg, 0).size();
+    }
     const std::uint64_t islands_offset = align_up(info_offset + sizeof(apk_container_info), 8);
     const std::uint64_t runs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 8);
-    const std::uint64_t stubs_offset = align_up(runs_offset + runs.size() * sizeof(apk_run), 16);
+    const std::uint64_t c_ranges_offset = align_up(runs_offset + runs.size() * sizeof(apk_run), 8);
+    const std::uint64_t stubs_offset = align_up(c_ranges_offset + c_range_count * sizeof(apk_c_range), 16);
     std::uint64_t stubs_size = 0;
     for (const auto &site : findings.sites) stubs_size += rewrite::stub_size(site);
     for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
     for (const auto &table : findings.jump_tables) stubs_size += rewrite::jump_table_stub_size(table);
+    for (const auto &function : c_plan.functions) {
+        stubs_size +=
+            rewrite::c_rename_stub_bytes(file_bytes_at(file, elf_bytes, function.begin, function.end - function.begin,
+                                                       "function"));
+    }
     const std::uint64_t image_offset = page_up(stubs_offset + stubs_size);
     const auto container_address = [&](std::uint64_t address) {
         return image_offset + layout.shift + (address - min_vaddr);
@@ -1075,6 +1129,26 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         stub += size;
         ++report.x18_islands;
     }
+    // Option (c): rename x18 to the free register across each taken function in the container image, and lay its sync
+    // islands into the stub area after the x18 islands. The R-ranges say where the guest x18 then lives in the
+    // register instead of TSD slot 11, for the signal path (ADR-0020 must-have 6).
+    std::vector<apk_c_range> c_ranges;
+    c_ranges.reserve(c_range_count);
+    for (const auto &function : c_plan.functions) {
+        const std::uint64_t function_address = container_address(function.begin);
+        const auto size = static_cast<std::size_t>(function.end - function.begin);
+        std::byte *body = file_at(function_address, size);
+        const auto stub_bytes = rewrite::c_rename_stub_bytes(std::span(body, size));
+        const auto ranges = rewrite::emit_c_rename(std::span(body, size), function_address, function.reg, stub,
+                                                   std::span(file_at(stub, stub_bytes), stub_bytes));
+        for (const auto &range : ranges) {
+            c_ranges.push_back({.start = static_cast<std::uint32_t>(range.start),
+                                .end = static_cast<std::uint32_t>(range.end),
+                                .reg = range.reg,
+                                .reserved = {}});
+        }
+        stub += stub_bytes;
+    }
     // Internal check (ADR-0020 C7): the pre-count above sized the island table and the runs table was laid
     // out right after it, so if the add_island calls do not match island_count the runs overwrite the table
     // silently (the bug a missed kind caused). Fail the conversion rather than write a corrupt container.
@@ -1083,6 +1157,11 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                                        island_count));
     }
     std::memcpy(bytes.data() + islands_offset, islands.data(), islands.size() * sizeof(apk_island));
+    if (c_ranges.size() != c_range_count) {
+        throw Incompatible(std::format("internal: wrote {} (c) ranges but reserved space for {}", c_ranges.size(),
+                                       c_range_count));
+    }
+    std::memcpy(bytes.data() + c_ranges_offset, c_ranges.data(), c_ranges.size() * sizeof(apk_c_range));
     std::vector<apk_run> run_table;
     for (const auto &run : runs) {
         run_table.push_back({.start = run.start, .end = run.end, .flags = run.writable ? APK_RUN_WRITABLE : 0u,
@@ -1119,6 +1198,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     info.stubs_size = stubs_size;
     info.runs = runs_offset;
     info.run_count = static_cast<std::uint32_t>(runs.size());
+    info.c_ranges = c_ranges_offset;
+    info.c_range_count = static_cast<std::uint32_t>(c_ranges.size());
     std::memcpy(bytes.data() + info_offset, &info, sizeof info);
 
     dylib.uuid = content_uuid(bytes, options.install_name);
@@ -1162,7 +1243,11 @@ std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
     if (!attempt([&] { scan = scan_sections(*file, elf_bytes, *sections); })) return reasons;
     attempt([&] { refuse_darwin_syscall(*file, elf_bytes, scan->findings); });
     attempt([&] { refuse_tpidrro_read(*file, elf_bytes, scan->findings); });
-    attempt([&] { refuse_unsupported_x18(elf_bytes, scan->findings); });
+    attempt([&] {
+        auto plan = c_rename_plan(elf_bytes, scan->findings.x18_unsupported);
+        keep_c_functions_clear_of_islands(plan, scan->findings);
+        refuse_unsupported_x18(elf_bytes, scan->findings, plan.covered_sites);
+    });
     // What convert() refuses only after these, in building the container (its size, a place outside the file, the
     // rewriter's and the writer's limits), shows when the tests above found nothing.
     if (reasons.empty()) attempt([&] { (void)convert(elf_bytes, {.install_name = "@rpath/check.dylib"}); });

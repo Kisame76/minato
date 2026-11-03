@@ -410,6 +410,16 @@ std::vector<apk_island> island_table(const apk::container::Container &container,
     return islands;
 }
 
+/// The (c) R-range table (apk_c_range), read the way the loader finds it from __apk_info (ADR-0020 v6).
+std::vector<apk_c_range> c_range_table(const apk::container::Container &container) {
+    const auto info = read_info(container.bytes);
+    std::vector<apk_c_range> ranges(info.c_range_count);
+    if (info.c_range_count != 0) {
+        std::memcpy(ranges.data(), container.bytes.data() + info.c_ranges, ranges.size() * sizeof(apk_c_range));
+    }
+    return ranges;
+}
+
 // ADR-0020 X4: the island table has one entry per x18 island, sorted by address, with what the
 // runtime needs to send a thread that stopped inside the island back to the guest.
 TEST(the_island_table_describes_every_x18_island) {
@@ -491,6 +501,35 @@ TEST(the_container_records_a_no_save_island_at_version_6) {
               islands[0].base == APK_ISLAND_NO_REGISTER && islands[0].commit == 3 && islands[0].store == 0 &&
               islands[0].resume == 1);
     }
+}
+
+// ADR-0020 option (c) step 4: a sized function with a caller-saved register free across it, holding a hard x18 use no
+// island takes (here `ret x18`, a register return), is no longer refused. convert() renames x18 to that register
+// across the whole function and records the R-range where the guest x18 lives there instead of in TSD slot 11. The
+// function holds no island construct, so (c) and the islands never rewrite the same site.
+TEST(renames_x18_across_a_hard_function_instead_of_refusing_it) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x20}});  // fn = [0x200, 0x220)
+    prog.put<std::uint32_t>(0x200, 0xd503'201f);  // nop: was mrs TPIDR_EL0 -- remove the thread-pointer island
+    prog.put<std::uint32_t>(0x208, 0xd503'201f);  // nop: was svc -- remove the syscall veneer
+    prog.put<std::uint32_t>(0x20c, 0xd503'201f);  // nop: was msr TPIDR_EL0 -- remove the thread-pointer island
+    prog.put<std::uint32_t>(0x210, 0xd503'201f);  // nop: was mrs xzr, TPIDR_EL0 -- no thread-pointer-read site at all
+    prog.put<std::uint32_t>(0x214, 0xd503'201f);  // nop: was ret -- a single exit, at the ret x18
+    prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: a register return reading x18 -- refused, and no island
+    const auto container = convert(prog);         // before step 4 this throws Incompatible
+    const auto info = read_info(container.bytes);
+    CHECK(info.version == 6);
+    const auto ranges = c_range_table(container);
+    CHECK(info.c_range_count == ranges.size() && !ranges.empty());
+    // The body after the entry island keeps the guest x18 in the free caller-saved register x9.
+    bool body = false;
+    for (const auto &range : ranges) {
+        if (range.start == info.image_offset + 0x204 && range.end == info.image_offset + 0x220 && range.reg == 9) {
+            body = true;
+        }
+    }
+    CHECK(body);
+    // The hard x18 site is patched to a branch into its sync island, not left as `ret x18`.
+    CHECK(branch_target(container.bytes, info.image_offset + 0x21c).has_value());
 }
 
 TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
