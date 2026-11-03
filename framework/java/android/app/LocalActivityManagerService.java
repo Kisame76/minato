@@ -174,6 +174,11 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
         if (filter.hasAction(Intent.ACTION_BATTERY_CHANGED)) {
             LocalBatteryService.prepareSticky();
         }
+        // ConnectivityManager's deprecated CONNECTIVITY_ACTION and WifiManager's WIFI_STATE_CHANGED_ACTION.
+        if (filter.hasAction("android.net.conn.CONNECTIVITY_CHANGE")
+                || filter.hasAction(android.net.wifi.WifiManager.WIFI_STATE_CHANGED_ACTION)) {
+            com.android.internal.minato.LocalNetwork.prepareSticky();
+        }
         Intent sticky;
         synchronized (mLock) {
             // The matching sticky broadcasts, of which registration answers the first.

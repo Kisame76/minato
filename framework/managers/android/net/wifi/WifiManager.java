@@ -1,11 +1,13 @@
 // The written part of WifiManager (ADR-0045 decision 3), which tools/managergen joins with the API's methods: the
-// hidden ctor SystemServiceRegistry calls, and decision 4's answers as changed on 2026-10-04: the iPhone has Wi-Fi, and
-// PackageManager reports the feature, but iOS gives an app no Wi-Fi API without entitlements, and Minato has no network
-// yet, which ConnectivityManager answers. So Wi-Fi is switched off. The multicast and Wi-Fi locks count as Android's do
+// hidden ctor SystemServiceRegistry calls, and decision 4's answers as changed on 2026-10-04 and by ADR-0054 step d):
+// the iPhone has Wi-Fi, and PackageManager reports the feature, but iOS gives an app no Wi-Fi API without entitlements,
+// so Wi-Fi is enabled while the host's network goes over it (LocalNetwork) and disabled otherwise, and the connection
+// info is what Android shows an app without a location permission. The multicast and Wi-Fi locks count as Android's do
 // (packages/modules/Wifi's WifiManager.java:7822-8001 and 8230-8380 at android-15.0.0_r1), with the service's
 // permission and lock mode checks (WifiServiceImpl.java:1172-1176, 5613-5632, 5658-5664, 5679-5690) and the limit of
 // 50 locks, but nothing behind them.
 import android.content.Context;
+import com.android.internal.minato.LocalNetwork;
 
 class WifiManager {
     /** As AOSP's: the most locks one WifiManager (one per context) holds at once, multicast and Wi-Fi locks alike. */
@@ -33,7 +35,13 @@ class WifiManager {
     /** As WifiServiceImpl.getWifiEnabledState (WifiServiceImpl.java:1136-1139, 1543-1544): ACCESS_WIFI_STATE first. */
     public int getWifiState() {
         context.enforceCallingOrSelfPermission(ACCESS_WIFI_STATE, "WifiService");
-        return WIFI_STATE_DISABLED;
+        return LocalNetwork.wifi() ? WIFI_STATE_ENABLED : WIFI_STATE_DISABLED;
+    }
+
+    /** As WifiServiceImpl.getConnectionInfo: ACCESS_WIFI_STATE first, then the redacted connection. */
+    public WifiInfo getConnectionInfo() {
+        context.enforceCallingOrSelfPermission(ACCESS_WIFI_STATE, "WifiService");
+        return LocalNetwork.wifiInfo();
     }
 
     public MulticastLock createMulticastLock(String tag) {

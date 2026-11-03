@@ -1,0 +1,7 @@
+I/wifi-state-test: connectivity sticky: extraInfo=, inetCondition=0, networkInfo=WIFI CONNECTED, networkType=1
+I/wifi-state-test: wifi state sticky: previous_wifi_state=2, wifi_state=3
+I/wifi-state-test: wifi enabled true, state 3
+I/wifi-state-test: connection info: ssid <unknown ssid>, bssid 02:00:00:00:00:00, mac 02:00:00:00:00:00, network id -1, hidden false, supplicant COMPLETED, an address true
+I/wifi-state-test: connectivity receiver: initial sticky true, extraInfo=, inetCondition=0, networkInfo=WIFI CONNECTED, networkType=1
+I/wifi-state-test: wifi state receiver: initial sticky true, previous_wifi_state=2, wifi_state=3
+I/wifi-state-test: done

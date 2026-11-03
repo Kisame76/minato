@@ -999,6 +999,12 @@ run_app() {
     network-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.NetworkActivity
       ;;
+    # wifi-state-test (ADR-0054 step d)): the sticky CONNECTIVITY_ACTION and WIFI_STATE_CHANGED_ACTION at a receiver's
+    # registering, and WifiManager's state and connection info without a location permission, on the emulator's Wi-Fi
+    # as for network-test. It ends with "done".
+    wifi-state-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.WifiStateActivity
+      ;;
     # webview-late-test: a WebView made late, after what HTML5 app wrappers wait on first (a delay, an AsyncTask's copy
     # of the page to the app's files, Safe Browsing, the cookies), each with a limit of 5 s; the copied page as a
     # file:// URL is refused with file access off and runs with it on. It ends with "done".
@@ -1652,7 +1658,7 @@ if [[ -n "$app" ]]; then
     trap 'sounds_back; [[ -z "$started" ]] || emulator_stop' EXIT
     sounds_off
   fi
-  if [[ "$app" == network-test ]]; then
+  if [[ "$app" == network-test || "$app" == wifi-state-test ]]; then
     trap 'mobile_data_back; [[ -z "$started" ]] || emulator_stop' EXIT
     mobile_data_off
   fi

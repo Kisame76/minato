@@ -1,15 +1,24 @@
 package com.android.internal.minato;
 
 import android.app.ActivityThread;
+import android.app.LocalNetworkBroadcasts;
+import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.HandlerThread;
 
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +34,11 @@ import java.util.Map;
  * onLinkPropertiesChanged and onBlockedStatusChanged(false); onCapabilitiesChanged when only its metering changes;
  * onLost when it goes. They run on the Handler given at the registering, else on the process's ConnectivityThread,
  * and only while the callback is still registered, as AOSP's CallbackHandler drops a message whose callback is gone.
+ * The sticky CONNECTIVITY_ACTION (ConnectivityService's, with its legacy extras; noConnectivity once the network is
+ * gone) and WIFI_STATE_CHANGED_ACTION (Wi-Fi enabled while the path goes over it, else disabled) are made when a
+ * receiver first asks for them and sent again on each change; WifiManager answers from the same state.
  */
+@SuppressWarnings("deprecation") // NetworkInfo and CONNECTIVITY_ACTION, Android's legacy answers
 public final class LocalNetwork {
     // guest_interface.h's APKRT_NETWORK_*.
     private static final int SATISFIED = 0x1;
@@ -46,6 +59,7 @@ public final class LocalNetwork {
     private static Network sNetwork;
     private static int sNextNetId = FIRST_NET_ID;
     private static Handler sConnectivityThread;
+    private static boolean sStickiesSent;
 
     private LocalNetwork() {}
 
@@ -75,27 +89,106 @@ public final class LocalNetwork {
     }
 
     /** The legacy info of `network` if it is the active one (null: the active one), else null. */
-    @SuppressWarnings("deprecation")
     public static NetworkInfo info(Network network) {
         synchronized (sLock) {
             readLocked();
             if (sNetwork == null || (network != null && !network.equals(sNetwork))) return null;
-            NetworkInfo info;
-            if ((sState & CELLULAR) != 0) {
-                info = new NetworkInfo(ConnectivityManager.TYPE_MOBILE, 0, "MOBILE", "");
-            } else if ((sState & WIRED) != 0 && (sState & WIFI) == 0) {
-                info = new NetworkInfo(ConnectivityManager.TYPE_ETHERNET, 0, "ETHERNET", "");
-            } else {
-                info = new NetworkInfo(ConnectivityManager.TYPE_WIFI, 0, "WIFI", "");
-            }
-            info.setDetailedState(NetworkInfo.DetailedState.CONNECTED, null, null);
-            info.setIsAvailable(true);
-            return info;
+            return infoLocked(sState, NetworkInfo.DetailedState.CONNECTED);
         }
     }
 
+    /** The legacy info of a network of `state` in `detailed`, with ConnectivityService's empty extra info. */
+    private static NetworkInfo infoLocked(int state, NetworkInfo.DetailedState detailed) {
+        NetworkInfo info;
+        if ((state & CELLULAR) != 0) {
+            info = new NetworkInfo(ConnectivityManager.TYPE_MOBILE, 0, "MOBILE", "");
+        } else if ((state & WIRED) != 0 && (state & WIFI) == 0) {
+            info = new NetworkInfo(ConnectivityManager.TYPE_ETHERNET, 0, "ETHERNET", "");
+        } else {
+            info = new NetworkInfo(ConnectivityManager.TYPE_WIFI, 0, "WIFI", "");
+        }
+        info.setDetailedState(detailed, null, "");
+        info.setIsAvailable(true);
+        return info;
+    }
+
+    /** Whether Wi-Fi is enabled: while the path goes over it. */
+    public static boolean wifi() {
+        synchronized (sLock) {
+            readLocked();
+            return wifiLocked();
+        }
+    }
+
+    private static boolean wifiLocked() {
+        return sNetwork != null && (sState & WIFI) != 0;
+    }
+
+    /** The Wi-Fi connection: completed at wlan0's IPv4 address while the path goes over Wi-Fi, else none. */
+    public static WifiInfo wifiInfo() {
+        return wifi() ? WifiInfo.connected(wlan0Address()) : new WifiInfo();
+    }
+
+    /** wlan0's IPv4 address as AOSP's int, its first byte lowest; 0 for none. */
+    private static int wlan0Address() {
+        try {
+            NetworkInterface wlan0 = NetworkInterface.getByName("wlan0");
+            if (wlan0 == null) return 0;
+            for (InetAddress address : Collections.list(wlan0.getInetAddresses())) {
+                if (address instanceof Inet4Address) {
+                    byte[] bytes = address.getAddress();
+                    return (bytes[0] & 0xff) | (bytes[1] & 0xff) << 8 | (bytes[2] & 0xff) << 16
+                            | (bytes[3] & 0xff) << 24;
+                }
+            }
+        } catch (SocketException e) {
+            // no interfaces to read: no address
+        }
+        return 0;
+    }
+
+    /** LocalActivityManagerService's: the sticky broadcasts before a filter looks for them, made once. */
+    public static void prepareSticky() {
+        List<Intent> stickies = new ArrayList<>();
+        synchronized (sLock) {
+            readLocked();
+            if (sStickiesSent) return;
+            sStickiesSent = true;
+            if (sNetwork != null) stickies.add(connectivityLocked(sState, false));
+            stickies.add(wifiStateLocked(wifiLocked(), null));
+        }
+        send(stickies);
+    }
+
+    /** ConnectivityService's CONNECTIVITY_ACTION for a network of `state`, connected or, `gone`, lost. */
+    private static Intent connectivityLocked(int state, boolean gone) {
+        NetworkInfo info = infoLocked(state, gone ? NetworkInfo.DetailedState.DISCONNECTED
+                : NetworkInfo.DetailedState.CONNECTED);
+        Intent intent = new Intent(ConnectivityManager.CONNECTIVITY_ACTION);
+        intent.putExtra(ConnectivityManager.EXTRA_NETWORK_INFO, info);
+        intent.putExtra(ConnectivityManager.EXTRA_NETWORK_TYPE, info.getType());
+        intent.putExtra(ConnectivityManager.EXTRA_EXTRA_INFO, info.getExtraInfo());
+        intent.putExtra("inetCondition", 0);  // ConnectivityManager's hidden EXTRA_INET_CONDITION
+        if (gone) intent.putExtra(ConnectivityManager.EXTRA_NO_CONNECTIVITY, true);
+        return intent;
+    }
+
+    /** WifiService's WIFI_STATE_CHANGED_ACTION, from `previous` (null: the start, ENABLING or UNKNOWN). */
+    private static Intent wifiStateLocked(boolean enabled, Boolean previous) {
+        Intent intent = new Intent(WifiManager.WIFI_STATE_CHANGED_ACTION);
+        intent.putExtra(WifiManager.EXTRA_WIFI_STATE,
+                enabled ? WifiManager.WIFI_STATE_ENABLED : WifiManager.WIFI_STATE_DISABLED);
+        int before = previous == null ? (enabled ? WifiManager.WIFI_STATE_ENABLING : WifiManager.WIFI_STATE_UNKNOWN)
+                : previous ? WifiManager.WIFI_STATE_ENABLED : WifiManager.WIFI_STATE_DISABLED;
+        intent.putExtra(WifiManager.EXTRA_PREVIOUS_WIFI_STATE, before);
+        return intent;
+    }
+
+    private static void send(List<Intent> stickies) {
+        for (Intent intent : stickies) LocalNetworkBroadcasts.sendSticky(intent);
+    }
+
     /** The legacy info of the active network if it is of `type`, else null. */
-    @SuppressWarnings("deprecation")
     public static NetworkInfo info(int type) {
         NetworkInfo info = info(null);
         return info != null && info.getType() == type ? info : null;
@@ -178,38 +271,51 @@ public final class LocalNetwork {
 
     /** APKRT_EVENT_NETWORK: the host's path changed to `state`. */
     public static void onEvent(int state) {
+        List<Intent> stickies = new ArrayList<>();
+        boolean wifiBefore;
         synchronized (sLock) {
             readLocked();
-            int before = sState;
-            Network old = sNetwork;
-            sState = state;
-            boolean up = (state & SATISFIED) != 0;
-            if (old != null && up && (before & TRANSPORTS) == (state & TRANSPORTS)) {
-                if (((before ^ state) & EXPENSIVE) != 0) {
-                    NetworkCapabilities capabilities = capabilitiesLocked();
-                    for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
-                        entry.getValue().post(() -> {
-                            if (registered(entry.getKey())) {
-                                entry.getKey().onCapabilitiesChanged(old, new NetworkCapabilities(capabilities));
-                            }
-                        });
-                    }
-                }
-                return;
-            }
-            if (old != null) {
-                sNetwork = null;
+            wifiBefore = wifiLocked();
+            changeLocked(state, stickies);
+            if (sStickiesSent && wifiLocked() != wifiBefore) stickies.add(wifiStateLocked(wifiLocked(), wifiBefore));
+            if (!sStickiesSent) stickies.clear();
+        }
+        send(stickies);
+    }
+
+    /** The change to `state`: the callbacks posted, and CONNECTIVITY_ACTION for a network gone or come. */
+    private static void changeLocked(int state, List<Intent> stickies) {
+        int before = sState;
+        Network old = sNetwork;
+        sState = state;
+        boolean up = (state & SATISFIED) != 0;
+        if (old != null && up && (before & TRANSPORTS) == (state & TRANSPORTS)) {
+            if (((before ^ state) & EXPENSIVE) != 0) {
+                NetworkCapabilities capabilities = capabilitiesLocked();
                 for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
                     entry.getValue().post(() -> {
-                        if (registered(entry.getKey())) entry.getKey().onLost(old);
+                        if (registered(entry.getKey())) {
+                            entry.getKey().onCapabilitiesChanged(old, new NetworkCapabilities(capabilities));
+                        }
                     });
                 }
             }
-            if (up) {
-                sNetwork = new Network(sNextNetId++);
-                for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
-                    available(entry.getKey(), entry.getValue(), sNetwork, capabilitiesLocked(), linkLocked());
-                }
+            return;
+        }
+        if (old != null) {
+            sNetwork = null;
+            if (!up) stickies.add(connectivityLocked(before, true));
+            for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
+                entry.getValue().post(() -> {
+                    if (registered(entry.getKey())) entry.getKey().onLost(old);
+                });
+            }
+        }
+        if (up) {
+            sNetwork = new Network(sNextNetId++);
+            stickies.add(connectivityLocked(state, false));
+            for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
+                available(entry.getKey(), entry.getValue(), sNetwork, capabilitiesLocked(), linkLocked());
             }
         }
     }
