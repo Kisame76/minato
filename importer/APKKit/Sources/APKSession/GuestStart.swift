@@ -145,6 +145,18 @@ public struct GuestStart: Sendable, Equatable {
         "/apex/com.android.conscrypt/javalib/conscrypt.jar",
     ].joined(separator: ":")
 
+    /// The checksum of the guest's boot class path, SHA-256 in hex of its seven jars one after another in boot class
+    /// path order (tools/embed-guest-system.sh writes it as Guest/boot-class-path.sha256): what the library records
+    /// for the compiled code it keeps, which is stale when a build moves it. nil for a bundle without the file.
+    public static func bootClassPathChecksum(guestSystem: String) -> String? {
+        guard let text = try? String(contentsOfFile: "\(guestSystem)/boot-class-path.sha256", encoding: .utf8) else {
+            return nil
+        }
+        let digest = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hex = Set("0123456789abcdef")
+        return digest.count == 64 && digest.allSatisfy(hex.contains) ? digest : nil
+    }
+
     /// A compile start (ADR-0053, M6 c): dex2oat64 for the app's base.apk, as runtime/tests/dex2oat_make.py starts
     /// it for an app. It compiles at the filter speed for the app's boot class path and class loader context
     /// ("PCL[];PCL[]", the loader our ActivityThread makes), the APK at its code path as the dex file and as the

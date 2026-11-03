@@ -1,4 +1,5 @@
 import APKLibrary
+import Foundation
 import Testing
 
 @testable import APKSession
@@ -166,6 +167,20 @@ struct GuestStartTests {
 
     @Test func aHashThatIsNotSHA256StartsNoCompile() {
         #expect(GuestStart(compile: Self.package, apk: "/a", apkSHA256: "", output: "/o", guestSystem: "/g") == nil)
+    }
+
+    // MARK: - The boot class path's checksum, which the build writes for the library's compiled code
+
+    @Test func theBootClassPathChecksumIsTheBuildsFile() throws {
+        let guest = FileManager.default.temporaryDirectory.appendingPathComponent("guest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: guest, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: guest) }
+        #expect(GuestStart.bootClassPathChecksum(guestSystem: guest.path) == nil)  // an older bundle has none
+        let digest = String(repeating: "ab", count: 32)
+        try Data("\(digest)\n".utf8).write(to: guest.appendingPathComponent("boot-class-path.sha256"))
+        #expect(GuestStart.bootClassPathChecksum(guestSystem: guest.path) == digest)
+        try Data("not a digest\n".utf8).write(to: guest.appendingPathComponent("boot-class-path.sha256"))
+        #expect(GuestStart.bootClassPathChecksum(guestSystem: guest.path) == nil)
     }
 
     @Test func aJavaAppHasTheSameCodePath() {

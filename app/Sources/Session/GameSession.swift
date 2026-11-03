@@ -391,6 +391,11 @@ final class GameSession {
         case .art:
             // An unsigned APK has no signers.json.
             let signers = version.appending(path: SignersFile.fileName)
+            // The compiled code the library kept for this boot class path (ADR-0053, M6 c), if any; ART rejects a stale
+            // one anyway, but not mounting it spares the load.
+            let oat = GuestStart.bootClassPathChecksum(guestSystem: bundle.appending(path: "Guest").path)
+                .flatMap { paths.oatFolders(for: entry, bootClassPath: $0) }
+                .map { GuestStart.OatFolders(code: $0.code.path, containers: $0.containers.path) }
             start = GuestStart(
                 javaApp: entry.id, apk: version.appending(path: "base.apk").path, apkSHA256: digest,
                 signers: FileManager.default.fileExists(atPath: signers.path) ? signers.path : nil,
@@ -402,7 +407,7 @@ final class GameSession {
                 guestSystem: bundle.appending(path: "Guest").path,
                 // The kept pack slices and the feature modules' splits, which prepareJavaStart lays out in
                 // local_testing (ADR-0050 decisions 2 and 3).
-                localTesting: entry.usesLocalTesting, splits: splits, environment: guestEnvironment)
+                localTesting: entry.usesLocalTesting, splits: splits, environment: guestEnvironment, oat: oat)
         }
         guard var start else { return nil }
         // ES 3.1 and up on ANGLE's Vulkan backend, by the installed set's highest glEsVersion (ADR-0044 d)).

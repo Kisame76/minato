@@ -60,10 +60,17 @@ extension Library {
     /// The folders of the app's compiled code for a start whose boot class path has the checksum `bootClassPath`;
     /// nil while it is not compiled, was made for another boot class path, or its files are gone.
     public func oatFolders(id: String, bootClassPath: String) -> (code: URL, containers: URL)? {
-        guard let entry = entries.first(where: { $0.id == id }), entry.compiled?.bootClassPath == bootClassPath else {
-            return nil
-        }
-        let code = paths.oatDirectory(for: entry), containers = paths.oatContainerDirectory(for: entry)
+        guard let entry = entries.first(where: { $0.id == id }) else { return nil }
+        return paths.oatFolders(for: entry, bootClassPath: bootClassPath)
+    }
+}
+
+extension LibraryPaths {
+    /// `Library.oatFolders` for an entry in hand, which a start reads without the library: the entry's record of what
+    /// its compiled code was made for, and the three files there.
+    public func oatFolders(for entry: LibraryEntry, bootClassPath: String) -> (code: URL, containers: URL)? {
+        guard entry.compiled?.bootClassPath == bootClassPath else { return nil }
+        let code = oatDirectory(for: entry), containers = oatContainerDirectory(for: entry)
         let manager = FileManager.default
         guard manager.fileExists(atPath: code.appendingPathComponent("base.odex").path),
               manager.fileExists(atPath: code.appendingPathComponent("base.vdex").path),

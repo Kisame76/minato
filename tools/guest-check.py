@@ -58,7 +58,8 @@ def monet_files():
 
 
 REQUIRED = (
-    ["bin/activity-host.dylib", "bin/app_process64.dylib", "bin/dex2oat.dylib"]
+    ["bin/activity-host.dylib", "bin/app_process64.dylib", "bin/dex2oat.dylib",
+     "boot-class-path.sha256"]
     + [f"lib64/{name}.dylib" for name in BIONIC + FRONT_LIBS + ["libandroid_runtime.so", "libsqlite.so"] + HWUI
        + ART_COPIES]
     + ["system/framework/framework.jar", "system/framework/framework-res/AndroidManifest.xml",

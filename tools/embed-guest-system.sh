@@ -195,4 +195,11 @@ mkdir -p "$APEX/com.android.conscrypt/cacerts" "$OUT/system/etc/security/cacerts
 cp "$CA_CERTIFICATES"/* "$APEX/com.android.conscrypt/cacerts/"
 # The export table of every library above (ADR-0055 decision 3), which the import's compatibility check reads.
 python3 "$SRCROOT/tools/export-table.py" "$OUT/system/etc/export-table.txt" "${EXPORTED[@]}"
+# The checksum of the boot class path (GuestStart.bootClassPathChecksum): SHA-256 of its seven jars in the order of the
+# runtime's BOOTCLASSPATH (runtime/src/environment.cpp). The library keeps an app's compiled code with it and compiles
+# again when a build moves it, since ART takes an odex only for the boot class path it was made for.
+cat "$APEX/com.android.art/javalib/core-oj.jar" "$APEX/com.android.art/javalib/core-libart.jar" \
+  "$APEX/com.android.art/javalib/okhttp.jar" "$APEX/com.android.art/javalib/bouncycastle.jar" \
+  "$OUT/system/framework/framework.jar" "$APEX/com.android.art/javalib/core-icu4j.jar" \
+  "$APEX/com.android.conscrypt/javalib/conscrypt.jar" | shasum -a 256 | cut -d' ' -f1 >"$OUT/boot-class-path.sha256"
 echo "Embedded the guest system: $(find "$OUT" -name '*.dylib' | wc -l | tr -d ' ') signed containers for $PLATFORM"
