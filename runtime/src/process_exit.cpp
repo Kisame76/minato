@@ -3,9 +3,11 @@
 #include "APKRuntime/apkrt.h"
 #include "session.h"
 #include "signals.h"
+#include "dl.h"
 #include "threads.h"
 
 #include <TargetConditionals.h>
+#include <dlfcn.h>
 #include <mach/mach.h>
 #include <pthread.h>
 #include <signal.h>
@@ -19,6 +21,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <format>
 
 namespace apkrt::process {
 namespace {
@@ -295,3 +299,52 @@ extern "C" void apkrt_report_exit_status(int descriptor) {
 extern "C" void apkrt_report_exit_measures(int descriptor) {
     apkrt::process::report_exit_measures_to(descriptor);
 }
+
+namespace apkrt::process {
+
+std::string exit_callers(int status, std::uint64_t frame_pointer, int limit) {
+    if (status == 0) return {};
+    std::string line = std::format("W/apkrt   : exit_group({}) from ", status);
+    std::uint64_t frame = frame_pointer;
+    for (int depth = 0; depth < limit && frame != 0 && frame % 8 == 0; depth++) {
+        // The guest's frame record {its caller's frame, the return address}, read without a fault: a chain may lead
+        // to a page the process cannot read (a guard page, a thread's stack end), where the line ends.
+        std::uint64_t record[2] = {0, 0};
+        vm_size_t read = 0;  // vm_read_overwrite: iOS's SDK has no mach_vm.h
+        if (::vm_read_overwrite(::mach_task_self(), static_cast<vm_address_t>(frame), sizeof record,
+                                reinterpret_cast<vm_address_t>(record), &read) != KERN_SUCCESS ||
+            read != sizeof record) {
+            break;
+        }
+        const std::uint64_t return_address = record[1];
+        if (return_address == 0) break;
+        if (depth > 0) line += " <- ";
+        // A guest library's symbol through the loader (its Dl_info has the same four fields), else the host's; the
+        // call's own instruction, before the return address, which a call that never returns leaves at the next
+        // function's start.
+        Dl_info info{};
+        const auto *address = reinterpret_cast<const void *>(return_address - 1);
+        const bool found = dl::name_address(address, &info) != 0 || ::dladdr(address, &info) != 0;
+        if (found && info.dli_sname != nullptr) {
+            const char *image = info.dli_fname != nullptr ? std::strrchr(info.dli_fname, '/') : nullptr;
+            line += std::format("{}+{} ({})", info.dli_sname,
+                                return_address - reinterpret_cast<std::uint64_t>(info.dli_saddr),
+                                image != nullptr ? image + 1 : (info.dli_fname != nullptr ? info.dli_fname : "?"));
+        } else {
+            line += std::format("{:#x}", return_address);
+        }
+        // The chain goes up the stack: a caller's frame lies above, and not far (a broken chain ends here).
+        const std::uint64_t caller = record[0];
+        if (caller <= frame || caller - frame > (1u << 20)) break;
+        frame = caller;
+    }
+    return line + "\n";
+}
+
+void note_exit(int status, std::uint64_t frame_pointer) {
+    if (session::end_handler().function == nullptr) return;
+    const std::string line = exit_callers(status, frame_pointer);
+    static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
+}
+
+}  // namespace apkrt::process

@@ -33,6 +33,11 @@ long loader_syscall(const apkrt_syscall_frame &frame);
 /// linker64's g_dl_mutex. A test holds it to keep a guest thread inside the loader.
 std::recursive_mutex &lock();
 
+/// dladdr for the runtime's own use, as the guest's dladdr answers: `info` is a Dl_info (file, base, symbol, its
+/// address); 0 when no library of the program holds `address`, or when another thread holds the loader's lock, since
+/// it never waits for it.
+int name_address(const void *address, void *info);
+
 /// /linkerconfig/apex.libraries.config.txt, which libnativeloader reads to link an app's class loader namespace to
 /// the APEXes' namespaces, and which linkerconfig writes on Android 15 from the APEXes' manifests: from the
 /// namespace table, the libraries of the guest's /system/etc/public.libraries.txt that com_android_art serves, and

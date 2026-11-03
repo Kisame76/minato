@@ -6,6 +6,9 @@
 // leaves the process to the session's end handler (ADR-0028, decision 5).
 #pragma once
 
+#include <cstdint>
+#include <string>
+
 namespace apkrt::process {
 
 /// The program's end through exit_group, with its last thread or by linker64's failure: reports
@@ -42,6 +45,16 @@ void report_death_by(int signal);
 /// end() does, with 128 + 9 as a shell shows the kill, so that the app goes back to its library; without one by the
 /// host's SIGKILL after the report, as when a signal's default action ends the process.
 [[noreturn]] void killed();
+
+/// For an app's log, the guest's callers of exit_group with a `status` other than 0, which no Android log names, so
+/// that an app that ends itself with an error status shows where (a Python SystemExit is Py_Exit's exit): one line,
+/// "W/apkrt   : exit_group(<status>) from <symbol>+<offset> (<image>) <- ...", up to `limit` frames up the guest's
+/// frame-pointer chain from `frame_pointer` (x29); empty for status 0.
+std::string exit_callers(int status, std::uint64_t frame_pointer, int limit = 8);
+
+/// exit_group's note before end(): in an app process (one with a session, as the Zygote line), exit_callers' line to
+/// stderr for a status other than 0.
+void note_exit(int status, std::uint64_t frame_pointer);
 
 /// Reports `status` and the measures and ends the process with the status, keeping the low 8 bits as
 /// Linux does.

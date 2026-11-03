@@ -1041,6 +1041,13 @@ std::vector<Library *> preload_frame_rate(State &state, Library &program, bool &
 
 }  // namespace
 
+int name_address(const void *address, void *info) {
+    // Never waits: a guest thread may hold the loader's lock while another one exits (process::exit_callers).
+    const std::unique_lock busy(state().mutex, std::try_to_lock);
+    if (!busy.owns_lock()) return 0;
+    return guest_dladdr(address, info);  // takes the recursive lock once more
+}
+
 void set_loader_functions(apkrt_loader &loader, std::size_t size) {
     loader.dlopen = apkrt_loader_dlopen;
     loader.dlsym = apkrt_loader_dlsym;

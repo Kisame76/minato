@@ -659,6 +659,7 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case nr::exit_group:
             // ADR-0019: one program per process, loaded code cannot be unloaded; ADR-0028: with a
             // session, the process lives on after the program.
+            apkrt::process::note_exit(as_int(x[0]), x[29]);
             apkrt::process::end(as_int(x[0]));
         case nr::clone:
             return sys_clone(frame, x[0], x[1], x[2], x[3], x[4]);

@@ -4,18 +4,29 @@
 // child process.
 #include "process_exit.h"
 
+#include "dl.h"
+
 #include "APKRuntime/apkrt.h"
 #include "check.h"
 
 #include <TargetConditionals.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <cstdint>
+#include <future>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <string_view>
 #include <thread>
+
+// Two functions of this test whose names the end's line must give: the address past each one's only instruction stands
+// for a guest's return address after a call that never returns, which lies at the next function's start.
+extern "C" __attribute__((visibility("default"), noinline)) void exit_test_caller_a() { asm volatile(""); }
+extern "C" __attribute__((visibility("default"), noinline)) void exit_test_caller_b() { asm volatile(""); }
 
 namespace {
 
@@ -243,6 +254,58 @@ TEST(a_plain_program_without_a_session_logs_nothing) {
     CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 42);
     CHECK(ended.report == "42\n");
     CHECK(ended.log.empty());
+}
+
+TEST(a_status_other_than_0_names_the_callers_up_the_frame_chain) {
+    // A guest's frame records, as AArch64's frame-pointer chain has them: {the caller's frame, the return address}.
+    const auto a = reinterpret_cast<std::uint64_t>(&exit_test_caller_a);
+    const auto b = reinterpret_cast<std::uint64_t>(&exit_test_caller_b);
+    std::uint64_t chain[6] = {0, a + 4, 0, b + 4, 0, 0};
+    chain[0] = reinterpret_cast<std::uint64_t>(&chain[2]);
+    chain[2] = reinterpret_cast<std::uint64_t>(&chain[4]);
+    const std::string line = apkrt::process::exit_callers(1, reinterpret_cast<std::uint64_t>(&chain[0]));
+    CHECK(line.starts_with("W/apkrt   : exit_group(1) from exit_test_caller_a+4 ("));
+    CHECK(line.find(" <- exit_test_caller_b+4 (") != std::string::npos);
+    CHECK(line.ends_with("\n"));
+    CHECK(apkrt::process::exit_callers(0, reinterpret_cast<std::uint64_t>(&chain[0])).empty());
+}
+
+TEST(a_caller_frame_on_an_unreadable_page_ends_the_line_without_a_fault) {
+    // A frame record whose caller lies above it and within 1 MiB, but on a page the process cannot read (a guard
+    // page, a small thread's stack end): the line names the first caller and stops there.
+    const auto page = static_cast<std::size_t>(::getpagesize());
+    auto *memory = static_cast<std::uint64_t *>(
+        ::mmap(nullptr, 2 * page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0));
+    CHECK(memory != MAP_FAILED);
+    CHECK(::mprotect(reinterpret_cast<char *>(memory) + page, page, PROT_NONE) == 0);
+    memory[0] = reinterpret_cast<std::uint64_t>(memory) + page;  // the caller's frame: the unreadable page
+    memory[1] = reinterpret_cast<std::uint64_t>(&exit_test_caller_a) + 4;
+    const std::string line = apkrt::process::exit_callers(1, reinterpret_cast<std::uint64_t>(memory));
+    CHECK(line.starts_with("W/apkrt   : exit_group(1) from exit_test_caller_a+4 ("));
+    CHECK(line.find(" <- ") == std::string::npos);
+    ::munmap(memory, 2 * page);
+}
+
+TEST(a_loader_held_by_another_thread_gives_addresses_not_a_wait) {
+    // A guest thread inside the loader holds its lock while another one exits: the exit's line comes at once, with
+    // what the loader would name as bare addresses.
+    std::promise<void> held;
+    std::promise<void> done;
+    std::thread holder([&held, finished = done.get_future()]() mutable {
+        const std::lock_guard lock(apkrt::dl::lock());
+        held.set_value();
+        finished.wait();
+    });
+    held.get_future().wait();
+    std::uint64_t chain[2] = {0, reinterpret_cast<std::uint64_t>(&exit_test_caller_a) + 4};
+    auto line = std::async(std::launch::async, [&chain] {
+        return apkrt::process::exit_callers(1, reinterpret_cast<std::uint64_t>(&chain[0]));
+    });
+    const bool came = line.wait_for(2s) == std::future_status::ready;
+    done.set_value();
+    holder.join();
+    CHECK(came);
+    CHECK(line.get().starts_with("W/apkrt   : exit_group(1) from "));
 }
 
 }  // namespace
