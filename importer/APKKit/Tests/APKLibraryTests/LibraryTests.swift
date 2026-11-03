@@ -186,7 +186,7 @@ struct LibraryTests {
 
     /// The Download folder is the root of the guest's Download mount, as the OBB folder of its OBB mounts: a link in
     /// its place goes as a link, never followed, and anything else that is no folder stops the start and stays (the
-    /// lead's reviewer).
+    /// review).
     @Test func aLinkOrAFileWhereTheDownloadFolderBelongs() throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -227,7 +227,7 @@ struct LibraryTests {
         #expect(try Self.permissions(version.appendingPathComponent("signers.json")) == 0o444)
     }
 
-    /// A Java app's guest /data lies in Caches (the lead's decision for ADR-0039 c5).
+    /// A Java app's guest /data lies in Caches (the decision for ADR-0039 c5).
     @Test func theGuestsDataIsInCaches() throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

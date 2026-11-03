@@ -204,7 +204,7 @@ inline void picture_size(const std::string &content, std::uint32_t &width, std::
 // What Android does at once (the app writes the original through its grant), the host does for a clone: one second
 // after the last close of a descriptor the app wrote through, at the session going to the background, and at its end.
 // The original is reached through `Original`: on the Mac a path (PathOriginal), on the iPhone a security-scoped
-// bookmark and NSFileCoordinator (App). Nothing is written over an original that is not what the clone was made
+// bookmark and NSFileCoordinator. Nothing is written over an original that is not what the clone was made
 // from: that is a conflict, the app's version is kept in the host's own folder, and the user decides (resolve).
 
 /// A file's state as the write-back compares it: whether it is there, its size, modification time and SHA-256.

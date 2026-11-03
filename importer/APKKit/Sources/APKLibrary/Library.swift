@@ -13,7 +13,7 @@ public enum LibraryError: Error, Equatable, Sendable {
     /// A pick with nothing to take over: a folder without `.apk` or `.obb` files, or only links (ADR-0048, decision 1).
     case nothingToImport
     /// Something that is neither a folder nor a link stands where the app's OBB folder belongs, and stays there
-    /// (ADR-0049 c2, the lead's reviewer).
+    /// (ADR-0049 c2, the review).
     case obbFolderIsNoFolder(String)
     /// The same for the app's Download folder, the root of the guest's Download mount (ADR-0057 step b).
     case downloadFolderIsNoFolder(String)
@@ -318,7 +318,7 @@ public actor Library {
 
     /// What an import leaves out of a container, which the entries it makes name (ADR-0049 c2): the container's own
     /// list as its reader names it, already capped, and then the import's, capped the same way, so each last name
-    /// counts the rest of its own list (the lead's reviewer).
+    /// counts the rest of its own list (the review).
     private struct LeftOut {
         var byContainer: [IgnoredFile] = []
         var byImport: [IgnoredFile] = []
@@ -371,7 +371,7 @@ public actor Library {
         let first = UpdatePolicy.decide(installed: installedVersion, new: new.version(state))
         var decision = first
         // A container's OBB under an installed one's name with other bytes would change the app's content, so the import
-        // asks first, and the default keeps the installed file and version (ADR-0049 c2, the lead's rule). A fresh
+        // asks first, and the default keeps the installed file and version (ADR-0049 c2, the rule). A fresh
         // install has none to keep.
         let keepingVersion = installed?.report?.versionCode == report.versionCode
         var plan = planOBBs(new.extras, package: package, recorded: installed?.obbs ?? [], keepingVersion: keepingVersion,
@@ -384,7 +384,7 @@ public actor Library {
         if installsOBBs, !plan.conflicts.isEmpty {
             decision = if case .ask(let warnings) = first { .ask(warnings.union([.otherOBB])) } else { .ask([.otherOBB]) }
         }
-        // "Replace" answers the question as it was shown (F7): one that asks otherwise now asks again.
+        // "Replace" answers the question as it was shown: one that asks otherwise now asks again.
         let replacing = if case .ask(let warnings) = decision {
             answering(AskingVersion(package: package, versionCode: report.versionCode, warnings: warnings))
         } else {
@@ -550,7 +550,7 @@ public actor Library {
         var moves: [PackageFile] = []
         /// The installed files of their kinds that go once the new ones are in.
         var removals: [String] = []
-        /// The installed OBBs the import would replace with other bytes, by name: it asks first (the lead's rule).
+        /// The installed OBBs the import would replace with other bytes, by name: it asks first (the rule).
         var conflicts: [String] = []
         /// What the import leaves out: the container's own list, then the OBBs that stay out.
         var leftOut = LeftOut()
@@ -559,13 +559,13 @@ public actor Library {
     }
 
     /// Plans `extras`' OBBs against those `recorded` for the entry and the files in its OBB folder, read without following
-    /// a link (decisions 4 and 5, the lead's rule). Where the versionCode stays (`keepingVersion`), an OBB of a kind the
+    /// a link (decisions 4 and 5, the rule). Where the versionCode stays (`keepingVersion`), an OBB of a kind the
     /// app has none of moves in, and an installed one never goes: another of its kind stays out. Where it changes, an
     /// OBB replaces an older one of its kind, and a newer one stays installed. Either way an OBB under an installed
     /// one's name with other bytes replaces it only `replacing`, as the user answered, and is a conflict otherwise; one
     /// whose bytes are there moves nothing, and one recorded but missing, as a crash after the switch leaves it, moves in.
     /// A name the folder holds a folder or anything else but a file or a link under stays the app's, so that OBB stays
-    /// out and nothing of its kind goes (the lead's reviewer).
+    /// out and nothing of its kind goes (the review).
     private func planOBBs(_ extras: Extras, package: String, recorded: [PackageFile], keepingVersion: Bool,
                           replacing: Bool) -> OBBPlan {
         let folder = paths.dataDirectory(for: package).appendingPathComponent("obb", isDirectory: true)
@@ -662,7 +662,7 @@ public actor Library {
     }
 
     /// Stages the OBBs `plan` moves in as APFS clones in `version`'s obb/, after whatever a crash left there (App's
-    /// review), excluded from backups as the OBB folder is (the lead's reviewer). Returns the staging folder.
+    /// review), excluded from backups as the OBB folder is (the review). Returns the staging folder.
     private func stageOBBs(_ plan: OBBPlan, from extras: Extras, in version: URL) throws -> URL {
         var staging = version.appendingPathComponent("obb", isDirectory: true)
         try? FileManager.default.removeItem(at: staging)
@@ -678,7 +678,7 @@ public actor Library {
         return staging
     }
 
-    /// Carries out `plan` in `package`'s OBB folder, never through a link (the lead's reviewer): the folder and `source`
+    /// Carries out `plan` in `package`'s OBB folder, never through a link (the review): the folder and `source`
     /// are opened as themselves, the OBBs move in first, each from its name in `source` (`names`, else its own) by
     /// rename over the file or link of its name, and only then do the replaced files of their kinds go, so an
     /// interruption leaves both, never neither.
@@ -717,7 +717,7 @@ public actor Library {
     /// asked about as one APK is (ADR-0034); a set Android refuses becomes an `.invalid` entry. One APK, and a file
     /// that is no APK, go through `importFile`, as before. The unit stays while a set asks, so the question comes again
     /// at the next scan. `replacing` answers "Replace" for the versions the question listed, as it listed them, and for
-    /// no other, which keeps asking (F7, the lead's reviewer); one that asks otherwise now asks again. The first half of
+    /// no other, which keeps asking (the review); one that asks otherwise now asks again. The first half of
     /// `progress` reads each APK once, by its size, and the second imports the sets and files, a share each. Returns a
     /// result for each set and each such file.
     ///
@@ -892,8 +892,8 @@ public actor Library {
                 onEntry.append((index, IgnoredFile(path: slice.member.fileName, reason: checked.reason)))
             }
         }
-        // What a container leaves out goes on the first of its entries only, never copied onto each (the lead's
-        // reviewer); each set's own names go on its own.
+        // What a container leaves out goes on the first of its entries only, never copied onto each (the
+        // review); each set's own names go on its own.
         var named = Set<URL>()
         for index in groups.indices {
             if let container = containers[index], named.insert(container).inserted {
@@ -961,7 +961,7 @@ public actor Library {
     }
 
     /// The apps a picked OBB can go to, by their names as App's question lists them: those ready or needing their
-    /// splits (the lead), never an incompatible one or a file's entry, which is invalid, nor one whose versionCode names
+    /// splits, never an incompatible one or a file's entry, which is invalid, nor one whose versionCode names
     /// no OBB (App's review), which could not take the file.
     public func appsForOBBs() -> [LibraryEntry] {
         appsTakingOBBs().filter { Self.obbName(for: $0, picked: "main.obb") != nil }
@@ -996,7 +996,7 @@ public actor Library {
     }
 
     /// Installs a picked OBB for `entry`'s app under `name` (decision 5): it replaces the installed one of its kind,
-    /// newer or older, and a file of its own name with other bytes too, as the pick is the user's own act (the lead);
+    /// newer or older, and a file of its own name with other bytes too, as the pick is the user's own act;
     /// the same bytes move nothing. As in c2 the target name is read with lstat first, so something else there refuses
     /// the file, the entry records it before the unit's clone moves in by rename through no-follow descriptors, and the
     /// replaced files go after. The result is the app's entry, `.unchanged`, with what came in and what it replaced.
@@ -1055,7 +1055,7 @@ public actor Library {
     /// unit waits.
     ///
     /// An XAPK's OBBs are taken out after its APKs, into ".<file>.obbs/", and only those of a package one of its APKs
-    /// names (the lead's reviewer): an XAPK never brings an OBB for another app, and the others are named before
+    /// names (the review): an XAPK never brings an OBB for another app, and the others are named before
     /// anything of theirs is written (ADR-0049 c2).
     private func expand(_ file: URL, in unit: URL) throws -> Expanded {
         let container: Container
@@ -1343,7 +1343,7 @@ public actor Library {
 
     /// The answer "Keep Installed" or "Don’t Import" to a question: the waiting file goes, or a unit's files, each
     /// container's folders before it, as at the end of `importUnit` (ADR-0049 a3 and c2, found by c2's set-check), and
-    /// its OBBs with them, as the original stays where the user has it (ADR-0049 d, the lead); the installed version
+    /// its OBBs with them, as the original stays where the user has it (ADR-0049 d); the installed version
     /// stays. Everything goes from inside the unit's own folder, a link as a link.
     public func keepInstalled(discarding url: URL) {
         var isFolder: ObjCBool = false
@@ -1460,7 +1460,7 @@ public actor Library {
         SessionLog(folder: paths.sessionLogDirectory).remove(package: id)
     }
 
-    // MARK: - The navigation's data (docs/plans/2026-09-24-app-navigation-design.md, section 5)
+    // MARK: - The navigation's data
 
     /// Moves the app `id` in the manual order to just before `before`, or to the end for nil; saves once. Nothing for
     /// an unknown app or a move before itself.

@@ -1370,7 +1370,7 @@
     ]
   },
   "bundletool": {
-    "comment": "bundletool 1.18.3 as released, for M5: the test cases of formats 2, 6 and 7 and the .aab tool (M5 plan, decision 2), fetched on the user's go of 2026-10-04 into build/tools/bundletool/ and checked against the SHA-256 that GitHub's release API states. A Mac build tool run with build/tools/jdk-17 and build/aapt2, never in the app. tools/fetch-sources.py does not read this entry.",
+    "comment": "bundletool 1.18.3 as released, for M5: the test cases of formats 2, 6 and 7 and the .aab tool (M5 plan, decision 2), fetched on 2026-10-04 into build/tools/bundletool/ and checked against the SHA-256 that GitHub's release API states. A Mac build tool run with build/tools/jdk-17 and build/aapt2, never in the app. tools/fetch-sources.py does not read this entry.",
     "project": "https://github.com/google/bundletool",
     "tag": "1.18.3",
     "commit": "586a43a450712a1067f3d92cf7574dee68226302",
@@ -1385,7 +1385,7 @@
     ]
   },
   "play-libraries": {
-    "comment": "Google's Play libraries for ADR-0050's pad-test (test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with the libraries their POMs name, without AndroidX, as AARs from Google's Maven, fetched by tools/fetch-play-libraries.py on the user's go of 2026-10-07, with the terms the user accepted, into ~/.android/minato-play-libraries/, outside the repository, and checked against the SHA-256 that Google's Maven states beside each AAR. They only build pad-test on this Mac: never committed and never in the app (Non-Goals), and a black box, as nothing reads their classes. tools/fetch-sources.py does not read this entry.",
+    "comment": "Google's Play libraries for ADR-0050's pad-test (test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with the libraries their POMs name, without AndroidX, as AARs from Google's Maven, fetched by tools/fetch-play-libraries.py on 2026-10-07, after accepting the libraries' terms, into ~/.android/minato-play-libraries/, outside the repository, and checked against the SHA-256 that Google's Maven states beside each AAR. They only build pad-test on this Mac: never committed and never in the app (Non-Goals), and a black box, as nothing reads their classes. tools/fetch-sources.py does not read this entry.",
     "license": "Play Core Software Development Kit Terms of Service, with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common); Android Software Development Kit License (play-services-basement, play-services-tasks)",
     "assets": [
       {

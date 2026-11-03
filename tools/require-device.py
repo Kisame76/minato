@@ -2,12 +2,12 @@
 """Exits 0, printing nothing, when the paired physical iOS device, the first one or the one whose identifier, UDID or
 name is given, is reachable by cable or over the local network, and 1 with a message otherwise. The iPhone takes
 installs and runs over USB or the local network (the user's rule of 2026-10-28, which lifted that of 2026-10-23, by
-cable only), still each sitting with the user's OK, so each script that reaches it calls this first. It fails closed:
-a devicectl that fails, JSON it cannot read, a device that is not listed, one that is not paired and a transport
-other than "wired" or "localNetwork" all stop the script. devicectl's JSON v5 has the transport and the pairing in
-"properties", the deprecated fields have them too, and each one that is there must say so. The tunnel's state is not
-asked: devicectl reports it "disconnected" between its calls and connects it at the next.
-Usage: tools/require-device.py [device name or identifier]"""
+cable only), still each sitting only after the device's owner agrees, so each script that reaches it calls this first.
+It fails closed: a devicectl that fails, JSON it cannot read, a device that is not listed, one that is not paired and a
+transport other than "wired" or "localNetwork" all stop the script. devicectl's JSON v5 has the transport and the
+pairing in "properties", the deprecated fields have them too, and each one that is there must say so. The tunnel's state
+is not asked: devicectl reports it "disconnected" between its calls and connects it at the next. Usage:
+tools/require-device.py [device name or identifier]"""
 import json
 import subprocess
 import sys

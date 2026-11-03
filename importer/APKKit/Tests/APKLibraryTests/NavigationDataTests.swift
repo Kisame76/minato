@@ -5,7 +5,7 @@ import Testing
 
 @testable import APKLibrary
 
-/// The app navigation's data (docs/plans/2026-09-24-app-navigation-design.md, step N1): the index's version 2 with
+/// The app navigation's data: the index's version 2 with
 /// the manual order, the favorites and when each app was last opened, and the library's sort orders.
 @Suite("Navigation data")
 struct NavigationDataTests {

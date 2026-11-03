@@ -60,7 +60,7 @@ struct LastSessionTests {
     }
 
     /// Android shows nothing when an app ends itself with an exit code; Minato does, since the app is gone without a
-    /// word otherwise (the lead's decision, 2026-11-01), also after the end handler ran.
+    /// word otherwise (the decision, 2026-11-01), also after the end handler ran.
     @Test func anExitCodeIsShown() throws {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)

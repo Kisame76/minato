@@ -110,7 +110,7 @@ struct ContainerExtractionTests {
     }
 
     @Test func aLastChunkOfZerosStillEndsTheFileAtItsDeclaredSize() throws {
-        // The length is set at the end, as a hole at the end writes nothing (the lead's condition). Over 16 MiB, as
+        // The length is set at the end, as a hole at the end writes nothing (the condition). Over 16 MiB, as
         // APFS fills a smaller file's hole after data with zeros [verified: macOS 27, a probe of 2026-10-06].
         var random = SplitMix64(seed: 11)
         let head = Data((0..<(1 << 20)).map { _ in UInt8(truncatingIfNeeded: random.next()) })
@@ -126,7 +126,7 @@ struct ContainerExtractionTests {
     }
 
     @Test func zerosUnderAnotherChecksumAreRefused() throws {
-        // The checksum runs over the zeros, though they are never written (the lead's condition).
+        // The checksum runs over the zeros, though they are never written (the condition).
         var zip = ZipBuilder()
         zip.add("base.apk", Data(count: 2 << 20), method: .deflated)
         let data = try Self.patching("base.apk", in: zip.build()) { data, local, central in
@@ -143,7 +143,7 @@ struct ContainerExtractionTests {
     }
 
     @Test func theRunningChecksumSkipsAnEmptyChunk() {
-        // zlib's crc32 given no buffer answers its initial value, which would start the sum again (the lead's review
+        // zlib's crc32 given no buffer answers its initial value, which would start the sum again (the review
         // of a1). Foundation gives an empty Data a pointer today, so the empty buffer here has none. "123456789" is
         // CRC-32's check value.
         var crc = Data("123".utf8).withUnsafeBytes { Container.checksum(0, adding: $0) }
@@ -234,7 +234,7 @@ struct ContainerExtractionTests {
     }
 
     @Test func namesTheVolumeTakesForOneAreRefused() throws {
-        // The lead's reviewer: APFS on the Mac, and so in the Simulator, folds case, so two names of ours can be one
+        // Review: APFS on the Mac, and so in the Simulator, folds case, so two names of ours can be one
         // file; each file is made new or not at all, and a collision fails closed. Names Swift takes as equal, as one
         // in two Unicode normalizations, never get that far.
         let unit = try Unit()
@@ -256,7 +256,7 @@ struct ContainerExtractionTests {
     }
 
     @Test(arguments: ["", ".hidden.apk", "a/b.apk", "..", ".", "x\u{0}.apk", "1.apk", String(repeating: "a", count: 252) + ".apk",
-                      // The lead's reviewer: a combining mark hides a slash or a leading dot from a check of Characters.
+                      // Review: a combining mark hides a slash or a leading dot from a check of Characters.
                       "a/\u{301}b.apk", ".\u{301}x.apk"])
     func aNameThatIsNoPlainFileNameOrTakenIsRefused(_ name: String) throws {
         let unit = try Unit()

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Makes the SoundPool plan's step 3 test files (docs/plans/2026-10-30-soundpool-and-audio-codecs.md): a 440 Hz sine
+# Makes the SoundPool plan's step 3 test files: a 440 Hz sine
 # of half amplitude, 0.5 s, stereo, 44100 Hz (tools/media/make_tone.py), as tone.mp3 (lame, 128 kbit/s, which macOS
 # cannot encode), tone.m4a and tone.aac (AAC in MP4 and in ADTS, afconvert, 128 kbit/s at 44100 Hz), tone.flac and
 # tone-alac.m4a (afconvert), tone-ac3.mp4 (AC-3 in MP4, ffmpeg) and tone.aiff (afconvert, 16-bit big endian); and

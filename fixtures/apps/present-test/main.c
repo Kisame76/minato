@@ -1,4 +1,4 @@
-// present-test (ADR-0041 decision 11, test 3; step d), the Grafik chat's: a NativeActivity on native_app_glue that
+// present-test (ADR-0041 decision 11, test 3; step d): a NativeActivity on native_app_glue that
 // asks when its frames are to be presented, as Swappy does. It is built once and started as two apps by the
 // function their manifests name: present-gles with EGL_ANDROID_presentation_time (ANativeActivity_onCreateGLES)
 // and present-vulkan with VK_GOOGLE_display_timing (ANativeActivity_onCreateVulkan).

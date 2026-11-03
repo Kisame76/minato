@@ -311,22 +311,22 @@ target_link_options(x18-test PRIVATE -Wl,--no-relax)
 target_link_options(x18-stress PRIVATE -Wl,--no-relax)
 target_link_options(island-bench PRIVATE -Wl,--no-relax)
 
-# The Grafik chat's test apps (ADR-0029 B2, ADR-0030 V5), each with its own CMakeLists.txt.
+# The test apps (ADR-0029 B2, ADR-0030 V5), each with its own CMakeLists.txt.
 add_subdirectory(apps/gles-test)
 add_subdirectory(apps/gles31-test)
-# The Planung chat's shader-bench for the shader cache plan (M6): times of fresh and repeated shader builds.
+# The shader-bench for the shader cache plan (M6): times of fresh and repeated shader builds.
 add_subdirectory(apps/shader-bench)
 add_subdirectory(apps/vulkan-test)
-# The Grafik chat's vk-ahb-test, graphics/tests/vk_ahb_test.c as an app for the iPhone (ADR-0058 e1)).
+# The vk-ahb-test, graphics/tests/vk_ahb_test.c as an app for the iPhone (ADR-0058 e1)).
 add_subdirectory(apps/vk-ahb-test)
-# The Grafik chat's present-test for Swappy's frame pacing (ADR-0041 test 3).
+# The present-test for Swappy's frame pacing (ADR-0041 test 3).
 add_subdirectory(apps/present-test)
-# The App chat's audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.
+# The audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.
 add_subdirectory(apps/aaudio-test)
 add_subdirectory(apps/opensl-test)
-# The Planung chat's SDL2 audio sequences (the audio speed of an SDL2 game).
+# The SDL2 audio sequences (the audio speed of an SDL2 game).
 add_subdirectory(apps/sdl-audio-test)
-# The App chat's turn test app (ADR-0038, test 3).
+# The turn test app (ADR-0038, test 3).
 add_subdirectory(apps/rotation-test)
-# The App chat's live audio test app (ADR-0036, after M3).
+# The live audio test app (ADR-0036, after M3).
 add_subdirectory(apps/audio-live)

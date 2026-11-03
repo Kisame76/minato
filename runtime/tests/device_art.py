@@ -2,7 +2,7 @@
 """ART's tests in the app (ADR-0033 d): stages them as the app's ART mode reads them (tools/embed-fixtures.sh puts the
 stage into fixture builds), runs a stage on the Mac as the app runs it, and checks the outputs of a run.
 
-The stage, as agreed with App (docs/plans/adr-0033-d-steps.md):
+The stage, as agreed with App:
   lib64-debug/<library>       links to ART's debug flavor, libartd.so under libart.so's name. The app registers their
                               containers for /apex/com.android.art/lib64 before the release flavor's, and the runtime
                               takes a library from the first folder that has it.

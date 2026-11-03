@@ -11,7 +11,7 @@
 // log; leftovers leaves NATIVE_WINDOW_DESTROYED out, so activity-host destroys the window before the next one
 // and before onDestroy, as NativeActivity does; translucent starts the app at activity_test_translucent_onCreate,
 // which asks for WINDOW_FORMAT_RGBA_8888 in onCreate, and must give the same log with WINDOW_OPAQUE 0 as the
-// first request (Grafik's opaque layer); split names base.apk once more as a split of the set (ADR-0048) and must
+// first request (the opaque layer); split names base.apk once more as a split of the set (ADR-0048) and must
 // give the same log; set names a real set's folder as a seventh argument (tools/build-activity-splits.sh:
 // base.apk and split_config.arm64_v8a.apk, whose library the harness checks is the fixture's) and must give the
 // same log through an asset manager over the two real APKs (ADR-0048 c4); missing-library, missing-function and

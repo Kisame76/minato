@@ -1,6 +1,6 @@
 // Checks the host side of the system pickers (tools/pick_host.h, ADR-0057): the app can leave links, planted files and
 // loops in the folders the host writes to (its data folder, Download), so the host must write nothing through them.
-// Each attack here is one the lead's review named, played in a scratch folder: a link planted as the manifest's
+// Each attack here is one the review named, played in a scratch folder: a link planted as the manifest's
 // temporary file, a dangling link where a clone should go, a link as .minato or picks, and a name that links to itself.
 #include "pick_host.h"
 

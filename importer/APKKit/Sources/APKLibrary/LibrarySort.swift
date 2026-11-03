@@ -1,7 +1,7 @@
 import Foundation
 
-/// The library's sort orders, as the Files app's "Sort By" (docs/plans/2026-09-24-app-navigation-design.md, section
-/// 3). Equal ones keep the manual order.
+/// The library's sort orders, as the Files app's "Sort By" (navigation design,
+/// section 3). Equal ones keep the manual order.
 public enum LibrarySort: String, Sendable, CaseIterable, Codable {
     /// The order of the index's entries: the import order, until the user moves an app. It has no direction.
     case manual

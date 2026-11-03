@@ -98,7 +98,7 @@ namespace oracle {
 // islands no x18 use on a live LL/SC path EXCEPT as a no-save island (which spills nothing, touching only
 // the TSD granule C3b keeps the monitor across) over register(s) proven dead -- any other island on a live
 // path, and a no-save island whose register is not dead, is unsound. scan_words() runs it on every fixture
-// (ADR-0020 step D and C7, the lead's condition 2 and step-7 claim).
+// (ADR-0020 step D and C7, the condition 2 and step-7 claim).
 struct Toggles {
     bool call_return;   // ON: a call or return (BL, BLR, RET) ends the monitor path (the C6 limit)
     bool section_exit;  // ON: the section end, or a branch out of it, pairs nothing (one output section)
@@ -2395,7 +2395,7 @@ TEST(an_unclosed_window_reaching_a_recognized_jump_table_names_the_jump_table) {
     }
 }
 
-// A brute-force soundness oracle for step D (ADR-0020, the lead's condition 2). Its reachability and
+// A brute-force soundness oracle for step D (ADR-0020, the condition 2). Its reachability and
 // escape walks are written apart from scan()'s branch_reached_sequence/monitor_escapes; the instruction
 // classification is the same ISA fact scan uses (the exclusive, CLREX and branch-register masks, which
 // converter.a64_objdump validates over real code), while the branch displacements are decoded here from
@@ -2505,7 +2505,7 @@ bool register_dead(const std::uint32_t *begin, std::size_t words, std::size_t us
 // branch's target is unseen, so the whole section is then taken to be reachable (guard ii). An island
 // both reached from a load and from which reaches_store() holds lies on a live LL/SC path.
 //
-// C3b's exact soundness condition (ADR-0020 C7, the lead's step-7 claim): the ONLY island allowed on a
+// C3b's exact soundness condition (ADR-0020 C7, the step-7 claim): the ONLY island allowed on a
 // live path is a no-save island (SiteKind::x18_nosave) -- it spills nothing, touching only the TSD granule,
 // which C3b measured KEEPS the local monitor -- AND only over register(s) proven dead right after the use.
 // A red-zone-spilling x18 island on a live path stores to the stack granule inside the window and can break
@@ -2570,7 +2570,7 @@ std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t
 
 // With both limits on the oracle finds no unsound island; with one off it flags the island that rests on
 // that limit — FA's on the call/return limit, the section-exit island on limit 2 — so each dependence
-// is visible and counted (the lead's step-D condition 2).
+// is visible and counted (step D's condition 2).
 TEST(the_brute_force_oracle_flags_the_toggle_dependent_islands) {
     std::vector<std::uint32_t> fa{0xc85f7c08, 0x8b120109, 0x94000001};  // ldxr; add x9,x8,x18; bl
     fa.insert(fa.end(), 62, 0xd503201f);                                // nops past 64 words
@@ -2604,7 +2604,7 @@ TEST(the_oracle_accepts_a_dead_register_no_save_island_and_rejects_a_live_one) {
     CHECK(!register_dead(branch, std::size(branch), 0, 5));
 }
 
-// (b) ADR-0020 C7, step 7 (the lead's option 1): flags()-level teeth. scan() never emits a no-save island
+// (b) ADR-0020 C7, step 7 (option 1): flags()-level teeth. scan() never emits a no-save island
 // over a live register (its predicate is correct), so to prove the oracle would catch one we hand it a
 // findings list it would never produce -- one x18_nosave site over x5, in a window that reads x5 right
 // after the use -- and flags() must report it. The site sits on the live LL/SC path (ldxr 0x100c, the use,

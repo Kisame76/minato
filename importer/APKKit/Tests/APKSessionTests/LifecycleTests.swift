@@ -203,7 +203,7 @@ struct LifecycleTests {
     @Test(arguments: [Event.quit, .finish])
     func endsWithoutSavingItsState(end: Event) {
         // Quit in the menu, or ANativeActivity_finish (an Activity's finish()): onPause before the focus goes, as
-        // Android 15 shows it at an app's end (activity-test, java-test; the lead's OK, App's c6 host fixes).
+        // Android 15 shows it at an app's end (activity-test, java-test; App's c6 host fixes).
         var lifecycle = Self.running()
 
         #expect(lifecycle.handle(end) == [.onPause, .onWindowFocusChanged(false), .onNativeWindowDestroyed])
@@ -289,7 +289,7 @@ struct LifecycleTests {
     }
 
     /// A Java app's frames run from its start to its end while the scene is in the foreground, whatever the gate
-    /// (ADR-0041 decision 2, changed by the lead's OK, App's c6 host fixes): its ViewRootImpl holds the main queue's
+    /// (ADR-0041 decision 2, changed by App's c6 host fixes): its ViewRootImpl holds the main queue's
     /// messages, the lifecycle's among them, behind a traversal that waits for a frame, and Android gives frames to an
     /// unfocused or windowless app that asks.
     @Test func aJavaAppsFramesRunWhileTheSceneIsInTheForeground() {

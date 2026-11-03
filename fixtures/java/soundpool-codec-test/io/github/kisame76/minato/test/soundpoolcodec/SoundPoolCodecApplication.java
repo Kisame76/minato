@@ -13,7 +13,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * SoundPool with the compressed files an app ships (the plan of docs/plans/2026-10-30-soundpool-and-audio-codecs.md,
+ * SoundPool with the compressed files an app ships (the SoundPool plan's
  * steps 3 and 4): each asset named in FILES is copied to the app's files folder, loaded, and played once, and the log
  * says whether its load completed with status 0 and which stream ID its play returned. Android's codecs decode them
  * all; what is heard is not compared.

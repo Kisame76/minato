@@ -145,7 +145,7 @@ enum Texts {
 
     // MARK: - Units (ADR-0048 b7b)
 
-    /// The question about a unit's sets that ask (F7): one set as before, several in one alert, "Install" where none it
+    /// The question about a unit's sets that ask: one set as before, several in one alert, "Install" where none it
     /// lists is installed, and "Replace and Install" where it lists installed and new apps.
     static func unitQuestion(_ question: UpdateQuestion) -> (title: String, message: String, confirm: String, decline: String) {
         let replacing = question.sets.filter { $0.installed != nil }.count
@@ -165,7 +165,7 @@ enum Texts {
         return (title, message.joined(separator: "\n\n"), confirm, decline)
     }
 
-    /// The alert about a unit's files the installed apps keep their versions against (F7): one as before, several in
+    /// The alert about a unit's files the installed apps keep their versions against: one as before, several in
     /// one alert with a paragraph each; nil where none is rejected.
     static func updateRejected(_ results: [ImportResult]) -> (title: String, message: String)? {
         let rejected = results.compactMap { result -> (name: String, message: String, title: String)? in

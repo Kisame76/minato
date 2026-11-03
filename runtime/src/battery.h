@@ -6,7 +6,7 @@
 // here, because apkrt_session_post writes every call it is given once a session is begun). The GET syscall
 // (APKRT_NR_BATTERY) reads the current value synchronously, for a newly-registered receiver before any event. No
 // permission is needed (Android's battery broadcast needs none). The Java BatteryManager and the sticky
-// ACTION_BATTERY_CHANGED are the framework's (App); this is only the transport.
+// ACTION_BATTERY_CHANGED are the framework's; this is only the transport.
 //
 // This header is the runtime-internal C++ face, used by the syscall dispatcher (syscalls.cpp), the host entry point
 // (battery.cpp), and battery_transport_test.cpp.

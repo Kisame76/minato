@@ -2,7 +2,7 @@ import Testing
 
 @testable import APKSigning
 
-/// Info.plist markers the stores write into apps they sign (docs/research/store-certificates.md, section 5).
+/// Info.plist markers the stores write into apps they sign.
 @Suite("Installer detection")
 struct InstallerTests {
     static let finalID = "io.github.kisame76.minato.ABCDE12345"

@@ -351,7 +351,7 @@ public final class WriteBack: Sendable {
     /// The clones that have a record.
     public var clones: [String] { inner.withLock { $0.records.keys.sorted() } }
 
-    /// Whether a new clone must not take the name `clone` (Formate's rule in pick_host.h): a record with the app's
+    /// Whether a new clone must not take the name `clone` (the rule in pick_host.h): a record with the app's
     /// work holds it (dirty, a conflict, or a close not yet taken up), even when the guest removed the clone, so that a
     /// new record never takes its place. An untouched record does not: its clone is gone when the name is free, and
     /// `track` lets it go.
@@ -384,7 +384,7 @@ public final class WriteBack: Sendable {
 
     /// Finds the clones that changed without a close being reported (a write through a mapping, a rename over the
     /// clone); they are written back one second later, as after a close. An untouched clone that is gone at two scans
-    /// in a row is forgotten (the lead's rule on the review's point 7): a file the app makes under that name later is
+    /// in a row is forgotten (the rule on the review's point 7): a file the app makes under that name later is
     /// its own, not the user's file, while one that saves by deleting the clone and renaming a file to its name has it
     /// back by the next scan, a file of another identity and so a conflict.
     public func scan(at nowMs: Int64) {

@@ -28,7 +28,7 @@ import sys
 ART_LIBRARIES = "/apex/com.android.art/lib64"
 # The libraries of ART's build that hwui's set needs from /system/lib64.
 PLATFORM_COPIES = ["libbase.so", "libziparchive.so", "libexpat.so", "libc++_shared.so"]
-# The guest's page size (CLAUDE.md 7), which graphics/hwui/CMakeLists.txt links the set with.
+# The guest's page size (16 KB pages), which graphics/hwui/CMakeLists.txt links the set with.
 PAGE = 0x4000
 PT_LOAD = 1
 SHT_DYNSYM = 11

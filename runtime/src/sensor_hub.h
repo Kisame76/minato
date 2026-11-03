@@ -6,9 +6,10 @@
 // blocking stop cannot deadlock a push), and pushes samples with apkrt_sensor_push. The hub keeps a fixed table of the
 // sensors Android knows (by TYPE_ number), a list of open queues each with a pipe whose read end the guest reads,
 // and the started state and merged rate per type. A push fans the sample out as a whole ASensorEvent record into every
-// queue that has the type enabled; the guest's ASensorEventQueue (the NDK side, sensor_manager.c) and Planung's Java
-// SystemSensorManager read the same records. Nothing here is guest-reachable directly: the guest reaches the hub through
-// the APKRT_NR_SENSOR_* syscalls, whose handlers call these functions; the host reaches it through apkrt.h's C API.
+// queue that has the type enabled; the guest's ASensorEventQueue (the NDK side, sensor_manager.c) and the framework's
+// Java SystemSensorManager read the same records. Nothing here is guest-reachable directly: the guest reaches the hub
+// through the APKRT_NR_SENSOR_* syscalls, whose handlers call these functions; the host reaches it through apkrt.h's C
+// API.
 //
 // This header is the runtime-internal C++ face of the hub, used by the syscall handlers, by apkrt.cpp's host entry
 // points, and by sensor_hub_test.cpp (which drives it with a fake host, no CoreMotion and no syscalls).
@@ -21,8 +22,8 @@
 namespace apkrt::sensors {
 
 /// A sensor the hub offers, filled from the fixed table. The metadata the NDK's ASensor_* lack and the Java Sensor needs
-/// (minato_ASensor_getInfo marshals these to Planung's JNI). handle is the sensor's identity in every event and equals
-/// the Android TYPE_ number. The char pointers are static, valid for the life of the process.
+/// (minato_ASensor_getInfo marshals these to the framework's JNI). handle is the sensor's identity in every event and
+/// equals the Android TYPE_ number. The char pointers are static, valid for the life of the process.
 struct SensorInfo {
     std::int32_t type;           // Android ASENSOR_TYPE_ number, also the handle
     std::int32_t value_count;    // floats a sample carries (3, 4, 5 or 6)

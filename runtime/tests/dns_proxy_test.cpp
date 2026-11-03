@@ -468,7 +468,7 @@ bool closed_by_peer(int client, double seconds = 3) {
 }
 
 TEST(the_proxy_accepts_again_after_running_out_of_descriptors) {
-    // EMFILE at accept is the process's limit for a while, not the listener's end (the lead's review of b).
+    // EMFILE at accept is the process's limit for a while, not the listener's end (the review of b).
     const GuestSystem system(android_hosts);
     const Listener listener;
     std::atomic<bool> closed{false};

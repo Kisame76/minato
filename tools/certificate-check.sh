@@ -98,7 +98,7 @@ altstore=(-simulatedInstaller altStore -simulatedReachableStores altStore)
 first=$(ask "${own[@]}" "${altstore[@]}" -certificateCheckReset -certificateCheckStatus)
 token=${first##* }
 expect "without a certificate the app asks AltStore by itself" "missing requestExport altStore $token" "$first"
-# The answer AltStore sends (docs/research/store-certificates.md, section 2): the base64 of the .p12,
+# The answer AltStore sends: the base64 of the .p12,
 # percent-encoded with urlQueryAllowed minus ";/?:@&=+$, ", and the password as typed, raw. The app
 # opens it itself with UIApplication.open, as the store would: xcrun simctl openurl cuts URLs to
 # 2047 characters and asks for confirmation first.

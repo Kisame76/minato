@@ -52,7 +52,7 @@ final class PickPresenter: NSObject {
     private var shown: Shown?
     private var tokens: UInt64 = 0
     private let clones: DocumentClones?
-    /// The clones of one request after the other's, each to its end (the lead's reviewer).
+    /// The clones of one request after the other's, each to its end (the review).
     private let work = SerialWork()
     private let answer: (UInt64, Int?) -> Void
     private lazy var steps = SheetSteps<PickQueue.Step>(owner: self) { [unowned self] in perform($0) }

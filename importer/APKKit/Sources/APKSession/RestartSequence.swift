@@ -9,7 +9,7 @@ public enum RestartWay: String, CaseIterable, Sendable {
     case none
 }
 
-/// The order a restart tries its ways in (ADR-0032, decision 2, as the lead refined it on 2026-10-01): the
+/// The order a restart tries its ways in (ADR-0032, decision 2, as it was refined on 2026-10-01): the
 /// workspace first, since it reaches this install only, then the URL, then the fallback. A requested way is the
 /// only one tried, so session-check can force each.
 public struct RestartSequence: Sendable, Equatable {

@@ -1,6 +1,6 @@
 // app_process (ADR-0039 decision 1): the guest program /system/bin/app_process64, which plays Android's app process
 // for an app with Java code. Android's zygote forks it from app_process; Minato starts it directly, one app per
-// process (CLAUDE.md, decision 3).
+// process.
 //   app_process64 [--nice-name=<process name>] --package <package> --apk <base.apk> --library-path <lib/arm64>
 //                 --data-dir <data folder> [--application <class>]
 // The process name is --nice-name's, as Android's app_process takes it, else argv[0]. It names the process as

@@ -34,7 +34,7 @@ runtime/tests/art_run.py lays them out for dalvikvm:
 
 The comparison takes the reference's lines without logcat's "I/System.out: " and leaves out what ADR-0039 lets
 differ: BOOTCLASSPATH's and DEX2OATBOOTCLASSPATH's jars, the uid's number (10100 for every app, decision 3), and
-zygote's ANDROID_SOCKET_* (the lead's call: they name zygote's descriptors). Since step c2b the app process runs its
+zygote's ANDROID_SOCKET_* (the decision: they name zygote's descriptors). Since step c2b the app process runs its
 main Looper and never ends by itself: the run ends 2 s after the MessageDigest line, the app's last, as
 tools/android-reference.sh stops the app on the AVD after that line. app-start-test starts without --application, as
 the app starts on the iPhone: ActivityThread makes the class its manifest names (step c1.1). ART's start line must

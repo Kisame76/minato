@@ -1,4 +1,4 @@
-// The written part of MediaMetadataRetriever (the Unity test APK gap sort, Formate's category 2, android.media as absent
+// The written part of MediaMetadataRetriever (the Unity test APK gap sort, category 2, android.media as absent
 // hardware), which tools/managergen joins with the API's methods. Minato has no media framework to decode with: a
 // source that is not there is refused as Android refuses it (IllegalArgumentException from the path overload), any
 // other source cannot be opened (the RuntimeException of a failed native setDataSource), and the queries answer null.

@@ -46,7 +46,7 @@ struct UnitQuestionTests {
 
     @Test(arguments: [true, false])
     func replaceAnswersOnlyTheVersionsTheQuestionListed(setFirst: Bool) async throws {
-        // Replace for one asking set used to answer every set of the unit (the lead's reviewer, b5b2). The set goes
+        // Replace for one asking set used to answer every set of the unit (the review, b5b2). The set goes
         // through importSet and the APK through importFile, so each is answered first once.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -189,7 +189,7 @@ struct UnitQuestionTests {
     @Test(arguments: [true, false])
     func keepInstalledOnAUnitDropsItsAPKsAndItsOBBs(withOBB: Bool) async throws {
         // As the unit's end after an import, and its OBBs with it, as the original stays where the user has it
-        // (ADR-0049 d, the lead).
+        // (ADR-0049 d).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

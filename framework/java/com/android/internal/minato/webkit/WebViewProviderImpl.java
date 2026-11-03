@@ -84,7 +84,7 @@ import java.util.concurrent.Executors;
  * page in the host. It keeps what the app sets (settings, clients, listeners, the background color) and sends the
  * loads, scripts and navigation to the host over its WebViewChannel, which it opens at the first load or at its attach,
  * whichever comes first: a CALL "make" first, with the package's data store, the scheme and the settings, then one
- * per call, with "settings" again before a load when they changed (Grafik's review of b2). URLs of the app's assets
+ * per call, with "settings" again before a load when they changed (the graphics review of b2). URLs of the app's assets
  * and resources (file:///android_asset/, file:///android_res/) go to the host as minato-asset://asset/ and
  * minato-asset://res/, and come back as the app gave them, in every URL the app sees. The host's records come back on
  * the main Looper: they drive the clients and a mirror of the page (URL, original URL, title, progress, history), from
@@ -189,7 +189,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         return mHost == HOST_OPEN;
     }
 
-    /** What the host's view needs of the settings; a change applies from the next load (Grafik's review). */
+    /** What the host's view needs of the settings; a change applies from the next load (the graphics review). */
     private JSONObject settings() {
         try {
             return new JSONObject().put("userAgent", mSettings.getUserAgentString())

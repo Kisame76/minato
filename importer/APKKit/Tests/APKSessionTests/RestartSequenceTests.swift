@@ -2,7 +2,7 @@ import Testing
 
 @testable import APKSession
 
-/// ADR-0032, decision 2 as the lead refined it: the workspace first, which targets this install's bundle ID, then
+/// ADR-0032, decision 2 as it was refined: the workspace first, which targets this install's bundle ID, then
 /// the URL, which a second install may answer, then the fallback.
 @Suite("RestartSequence")
 struct RestartSequenceTests {

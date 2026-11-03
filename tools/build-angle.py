@@ -68,7 +68,7 @@ def require_inside(path):
 
 def require_nested(repository):
     """ADR-0029, decision 8: the repository's top level must be exactly this directory. With a missing
-    clone or a wrong path, git would otherwise act on Minato's own tree and the other chats' work."""
+    clone or a wrong path, git would otherwise act on Minato's own tree and other work in progress."""
     require_inside(repository)
     result = subprocess.run(["git", "-C", repository, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     top = result.stdout.strip()

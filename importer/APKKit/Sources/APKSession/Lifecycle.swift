@@ -97,7 +97,7 @@ public struct Lifecycle: Sendable, Equatable {
     }
 
     /// Whether the frame clock runs (ADR-0041, decision 2): for a NativeActivity app while its gate is open; for a Java
-    /// app from its start to its end while the scene is in the foreground, whatever the gate (changed by the lead's OK,
+    /// app from its start to its end while the scene is in the foreground, whatever the gate (changed by the decision,
     /// App's c6 host fixes). Android gives frames to an unfocused or windowless app that asks, and a Java app's
     /// ViewRootImpl holds its main queue's messages, the lifecycle's events among them, behind a traversal that waits
     /// for a frame; its presents still wait at a closed gate.
@@ -232,8 +232,8 @@ public struct Lifecycle: Sendable, Equatable {
     }
 
     /// onPause, the focus's loss if the app still has it, and onNativeWindowDestroyed. An app that ends (Quit,
-    /// finish) gets Android 15's order, onPause before the focus goes (activity-test, java-test; changed by the lead's
-    /// OK, App's c6 host fixes). The background keeps the focus's loss first, a named departure: iOS takes the focus at
+    /// finish) gets Android 15's order, onPause before the focus goes (activity-test, java-test; changed by
+    /// App's c6 host fixes). The background keeps the focus's loss first, a named departure: iOS takes the focus at
     /// willDeactivate, before it tells of the background. SessionBridge removes the window before the first callback
     /// after its gate closed (ADR-0028's order): a render thread held at the closed gate returns to its loop, where
     /// native_app_glue's onPause waits for it.

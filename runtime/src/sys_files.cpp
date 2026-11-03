@@ -519,7 +519,7 @@ int granted(mode_t mode, Owner owner) {
 // the answers Android 15 gives an app: its code under /data/app is system's and refuses every change, its own
 // folders take them (owner-rules-test against the emulator, 2026-10-05). The checks look at what the host call will
 // touch, found below the mount as the call finds it, not at the guest path as written (ADR-0052: a link inside one
-// mount, the lead's reviewer).
+// mount, the review).
 
 /// The file or folder a path argument names, following a final symlink or not; nullopt when it is not there, or not
 /// below its mount, which the host's call then answers.

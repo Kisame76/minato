@@ -447,7 +447,7 @@ struct ZipArchiveTests {
         #expect(try archive.prefix(of: entry, count: 4) == bad.content.prefix(4))
     }
 
-    // MARK: - What libziparchive refuses, part two (ADR-0048 b1.1, the lead's reviewer)
+    // MARK: - What libziparchive refuses, part two (ADR-0048 b1.1, the review)
 
     static func localHeader(_ name: [UInt8], _ data: Data, crc: UInt32? = nil) -> Data {
         var out = ByteWriter()
@@ -755,7 +755,7 @@ struct ZipArchiveTests {
 
     @Test func aNameThatIsNotUTF8IsNeverFoundForAnother() throws {
         // A raw name Android accepts but UTF-8 does not (an overlong form) must not read as another entry's name, and
-        // a byte-order mark is part of a name, which Foundation's decoding drops (the lead's reviewer).
+        // a byte-order mark is part of a name, which Foundation's decoding drops (the review).
         let entries: [(name: [UInt8], data: Data)] = [
             ([0x61, 0xC0, 0xAF], Data("ONE".utf8)), ([0x61, 0xC3, 0x80, 0xC2, 0xAF], Data("TWO".utf8)),
             ([0xEF, 0xBB, 0xBF] + Array("b.txt".utf8), Data("BOM".utf8)), (Array("b.txt".utf8), Data("PLAIN".utf8)),

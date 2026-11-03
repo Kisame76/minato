@@ -265,7 +265,7 @@ struct ContainerPackTests {
 
     @Test func aLooseSliceAndAContainersSplitMakeOneSetWithThePack() async throws {
         // A loose base and slice and an XAPK with the arm64 split of the same version: the group's container is the
-        // XAPK's, the slice's none; it is kept all the same (the lead's reviewer).
+        // XAPK's, the slice's none; it is kept all the same (the review).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

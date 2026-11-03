@@ -71,10 +71,10 @@ public enum UpdateWarning: Sendable, Hashable {
     /// signer: it would get the installed app's data.
     case otherSigner
     /// APKs of the set are signed in a way Minato cannot check, so it cannot check their content; the question names
-    /// them. Asked also where nothing is installed (ADR-0048 b3, the lead's decision).
+    /// them. Asked also where nothing is installed (ADR-0048 b3, the decision).
     case uncheckedContent
     /// The container brings an OBB under an installed OBB's name with other bytes, which would change the app's
-    /// content; the question names them (`ImportResult.otherOBBs`, ADR-0049 c2, the lead's rule).
+    /// content; the question names them (`ImportResult.otherOBBs`, ADR-0049 c2, the rule).
     case otherOBB
 }
 
@@ -136,7 +136,7 @@ public struct ImportResult: Sendable, Equatable {
     /// The installed OBBs an asking import would replace with other bytes, by name, which the question about
     /// `otherOBB` names (ADR-0049 c2).
     public var otherOBBs: [String] = []
-    /// The installed OBBs a picked one replaced, by name, for App's note (ADR-0049 d, the lead).
+    /// The installed OBBs a picked one replaced, by name, for App's note (ADR-0049 d).
     public var replacedOBBs: [String] = []
     /// Picked OBBs that could not go in, each with why, for App's alert (ADR-0049 d); they go with their unit.
     public var refusedOBBs: [IgnoredFile] = []

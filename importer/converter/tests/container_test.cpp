@@ -1143,7 +1143,7 @@ TEST(refuses_what_cannot_run) {
 
     // A writable and executable LOAD segment, which Android's linker refuses for apps targeting API 26 or later
     // (ElfReader::LoadSegments) and iOS cannot run; an executable section beyond its segment's file part, whose
-    // rewritten sites would lie outside the container's bytes (the lead's reviewer's finding).
+    // rewritten sites would lie outside the container's bytes (the review's finding).
     auto writable_code = static_program();
     writable_code.put<std::uint32_t>(64 + 56 + 4, r | w | x);  // p_flags of the code segment
     CHECK_THROWS(Incompatible, convert(writable_code), "LOAD segment at 0x0 is writable and executable");
@@ -1207,7 +1207,7 @@ ElfBuilder program_with_relocation_flood(std::size_t entries) {
 }
 
 TEST(a_flood_of_refused_relocations_costs_a_count_not_a_message_each) {
-    // 4 MiB of bitmaps name some 26 million relocations; the reason is made once, for the first (the lead's reviewer:
+    // 4 MiB of bitmaps name some 26 million relocations; the reason is made once, for the first (the review:
     // 25 s with a message each).
     const auto flood = program_with_relocation_flood(std::size_t{4} << 17);
     const auto start = std::chrono::steady_clock::now();
@@ -1220,7 +1220,7 @@ TEST(a_flood_of_refused_relocations_costs_a_count_not_a_message_each) {
 }
 
 TEST(a_bad_relocation_is_named_before_a_later_table_that_cannot_be_read) {
-    // convert() named the first bad relocation before it looked at the later tables (the lead's reviewer): a RELR
+    // convert() named the first bad relocation before it looked at the later tables (the review): a RELR
     // text relocation, then a RELA table outside the file.
     auto first = static_program();
     first.put<std::uint64_t>(0x160, 0x200);  // a relocation into the code
@@ -1283,7 +1283,7 @@ TEST(refusals_name_every_reason_a_file_has) {
     CHECK(!headerless.empty());
     CHECK(contains(headerless.back(), "section headers"));
 
-    // What convert() refuses only after the scan (here the container's size) shows too (the lead's reviewer).
+    // What convert() refuses only after the scan (here the container's size) shows too (the review).
     auto big_container = static_program((std::uint64_t{256} << 20) + 0x4800);
     big_container.put<std::uint64_t>(64 + 56 + 40, std::uint64_t{256} << 20);
     big_container.put<std::uint64_t>(64 + 2 * 56 + 16, (std::uint64_t{256} << 20) + 0x42c0);
@@ -1320,7 +1320,7 @@ TEST(refusals_name_every_reason_a_file_has) {
     const auto cut = std::vector<std::byte>(whole.bytes.begin(), whole.bytes.begin() + 100);
     CHECK(refusals(cut).size() == 1);
 
-    // A name from the file never breaks a reason into lines (the lead's reviewer): control characters become spaces.
+    // A name from the file never breaks a reason into lines (the review): control characters become spaces.
     auto named = static_program();
     named.put<std::uint64_t>(64 + 56 + 32, 0x210);
     auto patched = named.bytes;

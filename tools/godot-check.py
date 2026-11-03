@@ -75,7 +75,7 @@ def load_alignments(elf):
 
 
 def apk_inspect():
-    """APKKit's apk-inspect, built once into build/godot/apkkit/, apart from the App chat's build."""
+    """APKKit's apk-inspect, built once into build/godot/apkkit/, apart from the build."""
     subprocess.run(["swift", "build", "--package-path", APKKIT, "--scratch-path", INSPECT_BUILD, "-c", "release",
                     "--product", "apk-inspect", "-q"], check=True)
     return os.path.join(INSPECT_BUILD, "release", "apk-inspect")

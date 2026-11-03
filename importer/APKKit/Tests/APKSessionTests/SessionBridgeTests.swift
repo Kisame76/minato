@@ -166,7 +166,7 @@ struct SessionBridgeTests {
     }
 
     /// The focus's post comes first: an animating app draws its LOST_FOCUS frame, which then waits at the
-    /// closed gate rather than coming after the window is gone (Grafik's finding, ADR-0028 d).
+    /// closed gate rather than coming after the window is gone (the graphics host's finding, ADR-0028 d).
     @Test func theFocusGoesBeforeTheGateCloses() {
         let host = FakeHost()
         var bridge = Self.running(host)
@@ -292,7 +292,7 @@ struct SessionBridgeTests {
     }
 
     /// An app that ends with the focus keeps its window and open gate through onPause, as on Android; the gate closes
-    /// after the focus's post, and the window goes before onNativeWindowDestroyed (the lead's OK, App's c6 host fixes).
+    /// after the focus's post, and the window goes before onNativeWindowDestroyed (App's c6 host fixes).
     @Test(arguments: [Lifecycle.Event.quit, .finish])
     func anEndKeepsTheWindowUntilTheFocusIsGoneAndWaitsForOnDestroy(end: Lifecycle.Event) {
         let host = FakeHost()

@@ -1,4 +1,4 @@
-// Probes for the feasibility spikes S1b, S2 and S3 (docs/STATUS.md). Only Debug builds run them, when the
+// Probes for the feasibility spikes S1b, S2 and S3. Only Debug builds run them, when the
 // app is launched with -runSpikes (tools/spikes.sh).
 
 #ifndef SPIKE_PROBES_H

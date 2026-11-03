@@ -3,7 +3,7 @@
 ## M3: the parity benchmark (ADR-0037)
 
 Minato's goal is parity: an APK in Minato reaches the native iOS build's speed on the same iPhone, at least 95 % of
-its FPS with a p99 frame time at most 105 % of it (ADR-0014, `CLAUDE.md`). M3 is done when this file has the result.
+its FPS with a p99 frame time at most 105 % of it (ADR-0014). M3 is done when this file has the result.
 ADR-0037 measures it with one scene built twice: as the APKs `bench-gles` and `bench-vulkan` in Minato, and as
 `MinatoBench.framework`, the same C files built for iOS. Both draw through ANGLE and MoltenVK, so the difference
 between them is what Minato costs.
@@ -92,7 +92,7 @@ The period is the mean present interval, the frame's cost (see above). By period
 costs 0.67 ms a frame (A's 12.77 ms against B's 12.10 ms), and the rest of the APK's path 0.48 ms (B against N's
 11.62 ms).
 
-**Method.** One sitting, both arms on each build, a native control first (the lead's OK of 2026-09-30):
+**Method.** One sitting, both arms on each build, a native control first (2026-09-30):
 
 - *A:* the Vulkan APK as in the series. It takes the surface's first format, R8G8B8A8 (37), and `libvulkan` copies
   each frame to the drawable.
@@ -235,7 +235,7 @@ made the next refresh at 120 Hz now miss it.
      and the rule uses all four.
 - *The result:* P_NQ − P_NU = +0.164 ms, a share of 0.34; L_NQ 0.0 %, against B's 1.4 and 2.7 %. The difference is
   about 7 times NU's spread. What is left of the rest lies in how and when the APK asks: the thunks, the runtime's vsync
-  channel and glue, the gates. The next step goes to the user.
+  channel and glue, the gates. The next step is open.
 - *The build:* `tools/benchmark.sh --api vulkan` at 11:12, 0429e7a with the queue path (uncommitted). MoltenVK is
   byte-identical to the QoS A/B's build. `MinatoBench` differs by the queue path. The guest libraries differ by the
   tree's other work since then, but the native arms do not load them.
@@ -456,7 +456,7 @@ The setup:
   - gles-120-heavy-native-02 at 04:55: lost.
   - gles-120-heavy-native-04 at 05:31: recovered. The app finished the run on its own, and its CSVs were fetched with
     `benchmark.sh`'s own command.
-- *End:* the series stopped at 06:53, in the pause before the Vulkan half, when the user's time ended.
+- *End:* the series stopped at 06:53, in the pause before the Vulkan half, when the sitting ended.
 
 **Vulkan** ran in one sitting, 2026-09-30 16:02 to 18:30 (2 h 28 min).
 
@@ -574,13 +574,13 @@ stall in presenting or pacing [inferred].** Which part of the GPU's work costs i
 2026-10-08, time-boxed, with a scratch hook that adds up the GPU span (`GPUEndTime - GPUStartTime`) of each Metal
 command buffer that a guest thread commits. The hook stays out of the tree.
 
-- *The Mac* (Apple M4 Pro, macOS 27, the lead's OK): `bench-gles` at the heavy load through `graphics-app-test`'s
+- *The Mac* (Apple M4 Pro, macOS 27): `bench-gles` at the heavy load through `graphics-app-test`'s
   bench mode, at 1290 × 2796 and 120 Hz, on ANGLE-Metal and on ANGLE's Vulkan backend
   (`MINATO_ANGLE_BACKEND=vulkan`), three runs each of 1,081 presents. Both hold 120 Hz, 8.33 ms between ticks. The
   GPU's time per frame: ANGLE-Metal 5.35, 5.43 and 5.50 ms in one command buffer a frame, ANGLE-Vulkan 5.04, 5.54 and
   6.00 ms in 3.4 to 3.6. The process's CPU time (`time -p`), two runs each: ANGLE-Metal 7.5 and 7.6 s, ANGLE-Vulkan
   5.4 and 5.7 s for the same frames.
-- *The iPhone* (11:33 to 11:44, the user's OK): a Release benchmark build of 05c7026 with the hook (run.csv names
+- *The iPhone* (11:33 to 11:44): a Release benchmark build of 05c7026 with the hook (run.csv names
   05c7026-gputime), two heavy runs per APK at 120 Hz, all valid, their FPS within 1.2 % of the sitting's medians:
 
 | 120-heavy | FPS | Command buffers a frame | Spans a frame | A span in frame periods | Drawable to present |

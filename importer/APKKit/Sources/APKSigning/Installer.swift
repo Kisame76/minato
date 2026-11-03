@@ -12,7 +12,7 @@ public enum Store: String, Sendable, Codable, CaseIterable {
 }
 
 /// Who installed the app, read from the markers SideStore and AltStore write into the Info.plist of
-/// every app they sign; Xcode writes none (docs/research/store-certificates.md, section 5).
+/// every app they sign; Xcode writes none.
 public enum Installer: Sendable, Equatable, Codable {
     case store(Store)
     /// Xcode, or something else that leaves no marker.

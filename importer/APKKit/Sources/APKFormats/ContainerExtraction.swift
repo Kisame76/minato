@@ -79,7 +79,7 @@ extension Container {
     /// chunk of zeros is skipped, not written, so it stays a hole of a sparse file and an OBB's zeros cost no disk
     /// (ADR-0049 c1). The checksum still runs over it, and the file's length is set at the end, so it ends at the
     /// declared size also after a last chunk of zeros. The file is made new or not at all, so two names the volume takes
-    /// for one, as APFS folds case on the Mac, fail closed (the lead's reviewer).
+    /// for one, as APFS folds case on the Mac, fail closed (the review).
     private func write(_ entry: ZipEntry, to file: URL) throws {
         let descriptor = Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
         guard descriptor >= 0 else {
@@ -125,7 +125,7 @@ extension Container {
     private static let zeros = [UInt8](repeating: 0, count: 64 << 10)
 
     /// The running CRC-32 `crc` with `bytes` added, through the system zlib. No bytes change nothing: zlib's crc32
-    /// given no buffer answers its initial value instead (the lead's review of a1).
+    /// given no buffer answers its initial value instead (the review of a1).
     public static func checksum(_ crc: UInt32, adding bytes: UnsafeRawBufferPointer) -> UInt32 {
         guard bytes.count > 0 else { return crc }
         return UInt32(truncatingIfNeeded: crc32(uLong(crc), bytes.bindMemory(to: Bytef.self).baseAddress, uInt(bytes.count)))
@@ -133,7 +133,7 @@ extension Container {
 
     /// A name for a file in one folder: not empty, not hidden (".", ".." among them), without a slash or a NUL, and
     /// no longer than a file name may be. Checked on its UTF-8 bytes, as the file system reads it, so a combining mark
-    /// hides neither a slash nor a leading dot (the lead's reviewer).
+    /// hides neither a slash nor a leading dot (the review).
     static func isPlainFileName(_ name: String) -> Bool {
         let bytes = name.utf8
         return !bytes.isEmpty && bytes.first != UInt8(ascii: ".") && !bytes.contains(UInt8(ascii: "/")) && !bytes.contains(0)

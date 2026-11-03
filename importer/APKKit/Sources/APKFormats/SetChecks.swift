@@ -10,7 +10,7 @@ public enum SetSigning: Sendable, Equatable {
     /// Every APK of an algorithm Minato cannot check: the set is treated as one such APK (ADR-0034).
     case unverified(String)
     /// Some APKs verified, the others not: Minato cannot check those files' content, so the set asks even on a fresh
-    /// install and names them (the lead's decision); the signer is the verified APKs'.
+    /// install and names them (the decision); the signer is the verified APKs'.
     case partlyVerified(SignerIdentity, unverifiable: [UnverifiableFile])
 }
 
@@ -34,7 +34,7 @@ public struct CheckedSet: Sendable, Equatable {
     public var signing: SetSigning
     /// Android 15 would refuse the set with INSTALL_FAILED_MISSING_SPLIT; only with a base.
     public var missingSplit: Bool
-    /// "Needs split APKs": a missing split, or bundletool's older signals with no split at all (F1).
+    /// "Needs split APKs": a missing split, or bundletool's older signals with no split at all.
     public var needsSplits: Bool
 }
 
@@ -60,7 +60,7 @@ public enum SetChecks {
         let ordered = members.filter(\.isBase) + splits
         let first = ordered[0]
         var seen: Set<String?> = []
-        // APFS tells file names apart without their case, Android's ext4 with it (the lead's decision).
+        // APFS tells file names apart without their case, Android's ext4 with it (the decision).
         var folded: [String: String] = [:]
         for member in ordered {
             if !seen.insert(member.splitName).inserted {
@@ -151,7 +151,7 @@ public enum SetChecks {
         return [base] + installed.filter { !$0.isBase && !names.contains($0.splitName) } + splits
     }
 
-    /// "Needs split APKs": a missing split, or bundletool's older signals with no split at all (F1).
+    /// "Needs split APKs": a missing split, or bundletool's older signals with no split at all.
     static func needsSplits(base: SetMember, splits: [SetMember]) -> Bool {
         missesSplit(base: base, splits: splits) || base.stricterSplitSignal && splits.isEmpty
     }

@@ -16,7 +16,7 @@ namespace linux_errno = sys::linux_errno;
 
 /// Whether the host has granted the location group (outcome 1 fine or 2 coarse). Any other stored value — denied (0),
 /// unknown (-1) or a nonsense int the host passed — is no grant, so a guest denied in Minato's sheet cannot reach the
-/// device by calling the syscall directly (ADR-0063 decision 2, the lead's enforcement).
+/// device by calling the syscall directly (ADR-0063 decision 2, its enforcement).
 bool granted() {
     const int outcome = permissions::outcome(APKRT_PERMISSION_LOCATION);
     return outcome == APKRT_PERMISSION_GRANTED || outcome == APKRT_PERMISSION_GRANTED_COARSE;

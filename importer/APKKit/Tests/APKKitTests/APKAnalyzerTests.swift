@@ -440,7 +440,7 @@ struct APKAnalyzerTests {
     // MARK: - The installer's reading (ADR-0048 b2)
 
     @Test func theManifestsIsSplitRequiredNeedsSplitAPKs() throws {
-        // Android 15 reads <manifest android:isSplitRequired> (F1), where bundletool writes <application ...>.
+        // Android 15 reads <manifest android:isSplitRequired>, where bundletool writes <application ...>.
         let report = try APKAnalyzer.analyze(ZipArchive(data: SplitAPK.make(manifestSplitRequired: true, signers: [])),
                                              preferredLanguages: [])
         #expect(report.requiresSplits)

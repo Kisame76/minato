@@ -1,4 +1,4 @@
-# gles31-test (ADR-0044, test 2), the Grafik chat's: four fixed GLES 3.1 scenes (a compute shader, a draw that
+# gles31-test (ADR-0044, test 2): four fixed GLES 3.1 scenes (a compute shader, a draw that
 # reads what it wrote, flat values per vertex and a triangle fan) checked against their exact values and logged,
 # then 120 frames and ANativeActivity_finish. Added by fixtures/CMakeLists.txt, which defines native_app_glue; the
 # glue's ANativeActivity_onCreate is only referenced by Java, so -u keeps it in the library.

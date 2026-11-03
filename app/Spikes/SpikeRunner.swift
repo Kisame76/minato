@@ -3,7 +3,7 @@ import APKConvert
 import Darwin
 import Foundation
 
-/// Runs the feasibility spikes S1–S3 and S1b (docs/STATUS.md), and S4 (ADR-0008 amendment, step 0), when the
+/// Runs the feasibility spikes S1–S3 and S1b, and S4 (ADR-0008 amendment, step 0), when the
 /// app is launched with -runSpikes, prints a report to stdout and exits before any UI appears. `tools/spikes.sh` starts it on the
 /// iPhone and shows the output.
 enum SpikeRunner {

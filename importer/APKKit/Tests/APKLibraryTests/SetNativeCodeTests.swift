@@ -134,7 +134,7 @@ struct SetNativeCodeTests {
     }
 
     @Test func oneAPKWhoseLibraryNamesDifferOnlyInCaseIsRefusedToo() async throws {
-        // The same check runs for one APK, through importFile (the lead's decision).
+        // The same check runs for one APK, through importFile (the decision).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

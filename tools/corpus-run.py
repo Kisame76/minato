@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Mac corpus harness (docs/plans/2026-10-07-corpus-harness.md, section 3 of the compatibility plan): each APK of
+"""The Mac corpus harness: each APK of
 a list starts once through app_process, as the Java checks start theirs (framework/tests/app_process_run.py), in a
 session at the iPhone's display, inside tools/corpus.sb, and one JSON per app records the levels it reached, its first
 failure and every finding by kind, which tools/corpus-gaps.py counts.

@@ -66,13 +66,13 @@ android.content.PermissionChecker <- android.content.ContentProvider  # stays: a
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
 android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
-android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.IContentCaptureManager$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.IDataShareWriteAdapter$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.MainContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
-android.view.contentcapture.MainContentCaptureSessionV2 <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (the lead's c2c1 decision 2)
+android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
+android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
+android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
+android.view.contentcapture.IContentCaptureManager$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
+android.view.contentcapture.IDataShareWriteAdapter$Stub <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
+android.view.contentcapture.MainContentCaptureSession <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
+android.view.contentcapture.MainContentCaptureSessionV2 <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
 
 # The view tree (step c2c2): LayoutInflater, View, ViewGroup, FrameLayout and the rest of the tree, which an app's
 # code inflates, measures and lays out detached. What only an attached view reaches stayed a stub until step c2c3's
@@ -89,7 +89,7 @@ android.credentials.CredentialOption <- android.view.View  # gap: Credential Man
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 
-# Step c2c3 (App): the activity and its window. AOSP's Activity, Instrumentation, ActivityClient, Window and their
+# Step c2c3: the activity and its window. AOSP's Activity, Instrumentation, ActivityClient, Window and their
 # helpers name the stubs below; the local controller is IActivityClientController's Default class, so its Stub's
 # parcel code never runs.
 android.app.EnterTransitionCoordinator <- android.app.ActivityTransitionState  # stays: scene transitions, which only an activity started with a scene transition's options runs, compile-only (step c2c3's decision 5)
@@ -144,7 +144,7 @@ com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # ga
 # none of.
 android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeech  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
 
-# ADR-0043 step d), text (App): TextView, EditText and Editor, with the selection UI, text classification, translation,
+# ADR-0043 step d), text: TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
 android.text.util.Linkify <- android.widget.SelectionActionModeHelper, android.widget.TextView  # gap: autoLink and a selection's link check (Linkify), which needs libphonenumber's data, not fetched
 android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHelper  # stays: text classification and smart selection, absent (ADR-0043 step d), decision 3), which only a selection or a link asks for
@@ -157,7 +157,7 @@ com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.Tex
 com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
 com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 
-# ADR-0043 step e1), CompoundButton and CheckBox (App): their autofill, assist, accessibility and debug answers, which
+# ADR-0043 step e1), CompoundButton and CheckBox: their autofill, assist, accessibility and debug answers, which
 # only those services and tools ask for, and a button drawable from an Icon.
 
 # The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
@@ -166,7 +166,7 @@ com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a 
 
 # The framework breadth's batch 2 (the compatibility plan's entry 22): what its types still name as stubs.
 
-# ADR-0045 gap 1, batch 1 (App): DisplayManager and PowerManager in framework.jar, over the local display, power and
+# ADR-0045 gap 1, batch 1: DisplayManager and PowerManager in framework.jar, over the local display, power and
 # thermal services, which never run the AIDL interfaces' Stub and Proxy and parcel nothing.
 android.content.pm.IPackageManager <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
 android.content.pm.IPackageManager$Stub <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
@@ -175,7 +175,7 @@ android.os.CoolingDevice <- android.os.IThermalService  # stays: IThermalService
 android.os.Temperature <- android.os.IThermalService, android.os.IThermalEventListener  # stays: the thermal interfaces' Stub and Proxy, which the local thermal service never runs and whose events it sends none of
 android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a system API that needs WRITE_DREAM_STATE
 
-# ADR-0045 gap 1, batch 1b (App): UserManager over the local user service. What it reaches only for a work profile or
+# ADR-0045 gap 1, batch 1b: UserManager over the local user service. What it reaches only for a work profile or
 # with a system permission, which neither Minato's one user nor any app has.
 android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
@@ -187,7 +187,7 @@ android.provider.ContactsContract$PhoneLookup <- android.widget.QuickContactBadg
 android.provider.ContactsContract$QuickContact <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), the framework breadth's android.app batch
 
-# ADR-0045 gap 1, batch 2 (App): NotificationManager over the local notification service, with Notification, its
+# ADR-0045 gap 1, batch 2: NotificationManager over the local notification service, with Notification, its
 # channels, RemoteViews, VibrationEffect and AudioAttributes. What they reach only on the system's side, in a host of
 # RemoteViews, or in a style or call that a later piece brings.
 android.os.PermissionEnforcer <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
@@ -205,10 +205,10 @@ android.media.MediaRecorder <- android.media.AudioAttributes, android.media.Audi
 android.media.audiofx.AudioEffect$Descriptor <- android.media.AudioRecordingConfiguration  # stays: the effects of a recording; Minato has none (the patch makes the arrays Objects), so a Descriptor is named only in loops over an empty array
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # stays: StatusBarNotification.getLogMaker, the system's notification logging
 
-# Gap 9 (App): the job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).
+# Gap 9: the job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).
 android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobScheduler's Stub and Proxy, which the local job scheduler never runs
 
-# Gap 1 (App): the clipboard over the local clipboard service.
+# Gap 1: the clipboard over the local clipboard service.
 android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard's Stub and Proxy, which the local clipboard never runs
 
 # The Unity test APK probe's batch C (Grafik): android.webkit without a WebView provider (no webview feature) and the legacy
@@ -248,14 +248,14 @@ com.android.internal.content.InstallLocationUtils <- android.content.pm.PackageI
 com.android.internal.util.function.pooled.PooledLambda <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3 (the local installer accepts callbacks and calls none)
 com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3
 
-# android.media's take-in classes (the Unity test APK gap sort, Formate's category 1).
+# android.media's take-in classes (the Unity test APK gap sort, category 1).
 android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
 android.print.PrintManager <- android.print.PrintJob  # stays: a print job's manager, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
 android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts
 
 # Activity's signature types (App, the Unity test APK retest 10): the types they take in reach these.
-android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
-android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: (App) the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
+android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
+android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.content.pm.LauncherApps <- android.appwidget.AppWidgetHostView  # stays: a widget host view's click launches the widget's activity through the launcher apps service, and Minato hosts no widget
 android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub and Proxy, which the local vibrator manager service never runs
 android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), which the local location service never delivers

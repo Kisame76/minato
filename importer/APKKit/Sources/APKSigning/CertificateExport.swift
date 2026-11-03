@@ -3,7 +3,7 @@ import Foundation
 /// Asks a store for the certificate through its `certificate` export link (ADR-0023). The store
 /// shows a dialog, the user taps Export, and the store opens `callbackTemplate` with the
 /// certificate filled in. Neither store answers on Cancel or on an error, so a request that never
-/// comes back is normal (docs/research/store-certificates.md, section 2).
+/// comes back is normal.
 public struct ExportRequest: Sendable, Equatable, Codable {
     /// How long a callback for this request is accepted.
     public static let lifetime: TimeInterval = 600

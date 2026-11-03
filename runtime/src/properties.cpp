@@ -106,7 +106,7 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
     {"ro.sf.lcd_density", "480"},
     // libcutils' ashmem takes memfd_create only with both (ashmem-dev.cpp, __has_memfd_support): ro.treble.enabled as
     // on every Android 15 device, and sys.use_memfd, which Android 15 keeps off for vendor processes that make ashmem's
-    // ioctls themselves. Minato has no /dev/ashmem (the memfd step, the lead's decision).
+    // ioctls themselves. Minato has no /dev/ashmem (the memfd step, the decision).
     {"ro.treble.enabled", "true"},
     {"sys.use_memfd", "true"},
 };

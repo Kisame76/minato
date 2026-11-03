@@ -82,7 +82,7 @@ public struct GuestStart: Sendable, Equatable {
     /// A Java app's start (ADR-0039 c5): app_process64 with the arguments of framework/tests/app_process_run.py's
     /// start(), whose ActivityThread takes the Application class from the manifest. `signers` is the version's
     /// signers.json, nil for an unsigned APK. `guestData` stands for /data: the app's folder in Caches, where ART
-    /// finds /data and its dalvik-cache (the lead's decision for c5); Monet's overlays from the bundle lie over it as
+    /// finds /data and its dalvik-cache (the decision for c5); Monet's overlays from the bundle lie over it as
     /// /data/resource-cache, where every app's Resources find them (ADR-0043 f)), the app's paths too, and ART's
     /// APEXes are /apex. An app gets no LD_LIBRARY_PATH (ADR-0039, decision 2); `environment` is a run's extra
     /// entries. `localTesting`: the library keeps pack slices of the app, which the start lays out in local_testing of

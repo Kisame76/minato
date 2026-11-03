@@ -1,7 +1,7 @@
 // The runtime's coarse-location fudger (ADR-0063 decision 3). When a guest holds only a coarse location grant, the
 // runtime hands it a position snapped to a ~2 km grid with a per-app offset that redraws periodically, never the
 // precise fix, and an accuracy of 2000 m, so averaging many fixes cannot recover the precise position. This runs on
-// the trusted side (the runtime), never in the guest. Written to Formate's AVD measurement (apk-runner-35,
+// the trusted side (the runtime), never in the guest. Written to the AVD measurement (apk-runner-35,
 // Android 15): coarse accuracy 2000 m, latitude cell 0.018018 deg (2000/111000), longitude cell 2000/(111000*cos lat),
 // a random shift before snapping, redrawn about every 10 minutes. The exact offset size and redraw interval are
 // measured-approximate until AOSP's LocationFudger.java is read (the user has not approved that download).

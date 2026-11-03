@@ -51,7 +51,7 @@ struct NativeFindingsTests {
             publicLibraries: Self.publicLibraries)
 
         #expect(found["libhelper.so"] == ["text relocations"])
-        // Each names the cause, so that one line read out says why (the lead's request of 2026-10-30).
+        // Each names the cause, so that one line read out says why (the request of 2026-10-30).
         #expect(found["libmid.so"] == ["it needs libhelper.so, which cannot load: text relocations"])
         #expect(found["libgame.so"] == [
             "it needs libmid.so, which cannot load: it needs libhelper.so, which cannot load: text relocations"])
@@ -105,7 +105,7 @@ struct NativeFindingsTests {
     }
 
     @Test func manyLibrariesThatNeedEachOtherAreFoundInLinearTime() {
-        // 1000 libraries with 1000 NEEDED names each took 9 s with a scan for each pass (the lead's reviewer).
+        // 1000 libraries with 1000 NEEDED names each took 9 s with a scan for each pass (the review).
         let names = (0..<1000).map { "lib\($0).so" }
         var libraries = names.map { Facts(name: $0, refusals: [], needed: names) }
         libraries[0].refusals = ["svc"]

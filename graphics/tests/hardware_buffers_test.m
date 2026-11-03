@@ -112,7 +112,7 @@ static void release(uint64_t handle) {
     table->free(table->context, handle);
 }
 
-/// The rows as the lead's rule has them: IOSurface's alignment of width x bytes per pixel, rounded up to Metal's
+/// The rows as the rule has them: IOSurface's alignment of width x bytes per pixel, rounded up to Metal's
 /// minimum linear texture alignment for the format.
 static size_t aligned_row(const struct format *format, uint32_t width) {
     const size_t alignment = (size_t)[device minimumLinearTextureAlignmentForPixelFormat:format->metal];

@@ -1479,7 +1479,7 @@ run_live() {
   lines=$(head -n "$seen" "$EVENTS")
   echo "      callbacks: $(callbacks_of "$pid")"
 
-  # The gap Grafik's finding depends on: from the focus's loss to the background, with the callbacks in it.
+  # The gap the graphics host's finding depends on: from the focus's loss to the background, with the callbacks in it.
   awk -v pid="$pid" '
     $2 != pid { next }
     $3 == "scene" && $4 == "willDeactivate" { start = $1 }

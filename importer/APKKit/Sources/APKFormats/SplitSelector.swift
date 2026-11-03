@@ -27,7 +27,7 @@ public struct DeviceProfile: Sendable, Equatable {
 
     /// An iPhone: arm64-v8a, the density the guest is told (`runtime/android/configuration.cpp:214`), its
     /// preferred languages, the texture formats of the GLES and Vulkan paths [inferred: ASTC and ETC2], with
-    /// ETC1, which ETC2 decoders read (the lead's decision), and the features Minato's PackageManager reports, with
+    /// ETC1, which ETC2 decoders read (the decision), and the features Minato's PackageManager reports, with
     /// the OpenGL ES version its sessions give (ADR-0049 decision 2's follow-up); `vulkan` says whether they have
     /// a Vulkan driver.
     public static func iPhone(nativeScale: Double, languages: [String],
@@ -165,7 +165,7 @@ public enum SplitSelector {
         // Tiers, country sets and groups: where no split fits and no fallback serves, extract-apks refuses or skips.
         // A set pulled from a phone holds that phone's one split, which Minato keeps; of several, a tier takes the
         // lowest, and a country set or group without the fallback bundletool requires makes the set incompatible
-        // (the lead's decision).
+        // (the decision).
         case .deviceTier:
             // DeviceTierApkMatcher.java:56-107: the device's tier.
             let wanted = "tier_\(device.deviceTier)"

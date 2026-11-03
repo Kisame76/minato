@@ -74,7 +74,7 @@ fi
 serial=""
 if [[ -n "$android" ]]; then
   if [[ ! -x "$ADB" ]]; then
-    echo "No adb at $ADB: install platform-tools into $SDK (docs/STATUS.md)." >&2
+    echo "No adb at $ADB: install platform-tools into $SDK." >&2
     exit 1
   fi
   if ! "$ADB" start-server >/dev/null 2>&1; then
@@ -83,7 +83,7 @@ if [[ -n "$android" ]]; then
   fi
   serial=$("$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }')
   if [[ -z "$serial" ]]; then
-    echo "No running emulator. The emulator is shared: ask the lead, then start it, for example with" >&2
+    echo "No running emulator. The emulator is shared: ask whoever uses it, then start it, for example with" >&2
     echo "  $SDK/emulator/emulator -avd apk-runner-35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect &" >&2
     exit 1
   fi

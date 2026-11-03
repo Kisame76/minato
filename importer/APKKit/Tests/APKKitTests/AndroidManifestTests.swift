@@ -651,7 +651,7 @@ struct AndroidManifestTests {
     }
 
     @Test func theManifestsIsSplitRequiredNeedsSplits() throws {
-        // Android 15 reads <manifest android:isSplitRequired> (F1); bundletool's <application android:isSplitRequired>
+        // Android 15 reads <manifest android:isSplitRequired>; bundletool's <application android:isSplitRequired>
         // and meta-data stay Minato's stricter signals.
         let manifest = try Self.parse(Self.manifest([.android("isSplitRequired", 0x0101_0591, .bool(true))], []))
         #expect(manifest.splitRequired)

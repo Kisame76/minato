@@ -1,4 +1,4 @@
-/// Where a layer lies among the session's layers (ADR-0041's second windows, docs/plans/adr-0041-second-windows.md,
+/// Where a layer lies among the session's layers (ADR-0041's second windows,
 /// decision 1), as Android 15 orders an app's windows:
 ///   - the activities' groups by the guest's key, the session's window in group 0, and the toasts above them;
 ///   - in a group, its base window lowest and a starting window highest, the others newer above

@@ -1583,7 +1583,7 @@ TEST(keep_screen_on_is_reported_in_the_order_it_changes_across_threads) {
     CHECK(take_requests().size() == (seen.size() % 2 == 1 ? 1U : 0U));
 }
 
-// --- The window's format (Grafik's opaque layer, after Android 15's ViewRootImpl.updateOpacity) ---------
+// --- The window's format (the opaque layer, after Android 15's ViewRootImpl.updateOpacity) ---------
 
 // PixelFormat's values (android.graphics.PixelFormat at android-15.0.0_r1).
 constexpr std::int32_t translucent = -3, transparent = -2, opaque = -1, unknown = 0, rgba_8888 = 1, rgbx_8888 = 2,

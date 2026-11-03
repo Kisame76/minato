@@ -37,7 +37,7 @@ public struct ProtoReader {
     /// The level of this message below the outermost one, which is 0.
     public let depth: Int
     /// The message's bytes, which a field's bytes are a slice of, never a copy: a nested message shares its parent's
-    /// storage, so a toc costs its size once, whatever its depth (the lead's review of a2).
+    /// storage, so a toc costs its size once, whatever its depth (the review of a2).
     private let bytes: Data
     /// An index into `bytes`, which a slice keeps from its parent.
     private var position: Int

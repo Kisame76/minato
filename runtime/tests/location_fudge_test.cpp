@@ -1,7 +1,7 @@
 // The coarse-location fudger (ADR-0063 decision 3): a coarse grant gets a position snapped to a ~2 km grid with a
 // per-app offset, at 2000 m accuracy, never the precise fix. Checks the accuracy, the grid snap and its cell
 // periodicity, that nearby positions share a cell, the pole/dateline bounds, and the Fudger's per-window stable /
-// across-window redrawn offset. Written to Formate's AVD measurement; ranges, not exact values, are asserted.
+// across-window redrawn offset. Written to the AVD measurement; ranges, not exact values, are asserted.
 #include "location_fudge.h"
 
 #include "check.h"

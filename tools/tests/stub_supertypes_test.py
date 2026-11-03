@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/stub_supertypes.py, framework-check's guard (ADR-0039 b3.4): a class of framework.jar on a supertype that
 neither framework.jar nor the boot jars hold is "unloadable" unless framework/stub-supertypes.txt lists it, and a
-listed pair that no longer holds is "stale". Each entry says why it is there (b3.5a, the lead's rule): the step that
+listed pair that no longer holds is "stale". Each entry says why it is there (b3.5a, the rule): the step that
 removes it ("step c: ...", "b3.5b: ..."), "stays: <reason>", the reason why the class never loads on Minato's path, or
 "gap: <what>", an app's path that fails today without a step yet (step c2c3). An entry with none of them, or "stays"
 or "gap" without its text, is "unexplained". Run on files in a scratch directory."""

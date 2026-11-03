@@ -19,7 +19,7 @@
 // float, and Ogg Vorbis through stb_vorbis, which the pool turns into 16-bit frames, and MP3, AAC (in MP4 or ADTS),
 // and FLAC through the host's AudioToolbox (APKRT_NR_AUDIO_DECODE, the plan's step 3); other files fail with a
 // status, as a file that no decoder takes fails on Android. Opus, in Ogg and in MP4, is the plan's step 4
-// (docs/plans/2026-10-30-soundpool-and-audio-codecs.md).
+//.
 #include <aaudio/AAudio.h>
 #include <dlfcn.h>
 #include <jni.h>

@@ -34,7 +34,7 @@ struct SetMemberTests {
 
     @Test(arguments: [(false, true), (true, false)])
     func readsBundletoolsSignalsAsStricter(application: Bool, metaData: Bool) throws {
-        // Android 15 ignores both; Minato reads them as "Needs split APKs" (F1).
+        // Android 15 ignores both; Minato reads them as "Needs split APKs".
         let member = try Self.member(SplitAPK.make(applicationSplitRequired: application, splitsRequiredMetaData: metaData))
         #expect(!member.splitRequired)
         #expect(member.stricterSplitSignal)
@@ -175,7 +175,7 @@ struct SetMemberTests {
 
     @Test func anAttributeOnlyItsResourceIDFindsKeepsThatReadingForTheVersionsOnly() throws {
         // Obfuscators rename an attribute; Android's installer then misses it. Its package parser finds versionCode and
-        // versionCodeMajor by resource ID (PackageImpl.java:2721-2723), and that reading stands (the lead's decision).
+        // versionCodeMajor by resource ID (PackageImpl.java:2721-2723), and that reading stands (the decision).
         // Nothing reads the split attributes so: a renamed isFeatureSplit leaves a configuration split.
         let member = try Self.member(SplitAPK.make(versionCode: nil, split: "config.arm64_v8a", attributes: [
             .android("vc", 0x0101_021B, .int(7)), .android("vcm", 0x0101_0576, .int(1)), .android("fs", 0x0101_055B, .bool(true)),
@@ -190,7 +190,7 @@ struct SetMemberTests {
 
     @Test func theManifestIsReadWithinTheAnalyzersLimit() {
         // 16 MiB, as APKAnalyzer reads it: a crafted string pool of a few hundred KB of deflated data could otherwise
-        // cost about a gigabyte to decode (the lead's reviewer). The entry claims one byte more in both its headers;
+        // cost about a gigabyte to decode (the review). The entry claims one byte more in both its headers;
         // only that size is read before the refusal.
         var zip = ZipBuilder()
         zip.add("AndroidManifest.xml", AXMLBuilder().build(AXMLBuilder.Element("manifest", [.plain("package", .string(SplitAPK.package))], [])))

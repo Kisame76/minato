@@ -132,7 +132,7 @@ struct XAPKImportTests {
     }
 
     @Test func theStagedOBBsAreExcludedFromBackupsToo() async throws {
-        // The lead's reviewer: they wait in the new version's folder until the switch, and a crash leaves them there.
+        // Review: they wait in the new version's folder until the switch, and a crash leaves them there.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -173,7 +173,7 @@ struct XAPKImportTests {
     }
 
     @Test func anOBBOfAPackageWithoutAnAPKHereIsNeverTakenOut() async throws {
-        // The lead's reviewer: an XAPK never brings an OBB for another app, so one of a package without an APK in it is
+        // Review: an XAPK never brings an OBB for another app, so one of a package without an APK in it is
         // named before anything is taken out. Its bytes are damaged, so taking it out would refuse the whole XAPK.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -222,7 +222,7 @@ struct XAPKImportTests {
     }
 
     @Test func theXAPKsNamesGoOnOneOfItsEntries() async throws {
-        // The lead's reviewer: copied onto each entry of an XAPK with many apps, they made library.json grow with every
+        // Review: copied onto each entry of an XAPK with many apps, they made library.json grow with every
         // store.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -266,7 +266,7 @@ struct XAPKImportTests {
 
     @Test func anUpdatesOBBReplacesAnOlderOneOfItsKindAndEverythingElseStays() async throws {
         // Where the version changes, a newer OBB replaces the installed one of its kind and an older one stays out (the
-        // lead's rule): here main 2 over main 1, then main 1 named beside main 2. The installed patch and files the app
+        // rule): here main 2 over main 1, then main 1 named beside main 2. The installed patch and files the app
         // wrote stay, one named like another app's main OBB among them.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -336,7 +336,7 @@ struct XAPKImportTests {
 
     @Test func theSameVersionKeepsItsOBBAndAsksBeforeOtherBytes() async throws {
         // Where the version stays, the installed main 9 is what the working app reads, so main 7 stays out. The same OBB
-        // again moves nothing, and other bytes under its name replace it only once the user answers (the lead's rule).
+        // again moves nothing, and other bytes under its name replace it only once the user answers (the rule).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -408,7 +408,7 @@ struct XAPKImportTests {
     }
 
     @Test func theSameVersionNeverRemovesAnOBB() async throws {
-        // A newer main from the same version stays out as an older one does: the working app reads main 7 (the lead's
+        // A newer main from the same version stays out as an older one does: the working app reads main 7 (the
         // rule).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -469,7 +469,7 @@ struct XAPKImportTests {
 
     @Test func anUpdateAsksBeforeOtherBytesUnderAnInstalledOBBsName() async throws {
         // The name carries the version its file was made for, so other bytes under it ask whatever the APK's version
-        // (the lead's rule); the default keeps the installed file and version.
+        // (the rule); the default keeps the installed file and version.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -573,7 +573,7 @@ struct XAPKImportTests {
     }
 
     @Test func aFolderUnderAnOBBsNameLeavesTheInstalledOneAlone() async throws {
-        // The lead's reviewer: a folder the app made under main 2's name, locked, so no move gets past it. The update
+        // Review: a folder the app made under main 2's name, locked, so no move gets past it. The update
         // installs without main 2, which is named, and main 1 stays where the app reads it.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -597,7 +597,7 @@ struct XAPKImportTests {
     }
 
     @Test func theNewOBBsMoveInBeforeTheOldOnesGo() async throws {
-        // The lead's reviewer: an interruption between the two halves leaves both, never neither.
+        // Review: an interruption between the two halves leaves both, never neither.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -613,7 +613,7 @@ struct XAPKImportTests {
         #expect(try Self.content(sandbox.paths, Self.name("main", 2)) == Self.data("main", 2))
     }
 
-    // MARK: - Links and other things in the OBB folder (the lead's reviewer)
+    // MARK: - Links and other things in the OBB folder (the review)
 
     @Test func aLinkUnderAnOBBsNameIsReplacedNeverFollowed() async throws {
         // A guest may put links into its OBB folder: a move replaces one as a link, and an installed OBB that became one
@@ -673,7 +673,7 @@ struct XAPKImportTests {
 
     @Test(arguments: [false, true])
     func aFileInTheOBBFoldersPlaceStopsTheImportBeforeAnythingChanges(sameVersion: Bool) async throws {
-        // The lead's call: it stays as it is, the import stops with the reason, and the unit waits.
+        // Decision: it stays as it is, the import stops with the reason, and the unit waits.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

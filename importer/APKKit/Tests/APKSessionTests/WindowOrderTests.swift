@@ -2,7 +2,7 @@ import Testing
 
 @testable import APKSession
 
-/// ADR-0041's second windows (docs/plans/adr-0041-second-windows.md, decision 1): the session's layers bottom to top,
+/// ADR-0041's second windows (decision 1): the session's layers bottom to top,
 /// as Android 15 orders an app's windows, with c4's surfaces beside the session's window and one dim.
 @Suite("WindowOrder")
 struct WindowOrderTests {

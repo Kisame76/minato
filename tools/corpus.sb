@@ -1,6 +1,6 @@
-;; The macOS sandbox of the corpus harness (docs/plans/2026-10-07-corpus-harness.md): an app of the corpus, with
+;; The macOS sandbox of the corpus harness: an app of the corpus, with
 ;; apk-convert and apk-run, reads the repo, the toolchain and the system, writes only its run's folder, and networks
-;; only on loopback. The Mac has no iOS sandbox, and TEST-APKS.md keeps proprietary APKs off it; this keeps an
+;; only on loopback. The Mac has no iOS sandbox, and no proprietary APK runs on it; this keeps an
 ;; open-source app's run off the user's files and the internet.
 ;; Parameters: HOME (the user's home), REPO (the repo), WORK (the run's folder).
 (version 1)

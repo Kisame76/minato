@@ -1,4 +1,4 @@
-# The public types the framework breadth's batches took (docs/corpus/api-coverage.md), batch by batch.
+# The public types the framework breadth's batches took, batch by batch.
 # Batch 1: android.content, android.database, android.net, android.os.
 android.content.AsyncQueryHandler
 android.content.AsyncTaskLoader
@@ -215,7 +215,7 @@ android.os.Debug
 android.util.Base64DataException
 android.util.Base64InputStream
 android.util.Base64OutputStream
-# Batch M1: android.media's take-in classes (the Unity test APK gap sort, Formate's category 1).
+# Batch M1: android.media's take-in classes (the Unity test APK gap sort, category 1).
 android.media.AudioFocusRequest
 android.media.AudioTimestamp
 android.media.Rating

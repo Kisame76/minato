@@ -1,7 +1,7 @@
 # The corpus's gap patterns (tools/corpus-gaps.py): a finding, "<kind>: <text>" as tools/corpus-run.py
 # records it, belongs to the first gap whose regular expression it matches. One line each: the gap's number
 # in the compatibility plan's section 2 (H for one of the harness's own), a tab, its title, a tab, the
-# expression. Add a line when docs/corpus/gaps.md lists a finding no pattern maps.
+# expression. Add a line when the gap table lists a finding no pattern maps.
 1	System services that answer null	getSystemService|Unwritten: android\.app\.ContextImpl\.getSystemService
 2	4 KB libraries	^refused: .*(4 KiB pages|shares a 4 KiB page|cannot move by)
 3	Networking: DNS and HTTP	UnknownHostException|Unable to resolve host|getaddrinfo|android/net/ConnectivityManager

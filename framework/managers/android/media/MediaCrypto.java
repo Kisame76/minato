@@ -1,4 +1,4 @@
-// The written part of MediaCrypto (the Unity test APK gap sort, Formate's category 2): with no DRM plugin (see MediaDrm), no
+// The written part of MediaCrypto (the Unity test APK gap sort, category 2): with no DRM plugin (see MediaDrm), no
 // scheme is supported and a crypto object cannot be made.
 import java.util.UUID;
 

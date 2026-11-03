@@ -10,10 +10,9 @@ struct CertificateExportTests {
     static let p12 = Data((0..<3001).map { UInt8(truncatingIfNeeded: $0 &* 251 &+ 7) })
     static let token = String(repeating: "0", count: 32)
 
-    /// Does what SideStore and AltStore do with an export link (docs/research/store-certificates.md,
-    /// section 2), independently of the code under test: take `callback_template`, decode it twice,
-    /// put in the base64 of `p12` percent-encoded with urlQueryAllowed minus ";/?:@&=+$, " and the
-    /// password raw, then open the result with URL(string:).
+    /// Does what SideStore and AltStore do with an export link, independently of the code under test: take
+    /// `callback_template`, decode it twice, put in the base64 of `p12` percent-encoded with urlQueryAllowed minus
+    /// ";/?:@&=+$, " and the password raw, then open the result with URL(string:).
     func storeAnswer(to request: URL, p12: Data, password: String) -> URL? {
         let items = URLComponents(url: request, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard let once = items.first(where: { $0.name.lowercased() == "callback_template" })?.value,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The gap table of the corpus (docs/plans/2026-10-07-corpus-harness.md): reads the JSONs of tools/corpus-run.py's
+"""The gap table of the corpus: reads the JSONs of tools/corpus-run.py's
 runs and maps every finding to a gap of the compatibility plan's section 2 by fixtures/corpus/gap-patterns.txt, then
-writes docs/corpus/gaps.md: per gap, the apps it stops first and the apps it hits at all, the most first; the findings
+writes the gap table: per gap, the apps it stops first and the apps it hits at all, the most first; the findings
 no pattern maps, by kind; and the apps with their host, levels and "Displayed" time. Each run rewrites it, so section
 2's order follows the data.
 Python 3.9.

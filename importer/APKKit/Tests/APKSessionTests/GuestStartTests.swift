@@ -133,7 +133,7 @@ struct GuestStartTests {
         ])
     }
 
-    /// The guest's /data is the app's folder in Caches, where ART finds /data and its dalvik-cache (the lead's
+    /// The guest's /data is the app's folder in Caches, where ART finds /data and its dalvik-cache (the
     /// decision for c5); Monet's overlays from the bundle lie over it as /data/resource-cache (ADR-0043 f)), and the
     /// app's paths, as in decision 14, with signers.json beside base.apk and ART's APEXes in /apex.
     @Test func mountsDataThenTheAppsPathsAndTheAPEXes() {

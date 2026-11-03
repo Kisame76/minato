@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Xcode build phase (project.yml): builds the test dylib for spikes S1 and S1b (docs/STATUS.md) and signs
+# Xcode build phase (project.yml): builds the test dylib for spikes S1 and S1b and signs
 # it with the app's identity, once more with the app's bundle ID as signing identifier (S1b), plus an
 # ad-hoc signed copy as negative control. Debug builds only.
 set -euo pipefail

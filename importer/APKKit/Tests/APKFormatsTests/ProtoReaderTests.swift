@@ -71,7 +71,7 @@ struct ProtoReaderTests {
     }
 
     @Test func aNestedMessageSharesItsParentsBytes() throws {
-        // Each level reading a copy would cost a 16 MiB toc.pb its depth times 16 MiB (the lead's review of a2):
+        // Each level reading a copy would cost a 16 MiB toc.pb its depth times 16 MiB (the review of a2):
         // field 1 holds field 2, which holds 200 bytes, and both point into the outer buffer.
         let payload = Data(repeating: 0x2A, count: 200)
         let middle = Data([0x12, 0xC8, 0x01]) + payload

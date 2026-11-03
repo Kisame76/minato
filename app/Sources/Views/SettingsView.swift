@@ -4,7 +4,7 @@ import APKSigning
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings (docs/plans/2026-09-24-app-navigation-design.md, section 4): a Form like the Settings app's, with the
+/// Settings: a Form like the Settings app's, with the
 /// signing certificate folded in (ADR-0023: normally one line, the actions only when a step by the user is needed,
 /// everything technical in Diagnostics), the settings that work today, and About.
 struct SettingsView: View {

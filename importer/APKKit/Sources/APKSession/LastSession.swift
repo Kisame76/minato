@@ -111,7 +111,7 @@ public struct LastSessionStore: Sendable {
         guard let session else { return nil }
         let notice = { LastSessionNotice(name: session.name, cause: $0, package: session.package) }
         if let failure = session.failure { return notice(.failure(failure)) }
-        // An exit code, through the end handler or not (the lead's decision, 2026-11-01).
+        // An exit code, through the end handler or not (the decision, 2026-11-01).
         if let status, (1...128).contains(status) {
             return notice(.exitStatus(status))
         }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The framework's breadth (the compatibility plan's entry 22, docs/plans/2026-10-07-framework-breadth.md): every
+"""The framework's breadth (the compatibility plan's entry 22): every
 public type of Android 15's API (frameworks/base's core/api/current.txt) that framework.jar lacks, by package and by
 what it needs, and the batches in which the pure-Java ones go into framework/sources.txt.
 
@@ -32,7 +32,7 @@ another step takes (fixtures/corpus/api-taken.txt: a package, which is its own t
 step) goes into no batch; the table lists it with its step. The APIs that Android 15 builds apart from the core one,
 each a library of its own (--module-api <name>=<current.txt>: the connectivity modules', Wi-Fi's and location's), are
 counted apart, by package: which of their top-level types framework.jar has, and which another step takes. Their
-sources lie in other projects, so no batch takes them. Writes the table (docs/corpus/api-coverage.md) and the JSON
+sources lie in other projects, so no batch takes them. Writes the table and the JSON
 for the batches (build/api-coverage.json). It reads framework.jar's classes in build/framework/classes, so
 tools/build-framework.sh comes first. Python 3.9.
 
@@ -486,7 +486,7 @@ def main():
               "What each imports, itself or through a hidden type it pulls in, that nothing here defines.", ""]
     lines += [f"- {q}: {', '.join(types[q]['needs'][:6])}" + (", …" if len(types[q]["needs"]) > 6 else "")
               for q in sorted(types) if types[q]["group"] == "module"] or ["None."]
-    lines += ["", "## Not fetched", "", "Their sources lie beyond build/sources: a later fetch, with the user's go.",
+    lines += ["", "## Not fetched", "", "Their sources lie beyond build/sources: a later fetch.",
               ""]
     unfetched = collections.defaultdict(list)
     for qualified in coverage.missing:

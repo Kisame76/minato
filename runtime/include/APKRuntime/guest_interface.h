@@ -1218,7 +1218,7 @@ struct apkrt_location_fix {
 //
 // The host (App's UIDevice side on iOS, apk_run's fixed model on the Mac) reports the battery with
 // apkrt_battery_set (apkrt.h). It stores the value and, while a session runs, posts APKRT_EVENT_BATTERY on a
-// change. The Java BatteryManager and the sticky ACTION_BATTERY_CHANGED live on the framework side (App); this is
+// change. The Java BatteryManager and the sticky ACTION_BATTERY_CHANGED live on the framework side; this is
 // only the transport. No permission is needed, as Android's battery broadcast needs none.
 
 /// One syscall carries every battery operation, like the sensor's and the location's: x0 the op.
@@ -1232,7 +1232,7 @@ struct apkrt_location_fix {
 
 /// APKRT_EVENT_BATTERY's state (a1) and APKRT_BATTERY_GET's high half: UIDevice.BatteryState's raw values, so the
 /// host passes them through unchanged. The Android mapping (BatteryManager.BATTERY_STATUS_*, plugged, battery-low) is
-/// the framework's (App).
+/// the framework's.
 #define APKRT_BATTERY_STATE_UNKNOWN   0
 #define APKRT_BATTERY_STATE_UNPLUGGED 1
 #define APKRT_BATTERY_STATE_CHARGING  2
@@ -1260,7 +1260,7 @@ struct apkrt_frame_timeline {
 /// presents at target_time + period, 2 periods after the frame time at every rate: graphics/host sends a present
 /// that near without a presentation time, and such a present reaches the iPhone's screen 2 refreshes after its
 /// drawable (ADR-0041 decision 11). Each deadline is one period before its present, a guess (ADR-0036) settled by
-/// the lead: a deadline at the frame time would have passed already, so timeline 0's is target_time.
+/// decision: a deadline at the frame time would have passed already, so timeline 0's is target_time.
 struct apkrt_vsync {
     int64_t time;                 // the tick's vsync, Choreographer's frame time; 0 before the first tick
     int64_t target_time;          // when the next frame is due

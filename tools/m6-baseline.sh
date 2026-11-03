@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6's baseline measurements (docs/plans/2026-10-07-m6-plan.md, "Measurements that decide") on the Mac, so that every
+# M6's baseline measurements on the Mac, so that every
 # step that changes how ART runs Java (nterp, compiled code) is compared with the same measures:
 #   1. the run-tests sample (runtime/tests/art_run_tests.py --sample): the sum of the tests' own seconds;
 #   2. java-test's start: apk-run's spawn to the app's first onResume, without a session

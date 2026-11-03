@@ -67,7 +67,7 @@ struct UpdatePolicyTests {
 
     @Test func leavesTheSameBytesUnchangedBeforeAnyQuestion() {
         // The same bytes carry the same signature, so an answer could change nothing: "Replace" on them used to throw
-        // versionFolderInUse (ADR-0048 b5b2, the lead's reviewer).
+        // versionFolderInUse (ADR-0048 b5b2, the review).
         var unsigned = Self.version(3, signer: SignerIdentity(current: []))
         unsigned.signerProven = false
         #expect(UpdatePolicy.decide(installed: unsigned, new: unsigned) == .unchanged)
@@ -250,7 +250,7 @@ struct UpdatePolicyTests {
 
     @Test func aSetWithFilesMinatoCannotCheckAsksAlsoOnAFreshInstall() throws {
         // A DSA signer naming the base's certificate proves nothing about its APK's content, so the set asks and
-        // names it, also where nothing is installed (the lead's decision); its signer is the verified APKs', proven.
+        // names it, also where nothing is installed (the decision); its signer is the verified APKs', proven.
         let partly = try Self.set(split: SplitAPK.make(split: "feature", v2: [TestSigner.Signer(.dsa, certificate: TestKey.ec.certificate)]))
         let new = AppVersion(set: partly, state: .ready, sha256: "set")
         #expect(new == AppVersion(state: .ready, versionCode: 1, sha256: "set", signer: SignerIdentity(current: [TestKey.ec.sha256]),

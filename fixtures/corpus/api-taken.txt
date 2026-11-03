@@ -1,10 +1,10 @@
 # The types other steps take, which tools/api-coverage.py batches never (--taken): a package, its own types only,
 # or a type, then a tab and the step (the compatibility plan's section 2, and the steps under way).
 android.database.sqlite	gap 7, SQLite (Formate)
-android.content.IntentFilter	Formate's step d1
+android.content.IntentFilter	step d1
 android.os.ConditionVariable	App's ContextImpl step
 android.os.Messenger	App's ContextImpl step
-android.os.UserManager	gap 1 batch 1 (App)
+android.os.UserManager	gap 1 batch 1
 android.app.Dialog	gap 4, second windows
 android.app.AlertDialog	gap 4, second windows
 android.app.DialogFragment	gap 4, second windows
@@ -35,11 +35,11 @@ android.hardware.Sensor	gap 17, device features
 android.hardware.SensorManager	gap 17, device features
 android.hardware.SensorEvent	gap 17, device features
 android.hardware.SensorEventListener	gap 17, device features
-android.os.Vibrator	gap 1 batch 2 (App), the vibrator
-android.os.VibratorManager	gap 1 batch 2 (App), the vibrator
-android.os.VibrationEffect	gap 1 batch 2 (App), the vibrator
-android.os.VibrationAttributes	gap 1 batch 2 (App), the vibrator
-android.os.CombinedVibration	gap 1 batch 2 (App), the vibrator
+android.os.Vibrator	gap 1 batch 2, the vibrator
+android.os.VibratorManager	gap 1 batch 2, the vibrator
+android.os.VibrationEffect	gap 1 batch 2, the vibrator
+android.os.VibrationAttributes	gap 1 batch 2, the vibrator
+android.os.CombinedVibration	gap 1 batch 2, the vibrator
 android.database.AbstractWindowedCursor	gap 7, SQLite (Formate)
 android.database.CursorWindowAllocationException	gap 7, SQLite (Formate)
 android.database.DatabaseErrorHandler	gap 7, SQLite (Formate)

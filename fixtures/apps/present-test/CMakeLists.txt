@@ -1,4 +1,4 @@
-# present-test (ADR-0041 decision 11, test 3; step d), the Grafik chat's: one library that asks for its presents'
+# present-test (ADR-0041 decision 11, test 3; step d): one library that asks for its presents'
 # times with EGL_ANDROID_presentation_time and with VK_GOOGLE_display_timing, then ANativeActivity_finish. It goes
 # into two apps under their own names: fixtures/apps/present-gles's manifest starts it at
 # ANativeActivity_onCreateGLES, fixtures/apps/present-vulkan's at ANativeActivity_onCreateVulkan. Added by

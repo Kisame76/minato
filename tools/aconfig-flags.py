@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Feature flags of the framework's build (ADR-0039 decision 11, the lead's refinement), in place of AOSP's aconfig,
+"""Feature flags of the framework's build (ADR-0039 decision 11, the refinement), in place of AOSP's aconfig,
 which is Rust: reads aconfig's flag declarations (*.aconfig below --declarations) and a release's values
 (*_flag_values.textproto below --values, such as build/release's aconfig/ap3a) and writes
 

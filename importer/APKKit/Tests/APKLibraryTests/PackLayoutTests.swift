@@ -9,7 +9,7 @@ import Testing
 /// ADR-0050 decision 2: at every start of an app whose fast-follow and on-demand pack slices the library keeps, they lie
 /// as read-only clones in local_testing of its external files folder, /sdcard/Android/data/<package>/files/local_testing,
 /// where Google's Play libraries look once the meta-data local_testing_dir names it. The guest can write that folder, so
-/// the layout never follows a link the guest made (the lead's review): what lies outside stays as it is.
+/// the layout never follows a link the guest made (the review): what lies outside stays as it is.
 @Suite("Pack layout")
 struct PackLayoutTests {
     typealias Sandbox = LibraryTests.Sandbox

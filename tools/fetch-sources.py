@@ -15,7 +15,7 @@ SHA-256 over the sorted lines "<path> NUL <SHA-256 of the file>", which does not
 server packs the archive. A source whose digest matches is not fetched again.
 
 Usage: tools/fetch-sources.py [--set <list>] [--pin] [name...]
-  --set   the list to fetch: sources (the default) or art
+  --set   the list to fetch: sources (the default), art, framework, graphics or moltenvk-src
   --pin   write the digests of what was fetched into the list (only for a new or changed entry), into its text as
           it is written, so that its compact lines stay as they are
 """
@@ -151,14 +151,15 @@ def main():
     if "--set" in arguments:
         index = arguments.index("--set")
         if index + 1 == len(arguments):
-            raise SystemExit("--set needs the name of a list: sources or art")
+            raise SystemExit("--set needs the name of a list: sources, art, framework, graphics or moltenvk-src")
         chosen = arguments[index + 1]
         del arguments[index:index + 2]
     wanted = [argument for argument in arguments if argument != "--pin"]
     with open(MANIFEST) as handle:
         manifest = json.load(handle)
     if not isinstance(manifest.get(chosen), list):
-        raise SystemExit(f"{os.path.relpath(MANIFEST, ROOT)} has no list {chosen!r}: sources or art")
+        raise SystemExit(f"{os.path.relpath(MANIFEST, ROOT)} has no list {chosen!r}: sources, art, framework, "
+                         "graphics or moltenvk-src")
     host = manifest["host"]
     pinned = []
     os.makedirs(DESTINATION, exist_ok=True)

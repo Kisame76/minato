@@ -199,7 +199,7 @@ final class WriteBackTests {
         #expect(copies.isEmpty)
     }
 
-    /// Formate's rule in pick_host.h: a name that a record with the app's work holds goes to no new clone, even with
+    /// the rule in pick_host.h: a name that a record with the app's work holds goes to no new clone, even with
     /// the clone gone; an untouched record whose clone is gone lets the name go, and a new pick under it forgets the
     /// old record, the host told before the new one is made.
     @Test func onlyARecordWithTheAppsWorkHoldsItsName() throws {
@@ -283,7 +283,7 @@ final class WriteBackTests {
         #expect(known == nil && !gone.removable("known.txt") && gone.conflicts == ["known.txt"])
     }
 
-    /// The lead's rule on the review's point 7: a record goes only when its clone is missing at two looks in a row, or
+    /// The rule on the review's point 7: a record goes only when its clone is missing at two looks in a row, or
     /// at the session's end.
     @Test func aCleanCloneSeenMissingIsForgottenBeforeTheAppMakesAnotherFileOfThatName() throws {
         let (t, _) = try tracked()
@@ -513,7 +513,7 @@ final class WriteBackTests {
         #expect(t.conflicts.isEmpty && t.removable("known.txt") && original.writes == 1)
     }
 
-    /// The lead's review, point 1: a clone the app writes in bursts through an open descriptor is written back only
+    /// The review, point 1: a clone the app writes in bursts through an open descriptor is written back only
     /// after its last writer closed, never a snapshot in between, not even at the background's flush; the change goes
     /// on being looked at while it lasts.
     @Test func aCloneWrittenInBurstsIsWrittenOnlyAfterItsLastWriterClosed() throws {
@@ -565,7 +565,7 @@ final class WriteBackTests {
         #expect(t.conflicts.isEmpty && known == "hello\n" && original.count.withLock { $0 } == 1)
     }
 
-    /// The lead's second pass, point 2: a change with no close after it (a mapping, a truncate by path) is settled
+    /// The second pass, point 2: a change with no close after it (a mapping, a truncate by path) is settled
     /// once the runtime reports no open writer and the clone stood still across a tick; without a watch it waits for
     /// a close or the end, as before.
     @Test func aChangeWithNoCloseIsWrittenOnceNoWriterIsOpenAndItStoodStill() throws {
@@ -588,7 +588,7 @@ final class WriteBackTests {
         #expect(known == "HELLO\n")
     }
 
-    /// The lead's second pass, point 3: no copy while a writer is open, whatever the close and the background say.
+    /// The second pass, point 3: no copy while a writer is open, whatever the close and the background say.
     @Test func noCopyIsMadeWhileAWriterIsOpen() throws {
         let writers = Writers()
         writers.set("known.txt", 1)
@@ -607,7 +607,7 @@ final class WriteBackTests {
         #expect(known == "saved\n" && original.writes == 1)
     }
 
-    /// The lead's second pass, point 1: after Replace, what the app wrote and closed while the question was open is
+    /// The second pass, point 1: after Replace, what the app wrote and closed while the question was open is
     /// written back too, not left waiting for a close that came before (here without a watch's count, which would
     /// settle it by itself).
     @Test func whatTheAppWroteDuringTheQuestionIsWrittenAfterReplace() throws {
@@ -640,7 +640,7 @@ final class WriteBackTests {
         #expect(!WriteBack.inTrash(root.appending(path: ".Trashed/a.txt"), trash: nil))
     }
 
-    /// The lead's review, point 8: a scan's look and a write-back's look are counted apart; a clone a scan saw missing
+    /// The review, point 8: a scan's look and a write-back's look are counted apart; a clone a scan saw missing
     /// once and that the app closed then is not forgotten at the write-back's first look.
     @Test func aScansLookAndAWriteBacksLookAreCountedApart() throws {
         let (t, _) = try tracked()
@@ -653,7 +653,7 @@ final class WriteBackTests {
         #expect(!t.tracked("known.txt"))
     }
 
-    /// The lead's review, point 5: before the start the app's version is kept for a dirty clone over the limit and a
+    /// The review, point 5: before the start the app's version is kept for a dirty clone over the limit and a
     /// conflict without a copy too, by a clone of the file, nothing hashed.
     @Test func aCloneOverTheLimitAndAConflictWithoutACopyAreKeptBeforeTheStart() throws {
         let (t, _) = try tracked()
@@ -682,7 +682,7 @@ final class WriteBackTests {
         #expect(copies.count == 1 && third.appVersion("known.txt") != nil)
     }
 
-    /// The lead's review, point 3: the original is read by its own path, never its folder, which a security scope of
+    /// The review, point 3: the original is read by its own path, never its folder, which a security scope of
     /// one picked file does not cover.
     @Test func anOriginalWhoseFolderCannotBeReadIsReadAll() throws {
         let path = source.appending(path: "known.txt").path

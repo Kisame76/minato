@@ -145,7 +145,7 @@ bionic then answer from one IANA release (ADR-0033 decision 9).
 |---|---|---|---|
 | `unicode-org/icu-data` (GitHub) | commit `bae5ca647fa41703393dbf00240ec1b807a9c353` (2026-09-30, "ICU-23249 TZDB 2026e"), digest `494eb94e0976e8179b133ad9fb0d98fe3d23e951afc559759d2ebffd612172fe` in `third_party/sources.json` (`icu_tzdata`, list art) | Unicode License V3 (`LICENSE` at the root, fetched with the files: its notice must go with every build that ships the data); permissive, no copyleft | `tzdata/icunew/2026e/44/le/`: `zoneinfo64.res` (149,600 bytes), `metaZones.res` (43,536), `timezoneTypes.res` (21,264), `windowsZones.res` (22,064): ICU 75's resources, format 44, little-endian, in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/icu/` |
 
-The user's go for the fetch: 2026-10-08, "Ja, laden" (4 files, 234,048 bytes plus LICENSE, in Formate's chat).
+Fetched on 2026-10-08 (4 files, 234,048 bytes plus LICENSE).
 A newer tz release needs these four files of that release pinned too (embed-guest-system.sh and
 framework/tests/app_process_run.py name the pin to make when bionic's tzdata is of a release without them).
 
@@ -190,7 +190,7 @@ builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 
 **GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm`
 ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app. It must go
-with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision (`docs/STATUS.md`). ADR-0033 also
+with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision. ADR-0033 also
 names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource
 (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is
 BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s
@@ -223,7 +223,7 @@ Host tools in `build/`, not in the app. The Java that `aidl` writes comes from A
 
 ## Framework sources (ADR-0039 step b)
 
-Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 MB packed, your go). The host aapt2 and
+Fetched by `tools/fetch-sources.py --set framework` at android-15.0.0_r1 (42.7 MB packed). The host aapt2 and
 protoc, with the protobuf, libpng, expat, libutils, libcutils, libziparchive, incfs-utils and libbuildversion they link,
 are build tools in `build/` and do not ship; what the guest system ships is named here when its step builds it.
 
@@ -282,8 +282,8 @@ and `ETC1Util`. ADR-0043 c2's `framework/native/android_runtime/android_view_Sur
 `core/jni/android_view_Surface.cpp` function by function (Apache-2.0), on libnativewindow's window in place of libgui's
 Surface.
 
-The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag on your go in
-the App chat. `tools/managergen` reads them and writes our own classes under their names into `build/`; the files
+The API signature files of the managers' generator (ADR-0045 decision 3), fetched the same way at the tag.
+`tools/managergen` reads them and writes our own classes under their names into `build/`; the files
 themselves never ship.
 
 | Project | Commit | License | File | Size | SHA-256 |
@@ -294,8 +294,8 @@ themselves never ship.
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
 
-The module APIs' Java sources (the framework breadth, `docs/plans/2026-10-07-framework-breadth.md`), fetched by
-`tools/fetch-sources.py --set framework` at the tag with the user's go of 2026-10-08 (`build/sources/location_java`,
+The module APIs' Java sources (the framework breadth), fetched by
+`tools/fetch-sources.py --set framework` at the tag on 2026-10-08 (`build/sources/location_java`,
 `connectivity_java`, `wifi_java`). `tools/api-coverage.py` reads them to classify the module APIs' types, and a breadth
 batch takes the plain Java ones into `framework/sources.txt`. Their folders hold tests, build files and AIDL besides the
 Java; only the files a batch lists are built. `RttManager.java` in the Wi-Fi module has no license header; it lies in an
@@ -307,18 +307,18 @@ Apache-2.0 project.
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework`, `framework-t` | 220 | `09f780b06cb754fa…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework` | 320 | `23e1635aeae7342d…` |
 
-The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way on your go in the App
-chat. The guest reads the file unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. The
+The platform's split permissions (ADR-0045 decision 6, ADR-0039 b3.5b1), fetched the same way. The guest reads the file
+unchanged at `/system/etc/permissions/platform.xml`, as Android's SystemConfig does. The
 Mac's harness mounts it, and every app build ships it in its guest system since ADR-0039 c4.
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/etc/platform.xml` | 18,104 | `4f1139ad764d74f3…` |
 
-The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework` on
-your go in the Planung chat (`build/sources/frameworks_base_keyboards`, digest `bfebf0c1…b11a` since ADR-0068 step 7c2,
-which added Generic.kcm, the map of a hardware keyboard, on the same standing rule for AOSP sources; the Planung chat's
-report gave its size). framework/CMakeLists.txt builds both into libandroid_runtime as C arrays, which the input service
+The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework`
+(`build/sources/frameworks_base_keyboards`, digest `bfebf0c1…b11a` since ADR-0068 step 7c2,
+which added Generic.kcm, the map of a hardware keyboard, on the same standing rule for AOSP sources).
+framework/CMakeLists.txt builds both into libandroid_runtime as C arrays, which the input service
 parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; nothing ships them as files.
 
 | Project | Commit | License | File | Size | SHA-256 |
@@ -327,7 +327,7 @@ parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; n
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Virtual.kcm` | 15,716 | `6356265ec24b7eb2…` |
 
 The vibrator HAL's AIDL (gap 1 of the compatibility plan, batch 3), fetched by `tools/fetch-sources.py --set framework`
-on your go of 2026-10-29 in the lead's chat (`build/sources/hardware_interfaces_vibrator`, the entry
+ on 2026-10-29 (`build/sources/hardware_interfaces_vibrator`, the entry
 `hardware_interfaces_vibrator`, digest `398c80a3…c7ae`; 12 files, 31,015 bytes). tools/build-framework.sh compiles its
 ten types of `android.hardware.vibrator` with aidl into framework.jar, whose AOSP VibratorInfo and Vibrator read
 IVibrator's capabilities and Braking, as Android's framework.jar has them.
@@ -337,7 +337,7 @@ IVibrator's capabilities and Braking, as Android's framework.jar has them.
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 | `vibrator/aidl/android` and `vibrator/aidl/Android.bp` | the vibrator HAL's types for framework.jar |
 
 The media server's player AIDL (ADR-0060 e2e1), fetched by `tools/fetch-sources.py --set framework` under your standing
-rule of 2026-10-11 for AOSP sources, on the lead's go of 2026-10-29 in the Grafik chat
+rule of 2026-10-11 for AOSP sources, on 2026-10-29
 (`build/sources/frameworks_av_media_aidl`, the entry `frameworks_av_media_aidl`, digest `bfa32365…6283`; 10 files,
 26,040 bytes). tools/build-framework.sh compiles IPlayer and the VolumeShaper and Interpolator types of `android.media`
 with aidl into framework.jar, whose AOSP PlayerBase and MediaPlayer take them as Android's framework.jar has them;
@@ -348,7 +348,7 @@ nothing else of frameworks/av ships.
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 (`NOTICE`) | `media/libaudioclient/aidl/android/media/IPlayer.aidl`, eight types of `aidl/android/media` (`InterpolatorConfig`, `InterpolatorType`, `VolumeShaperConfiguration`, `VolumeShaperConfigurationOptionFlag`, `VolumeShaperConfigurationType`, `VolumeShaperOperation`, `VolumeShaperOperationFlag`, `VolumeShaperState`) and `NOTICE` | PlayerBase's IPlayer and its parcelables for framework.jar |
 
 SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set
-framework` on your go of 2026-10-07 in the chat Formate (`build/sources/sqlite`, the entry `sqlite`, digest
+framework` on 2026-10-07 (`build/sources/sqlite`, the entry `sqlite`, digest
 `6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite
 for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag
 RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships
@@ -371,7 +371,7 @@ The fetch also takes `LICENSE`, `dist/NOTICE`, `android/NOTICE` and the two `And
 built.
 
 The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.guessContentTypeFromName` (framework breadth
-batch B1), fetched by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-10;
+batch B1), fetched by `tools/fetch-sources.py --set framework` (2026-10-10;
 `build/sources/mime_map` and `build/sources/mime_support`, the entries `mime_map` and `mime_support`, digests
 `ea842014…d16d` and `a08dd24e…907b3d7c`). 86 KB; `DefaultMimeMapFactory` reads the three tables, which
 `tools/build-framework.sh` puts into framework.jar as `res/…` as Android's `mimemap-res.jar` does.
@@ -393,8 +393,7 @@ tables into framework.jar after the same minimizing step as Android's `debian.mi
 stripped, whitespace normalized, lines without an extension dropped).
 
 TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml` (framework breadth, step (a) after batch B4), fetched
-by `tools/fetch-sources.py --set framework` on your go in the chat Planung (2026-10-11: "lad herunter was auch immer du
-brauchst, aber wirklich nur wenn wir das brauchen, um alle apps laufen zu lassen"; `build/sources/tagsoup`, the entry
+by `tools/fetch-sources.py --set framework` (2026-10-11; `build/sources/tagsoup`, the entry
 `tagsoup`, digest `0b418969…e428`). 0.37 MB, 15 source files of `platform/external/tagsoup` at android-15.0.0_r1 (commit
 `5c387116e235`) and its `LICENSE`; the tests, the `jaxp` folder and the command line tools' extras are left out. The
 sources are compiled into framework.jar as AOSP does (`org.ccil.cowan.tagsoup`).
@@ -409,9 +408,9 @@ Cowan. TagSoup is licensed under the Apache License, Version 2.0", the project's
 `MODULE_LICENSE_APACHE2` is present, and `METADATA` says `license_type: NOTICE`. Android.bp also lists AFL-3.0 and
 "legacy unencumbered" for the project, both permissive; there is no GPL file or header in the files we take.
 
-stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), SoundPool's Ogg Vorbis decoder (the compatibility plan's gap 13, step 4
-of `docs/plans/2026-10-30-soundpool-and-audio-codecs.md`), fetched by `tools/fetch-sources.py --set framework` on the
-user's go, relayed by the lead on 2026-10-30, built into `libandroid_runtime.so` without stdio and the push-data API:
+stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), SoundPool's Ogg Vorbis decoder (the compatibility plan's gap 13, step
+4), fetched by `tools/fetch-sources.py --set framework`, on 2026-10-30, built into `libandroid_runtime.so` without stdio
+and the push-data API:
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
@@ -423,9 +422,9 @@ its end and `LICENSE` offer "ALTERNATIVE A - MIT License" and "ALTERNATIVE B - P
 
 ## Graphics sources (ADR-0043 a)
 
-Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed, your go; the headers of
-frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, your go of
-2026-10-02). Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`,
+Fetched by `tools/fetch-sources.py --set graphics` at android-15.0.0_r1 (22.6 MB packed; the headers of
+frameworks/native's `include/android` and `opengl/include` and libhardware's `hardware.h` 0.25 MB more, 2026-10-02).
+Since ADR-0039 c4, every app build ships the 13 libraries ADR-0043 a1 builds in its guest system's `lib64`,
 and libjnigraphics with them since ADR-0041 a5, with these texts under "Graphics sources" in its Licenses folder:
 libhwui, libminikin, libft2, libharfbuzz_ng and libharfbuzz_subset, libpng, libjpeg, libjpegdecoder, libjpegencoder and
 libultrahdr, libimage_io, libcutils and server_configurable_flags. frameworks/native, vulkan-headers, frameworks/av,
@@ -435,7 +434,7 @@ stand in their components' license lines.
 | Project | Commit | License | What we take |
 |---|---|---|---|
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `libs/hwui` (the host flavor, its graphics JNI and the device's ABitmap C API, `apex/android_bitmap.cpp`), `libs/hostgraphics`; `data/fonts` is under "Guest fonts" below |
-| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `native/graphics/jni`, libjnigraphics for NDK apps (ADR-0041 a5): 6 files (`Android.bp`, `aassetstreamadaptor.cpp` and `.h`, `bitmap.cpp`, `imagedecoder.cpp`, `libjnigraphics.map.txt`; `fuzz/` left out), 33,559 bytes, SHA-256 `31cc3f819a049394…`, fetched as `frameworks_base_jnigraphics` on your go of 2026-10-05 in the Grafik chat and built with patch 0010 |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `native/graphics/jni`, libjnigraphics for NDK apps (ADR-0041 a5): 6 files (`Android.bp`, `aassetstreamadaptor.cpp` and `.h`, `bitmap.cpp`, `imagedecoder.cpp`, `libjnigraphics.map.txt`; `fuzz/` left out), 33,559 bytes, SHA-256 `31cc3f819a049394…`, fetched as `frameworks_base_jnigraphics` on 2026-10-05 and built with patch 0010 |
 | `platform/external/skia` | `0fe593a9a878` | BSD-3-Clause (`LICENSE`) | the CPU backend: `include`, `src` without the GPU sources, `modules/skcms`, `client_utils/android` |
 | `platform/frameworks/minikin` | `b41e852cee7f` | Apache-2.0 | text layout, with its C++ hyphenator (the Rust one is left out) |
 | `platform/external/harfbuzz_ng` | `9a50c421c9ca` | Old MIT (`COPYING`); the GPL texts in `LICENSE` cover files that are not compiled | text shaping (`src`), and the subsetter Skia's PDF uses |
@@ -443,11 +442,11 @@ stand in their components' license lines.
 | `platform/external/libjpeg-turbo` | `1e113e5593fa` | IJG, BSD-3-Clause and zlib (`LICENSE.md`) | JPEG codec |
 | `platform/external/webp` | `c3a8e58734bd` | BSD-3-Clause (`COPYING`), with Google's patent grant (`PATENTS`) | WebP codec (`src`, `sharpyuv`) |
 | `platform/external/wuffs-mirror-release-c` | `479408ccc13b` | Apache-2.0 | GIF decoder |
-| `platform/external/giflib` | `b771f86bcb3d` | MIT (`NOTICE`) | GIF decoding for hwui's Movie (`jni/GIFMovie.cpp`), statically in libhwui: fetched as `giflib` on your go of 2026-10-11 in the Grafik chat, 0.03 MB, digest `4ee3a007…eba9` |
+| `platform/external/giflib` | `b771f86bcb3d` | MIT (`NOTICE`) | GIF decoding for hwui's Movie (`jni/GIFMovie.cpp`), statically in libhwui: fetched as `giflib` on 2026-10-11, 0.03 MB, digest `4ee3a007…eba9` |
 | `platform/external/libultrahdr` | `448f96ed8315` | Apache-2.0 | JPEG gain maps |
 | `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
 | `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |
-| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect`; `libs/permission`'s `AttributionSourceState.aidl` as the Java aidl writes from it (framework/java, ADR-0045 gap 13a; read at android-15.0.0_r1, not fetched); libinput's `libs/input/Input.cpp` and `VelocityTracker.cpp` with their headers and ftl's, 12 files (`build/sources/frameworks_native_input`, digest `914d91f6…136d`) for MotionEvent's and VelocityTracker's natives (ADR-0041 decision 5 as changed, ADR-0045 step 7b1); libinput's `libs/input/KeyCharacterMap.cpp` and `include/input/KeyCharacterMap.h` (`build/sources/frameworks_native_keys`, digest `5401db5a…1c18`) for KeyCharacterMap's natives, and `libs/input/Keyboard.cpp`'s meta-state functions as an excerpt with its notice (`framework/native/android_runtime/keyboard_meta_state.cpp`; read at android-15.0.0_r1, not fetched) (ADR-0045 step 7c1); libETC1's `opengl/libs/ETC1/etc1.cpp` (`build/sources/frameworks_native_etc1`, digest `e281b9c2…eef2`, your go of 2026-10-13) for ETC1's natives in libandroid_runtime (the graphics breadth's G1) |
+| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect`; `libs/permission`'s `AttributionSourceState.aidl` as the Java aidl writes from it (framework/java, ADR-0045 gap 13a; read at android-15.0.0_r1, not fetched); libinput's `libs/input/Input.cpp` and `VelocityTracker.cpp` with their headers and ftl's, 12 files (`build/sources/frameworks_native_input`, digest `914d91f6…136d`) for MotionEvent's and VelocityTracker's natives (ADR-0041 decision 5 as changed, ADR-0045 step 7b1); libinput's `libs/input/KeyCharacterMap.cpp` and `include/input/KeyCharacterMap.h` (`build/sources/frameworks_native_keys`, digest `5401db5a…1c18`) for KeyCharacterMap's natives, and `libs/input/Keyboard.cpp`'s meta-state functions as an excerpt with its notice (`framework/native/android_runtime/keyboard_meta_state.cpp`; read at android-15.0.0_r1, not fetched) (ADR-0045 step 7c1); libETC1's `opengl/libs/ETC1/etc1.cpp` (`build/sources/frameworks_native_etc1`, digest `e281b9c2…eef2`, fetched 2026-10-13) for ETC1's natives in libandroid_runtime (the graphics breadth's G1) |
 | `platform/external/vulkan-headers` | `d3602c8e1b0b` | Apache-2.0 or MIT (`LICENSE.md`) | the 12 C headers hwui includes |
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 | `media/ndk/include` |
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 (`NOTICE`) | the AIDL of graphics common and composer3, for their enum headers |
@@ -500,12 +499,12 @@ Apache-2.0 components take the repository's `LICENSE` as their text.
 ## Build tools for the formats (M5)
 
 Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the app; pinned in
-`third_party/sources.json`, fetched on your go of 2026-10-04 in the chat Formate.
+`third_party/sources.json`, fetched on 2026-10-04.
 
 | Tool | Version | License |
 |---|---|---|
 | bundletool (`bundletool-all-1.18.3.jar`) in `build/tools/bundletool/`, run with the JDK above and our aapt2 (`--aapt2 build/aapt2/aapt2`); the aapt2 binaries inside the jar are never run | `1.18.3` (`586a43a45071`), SHA-256 `a099cfa1543f` | Apache-2.0 |
-| Google's Play libraries for pad-test (ADR-0050 test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with core-common 2.0.3, play-services-basement 18.3.0 and play-services-tasks 18.1.0, as AARs in `~/.android/minato-play-libraries/` (`tools/fetch-play-libraries.py`), outside the repository and never in the app; only pad-test's APK, built on this Mac, carries their code, which nothing here reads | pinned in `third_party/sources.json` (`play-libraries`), each AAR by its SHA-256 | Play Core Software Development Kit Terms of Service with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common); Android Software Development Kit License (play-services-basement, play-services-tasks); both accepted by you on 2026-10-07 in the chat Formate |
+| Google's Play libraries for pad-test (ADR-0050 test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with core-common 2.0.3, play-services-basement 18.3.0 and play-services-tasks 18.1.0, as AARs in `~/.android/minato-play-libraries/` (`tools/fetch-play-libraries.py`), outside the repository and never in the app; only pad-test's APK, built on this Mac, carries their code, which nothing here reads | pinned in `third_party/sources.json` (`play-libraries`), each AAR by its SHA-256 | Play Core Software Development Kit Terms of Service with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common); Android Software Development Kit License (play-services-basement, play-services-tasks); both accepted on 2026-10-07 |
 
 ## References without adopted code
 

@@ -222,7 +222,7 @@ struct SetImportTests {
     }
 
     @Test func aSetThatAsksWaitsUntilItIsAnswered() async throws {
-        // The question covers the whole set (F7): an older version asks, "Replace" installs it.
+        // The question covers the whole set: an older version asks, "Replace" installs it.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

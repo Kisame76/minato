@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// CAMetalLayer, black until the guest's first frame. ADR-0028 hands the layer to the guest in step c). The layer is
 /// graphics/host's MinatoMetalLayer in every build, which records the parity benchmark's drawables (ADR-0037, decision
 /// 2). It takes no touches: graphics/host's hide rule hides its layer, and so the view, which hit-testing then skips
-/// (ADR-0043 c4 (d), Grafik's finding), so SessionLayersView takes them.
+/// (ADR-0043 c4 (d), the graphics host's finding), so SessionLayersView takes them.
 final class MetalLayerHostView: UIView {
     override class var layerClass: AnyClass { MinatoMetalLayer.self }
 

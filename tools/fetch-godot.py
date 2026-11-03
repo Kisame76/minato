@@ -235,7 +235,7 @@ def platform_tools():
         raise SystemExit(f"fetch-godot: ANDROID_HOME names {home}, this script's own SDK folder: name the installed SDK")
     tools = os.path.join(home, "platform-tools")
     if not os.access(os.path.join(tools, "adb"), os.X_OK):
-        raise SystemExit(f"fetch-godot: no adb in {tools}: install platform-tools there first (docs/STATUS.md)")
+        raise SystemExit(f"fetch-godot: no adb in {tools}: install platform-tools there first")
     return tools
 
 
@@ -307,7 +307,7 @@ def self_test():
     """The script's guards, without the network: where it writes, the sizes and digests it takes, the archive
     members it refuses, what it unpacks and where, the platform-tools it links, and the pins' form."""
     os.makedirs(BUILD, exist_ok=True)
-    directory = tempfile.mkdtemp(prefix="self-test-", dir=BUILD)  # one per run: the chats' CTest runs may overlap
+    directory = tempfile.mkdtemp(prefix="self-test-", dir=BUILD)  # one per run: other CTest runs may overlap
     file_mode, tool_mode, link_mode = stat.S_IFREG | 0o644, stat.S_IFREG | 0o755, stat.S_IFLNK | 0o777
     try:
         expect(refused(lambda: require_inside(os.path.join(ROOT, "runtime", "sample"))) and

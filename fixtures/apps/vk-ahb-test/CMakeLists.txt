@@ -1,4 +1,4 @@
-# vk-ahb-test (ADR-0058 e1), decision 7), the Grafik chat's: graphics/tests/vk_ahb_test.c as a NativeActivity app,
+# vk-ahb-test (ADR-0058 e1), decision 7): graphics/tests/vk_ahb_test.c as a NativeActivity app,
 # whose lines go to the log; the NDK's glslc compiles its compute shader into a C initializer that it includes. Added
 # by fixtures/CMakeLists.txt, which defines native_app_glue; the glue's ANativeActivity_onCreate is only referenced by
 # Java, so -u keeps it. API 29's AHardwareBuffer functions are all it calls.

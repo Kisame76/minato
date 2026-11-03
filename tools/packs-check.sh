@@ -12,7 +12,7 @@
 # on the M4 plan's display with its default set's base and its two packs' slices in local_testing, and its log must be
 # Android 15's with the slices bundletool's install-apks put there (fixtures/expected/pad-test.logcat, from
 # tools/android-reference.sh --app pad-test). Without the libraries, which tools/fetch-play-libraries.py fetches only
-# on the user's go, it is skipped.
+# on request, it is skipped.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-aapt2.sh and
 # tools/build-framework-res.sh first.
 # Usage: tools/packs-check.sh
@@ -79,7 +79,7 @@ if libraries=$(/usr/bin/python3 tools/fetch-play-libraries.py 2>&1); then
     build/framework/framework.jar build/framework-res/framework-res build/pad-test/base-master.apk \
     fixtures/expected/pad-test.logcat 1290x2796@3,en-US || status=1
 else
-  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on the user's go):"
+  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on request):"
   echo "$libraries" | sed 's/^/  /'
 fi
 exit "$status"

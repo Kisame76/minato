@@ -1,4 +1,4 @@
-// The written part of InputMethodManager (ADR-0043 step d), decision 2 as changed by the lead's OK of 2026-10-04),
+// The written part of InputMethodManager (ADR-0043 step d), decision 2 as changed by the decision of 2026-10-04),
 // which tools/managergen joins with the API's methods: Android 15's client side on a device without an input method,
 // until the keyboard step (ADR-0041 a)) connects the iPhone's keyboard. As AOSP's client (InputMethodManager.java at
 // android-15.0.0_r1), it serves the focused view of the focused window: it makes the view's input connection when the

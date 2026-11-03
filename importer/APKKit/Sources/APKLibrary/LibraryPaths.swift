@@ -87,8 +87,8 @@ public struct LibraryPaths: Sendable {
     ///
     /// The OBB folder is the root of the guest's OBB mounts, and the Download folder of its Download mount, so no
     /// guest can put anything in their place. Should a link stand there all the same, it goes as a link, never
-    /// followed, and anything else that is no folder stops the import or the start and stays as it is (the lead's
-    /// reviewers). They are read with lstat, never through a URL, which keeps the resource values it read once.
+    /// followed, and anything else that is no folder stops the import or the start and stays as it is (the
+    /// review). They are read with lstat, never through a URL, which keeps the resource values it read once.
     public func prepareData(for package: String) throws {
         let data = dataDirectory(for: package)
         var obb = data.appendingPathComponent("obb", isDirectory: true)
@@ -128,7 +128,7 @@ public struct LibraryPaths: Sendable {
             .appendingPathComponent(package, isDirectory: true)
     }
 
-    /// A Java app's guest /data (ADR-0039 c5): Caches/guest/<package>/data, with ART's dalvik-cache (the lead's
+    /// A Java app's guest /data (ADR-0039 c5): Caches/guest/<package>/data, with ART's dalvik-cache (the
     /// decision). Nothing the app keeps lies there: its data is dataDirectory(for:), which longer mounts put over it.
     public func guestDataDirectory(for package: String) -> URL {
         caches.appendingPathComponent("guest", isDirectory: true).appendingPathComponent(package, isDirectory: true)
@@ -193,7 +193,7 @@ public struct LibraryPaths: Sendable {
     /// folder, /sdcard/Android/data/<package>/files/local_testing, where Google's Play libraries look for them once the
     /// meta-data local_testing_dir names it (ADR-0050 decision 2): APFS clones, read-only as their originals in packs/
     /// are, made again at every start in the folder emptied first, which stays out of backups as packs/ does (ADR-0049
-    /// decision 9). The guest can write there, so nothing here follows a link (the lead's review): external and files,
+    /// decision 9). The guest can write there, so nothing here follows a link (the review): external and files,
     /// the app's own folders, are opened as themselves, and a link or file in place of one stops the start; one in
     /// place of local_testing, Minato's folder, goes as itself; what local_testing holds goes by unlinkat, a link as a
     /// link; the clones come by clonefileat, each made read-only whatever its original's mode. The app's data folders are

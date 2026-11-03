@@ -1,6 +1,6 @@
 // The hand file of our StorageManager (ADR-0045 decisions 3 and 4; the storage and app ops step, Godot's stop 4):
 // tools/managergen writes the class from the public API, whose methods log once and return their default, as for
-// AppOpsManager (a mechanism under decision 3 by the lead's OK, 2026-10-04: AOSP's class initializer takes vold's and
+// AppOpsManager (a mechanism under decision 3 by 2026-10-04: AOSP's class initializer takes vold's and
 // installd's AIDL constants, which the fetch lacks). The members here answer for decision 4's one emulated volume, the
 // user's /storage/emulated/<user>, always mounted, as Environment's patch has it (step c1). It is built as Android's
 // VolumeInfo.buildStorageVolume builds the primary emulated volume. The hidden members are AOSP's that taken files

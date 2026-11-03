@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the feasibility spikes S1–S3 and S1b (docs/STATUS.md) on the connected iPhone and prints the report.
+# Runs the feasibility spikes S1–S3 and S1b on the connected iPhone and prints the report.
 # Usage: tools/spikes.sh [--without-increased-memory] [device name or identifier]
 #   --without-increased-memory  signs the app without its entitlements file, so without
 #                               com.apple.developer.kernel.increased-memory-limit (S2 baseline)

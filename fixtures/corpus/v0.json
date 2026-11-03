@@ -1,5 +1,5 @@
 {
-  "about": "Corpus v0: Minato's own test apps, which tools/corpus-run.py runs before any downloaded app (docs/plans/2026-10-07-corpus-harness.md). Each is built by its check or by tools/build-fixtures.sh.",
+  "about": "Corpus v0: Minato's own test apps, which tools/corpus-run.py runs before any downloaded app. Each is built by its check or by tools/build-fixtures.sh.",
   "apks": [
     {"apk": "build/java-test/java-test.apk", "license": "Apache-2.0", "source": "fixtures/java/java-test"},
     {"apk": "build/surface-test/surface-test.apk", "license": "Apache-2.0", "source": "fixtures/java/surface-test"},

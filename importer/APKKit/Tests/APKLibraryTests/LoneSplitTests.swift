@@ -218,7 +218,7 @@ struct LoneSplitTests {
         #expect(await library.entries.first?.splits.map(\.splitName) == ["config.arm64_v8a", "config.de"])
     }
 
-    // MARK: - The lead's reviewer
+    // MARK: - Review
 
     @Test func theFirstSplitNeedsTheSchemeTheBasesTargetSdkAsks() async throws {
         // Android's session takes its signer from its first APK, here a split, and holds it to the scheme of the

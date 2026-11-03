@@ -1,4 +1,4 @@
-/* libEGL's window surfaces on a queue window (ADR-0058 c), decision 5 as the lead changed it on 2026-10-12): the
+/* libEGL's window surfaces on a queue window (ADR-0058 c), decision 5 as it was changed on 2026-10-12): the
    producer side of a SurfaceTexture's buffer queue (APKRuntime/buffer_queue.h), such as Surface(SurfaceTexture) or
    EGL14.eglCreateWindowSurface on a SurfaceTexture.
    - The surface is an ordinary ANGLE pbuffer of the window's size when it is made (its buffer geometry, else the

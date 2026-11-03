@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6 e0 (docs/plans/2026-10-31-m6-e-boot-image.md): where the start of a Java test app on the Mac goes. looper-test
+# M6 e0: where the start of a Java test app on the Mac goes. looper-test
 # (the smallest app that boots the whole framework: ActivityThread, Looper) is started through
 # framework/tests/java_app_run.py in four configurations of app_process's measurement switches, alternating, <runs>
 # each. Not the run's wall time, which is mostly the harness (conversion of the guest libraries, waits after the

@@ -1209,7 +1209,7 @@ struct WholeData : Scratch {
     }
 };
 
-// The lead's reviewer: inside one mount, a link planted where the app may write and pointing into the code folder
+// Review: inside one mount, a link planted where the app may write and pointing into the code folder
 // must not let the app change the code. /data's own folders are system's, as on Android 15, so nothing is planted
 // there, and the owner checks look at the folder or file the host call will touch, not at the path as written.
 TEST(a_link_inside_one_mount_does_not_open_the_code) {
@@ -2564,7 +2564,7 @@ TEST(proc_self_smaps_counts_the_pages_another_task_shares) {
 }
 
 TEST(androids_links_show_as_links_and_name_their_targets) {
-    // getCanonicalPath of an app's files folder is /data/data/<package>/files on Android 15 (Formate's pad-test
+    // getCanonicalPath of an app's files folder is /data/data/<package>/files on Android 15 (the pad-test
     // probe): bionic's realpath reads /proc/self/fd of an O_PATH descriptor, which names the file after the link.
     const Scratch scratch;
     CHECK(::mkdir((scratch.host + "/app").c_str(), 0700) == 0);
@@ -3118,7 +3118,7 @@ TEST(the_guests_dnsproxyd_is_the_runtimes_resolver) {
 }
 
 
-// --- A link swapped in after place_of's check (ADR-0054 a3, the lead's review of b) ---------------------------------
+// --- A link swapped in after place_of's check (ADR-0054 a3, the review of b) ---------------------------------
 // The host's connect and sendto follow a final link, which a guest thread could put in a socket's place after
 // place_of looked at it, and whose text, a guest path, the host would take as a host path. The host's call goes through
 // a pin of the socket's node instead; a link found in its place is followed by its guest text, as Linux does.
@@ -4692,7 +4692,7 @@ TEST(ifreq_ioctls_on_an_af_unix_socket_are_refused) {
     call(nr_close, {unsigned_of(fd)});
 }
 
-// The lead's review of c1 (a reviewer subagent's findings, 2026-10-08).
+// The review of c1 (a reviewer subagent's findings, 2026-10-08).
 
 constexpr std::int64_t emsgsize = 90;
 

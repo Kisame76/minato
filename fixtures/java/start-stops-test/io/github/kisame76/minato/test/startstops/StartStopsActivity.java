@@ -12,7 +12,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
 /**
- * ADR-0042 b's test of Godot's first three start stops past 7a (docs/plans/adr-0042-b-start-stops.md), as Godot's start
+ * ADR-0042 b's test of Godot's first three start stops past 7a, as Godot's start
  * meets them:
  * <ul>
  *   <li>two Rationals for picture-in-picture bounds, made as GodotActivity's fields are;

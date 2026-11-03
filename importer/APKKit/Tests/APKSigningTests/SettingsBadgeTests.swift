@@ -3,7 +3,7 @@ import Testing
 
 @testable import APKSigning
 
-/// The Settings tab's badge (docs/plans/2026-09-24-app-navigation-design.md, section 4): only when a step by the
+/// The Settings tab's badge: only when a step by the
 /// user is needed; otherwise signing stays invisible (ADR-0023).
 struct SettingsBadgeTests {
     static let certificate = CertificateInfo(sha256: "aa", serialNumber: "0A", team: "ABCDE12345", commonName: "C",

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Checks Google's Play libraries for ADR-0050's pad-test (test 3) against their pins, the entry "play-libraries" of
 third_party/sources.json, and fetches them on request: asset-delivery 2.2.2 and feature-delivery 2.1.0 with the
-libraries their POMs name, without AndroidX, as AARs from Google's Maven. They only build pad-test on this Mac, on the
-user's go of 2026-10-07 and with the terms the user accepted (ADR-0050 c)); never committed and never in the app
-(Non-Goals). They stay a black box: javac, D8 and aapt2 take them, and nothing reads their classes.
+libraries their POMs name, without AndroidX, as AARs from Google's Maven. They only build pad-test on this Mac, after
+the libraries' terms are accepted (ADR-0050 c)); never committed and never in the app (Non-Goals). They stay a black
+box: javac, D8 and aapt2 take them, and nothing reads their classes.
 
 Usage: tools/fetch-play-libraries.py [--folder <folder>]          check the AARs and print their folder
        tools/fetch-play-libraries.py [--folder <folder>] --fetch  fetch the missing ones (network), then check them

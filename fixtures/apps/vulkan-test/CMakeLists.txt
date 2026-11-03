@@ -1,4 +1,4 @@
-# vulkan-test (ADR-0030, test 7; step V5), the Grafik chat's: twelve fixed Vulkan scenes read back and logged,
+# vulkan-test (ADR-0030, test 7; step V5): twelve fixed Vulkan scenes read back and logged,
 # then 120 frames, the copy's measurements and ANativeActivity_finish. Added by fixtures/CMakeLists.txt, which
 # defines native_app_glue; the glue's ANativeActivity_onCreate is only referenced by Java, so -u keeps it. The
 # NDK's glslc compiles the shaders into C initializers that main.c includes.

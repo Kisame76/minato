@@ -133,7 +133,7 @@ DEVICE_DIR=/data/local/tmp
 
 for tool in "$ADB" "$EMULATOR" "$SDK/$IMAGE/system.img"; do
   if [[ ! -e "$tool" ]]; then
-    echo "Missing $tool: install platform-tools, the emulator and $IMAGE into $SDK (docs/STATUS.md)." >&2
+    echo "Missing $tool: install platform-tools, the emulator and $IMAGE into $SDK." >&2
     exit 1
   fi
 done

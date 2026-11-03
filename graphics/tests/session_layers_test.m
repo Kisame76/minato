@@ -1,4 +1,4 @@
-/* graphics.session_layers (ADR-0041 gap 4 (c), docs/plans/adr-0041-second-windows.md): graphics-run's session layers
+/* graphics.session_layers (ADR-0041 gap 4 (c)): graphics-run's session layers
    (session_layers.m) through apk_run_layers.h's hooks, as apk-run's --lifecycle calls them, without a guest. The
    cases are WindowOrderTests' (APKSession), so that the Mac's tree and the App's order cannot drift: the session's
    layers bottom to top as Core Animation draws them, c4's surfaces and the requested windows in Android 15's order,

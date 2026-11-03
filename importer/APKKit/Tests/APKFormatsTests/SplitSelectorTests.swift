@@ -29,7 +29,7 @@ struct SplitSelectorTests {
         // Rounded as the guest is told (configuration.cpp:214): 2.88 × 160 = 460.8.
         #expect(DeviceProfile.iPhone(nativeScale: 2.88, languages: []).densityDpi == 461)
         #expect(Self.iPhone.languages == ["de-DE", "en-US"])
-        // ETC2 decoders read ETC1 too (the lead's decision).
+        // ETC2 decoders read ETC1 too (the decision).
         #expect(Self.iPhone.textureFormats == ["astc", "etc2", "etc1_rgb8"])
         // extract-apks without a device tier, country set or device group in the spec or its table of contents
         // (ExtractApksCommand.java:374-413).
@@ -129,7 +129,7 @@ struct SplitSelectorTests {
 
     @Test func aSetFromAPhoneKeepsTheOneSplitItHasWhereNoneFitsAndNoFallbackServes() throws {
         // extract-apks refuses a tier the splits lack (DeviceTierApkMatcher.java:93-107) and skips country sets and
-        // groups; a set pulled from a phone has only that phone's (the lead's decision, ADR-0048 decision 4).
+        // groups; a set pulled from a phone has only that phone's (the decision, ADR-0048 decision 4).
         let fromAPhone = try Self.choice(["config.arm64_v8a", "config.xxhdpi", "pack.config.tier_2"])
         #expect(fromAPhone.incompatibility == nil)
         #expect(fromAPhone.chosen.map(\.splitName) == ["config.arm64_v8a", "config.xxhdpi", "pack.config.tier_2"])
@@ -139,7 +139,7 @@ struct SplitSelectorTests {
 
     @Test func severalSplitsNoneFittingAndNoFallback() throws {
         // A tier takes the lowest the set has; a country set or group needs a fallback in bundletool, so a set
-        // without one is malformed (the lead's decision).
+        // without one is malformed (the decision).
         let tiers = try Self.choice(["pack.config.tier_1", "pack.config.tier_3", "pack.config.tier_2"])
         #expect(tiers.chosen.map(\.splitName) == ["pack.config.tier_1"])
         #expect(tiers.skipped.map(\.reason) == ["For the device tier 2; this iPhone takes the lowest, tier 1",

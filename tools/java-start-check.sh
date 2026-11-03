@@ -160,7 +160,7 @@ APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
   APPS+=("pad-test io.github.kisame76.minato.test.pad")
 else
-  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on the user's go)"
+  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on request)"
 fi
 [[ -z "$JAVA_TEST" ]] || APPS+=("java-test io.github.kisame76.minato.test.javatest")
 GODOT_TEST=${GODOT_TEST-yes}

@@ -370,7 +370,7 @@ file(COPY "${SOURCES}/frameworks_native_headers/opengl/include/ETC1" DESTINATION
 target_include_directories(android_runtime PRIVATE "${CMAKE_BINARY_DIR}/etc1-include")
 set_target_properties(android_runtime PROPERTIES CXX_STANDARD 20)
 # stb_vorbis (Sean Barrett, MIT or public domain; third_party/sources.json): SoundPool's Ogg Vorbis decoder, whole files
-# from memory only (the plan of docs/plans/2026-10-30-soundpool-and-audio-codecs.md, step 4). Third-party C, so no
+# from memory only. Third-party C, so no
 # warnings.
 set_source_files_properties("${SOURCES}/stb_vorbis/stb_vorbis.c" PROPERTIES COMPILE_OPTIONS "-w"
   COMPILE_DEFINITIONS "STB_VORBIS_NO_STDIO;STB_VORBIS_NO_PUSHDATA_API")

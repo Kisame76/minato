@@ -29,7 +29,7 @@ public struct AndroidManifest: Sendable, Equatable {
     /// `<manifest android:isSplitRequired>`, which Android 15 reads.
     public var splitRequired: Bool
     /// What bundletool wrote and Android 15 ignores: `<application android:isSplitRequired>` or the meta-data
-    /// `com.android.vending.splits.required` (F1). Minato reads them as "Needs split APKs" too.
+    /// `com.android.vending.splits.required`. Minato reads them as "Needs split APKs" too.
     public var stricterSplitSignal: Bool
     /// The base APK cannot run without its splits: it says so in one of the three ways, or names split types.
     public var requiresSplits: Bool

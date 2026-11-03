@@ -1,8 +1,7 @@
-/* The front libs' presents on MinatoMetalLayer's drawables (ADR-0041 decision 11 c), plan
-   docs/plans/adr-0041-11c-frame-drop.md), for angle.m, vulkan.m and window.m: each present leaves a record on its
-   window's layer before ANGLE or MoltenVK gets it, in the order of the API's calls, and each drawable of the layer
-   takes the oldest record when Metal presents it (layer.m), where graphics/host decides whether Core Animation gets
-   it. Plain C. */
+/* The front libs' presents on MinatoMetalLayer's drawables (ADR-0041 decision 11 c), for angle.m, vulkan.m and
+   window.m: each present leaves a record on its window's layer before ANGLE or MoltenVK gets it, in the order of the
+   API's calls, and each drawable of the layer takes the oldest record when Metal presents it (layer.m), where
+   graphics/host decides whether Core Animation gets it. Plain C. */
 #ifndef MINATO_PRESENT_PACE_H
 #define MINATO_PRESENT_PACE_H
 

@@ -94,7 +94,7 @@ struct PickQueueTests {
     }
 
     /// A presenter's turn goes only once its dismissed sheet is gone: the next owner presented over a sheet on its way
-    /// out would go with it, never answered, and keep the turn (the lead's reviewer); the steps that come meanwhile
+    /// out would go with it, never answered, and keep the turn (the review); the steps that come meanwhile
     /// wait as well, and a check after the callback changes nothing.
     @MainActor @Test func theTurnGoesOnceTheDismissedSheetIsGone() {
         final class Owner {}
@@ -207,7 +207,7 @@ struct PickQueueTests {
     }
 
     /// One presenter's clone work runs one job after the other, each to its end: a cancelled request's never beside
-    /// the next one's (the lead's reviewer).
+    /// the next one's (the review).
     @Test func serialWorkRunsOneJobAfterTheOther() async {
         let work = SerialWork()
         let log = Mutex<[String]>([])

@@ -14,7 +14,7 @@
 # which the AARs' manifests are merged by hand, with the AARs' resources and writes their R classes; D8 dexes the app
 # with the libraries. The libraries stay a black box: only javac, D8 and aapt2 read them (ADR-0050 c)), and they
 # never go into the repository or the app.
-# Needs tools/fetch-play-libraries.py --fetch (on the user's go, with the terms the user accepted), bundletool
+# Needs tools/fetch-play-libraries.py --fetch (on request, after accepting the libraries' terms), bundletool
 # (tools/fetch-bundletool.py), the JDK and D8 of tools/fetch-sources.py --set art, tools/build-art.sh's boot classes,
 # tools/build-framework.sh's output, tools/build-aapt2.sh and tools/build-framework-res.sh.
 # Usage: tools/build-pad-test.sh [--key <folder>]

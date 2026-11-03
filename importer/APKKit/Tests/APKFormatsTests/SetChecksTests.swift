@@ -56,7 +56,7 @@ struct SetChecksTests {
     }
 
     @Test func splitNamesThatDifferOnlyInCase() throws {
-        // Android's ext4 tells them apart, APFS does not (the lead's decision).
+        // Android's ext4 tells them apart, APFS does not (the decision).
         #expect(try Self.refusal([Self.base(), Self.split("config.de"), Self.split("config.De")])
             == "Splits config.De and config.de differ only in case")
         #expect(try Self.refusal([Self.base(), Self.split("config.De"), Self.split("config.DE")])
@@ -140,14 +140,14 @@ struct SetChecksTests {
     }
 
     @Test func anUnverifiableApkNamingTheBasesCertificateTwiceIsRefused() throws {
-        // The lead's probe: named twice is not the base's one signer (Signature.java:331-334).
+        // A probe: named twice is not the base's one signer (Signature.java:331-334).
         #expect(try Self.refusal([Self.base(), Self.member(Self.namingTheBase("config.de", count: 2), "split_config.de.apk")])
             == "split_config.de.apk signatures are inconsistent")
     }
 
     @Test func verifiedAndUnverifiableApksTogetherAsk() throws {
-        // The lead's probe: a DSA signer that names the base's certificate proves nothing about the content, so a set
-        // that mixes verified and unverifiable APKs asks even on a fresh install, naming them (the lead's decision).
+        // A probe: a DSA signer that names the base's certificate proves nothing about the content, so a set
+        // that mixes verified and unverifiable APKs asks even on a fresh install, naming them (the decision).
         var data = Self.namingTheBase("feature", files: ["classes.dex": Data(repeating: 7, count: 64)])
         let archive = try ZipArchive(data: data)
         data[Int(try archive.dataOffset(of: try #require(archive.entry(named: "classes.dex"))))] ^= 0xFF
@@ -162,7 +162,7 @@ struct SetChecksTests {
     }
 
     @Test func aTamperedSplitOfAnotherKeyMinatoCannotVerify() throws {
-        // The lead's probe: DSA leaves the content unchecked, so only its certificate tells.
+        // A probe: DSA leaves the content unchecked, so only its certificate tells.
         var data = SplitAPK.make(split: "feature", isFeatureSplit: true, files: ["classes.dex": Data(repeating: 7, count: 64)],
                                  signers: [.dsa])
         let archive = try ZipArchive(data: data)
@@ -258,7 +258,7 @@ struct SetChecksTests {
     }
 
     @Test func bundletoolsOlderSignalsNeedOneSplitWithoutRefusingAnything() throws {
-        // Minato is stricter than Android 15 here (F1): "Needs split APKs", never a refusal.
+        // Minato is stricter than Android 15 here: "Needs split APKs", never a refusal.
         let alone = try Self.checked([Self.base(applicationSplitRequired: true)])
         #expect(!alone.missingSplit && alone.needsSplits)
         #expect(!(try Self.checked([Self.base(applicationSplitRequired: true), Self.split("config.de")]).needsSplits))
@@ -297,7 +297,7 @@ struct SetChecksTests {
     }
 
     @Test func everySplitMustMatchTheInstalledBase() throws {
-        // Not only the first (the lead's reviewer): joining promises it for each of them.
+        // Not only the first (the review): joining promises it for each of them.
         let de = try Self.split("config.de")
         #expect(try SetChecks.joining([de, Self.split("config.en", signers: [.rsa])], installed: [Self.base()]) == nil)
         #expect(try SetChecks.joining([de, Self.split("config.en", versionCode: 2)], installed: [Self.base()]) == nil)

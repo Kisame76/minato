@@ -9,7 +9,7 @@ import Testing
 
 /// A single OBB the user picks (ADR-0049 decision 5): it goes to the app its name gives, whatever the version in it, or
 /// waits until the user names the app, and is then named for that app; it replaces the installed OBB of its kind, newer
-/// or older and under its own name too, as the pick is the user's own act (the lead).
+/// or older and under its own name too, as the pick is the user's own act.
 @Suite("OBB import")
 struct OBBImportTests {
     typealias Sandbox = LibraryTests.Sandbox
@@ -66,7 +66,7 @@ struct OBBImportTests {
     }
 
     @Test func aPickedOBBReplacesItsKindNewerOrOlder() async throws {
-        // Decision 5, the lead: the pick is the user's own act, so main 7 goes over main 9; the patch stays.
+        // Decision 5: the pick is the user's own act, so main 7 goes over main 9; the patch stays.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -219,7 +219,7 @@ struct OBBImportTests {
 
     @Test func anOBBWithoutItsAppWaitsForTheUsersAnswer() async throws {
         // No app of its name's package, or no OBB name at all: the unit waits, and the question lists the apps that are
-        // ready or need splits (the lead), never an incompatible one or a file's entry.
+        // ready or need splits, never an incompatible one or a file's entry.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -294,7 +294,7 @@ struct OBBImportTests {
     @Test func dontImportLetsTheOneOBBGoAndTheNextOneAsks() async throws {
         // App's review: the question names one file, so "Don’t Import" lets that one go, from inside its unit; the
         // other waits for its own question, and the unit goes with its last file. The original stays where the user has
-        // it (ADR-0018, the lead).
+        // it (ADR-0018).
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

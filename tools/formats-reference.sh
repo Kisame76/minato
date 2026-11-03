@@ -27,12 +27,12 @@ PKG=io.github.kisame76.minato.check.reference
 serial=""
 if [[ -n "$android" ]]; then
   if [[ ! -x "$ADB" ]] || ! "$ADB" start-server >/dev/null 2>&1; then
-    echo "No working adb at $ADB: install platform-tools into $SDK (docs/STATUS.md)." >&2
+    echo "No working adb at $ADB: install platform-tools into $SDK." >&2
     exit 1
   fi
   serial=$("$ADB" devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1; exit }')
   if [[ -z "$serial" ]]; then
-    echo "No running emulator. The emulator is shared: ask the lead, then start it, for example with" >&2
+    echo "No running emulator. The emulator is shared: ask whoever uses it, then start it, for example with" >&2
     echo "  $SDK/emulator/emulator -avd apk-runner-35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect &" >&2
     exit 1
   fi
@@ -248,7 +248,7 @@ reference verity-split Success "ask: cannot verify split_config.de.apk" \
   "Minato does not check verity digests, b8b"
 reference unsigned INSTALL_PARSE_FAILED_NO_CERTIFICATES "ask: unsigned" "Minato asks about unsigned APKs, ADR-0034"
 reference case-names Success "refuse: Splits config.DE and config.de differ only in case" \
-  "APFS does not tell the two file names apart, the lead's decision"
+  "APFS does not tell the two file names apart, the decision"
 reference join-new Success accept
 reference join-replace Success accept
 JOIN_REFUSED="refuse: the splits cannot join the installed version: no base, or another package, version code or signer"

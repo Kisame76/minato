@@ -8,7 +8,7 @@
  * not when an empty clipboard is cleared again. A text clip of up to 400 characters is "classified" in the background,
  * as the service does with the text classifier, which ends with a second call of the listeners and the description's
  * status COMPLETE; a clip of any other kind has the status NOT_PERFORMED.
- * Departure (the lead's order): the clipboard is not shared with iOS. Minato has no UIPasteboard behind it, so an
+ * Departure (the decision): the clipboard is not shared with iOS. Minato has no UIPasteboard behind it, so an
  * app sees only what it copied itself, no iOS paste banner appears and nothing of the host reaches the guest. Not
  * kept: the clipboard's automatic clearing after an hour, the access check for an app without the focus (the app is
  * always the one in front), the access notifications, the text classifier and the copy into related profiles.

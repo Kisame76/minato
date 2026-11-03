@@ -21,7 +21,7 @@ else()
   set(APK_HOST_BUILD OFF)
 endif()
 
-# Settings for the project's own targets. Vendored code (ARTBox, AOSP) will not get them.
+# Settings for the project's own targets. Vendored code (AOSP) will not get them.
 add_library(apk_defaults INTERFACE)
 target_compile_options(apk_defaults INTERFACE
   -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Werror)

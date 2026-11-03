@@ -222,7 +222,7 @@ struct XAPKTests {
         let contents = try container.xapkContents()
 
         #expect(contents.obbs.map(\.item.fileName) == [other])
-        // Its name read once, so the import never reads a package from a path (the lead's reviewer).
+        // Its name read once, so the import never reads a package from a path (the review).
         #expect(contents.obbs.map(\.name) == [OBBName(kind: .main, version: "3", package: "com.other.app")])
         #expect(contents.ignored.isEmpty)
     }
@@ -298,7 +298,7 @@ struct XAPKTests {
     }
 
     @Test func eachPackageKeepsOneMainAndOnePatch() throws {
-        // Decision 5's model (the lead's reviewer): the first main and the first patch of a package, the expansions'
+        // Decision 5's model (the review): the first main and the first patch of a package, the expansions'
         // first; any other, of the same name or another version, is named by its file in the container.
         let main8 = "main.8.\(Self.package).obb", patch9 = "patch.9.\(Self.package).obb"
         let manifest = Self.manifest(["expansions": [Self.expansion("a.obb", installPath: Self.obbPath(Self.main)),
@@ -320,7 +320,7 @@ struct XAPKTests {
     }
 
     @Test func oneEntryGivesOneOBBAtMost() throws {
-        // The lead's reviewer: expansions naming one entry many times would take it out as many files, past decision
+        // Review: expansions naming one entry many times would take it out as many files, past decision
         // 7's cap; the first is judged, the others are named.
         let manifest = Self.manifest(["expansions": [Self.expansion("x.obb", installPath: Self.obbPath(Self.main)),
                                                      Self.expansion("x.obb", installPath: Self.obbPath(Self.patch)),
@@ -335,7 +335,7 @@ struct XAPKTests {
     }
 
     @Test func whatIsNamedIsEscapedAndCut() throws {
-        // The lead's reviewer: a path is raw text from the manifest or the archive, so control and format characters,
+        // Review: a path is raw text from the manifest or the archive, so control and format characters,
         // a bidi override or a new line among them, are written out, and a long one is cut.
         let tricky = "Android/data/evil\u{202E}txt.obb\nx"
         let long = "Android/data/" + String(repeating: "a", count: 300)
@@ -413,7 +413,7 @@ struct XAPKTests {
                      "main.1.ab.obb", "main.1.a.1b.obb", "main.1.a.b", "main.1.a b.c.obb", "main.\u{0661}.a.b.obb",
                      "patch.1..obb", "obb.1.a.b.obb", "main.1." + String(repeating: "a", count: 222) + ".b.obb",
                      ".main.1.a.b.obb", "main.1.a/b.c.obb",
-                     // The lead's reviewer: Android writes the version from an int, so never with a leading zero or
+                     // Review: Android writes the version from an int, so never with a leading zero or
                      // past Int32.max.
                      "main.007.a.b.obb", "main.00.a.b.obb", "main.2147483648.a.b.obb",
                      // Over a file name's 255 bytes by its version alone.

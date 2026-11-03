@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/aconfig-flags.py (ADR-0039 decision 11, the lead's refinement): from aconfig's flag declarations and a
+"""tools/aconfig-flags.py (ADR-0039 decision 11, the refinement): from aconfig's flag declarations and a
 release's values it writes what aapt2's --feature-flags reads, one '<package>.<name>=<true|false>' per line, as
 Soong's aconfig_text rule writes it (`aconfig dump-cache --format='{fully_qualified_name}={state:bool}'`). A flag
 without a value is DISABLED, aconfig's default. With `java` it writes aconfig's Java classes per package, Flags,

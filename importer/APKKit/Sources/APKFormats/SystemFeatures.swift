@@ -21,7 +21,7 @@ public enum SystemFeatures {
     /// Vulkan. A name goes without the version `pm list features`, and so `get-device-spec`, appends
     /// ("android.hardware.vulkan.version=4206592"): bundletool compares a module's feature names with the spec's
     /// strings as they are (`DeviceFeatureMatcher.java`, 1.18.3), so such a module would never install, where by name
-    /// it installs exactly when hasSystemFeature(name) holds (the lead's decision).
+    /// it installs exactly when hasSystemFeature(name) holds (the decision).
     static func deviceSpec(vulkan: Bool) -> [String] {
         [vulkan ? "reqGlEsVersion=0x30001" : "reqGlEsVersion=0x30000"]
             + names.subtracting(vulkan ? [] : Self.vulkan).sorted()

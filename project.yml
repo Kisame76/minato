@@ -33,7 +33,7 @@ targets:
       - path: app/Sources
       # Asset catalog with the app icon (ADR-0024).
       - path: app/Resources
-      # Feasibility spikes S1–S3 and S1b (docs/STATUS.md), run by Debug builds launched with -runSpikes.
+      # Feasibility spikes S1–S3 and S1b, run by Debug builds launched with -runSpikes.
       - path: app/Spikes
         excludes:
           - "TestLibrary/**"

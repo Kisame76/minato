@@ -368,7 +368,7 @@ frameworks_base/core/java/android/app/AppComponentFactory.java
 # ADR-0039 step c1: SharedPreferences, AOSP's SharedPreferencesImpl with QueuedWork, which our ContextImpl makes;
 # FileUtils for its sync and modes, ExponentiallyBucketedHistogram for its timings, and modules-utils'
 # FastXmlSerializer, which Xml.newFastSerializer makes for its file. apply() writes on QueuedWork's HandlerThread, so
-# the Looper's classes come here from step c2 (the lead's OK): Looper, Handler, HandlerThread, Message and MessageQueue,
+# the Looper's classes come here from step c2 (the decision): Looper, Handler, HandlerThread, Message and MessageQueue,
 # whose natives framework/native gives on M3's ALooper (decision 10), with ThreadLocalWorkSource, TraceNameSupplier,
 # Printer for the Looper's logging, and IMessenger, which Handler's messenger implements. HandlerExecutor, which
 # Context.getMainExecutor makes, and UserHandle, which Context.getUser and the uid helpers read. IBinder, which our
@@ -470,7 +470,7 @@ frameworks_base/core/java/android/os/AsyncTask.java
 frameworks_base/core/java/android/util/Dumpable.java
 frameworks_base/core/java/android/util/SparseBooleanArray.java
 
-# ADR-0045 d1: IntentFilter, the intents plan's fact 1 (docs/plans/adr-0039-b3.5b2-intents.md), which registered
+# ADR-0045 d1: IntentFilter, the intents plan's fact 1, which registered
 # receivers match broadcasts with (decision 5) and on which App's b3.5b2-3 builds its queries: with the URI-relative
 # filters and their two parcels, and AnnotationValidations with modules-utils' NonNull and ColorInt, which
 # UriRelativeFilter's constructor validates with at run time. And Base64, which Google's asset-delivery encodes with
@@ -881,7 +881,7 @@ frameworks_base/core/java/android/os/NetworkOnMainThreadException.java
 frameworks_base/core/java/android/os/PersistableBundle.java
 frameworks_base/core/java/android/util/SizeF.java
 
-# ADR-0043 step d2b) (App): ShellCallback and ResultReceiver with their AIDL, the types of IBinder.shellCommand, which
+# ADR-0043 step d2b): ShellCallback and ResultReceiver with their AIDL, the types of IBinder.shellCommand, which
 # ART resolves when it checks an app's class against IBinder: a bound service's local binder, an AIDL stub, an IBinder
 # of the app's own; an app's ResultReceiver sends through IResultReceiver to its Handler.
 frameworks_base/core/java/android/os/ResultReceiver.java
@@ -889,7 +889,7 @@ frameworks_base/core/java/android/os/ShellCallback.java
 frameworks_base/core/java/com/android/internal/os/IResultReceiver.aidl
 frameworks_base/core/java/com/android/internal/os/IShellCallback.aidl
 
-# ADR-0039 step c2d3 (App): FileUriExposedException, which StrictMode throws for a file:// URI that leaves the app, as
+# ADR-0039 step c2d3: FileUriExposedException, which StrictMode throws for a file:// URI that leaves the app, as
 # the bind gives every app the VM defaults now.
 frameworks_base/core/java/android/os/FileUriExposedException.java
 
@@ -1121,7 +1121,7 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/RotateDrawable.
 frameworks_base_graphics/graphics/java/android/graphics/drawable/ScaleDrawable.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/TransitionDrawable.java
 
-# ADR-0042 b, the gate of test 2 (App): PointerIcon, whose type constants name our android.os.PointerIconType, and
+# ADR-0042 b, the gate of test 2: PointerIcon, whose type constants name our android.os.PointerIconType, and
 # WindowInsetsAnimation with its Bounds and Callback, the last classes Godot's views reach on the Java path.
 frameworks_base/core/java/android/view/PointerIcon.java
 frameworks_base/core/java/android/view/WindowInsetsAnimation.java
@@ -1152,7 +1152,7 @@ frameworks_base/core/java/android/view/SoundEffectConstants.java
 # checkStartActivityResult throws for a component that the manifest lacks, was a compile-only stub.
 frameworks_base/core/java/android/content/ActivityNotFoundException.java
 
-# The framework breadth's batch 1 (the compatibility plan's entry 22, docs/corpus/api-coverage.md): the pure-Java
+# The framework breadth's batch 1 (the compatibility plan's entry 22): the pure-Java
 # public types of android.content, android.database, android.net and android.os, the Unity test APK's packages first, with
 # the hidden types they pull in, which have no stub.
 frameworks_base/core/java/android/content/AsyncQueryHandler.java
@@ -1262,7 +1262,7 @@ frameworks_base/core/java/android/database/sqlite/SQLiteTokenizer.java
 frameworks_base/core/java/android/database/sqlite/SQLiteTransactionListener.java
 frameworks_base/core/java/android/database/sqlite/SqliteWrapper.java
 
-# The framework breadth's batch 2 (the compatibility plan's entry 22, docs/corpus/api-coverage.md): the pure-Java
+# The framework breadth's batch 2 (the compatibility plan's entry 22): the pure-Java
 # public types of android.content.pm, android.view and android.view.autofill, with the hidden types they pull in,
 # which have no stub. OrientationEventListener comes too, whose sensor service ContextImpl answers, and the IdRes
 # annotation, which Attribution's constructor validates its label against.
@@ -1365,7 +1365,7 @@ frameworks_base/core/java/android/content/pm/UserProperties.java
 frameworks_base/core/java/android/os/ConditionVariable.java
 frameworks_base/core/java/android/os/Messenger.java
 
-# The compatibility plan's gap 5, widgets, batch 1 (the framework breadth's tool, docs/corpus/api-coverage.md): the
+# The compatibility plan's gap 5, widgets, batch 1 (the framework breadth's tool): the
 # public types of android.widget but those that open a second window (gap 4) or stand on one, with the bases they
 # stand on, android.view.animation, android.view.inspector, android.graphics.drawable.shapes, DateUtils, Time and
 # LogPrinter, the hidden types they pull in, which have no stub, and AnimationScaleListDrawable, which the
@@ -1487,7 +1487,7 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/PathShap
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/RectShape.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/RoundRectShape.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/Shape.java
-# The framework breadth's batch 3a (docs/corpus/api-coverage.md), the Unity test APK probe's: android.os.Debug, which
+# The framework breadth's batch 3a, the Unity test APK probe's: android.os.Debug, which
 # Crashlytics asks whether a debugger is attached, with the hidden TypedProperties it pulls in, and android.util's
 # Base64 streams, with which Firebase writes its heartbeat header.
 frameworks_base/core/java/android/os/Debug.java
@@ -1669,7 +1669,7 @@ frameworks_base/core/java/android/app/IAppTraceRetriever.aidl
 frameworks_base/core/java/android/content/pm/DataLoaderType.aidl
 frameworks_base/core/java/android/content/pm/verify/domain/DomainVerificationUtils.java
 
-# android.media's take-in classes (the Unity test APK gap sort 2026-10-09, Formate's category 1), api-breadth-test: pure Java
+# android.media's take-in classes (the Unity test APK gap sort 2026-10-09, category 1), api-breadth-test: pure Java
 # that an app names: audio focus requests, ratings, metadata and descriptions, playback parameters, the DRM exceptions,
 # images and data sources.
 frameworks_base_types/media/java/android/media/AudioFocusRequest.java
@@ -1715,7 +1715,7 @@ frameworks_base/core/java/android/webkit/WebMessagePort.java
 frameworks_base/core/java/android/webkit/WebResourceError.java
 frameworks_base/core/java/android/webkit/WebViewRenderProcess.java
 frameworks_base/core/java/android/webkit/WebViewRenderProcessClient.java
-# ADR-0056 step b1 (App), webview-start-test: the two process-wide objects of android.webkit that are plain classes,
+# ADR-0056 step b1, webview-start-test: the two process-wide objects of android.webkit that are plain classes,
 # which Minato's WebView provider factory gives as AOSP's base answers them.
 frameworks_base/core/java/android/webkit/GeolocationPermissions.java
 frameworks_base/core/java/android/webkit/WebStorage.java
@@ -1784,7 +1784,7 @@ modules_utils/java/com/android/modules/utils/BasicShellCommandHandler.java
 frameworks_base/core/java/android/view/IScrollCaptureConnection.aidl
 frameworks_base/core/java/android/view/IScrollCaptureCallbacks.aidl
 
-# android.media's ApplicationMediaCapabilities and its Builder (the Unity test APK gap sort, Formate's category 1, from the Media
+# android.media's ApplicationMediaCapabilities and its Builder (the Unity test APK gap sort, category 1, from the Media
 # module, third_party/sources.json media_module): what an app declares it can play, with MediaFeature's HDR types it
 # names. MinSdk, its marker for the SDK a class needs, is a compile-only stub.
 media_module/apex/framework/java/android/media/ApplicationMediaCapabilities.java
@@ -1876,7 +1876,7 @@ frameworks_base_types/rs/java/android/renderscript/Short4.java
 frameworks_base_types/rs/java/android/renderscript/Type.java
 
 # android.media's data classes that AudioTrack's, MediaExtractor's and MediaCodecList's members name (the Unity test APK gap
-# sort, Formate's category 3m): audio presentations, the metadata map, DRM init data and the media metrics' session
+# sort, category 3m): audio presentations, the metadata map, DRM init data and the media metrics' session
 # ID, as AOSP has them. VolumeShaper comes from tools/managergen; MediaFormat is AOSP's with Minato's patch
 # (framework/patches).
 frameworks_base_types/media/java/android/media/AudioPresentation.java
@@ -1931,7 +1931,7 @@ frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperation.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperationFlag.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperState.aidl
 
-# Batch B3b-2 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
+# Batch B3b-2 (signature types, pure Java): what framework/signature-gaps.txt's types need
 frameworks_base/core/java/android/app/IInstrumentationWatcher.aidl
 frameworks_base/core/java/android/app/IUriGrantsManager.aidl
 frameworks_base/core/java/android/app/NotificationHistory.java
@@ -1950,7 +1950,7 @@ frameworks_base/core/java/android/hardware/display/BrightnessCorrection.java
 frameworks_base/core/java/android/hardware/display/WifiDisplay.java
 frameworks_base/core/java/android/hardware/display/WifiDisplaySessionInfo.java
 
-# Batch B3b-3 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
+# Batch B3b-3 (signature types, pure Java): what framework/signature-gaps.txt's types need
 modules_utils/java/android/annotation/AppIdInt.java
 modules_utils/java/android/annotation/FloatRange.java
 modules_utils/java/android/annotation/IntRange.java
@@ -1975,7 +1975,7 @@ frameworks_base/core/java/com/android/internal/content/ReferrerIntent.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityRequestPreparer.java
 frameworks_base/core/java/android/os/CancellationSignalBeamer.java
 
-# Batch B3b-4 (signature types, pure Java; Planung): what framework/signature-gaps.txt's types need, see docs/plans/2026-10-07-framework-breadth.md
+# Batch B3b-4 (signature types, pure Java): what framework/signature-gaps.txt's types need
 frameworks_base_graphics/graphics/java/android/graphics/GraphicBuffer.java
 frameworks_base_graphics/graphics/java/android/graphics/TextureLayer.java
 frameworks_base/core/java/android/hardware/display/VirtualDisplay.java
@@ -1984,7 +1984,7 @@ frameworks_base/core/java/android/hardware/input/InputDeviceSensorManager.java
 frameworks_base/core/java/android/view/autofill/IAutofillWindowPresenter.aidl
 frameworks_base/core/java/com/android/internal/inputmethod/IInputContentUriToken.aidl
 
-# Batch B4 (SDK-path types, pure Java; Planung): what Unity games and common SDKs reach, see docs/plans/2026-10-07-framework-breadth.md
+# Batch B4 (SDK-path types, pure Java): what Unity games and common SDKs reach
 frameworks_base/core/java/android/app/AuthenticationRequiredException.java
 frameworks_base/core/java/android/app/ExpandableListActivity.java
 frameworks_base/core/java/android/app/IntentService.java
@@ -2122,7 +2122,7 @@ frameworks_base_types/media/java/android/media/session/PlaybackState.java
 # (android_graphics_SurfaceTexture.cpp), in place of its placeholder.
 frameworks_base_graphics/graphics/java/android/graphics/SurfaceTexture.java
 
-# Step (a) Html (TagSoup and the spans Html creates; Planung): see docs/plans/2026-10-07-framework-breadth.md
+# Step (a) Html (TagSoup and the spans Html creates):
 tagsoup/src/org/ccil/cowan/tagsoup/AttributesImpl.java
 tagsoup/src/org/ccil/cowan/tagsoup/AutoDetector.java
 tagsoup/src/org/ccil/cowan/tagsoup/CommandLine.java
@@ -2143,7 +2143,7 @@ frameworks_base/core/java/android/text/style/ImageSpan.java
 frameworks_base/core/java/android/text/style/QuoteSpan.java
 frameworks_base/core/java/android/text/style/DynamicDrawableSpan.java
 
-# Step (c) preferences (android.preference and what it names; Planung): see docs/plans/2026-10-07-framework-breadth.md
+# Step (c) preferences (android.preference and what it names):
 frameworks_base/core/java/android/preference/CheckBoxPreference.java
 frameworks_base/core/java/android/preference/DialogPreference.java
 frameworks_base/core/java/android/preference/EditTextPreference.java
@@ -2169,7 +2169,7 @@ frameworks_base/core/java/android/preference/TwoStatePreference.java
 frameworks_base/core/java/com/android/internal/util/CharSequences.java
 frameworks_base/core/java/android/app/FragmentBreadCrumbs.java
 
-# Step (b) service exceptions (the service start exceptions; Planung): see docs/plans/2026-10-07-framework-breadth.md
+# Step (b) service exceptions (the service start exceptions):
 frameworks_base/core/java/android/app/ServiceStartNotAllowedException.java
 frameworks_base/core/java/android/app/ForegroundServiceStartNotAllowedException.java
 frameworks_base/core/java/android/app/BackgroundServiceStartNotAllowedException.java
@@ -2240,7 +2240,7 @@ frameworks_base_types/sax/java/android/sax/RootElement.java
 frameworks_base_types/sax/java/android/sax/StartElementListener.java
 frameworks_base_types/sax/java/android/sax/TextElementListener.java
 
-# Step (d) network security (the network security policy; Planung): see docs/plans/2026-10-07-framework-breadth.md
+# Step (d) network security (the network security policy):
 frameworks_base/core/java/android/security/net/config/ApplicationConfig.java
 frameworks_base/core/java/android/security/net/config/CertificateSource.java
 frameworks_base/core/java/android/security/net/config/CertificatesEntryRef.java
@@ -2287,7 +2287,7 @@ frameworks_base/core/java/android/hardware/camera2/params/MultiResolutionStreamI
 frameworks_base_types/media/java/android/media/ImageWriter.java
 frameworks_base/core/java/android/hardware/camera2/utils/SurfaceUtils.java
 
-# Step (e) app op notes (the app op notes; Planung): see docs/plans/2026-10-07-framework-breadth.md
+# Step (e) app op notes (the app op notes):
 frameworks_base/core/java/android/app/AsyncNotedAppOp.java
 frameworks_base/core/java/android/app/SyncNotedAppOp.java
 modules_utils/java/android/annotation/CurrentTimeMillisLong.java
@@ -2335,7 +2335,7 @@ frameworks_base_types/media/java/android/media/ExifInterface.java
 frameworks_base_types/media/java/android/media/ExifInterfaceUtils.java
 frameworks_base_types/media/java/android/media/MediaTimestamp.java
 
-# Step (f) popup chain (the text completion and popup window chain; Planung): see docs/plans/2026-10-07-framework-breadth.md
+# Step (f) popup chain (the text completion and popup window chain):
 frameworks_base/core/java/android/widget/PopupWindow.java
 frameworks_base/core/java/android/widget/DropDownListView.java
 frameworks_base/core/java/android/widget/ForwardingListener.java
