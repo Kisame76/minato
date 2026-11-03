@@ -35,8 +35,12 @@ if [[ "$app" != yes ]]; then
   ctest --preset macos
 fi
 
+# Keep the Mac's build paths out of the app's native code: __FILE__ (CHECK/LOG macros) and debug info would
+# otherwise bake in the absolute build root (tools/check-no-build-paths.sh enforces it on a release).
+pfx="$(tools/prefix-map-flags.sh)"
 for preset in ios ios-simulator; do
-  cmake --preset "$preset$suffix" >/dev/null
+  cmake --preset "$preset$suffix" \
+    -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" >/dev/null
   cmake --build --preset "$preset$suffix"
 done
 

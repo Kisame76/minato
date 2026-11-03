@@ -8,8 +8,10 @@ set -euo pipefail
 
 OUT="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Spikes"
 mkdir -p "$OUT"
+# A public release carries no local build paths (tools/check-no-build-paths.sh): map the build root out of
+# __FILE__ and debug info, as the other guest and host builds do (tools/prefix-map-flags.sh).
 xcrun clang -target "arm64-apple-${LLVM_TARGET_TRIPLE_OS_VERSION}${LLVM_TARGET_TRIPLE_SUFFIX:-}" \
-  -isysroot "$SDKROOT" -dynamiclib -O2 -install_name @rpath/SpikeS1.dylib \
+  -isysroot "$SDKROOT" -ffile-prefix-map="$SRCROOT/=" -dynamiclib -O2 -install_name @rpath/SpikeS1.dylib \
   -o "$OUT/SpikeS1.dylib" "$SRCROOT/app/Spikes/TestLibrary/spike_s1.c"
 cp "$OUT/SpikeS1.dylib" "$OUT/SpikeS1-adhoc.dylib"
 cp "$OUT/SpikeS1.dylib" "$OUT/SpikeS1-bundleid.dylib"

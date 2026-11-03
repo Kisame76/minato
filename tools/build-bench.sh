@@ -32,6 +32,12 @@ if [[ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]]; then
   exit 1
 fi
 
+# Keep the Mac's build paths out of the benchmark's libraries, which ship in the app's APKs and framework
+# (tools/check-no-build-paths.sh enforces it on a release). The APK's .so ships raw -- it is converted on the
+# device, not pre-stripped like the guest system libraries -- so its debug info must not carry the NDK
+# toolchain path either (that path lies under $HOME); map it out alongside the build root.
+pfx="$(tools/prefix-map-flags.sh) -ffile-prefix-map=$NDK/="
+
 if [[ "$ios" == yes ]]; then
   for needed in build/ANGLE.xcframework/ios-arm64/libGLESv2.framework build/moltenvk/include/vulkan/vulkan.h; do
     if [[ ! -e "$needed" ]]; then
@@ -42,7 +48,8 @@ if [[ "$ios" == yes ]]; then
   arguments=()
   for preset in ios-release ios-simulator-release; do
     build="build/native/$preset-bench"
-    cmake --preset "$preset" -B "$build" -D APK_ANDROID_NDK="$NDK" >/dev/null
+    cmake --preset "$preset" -B "$build" -D APK_ANDROID_NDK="$NDK" \
+      -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" >/dev/null
     cmake --build "$build" --target MinatoBench
     arguments+=(-framework "$build/graphics/bench/MinatoBench.framework")
   done
@@ -58,6 +65,7 @@ cmake -S graphics/bench/android -B "$out/ndk" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 \
   -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$PWD/$out/bin" \
+  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
 cmake --build "$out/ndk"
 

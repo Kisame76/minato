@@ -206,6 +206,12 @@ targets:
         APK_BENCHMARK_CONDITION_YES: BENCHMARK
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(APK_BENCHMARK_CONDITION_$(APK_EMBED_BENCHMARK))
         MINATO_COMMIT: ""
+        # A public release carries no local build paths (tools/check-no-build-paths.sh): map the build root out
+        # of the app's own code -- Swift #file/#filePath, C/ObjC/C++ __FILE__ and debug info. $(SRCROOT) is the
+        # repo root at build time. The native libraries do the same in their CMake builds (tools/prefix-map-flags.sh).
+        OTHER_CFLAGS: ["$(inherited)", "-ffile-prefix-map=$(SRCROOT)/="]
+        OTHER_CPLUSPLUSFLAGS: ["$(inherited)", "-ffile-prefix-map=$(SRCROOT)/="]
+        OTHER_SWIFT_FLAGS: ["$(inherited)", "-file-prefix-map", "$(SRCROOT)/="]
         # MoltenVK has no Simulator slice (ADR-0030, decision 8).
         "EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]": MoltenVK.framework
       configs:

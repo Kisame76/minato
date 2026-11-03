@@ -31,6 +31,8 @@ for needed in build/graphics/gen/vulkan_names.inc build/moltenvk/include/vulkan/
 done
 
 xcframework=build/MinatoGraphics.xcframework
+# Keep the Mac's build paths out of the app's graphics host code (tools/check-no-build-paths.sh enforces it).
+pfx="$(tools/prefix-map-flags.sh)"
 arguments=()
 libraries=()
 for preset in "ios$suffix" "ios-simulator$suffix"; do
@@ -38,7 +40,8 @@ for preset in "ios$suffix" "ios-simulator$suffix"; do
   # The preset's toolchain in a folder of its own. With OPTIMIZE_DEPENDENCIES the static library does not
   # wait for the runtime it names for the tests on the Mac: the app links the runtime from
   # APKRuntime.xcframework (tools/build-native.sh --app).
-  cmake --preset "$preset" -B "$build" -D CMAKE_OPTIMIZE_DEPENDENCIES=ON >/dev/null
+  cmake --preset "$preset" -B "$build" -D CMAKE_OPTIMIZE_DEPENDENCIES=ON \
+    -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" >/dev/null
   cmake --build "$build" --target minato_graphics_host
   libraries+=("$build/graphics/host/libminato_graphics_host.a")
   arguments+=(-library "$build/graphics/host/libminato_graphics_host.a" -headers graphics/host/include)
