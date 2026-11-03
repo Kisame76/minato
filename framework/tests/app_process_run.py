@@ -402,6 +402,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 f"/storage/emulated/0/Android/obb/{package}": "external-obb"}
     if picks or saves or tree:
         external["/storage/emulated/0/Download"] = "external-download"
+    oat_containers = os.path.join(run, "oat-containers") if odex else None
     if not again or not os.path.isdir(run):
         shutil.rmtree(run, ignore_errors=True)
         for folder in ("data/dalvik-cache/arm64", "data/data", app.lstrip("/"), f"{data}/cache".lstrip("/"),
@@ -431,6 +432,14 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
             for source, name in ((odex, "base.odex"), (os.path.splitext(odex)[0] + ".vdex", "base.vdex")):
                 shutil.copy(source, os.path.join(oat, name))
                 os.chmod(os.path.join(oat, name), 0o444)
+            # The odex's signed container, which ART's dlopen loads as base.odex (the library directory of oat/arm64,
+            # as GuestStart's oat folders give it): without it ART maps the plain ELF file and falls back to the vdex
+            # alone.
+            os.makedirs(oat_containers)
+            converted = subprocess.run([apk_convert, "convert", odex, os.path.join(oat_containers, "base.odex.dylib"),
+                                        "--sign", "-"], capture_output=True, text=True)
+            if converted.returncode != 0:
+                raise SystemExit(f"apk-convert {odex} failed: {converted.stderr.strip()}")
         for split in splits:
             shutil.copy(split, os.path.join(run, app.lstrip("/"), os.path.basename(split)))
             os.chmod(os.path.join(run, app.lstrip("/"), os.path.basename(split)), 0o444)
@@ -511,6 +520,8 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
                 "--libraries", f"{CONSCRYPT_ROOT}/lib64={conscrypt_lib64}"]
     if libraries:
         command += ["--libraries", f"{app}/lib/arm64={os.path.join(work, 'app-lib64')}"]
+    if oat_containers:
+        command += ["--libraries", f"{app}/oat/arm64={oat_containers}"]
     for entry in environment:
         command += ["--env", entry]
     command += ["--cwd", "/", "--app-environment", "--argv0", "/system/bin/app_process64",
