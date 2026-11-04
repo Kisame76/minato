@@ -528,7 +528,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
     WKWebView *view = [[WKWebView alloc] initWithFrame:CGRectMake(0, 0, 1, 1) configuration:configuration];
     view.navigationDelegate = self;
     view.UIDelegate = self;
-#if DEBUG
+#ifndef NDEBUG
     view.inspectable = YES;  // decision 9: Safari's Web Inspector sees the guest's pages
 #endif
     [view addObserver:self forKeyPath:@"title" options:NSKeyValueObservingOptionNew context:NULL];

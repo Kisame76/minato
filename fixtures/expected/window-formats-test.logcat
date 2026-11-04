@@ -1,0 +1,18 @@
+I/window-formats-test: android_main
+I/window-formats-test: RGBA_8888: setBuffersGeometry 0
+I/window-formats-test: RGBA_8888: lock 0, format 1
+I/window-formats-test: showing RGBA_8888
+I/window-formats-test: RGBX_8888: setBuffersGeometry 0
+I/window-formats-test: RGBX_8888: lock 0, format 2
+I/window-formats-test: showing RGBX_8888
+I/window-formats-test: RGB_565: setBuffersGeometry 0
+I/window-formats-test: RGB_565: lock 0, format 4
+I/window-formats-test: showing RGB_565
+I/window-formats-test: waiting for the window to go
+I/window-formats-test: the window goes
+I/window-formats-test: a new window
+I/window-formats-test: RGB_565: setBuffersGeometry 0
+I/window-formats-test: RGB_565: lock 0, format 4
+I/window-formats-test: showing RGB_565
+I/window-formats-test: ANativeActivity_finish
+I/window-formats-test: android_main returns

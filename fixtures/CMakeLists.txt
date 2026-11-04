@@ -113,6 +113,12 @@ add_library(frame-cap-engine SHARED suite/libframe-cap-engine.c)
 target_link_libraries(frame-cap-engine PRIVATE frame-cap-api dl)
 add_executable(frame-cap-test suite/frame-cap-test.c)
 target_link_libraries(frame-cap-test PRIVATE frame-cap-engine frame-cap-api)
+# luajit-switch-test and the two libraries that stand in for LuaJIT and for plain Lua by their exported names (the LuaJIT
+# switch, runtime/tests/luajit_switch_run.py): the app imports the names, or looks them up with dlsym.
+add_library(fake-luajit SHARED suite/libfake-luajit.c)
+add_library(fake-lua SHARED suite/libfake-lua.c)
+add_executable(luajit-switch-test suite/luajit-switch-test.c)
+target_link_libraries(luajit-switch-test PRIVATE fake-luajit dl)
 # ns-test and its libraries (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a): a program outside the APEXes, and a
 # library for the folders of ART and Conscrypt that needs libns-dep.so and opens libns-plugin.so, both beside it
 # only; runtime.system_links places them (runtime/tests/ns_run.py).
@@ -166,6 +172,8 @@ add_executable(stw-test suite/stw-test.c)
 add_executable(fd-test suite/fd-test.c)
 # poll-test: eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
 add_executable(poll-test suite/poll-test.c)
+# timerfd-test: timerfd_create, timerfd_settime and timerfd_gettime as event loops use them.
+add_executable(timerfd-test suite/timerfd-test.c)
 # socket-test: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054).
 add_executable(socket-test suite/socket-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
@@ -272,6 +280,12 @@ add_library(window-test SHARED apps/window-test/main.c)
 target_compile_options(window-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(window-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
 target_link_libraries(window-test PRIVATE native_app_glue nativewindow)
+# window-formats-test (ADR-0043 b5, step f): its whole window by the CPU in RGBA_8888, RGBX_8888 and RGB_565, for the
+# screenshots of tools/window-contents-check.sh.
+add_library(window-formats-test SHARED apps/window-formats-test/main.c)
+target_compile_options(window-formats-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(window-formats-test PRIVATE --target=aarch64-none-linux-android35 -u ANativeActivity_onCreate)
+target_link_libraries(window-formats-test PRIVATE native_app_glue nativewindow)
 # native-ime-test (ADR-0068 step 2e): a NativeActivity without native_app_glue that asks for the soft keyboard, which
 # Android 15 ignores, and logs the keys of its input queue. Its source is in fixtures/java, beside the fixture input
 # method that tools/build-java-test-app.sh adds to the APK for the Android reference.

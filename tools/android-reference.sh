@@ -8,9 +8,11 @@
 # Android cannot run are left out, and what a benchmark (measures) prints is shown, not compared.
 # A test app of fixtures/apps (ADR-0028, test 3; ADR-0036) is installed fresh from build/fixtures/apks,
 # started as the launcher starts it, and left until it finishes itself; activity-test is sent HOME a second
-# after it has its first window and the focus, and started again, before that; input-test gets the gestures
-# of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready"; rotation-test is
-# turned to landscape once it logs "ready" and back to portrait a second after its first change (ADR-0038, test 3),
+# after it has its first window and the focus, and started again, before that; window-formats-test (ADR-0043 b5, step
+# f) is sent HOME a second after it shows RGB_565, and started again a second after its window goes; input-test gets
+# the gestures of fixtures/apps/input-test/gestures.txt through the emulator's console once it logs "ready";
+# rotation-test is turned to landscape once it logs "ready" and back to portrait a second after its first change
+# (ADR-0038, test 3),
 # through the window manager's user rotation, which the script restores afterwards. audio-live, which plays until it
 # is quit, is sent HOME 3 s after it plays and started again, and quit with BACK 2 s after it plays again; no adb
 # command of the emulator disconnects its stream (killing audioserver restores the stream without an error
@@ -1572,6 +1574,16 @@ run_app() {
     sleep 1
     run input keyevent KEYCODE_HOME
     wait_for "$app" APP_CMD_SAVE_STATE || return 1
+    sleep 1
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
+  if [[ "$app" == window-formats-test ]]; then
+    # ADR-0043 b5, step f: HOME a second after RGB_565 shows, and the return a second after its window goes, as
+    # tools/window-contents-check.sh's round plays them; it shows RGB_565 again and finishes itself.
+    wait_for "$app" "showing RGB_565" 30 || return 1
+    sleep 1
+    run input keyevent KEYCODE_HOME
+    wait_for "$app" "the window goes" || return 1
     sleep 1
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   fi

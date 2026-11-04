@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- window-formats-test (ADR-0043 b5, step f): a NativeActivity through native_app_glue that shows its window by the
+     CPU in RGBA_8888, RGBX_8888 and RGB_565, packed by make-apk. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.windowformats"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Window Formats Test" android:hasCode="false"
+      android:extractNativeLibs="false">
+    <activity android:name="android.app.NativeActivity" android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="window-formats-test"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
