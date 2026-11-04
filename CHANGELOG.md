@@ -50,6 +50,8 @@ All notable changes to Minato are documented in this file. The format follows
   and the memory of their windows' images is given back then, as on Android
 - Apps written in Java or Kotlin are optimized once, right after you close them the first time ("Optimizing", which
   you can cancel), and their code runs compiled from then on
+- Settings › Acknowledgements says where the source code of Minato's GPL-licensed parts is: on each release's page,
+  next to the app
 
 ### Changed
 

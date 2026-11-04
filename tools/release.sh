@@ -2,7 +2,8 @@
 # Releases Minato (docs/RELEASING.md): moves CHANGELOG.md's Unreleased section under the version, sets the version,
 # build number and label in project.yml and commits; builds the Release IPA; tags and pushes. The tag's workflow
 # (.github/workflows/release.yml) makes the GitHub release from that CHANGELOG section, and this script uploads
-# Minato.ipa, Minato.ipa.sha256 and source-entry.json (the website's SideStore and AltStore source entry) to it.
+# Minato.ipa, Minato.ipa.sha256 and source-entry.json (the website's SideStore and AltStore source entry) to it, with
+# the source archive of the GPL-2.0 parts and its .sha256 (tools/make-source-archive.py).
 # Run it in a clean clone of main with the sources fetched (docs/BUILDING.md), after the release checks.
 # Usage: tools/release.sh VERSION [--dry-run]
 #   VERSION    1.0.0, or 1.0.0-beta.1 for a beta (a pre-release on GitHub)
@@ -67,10 +68,23 @@ tools/build-native.sh --app --release
 tools/build-graphics-host.sh --release
 rm -rf "$out"
 mkdir -p "$out"
+
+# The source of the GPL-2.0 with the Classpath Exception parts (core-oj, libopenjdk, libopenjdkjvm) goes on the release
+# page next to the IPA (GPL-2.0 section 3(a); tools/make-source-archive.py), and the app's Licenses/*/SOURCE.txt name
+# its page and SHA-256, so the archive is made first. A dry run makes it again and compares the bytes.
+release_url="https://github.com/$repo/releases/tag/$tag"
+archive=$(python3 tools/make-source-archive.py "$version" "$release_url" "$out")
+archive_sha=$(cut -d' ' -f1 "$archive.sha256")
+if [[ -n "$dry_run" ]]; then
+  again=$(python3 tools/make-source-archive.py "$version" "$release_url" "$out/again")
+  cmp -s "$archive" "$again" || { echo "the source archive is not reproducible: $again differs" >&2; exit 1; }
+  rm -rf "$out/again"
+fi
 xcodebuild -project Minato.xcodeproj -scheme Minato -configuration Release -destination generic/platform=iOS \
   -archivePath "$out/Minato.xcarchive" -derivedDataPath "$out/DerivedData" -quiet archive CODE_SIGNING_ALLOWED=NO \
   MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build" MINATO_RELEASE_LABEL="$label" \
-  MINATO_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+  MINATO_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || true)" \
+  MINATO_SOURCE_URL="$release_url" MINATO_SOURCE_SHA256="$archive_sha"
 app="$out/Minato.xcarchive/Products/Applications/Minato.app"
 
 # A public release carries no local build paths: the guest libraries must not embed the build root or $HOME.
@@ -132,5 +146,6 @@ if ! gh release view "$tag" >/dev/null; then
   echo "no release for $tag after 10 minutes: see the release workflow" >&2
   exit 1
 fi
-gh release upload "$tag" "$out/Minato.ipa" "$out/Minato.ipa.sha256" "$out/source-entry.json"
+gh release upload "$tag" "$out/Minato.ipa" "$out/Minato.ipa.sha256" "$out/source-entry.json" \
+  "$archive" "$archive.sha256"
 echo "released $tag: https://github.com/$repo/releases/tag/$tag"

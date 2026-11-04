@@ -44,15 +44,20 @@ adds a bullet under `## Unreleased`, in the same commit, under Added, Changed or
    - builds the Release IPA, tags `v1.0.0-beta.2` and pushes.
 3. The tag starts `.github/workflows/release.yml`. It reads the version's CHANGELOG section and creates the GitHub
    release with it. A tag without a section fails there. Only the highest final version becomes "latest".
-4. The script waits for the release, then uploads three files to it:
+4. The script waits for the release, then uploads five files to it:
    - `Minato.ipa`;
    - `Minato.ipa.sha256`;
-   - `source-entry.json`.
+   - `source-entry.json`;
+   - `Minato-<version>-source.tar.gz` and its `.sha256`: the source of the parts under the GPL-2.0 with the Classpath
+     Exception (`THIRD_PARTY.md`), which the license wants next to the IPA (section 3(a)). The script makes it before
+     the IPA, from the pinned AOSP trees and our build scripts (`tools/make-source-archive.py`), and the app's
+     `Licenses/*/SOURCE.txt` name its page and SHA-256.
 5. `source-entry.json` is the new version's entry for the website's SideStore and AltStore source. Its version,
    build number, entitlements and privacy texts are read from the built app, because AltStore refuses an install
    whose IPA does not match them. It goes at the top of the website's `data/releases.json`.
 
-`tools/release.sh VERSION --dry-run` builds the IPA and the entry into `build/release` and changes nothing.
+`tools/release.sh VERSION --dry-run` builds the IPA, the entry and the source archive into `build/release` and changes
+nothing; it makes the archive a second time and stops if the bytes differ.
 
 The IPA is built on a Mac. The build needs AOSP's ART, ANGLE, MoltenVK and Bionic, too much for a hosted runner.
 It is signed ad hoc, and SideStore or AltStore sign it again with the user's certificate.

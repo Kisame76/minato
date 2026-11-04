@@ -5,13 +5,34 @@ Reads third_party/licenses.json. A component goes in when its section of THIRD_P
 always, with a framework the build has put into the bundle's Frameworks/, or with a file at a path in the
 bundle (a rule with a slash, such as a benchmark build's test APK). Its texts are copied from
 where the build fetched them (build/sources, build/moltenvk, ANGLE's checkout in build/angle, the NDK,
-the repository) into Licenses/<component>/, and Licenses/licenses.json lists what is there. A missing
+the repository) into Licenses/<component>/, and Licenses/licenses.json lists what is there. A component
+under the GPL-2.0 with the Classpath Exception also gets a SOURCE.txt (a text with "generate": "source") that says
+where its source is: the archive on the release page, whose URL and SHA-256 tools/release.sh passes in
+MINATO_SOURCE_URL and MINATO_SOURCE_SHA256. A missing
 text fails the build: the notices must travel with every binary. tools/license-check.py checks the result.
 """
 import json
 import os
 import shutil
 import sys
+
+
+def source_note(name, release_url, sha256):
+    """SOURCE.txt of a component under the GPL-2.0 with the Classpath Exception: where its source is (GPL-2.0 section
+    3(a): on the release page of the IPA, next to it). A build that tools/release.sh did not make has no release."""
+    lines = [f"{name} is licensed under the GPL-2.0 with the Classpath Exception",
+             "(the GNU General Public License, version 2).", "",
+             "Its complete corresponding source code is in the source archive that every Minato release carries on its",
+             "GitHub release page, next to Minato.ipa: Minato-<version>-source.tar.gz. It holds the AOSP sources",
+             "this component is built from, pinned by commit, and the scripts that build it (README-SOURCE.txt",
+             "inside).",
+             ""]
+    if release_url:
+        lines += [f"Release page: {release_url}", f"SHA-256 of the archive: {sha256}"]
+    else:
+        lines += ["This is not a release build: no archive belongs to it. The release page of the Minato version",
+                  "you installed has the one for that version."]
+    return "\n".join(lines) + "\n"
 
 
 def main():
@@ -39,6 +60,14 @@ def main():
             entry["none"] = component["none"]
         entry["files"] = []
         for text in component.get("texts", []):
+            if text.get("generate") == "source":
+                os.makedirs(os.path.join(out, component["name"]), exist_ok=True)
+                note = source_note(component["name"], os.environ.get("MINATO_SOURCE_URL", ""),
+                                   os.environ.get("MINATO_SOURCE_SHA256", ""))
+                with open(os.path.join(out, component["name"], text["as"]), "w") as handle:
+                    handle.write(note)
+                entry["files"].append(text["as"])
+                continue
             base, _, path = text["from"].partition(":")
             source = os.path.join(roots[base], path)
             if not os.path.isfile(source):

@@ -206,6 +206,10 @@ targets:
         APK_BENCHMARK_CONDITION_YES: BENCHMARK
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(APK_BENCHMARK_CONDITION_$(APK_EMBED_BENCHMARK))
         MINATO_COMMIT: ""
+        # tools/release.sh: the release page and the SHA-256 of the source archive that Licenses/*/SOURCE.txt name
+        # (tools/bundle-licenses.py); empty in a build that is no release.
+        MINATO_SOURCE_URL: ""
+        MINATO_SOURCE_SHA256: ""
         # A public release carries no local build paths (tools/check-no-build-paths.sh): map the build root out
         # of the app's own code -- Swift #file/#filePath, C/ObjC/C++ __FILE__ and debug info. $(SRCROOT) is the
         # repo root at build time. The native libraries do the same in their CMake builds (tools/prefix-map-flags.sh).

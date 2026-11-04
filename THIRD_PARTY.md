@@ -189,8 +189,11 @@ builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 | `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 (`NOTICE` license type; the generated data follows IANA's notice) | the format of the time zone files (ADR-0033, decision 9) is only read; `output_data/android/tzlookup.xml` and `telephonylookup.xml` ship in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/` (gap 21) |
 
 **GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm`
-ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app. It must go
-with every build that leaves the Mac, as ADR-0033 asks, and how is an open decision. ADR-0033 also
+ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app: every
+release carries it as `Minato-<version>-source.tar.gz` on its GitHub release page, next to the IPA (GPL-2.0 section
+3(a)), which `tools/make-source-archive.py` makes from the pinned trees of `platform/libcore` and `platform/art` above
+and the scripts that build them, reproducibly, and which `tools/release.sh` uploads. Each of the three components'
+`Licenses/` folders has a `SOURCE.txt` that names the release page and the archive's SHA-256. ADR-0033 also
 names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource
 (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is
 BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s
