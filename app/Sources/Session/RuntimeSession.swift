@@ -54,6 +54,11 @@ final class RuntimeSessionHost: SessionHost {
         return window
     }
 
+    /// SessionBridge gives the window up: why, and the callbacks of that step, in a Debug build's session log.
+    func windowGivenUp(_ window: UInt64, reason: String, callbacks: [Lifecycle.Callback]) {
+        noteWindow("window \(window) given up (\(reason): \(callbacks.map { "\($0)" }.joined(separator: ", ")))")
+    }
+
     /// A Debug build's session log line for a window that came or went, with its ID and the call (ADR-0043 b5): a
     /// refused post (libgui's "queueBuffer: error queuing buffer, -19") then names who removed its window.
     private func noteWindow(_ line: @autoclosure () -> String) {

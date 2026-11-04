@@ -156,6 +156,13 @@ public protocol SessionHost: AnyObject {
     func placeRequestedWindow(_ window: UInt64, _ request: WindowRequest)
     /// `apkrt_window_remove` for requested window `token`'s window, whose layer goes with it.
     func removeRequestedWindow(_ window: UInt64, token: UInt64)
+    /// The bridge gives the window up, right before its removal: why (the lifecycle's event, `givingUpReason`) and the
+    /// callbacks of that step, for a Debug build's session log (ADR-0043 b5, a black window's first question).
+    func windowGivenUp(_ window: UInt64, reason: String, callbacks: [Lifecycle.Callback])
+}
+
+extension SessionHost {
+    public func windowGivenUp(_ window: UInt64, reason: String, callbacks: [Lifecycle.Callback]) {}
 }
 
 /// The guest's window in size compat (ADR-0041, decision 12 b): its frame in the host's window, in pixels, its
@@ -352,7 +359,7 @@ public struct SessionBridge: Sendable {
         default:
             break
         }
-        return apply(lifecycle.handle(event), host: host)
+        return apply(lifecycle.handle(event), host: host, cause: event)
     }
 
     /// At background, once per trip, even while the lifecycle holds the event back (ADR-0032, decision 6, changed
@@ -362,7 +369,7 @@ public struct SessionBridge: Sendable {
     /// is scheduled before iOS may suspend the process. A wait the budget does not cover goes to the caller as any
     /// other.
     private mutating func background(host: SessionHost) -> Handled {
-        var handled = apply(lifecycle.handle(.background), host: host)
+        var handled = apply(lifecycle.handle(.background), host: host, cause: .background)
         let clock = ContinuousClock()
         let start = clock.now
         while let wait = handled.wait {
@@ -526,7 +533,7 @@ public struct SessionBridge: Sendable {
         guard !isBroken, wait == current else { return Handled() }
         current = nil
         let event: Lifecycle.Event = result == 1 ? .answered(wait.callback) : .timedOut(wait.callback)
-        return apply(lifecycle.handle(event), host: host)
+        return apply(lifecycle.handle(event), host: host, cause: event)
     }
 
     /// Posts `callbacks` in order, with the window's steps around them:
@@ -541,7 +548,8 @@ public struct SessionBridge: Sendable {
     ///   App's c6 host fixes);
     /// - the surfaces' windows go with the window's, and at onDestroy those made in the background; their gates follow
     ///   the window's (ADR-0043 c4).
-    private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost) -> Handled {
+    private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost,
+                                cause: Lifecycle.Event) -> Handled {
         var handled = Handled()
         let givesUpWindow = callbacks.contains(.onNativeWindowDestroyed)
         var gone: UInt64 = 0
@@ -555,6 +563,7 @@ public struct SessionBridge: Sendable {
             if givesUpWindow, window != 0, !gateIsOpen, !Self.isFocus(callback) {
                 gone = window
                 window = 0
+                host.windowGivenUp(gone, reason: Self.givingUpReason(cause), callbacks: callbacks)
                 host.removeWindow(gone)
                 takeSurfacesAway(host)
             }
@@ -605,6 +614,17 @@ public struct SessionBridge: Sendable {
         for index in requestedWindows.indices where !requestedWindows[index].taken {
             host.removeRequestedWindow(requestedWindows[index].window, token: requestedWindows[index].token)
             requestedWindows[index].taken = true
+        }
+    }
+
+    /// Why the lifecycle gave the window up, as the session log names it.
+    static func givingUpReason(_ event: Lifecycle.Event) -> String {
+        switch event {
+        case .background: "background"
+        case .quit: "quit"
+        case .finish: "finish of the last activity"
+        case .quitAtRoot: "quitAtRoot"
+        default: "\(event)"
         }
     }
 

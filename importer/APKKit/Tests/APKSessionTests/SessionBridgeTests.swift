@@ -106,6 +106,13 @@ struct SessionBridgeTests {
             return 7
         }
 
+        /// The windows the bridge gave up, why and with which callbacks (a Debug session log's line), outside `calls`.
+        var givenUp: [(window: UInt64, reason: String, callbacks: [Lifecycle.Callback])] = []
+
+        func windowGivenUp(_ window: UInt64, reason: String, callbacks: [Lifecycle.Callback]) {
+            givenUp.append((window, reason, callbacks))
+        }
+
         /// The calls since the last look.
         func take() -> [Call] {
             defer { calls = [] }
@@ -138,6 +145,29 @@ struct SessionBridgeTests {
         bridge.handle(.active, host: host)
         _ = host.take()
         return bridge
+    }
+
+    /// The host hears why the window goes (ADR-0043 b5, a black window's first question): the lifecycle's event that
+    /// gave it up, with that batch's callbacks.
+    @Test(arguments: [(Lifecycle.Event.background, "background"), (.quit, "quit"),
+                      (.finish, "finish of the last activity"), (.quitAtRoot, "quitAtRoot")])
+    func theHostHearsWhyTheWindowGoes(event: Lifecycle.Event, reason: String) {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(event, host: host)
+        #expect(host.givenUp.map(\.window) == [1])
+        #expect(host.givenUp.map(\.reason) == [reason])
+        #expect(host.givenUp.first?.callbacks.last == .onNativeWindowDestroyed)
+    }
+
+    /// A turn keeps the window: its size changes, and no window goes.
+    @Test func aTurnGivesNoWindowUp() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.turns = true
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take().contains(.setWindowSize(1, width: Self.height, height: Self.width)))
+        #expect(host.givenUp.isEmpty)
     }
 
     @Test func startAddsTheWindowAndOpensTheGateWithTheFocus() {
