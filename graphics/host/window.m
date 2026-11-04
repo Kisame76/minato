@@ -28,6 +28,8 @@
      black that alpha changes nothing. The transaction commits only in the foreground and counts for "scheduled", as
      libvulkan's submits do (vulkan.m).
    - At TRIM_MEMORY_UI_HIDDEN the sublayer lets its buffer go too.
+   - Step f's check (minato_graphics_set_window_crc, MINATO_WINDOW_CRC): a line per post with the CRC-32 of the
+     pixels shown, a table's CRC over a full screen's buffer in some 30 ms, so for checks only.
    - In the Simulator, whose Metal has no B5G6R5Unorm and whose Core Animation shows no 'L565' IOSurface [measured,
      S5], a post draws the buffer into the window layer's next drawable with a Metal pass instead, BGRA8Unorm (F15),
      RGBX_8888's alpha as 1, and presents it; the layer's nextDrawable lets MinatoMetalLayer record it.
@@ -486,6 +488,100 @@ static void read_done(MinatoCPUBuffer *buffer) {
     pthread_mutex_unlock(&state_lock);
 }
 
+/* Step f's lines (minato_graphics.h's minato_graphics_set_window_crc), under crc_lock; NULL while off. */
+static pthread_mutex_t crc_lock = PTHREAD_MUTEX_INITIALIZER;
+static FILE *crc_file;
+static BOOL crc_asked;  // the setter or the environment decided
+static uint32_t crc_table[256];
+
+int minato_graphics_set_window_crc(const char *path) {
+    FILE *file = path == NULL ? NULL : strcmp(path, "-") == 0 ? stderr : fopen(path, "a");
+    if (path != NULL && file == NULL) {
+        return -1;
+    }
+    pthread_mutex_lock(&crc_lock);
+    if (crc_file != NULL && crc_file != stderr) {
+        fclose(crc_file);
+    }
+    crc_file = file;
+    crc_asked = YES;
+    pthread_mutex_unlock(&crc_lock);
+    return 0;
+}
+
+static uint32_t crc_bytes(uint32_t crc, const uint8_t *bytes, size_t length) {
+    for (size_t index = 0; index < length; index++) {
+        crc = crc_table[(crc ^ bytes[index]) & 0xff] ^ (crc >> 8);
+    }
+    return crc;
+}
+
+/* The post's line, while asked for: the CRC-32 of the buffer's pixels as BGRA, RGBX's alpha as 255 and RGB_565
+   widened as Metal's B5G6R5Unorm reads it (widen_565's), or "hidden". */
+static void write_crc(uint64_t window_id, uint64_t post, MinatoCPUBuffer *buffer, int32_t width, int32_t height,
+                      int32_t format, BOOL black, BOOL hidden) {
+    pthread_mutex_lock(&crc_lock);
+    if (!crc_asked) {
+        const char *path = getenv("MINATO_WINDOW_CRC");
+        crc_file = path == NULL ? NULL : strcmp(path, "-") == 0 ? stderr : fopen(path, "a");
+        crc_asked = YES;
+    }
+    if (crc_file == NULL) {
+        pthread_mutex_unlock(&crc_lock);
+        return;
+    }
+    if (hidden) {
+        fprintf(crc_file, "minato window %llu: post %llu hidden\n", (unsigned long long)window_id,
+                (unsigned long long)post);
+        fflush(crc_file);
+        pthread_mutex_unlock(&crc_lock);
+        return;
+    }
+    if (crc_table[1] == 0) {
+        for (uint32_t index = 0; index < 256; index++) {
+            uint32_t value = index;
+            for (int bit = 0; bit < 8; bit++) {
+                value = (value >> 1) ^ (0xedb88320u & (0u - (value & 1u)));
+            }
+            crc_table[index] = value;
+        }
+    }
+    IOSurfaceLock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
+    const uint8_t *bits = IOSurfaceGetBaseAddress(buffer->surface);
+    const size_t row = IOSurfaceGetBytesPerRow(buffer->surface);
+    uint8_t *line = malloc((size_t)width * 4);
+    uint32_t crc = 0xffffffffu;
+    for (int32_t y = 0; line != NULL && y < height; y++) {
+        const uint8_t *source = bits + (size_t)y * row;
+        if (format == format_rgb_565) {
+            widen_565(source, row, width, 1, line);
+        } else {
+            for (int32_t x = 0; x < width; x++) {
+                line[4 * x] = source[4 * x + 2];
+                line[4 * x + 1] = source[4 * x + 1];
+                line[4 * x + 2] = source[4 * x];
+                line[4 * x + 3] = format == format_rgbx_8888 ? 255 : source[4 * x + 3];
+            }
+        }
+        if (format == format_rgb_565) {
+            // widen_565's RGBA as the BGRA the pass would draw.
+            for (int32_t x = 0; x < width; x++) {
+                const uint8_t red = line[4 * x];
+                line[4 * x] = line[4 * x + 2];
+                line[4 * x + 2] = red;
+            }
+        }
+        crc = crc_bytes(crc, line, (size_t)width * 4);
+    }
+    free(line);
+    IOSurfaceUnlock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
+    static const char *const names[] = {"", "RGBA_8888", "RGBX_8888", "", "RGB_565"};
+    fprintf(crc_file, "minato window %llu: post %llu %dx%d %s%s CRC-32 %08x\n", (unsigned long long)window_id,
+            (unsigned long long)post, width, height, names[format], black ? " on black" : "", ~crc);
+    fflush(crc_file);
+    pthread_mutex_unlock(&crc_lock);
+}
+
 /* The window layer's sublayer that shows its buffers, made at the first post, lowest among its sublayers. */
 static NSString *const buffers_layer_name = @"minato.window.buffers";
 
@@ -549,6 +645,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
             set_hidden(layer, YES);
         }
         minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+        write_crc(window_id, buffer->posted, buffer, 0, 0, format, NO, YES);
         apkrt_window_presented(window_id);
         return NO;
     }
@@ -576,6 +673,8 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     buffers.contents = (__bridge id)buffer->surface;
     [CATransaction commit];
     minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+    write_crc(window_id, buffer->posted, buffer, (int32_t)IOSurfaceGetWidth(buffer->surface),
+              (int32_t)IOSurfaceGetHeight(buffer->surface), format, format != format_rgba_8888 || layer.opaque, NO);
     atomic_fetch_sub(&in_flight, 1);
     apkrt_window_presented(window_id);
     return NO;

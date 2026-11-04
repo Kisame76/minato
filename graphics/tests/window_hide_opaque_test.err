@@ -1,6 +1,12 @@
 window host: contents 1: 64 x 48, RGBA_8888 on black, CRC-32 8a258aec
+minato window 1: post 1 64x48 RGBA_8888 on black CRC-32 8a258aec
 window host: contents 2: 64 x 48, RGBA_8888 on black, CRC-32 fd22ba7a
+minato window 1: post 2 64x48 RGBA_8888 on black CRC-32 fd22ba7a
 window host: contents 3: 64 x 48, RGBA_8888 on black, CRC-32 8a258aec
+minato window 1: post 3 64x48 RGBA_8888 on black CRC-32 8a258aec
 window host: contents 4: 64 x 48, RGBA_8888 on black, CRC-32 8a258aec
+minato window 1: post 4 64x48 RGBA_8888 on black CRC-32 8a258aec
 window host: contents 5: 64 x 48, RGBX_8888 on black, CRC-32 7b7f6fc8
+minato window 1: post 5 64x48 RGBX_8888 on black CRC-32 7b7f6fc8
 window host: contents 6: 64 x 48, RGBA_8888 on black, CRC-32 8a258aec
+minato window 1: post 6 64x48 RGBA_8888 on black CRC-32 8a258aec

@@ -89,6 +89,14 @@ int minato_graphics_vulkan_scheduled(uint64_t deadline);
    Returns 0, or -1 when the runtime refused either. */
 int minato_graphics_set_window_buffers(void);
 
+/* Step f's check of the windows by contents (ADR-0043 b5; window.m), for Debug builds and the Mac's tests: from now
+   on each post of a window's buffers writes one line to `path` (appended; "-" for stderr; NULL turns it off):
+   "minato window <id>: post <n> <width>x<height> <format>[ on black] CRC-32 <crc>", the CRC-32 of the BGRA pixels
+   shown (RGBX_8888's alpha as 255, RGB_565 widened as Metal's unorm conversion does), or "minato window <id>: post <n>
+   hidden" for one the hide rule hides. MINATO_WINDOW_CRC in the environment does the same before the first post.
+   Returns 0, or -1 when the file cannot be opened. */
+int minato_graphics_set_window_crc(const char *path);
+
 /* "Scheduled" for the windows' buffers: waits until no post is between its count and its commit, then until Metal
    has scheduled an empty command buffer on their queue, and so every one committed there before. Returns 1 once
    scheduled, at once before the first lock, 0 when `deadline` (as for Vulkan's above) came first. */

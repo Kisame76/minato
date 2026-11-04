@@ -1,7 +1,13 @@
 window host: the layer is hidden
+minato window 1: post 1 hidden
 window host: the layer is shown
 window host: contents 1: 64 x 48, RGBA_8888, CRC-32 fd22ba7a
+minato window 1: post 2 64x48 RGBA_8888 CRC-32 fd22ba7a
 window host: the layer is hidden
+minato window 1: post 3 hidden
+minato window 1: post 4 hidden
 window host: the layer is shown
 window host: contents 2: 64 x 48, RGBX_8888 on black, CRC-32 7b7f6fc8
+minato window 1: post 5 64x48 RGBX_8888 on black CRC-32 7b7f6fc8
 window host: the layer is hidden
+minato window 1: post 6 hidden
