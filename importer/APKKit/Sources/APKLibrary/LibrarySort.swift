@@ -64,6 +64,40 @@ public enum LibrarySort: String, Sendable, CaseIterable, Codable {
     }
 }
 
+/// The library's order as its "…" menu sets it (the navigation design, section 3): the sort order and its direction, a
+/// preference of the device.
+public struct LibraryArrangement: Equatable, Sendable {
+    public var sort: LibrarySort
+    /// Manual has none.
+    public var ascending: Bool
+
+    public init(sort: LibrarySort = .manual, ascending: Bool = true) {
+        self.sort = sort
+        self.ascending = ascending
+    }
+
+    /// A tap on `sort` in Sort By, as in Files: the active order flips its direction, another one starts with its own,
+    /// A to Z by name and the newest or the largest first otherwise.
+    public func choosing(_ sort: LibrarySort) -> LibraryArrangement {
+        switch sort {
+        case .manual: LibraryArrangement()
+        case self.sort: LibraryArrangement(sort: sort, ascending: !ascending)
+        case .name: LibraryArrangement(sort: sort, ascending: true)
+        case .dateAdded, .lastOpened, .size: LibraryArrangement(sort: sort, ascending: false)
+        }
+    }
+
+    /// Apps are dragged only in the manual order, so that a sort order never overwrites it, and not in a search's
+    /// results, which have gaps.
+    public func movesApps(searching: Bool) -> Bool {
+        sort == .manual && !searching
+    }
+
+    public func arranged(_ entries: [LibraryEntry], lastOpened: [String: Date]) -> [LibraryEntry] {
+        sort.sorted(entries, ascending: ascending, lastOpened: lastOpened)
+    }
+}
+
 extension LibraryEntry {
     /// The installed files' bytes: the base APK, the splits and the OBBs.
     public var installedSize: UInt64 {

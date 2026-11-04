@@ -15,9 +15,15 @@ extension UTType {
     static let obb = UTType(importedAs: "io.github.kisame76.minato.obb")
 }
 
-/// The library, laid out like a folder in the Files app: icon grid, a "…" menu with Select, +, and the search above the
-/// grid (the app navigation's design, section 1).
-/// Tapping an app starts it; touch and hold offers Get Info, the favorite and Delete (AppTile).
+/// The library's two views, as a folder's in Files.
+enum LibraryLayout: String {
+    case icons, list
+}
+
+/// The library, laid out like a folder in the Files app: icon grid or list, a "…" menu with Select, the view and the
+/// sort order, +, and the search above the grid (the app navigation's design, sections 1 and 3). View and sort order
+/// are the device's preferences. Tapping an app starts it; touch and hold offers Get Info, the favorite and Delete
+/// (AppTile), and in the manual order moving the finger drags the app into another place.
 struct LibraryView: View {
     @Environment(LibraryModel.self) private var model
     @State private var actions = TileActions()
@@ -28,6 +34,9 @@ struct LibraryView: View {
     @State private var selectionDeletion: [LibraryEntry]?
     @State private var query = ""
     @State private var width: CGFloat = 0
+    @AppStorage("libraryLayout") private var layout = LibraryLayout.icons
+    @AppStorage("librarySort") private var sort = LibrarySort.manual
+    @AppStorage("librarySortAscending") private var ascending = true
 
     var body: some View {
         NavigationStack {
@@ -91,12 +100,26 @@ struct LibraryView: View {
         if model.items.isEmpty {
             emptyLibrary
         } else {
-            ScrollView {
-                // 4 apps side by side with Home Screen sized icons, as on Home (the navigation design, section 3).
-                TileGrid(items: visibleItems, width: width) { item, iconSize in
-                    tile(item, iconSize: iconSize)
+            Group {
+                switch layout {
+                case .icons:
+                    ScrollView {
+                        // 4 apps side by side with Home Screen sized icons, as on Home (the navigation design,
+                        // section 3).
+                        TileGrid(items: visibleItems, width: width,
+                                 move: movesApps ? { move($0, before: $1) } : nil) { item, iconSize in
+                            tile(item, iconSize: iconSize)
+                        }
+                        .padding(.top, 8)
+                    }
+                case .list:
+                    List {
+                        ForEach(visibleItems) { tile($0, asRow: true) }
+                            .reorderableItems()
+                    }
+                    .listStyle(.plain)
+                    .reordering(LibraryItem.self, move: movesApps ? { move($0, before: $1) } : nil)
                 }
-                .padding(.top, 8)
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // Like Files: content scrolls under a frosted bar with a clear edge.
@@ -122,8 +145,8 @@ struct LibraryView: View {
         }
     }
 
-    private func tile(_ item: LibraryItem, iconSize: CGFloat) -> some View {
-        AppTile(item: item, actions: actions, iconSize: iconSize, isSelecting: isSelecting,
+    private func tile(_ item: LibraryItem, iconSize: CGFloat = 60, asRow: Bool = false) -> some View {
+        AppTile(item: item, actions: actions, asRow: asRow, iconSize: iconSize, isSelecting: isSelecting,
                 isSelected: selection.contains(item.id)) {
             if selection.contains(item.id) {
                 selection.remove(item.id)
@@ -167,6 +190,25 @@ struct LibraryView: View {
                 Menu("More", systemImage: "ellipsis") {
                     Button("Select", systemImage: "checkmark.circle") { isSelecting = true }
                         .disabled(!model.items.contains { $0.entry != nil })
+                    Section {
+                        Picker("View", selection: $layout) {
+                            Label("Icons", systemImage: "square.grid.2x2").tag(LibraryLayout.icons)
+                            Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
+                        }
+                        .pickerStyle(.palette)
+                    }
+                    Section("Sort By") {
+                        ForEach(LibrarySort.allCases, id: \.self) { order in
+                            Toggle(isOn: chosen(order)) {
+                                // The active order's direction, as in Files; Manual has none.
+                                if order == sort, order != .manual {
+                                    Label(Texts.sortName(order), systemImage: ascending ? "chevron.up" : "chevron.down")
+                                } else {
+                                    Text(Texts.sortName(order))
+                                }
+                            }
+                        }
+                    }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -183,12 +225,35 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: - Search and selection
+    // MARK: - Order, search and selection
+
+    private var arrangement: LibraryArrangement { LibraryArrangement(sort: sort, ascending: ascending) }
+
+    /// A tap on a sort order: the active one flips its direction.
+    private func chosen(_ order: LibrarySort) -> Binding<Bool> {
+        Binding(get: { sort == order }, set: { _ in
+            let chosen = arrangement.choosing(order)
+            sort = chosen.sort
+            ascending = chosen.ascending
+        })
+    }
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
+
+    /// Only in the manual order, outside a search and a selection.
+    private var movesApps: Bool { arrangement.movesApps(searching: !trimmedQuery.isEmpty) && !isSelecting }
+
+    /// Picks still being installed are not in the order yet; before the first of them is the end.
+    private func move(_ ids: [LibraryItem.ID], before: LibraryItem.ID?) {
+        let before = before.flatMap { id in model.entries.contains { $0.id == id } ? id : nil }
+        Task { await model.move(ids, before: before) }
+    }
 
     private var visibleItems: [LibraryItem] {
-        let query = query.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return model.items }
-        return model.items.filter { item in
+        let items = model.items(arranged: arrangement)
+        let query = trimmedQuery
+        guard !query.isEmpty else { return items }
+        return items.filter { item in
             item.title.localizedStandardContains(query)
                 || item.entry?.report?.packageName.localizedStandardContains(query) == true
         }

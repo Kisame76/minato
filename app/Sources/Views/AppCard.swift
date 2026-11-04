@@ -56,6 +56,57 @@ struct AppCard: View {
     }
 }
 
+/// One app's row in the library's List view (the navigation design, section 3): its icon, its name, version and status
+/// with the reason, which a row has room for, and the installed size on the right.
+struct AppRow: View {
+    let item: LibraryItem
+    var showsSelection = false
+    var isSelected = false
+
+    private static let iconSize: CGFloat = 40
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if showsSelection {
+                SelectionMark(isSelected: isSelected)
+            }
+            AppIcon(url: item.iconURL, cornerRadius: Self.iconSize * 17 / 60)
+                .frame(width: Self.iconSize, height: Self.iconSize)
+                .overlay(alignment: .bottomLeading) {
+                    if item.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 1.5)
+                            .padding(3)
+                            .accessibilityLabel("Favorite")
+                    }
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .lineLimit(1)
+                if let version = item.entry?.report.map({ $0.versionName ?? String($0.versionCode) }) {
+                    Text("Version \(version)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                StatusView(status: item.status, alignment: .leading)
+            }
+            Spacer(minLength: 8)
+            if let entry = item.entry {
+                Text(Int64(clamping: entry.installedSize).formatted(.byteCount(style: .file)))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 /// The circle Files shows on every item while selecting.
 struct SelectionMark: View {
     let isSelected: Bool
@@ -100,11 +151,13 @@ struct AppIcon: View {
 
 struct StatusView: View {
     let status: LibraryItem.Status
+    /// Centred under a tile, leading in a row.
+    var alignment: HorizontalAlignment = .center
 
     var body: some View {
         switch status {
         case .installing(let fraction):
-            VStack(spacing: 4) {
+            VStack(alignment: alignment, spacing: 4) {
                 ProgressView(value: fraction)
                     .frame(width: 72)
                 Text(Texts.statusLine(status))
@@ -124,7 +177,7 @@ struct StatusView: View {
                 .font(.footnote)
                 .foregroundStyle(color)
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(alignment == .leading ? .leading : .center)
         }
     }
 

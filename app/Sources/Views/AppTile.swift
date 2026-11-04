@@ -26,10 +26,12 @@ final class TileActions {
 }
 
 /// One app's tile, the same in Library and on Home: a tap starts the app or says why not, touch and hold offers Get
-/// Info, the favorite and Delete; while selecting, a tap selects.
+/// Info, the favorite and Delete; while selecting, a tap selects. As a row of the List view, a swipe right makes it a
+/// favorite and a swipe left deletes it (the navigation design, section 3).
 struct AppTile: View {
     let item: LibraryItem
     let actions: TileActions
+    var asRow = false
     /// Tells the app's tiles apart where it has more than one.
     var key = ""
     var iconSize: CGFloat = 60
@@ -43,46 +45,71 @@ struct AppTile: View {
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
 
     var body: some View {
-        AppCard(item: item, iconSize: iconSize, showsReadyStatus: showsReadyStatus,
-                showsSelection: isSelecting && item.entry != nil, isSelected: isSelected)
-            .contentShape(.rect)
-            .onTapGesture { tap() }
-            .contextMenu {
-                if !isSelecting, let entry = item.entry {
-                    Button("Get Info", systemImage: "info.circle") { actions.shownEntry = entry }
-                    if entry.canBeFavorite {
-                        if item.isFavorite {
-                            Button("Remove from Favorites", systemImage: "star.slash") {
-                                Task { await model.setFavorite([entry], false) }
-                            }
-                        } else {
-                            Button("Add to Favorites", systemImage: "star") {
-                                Task { await model.setFavorite([entry], true) }
-                            }
+        Group {
+            if asRow {
+                AppRow(item: item, showsSelection: isSelecting && item.entry != nil, isSelected: isSelected)
+            } else {
+                AppCard(item: item, iconSize: iconSize, showsReadyStatus: showsReadyStatus,
+                        showsSelection: isSelecting && item.entry != nil, isSelected: isSelected)
+            }
+        }
+        .contentShape(.rect)
+        .onTapGesture { tap() }
+        .contextMenu {
+            if !isSelecting, let entry = item.entry {
+                Button("Get Info", systemImage: "info.circle") { actions.shownEntry = entry }
+                if entry.canBeFavorite {
+                    if item.isFavorite {
+                        Button("Remove from Favorites", systemImage: "star.slash") {
+                            Task { await model.setFavorite([entry], false) }
                         }
-                    }
-                    Button("Report a Problem", systemImage: "exclamationmark.bubble") {
-                        actions.reporting = model.report(of: entry)
-                    }
-                    Divider()
-                    if !entry.id.hasPrefix("file:") {
-                        Button("Clear App Data", systemImage: "eraser", role: .destructive) {
-                            actions.clearing = entry
-                            actions.clearingTile = tileKey
+                    } else {
+                        Button("Add to Favorites", systemImage: "star") {
+                            Task { await model.setFavorite([entry], true) }
                         }
-                    }
-                    Button("Delete", systemImage: "trash", role: .destructive) {
-                        actions.deleting = entry
-                        actions.deletingTile = tileKey
                     }
                 }
+                Button("Report a Problem", systemImage: "exclamationmark.bubble") {
+                    actions.reporting = model.report(of: entry)
+                }
+                Divider()
+                if !entry.id.hasPrefix("file:") {
+                    Button("Clear App Data", systemImage: "eraser", role: .destructive) {
+                        actions.clearing = entry
+                        actions.clearingTile = tileKey
+                    }
+                }
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    actions.deleting = entry
+                    actions.deletingTile = tileKey
+                }
             }
-            .deletionDialog(isPresented: deletionShown, entries: actions.deleting.map { [$0] }) { entries in
-                Task { await model.remove(entries) }
+        }
+        .swipeActions(edge: .leading) {
+            if asRow, !isSelecting, let entry = item.entry, entry.canBeFavorite {
+                Button(item.isFavorite ? "Unfavorite" : "Favorite",
+                       systemImage: item.isFavorite ? "star.slash" : "star") {
+                    Task { await model.setFavorite([entry], !item.isFavorite) }
+                }
+                .tint(.yellow)
             }
-            .clearDataDialog(isPresented: clearingShown, entry: actions.clearing) { entry in
-                Task { await model.clearData(of: entry) }
+        }
+        .swipeActions(edge: .trailing) {
+            if asRow, !isSelecting, let entry = item.entry {
+                // It asks first, so the row stays until the answer.
+                Button("Delete", systemImage: "trash") {
+                    actions.deleting = entry
+                    actions.deletingTile = tileKey
+                }
+                .tint(.red)
             }
+        }
+        .deletionDialog(isPresented: deletionShown, entries: actions.deleting.map { [$0] }) { entries in
+            Task { await model.remove(entries) }
+        }
+        .clearDataDialog(isPresented: clearingShown, entry: actions.clearing) { entry in
+            Task { await model.clearData(of: entry) }
+        }
     }
 
     private var tileKey: String { key + item.id }
@@ -193,11 +220,21 @@ private struct TileActionsModifier: ViewModifier {
 }
 
 /// Home's and Library's tiles in 4 columns as the Home Screen lays out its apps on this device (HomeScreenGrid): its
-/// icon size and row pitch, the margins as wide as the gaps, over the `width` the grid has.
-struct TileGrid<Item: Identifiable, Tile: View>: View {
+/// icon size and row pitch, the margins as wide as the gaps, over the `width` the grid has. With `move`, tiles are
+/// dragged into another place (`reordering`).
+struct TileGrid<Item: Identifiable, Tile: View>: View where Item.ID: Sendable {
     let items: [Item]
     let width: CGFloat
+    var move: (([Item.ID], Item.ID?) -> Void)?
     @ViewBuilder let tile: (Item, CGFloat) -> Tile
+
+    init(items: [Item], width: CGFloat, move: (([Item.ID], Item.ID?) -> Void)? = nil,
+         @ViewBuilder tile: @escaping (Item, CGFloat) -> Tile) {
+        self.items = items
+        self.width = width
+        self.move = move
+        self.tile = tile
+    }
 
     var body: some View {
         let grid = HomeScreenGrid(width: width, screenWidth: Self.screenWidth)
@@ -207,7 +244,9 @@ struct TileGrid<Item: Identifiable, Tile: View>: View {
         LazyVGrid(columns: columns,
                   spacing: grid.rowSpacing(labelLineHeight: UIFont.preferredFont(forTextStyle: .caption1).lineHeight)) {
             ForEach(items) { tile($0, grid.iconSize) }
+                .reorderableItems()
         }
+        .reordering(Item.self, move: move)
         .padding(.horizontal, grid.spacing / 2)
     }
 
@@ -215,5 +254,33 @@ struct TileGrid<Item: Identifiable, Tile: View>: View {
     private static var screenWidth: CGFloat {
         let bounds = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds ?? .zero
         return min(bounds.width, bounds.height)
+    }
+}
+
+extension DynamicViewContent {
+    /// Items that a `reordering` container around them drags into another place, from iOS 27.
+    @ViewBuilder func reorderableItems() -> some View {
+        if #available(iOS 27.0, *) { reorderable() } else { self }
+    }
+}
+
+extension View {
+    /// Drags the `reorderableItems` inside into another place, as on the Home Screen: touch and hold, then move the
+    /// finger. From iOS 27, whose SwiftUI reorders grids and lists without an edit mode beside a context menu (the
+    /// navigation design's risks); `move` gets the dragged items and the item they go before, nil for the end. Without
+    /// `move`, or before iOS 27, nothing moves.
+    @ViewBuilder func reordering<Item: Identifiable>(_ item: Item.Type,
+                                                     move: (([Item.ID], Item.ID?) -> Void)?) -> some View
+    where Item.ID: Sendable {
+        if #available(iOS 27.0, *) {
+            reorderContainer(for: Item.self, isEnabled: move != nil) { difference in
+                switch difference.destination.position {
+                case .before(let id): move?(difference.sources, id)
+                case .end: move?(difference.sources, nil)
+                }
+            }
+        } else {
+            self
+        }
     }
 }

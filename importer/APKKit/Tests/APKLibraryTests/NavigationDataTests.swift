@@ -189,6 +189,60 @@ struct NavigationDataTests {
         #expect(sorted(.size, ascending: false) == ["a", "c", "d", "b"])
     }
 
+    // MARK: - The "…" menu's sort order (the navigation design, section 3)
+
+    @Test func choosingAnotherOrderTakesItsDirectionInFiles() {
+        let manual = LibraryArrangement()
+        #expect(manual == LibraryArrangement(sort: .manual, ascending: true))
+        #expect(manual.choosing(.name) == LibraryArrangement(sort: .name, ascending: true))
+        // The newest and the largest first.
+        #expect(manual.choosing(.dateAdded) == LibraryArrangement(sort: .dateAdded, ascending: false))
+        #expect(manual.choosing(.lastOpened) == LibraryArrangement(sort: .lastOpened, ascending: false))
+        #expect(manual.choosing(.size) == LibraryArrangement(sort: .size, ascending: false))
+        #expect(LibraryArrangement(sort: .size, ascending: true).choosing(.name)
+            == LibraryArrangement(sort: .name, ascending: true))
+    }
+
+    @Test func choosingTheActiveOrderAgainFlipsItsDirectionButManualHasNone() {
+        let name = LibraryArrangement(sort: .name, ascending: true)
+        #expect(name.choosing(.name) == LibraryArrangement(sort: .name, ascending: false))
+        #expect(name.choosing(.name).choosing(.name) == name)
+        #expect(LibraryArrangement().choosing(.manual) == LibraryArrangement())
+    }
+
+    @Test func onlyTheManualOrderWithoutASearchMovesApps() {
+        #expect(LibraryArrangement().movesApps(searching: false))
+        #expect(!LibraryArrangement().movesApps(searching: true))
+        #expect(!LibraryArrangement(sort: .name, ascending: true).movesApps(searching: false))
+    }
+
+    @Test func theArrangementSortsTheEntries() {
+        #expect(LibraryArrangement().arranged(entries, lastOpened: opened).map(\.id) == ["b", "a", "c", "d"])
+        #expect(LibraryArrangement(sort: .size, ascending: false).arranged(entries, lastOpened: opened).map(\.id)
+            == sorted(.size, ascending: false))
+    }
+
+    @Test func movingSeveralAppsKeepsTheirOrderAndEveryOtherEntry() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try await library(sandbox, ["a.app", "b.app", "c.app", "d.app", "e.app"])
+
+        try await library.move(["d.app", "b.app"], before: "a.app")
+        #expect(await ids(library) == ["d.app", "b.app", "a.app", "c.app", "e.app"])
+        try await library.move(["a.app", "e.app"], before: nil)
+        #expect(await ids(library) == ["d.app", "b.app", "c.app", "a.app", "e.app"])
+        // Before one of the moving apps: before the next app that stays.
+        try await library.move(["e.app", "d.app"], before: "d.app")
+        #expect(await ids(library) == ["e.app", "d.app", "b.app", "c.app", "a.app"])
+        // Unknown apps move nowhere, and before an unknown app nothing moves.
+        try await library.move(["x.app", "c.app"], before: "e.app")
+        #expect(await ids(library) == ["c.app", "e.app", "d.app", "b.app", "a.app"])
+        try await library.move(["a.app"], before: "x.app")
+        #expect(await ids(library) == ["c.app", "e.app", "d.app", "b.app", "a.app"])
+        #expect(try await Library(paths: sandbox.paths).entries.map(\.id)
+            == ["c.app", "e.app", "d.app", "b.app", "a.app"])
+    }
+
     @Test func neverOpenedAppsComeLastInBothDirections() {
         #expect(sorted(.lastOpened, ascending: true) == ["a", "d", "b", "c"])
         #expect(sorted(.lastOpened, ascending: false) == ["b", "d", "a", "c"])

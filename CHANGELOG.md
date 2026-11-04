@@ -33,6 +33,8 @@ All notable changes to Minato are documented in this file. The format follows
 - Favorites: mark an app from its menu (touch and hold) or several at once in Select mode, and a small star marks
   them in the library
 - Home shows the apps you opened last and your favorites; touch and hold an app there works as in the library
+- The library's "…" menu shows your apps as icons or as a list, sorted by name, date added, last opened or size, or
+  in your own order, which you set on iOS 27 and later by dragging an app to another place
 - Clear App Data, in an app's menu and in Get Info: it deletes the app's saved data, such as progress and settings,
   as Android's Clear storage does, and keeps the app and its OBB files
 - Settings › Storage lists each app's space, the app and its data apart, largest first

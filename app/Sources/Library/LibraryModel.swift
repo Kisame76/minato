@@ -297,7 +297,12 @@ final class LibraryModel {
         }
     }
 
-    var items: [LibraryItem] {
+    /// The tiles in the manual order.
+    var items: [LibraryItem] { items(arranged: LibraryArrangement()) }
+
+    /// The installed apps in the order of the "…" menu, then the picks still being installed, at the end where a new
+    /// app lands in the manual order (the navigation design, section 3).
+    func items(arranged arrangement: LibraryArrangement) -> [LibraryItem] {
         let waiting = pending.map { unit in
             LibraryItem(
                 id: "pending:" + unit.url.lastPathComponent,
@@ -306,8 +311,7 @@ final class LibraryModel {
                 entry: nil,
                 iconURL: nil)
         }
-        let installed = entries
-            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        let installed = arrangement.arranged(entries, lastOpened: lastOpened)
             .map { entry in
                 LibraryItem(
                     id: entry.id,
@@ -318,7 +322,7 @@ final class LibraryModel {
                     iconURL: entry.iconFile.flatMap { paths?.applicationSupport.appendingPathComponent($0) },
                     isFavorite: favorites.contains(entry.id))
             }
-        return waiting + installed
+        return installed + waiting
     }
 
     /// Installs picks that are not installed yet, one unit after the other. A call while a refresh
@@ -564,6 +568,18 @@ final class LibraryModel {
         guard !entry.id.hasPrefix("file:") else { return }
         await removeWebData(of: entry)
         if let paths { LastSessionStore(folder: paths.applicationSupport).forget(package: entry.id) }
+    }
+
+    /// Moves the apps `ids` in the manual order to just before `before`, or to the end for nil, as a drag does (the
+    /// navigation design, section 3).
+    func move(_ ids: [String], before: String?) async {
+        guard let library else { return }
+        do {
+            try await library.move(ids, before: before)
+        } catch {
+            errorMessage = "The order could not be saved: \(error.localizedDescription)"
+        }
+        entries = await library.entries
     }
 
     /// Makes the apps favorites, or no favorites any more (the navigation design, section 3).

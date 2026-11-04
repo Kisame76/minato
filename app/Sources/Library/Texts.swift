@@ -21,6 +21,17 @@ enum Texts {
         }
     }
 
+    /// The sort orders in the library's "…" menu, Apple's words (the navigation design, section 3).
+    static func sortName(_ sort: LibrarySort) -> String {
+        switch sort {
+        case .manual: "Manual"
+        case .name: "Name"
+        case .dateAdded: "Date Added"
+        case .lastOpened: "Last Opened"
+        case .size: "Size"
+        }
+    }
+
     static func statusLine(_ status: LibraryItem.Status) -> String {
         switch status {
         case .new: "New"

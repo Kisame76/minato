@@ -1469,11 +1469,26 @@ public actor Library {
     /// Moves the app `id` in the manual order to just before `before`, or to the end for nil; saves once. Nothing for
     /// an unknown app or a move before itself.
     public func move(_ id: String, before: String?) throws {
-        guard id != before, let moving = entries.first(where: { $0.id == id }) else { return }
-        var changed = entries.filter { $0.id != id }
-        guard let position = before.map({ target in changed.firstIndex { $0.id == target } }) ?? changed.endIndex
+        try move([id], before: before)
+    }
+
+    /// Moves the apps `ids`, in that order, to just before `before`, or to the end for nil, as a drag of several apps
+    /// does; saves once. Before one of them is before the next app that stays. Unknown apps are none; before an unknown
+    /// app nothing moves.
+    public func move(_ ids: [String], before: String?) throws {
+        var seen = Set<String>()
+        let moving = ids.filter { seen.insert($0).inserted }.compactMap { id in entries.first { $0.id == id } }
+        let movingIDs = Set(moving.map(\.id))
+        guard !moving.isEmpty else { return }
+        var target = before
+        if let before, movingIDs.contains(before), let index = entries.firstIndex(where: { $0.id == before }) {
+            target = entries[index...].first { !movingIDs.contains($0.id) }?.id
+        }
+        var changed = entries.filter { !movingIDs.contains($0.id) }
+        guard let position = target.map({ target in changed.firstIndex { $0.id == target } }) ?? changed.endIndex
         else { return }
-        changed.insert(moving, at: position)
+        changed.insert(contentsOf: moving, at: position)
+        guard changed.map(\.id) != entries.map(\.id) else { return }
         try save(changed)
         entries = changed
     }
