@@ -670,6 +670,54 @@ TEST(takes_a_c_function_with_a_co_resident_syscall) {
     }
 }
 
+// ADR-0020 option (c) step A3: a (c) function whose FIRST instruction becomes a veneer branch -- a thread-pointer read
+// into a real register, or a thread-pointer write -- is refused. The gate's c_entry_runs_first_instruction lets a
+// mrs/msr through (it only blocks a branch, a pc-relative word or a literal load), so the site loop patches that begin
+// instruction to `b <veneer>`; c_sync_points classifies offset 0 as the entry, not a branch_exit, so emit_c_entry runs
+// that branch as the entry's "first instruction" with NO R->slot-11 store before it. A signal in that veneer would
+// read slot 11 relying on it still holding the entry x18, and re-basing the entry's branch is an unverified corner.
+// Refuse it (a named limit; a function seldom starts with a thread-pointer read or write). A svc at begin needs no
+// handling here -- is_branch(svc) is true, so c_entry_runs_first_instruction already makes the gate refuse it. scan()
+// builds this directly, and before A3 keep-clear kept the function (A2), so this is red until the begin-drop lands.
+TEST(drops_a_c_function_whose_first_instruction_is_a_thread_pointer_read) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // fn = [0x200, 0x218)
+    prog.put<std::uint32_t>(0x200, 0xd53b'd040);  // mrs x0, TPIDR_EL0 AS the first instruction: becomes a veneer branch
+    prog.put<std::uint32_t>(0x204, 0xd503'201f);  // nop: clear the stack-guard load
+    // nop: clear the default svc, so the begin read is the only veneer site
+    prog.put<std::uint32_t>(0x208, 0xd503'201f);
+    prog.put<std::uint32_t>(0x20c, 0xd503'201f);  // nop: was msr TPIDR_EL0
+    prog.put<std::uint32_t>(0x210, 0xd503'201f);  // nop: was mrs xzr
+    prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18: the hard x18 use, so the gate takes fn on its own
+    const auto scan = apk::container::scan_code(prog.bytes);
+    auto plan = apk::container::c_rename_plan(prog.bytes, scan.findings.x18_unsupported);
+    CHECK(plan.functions.size() == 1 && plan.functions[0].begin == 0x200);  // the gate takes it (mrs is not a branch)
+    CHECK(plan.covered_sites == std::vector<std::uint64_t>{0x214});
+    apk::container::keep_c_functions_clear_of_islands(plan, scan.findings);
+    CHECK(plan.functions.empty());      // A3 drops it: the veneer branch coincides with the entry
+    CHECK(plan.covered_sites.empty());  // its site is no longer covered, so convert() refuses the file
+}
+
+// A3 refuses only a site that becomes a veneer BRANCH at begin. A thread-pointer read into xzr (mrs xzr) is patched to
+// a nop with no stub (emit() returns nop for a read into xzr), so there is no entry/veneer clash -- emit_c_entry just
+// re-bases the nop. The function stays taken; A3 must not over-refuse it (all apps by default). This goes red only if
+// A3 drops a begin-coincident into-xzr read, so it guards the carve-out.
+TEST(keeps_a_c_function_whose_first_instruction_is_a_thread_pointer_read_into_xzr) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // fn = [0x200, 0x218)
+    // mrs xzr, TPIDR_EL0 AS the first instruction: a no-stub nop, no branch
+    prog.put<std::uint32_t>(0x200, 0xd53b'd05f);
+    prog.put<std::uint32_t>(0x204, 0xd503'201f);  // nop
+    prog.put<std::uint32_t>(0x208, 0xd503'201f);  // nop: clear the default svc
+    prog.put<std::uint32_t>(0x20c, 0xd503'201f);  // nop: was msr TPIDR_EL0
+    prog.put<std::uint32_t>(0x210, 0xd503'201f);  // nop
+    prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18: the hard x18 use, so (c) takes fn
+    const auto scan = apk::container::scan_code(prog.bytes);
+    auto plan = apk::container::c_rename_plan(prog.bytes, scan.findings.x18_unsupported);
+    CHECK(plan.functions.size() == 1 && plan.functions[0].begin == 0x200);
+    apk::container::keep_c_functions_clear_of_islands(plan, scan.findings);
+    CHECK(plan.functions.size() == 1);  // kept: the into-xzr read is a nop, not a veneer branch at the entry
+    CHECK(plan.covered_sites == std::vector<std::uint64_t>{0x214});
+}
+
 TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
     // ADR-0007 decision 2, as amended: the whole image moves by a multiple of 4 KiB, as AOSP's 16 KiB compat mode
     // moves its load bias, and nothing in it changes.

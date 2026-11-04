@@ -858,12 +858,15 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
 // before the veneer runs -- so a signal stopped in the veneer, which reads slot 11, sees the current x18 (the pre-
 // count reserves that branch_exit island through c_function_preview below). A signal's READ there is exact; a handler
 // that WRITES x18 between that store and the resume at site+4 (the island's pop/b tail and the veneer, not the
-// dispatcher) reaches only slot 11, not the register -- the A2 lost-write limit. Two kinds of island still drop the
-// function and keep it refused: a jump table (whether (c) renames a `br x18` to `br <register>` correctly is not yet
-// verified, so we do not suppress its island -- a named limit for a later step), and an exclusive window that
-// straddles the function's begin or end (A1b): a window wholly inside is renamed in place, but one that only overlaps
-// would leave its words outside [begin, end) on physical x18 while the inside words become the register, and no
-// island can span both halves -- so drop the function.
+// dispatcher) reaches only slot 11, not the register -- the A2 lost-write limit. Three things still drop the function
+// and keep it refused: a jump table (whether (c) renames a `br x18` to `br <register>` correctly is not yet verified,
+// so we do not suppress its island -- a named limit for a later step); an exclusive window that straddles the
+// function's begin or end (A1b): a window wholly inside is renamed in place, but one that only overlaps would leave
+// its words outside [begin, end) on physical x18 while the inside words become the register, and no island can span
+// both halves; and a thread-pointer read into a real register, or a thread-pointer write, AS the first instruction
+// (A3): it becomes a veneer branch at offset 0, which c_sync_points reads as the entry rather than a branch_exit, so
+// emit_c_entry would run it with no R->slot-11 store before the veneer -- a named limit (a svc at begin the gate
+// already refuses as a branch, and a read into xzr is a harmless no-stub nop, so neither drops the function here).
 void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Findings &findings) {
     const auto holds_an_island_c_cannot_absorb = [&](const WholeFunctionRename &function) {
         const auto inside = [&](std::uint64_t address) { return address >= function.begin && address < function.end; };
@@ -874,6 +877,20 @@ void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Finding
             const bool overlaps = start < function.end && stop > function.begin;
             const bool wholly_inside = start >= function.begin && stop <= function.end;
             if (overlaps && !wholly_inside) return true;  // straddles a boundary (scan cannot build this; defense)
+        }
+        // A3: a thread-pointer or syscall site AS the first instruction becomes a veneer BRANCH there, but
+        // c_sync_points reads offset 0 as the entry, not a branch_exit -- emit_c_entry runs that branch as the entry's
+        // "first instruction" with no R->slot-11 store before it, so a signal in the veneer would read slot 11 relying
+        // on it still holding the entry x18, and re-basing the entry branch is unverified. Refuse the function (a named
+        // limit). The gate already refuses a svc at begin (is_branch), so in practice only a mrs/msr reaches here; a
+        // thread-pointer read into xzr is a no-stub nop, not a branch, so it does not drop the function.
+        for (const auto &site : findings.sites) {
+            if (site.address != function.begin) continue;
+            const bool into_xzr = site.kind == rewrite::SiteKind::thread_pointer_read && site.reg == 31;
+            if (!into_xzr && (site.kind == rewrite::SiteKind::thread_pointer_read ||
+                              site.kind == rewrite::SiteKind::thread_pointer_write ||
+                              site.kind == rewrite::SiteKind::syscall))
+                return true;
         }
         return false;
     };

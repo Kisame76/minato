@@ -145,10 +145,13 @@ struct CRenamePlan {
 /// The option (c) plan for `elf`'s refused x18 `uses` (see CRenamePlan). `elf` is the file scan_code saw.
 CRenamePlan c_rename_plan(std::span<const std::byte> elf, std::span<const rewrite::Unsupported> uses);
 
-/// Drops from `plan` every function holding an island option (c) cannot absorb -- a thread-pointer or syscall site, a
-/// jump table, or an exclusive window that overlaps the function without lying wholly inside it (its words would
-/// straddle the rename boundary) -- and prunes covered_sites to match, leaving those functions refused. convert()
-/// calls this on the plan before sizing the island and (c)-range tables.
+/// Drops from `plan` every function holding an island option (c) cannot absorb -- a jump table; an exclusive window
+/// that overlaps the function without lying wholly inside it (its words would straddle the rename boundary); or a
+/// thread-pointer read into a real register, or a thread-pointer write, AS the first instruction (A3: it becomes a
+/// veneer branch at the entry, which c_sync_points reads as the entry, not a branch_exit) -- and prunes covered_sites
+/// to match, leaving those functions refused. A thread-pointer or syscall site elsewhere in the body is kept and
+/// handled through its branch_exit sync (A2). convert() calls this on the plan before sizing the island and
+/// (c)-range tables.
 void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Findings &findings);
 
 /// Of the refused x18 `uses`, how many sit in a function option (c) would take (c_rename_plan's covered_sites count).
