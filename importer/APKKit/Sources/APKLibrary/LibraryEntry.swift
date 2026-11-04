@@ -40,6 +40,9 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// The checksum of the boot class path for which compiling this version failed or was ended by iOS (E5): not
     /// tried again for it; nil when no compile failed.
     public var compileFailed: String? = nil
+    /// How often iOS ended this version's compile before it finished, for one boot class path (E5); nil when it did
+    /// not.
+    public var compileInterrupted: CompileInterruption? = nil
     /// The installed version's folder in apps/<package>/, the first 16 hex digits of its APK's SHA-256
     /// (ADR-0034), or of a split set's digest (ADR-0048, decision 6); nil for an entry from before version folders,
     /// whose files lie in apps/<package>/.

@@ -10,7 +10,9 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "sess
 /// Compile mode (ADR-0053, M6 c, E5): a process of its own, as ART allows one runtime per process, that runs dex2oat
 /// for one app into its CompileWork folder in Caches and then restarts into the library, which signs and keeps the
 /// code. No other guest runtime starts in it. The runtime writes dex2oat's exit status to the folder, also at a crash;
-/// a process that iOS ends, for using too much memory say, leaves none, and the library records a failure for it.
+/// a process that iOS ends, for using too much memory say, leaves none, and the library counts it (a second such end
+/// records a failure). A background task holds the process while dex2oat runs, so that a press of the Home button does
+/// not suspend it at once.
 @MainActor
 @Observable
 final class CompileSession {
@@ -19,6 +21,7 @@ final class CompileSession {
     private(set) var restartFailed = false
     @ObservationIgnored private var work: CompileWork?
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var backgroundTask = UIBackgroundTaskIdentifier.invalid
     /// The process's session, for the end handler, which cannot capture.
     private static var current: CompileSession?
 
@@ -32,30 +35,43 @@ final class CompileSession {
         guard !started else { return }
         started = true
         Self.current = self
-        guard let paths = try? LibraryPaths.standard(), let bundle = Bundle.main.resourceURL,
-              let digest = entry.base?.sha256 else { return back("the app's files are not known") }
+        // Without the checksum no session asks for compile mode, so there is nothing to record.
+        guard let paths = try? LibraryPaths.standard(), let guest = Bundle.main.resourceURL?.appending(path: "Guest"),
+              let bootClassPath = GuestStart.bootClassPathChecksum(guestSystem: guest.path)
+        else { return back("the boot class path's checksum is not known") }
         let work = CompileWork(caches: paths.caches, package: entry.id)
-        self.work = work
-        let apk = paths.versionDirectory(for: entry).appending(path: "base.apk").path
-        guard let start = GuestStart(compile: entry.id, apk: apk, apkSHA256: digest, output: work.folder.path,
-                                     guestSystem: bundle.appending(path: "Guest").path)
-        else { return back("the app's digest is no SHA-256") }
         do {
-            try work.prepare()
+            try work.prepare(bootClassPath: bootClassPath)
         } catch {
             return back("its folder: \(error.localizedDescription)")
         }
+        // From here on a start that fails leaves a status, which the library records as a failure.
+        self.work = work
+        let apk = paths.versionDirectory(for: entry).appending(path: "base.apk").path
+        guard let digest = entry.base?.sha256,
+              let start = GuestStart(compile: entry.id, apk: apk, apkSHA256: digest, output: work.folder.path,
+                                     guestSystem: guest.path)
+        else { return back("the app's digest is no SHA-256") }
         let descriptor = open(work.statusFile.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
         apkrt_report_exit_status(descriptor)
         if let failure = Self.begin(start) { return back(failure) }
         #if DEBUG
         SessionCheck.guestStarts()
         #endif
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Optimizing") { [weak self] in
+            self?.endBackgroundTask()
+        }
         log.info("Compiling \(self.entry.id, privacy: .public)")
         #if DEBUG
         SessionCheck.event("compile started \(entry.id)")
         #endif
+        #if DEBUG
+        let hold = SessionCheck.compileHold
+        #else
+        let hold = 0.0
+        #endif
         Task.detached {
+            if hold > 0 { try? await Task.sleep(for: .seconds(hold)) }
             if let failure = Self.startProgram(start) {
                 await MainActor.run { self.back(failure) }
             }
@@ -77,9 +93,10 @@ final class CompileSession {
         restart()
     }
 
-    /// It did not start: the folder has no status, which the library takes as a failure.
+    /// It did not start: in a prepared folder, a failure's status, which the library records.
     private func back(_ reason: String) {
         log.error("\(self.entry.id, privacy: .public) is not compiled: \(reason, privacy: .public)")
+        if let work { try? Data("1\n".utf8).write(to: work.statusFile) }
         #if DEBUG
         SessionCheck.event("compile not started \(reason)")
         #endif
@@ -101,8 +118,18 @@ final class CompileSession {
     }
     #endif
 
+    /// Back to the library; in the background, where no restart comes to the front, the process ends and the next
+    /// launch opens the library, which takes the folder.
     private func restart() {
+        endBackgroundTask()
+        guard UIApplication.shared.applicationState != .background else { _exit(0) }
         Restart.now { [weak self] in self?.restartFailed = true }
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 
     /// The compile start's paths and a session with only an end handler, so that dex2oat's end comes back here

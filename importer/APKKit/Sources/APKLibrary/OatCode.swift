@@ -14,6 +14,18 @@ public struct CompiledCode: Codable, Equatable, Sendable {
     }
 }
 
+/// How often iOS ended the compile of an app's version for a boot class path before it had a status (E5): its memory,
+/// or a swipe away while compile mode was suspended. The second end records a failure.
+public struct CompileInterruption: Codable, Equatable, Sendable {
+    public var bootClassPath: String
+    public var count: Int
+
+    public init(bootClassPath: String, count: Int) {
+        self.bootClassPath = bootClassPath
+        self.count = count
+    }
+}
+
 extension Library {
     /// Keeps the oat that dex2oat made for the app `id`: base.odex and base.vdex in the version's oat/, the odex's
     /// signed container in oat-containers/. Both folders are made whole or not at all; a container the converter
@@ -44,6 +56,7 @@ extension Library {
         try record(id: id) {
             $0.compiled = CompiledCode(bootClassPath: bootClassPath, containerVersion: converter.containerVersion)
             $0.compileFailed = nil
+            $0.compileInterrupted = nil
         }
     }
 
@@ -51,6 +64,16 @@ extension Library {
     /// that compile mode does not follow every session of the app (E5); a new version or boot class path tries again.
     public func recordCompileFailure(id: String, bootClassPath: String) throws {
         try record(id: id) { $0.compileFailed = bootClassPath }
+    }
+
+    /// Counts an end of the compile that iOS made (E5): the first for a boot class path tries again after the next
+    /// session, and the second records the failure, so that a compile iOS cannot finish never loops.
+    public func recordCompileInterruption(id: String, bootClassPath: String) throws {
+        try record(id: id) {
+            let earlier = $0.compileInterrupted?.bootClassPath == bootClassPath ? $0.compileInterrupted?.count ?? 0 : 0
+            $0.compileInterrupted = CompileInterruption(bootClassPath: bootClassPath, count: earlier + 1)
+            if earlier + 1 >= 2 { $0.compileFailed = bootClassPath }
+        }
     }
 
     /// Takes what a compile start left in its output folder (GuestStart(compile:)): base.odex and base.vdex in its

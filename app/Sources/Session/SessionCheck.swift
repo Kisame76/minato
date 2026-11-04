@@ -43,6 +43,8 @@ import UIKit
 ///   resize   <width>x<height> in pixels: 2 s after the guest's start, game mode takes that size as a layout would,
 ///            as the iPhone Duo's fold gives one (ADR-0041, decision 12), and logs the guest's size and the letterbox;
 ///            the file goes. The view itself keeps its size.
+///   compile-hold  seconds: compile mode waits that long before dex2oat starts, with its screen up and its
+///            background task held, so that a check sees the screen, cancels or goes to the background meanwhile.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -64,6 +66,9 @@ enum SessionCheck {
 
     /// Whether game mode runs without a guest.
     static var withoutGuest: Bool { requested("no-guest") }
+
+    /// How long compile mode waits before dex2oat starts; 0 without the request.
+    static var compileHold: Double { text(of: "compile-hold").flatMap(Double.init) ?? 0 }
 
     /// Whether game mode shows the status bar (ADR-0038, step e).
     static var showsStatusBar: Bool { requested("status-bar") }

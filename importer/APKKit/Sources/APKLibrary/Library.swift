@@ -534,6 +534,7 @@ public actor Library {
         // The compiled code was the old version's folder's, and a compile that failed failed for the old code.
         entry.compiled = nil
         entry.compileFailed = nil
+        entry.compileInterrupted = nil
         entry.updatedAt = installed == nil ? nil : Date()
         entry.obbs = plan.obbs
         entry.packs = packs

@@ -1,14 +1,17 @@
 import Foundation
 
-/// Compile mode's folder for one app (ADR-0053, M6 c, E5): Caches/compile/<package>, the compile start's /out, where
-/// dex2oat writes base.odex and base.vdex and the runtime the exit status. Compile mode cannot sign, so the library
-/// takes the folder at its next start (`Library.takeCompileWork`).
+/// Compile mode's folder for one app (ADR-0053, M6 c, E5): Caches/compile/<package>, the compile start's output, where
+/// dex2oat writes base.odex and base.vdex (in data/local/tmp) and the runtime the exit status, with the boot class path
+/// the compile is for. Compile mode cannot sign, so the library takes the folder at its next start
+/// (`Library.takeCompileWork`).
 public struct CompileWork: Equatable, Sendable {
     public enum Outcome: Equatable, Sendable {
         /// dex2oat ended with 0.
         case compiled
-        /// It ended otherwise, or iOS ended the process (no status), as for using too much memory.
+        /// It ended otherwise, a crash too.
         case failed
+        /// The process ended without a status: iOS ended it, for using too much memory say, or after it was suspended.
+        case endedByIOS
         /// The user cancelled it.
         case cancelled
     }
@@ -29,15 +32,23 @@ public struct CompileWork: Equatable, Sendable {
     public var statusFile: URL { folder.appendingPathComponent("exit-status") }
 
     private var cancelMark: URL { folder.appendingPathComponent("cancelled") }
+    private var bootClassPathFile: URL { folder.appendingPathComponent("boot-class-path") }
 
-    /// The folder made fresh, with dex2oat's /data folders (GuestStart(compile:)'s mounts).
-    public func prepare() throws {
+    /// The folder made fresh, with dex2oat's /data folders (GuestStart(compile:)'s mounts) and the checksum of the boot
+    /// class path the compile is for, which the library records whatever it runs with by then.
+    public func prepare(bootClassPath: String) throws {
         let manager = FileManager.default
         try? manager.removeItem(at: folder)
         for path in ["data/dalvik-cache/arm64", "data/local/tmp"] {
             try manager.createDirectory(at: folder.appendingPathComponent(path, isDirectory: true),
                                         withIntermediateDirectories: true)
         }
+        try Data(bootClassPath.utf8).write(to: bootClassPathFile)
+    }
+
+    /// The checksum `prepare` wrote; nil without one.
+    public var bootClassPath: String? {
+        try? String(contentsOf: bootClassPathFile, encoding: .utf8)
     }
 
     /// The user cancelled the compile: it records no failure, so the app is compiled after a later session.
@@ -49,6 +60,7 @@ public struct CompileWork: Equatable, Sendable {
         if FileManager.default.fileExists(atPath: cancelMark.path) { return .cancelled }
         let status = (try? String(contentsOf: statusFile, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let status, !status.isEmpty else { return .endedByIOS }
         return status == "0" ? .compiled : .failed
     }
 
@@ -60,13 +72,14 @@ public struct CompileWork: Equatable, Sendable {
 }
 
 extension Library {
-    /// Takes what compile mode left (E5) for the boot class path `bootClassPath`: keeps the odex of a compile that
-    /// ended with 0, signed by `converter` (`adoptCompiledOutput`), records a failure for one that failed, ended
-    /// without a whole oat or was ended by iOS, and only removes one the user cancelled. Without a converter, nothing
-    /// signs yet: a compiled output stays for a later start.
+    /// Takes what compile mode left (E5) for the boot class path `bootClassPath` the library runs with: keeps the odex
+    /// of a compile that ended with 0, signed by `converter` (`adoptCompiledOutput`), records a failure for one that
+    /// failed or ended without a whole oat, counts one that iOS ended (`recordCompileInterruption`), and only removes
+    /// one the user cancelled, one made for another boot class path, whose odex is stale, and one of an app no longer
+    /// there. Without a converter, nothing signs yet: a compiled output stays for a later start.
     public func takeCompileWork(bootClassPath: String, converter: (any ContainerConverting)?) throws {
         for work in CompileWork.all(caches: paths.caches) {
-            guard entries.contains(where: { $0.id == work.package }) else {
+            guard entries.contains(where: { $0.id == work.package }), work.bootClassPath == bootClassPath else {
                 try? FileManager.default.removeItem(at: work.folder)
                 continue
             }
@@ -82,6 +95,9 @@ extension Library {
             case .failed:
                 try? FileManager.default.removeItem(at: work.folder)
                 try recordCompileFailure(id: work.package, bootClassPath: bootClassPath)
+            case .endedByIOS:
+                try? FileManager.default.removeItem(at: work.folder)
+                try recordCompileInterruption(id: work.package, bootClassPath: bootClassPath)
             case .cancelled:
                 try? FileManager.default.removeItem(at: work.folder)
             }

@@ -208,6 +208,7 @@ struct OatCodeTests {
         #expect(updated.report?.versionCode == 2)
         #expect(updated.compiled == nil)
         #expect(updated.compileFailed == nil)
+        #expect(updated.compileInterrupted == nil)
         #expect(sandbox.paths.needsCompiling(updated, bootClassPath: "bcp-1"))
     }
 }
