@@ -149,6 +149,9 @@ extension Library {
                 }
                 try contents.write(to: partial.appendingPathComponent(library.name), options: .atomic)
             }
+            // A file that is no ELF file stays as it is in lib/, as Android's installer leaves it: not checked, not
+            // converted, and no reason for the app to be refused.
+            libraries.removeAll(where: \.isPlainFile)
             // What cannot load is found on the extracted files, with or without a certificate: the converter's check
             // and the NEEDED names (ADR-0055 a1 and a3), and whatever needs a library that cannot load. A library of
             // the start path, or one it needs, blocks the app with every reason of every such library; any other is

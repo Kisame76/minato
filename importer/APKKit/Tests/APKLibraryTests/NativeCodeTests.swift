@@ -17,12 +17,17 @@ struct NativeCodeTests {
         var fingerprint = "aa"
         var refuses: String?
         var fails: String?
+        /// Refuses a file that is no ELF file, as the real converter does.
+        var requiresELF = false
         /// Any format version: the app's converter writes APK_CONTAINER_VERSION.
         var containerVersion: UInt32 = 3
 
         func convert(_ elf: URL, to container: URL) throws {
             if elf.lastPathComponent == refuses { throw ConversionRefused(reason: "the file has text relocations") }
             if elf.lastPathComponent == fails { throw CocoaError(.fileWriteUnknown) }
+            if requiresELF, try Data(contentsOf: elf).prefix(4) != Data([0x7F, 0x45, 0x4C, 0x46]) {
+                throw ConversionRefused(reason: "it is not an ELF file")
+            }
             try (Data("\(fingerprint):".utf8) + Data(contentsOf: elf)).write(to: container)
         }
     }
@@ -82,6 +87,16 @@ struct NativeCodeTests {
         return zip.build().data
     }
 
+    /// A NativeActivity app with ELF libraries and files in lib/arm64-v8a/ that are no ELF files, as python-for-android
+    /// packs its Python bundle (libpybundle.so) so that the installer extracts it.
+    static func handMadeAPK(libraries: [String], plain: [String: Data]) throws -> Data {
+        var zip = ZipBuilder()
+        zip.add("AndroidManifest.xml", try manifest(extractNativeLibs: true))
+        for name in libraries { zip.add("lib/arm64-v8a/\(name)", library(name)) }
+        for (name, contents) in plain { zip.add("lib/arm64-v8a/\(name)", contents) }
+        return zip.build().data
+    }
+
     static func names(in folder: URL) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
     }
@@ -111,6 +126,48 @@ struct NativeCodeTests {
         // Signing again (ADR-0023) finds what the import converted.
         #expect(await library.resignCandidates() == [ResignCandidate(id: result.entry.id, signedWith: "aa", containerCount: 2)])
         #expect(try await Library(paths: sandbox.paths).entries.first?.signedWith == "aa")
+    }
+
+    /// Android's installer copies any lib/<abi>/lib*.so as a file, whatever its contents; only an ELF file is a library
+    /// to convert. A python-for-android app's libpybundle.so (a tar of the Python bundle) stays a plain file in lib/,
+    /// is not checked and has no container, and the app stays ready.
+    @Test func aLibraryFileThatIsNoELFFileStaysAPlainFile() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        await library.use(checker: NativeCodeFindingsTests.Checker(reasons: ["libpybundle.so": ["it is not an ELF file"]]))
+        let bundle = Data("not an ELF file, a tar of the Python bundle".utf8) + Data(count: 5_000)
+
+        let result = try await library.importFile(
+            sandbox.file(Self.handMadeAPK(libraries: ["libactivity-test.so"], plain: ["libpybundle.so": bundle]),
+                         named: "activity-test.apk"),
+            signing: Self.signing(Converter(requiresELF: true)))
+
+        #expect(result.entry.state == .ready)
+        let lib = sandbox.paths.libraryDirectory(for: result.entry)
+        #expect(Self.names(in: lib) == ["libactivity-test.so", "libactivity-test.so.dylib", "libpybundle.so"])
+        #expect(try Data(contentsOf: lib.appendingPathComponent("libpybundle.so")) == bundle)
+        let issues = result.entry.report?.compatibility.issues ?? []
+        #expect(!issues.contains { if case .libraryDegraded = $0 { true } else { false } })
+        #expect(!issues.contains { if case .conversionFailed = $0 { true } else { false } })
+        #expect(!issues.contains { if case .unreadableLibrary = $0 { true } else { false } })
+    }
+
+    /// Signing again (a new certificate) converts the ELF originals only, and counts only them.
+    @Test func signingAgainLeavesAPlainLibraryFileAlone() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let result = try await library.importFile(
+            sandbox.file(Self.handMadeAPK(libraries: ["libactivity-test.so"], plain: ["libpybundle.so": Data(count: 3_000)]),
+                         named: "activity-test.apk"),
+            signing: Self.signing(Converter(requiresELF: true)))
+
+        let converter = Converter(fingerprint: "bb", requiresELF: true)
+        #expect(await library.resignCandidates() == [ResignCandidate(id: result.entry.id, signedWith: "aa", containerCount: 1)])
+        #expect(try await library.resign(id: result.entry.id, fingerprint: "bb", with: converter) == 1)
+        let lib = sandbox.paths.libraryDirectory(for: result.entry)
+        #expect(Self.names(in: lib) == ["libactivity-test.so", "libactivity-test.so.dylib", "libpybundle.so"])
     }
 
     @Test func convertsTheLibraryOfASampleAPK() async throws {

@@ -214,7 +214,7 @@ public enum APKAnalyzer {
             if let elf = library.elf, !elf.isAArch64 {
                 issues.append(.wrongArchitecture(library.name))
                 blocked = true
-            } else if library.elf == nil {
+            } else if library.elf == nil && !library.isPlainFile {
                 issues.append(.unreadableLibrary(library.name))
             }
         }

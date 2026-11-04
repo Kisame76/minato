@@ -78,6 +78,11 @@ public struct NativeLibrary: Sendable, Equatable, Codable {
     public var problem: String?
     /// The split APK that holds it in a split set (ADR-0048, decision 8); nil for the base, and in reports from before.
     public var split: String? = nil
+
+    /// A file that is no ELF file (no ELF magic): Android's installer copies any lib/<abi>/lib*.so as a file whatever its
+    /// contents, and a python-for-android app packs its Python bundle that way (libpybundle.so), so it is a plain file,
+    /// not a library to check or convert.
+    public var isPlainFile: Bool { elf == nil && problem?.contains("missing ELF magic") == true }
 }
 
 public struct Compatibility: Sendable, Equatable, Codable {

@@ -83,11 +83,14 @@ extension Library {
         try recordAll { $0.signedWith = nil }
     }
 
-    /// The ELF originals in the lib/ folder of the entry's installed version (ADR-0034), sorted by name.
+    /// The ELF originals in the lib/ folder of the entry's installed version (ADR-0034), sorted by name; files that are no
+    /// ELF files stay out.
     func libraryFiles(of id: String) -> [URL] {
         guard !id.hasPrefix("file:"), Self.isSafePackageName(id), let entry = entries.first(where: { $0.id == id }) else { return [] }
         let folder = paths.libraryDirectory(for: entry)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        return names.filter { $0.hasSuffix(".so") }.sorted().map { folder.appendingPathComponent($0) }
+        // A file the analysis found to be no ELF file (python-for-android's libpybundle.so) is not a library.
+        let plain = Set(entry.report?.nativeLibraries.filter(\.isPlainFile).map(\.name) ?? [])
+        return names.filter { $0.hasSuffix(".so") && !plain.contains($0) }.sorted().map { folder.appendingPathComponent($0) }
     }
 }
