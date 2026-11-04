@@ -155,6 +155,10 @@ APPS+=("obb-test io.github.kisame76.minato.test.obb")
 # packs-test comes as a bundletool .apks, which this check imports in the Simulator only, as it does obb-test's OBB.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("packs-test io.github.kisame76.minato.test.packs")
 APPS+=("splits-test io.github.kisame76.minato.test.splits")
+# Ren'Py's splashscreen that calls a screen at once (ADR-0055), from tools/renpy-splash-build.sh, which this check
+# does not make: Interface start comes early, which game mode's turn to landscape must not catch without a window.
+[[ ! -f build/renpy-splash-test/renpy-splash-test.apk ]] ||
+  APPS+=("renpy-splash-test io.github.kisame76.minato.test.renpy")
 APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 # pad-test too, when Google's Play libraries are there to build it with (ADR-0050 c)).
 if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
@@ -261,6 +265,7 @@ for app in "${APPS[@]}"; do
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
     vk-ahb-test) tools/build-fixtures.sh >/dev/null ;;
+    renpy-splash-test) ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -1276,6 +1281,31 @@ print("csv," + ",".join([app, dex, cell(number(plain), 1), cell(number(compiled)
                          cell(per_mb, 2), peak, cell(peak_per_mb, 1), odex, vdex, container, taking]))
 PY
 }
+# Ren'Py with an early Interface start: SDL must have its window, so set_mode does not fail (the log's "Could not set
+# video mode." with "Could not fetch native window" is the failure that exits the game with status 1).
+if wanted renpy-splash-test && listed renpy-splash-test; then
+  # The log is taken at the last line: a compile mode that follows the session truncates the guest log.
+  seen_log=$WORK/renpy-splash-test-seen.log
+  : > "$seen_log"
+  if begin_start renpy-splash-test io.github.kisame76.minato.test.renpy 1; then
+    if await_line guest-log "^I/python *: minato-renpy-test: done$" 300; then
+      cp "$CHECK/guest-log" "$seen_log"
+      ok "  its last line, $(seconds "$TAP" "$SEEN") s after the tap"
+    else
+      failed_line "no last line" "renpy-splash-test-1"
+    fi
+  fi
+  end_start renpy-splash-test 1
+  cp "$seen_log" "$WORK/renpy-splash-test-1.log"
+  if grep -q "Could not set video mode\|Could not fetch native window" "$seen_log"; then
+    fail "  renpy-splash-test: SDL had no window at Interface start"
+    grep -E "native window|video mode|Interface start" "$seen_log" | head -n 5 | sed 's/^/      | /'
+  elif grep -q "Interface start took" "$seen_log"; then
+    ok "  renpy-splash-test: set_mode got its window ($(grep -m1 'Interface start took' "$seen_log" | sed 's/.*took //'))"
+  else
+    fail "  renpy-splash-test: no Interface start in the log"
+  fi
+fi
 if [[ -n "${COMPILE:-}" ]]; then
   echo "csv,app,dex_mb,plain_s,compiled_s,compiled_over_plain,dex2oat_s,dex2oat_s_per_dex_mb,peak_mb,"\
 "peak_mb_per_dex_mb,odex_bytes,vdex_bytes,container_bytes,take_s"
