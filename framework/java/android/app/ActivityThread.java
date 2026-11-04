@@ -2655,6 +2655,14 @@ public final class ActivityThread {
         return nativeNetwork();
     }
 
+    /**
+     * @hide SystemBarInsets': the host's system bars as "<top>,<bottom>", which it passes in MINATO_BAR_INSETS and the
+     * runtime takes out of the environment at start (apps do not see it), or null when it passed none.
+     */
+    public static String barInsets() {
+        return nativeBarInsets();
+    }
+
     /** The thread when a session drives it, else null: the requests to the host have no one to answer without. */
     private static ActivityThread sessionOf() {
         final ActivityThread thread = sCurrentActivityThread;
@@ -2904,6 +2912,7 @@ public final class ActivityThread {
     /** APKRT_NR_BATTERY's GET: level | state << 32, or a negative errno. */
     private static native long nativeBattery();
     private static native long nativeNetwork();
+    private static native String nativeBarInsets();
     private static native int nativeSessionRequestExportMedia(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */

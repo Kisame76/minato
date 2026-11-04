@@ -21,9 +21,11 @@
 #include <nativehelper/JNIPlatformHelp.h>
 #include <nativehelper/scoped_utf_chars.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <string>
 #include <vector>
 
 #include <APKRuntime/guest_interface.h>
@@ -324,6 +326,16 @@ jlong Network(JNIEnv *, jclass) {
     return result < 0 ? -errno : static_cast<jlong>(result);
 }
 
+// The host's system bars, "<top>,<bottom>" in pixels, which the host passes in the environment as MINATO_BAR_INSETS:
+// taken out of it at registration, before any Java code reads the environment, so the app does not see it in
+// System.getenv() as it does not on Android. Null when the host passed none.
+std::string gBarInsets;
+bool gBarInsetsPassed = false;
+
+jstring BarInsets(JNIEnv *env, jclass) {
+    return gBarInsetsPassed ? env->NewStringUTF(gBarInsets.c_str()) : nullptr;
+}
+
 // The location hub (ADR-0063): APKRT_NR_LOCATION's operations, 0 or the negative errno.
 jint LocationStart(JNIEnv *, jclass, jint accuracy, jint distance) {
     apkrt_location_control control = {accuracy, distance};
@@ -426,6 +438,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeLocationFix", "(ZJ[D[J)I", reinterpret_cast<void *>(LocationFix)},
         {"nativeBattery", "()J", reinterpret_cast<void *>(Battery)},
         {"nativeNetwork", "()J", reinterpret_cast<void *>(Network)},
+        {"nativeBarInsets", "()Ljava/lang/String;", reinterpret_cast<void *>(BarInsets)},
         {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},
@@ -435,6 +448,11 @@ const JNINativeMethod gActivityThreadMethods[] = {
 }  // namespace
 
 int register_android_app_ActivityThread(JNIEnv *env) {
+    if (const char *insets = getenv("MINATO_BAR_INSETS")) {
+        gBarInsets = insets;
+        gBarInsetsPassed = true;
+        unsetenv("MINATO_BAR_INSETS");
+    }
     jclass configuration = FindClassOrDie(env, "android/content/res/Configuration");
     gConfiguration.densityDpi = GetFieldIDOrDie(env, configuration, "densityDpi", "I");
     gConfiguration.orientation = GetFieldIDOrDie(env, configuration, "orientation", "I");

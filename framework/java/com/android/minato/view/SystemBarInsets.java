@@ -7,8 +7,9 @@ package com.android.minato.view;
  * stay none) the frame centers in the whole display, which shows only where the bars differ in height.
  * This is the seam where the host's values plug in: the checks give them in the environment, MINATO_BAR_INSETS as
  * "<top>,<bottom>" (tools/check-display.sh, from the AVDs' views-test rows); the iPhone's come the same way, the
- * session appends them to the guest's environment at every start from the app's GuestInsets. set() is the seam for
- * a later update, as at a turn of the display during a session.
+ * session appends them to the guest's environment at every start from the app's GuestInsets. The runtime takes the
+ * variable out of the environment at start, so an app does not see it, and ActivityThread.barInsets() has its value.
+ * set() is the seam for a later update, as at a turn of the display during a session.
  */
 public final class SystemBarInsets {
     private static int sTop;
@@ -40,7 +41,7 @@ public final class SystemBarInsets {
             return;
         }
         sRead = true;
-        final String value = System.getenv("MINATO_BAR_INSETS");
+        final String value = android.app.ActivityThread.barInsets();
         if (value == null) {
             return;
         }

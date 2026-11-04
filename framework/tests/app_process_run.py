@@ -195,6 +195,10 @@ def same_file(path, info, dated):
     return crc == info.CRC
 
 
+# What the app passes at every start (GuestInsets.barInsetsEnvironment): the app must not see it in its environment.
+BAR_INSETS = "MINATO_BAR_INSETS=186,102"
+
+
 def code_path(apk, package):
     """Android 15's code path for this APK as GuestStart makes it: the halves of base.apk's SHA-256."""
     digest = hashlib.sha256(open(apk, "rb").read()).digest()
@@ -554,7 +558,7 @@ def main():
         return
     result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
                    framework_jar, apk, PACKAGE, None, mounts=[("/system/framework/framework-res", folder)],
-                   last=LAST)
+                   last=LAST, environment=[BAR_INSETS])
     if result is None:
         print("FAIL: no end within 300 s")
         sys.exit(1)
