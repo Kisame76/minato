@@ -26,6 +26,11 @@ int minato_graphics_vulkan_keep_device(VkDevice device, const VkDeviceCreateInfo
                                        PFN_vkGetDeviceProcAddr function_of);
 void minato_graphics_vulkan_forget_device(VkDevice device);
 
+/* For graphics.vulkan_lock: holds the lock of the kept devices for that many nanoseconds on the calling thread, as a
+   guest thread that blocks inside its critical section would; "scheduled", asked on the app's main thread, must not
+   wait for it past its deadline. */
+void minato_graphics_vulkan_hold_devices_for_testing(uint64_t nanoseconds);
+
 /* The MoltenVK that minato_graphics_set_providers named (providers.c), "" for none. */
 const char *minato_graphics_moltenvk_path(void);
 

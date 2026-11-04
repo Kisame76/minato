@@ -237,6 +237,14 @@ if(TARGET minato_graphics_host)
   target_link_libraries(graphics-providers-test PRIVATE minato_graphics_host apkrt apk_defaults)
   add_test(NAME graphics.providers COMMAND graphics-providers-test)
   set_tests_properties(graphics.providers PROPERTIES TIMEOUT 60)
+  # "Scheduled" of the Vulkan side takes the devices' lock on the main thread at the background: a guest thread that
+  # holds it while blocked must not keep the main thread past the deadline.
+  add_executable(graphics-vulkan-lock-test vulkan_lock_test.c)
+  target_include_directories(graphics-vulkan-lock-test PRIVATE ../host "${APK_GRAPHICS_GEN_DIR}")
+  target_include_directories(graphics-vulkan-lock-test SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
+  target_link_libraries(graphics-vulkan-lock-test PRIVATE minato_graphics_host apkrt apk_defaults)
+  add_test(NAME graphics.vulkan_lock COMMAND graphics-vulkan-lock-test)
+  set_tests_properties(graphics.vulkan_lock PROPERTIES TIMEOUT 60)
   # ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m) on media-codec-test's streams, each frame against
   # Android 15's (fixtures/expected/media-codec-test.logcat).
   add_executable(graphics-video-decoder-test video_decoder_test.m)

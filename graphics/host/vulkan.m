@@ -554,6 +554,15 @@ static VkResult device_created(VkPhysicalDevice physical, const VkDeviceCreateIn
     return VK_SUCCESS;
 }
 
+void minato_graphics_vulkan_hold_devices_for_testing(uint64_t nanoseconds) {
+    pthread_mutex_lock(&devices_lock);
+    const uint64_t end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + nanoseconds;
+    while (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) < end) {
+        usleep(1000);
+    }
+    pthread_mutex_unlock(&devices_lock);
+}
+
 void minato_graphics_vulkan_forget_device(VkDevice device) {
     struct device *gone = NULL;
     /* The lock waits while "scheduled" commits and waits on these queues. */
@@ -593,7 +602,15 @@ int minato_graphics_vulkan_scheduled(uint64_t deadline) {
         usleep(100);
     }
     int all = 1;
-    pthread_mutex_lock(&devices_lock);
+    /* The app asks on its main thread: a guest thread that holds the lock while it is blocked must not keep the main
+       thread past the deadline. Not scheduled in time is an answer; the background goes on. */
+    while (pthread_mutex_trylock(&devices_lock) != 0) {
+        if (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= deadline) {
+            fprintf(stderr, "minato graphics: Vulkan's \"scheduled\" gave up on the devices' lock at its deadline\n");
+            return 0;
+        }
+        usleep(100);
+    }
     @autoreleasepool {
         dispatch_semaphore_t scheduled = dispatch_semaphore_create(0);
         uint32_t committed = 0;
