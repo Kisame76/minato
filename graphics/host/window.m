@@ -1,22 +1,31 @@
 /* graphics/host's buffers for drawing by the CPU (ADR-0043, decision 3), which minato_graphics_set_providers gives the
    runtime (apkrt_set_window_buffers, whose contract they keep). Their lock and post run as host code on the guest
    thread in libnativewindow's ANativeWindow_lock and ANativeWindow_unlockAndPost.
-   - A window has three buffers of its geometry: IOSurfaces, which the guest writes and the GPU reads without a copy.
-     A lock takes, of those that are neither the last posted one nor read by the GPU, the one posted longest ago, and
-     waits up to a second for one. A new geometry makes three new buffers.
+   - A window has three buffers of its geometry: IOSurfaces, which the guest writes and Core Animation shows without a
+     copy, as Android's window has its BufferQueue's three and nothing more (spike S5). A lock takes, of those that
+     are neither the last posted one nor in use (IOSurfaceIsInUse: Core Animation still shows it; in the Simulator,
+     the GPU reads it), the one posted longest ago, and waits up to a second for one, as Android's dequeueBuffer
+     blocks while no buffer is free; Core Animation tells no end of a use, so the wait looks every 0.5 ms. A new
+     geometry makes three new buffers.
    - A lock copies the last posted pixels into its buffer outside the new dirty rectangle, as libgui's Surface::lock
      does. Each buffer keeps one rectangle around what changed since it was last posted; the copy takes that rectangle
      less the dirty one. The first lock of a geometry answers the whole buffer as dirty.
    - At TRIM_MEMORY_UI_HIDDEN (apkrt_window_buffers' trim) the buffers of every window that holds no lock go, as
      Android's hidden window gives its surface's back: the next lock makes new buffers and answers all of one dirty.
-   - A post draws the buffer into the window layer's next drawable with a Metal pass, BGRA8Unorm (F15), RGBX_8888's
-     alpha as 1, presents it and counts it (apkrt_window_presented). The layer's nextDrawable lets MinatoMetalLayer
-     record it. Its command buffer commits only in the foreground and counts for "scheduled", as libvulkan's submits
-     do (vulkan.m).
+   - A post shows the buffer as the contents of the window layer's lowest sublayer, "minato.window.buffers", in one
+     Core Animation transaction without actions, and counts it (apkrt_window_presented); the window's layer takes no
+     drawable. The sublayer is opaque for RGBX_8888 and RGB_565 and black below them and below any buffer of an
+     opaque layer, as Core Animation takes RGBX's fourth byte as alpha even on an opaque layer [measured, S5]: on
+     black that alpha changes nothing. The transaction commits only in the foreground and counts for "scheduled", as
+     libvulkan's submits do (vulkan.m).
+   - In the Simulator, whose Metal has no B5G6R5Unorm and whose Core Animation shows no 'L565' IOSurface [measured,
+     S5], a post draws the buffer into the window layer's next drawable with a Metal pass instead, BGRA8Unorm (F15),
+     RGBX_8888's alpha as 1, and presents it; the layer's nextDrawable lets MinatoMetalLayer record it.
    - The hide rule (decision 4, worded in b3): a posted RGBA_8888 buffer whose every pixel has alpha 0 hides the
      window's layer, unless the layer is opaque, and its post presents nothing, so that Core Animation presents a
      full-screen SurfaceView below directly. The first buffer with a visible pixel shows the layer again in the
-     Core Animation transaction that presents its drawable (presentsWithTransaction), so no older frame flashes.
+     Core Animation transaction that shows it (in the Simulator, that presents its drawable: presentsWithTransaction),
+     so no older frame flashes.
    - A removed window's buffers go at once, but for a locked one, which its post gives back with -ENODEV; a lock for
      it answers -ENODEV.
    ARC. Their state lives under one mutex, which no Metal or Core Animation call holds. */
@@ -44,6 +53,16 @@ enum { linux_enomem = 12, linux_enodev = 19, linux_einval = 22, linux_etimedout 
 enum { format_rgba_8888 = 1, format_rgbx_8888 = 2, format_rgb_565 = 4 };
 
 enum { buffer_count = 3 };
+
+/* Whether posts show the buffers as a sublayer's contents; the Simulator draws them into a drawable. */
+#if TARGET_OS_SIMULATOR
+enum { by_contents = 0 };
+#else
+enum { by_contents = 1 };
+#endif
+
+/* How often a lock that waits looks whether Core Animation still uses a buffer. */
+static const uint64_t in_use_poll_ns = 500000;
 
 /* How long a lock waits for a buffer that the GPU has read. */
 static const uint64_t buffer_wait_ns = 1000000000;
@@ -124,8 +143,10 @@ static BOOL set_up(void) {
         descriptor.vertexFunction = [library newFunctionWithName:@"minato_cpu_vertex"];
         descriptor.fragmentFunction = [library newFunctionWithName:@"minato_cpu_fragment"];
         descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-        pipeline = library != nil ? [device newRenderPipelineStateWithDescriptor:descriptor error:&error] : nil;
-        ready = queue != nil && pipeline != nil;
+        if (!by_contents) {
+            pipeline = library != nil ? [device newRenderPipelineStateWithDescriptor:descriptor error:&error] : nil;
+        }
+        ready = queue != nil && (by_contents || pipeline != nil);
         if (!ready) {
             fprintf(stderr, "minato graphics: no drawing by the CPU: %s\n",
                     error != nil ? error.localizedDescription.UTF8String : "no Metal device");
@@ -181,6 +202,9 @@ static MinatoCPUBuffer *new_buffer(int32_t width, int32_t height, int32_t bytes,
     }
     MinatoCPUBuffer *buffer = [MinatoCPUBuffer new];
     buffer->surface = surface;
+    if (by_contents) {
+        return buffer;
+    }
     MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pixel_format
                                                                                           width:(NSUInteger)width
                                                                                          height:(NSUInteger)height
@@ -255,18 +279,19 @@ static void copy_outside(const uint8_t *from, uint8_t *to, size_t row, int32_t b
     copy_rows(from, to, row, bytes, larger(area[0], smaller(hole[2], area[2])), top, area[2], bottom);
 }
 
-/* Of the window's buffers that are neither the last posted one nor read by the GPU, the one posted longest ago. */
+/* Of the window's buffers that are neither the last posted one nor in use, the one posted longest ago. */
 static MinatoCPUBuffer *free_buffer(MinatoCPUWindow *window) {
     MinatoCPUBuffer *found = nil;
     for (MinatoCPUBuffer *buffer in window->buffers) {
-        if (buffer != window->front && !buffer->reading && (found == nil || buffer->posted < found->posted)) {
+        const BOOL busy = buffer->reading || (by_contents && IOSurfaceIsInUse(buffer->surface));
+        if (buffer != window->front && !busy && (found == nil || buffer->posted < found->posted)) {
             found = buffer;
         }
     }
     return found;
 }
 
-/* Waits on `freed` until `deadline` (CLOCK_UPTIME_RAW); NO once it passed. */
+/* Waits on `freed` until `deadline` (CLOCK_UPTIME_RAW), by contents at most in_use_poll_ns; NO once it passed. */
 static BOOL wait_freed(uint64_t deadline) {
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (now >= deadline) {
@@ -274,7 +299,7 @@ static BOOL wait_freed(uint64_t deadline) {
     }
     struct timespec until;
     clock_gettime(CLOCK_REALTIME, &until);
-    const uint64_t left = deadline - now;
+    const uint64_t left = by_contents && deadline - now > in_use_poll_ns ? in_use_poll_ns : deadline - now;
     until.tv_sec += (time_t)(left / 1000000000);
     until.tv_nsec += (long)(left % 1000000000);
     if (until.tv_nsec >= 1000000000) {
@@ -433,9 +458,64 @@ static void read_done(MinatoCPUBuffer *buffer) {
     pthread_mutex_unlock(&state_lock);
 }
 
-/* Draws the buffer into the next drawable of the window's layer and presents it, in the foreground. YES once the
-   command buffer is committed, whose end ends the buffer's read; NO without a layer or drawable, in the background,
-   or for a buffer without a visible pixel on a layer that is not opaque, which it hides. */
+/* The window layer's sublayer that shows its buffers, made at the first post, lowest among its sublayers. */
+static NSString *const buffers_layer_name = @"minato.window.buffers";
+
+static CALayer *buffers_layer(CALayer *layer) {
+    for (CALayer *sublayer in layer.sublayers) {
+        if ([sublayer.name isEqualToString:buffers_layer_name]) {
+            return sublayer;
+        }
+    }
+    CALayer *made = [CALayer layer];
+    made.name = buffers_layer_name;
+    [layer insertSublayer:made atIndex:0];
+    return made;
+}
+
+/* Shows the buffer as the window layer's sublayer's contents, in the foreground, and counts the post; hides the layer
+   for a buffer without a visible pixel on a layer that is not opaque. NO always: no GPU read follows, and Core
+   Animation's use is IOSurfaceIsInUse's. */
+static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, BOOL visible) {
+    CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id);
+    if (layer == nil) {
+        return NO;
+    }
+    if (!visible && !layer.opaque) {
+        // Hidden over nothing looks as transparent over nothing does; the post counts but shows nothing.
+        if (!layer.hidden) {
+            set_hidden(layer, YES);
+        }
+        apkrt_window_presented(window_id);
+        return NO;
+    }
+    atomic_fetch_add(&in_flight, 1);
+    if (apkrt_is_background()) {
+        atomic_fetch_sub(&in_flight, 1);
+        return NO;
+    }
+    static CGColorRef black;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        black = CGColorCreateSRGB(0, 0, 0, 1);
+    });
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.hidden = NO;
+    CALayer *buffers = buffers_layer(layer);
+    buffers.frame = layer.bounds;
+    buffers.opaque = format != format_rgba_8888;
+    buffers.backgroundColor = format != format_rgba_8888 || layer.opaque ? black : NULL;
+    buffers.contents = (__bridge id)buffer->surface;
+    [CATransaction commit];
+    atomic_fetch_sub(&in_flight, 1);
+    apkrt_window_presented(window_id);
+    return NO;
+}
+
+/* Draws the buffer into the next drawable of the window's layer and presents it, in the foreground (the Simulator).
+   YES once the command buffer is committed, whose end ends the buffer's read; NO without a layer or drawable, in the
+   background, or for a buffer without a visible pixel on a layer that is not opaque, which it hides. */
 static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width, int32_t height, int32_t format,
                       BOOL visible) {
     CAMetalLayer *layer = (__bridge_transfer CAMetalLayer *)apkrt_window_layer(window_id);
@@ -564,7 +644,8 @@ static int posted(void *context, uint64_t window_id) {
         return -linux_enodev;
     }
     @autoreleasepool {
-        if (!presented(window_id, buffer, width, height, format, visible)) {
+        if (by_contents ? !shown(window_id, buffer, format, visible)
+                        : !presented(window_id, buffer, width, height, format, visible)) {
             read_done(buffer);
         }
     }

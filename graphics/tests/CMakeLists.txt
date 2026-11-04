@@ -359,10 +359,12 @@ if(TARGET minato_graphics_host)
   add_guest_test(window_lock window-lock-test window_lock_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
     "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_BUFFERS=set:fake")
-  # ADR-0043 b2: graphics/host's buffers (window.m) behind the same calls, the Metal hook reading back each drawable.
+  # ADR-0043 b2: graphics/host's buffers (window.m) behind the same calls, the window host printing each buffer shown
+  # as its layer's sublayer's contents, and the Metal hook any drawable, of which there must be none.
   add_guest_test(window_buffers window-buffers-test window_buffers_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
-    "MINATO_WINDOW=set:64x48" "MINATO_METAL_HOOK=set:present:6")
+    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_WATCH=set:contents" "MINATO_METAL_HOOK=set:present:6"
+    HOST_LINES "^metal:")
   # The same buffers at TRIM_MEMORY_UI_HIDDEN, which graphics-run's host posts after two presents: the window's buffers
   # go, and the next lock answers a new one, wholly dirty.
   add_guest_test(window_trim window-trim-test window_trim_test
@@ -383,7 +385,7 @@ if(TARGET minato_graphics_host)
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
     "MINATO_WINDOW=set:64x48" "MINATO_METAL_HOOK=set:count" "MINATO_WINDOW_SCRIPT=set:background:3:100")
   # ADR-0043 b3: the hide rule on a layer that is not opaque and on an opaque one, with the window host watching the
-  # layer's hidden and the Metal hook reading back each drawable presented, whose lines are compared apart.
+  # layer's hidden and the buffers it shows, and the Metal hook any drawable, of which there must be none.
   foreach(variant IN ITEMS hide hide_opaque)
     set(opaque 0)
     if(variant STREQUAL "hide_opaque")
@@ -391,7 +393,7 @@ if(TARGET minato_graphics_host)
     endif()
     add_guest_test(window_${variant} window-hide-test window_${variant}_test
       "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
-      "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_OPAQUE=set:${opaque}" "MINATO_WINDOW_WATCH=set:hidden"
+      "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_OPAQUE=set:${opaque}" "MINATO_WINDOW_WATCH=set:hidden,contents"
       "MINATO_METAL_HOOK=set:present:6" HOST_LINES "^metal:")
   endforeach()
   if(EXISTS "${moltenvk}")

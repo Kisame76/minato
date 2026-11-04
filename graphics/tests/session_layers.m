@@ -23,8 +23,10 @@
    - the tree whenever it changes: "window host: from the bottom: " and its layers, "the window", "surface <n>",
      "window <n>" and "dim", where <n> counts the surfaces or the requested windows made. */
 #import <Foundation/Foundation.h>
+#import <IOSurface/IOSurfaceRef.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,15 +49,128 @@ static void watched_set_hidden(id self, SEL selector, BOOL hidden) {
     ((void (*)(id, SEL, BOOL))set_hidden)(self, selector, hidden);
 }
 
-BOOL minato_test_watch_hidden(CALayer *layer) {
+/* Whether MINATO_WINDOW_WATCH, a comma-separated list, names `what`. */
+static BOOL watching(const char *what) {
     const char *watch = getenv("MINATO_WINDOW_WATCH");
-    if (watch == NULL || strcmp(watch, "hidden") != 0) {
+    const size_t length = strlen(what);
+    for (const char *at = watch; at != NULL && *at != '\0'; at = strchr(at, ',') ? strchr(at, ',') + 1 : NULL) {
+        if (strncmp(at, what, length) == 0 && (at[length] == ',' || at[length] == '\0')) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+BOOL minato_test_watch_hidden(CALayer *layer) {
+    if (!watching("hidden")) {
         return NO;
     }
     watched = layer;
     layer.hidden = NO;  // the setter, made
     set_hidden = method_setImplementation(class_getInstanceMethod([layer class], @selector(setHidden:)),
                                           (IMP)watched_set_hidden);
+    return YES;
+}
+
+/* MINATO_WINDOW_WATCH=contents: CALayer's setContents:, which prints each IOSurface that a sublayer of the watched
+   window layer takes, graphics/host's buffers by contents (window.m), as the Metal hook prints a drawable: its size,
+   the format it shows ("RGBX_8888" for an opaque layer's 'RGBA' surface), "on black" for a black background and the
+   CRC-32 of the BGRA pixels window.m's former pass drew from it (RGBX's alpha as 255, RGB_565 widened as Metal's
+   unorm conversion does), and ", animated" when the transaction has actions, which cross-fade contents, on the
+   thread that sets it. As Core Animation holds a surface it shows in use until a while after its replacement (about
+   10 ms on the iPhone [measured, S5]; graphics-run's layer is on no screen), the watch holds each one in use
+   (IOSurfaceIncrementUseCount) until 500 ms after its replacement, so that a lock that would not wait for it shows. */
+static CALayer *contents_parent;
+static IOSurfaceRef held_surface;
+static IMP set_contents;
+static unsigned contents_count;
+
+static uint32_t crc32_of(const uint8_t *bytes, size_t length, uint32_t crc) {
+    for (size_t index = 0; index < length; index++) {
+        crc ^= bytes[index];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+        }
+    }
+    return crc;
+}
+
+static void print_contents(CALayer *layer, IOSurfaceRef surface) {
+    const size_t width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface);
+    const BOOL wide = IOSurfaceGetPixelFormat(surface) == 'L565';
+    const BOOL black = layer.backgroundColor != NULL && CGColorGetAlpha(layer.backgroundColor) == 1 &&
+                       CGColorGetNumberOfComponents(layer.backgroundColor) >= 3 &&
+                       CGColorGetComponents(layer.backgroundColor)[0] == 0 &&
+                       CGColorGetComponents(layer.backgroundColor)[1] == 0 &&
+                       CGColorGetComponents(layer.backgroundColor)[2] == 0;
+    IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL);
+    const uint8_t *bits = IOSurfaceGetBaseAddress(surface);
+    const size_t row = IOSurfaceGetBytesPerRow(surface);
+    uint32_t crc = 0xffffffffu;
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x++) {
+            uint8_t bgra[4];
+            if (wide) {
+                const unsigned value = (unsigned)bits[y * row + 2 * x] | (unsigned)bits[y * row + 2 * x + 1] << 8;
+                bgra[0] = (uint8_t)(((value & 31) * 255 + 15) / 31);
+                bgra[1] = (uint8_t)((((value >> 5) & 63) * 255 + 31) / 63);
+                bgra[2] = (uint8_t)(((value >> 11) * 255 + 15) / 31);
+                bgra[3] = 255;
+            } else {
+                const uint8_t *rgba = bits + y * row + 4 * x;
+                bgra[0] = rgba[2];
+                bgra[1] = rgba[1];
+                bgra[2] = rgba[0];
+                bgra[3] = layer.opaque ? 255 : rgba[3];
+            }
+            crc = crc32_of(bgra, 4, crc);
+        }
+    }
+    IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, NULL);
+    fprintf(stderr, "window host: contents %u: %zu x %zu, %s%s, CRC-32 %08x%s\n", ++contents_count, width, height,
+            wide ? "RGB_565" : layer.opaque ? "RGBX_8888" : "RGBA_8888", black ? " on black" : "", ~crc,
+            [CATransaction disableActions] ? "" : ", animated");
+}
+
+/* The surface shown now is held in use; the one it replaces goes 500 ms later. */
+static void hold(IOSurfaceRef surface) {
+    if (surface != NULL) {
+        CFRetain(surface);
+        IOSurfaceIncrementUseCount(surface);
+    }
+    IOSurfaceRef replaced = held_surface;
+    held_surface = surface;
+    if (replaced != NULL) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_global_queue(0, 0), ^{
+            IOSurfaceDecrementUseCount(replaced);
+            CFRelease(replaced);
+        });
+    }
+}
+
+static void watched_set_contents(id self, SEL selector, id contents) {
+    CALayer *layer = self;
+    if (contents_parent != nil && layer.superlayer == contents_parent) {
+        if (contents != nil && CFGetTypeID((__bridge CFTypeRef)contents) == IOSurfaceGetTypeID()) {
+            print_contents(layer, (__bridge IOSurfaceRef)contents);
+            hold((__bridge IOSurfaceRef)contents);
+        } else if (contents == nil && layer.contents != nil) {
+            fprintf(stderr, "window host: contents let go\n");
+            hold(NULL);
+        }
+    }
+    ((void (*)(id, SEL, id))set_contents)(self, selector, contents);
+}
+
+BOOL minato_test_watch_contents(CALayer *layer) {
+    if (!watching("contents")) {
+        return NO;
+    }
+    contents_parent = layer;
+    CALayer *made = [CALayer layer];
+    made.contents = nil;  // the setter, made
+    set_contents = method_setImplementation(class_getInstanceMethod(CALayer.class, @selector(setContents:)),
+                                            (IMP)watched_set_contents);
     return YES;
 }
 

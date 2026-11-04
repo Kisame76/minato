@@ -1,15 +1,16 @@
 lock 1: 64x48 stride 64 format 1, dirty 0 0 64 48
-post 1: 0, drawable CRC-32 2f904cea
+post 1: 0, contents CRC-32 2f904cea
 lock 2: 64x48 stride 64 format 1, dirty 16 8 48 40, copy-back: 2048 of the 2048 pixels outside it are the last posted ones
-post 2: 0, drawable CRC-32 bda9f3d9
+post 2: 0, contents CRC-32 bda9f3d9
 lock 3: 64x48 stride 64 format 1, dirty 0 0 8 8, copy-back: 3008 of the 3008 pixels outside it are the last posted ones
-post 3: 0, drawable CRC-32 3ff7395c
+post 3: 0, contents CRC-32 3ff7395c
 lock 4: 64x48 stride 64 format 1, dirty 40 30 64 48, copy-back: 2640 of the 2640 pixels outside it are the last posted ones
-post 4: 0, drawable CRC-32 2dca6083
+post 4: 0, contents CRC-32 2dca6083
+lock 4 waited for its buffer, still in use: yes
 buffers in turn: 0 1 2 0
 lock 5 RGBX_8888: 0, 64x48 stride 64 format 2
-post 5: 0, drawable CRC-32 7a851ea7
+post 5: 0, contents CRC-32 7a851ea7
 lock 6 RGB_565: 0, 32x24 stride 64 format 4
-post 6: 0, drawable CRC-32 0142d913
+post 6: 0, contents CRC-32 0142d913
 lock 16385 x 1: -22
 lock 1 x 16385: -22

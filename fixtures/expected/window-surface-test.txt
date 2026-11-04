@@ -1,6 +1,7 @@
 # ADR-0043 c2: what window-surface-test (fixtures/java/window-surface-test) prints without its "window-surface-test: "
-# prefix on graphics-run's window 1 of 64 x 48 pixels, and the Metal hook's line for each of the first 4 drawables
-# presented (tools/window-surface-check.sh). Minato only, as Android has no WindowSurface; the values follow from the
+# prefix on graphics-run's window 1 of 64 x 48 pixels, the Metal hook's line for EGL's drawable and the window
+# host's for each buffer drawn by the CPU, which the window shows as its sublayer's contents
+# (tools/window-surface-check.sh). Minato only, as Android has no WindowSurface; the values follow from the
 # sources at android-15.0.0_r1:
 # - a) Surface.transferFrom moves the native object and leaves the old Surface without one (Surface.java).
 # - b) An EGL window surface has the window's size, and a clear to blue reads back exactly.
@@ -11,8 +12,8 @@
 # - f) ANativeWindow_getWidth answers the window's size whatever the geometry, getFormat the geometry's format,
 #   RGBA_8888 = 1 (ADR-0028 decision 7).
 # - g) release leaves the Surface invalid; fromSurface's reference holds the window until it is released.
-# The CRC-32s are of the drawables' B, G, R, A bytes, row by row: all blue; red left and green right; that with blue
-# in (8, 8, 24, 24); yellow left and cyan right at 32 x 24. The app's last line is done.
+# The CRC-32s are of the drawable's and the buffers' B, G, R, A bytes, row by row: all blue; red left and green right;
+# that with blue in (8, 8, 24, 24); yellow left and cyan right at 32 x 24. The app's last line is done.
 a) create: valid true, 64 x 48
 a) transferFrom into a new Surface: valid true, 64 x 48; the old one valid false
 b) EGL14: a window config true, a window surface true of 64 x 48, current true
@@ -30,6 +31,6 @@ f) ANativeWindow_toSurface: valid true, 64 x 48
 g) release: valid false; the window of fromSurface's reference: 64 x 48
 done
 logcat metal: drawable 1: 64 x 48, BGRA8Unorm, CRC-32 ec8c3e46
-logcat metal: drawable 2: 64 x 48, BGRA8Unorm, CRC-32 66ad36d7
-logcat metal: drawable 3: 64 x 48, BGRA8Unorm, CRC-32 09ba138c
-logcat metal: drawable 4: 32 x 24, BGRA8Unorm, CRC-32 95a7790f
+logcat window host: contents 1: 64 x 48, RGBX_8888 on black, CRC-32 66ad36d7
+logcat window host: contents 2: 64 x 48, RGBX_8888 on black, CRC-32 09ba138c
+logcat window host: contents 3: 32 x 24, RGBA_8888, CRC-32 95a7790f

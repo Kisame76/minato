@@ -1,19 +1,22 @@
 /* ADR-0043 b2: graphics/host's buffers for drawing by the CPU (window.m) behind libnativewindow's lock and post, on
-   graphics-run's window, ID 1, of 64 x 48 pixels, with the Metal hook reading back each drawable presented
-   (MINATO_METAL_HOOK=present:6).
+   graphics-run's window, ID 1, of 64 x 48 pixels, which shows them as a sublayer's contents: the window host prints
+   each buffer shown (MINATO_WINDOW_WATCH=contents), and the Metal hook (MINATO_METAL_HOOK=present:6) would print any
+   drawable presented, of which there are none.
    - RGBA_8888 at the window's size: four posts. The first lock answers the whole buffer as dirty, as nothing can be
      copied into it yet; then each lock's pixels outside its dirty rectangle must be the last posted ones (the
-     copy-back), and the four locks take the three buffers in turn.
-   - RGBX_8888, its pixels' alpha 0: the drawable's alpha is 255.
+     copy-back), and the four locks take the three buffers in turn. The fourth lock waits for its buffer, which the
+     window host holds in use until 500 ms after its replacement, as Core Animation holds a buffer it shows.
+   - RGBX_8888, its pixels' alpha 0: shown as opaque, on black, as alpha 255.
    - RGB_565 at 32 x 24 (setBuffersGeometry): pure colors in four quadrants, which convert without rounding.
    - A geometry of 16385 on a side: the lock answers -EINVAL (Metal's largest texture side is 16384).
-   For each post it prints the CRC-32 its drawable must have, of its BGRA bytes row by row as the hook reads them,
-   which the hook's line (stderr) must show. */
+   For each post it prints the CRC-32 the buffer shown must have, of its BGRA bytes row by row as the window host
+   reads them, which the host's line (stderr) must show. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 enum { width = 64, height = 48, small_width = 32, small_height = 24 };
@@ -22,6 +25,13 @@ typedef ANativeWindow *(*create_window)(uint64_t id, int32_t width, int32_t heig
 
 static uint8_t model[height][width][4];  // RGBA, as the last posts left the window's pixels
 static const void *seen[4];              // the buffers the locks got, in the order seen
+static long long lock_ms;                // how long the last lock took
+
+static long long now_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
 
 static uint32_t crc32_of(const uint8_t *bytes, size_t length) {
     uint32_t crc = 0xffffffffu;
@@ -34,7 +44,7 @@ static uint32_t crc32_of(const uint8_t *bytes, size_t length) {
     return ~crc;
 }
 
-/* The drawable's CRC-32 for the model: BGRA, with alpha 255 for an opaque format. */
+/* The CRC-32 of the buffer shown for the model: BGRA, with alpha 255 for an opaque format. */
 static uint32_t expected_crc(int opaque) {
     static uint8_t bgra[height][width][4];
     for (int y = 0; y < height; y++) {
@@ -73,7 +83,9 @@ static int index_of(const void *bits) {
 static void draw(int number, ANativeWindow *window, ARect asked, const uint8_t *color, int *turn) {
     ANativeWindow_Buffer buffer;
     ARect dirty = asked;
+    const long long asked_at = now_ms();
     const int32_t result = ANativeWindow_lock(window, &buffer, &dirty);
+    lock_ms = now_ms() - asked_at;
     if (result != 0) {
         printf("lock %d: %d\n", number, result);
         return;
@@ -107,7 +119,7 @@ static void draw(int number, ANativeWindow *window, ARect asked, const uint8_t *
             }
         }
     }
-    printf("post %d: %d, drawable CRC-32 %08x\n", number, ANativeWindow_unlockAndPost(window), expected_crc(0));
+    printf("post %d: %d, contents CRC-32 %08x\n", number, ANativeWindow_unlockAndPost(window), expected_crc(0));
 }
 
 int main(void) {
@@ -121,6 +133,7 @@ int main(void) {
     draw(2, window, (ARect){.left = 16, .top = 8, .right = 48, .bottom = 40}, red, &turns[1]);
     draw(3, window, (ARect){.left = 0, .top = 0, .right = 8, .bottom = 8}, green, &turns[2]);
     draw(4, window, (ARect){.left = 40, .top = 30, .right = 70, .bottom = 60}, blue, &turns[3]);
+    printf("lock 4 waited for its buffer, still in use: %s\n", lock_ms >= 100 ? "yes" : "no");
     printf("buffers in turn: %d %d %d %d\n", turns[0], turns[1], turns[2], turns[3]);
 
     // RGBX_8888: alpha 0 in memory, 255 on the screen.
@@ -137,7 +150,7 @@ int main(void) {
                 memcpy((uint8_t *)buffer.bits + ((size_t)y * (size_t)buffer.stride + (size_t)x) * 4, pixel, 4);
             }
         }
-        printf("post 5: %d, drawable CRC-32 %08x\n", ANativeWindow_unlockAndPost(window), expected_crc(1));
+        printf("post 5: %d, contents CRC-32 %08x\n", ANativeWindow_unlockAndPost(window), expected_crc(1));
     } else {
         printf("\n");
     }
@@ -159,7 +172,7 @@ int main(void) {
                 memcpy(bgra[y][x], expected[quadrant], 4);
             }
         }
-        printf("post 6: %d, drawable CRC-32 %08x\n", ANativeWindow_unlockAndPost(window),
+        printf("post 6: %d, contents CRC-32 %08x\n", ANativeWindow_unlockAndPost(window),
                crc32_of(&bgra[0][0][0], sizeof bgra));
     } else {
         printf("\n");

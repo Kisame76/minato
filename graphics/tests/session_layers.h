@@ -9,6 +9,11 @@
    or "shown"; NO without the variable. One layer at a time: the last one asked for. */
 BOOL minato_test_watch_hidden(CALayer *layer);
 
+/* MINATO_WINDOW_WATCH=contents (the variable is a comma-separated list, "hidden,contents" for both): prints each
+   IOSurface a sublayer of `layer` takes as its contents, as "window host: contents <n>: <width> x <height>, <format>[
+   on black], CRC-32 <crc>", and "window host: contents let go"; NO without it. */
+BOOL minato_test_watch_contents(CALayer *layer);
+
 /* For session_layers_test.m: the session's root layer, nil before the session window's first layer, and a wait until
    the tree's queue has made every change asked for so far. */
 CALayer *minato_test_session_root(void);

@@ -21,7 +21,8 @@
      the window has <n> presents and then posts APKRT_EVENT_TRIM_MEMORY at TRIM_MEMORY_UI_HIDDEN (20), as the App does
      when the scene goes to the background, which the program, no activity-host, never reads.
    - With MINATO_WINDOW_OPAQUE=1 too, the layer is opaque; with MINATO_WINDOW_WATCH=hidden, it prints each change of
-     the layer's hidden to stderr (ADR-0043 b3, the hide rule).
+     the layer's hidden to stderr (ADR-0043 b3, the hide rule), with MINATO_WINDOW_WATCH=contents each buffer that
+     graphics/host's window shows by contents (session_layers.h), and with "hidden,contents" both.
    - With MINATO_WINDOW_BUFFERS=fake too (ADR-0043 b1, graphics.window_lock), graphics_run.c puts a fake in the place
      of graphics/host's buffers (minato_test_use_fake_buffers), one that
      prints to stderr what reaches it: lock takes RGBA_8888, RGBX_8888 and RGB_565 and refuses other formats with
@@ -332,6 +333,7 @@ __attribute__((constructor)) static void add_window(void) {
         const char *opaque = getenv("MINATO_WINDOW_OPAQUE");
         layer.opaque = opaque != NULL && strcmp(opaque, "1") == 0;
         minato_test_watch_hidden(layer);
+        minato_test_watch_contents(layer);
         minato_test_window = apkrt_window_add((__bridge void *)layer, width, height);
     }
     if (minato_test_window == 0 || apkrt_window_set_gate(minato_test_window, 1) != 0) {

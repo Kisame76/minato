@@ -3,8 +3,9 @@
 # (apk-run with graphics/host's providers) and apk-convert for macOS into build/native/macos-grafik, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and window-surface-test (seconds)
 # every time, so it never tests an old binary; then runs window-surface-test on graphics-run's window 1 of 64 x 48
-# pixels (MINATO_WINDOW) with the Mac's ANGLE (MINATO_ANGLE) and the Metal hook reading back the first 4 drawables
-# presented (MINATO_METAL_HOOK=present:4), and compares the app's lines and the hook's with
+# pixels (MINATO_WINDOW) with the Mac's ANGLE (MINATO_ANGLE), the Metal hook reading back the first 4 drawables
+# presented (MINATO_METAL_HOOK=present:4) and the window host each buffer drawn by the CPU that the window shows as
+# its sublayer's contents (MINATO_WINDOW_WATCH=contents), and compares the app's lines and the hosts' with
 # fixtures/expected/window-surface-test.txt: a Surface from WindowSurface, EGL14's window surface on it, lockCanvas and
 # unlockCanvasAndPost with and without a dirty rectangle, setBuffersGeometry, and ANativeWindow_fromSurface and
 # ANativeWindow_toSurface from the app's JNI library.
@@ -25,7 +26,8 @@ cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh window-surface-test >/dev/null
-MINATO_ANGLE="$ANGLE" MINATO_WINDOW=64x48 MINATO_METAL_HOOK=present:4 python3 framework/tests/java_app_run.py \
+MINATO_ANGLE="$ANGLE" MINATO_WINDOW=64x48 MINATO_METAL_HOOK=present:4 MINATO_WINDOW_WATCH=contents \
+  python3 framework/tests/java_app_run.py \
   window-surface-test io.github.kisame76.minato.test.windowsurface \
   io.github.kisame76.minato.test.windowsurface.WindowSurfaceApplication build/art build/bionic/lib \
   build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \

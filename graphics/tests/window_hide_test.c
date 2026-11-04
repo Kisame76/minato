@@ -1,12 +1,13 @@
 /* ADR-0043 b3: the hide rule on graphics-run's window, ID 1, of 64 x 48 pixels, whose layer the window host watches
-   (MINATO_WINDOW_WATCH=hidden, its lines on stderr) and leaves not opaque, or makes opaque (MINATO_WINDOW_OPAQUE=1),
-   with the Metal hook reading back each drawable presented (MINATO_METAL_HOOK=present:6). The posts:
-   1. RGBA_8888, every pixel transparent: the layer hides, and nothing is presented;
-   2. one pixel with alpha 1 (premultiplied): the layer shows, with this drawable;
+   (MINATO_WINDOW_WATCH=hidden,contents, its lines on stderr: the layer's hidden and each buffer shown as a sublayer's
+   contents) and leaves not opaque, or makes opaque (MINATO_WINDOW_OPAQUE=1), with the Metal hook printing any
+   drawable presented (MINATO_METAL_HOOK=present:6), of which there are none. The posts:
+   1. RGBA_8888, every pixel transparent: the layer hides, and nothing is shown;
+   2. one pixel with alpha 1 (premultiplied): the layer shows, with this buffer;
    3. and 4. transparent again: it hides, once;
    5. RGBX_8888 with alpha 0 in memory, which has no alpha: it shows;
    6. RGBA_8888 transparent: it hides.
-   On an opaque layer, nothing hides and every post presents. */
+   On an opaque layer, nothing hides and every post shows its buffer, on black. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <stdint.h>
