@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- menu-pause-test (ADR-0032 decision 7, the menu's pause): the order of an activity's callbacks when a dialog themed
+     activity of another task comes over it, when the screen locks and unlocks, and at Home and back, from Android 15
+     (tools/android-reference.sh drives them; Minato's menu pauses an app with the same order). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.menupause" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.menupause.MainActivity" android:exported="true"
+        android:label="@string/app_name">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.menupause.OverActivity" android:exported="true"
+        android:taskAffinity="io.github.kisame76.minato.test.menupause.over"
+        android:theme="@android:style/Theme.DeviceDefault.Dialog"/>
+  </application>
+</manifest>

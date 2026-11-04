@@ -231,7 +231,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
   "$app" == action-mode-standalone-test || "$app" == trim-memory-test || "$app" == selection-mode-test ||
-  "$app" == insertion-mode-test ||
+  "$app" == insertion-mode-test || "$app" == menu-pause-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -1093,6 +1093,13 @@ run_app() {
     selection-mode-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SelectActivity
       ;;
+    # menu-pause-test (ADR-0032 decision 7, the menu's pause): MainActivity's callbacks while a dialog themed
+    # activity of another task comes over it and is finished with Back (a), while the screen goes off and on with the
+    # keyguard showing and is unlocked (b), and at Home and back (c); the script writes a marker line before each part
+    # and "done" at the end.
+    menu-pause-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MainActivity
+      ;;
     # insertion-mode-test (the text cursor's insertion mode): a tap in the empty space after an EditText's text, a tap
     # on the insertion handle below the cursor and a long press in the empty space, at the places the app names; the
     # last two start the insertion's floating action mode, which the app's custom callback and its activity log; ends
@@ -1474,6 +1481,42 @@ run_app() {
     }
     { tap_when_ready "dialog 1" && tap_when_ready "dialog 2" && tap_when_ready "popup 1" &&
       tap_when_ready "popup 2" && tap_when_ready "popup 2 again"; } || return 1
+  fi
+  if [[ "$app" == menu-pause-test ]]; then
+    local package=io.github.kisame76.minato.test.menupause locked
+    # One word for the device's shell: the text's spaces become underscores.
+    marker() { run log -t "$app" "mark_${1// /_}"; }
+    wait_for "$app" "ready" || return 1
+    # The image's lock screen is off (set-disabled true); the swipe keyguard is on for this run only.
+    run locksettings set-disabled false >/dev/null
+    sleep 2
+    marker "a a dialog themed activity of another task"
+    run am start -n "$package/.OverActivity" >/dev/null
+    wait_for "$app" "OverActivity onWindowFocusChanged true" || return 1
+    sleep 1
+    run input keyevent KEYCODE_BACK
+    wait_for "$app" "OverActivity onDestroy" || return 1
+    wait_count "$app" "MainActivity onWindowFocusChanged true" 2 || return 1
+    sleep 2
+    marker "b the screen off with the keyguard, then on"
+    run input keyevent KEYCODE_SLEEP
+    sleep 3
+    run input keyevent KEYCODE_WAKEUP
+    sleep 3
+    marker "b unlocked"
+    run wm dismiss-keyguard
+    sleep 3
+    marker "c Home and back"
+    run input keyevent KEYCODE_HOME
+    sleep 2
+    # As the launcher starts it, which brings the stopped task back instead of making a second activity.
+    run am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \
+      -n "$package/.MainActivity" >/dev/null
+    sleep 3
+    run locksettings set-disabled true >/dev/null
+    # The setting reaches the disk some seconds later; an emulator that stops sooner keeps the keyguard on.
+    sleep 30
+    run log -t "$app" done
   fi
   if [[ "$app" == insertion-mode-test ]]; then
     wait_for "$app" "ready: long press at " || return 1

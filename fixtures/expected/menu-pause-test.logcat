@@ -1,0 +1,38 @@
+I/menu-pause-test: MainActivity onCreate
+I/menu-pause-test: MainActivity onStart
+I/menu-pause-test: MainActivity onResume
+I/menu-pause-test: MainActivity onWindowFocusChanged true
+I/menu-pause-test: ready
+I/menu-pause-test: mark_a_a_dialog_themed_activity_of_another_task
+I/menu-pause-test: MainActivity onPause
+I/menu-pause-test: OverActivity onCreate
+I/menu-pause-test: OverActivity onStart
+I/menu-pause-test: OverActivity onResume
+I/menu-pause-test: MainActivity onWindowFocusChanged false
+I/menu-pause-test: OverActivity onWindowFocusChanged true
+I/menu-pause-test: OverActivity onPause
+I/menu-pause-test: MainActivity onResume
+I/menu-pause-test: OverActivity onWindowFocusChanged false
+I/menu-pause-test: MainActivity onWindowFocusChanged true
+I/menu-pause-test: OverActivity onStop
+I/menu-pause-test: OverActivity onDestroy
+I/menu-pause-test: mark_b_the_screen_off_with_the_keyguard,_then_on
+I/menu-pause-test: MainActivity onPause
+I/menu-pause-test: MainActivity onStop
+I/menu-pause-test: MainActivity onSaveInstanceState
+I/menu-pause-test: MainActivity onWindowFocusChanged false
+I/menu-pause-test: mark_b_unlocked
+I/menu-pause-test: MainActivity onRestart
+I/menu-pause-test: MainActivity onStart
+I/menu-pause-test: MainActivity onResume
+I/menu-pause-test: MainActivity onWindowFocusChanged true
+I/menu-pause-test: mark_c_Home_and_back
+I/menu-pause-test: MainActivity onPause
+I/menu-pause-test: MainActivity onWindowFocusChanged false
+I/menu-pause-test: MainActivity onStop
+I/menu-pause-test: MainActivity onSaveInstanceState
+I/menu-pause-test: MainActivity onRestart
+I/menu-pause-test: MainActivity onStart
+I/menu-pause-test: MainActivity onResume
+I/menu-pause-test: MainActivity onWindowFocusChanged true
+I/menu-pause-test: done
