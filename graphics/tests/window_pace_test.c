@@ -6,7 +6,8 @@
    - 5 more with the display link stopped: a lock waits at most two periods after the last post, so they all post
      within 1 s, where a lock that waited for a tick would time out.
    With MINATO_WINDOW_RECORD=64:35 the window host checks the layer's records of the 35 posts 100 ms after the last
-   (detail 5), for which the program waits 300 ms before its end. */
+   (detail 5), and with MINATO_WINDOW_BUFFER_DUMP=35:<folder> dumps the last shown buffer 200 ms after it (step f),
+   for which the program waits 500 ms before its end. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <stdint.h>
@@ -54,7 +55,7 @@ int main(void) {
     failed = posts(window, 5, results);
     printf("5 more posts with the display link stopped: %d %d %d %d %d; within 1 s: %s\n", results[0], results[1],
            results[2], results[3], results[4], failed == 0 && now_ms() - started < 1000 ? "yes" : "no");
-    usleep(300000);
+    usleep(500000);
     ANativeWindow_release(window);
     return 0;
 }

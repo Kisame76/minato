@@ -1,2 +1,4 @@
 window host: the display link stops after 30 presents
 window host: the recording: 35 posts, each tick-timed: yes; each presented one at the target of the first refresh after its commit: yes; at least 25 presented: yes
+window host: dumped 1 window
+window host: window 1: 64x48 RGBA_8888 post 35 shown, 12288 bytes, CRC-32 13e950d0

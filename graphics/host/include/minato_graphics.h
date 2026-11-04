@@ -97,6 +97,17 @@ int minato_graphics_set_window_buffers(void);
    Returns 0, or -1 when the file cannot be opened. */
 int minato_graphics_set_window_crc(const char *path);
 
+/* Step f's comparison of the footprint, in Debug builds only: with 1 before the first lock, the windows' posts draw
+   into the window layer's drawables with b2's pass instead of showing their buffers as contents. Returns 0, or -1 in
+   a Release build, which ignores it. */
+int minato_graphics_set_window_by_drawables(int drawables);
+
+/* Step f's dump (Debug builds and the Mac's tests): each window's last shown buffer goes to `folder`, made if need
+   be, as window-<id>.rgba, its rows tight in RGBA, RGBX_8888's alpha as 255 and RGB_565 widened, and
+   window-<id>.txt, one line "<width>x<height> <format>[ on black] post <n> shown" (or "hidden", as the hide rule
+   left its layer). Returns how many windows it wrote, -1 when a file could not be written. */
+int minato_graphics_window_dump(const char *folder);
+
 /* "Scheduled" for the windows' buffers: waits until no post is between its count and its commit, then until Metal
    has scheduled an empty command buffer on their queue, and so every one committed there before. Returns 1 once
    scheduled, at once before the first lock, 0 when `deadline` (as for Vulkan's above) came first. */

@@ -1,0 +1,12 @@
+minato window 1: post 1 64x48 RGBA_8888 CRC-32 2f904cea
+minato window 1: post 2 64x48 RGBA_8888 CRC-32 bda9f3d9
+minato window 1: post 3 64x48 RGBA_8888 CRC-32 3ff7395c
+minato window 1: post 4 64x48 RGBA_8888 CRC-32 2dca6083
+minato window 1: post 5 64x48 RGBX_8888 CRC-32 7a851ea7
+minato window 1: post 6 32x24 RGB_565 CRC-32 0142d913
+metal: drawable 1: 64 x 48, BGRA8Unorm, CRC-32 2f904cea
+metal: drawable 2: 64 x 48, BGRA8Unorm, CRC-32 bda9f3d9
+metal: drawable 3: 64 x 48, BGRA8Unorm, CRC-32 3ff7395c
+metal: drawable 4: 64 x 48, BGRA8Unorm, CRC-32 2dca6083
+metal: drawable 5: 64 x 48, BGRA8Unorm, CRC-32 7a851ea7
+metal: drawable 6: 32 x 24, BGRA8Unorm, CRC-32 0142d913

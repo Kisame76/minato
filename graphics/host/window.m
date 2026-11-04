@@ -66,11 +66,12 @@ enum { format_rgba_8888 = 1, format_rgbx_8888 = 2, format_rgb_565 = 4 };
 
 enum { buffer_count = 3 };
 
-/* Whether posts show the buffers as a sublayer's contents; the Simulator draws them into a drawable. */
-#if TARGET_OS_SIMULATOR
-enum { by_contents = 0 };
-#else
-enum { by_contents = 1 };
+/* Whether posts show the buffers as a sublayer's contents; the Simulator draws them into a drawable, and so does a
+   Debug build after minato_graphics_set_window_by_drawables(1) or with MINATO_WINDOW_BY_DRAWABLES=1, for step f's
+   comparison of the footprint. Decided at the first lock. */
+static BOOL by_contents = !TARGET_OS_SIMULATOR;
+#ifndef NDEBUG
+static BOOL by_drawables_asked;
 #endif
 
 /* How often a lock that waits looks whether Core Animation still uses a buffer. */
@@ -148,6 +149,12 @@ static BOOL set_up(void) {
     static dispatch_once_t once;
     static BOOL ready;
     dispatch_once(&once, ^{
+#ifndef NDEBUG
+        const char *drawables = getenv("MINATO_WINDOW_BY_DRAWABLES");
+        if (by_drawables_asked || (drawables != NULL && strcmp(drawables, "1") == 0)) {
+            by_contents = NO;
+        }
+#endif
         device = MTLCreateSystemDefaultDevice();
         queue = [device newCommandQueue];
         NSError *error = nil;
@@ -494,6 +501,16 @@ static FILE *crc_file;
 static BOOL crc_asked;  // the setter or the environment decided
 static uint32_t crc_table[256];
 
+int minato_graphics_set_window_by_drawables(int drawables) {
+#ifndef NDEBUG
+    by_drawables_asked = drawables != 0;
+    return 0;
+#else
+    (void)drawables;
+    return -1;
+#endif
+}
+
 int minato_graphics_set_window_crc(const char *path) {
     FILE *file = path == NULL ? NULL : strcmp(path, "-") == 0 ? stderr : fopen(path, "a");
     if (path != NULL && file == NULL) {
@@ -770,6 +787,7 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
         [commands presentDrawable:drawable];
         [commands commit];
     }
+    write_crc(window_id, buffer->posted, buffer, width, height, format, NO, NO);
     atomic_fetch_sub(&in_flight, 1);
     apkrt_window_presented(window_id);
     return YES;
@@ -906,4 +924,59 @@ int minato_graphics_set_window_buffers(void) {
     return apkrt_set_window_buffers(&buffers) == 0 && apkrt_add_scheduled_provider(scheduled_provider, NULL) == 0
                ? 0
                : -1;
+}
+
+int minato_graphics_window_dump(const char *folder) {
+    if (![NSFileManager.defaultManager createDirectoryAtPath:@(folder) withIntermediateDirectories:YES attributes:nil
+                                                       error:nil]) {
+        return -1;
+    }
+    NSMutableArray *dumps = [NSMutableArray array];
+    pthread_mutex_lock(&state_lock);
+    for (NSNumber *window_id in windows) {
+        MinatoCPUWindow *window = windows[window_id];
+        if (window->front != nil) {
+            [dumps addObject:@[window_id, window->front, @(window->width), @(window->height), @(window->format),
+                                @(window->front->posted)]];
+        }
+    }
+    pthread_mutex_unlock(&state_lock);
+    int written = 0;
+    for (NSArray *dump in dumps) {
+        const uint64_t window_id = [dump[0] unsignedLongLongValue];
+        MinatoCPUBuffer *buffer = dump[1];
+        const int32_t width = [dump[2] intValue], height = [dump[3] intValue], format = [dump[4] intValue];
+        CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id);
+        const BOOL hidden = layer == nil || layer.hidden;
+        const BOOL black = format != format_rgba_8888 || layer.opaque;
+        NSMutableData *pixels = [NSMutableData dataWithLength:(NSUInteger)width * (NSUInteger)height * 4];
+        IOSurfaceLock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
+        const uint8_t *bits = IOSurfaceGetBaseAddress(buffer->surface);
+        const size_t row = IOSurfaceGetBytesPerRow(buffer->surface);
+        uint8_t *rgba = pixels.mutableBytes;
+        if (format == format_rgb_565) {
+            widen_565(bits, row, width, height, rgba);
+        } else {
+            for (int32_t y = 0; y < height; y++) {
+                uint8_t *line = rgba + (size_t)y * (size_t)width * 4;
+                memcpy(line, bits + (size_t)y * row, (size_t)width * 4);
+                for (int32_t x = 0; format == format_rgbx_8888 && x < width; x++) {
+                    line[4 * x + 3] = 255;
+                }
+            }
+        }
+        IOSurfaceUnlock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
+        static const char *const names[] = {"", "RGBA_8888", "RGBX_8888", "", "RGB_565"};
+        NSString *facts = [NSString stringWithFormat:@"%dx%d %s%s post %llu %s\n", width, height, names[format],
+                                                     black ? " on black" : "", [dump[5] unsignedLongLongValue],
+                                                     hidden ? "hidden" : "shown"];
+        NSString *base = [NSString stringWithFormat:@"%s/window-%llu", folder, (unsigned long long)window_id];
+        if (![pixels writeToFile:[base stringByAppendingString:@".rgba"] atomically:YES] ||
+            ![facts writeToFile:[base stringByAppendingString:@".txt"] atomically:YES encoding:NSUTF8StringEncoding
+                          error:nil]) {
+            return -1;
+        }
+        written++;
+    }
+    return written;
 }

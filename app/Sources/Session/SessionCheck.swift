@@ -58,6 +58,14 @@ import UIKit
 ///   continue  the menu that waits over the app at a return from the background (ADR-0032 decision 7, the menu's
 ///            pause) chooses Continue after the seconds the file names (1 when it names none) and logs "menu
 ///            continued"; the file stays for every return.
+///   window-crc  with guest-log, graphics/host writes a line per post of a window drawn by the CPU, with the
+///            CRC-32 of its pixels (minato_graphics_set_window_crc), into the guest log from the guest's start on
+///            (ADR-0043 b5, step f).
+///   window-by-drawables  graphics/host draws the windows' buffers into drawables, as before ADR-0043 b5, from the
+///            guest's start on (minato_graphics_set_window_by_drawables), for step f's footprint comparison.
+///   window-dump  the poll has graphics/host dump each window's last shown buffer into
+///            tmp/session-check/window-dump-files/ (minato_graphics_window_dump), logs "window dump <n>" and removes
+///            the file (step f's screenshots compare with it).
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -92,6 +100,9 @@ enum SessionCheck {
     /// The guest is about to start: its stderr, which the runtime hands it as descriptor 2, goes to the
     /// file the script reads, and its stdout, descriptor 1, to guest-out (ADR-0039 c5).
     static func guestStarts() {
+        if requested("window-by-drawables"), minato_graphics_set_window_by_drawables(1) == 0 {
+            event("window by drawables")
+        }
         guard requested("guest-log") else { return }
         for (name, descriptor) in [("guest-log", Int32(2)), ("guest-out", Int32(1))] {
             let file = open(folder.appending(path: name).path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
@@ -100,6 +111,9 @@ enum SessionCheck {
             close(file)
         }
         event("guest log on")
+        if requested("window-crc"), minato_graphics_set_window_crc("-") == 0 {
+            event("window crc on")
+        }
         startFootprintLog()
     }
 
@@ -363,7 +377,8 @@ enum SessionCheck {
         }
     }
 
-    /// The ping and menu requests, which come while the session runs: once a second the files are looked for.
+    /// The ping, window-dump and menu requests, which come while the session runs: once a second the files are
+    /// looked for.
     @MainActor
     private static func poll(_ session: GameSession) {
         Task { @MainActor [weak session] in
@@ -377,6 +392,11 @@ enum SessionCheck {
                     default: "background"
                     }
                     event("pong presents \(session.allPresents) scene \(state)")
+                }
+                if requested("window-dump") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "window-dump"))
+                    let files = folder.appending(path: "window-dump-files").path
+                    event("window dump \(minato_graphics_window_dump(files))")
                 }
                 if requested("menu") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "menu"))
