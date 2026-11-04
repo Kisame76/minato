@@ -17,6 +17,7 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.os.Build;
 import android.graphics.drawable.Drawable;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
@@ -31,13 +32,16 @@ import android.view.PendingInsetsController;
 import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import com.android.internal.widget.ActionBarContextView;
+import com.android.internal.view.FloatingActionMode;
 import com.android.internal.view.StandaloneActionMode;
+import com.android.internal.widget.floatingtoolbar.FloatingToolbar;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.ViewStub;
 
@@ -348,6 +352,12 @@ public class DecorView extends FrameLayout {
         if (cb != null) {
             cb.onWindowFocusChanged(hasWindowFocus);
         }
+        if (mPrimaryActionMode != null) {
+            mPrimaryActionMode.onWindowFocusChanged(hasWindowFocus);
+        }
+        if (mFloatingActionMode != null) {
+            mFloatingActionMode.onWindowFocusChanged(hasWindowFocus);
+        }
     }
 
     /** As AOSP's: the callback hears of it, then the window learns its root. */
@@ -369,6 +379,10 @@ public class DecorView extends FrameLayout {
             cb.onDetachedFromWindow();
         }
         mPendingInsetsController.detach();
+        if (mFloatingToolbar != null) {
+            mFloatingToolbar.dismiss();
+            mFloatingToolbar = null;
+        }
     }
 
     /**
@@ -438,6 +452,11 @@ public class DecorView extends FrameLayout {
     /** The standalone action mode's bar, inflated from the window's action_mode_bar_stub on its first mode. */
     private ActionBarContextView mPrimaryActionModeView;
     private ObjectAnimator mFadeAnim;
+    /** As AOSP's: the floating action mode of a text selection and the toolbar popup it shows. */
+    private ActionMode mFloatingActionMode;
+    private ViewTreeObserver.OnPreDrawListener mFloatingToolbarPreDrawListener;
+    private View mFloatingActionModeOriginatingView;
+    private FloatingToolbar mFloatingToolbar;
 
     @Override
     public ActionMode startActionModeForChild(View originalView, ActionMode.Callback callback) {
@@ -446,7 +465,7 @@ public class DecorView extends FrameLayout {
 
     @Override
     public ActionMode startActionModeForChild(View child, ActionMode.Callback callback, int type) {
-        return startActionMode(callback, type);
+        return startActionMode(child, callback, type);
     }
 
     @Override
@@ -461,6 +480,10 @@ public class DecorView extends FrameLayout {
      */
     @Override
     public ActionMode startActionMode(ActionMode.Callback callback, int type) {
+        return startActionMode(this, callback, type);
+    }
+
+    private ActionMode startActionMode(View originatingView, ActionMode.Callback callback, int type) {
         final ActionMode.Callback2 wrappedCallback = new ActionModeCallback2Wrapper(callback);
         ActionMode mode = null;
         if (mWindow.getCallback() != null && !mWindow.isDestroyed()) {
@@ -483,12 +506,22 @@ public class DecorView extends FrameLayout {
                     mPrimaryActionMode.finish();
                 }
                 mPrimaryActionMode = mode;
+            } else if (mode.getType() == ActionMode.TYPE_FLOATING) {
+                if (mFloatingActionMode != null) {
+                    mFloatingActionMode.finish();
+                }
+                mFloatingActionMode = mode;
             }
-        } else if (type == ActionMode.TYPE_PRIMARY) {
-            // As AOSP's: the window's own standalone bar when no action bar starts the mode.
-            mode = createStandaloneActionMode(wrappedCallback);
+        } else {
+            // As AOSP's: the window's own standalone bar or floating toolbar when the callback starts no mode.
+            mode = type == ActionMode.TYPE_FLOATING ? createFloatingActionMode(originatingView, wrappedCallback)
+                    : createStandaloneActionMode(wrappedCallback);
             if (mode != null && wrappedCallback.onCreateActionMode(mode, mode.getMenu())) {
-                setHandledPrimaryActionMode(mode);
+                if (mode.getType() == ActionMode.TYPE_FLOATING) {
+                    setHandledFloatingActionMode(mode);
+                } else {
+                    setHandledPrimaryActionMode(mode);
+                }
             } else {
                 mode = null;
             }
@@ -501,6 +534,47 @@ public class DecorView extends FrameLayout {
             }
         }
         return mode;
+    }
+
+    private void cleanupFloatingActionModeViews() {
+        if (mFloatingToolbar != null) {
+            mFloatingToolbar.dismiss();
+            mFloatingToolbar = null;
+        }
+        if (mFloatingActionModeOriginatingView != null) {
+            if (mFloatingToolbarPreDrawListener != null) {
+                mFloatingActionModeOriginatingView.getViewTreeObserver()
+                        .removeOnPreDrawListener(mFloatingToolbarPreDrawListener);
+                mFloatingToolbarPreDrawListener = null;
+            }
+            mFloatingActionModeOriginatingView = null;
+        }
+    }
+
+    /** As AOSP's createFloatingActionMode: the mode and the toolbar popup of the window it shows. */
+    private ActionMode createFloatingActionMode(View originatingView, ActionMode.Callback2 callback) {
+        if (mFloatingActionMode != null) {
+            mFloatingActionMode.finish();
+        }
+        cleanupFloatingActionModeViews();
+        mFloatingToolbar = new FloatingToolbar(mWindow);
+        final FloatingActionMode mode = new FloatingActionMode(mContext, callback, originatingView, mFloatingToolbar);
+        mFloatingActionModeOriginatingView = originatingView;
+        mFloatingToolbarPreDrawListener = new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                mode.updateViewLocationInWindow();
+                return true;
+            }
+        };
+        return mode;
+    }
+
+    /** As AOSP's setHandledFloatingActionMode. */
+    private void setHandledFloatingActionMode(ActionMode mode) {
+        mFloatingActionMode = mode;
+        mFloatingActionMode.invalidate();  // Will show the floating toolbar if necessary.
+        mFloatingActionModeOriginatingView.getViewTreeObserver().addOnPreDrawListener(mFloatingToolbarPreDrawListener);
     }
 
     /** As AOSP's createStandaloneActionMode for a window that is not floating (the stub's bar). */
@@ -583,24 +657,37 @@ public class DecorView extends FrameLayout {
 
         public void onDestroyActionMode(ActionMode mode) {
             mWrapped.onDestroyActionMode(mode);
-            if (mPrimaryActionModeView != null) {
-                endOnGoingFadeAnimation();
-                mFadeAnim = ObjectAnimator.ofFloat(mPrimaryActionModeView, View.ALPHA, 0f);
-                mFadeAnim.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        mPrimaryActionModeView.setVisibility(View.GONE);
-                        if (mPrimaryActionModeView.getParent() instanceof View) {
-                            ((View) mPrimaryActionModeView.getParent()).requestApplyInsets();
-                        }
-                        mPrimaryActionModeView.killMode();
-                        mFadeAnim = null;
-                    }
-                });
-                mFadeAnim.start();
+            final boolean isMncApp = mContext.getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.M;
+            final boolean isPrimary;
+            final boolean isFloating;
+            if (isMncApp) {
+                isPrimary = mode == mPrimaryActionMode;
+                isFloating = mode == mFloatingActionMode;
+            } else {
+                isPrimary = mode.getType() == ActionMode.TYPE_PRIMARY;
+                isFloating = mode.getType() == ActionMode.TYPE_FLOATING;
             }
-            if (mode == mPrimaryActionMode) {
+            if (isPrimary) {
+                if (mPrimaryActionModeView != null) {
+                    endOnGoingFadeAnimation();
+                    mFadeAnim = ObjectAnimator.ofFloat(mPrimaryActionModeView, View.ALPHA, 0f);
+                    mFadeAnim.addListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            mPrimaryActionModeView.setVisibility(View.GONE);
+                            if (mPrimaryActionModeView.getParent() instanceof View) {
+                                ((View) mPrimaryActionModeView.getParent()).requestApplyInsets();
+                            }
+                            mPrimaryActionModeView.killMode();
+                            mFadeAnim = null;
+                        }
+                    });
+                    mFadeAnim.start();
+                }
                 mPrimaryActionMode = null;
+            } else if (isFloating) {
+                cleanupFloatingActionModeViews();
+                mFloatingActionMode = null;
             }
             if (mWindow.getCallback() != null && !mWindow.isDestroyed()) {
                 try {

@@ -2654,3 +2654,13 @@ frameworks_base/core/java/com/android/internal/app/IBatteryStats.aidl
 # SoundPool (the compatibility plan's gap 13): AOSP's Java over our natives (framework/native/android_runtime/
 # android_media_SoundPool.cpp), tested by soundpool-test against Android 15.
 frameworks_base_types/media/java/android/media/SoundPool.java
+
+# The text selection's floating action mode (the platform action bar's gap 5, after step 5b): Editor starts it for a
+# selection or a long press, with the floating toolbar as a popup window of its own (FloatingToolbar over
+# LocalFloatingToolbarPopup, as Android 15's, no remote popup); the magnifier a handle's drag shows is ours without its
+# picture (framework/java/android/widget/Magnifier.java: AOSP's draws with hwui's SimpleRenderer, and the views draw in
+# software); tested by selection-mode-test against Android 15.
+frameworks_base/core/java/com/android/internal/view/FloatingActionMode.java
+frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbar.java
+frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbarPopup.java
+frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/LocalFloatingToolbarPopup.java

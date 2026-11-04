@@ -230,7 +230,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == title-test || "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
-  "$app" == action-mode-standalone-test || "$app" == trim-memory-test ||
+  "$app" == action-mode-standalone-test || "$app" == trim-memory-test || "$app" == selection-mode-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -1086,6 +1086,12 @@ run_app() {
     trim-memory-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TrimActivity
       ;;
+    # selection-mode-test (the text selection's action mode): a long press on a word of an EditText, at the place the
+    # app names, starts the selection's floating action mode, which the app's custom callback and its activity log;
+    # ends with "done".
+    selection-mode-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SelectActivity
+      ;;
     # action-bar-test (the platform action bar, compatibility plan gap 5): a default-theme activity that uses
     # getActionBar(), an options menu with an overflow, hide and show, and an action mode; ends with "done".
     action-bar-test | action-bar-test-34)
@@ -1461,6 +1467,12 @@ run_app() {
     { tap_when_ready "dialog 1" && tap_when_ready "dialog 2" && tap_when_ready "popup 1" &&
       tap_when_ready "popup 2" && tap_when_ready "popup 2 again"; } || return 1
   fi
+  if [[ "$app" == selection-mode-test ]]; then
+    wait_for "$app" "ready: long press at " || return 1
+    point=$(app_lines "$app" | sed -n "s/.*ready: long press at \([0-9]*\),\([0-9]*\)\$/\1 \2/p" | tail -n 1)
+    sleep 1
+    run input swipe $point $point 1000
+  fi
   if [[ "$app" == trim-memory-test ]]; then
     # The system refuses a background level for a foreground process, so the running levels go first, then HOME,
     # after which the system itself trims the hidden UI (level 20), before or after onStop, and then the background
@@ -1729,7 +1741,8 @@ if [[ -n "$app" ]]; then
   fi
   # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
   # as a hardware keyboard's do; so does second-windows-test, whose windows' order an input method's window changed.
-  if [[ "$app" == text-test || "$app" == key-test || "$app" == second-windows-test ]]; then
+  if [[ "$app" == text-test || "$app" == key-test || "$app" == second-windows-test ||
+  "$app" == selection-mode-test ]]; then
     trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods_off
   fi

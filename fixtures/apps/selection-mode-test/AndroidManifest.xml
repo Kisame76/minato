@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- selection-mode-test (the text selection's action mode, after the platform action bar's gap 5): an EditText whose
+     text a long press selects a word of, which starts the selection's floating action mode (ActionMode.TYPE_FLOATING):
+     the app's custom callback sees its menu, its type and the selection. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.selectionmode" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.selectionmode.SelectActivity" android:exported="true"
+        android:label="@string/app_name" android:windowSoftInputMode="stateAlwaysHidden"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

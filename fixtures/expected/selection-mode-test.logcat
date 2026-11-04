@@ -1,0 +1,10 @@
+I/selection-mode-test: onCreate
+I/selection-mode-test: ready: long press at 277,348
+I/selection-mode-test: onCreateActionMode type 1, menu [Cut, Copy, Share, Select all]
+I/selection-mode-test: onPrepareActionMode
+I/selection-mode-test: onActionModeStarted type 1, selection 6-10
+I/selection-mode-test: onPrepareActionMode
+I/selection-mode-test: onPrepareActionMode
+I/selection-mode-test: onDestroyActionMode
+I/selection-mode-test: onActionModeFinished
+I/selection-mode-test: done

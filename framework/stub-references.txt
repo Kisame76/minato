@@ -151,11 +151,8 @@ android.view.textclassifier.ExtrasUtils <- android.widget.SelectionActionModeHel
 android.view.textservice.SpellCheckerSubtype <- android.widget.TextView  # stays: a spell checker's subtype, and text services are absent (ADR-0043 step d), decision 3)
 android.view.translation.TranslationRequestValue <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
-android.widget.Magnifier <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
-android.widget.Magnifier$Builder <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.TextView  # stays: accessibility, off (ADR-0041): TextView asks it only while accessibility is on
 com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
-com.android.internal.view.FloatingActionMode <- android.widget.Editor  # gap: a selection's handles, magnifier, toolbar, context menu and suggestion popups, which a touch on the text starts (ADR-0041 a)'s input), the popups as other windows
 
 # ADR-0043 step e1), CompoundButton and CheckBox: their autofill, assist, accessibility and debug answers, which
 # only those services and tools ask for, and a button drawable from an Icon.
