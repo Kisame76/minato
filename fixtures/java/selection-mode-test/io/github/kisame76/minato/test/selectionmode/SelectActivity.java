@@ -14,8 +14,9 @@ import android.widget.LinearLayout;
 /**
  * The activity of selection-mode-test: an EditText of a few words, and the way a long press on a word starts the
  * selection's action mode: the app's custom callback logs what it is given (the type, the menu, the selection), and the
- * activity what it hears of it. It says where to long-press once its window has the focus ("ready: long press at
- * x,y"), finishes the mode a second after it started and ends with "done".
+ * activity what it hears of it, with the keyboard that a selection in an editable field shows. It says where to
+ * long-press once its window has the focus ("ready: long press at x,y"), finishes the mode a second after it started
+ * and ends with "done".
  */
 public class SelectActivity extends Activity {
     private static final String TAG = "selection-mode-test";
@@ -32,8 +33,6 @@ public class SelectActivity extends Activity {
         mEdit = new EditText(this);
         mEdit.setText("alpha beta gamma");
         mEdit.setTextSize(24);
-        // No keyboard: a selection in an editable field shows it, which the Mac side feeds (a finding of its own).
-        mEdit.setShowSoftInputOnFocus(false);
         mEdit.setCustomSelectionActionModeCallback(new ActionMode.Callback() {
             @Override
             public boolean onCreateActionMode(ActionMode mode, Menu menu) {
@@ -92,6 +91,14 @@ public class SelectActivity extends Activity {
         super.onActionModeStarted(mode);
         Log.i(TAG, "onActionModeStarted type " + mode.getType() + ", selection " + mEdit.getSelectionStart() + "-"
                 + mEdit.getSelectionEnd());
+        // A selection in an editable field shows the keyboard, and the mode lives on with it: the selection is still
+        // there half a second later (it collapses when the mode ends).
+        mEdit.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                Log.i(TAG, "half a second on, selection " + mEdit.getSelectionStart() + "-" + mEdit.getSelectionEnd());
+            }
+        }, 500);
         mEdit.postDelayed(new Runnable() {
             @Override
             public void run() {

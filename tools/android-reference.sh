@@ -1045,7 +1045,7 @@ run_app() {
       activity_class=.HangActivity
       ;;
     # ime-extract-test (ADR-0068, the host's text bar): one field and a password field, whose text and selection the
-    # fixture input method asks for with getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and hears of while it types; the
+    # fixture input method asks for with getExtractedText (flags 0, no monitoring) and hears of while it types; the
     # method's lines under ime-extract-test-device are the numbers that Minato's extract requests must carry. It ends
     # with "done".
     ime-extract-test)
@@ -1741,8 +1741,7 @@ if [[ -n "$app" ]]; then
   fi
   # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
   # as a hardware keyboard's do; so does second-windows-test, whose windows' order an input method's window changed.
-  if [[ "$app" == text-test || "$app" == key-test || "$app" == second-windows-test ||
-  "$app" == selection-mode-test ]]; then
+  if [[ "$app" == text-test || "$app" == key-test || "$app" == second-windows-test ]]; then
     trap 'input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT
     input_methods_off
   fi

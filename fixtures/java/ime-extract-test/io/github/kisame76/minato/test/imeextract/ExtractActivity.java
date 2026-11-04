@@ -22,7 +22,7 @@ import android.widget.LinearLayout;
 /**
  * ADR-0068's test of the host's text bar: a note field (multi-line, with text and a selection at its end) and below it
  * a password field. Each field's InputConnection logs the calls of an input method that shows the field's text:
- * getExtractedText with GET_EXTRACTED_TEXT_MONITOR, and the edits after it, with the text, selection and composing span
+ * getExtractedText (flags 0), and the edits after it, with the text, selection and composing span
  * after each. After the note field's last edit the password field takes the focus. The test ends with "done".
  */
 public class ExtractActivity extends Activity {
@@ -70,9 +70,9 @@ public class ExtractActivity extends Activity {
         @Override
         public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
             final ExtractedText result = super.getExtractedText(request, flags);
-            // The call that starts the monitoring, once per field: how often a connection is made again differs by input
-            // method (as ime-test's editor line).
-            if ((flags & InputConnection.GET_EXTRACTED_TEXT_MONITOR) != 0 && !mLogged.getAndSet(true)) {
+            // The first call, once per field: how often a connection is made again differs by input method (as
+            // ime-test's editor line), and the keyboard reads the text again after the view's updates.
+            if (!mLogged.getAndSet(true)) {
                 Log.i(TAG, mName + ": call getExtractedText hintMaxChars " + request.hintMaxChars + " token "
                         + request.token + " flags " + flags + " -> " + (result == null || result.text == null ? "none"
                         : "length " + result.text.length() + ", selection " + result.selectionStart + ","

@@ -3,9 +3,10 @@
 # apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so (incremental),
 # framework.jar and ime-extract-test (seconds) every time, so it never tests an old binary; then starts ime-extract-test
 # through app_process in a session on the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px at scale 3 in en-US.
-# The guest asks its note field for its extracted text with GET_EXTRACTED_TEXT_MONITOR as a keyboard with a text bar
-# does, and tells the host where the field is (field) and what it holds (extract, with where its window of the text
-# starts); the host plays a commit, a composing text, its end and a selection (apk-run's text steps).
+# The guest asks its note field for its extracted text without GET_EXTRACTED_TEXT_MONITOR as a keyboard with a text bar
+# that is not extracting does (monitoring would end a selection's action mode), and tells the host where the field is
+# (field) and what it holds (extract, with where its window of the text starts); the host plays a commit, a composing
+# text, its end and a selection (apk-run's text steps).
 # The app's log is compared with
 # fixtures/expected/ime-extract-test.logcat, which is the Android 15 emulator's with the fixture input method making the
 # same calls (tools/android-reference.sh), and the host must have heard of the field and of each extract in order, whose

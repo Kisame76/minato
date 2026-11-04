@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ime-extract-test (ADR-0068, the host's text bar): a note field and a password field, and, for the Android reference
      only, a fixture input method that shows the text as a keyboard with a text bar does: it asks the field for its
-     extracted text with GET_EXTRACTED_TEXT_MONITOR and hears of each change, which it logs. Minato has no input method
-     service: its guest asks and tells the host, and apk-run's text steps post the same edits. -->
+     extracted text (without GET_EXTRACTED_TEXT_MONITOR) and hears of each change, which it logs. Minato has no input
+     method service: its guest asks and tells the host, and apk-run's text steps post the same edits. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.imeextract" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>

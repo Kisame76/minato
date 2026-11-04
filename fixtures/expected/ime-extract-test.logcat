@@ -1,5 +1,5 @@
 I/ime-extract-test: showSoftInput true
-I/ime-extract-test: note: call getExtractedText hintMaxChars 4096 token 1 flags 1 -> length 8, selection 8,8
+I/ime-extract-test: note: call getExtractedText hintMaxChars 4096 token 1 flags 0 -> length 8, selection 8,8
 I/ime-extract-test: note: call commitText "!" 1 -> true
 I/ime-extract-test:   text "héllo 😀!", selection 9,9, composing -1,-1
 I/ime-extract-test: note: call setComposingText "ab" 1 -> true
@@ -7,7 +7,7 @@ I/ime-extract-test:   text "héllo 😀!ab", selection 11,11, composing 9,11
 I/ime-extract-test: note: call setSelection 2,4 -> true
 I/ime-extract-test:   text "héllo 😀!ab", selection 2,4, composing -1,-1
 I/ime-extract-test: showSoftInput true
-I/ime-extract-test: password: call getExtractedText hintMaxChars 4096 token 1 flags 1 -> length 6, selection 6,6
+I/ime-extract-test: password: call getExtractedText hintMaxChars 4096 token 1 flags 0 -> length 6, selection 6,6
 I/ime-extract-test: final note "héllo 😀!ab"
 I/ime-extract-test: final password length 6
 I/ime-extract-test: done

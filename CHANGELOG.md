@@ -19,6 +19,8 @@ All notable changes to Minato are documented in this file. The format follows
   showing it, and action modes, also in apps without an action bar, as on Android 15
 - Above the on-screen keyboard, a bar shows the text of the field you type in, with its cursor, also in apps made with
   game engines such as Ren'Py; tap in it to move the cursor
+- Touching and holding a word in an app's text field selects it and opens the selection's menu, as on Android, also
+  while the keyboard is up
 - A hardware keyboard's Menu key opens an app's options menu, the arrow and Enter keys work inside its overflow, and
   the menu follows the app's changes to it
 - Apps follow a new screen size, as folding or unfolding the iPhone Duo gives one: apps that handle it get the new

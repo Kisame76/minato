@@ -14,9 +14,9 @@
 // is served no more (stop), and the host answers with text records, which onHostText turns into calls on the served
 // view's InputConnection, as an input method service's would be. Every connection has a serial, and a record for
 // another serial is dropped, so that an edit meant for a view that has since lost the focus reaches no other. For the
-// host's text bar and its tap outside the field the manager also tells where the served view is (field) and what text it
-// holds (extract), which it asks of the view's connection as an input method that shows the text does, with
-// getExtractedText(GET_EXTRACTED_TEXT_MONITOR) and then from the view's updateExtractedText and updateSelection.
+// host's text bar and its tap outside the field the manager also tells where the served view is (field) and what text
+// it holds (extract), which it asks of the view's connection as an input method that shows the text does, with
+// getExtractedText and then again at the view's updateSelection (not monitoring, which ends a selection's action mode).
 import android.app.ActivityThread;
 import android.content.Context;
 import android.os.Handler;
@@ -191,10 +191,12 @@ class InputMethodManager {
         }
 
         /**
-         * The text bar's feed: the view's text through getExtractedText(GET_EXTRACTED_TEXT_MONITOR), as an input method
-         * that shows it asks, and the view's place in the window. A view whose connection gives no extracted text, such
-         * as an engine's (SDL2's SDLInputConnection), is read around the cursor instead, as input methods read it; a
-         * view without a connection of its own gets neither.
+         * The text bar's feed: the view's text through getExtractedText, as an input method that shows it asks, and the
+         * view's place in the window. It does not monitor (GET_EXTRACTED_TEXT_MONITOR): that makes the view stop its
+         * selection's action mode (TextView.setExtracting), which a keyboard that is not extracting does not; the feed
+         * reads the text again when the view reports its selection. A view whose connection gives no extracted text,
+         * such as an engine's (SDL2's SDLInputConnection), is read around the cursor instead, as input methods read it;
+         * a view without a connection of its own gets neither.
          */
         void startFeeding(EditorInfo info) {
             if (mInfo != null || info == null) {
@@ -214,11 +216,7 @@ class InputMethodManager {
                 if (mDeactivateRequested.get()) {
                     return;
                 }
-                final ExtractedTextRequest request = new ExtractedTextRequest();
-                request.token = EXTRACT_TOKEN;
-                request.hintMaxChars = EXTRACT_CHARS;
-                final ExtractedText extracted = mConnection.getExtractedText(request,
-                        InputConnection.GET_EXTRACTED_TEXT_MONITOR);
+                final ExtractedText extracted = mConnection.getExtractedText(extractedTextRequest(), 0);
                 if (extracted == null || extracted.text == null) {
                     if (readSurrounding()) {
                         synchronized (this) {
@@ -239,6 +237,28 @@ class InputMethodManager {
                 }
                 sendExtract();
             });
+        }
+
+        private ExtractedTextRequest extractedTextRequest() {
+            final ExtractedTextRequest request = new ExtractedTextRequest();
+            request.token = EXTRACT_TOKEN;
+            request.hintMaxChars = EXTRACT_CHARS;
+            return request;
+        }
+
+        /** The view's text again, after it reported its selection: an edit has changed it, wholly or in part. */
+        private void readText() {
+            final ExtractedText extracted = mConnection.getExtractedText(extractedTextRequest(), 0);
+            if (extracted == null || extracted.text == null) {
+                return;
+            }
+            synchronized (this) {
+                if (mSurrounding) {
+                    return;
+                }
+                mText = extracted.text.toString();
+                mTextStart = extracted.startOffset;
+            }
         }
 
         /**
@@ -331,6 +351,7 @@ class InputMethodManager {
                     mSendPending = false;
                 }
                 if (!mDeactivateRequested.get()) {
+                    readText();
                     sendExtract();
                 }
             });

@@ -5,6 +5,7 @@ I/selection-mode-test: onPrepareActionMode
 I/selection-mode-test: onActionModeStarted type 1, selection 6-10
 I/selection-mode-test: onPrepareActionMode
 I/selection-mode-test: onPrepareActionMode
+I/selection-mode-test: half a second on, selection 6-10
 I/selection-mode-test: onDestroyActionMode
 I/selection-mode-test: onActionModeFinished
 I/selection-mode-test: done

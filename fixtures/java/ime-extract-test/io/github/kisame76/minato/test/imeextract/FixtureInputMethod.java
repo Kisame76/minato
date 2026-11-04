@@ -11,9 +11,10 @@ import android.view.inputmethod.InputConnection;
 
 /**
  * The fixture input method of the Android reference: a keyboard with a text bar. When ExtractActivity's fields are
- * served it asks each for its extracted text with GET_EXTRACTED_TEXT_MONITOR, as such a keyboard does, logs under the
- * device tag what it is told (the numbers that Minato's extract requests must carry), and, for the note field, plays
- * the edits that tools/ime-extract-check.sh's text steps post: a commit, a composing text, its end and a selection.
+ * served it asks each for its extracted text, without monitoring it as a keyboard that is not extracting does
+ * (monitoring makes the view stop its selection's action mode), logs under the device tag what it is told (the numbers
+ * that Minato's extract requests must carry), and, for the note field, plays the edits that
+ * tools/ime-extract-check.sh's text steps post: a commit, a composing text, its end and a selection.
  */
 public class FixtureInputMethod extends InputMethodService {
     private static final long STEP_MS = 200;
@@ -36,7 +37,7 @@ public class FixtureInputMethod extends InputMethodService {
         final ExtractedTextRequest request = new ExtractedTextRequest();
         request.token = 1;
         request.hintMaxChars = 4096;
-        final ExtractedText extracted = connection.getExtractedText(request, InputConnection.GET_EXTRACTED_TEXT_MONITOR);
+        final ExtractedText extracted = connection.getExtractedText(request, 0);
         Log.i(DEVICE_TAG, "field " + field + " extracted: " + describe(extracted) + ", flags "
                 + ((info.inputType & EditorInfo.TYPE_MASK_VARIATION) == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
                         ? "password" : "plain"));
