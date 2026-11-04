@@ -58,6 +58,7 @@ import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.WindowManagerImpl;
 import android.view.accessibility.AccessibilityManager;
+import android.view.contentcapture.ContentCaptureManager;
 import android.view.accessibility.CaptioningManager;
 import android.view.autofill.AutofillManager;
 import android.view.inputmethod.InputMethodManager;
@@ -171,6 +172,9 @@ final class SystemServiceRegistry {
         cached(Context.BATTERY_SERVICE, BatteryManager.class, ctx -> new BatteryManager(ctx.getOuterContext(),
                 IBatteryStats.Stub.asInterface(ServiceManager.getServiceOrThrow(BatteryStats.SERVICE_NAME)),
                 IBatteryPropertiesRegistrar.Stub.asInterface(ServiceManager.getServiceOrThrow("batteryproperties"))));
+        // Content capture, an optional feature: as the tag's, the name is registered and an app whose package no content
+        // capture provider allowlists gets no manager (createService returns null), which no provider of Minato's does.
+        cached(Context.CONTENT_CAPTURE_MANAGER_SERVICE, ContentCaptureManager.class, ctx -> null);
         // ADR-0063: as AOSP's, over the local location service.
         cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
                 ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));

@@ -7,6 +7,7 @@ I/sdk-types-test: rfc822 quote: A \"B\" C x\(y\) true
 I/sdk-types-test: provider: _display_name _size
 I/sdk-types-test: provider alarm: android.intent.action.SET_ALARM android.intent.extra.alarm.HOUR android.intent.extra.alarm.MINUTES android.intent.action.SET_TIMER android.intent.extra.alarm.LENGTH
 I/sdk-types-test: provider contacts: com.android.contacts content://com.android.contacts content://com.android.contacts/contacts content://com.android.contacts/contacts/lookup vnd.android.cursor.dir/contact content://com.android.contacts/raw_contacts content://com.android.contacts/data content://com.android.contacts/data/phones data1 content://com.android.contacts/display_photo
+I/sdk-types-test: services: content_capture null
 I/sdk-types-test: keystore: KeyPermanentlyInvalidatedException extends java.security.InvalidKeyException message m
 I/sdk-types-test: keystore: UserNotAuthenticatedException extends java.security.InvalidKeyException message m
 I/sdk-types-test: keystore: KeyExpiredException extends java.security.InvalidKeyException message m

@@ -14,6 +14,7 @@ import android.text.AlteredCharSequence;
 import android.text.LoginFilter;
 import android.text.util.Rfc822Token;
 import android.util.AtomicFile;
+import android.view.contentcapture.ContentCaptureManager;
 import android.util.Log;
 import android.util.MonthDisplayHelper;
 import android.util.MutableBoolean;
@@ -62,6 +63,7 @@ public class SdkTypesApplication extends Application {
         part("atomicfile", this::atomicFile);
         part("rfc822", SdkTypesApplication::rfc822);
         part("provider", SdkTypesApplication::provider);
+        part("services", this::services);
         part("keystore", SdkTypesApplication::keystore);
         part("geomagnetic", SdkTypesApplication::geomagnetic);
         part("text", SdkTypesApplication::text);
@@ -144,6 +146,13 @@ public class SdkTypesApplication extends Application {
                 + ContactsContract.Data.CONTENT_URI + " " + ContactsContract.CommonDataKinds.Phone.CONTENT_URI + " "
                 + ContactsContract.CommonDataKinds.Phone.NUMBER + " "
                 + android.net.Uri.withAppendedPath(ContactsContract.AUTHORITY_URI, "display_photo"));
+    }
+
+    private void services() {
+        // Content capture is an optional feature: Android names the service and hands an app that its provider has not
+        // allowlisted no manager.
+        Log.i(TAG, "services: " + getSystemServiceName(ContentCaptureManager.class) + " "
+                + getSystemService(ContentCaptureManager.class));
     }
 
     private static void keystore() {
