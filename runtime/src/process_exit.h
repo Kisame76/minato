@@ -6,6 +6,7 @@
 // leaves the process to the session's end handler (ADR-0028, decision 5).
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -66,16 +67,21 @@ std::string failed_paths_lines();
 /// Forgets the kept paths, for tests.
 void forget_failed_paths();
 
-/// The app's first frame has been presented: from then on no failed path is kept and the kept ones are forgotten, as
-/// they matter only to an app that ends before it shows anything. An atomic test-and-set, so a second call, or one from
-/// the render thread, changes nothing. The stall watchdog reads the same flag.
-void note_first_frame();
+/// What the guest writes to its descriptor 1 or 2 (write, writev), the last 4 KiB of it, for the log of an app that
+/// ends itself with an error status: Android sends both to /dev/null for an app, so a Python's traceback or a runtime's
+/// last words are lost there, and here they are only logged at the exit, never changed on their way. `fd` other than 1
+/// or 2 is ignored. Safe from any thread.
+void note_output(int fd, const char *data, std::size_t length);
 
-/// Whether note_first_frame was called.
-bool first_frame_seen();
+/// "W/apkrt   : stderr: <line>\n" for each non-empty line of the kept output, oldest first (a first line the 4 KiB cut
+/// is dropped; non-printable bytes show as '?', a carriage return is dropped); empty for none.
+std::string output_lines();
+
+/// Forgets the kept output, for tests.
+void forget_output();
 
 /// exit_group's note before end(): in an app process (one with a session, as the Zygote line), exit_callers' line to
-/// stderr for a status other than 0, and the failed paths' lines after it.
+/// stderr for a status other than 0, and the failed paths' and the kept output's lines after it.
 void note_exit(int status, std::uint64_t frame_pointer);
 
 /// Reports `status` and the measures and ends the process with the status, keeping the low 8 bits as

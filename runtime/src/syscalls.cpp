@@ -1075,6 +1075,23 @@ const char *path_syscall_name(std::uint64_t number) {
     }
 }
 
+/// The bytes a write or writev of descriptor 1 or 2 got out, `written` of them from the start of its buffer or
+/// vectors, for the end's log.
+void note_written(const apkrt_syscall_frame &frame, std::size_t written) {
+    const int fd = static_cast<int>(static_cast<std::int32_t>(frame.x[31]));
+    if (frame.x[8] == nr::write) {
+        apkrt::process::note_output(fd, reinterpret_cast<const char *>(frame.x[1]), written);
+        return;
+    }
+    const auto *vectors = reinterpret_cast<const struct iovec *>(frame.x[1]);
+    const std::uint64_t count = std::min<std::uint64_t>(frame.x[2], 1024);
+    for (std::uint64_t index = 0; index < count && written > 0; ++index) {
+        const std::size_t part = std::min<std::size_t>(vectors[index].iov_len, written);
+        apkrt::process::note_output(fd, static_cast<const char *>(vectors[index].iov_base), part);
+        written -= part;
+    }
+}
+
 }  // namespace
 
 extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
@@ -1089,12 +1106,18 @@ extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
     if (result == -linux_errno::enoent || result == -linux_errno::eacces || result == -linux_errno::enotdir) {
         // Only an app process (one with a session) shows them in its log, so only it keeps them.
         if (const char *name = path_syscall_name(frame->x[8]);
-            name != nullptr && frame->x[1] != 0 && !apkrt::process::first_frame_seen() &&
-            apkrt::session::end_handler().function != nullptr) {
+            name != nullptr && frame->x[1] != 0 && apkrt::session::end_handler().function != nullptr) {
             const char *guest_path = reinterpret_cast<const char *>(frame->x[1]);  // the call read it, so it is mapped
             apkrt::process::note_failed_path(name, std::string(guest_path, ::strnlen(guest_path, 4096)),
                                              static_cast<int>(-result));
         }
+    }
+    // What an app process writes to descriptor 1 or 2 stays in a 4 KiB ring for the log of its end, which Android
+    // sends to /dev/null; the app sees no change.
+    if (result > 0 && (frame->x[8] == nr::write || frame->x[8] == nr::writev) &&
+        (static_cast<std::int32_t>(frame->x[31]) == 1 || static_cast<std::int32_t>(frame->x[31]) == 2) &&
+        apkrt::session::end_handler().function != nullptr) {
+        note_written(*frame, static_cast<std::size_t>(result));
     }
     // A write to a pipe or socket nobody reads: Linux raises SIGPIPE along with EPIPE (and along with
     // the count of a write that got some bytes out first, sys_files.cpp), but not for a SOCK_SEQPACKET socket.

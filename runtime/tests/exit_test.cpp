@@ -5,12 +5,14 @@
 #include "process_exit.h"
 
 #include "dl.h"
+#include "syscall_frame.h"
 
 #include "APKRuntime/apkrt.h"
 #include "check.h"
 
 #include <TargetConditionals.h>
 #include <sys/mman.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -320,28 +322,118 @@ TEST(a_status_other_than_0_in_an_app_process_logs_the_failed_paths_after_the_cal
     CHECK(callers != std::string::npos && path != std::string::npos && callers < path);
 }
 
-TEST(the_first_frame_forgets_the_failed_paths_and_keeps_no_more) {
-    // The flag is process-wide, so the case runs in a child.
+TEST(the_output_tail_keeps_the_last_4_KiB_of_descriptors_1_and_2_as_lines) {
+    apkrt::process::forget_output();
+    CHECK(apkrt::process::output_lines().empty());
+    const std::string traceback =
+        "Traceback (most recent call last):\r\n  File \"site.py\", line 1\nImportError: no os\n";
+    apkrt::process::note_output(2, traceback.data(), traceback.size());
+    apkrt::process::note_output(1, "to stdout\n", 10);
+    apkrt::process::note_output(3, "not kept\n", 9);  // another descriptor
+    apkrt::process::note_output(2, "partial", 7);      // the last line without its newline
+    CHECK(apkrt::process::output_lines() ==
+          "W/apkrt   : stderr: Traceback (most recent call last):\n"
+          "W/apkrt   : stderr:   File \"site.py\", line 1\n"
+          "W/apkrt   : stderr: ImportError: no os\n"
+          "W/apkrt   : stderr: to stdout\n"
+          "W/apkrt   : stderr: partial\n");
+}
+
+TEST(the_output_tail_cuts_at_4_KiB_drops_the_cut_line_and_masks_control_bytes) {
+    apkrt::process::forget_output();
+    for (int index = 0; index < 600; index++) {
+        const std::string line = "line " + std::to_string(index) + "\n";
+        apkrt::process::note_output(2, line.data(), line.size());
+    }
+    apkrt::process::note_output(2, "a\x01\xffz\n", 5);
+    const std::string lines = apkrt::process::output_lines();
+    CHECK(lines.find("line 0\n") == std::string::npos);
+    CHECK(lines.find("W/apkrt   : stderr: line 599\n") != std::string::npos);
+    CHECK(lines.ends_with("W/apkrt   : stderr: a??z\n"));
+    // The first kept line is whole: a line the cut split is dropped.
+    CHECK(lines.starts_with("W/apkrt   : stderr: line "));
+    const auto first_end = lines.find('\n');
+    const std::string first = lines.substr(std::string("W/apkrt   : stderr: line ").size(),
+                                           first_end - std::string("W/apkrt   : stderr: line ").size());
+    CHECK(!first.empty() && std::stoi(first) > 0 && first.size() == std::to_string(std::stoi(first)).size());
+    // One write larger than the ring keeps its end.
+    apkrt::process::forget_output();
+    const std::string big = std::string(10000, 'x') + "\nend\n";
+    apkrt::process::note_output(1, big.data(), big.size());
+    CHECK(apkrt::process::output_lines().ends_with("W/apkrt   : stderr: end\n"));
+}
+
+TEST(a_status_other_than_0_in_an_app_process_logs_the_output_after_the_failed_paths) {
     const auto ended = in_child([](int) {
         become_app_process();
         apkrt::process::forget_failed_paths();
-        apkrt::process::note_failed_path("openat", "/before", 2);
-        CHECK(!apkrt::process::first_frame_seen());
-        apkrt::process::note_first_frame();
-        apkrt::process::note_first_frame();  // idempotent
-        CHECK(apkrt::process::first_frame_seen());
-        CHECK(apkrt::process::failed_paths_lines().empty());
-        apkrt::process::note_failed_path("openat", "/after", 2);
-        CHECK(apkrt::process::failed_paths_lines().empty());
-        ::_exit(0);
+        apkrt::process::forget_output();
+        apkrt::process::note_failed_path("openat", "/data/lib/site.py", 2);
+        apkrt::process::note_output(2, "ImportError: No module named site\n", 34);
+        apkrt::process::note_exit(1, 0);
+        ::_exit(1);
     });
-    CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 0);
+    const auto path = ended.log.find("W/apkrt   : failed path: openat /data/lib/site.py ENOENT\n");
+    const auto output = ended.log.find("W/apkrt   : stderr: ImportError: No module named site\n");
+    CHECK(path != std::string::npos && output != std::string::npos && path < output);
+}
+
+// The syscall layer feeds both rings: a failed openat and what the guest writes to descriptors 1 and 2 (write and
+// writev), whenever it happens, and the exit's log names them (Linux numbers: openat 56, write 64, writev 66).
+long guest_call(std::uint64_t number, std::uint64_t a0, std::uint64_t a1 = 0, std::uint64_t a2 = 0) {
+    apkrt_syscall_frame frame{};
+    frame.x[0] = a0;
+    frame.x[1] = a1;
+    frame.x[2] = a2;
+    frame.x[8] = number;
+    apkrt_syscall_dispatch(&frame);
+    return static_cast<long>(frame.x[0]);
+}
+
+TEST(the_syscall_layer_keeps_a_failed_path_and_the_output_for_the_exit_s_log) {
+    const auto ended = in_child([](int) {
+        become_app_process();
+        apkrt::process::forget_failed_paths();
+        apkrt::process::forget_output();
+        const char *const missing = "/no/such/lib/python2.7/site.pyo";
+        CHECK(guest_call(56, static_cast<std::uint64_t>(-100), reinterpret_cast<std::uint64_t>(missing)) < 0);
+        // The guest's descriptors 1 and 2 are a pipe's write end here (Linux numbers: pipe2 59, dup3 24).
+        int pipe[2] = {-1, -1};
+        CHECK(guest_call(59, reinterpret_cast<std::uint64_t>(pipe), 0) == 0);
+        CHECK(guest_call(24, static_cast<std::uint64_t>(pipe[1]), 2) == 2);
+        CHECK(guest_call(24, static_cast<std::uint64_t>(pipe[1]), 1) == 1);
+        const std::string one = "ImportError: No module named site\n";
+        CHECK(guest_call(64, 2, reinterpret_cast<std::uint64_t>(one.data()), one.size()) ==
+              static_cast<long>(one.size()));
+        char first[] = "vector ", second[] = "part\n";
+        iovec vectors[2] = {{first, 7}, {second, 5}};
+        CHECK(guest_call(66, 1, reinterpret_cast<std::uint64_t>(vectors), 2) == 12);
+        char other[] = "not kept\n";
+        guest_call(64, 0, reinterpret_cast<std::uint64_t>(other), 9);  // descriptor 0: a read-only end, fails or not
+        apkrt::process::note_exit(1, 0);
+        ::_exit(1);
+    });
+    CHECK(ended.log.find("W/apkrt   : failed path: openat /no/such/lib/python2.7/site.pyo ENOENT\n") !=
+          std::string::npos);
+    CHECK(ended.log.find("W/apkrt   : stderr: ImportError: No module named site\n") != std::string::npos);
+    CHECK(ended.log.find("W/apkrt   : stderr: vector part\n") != std::string::npos);
+    CHECK(ended.log.find("stderr: not kept") == std::string::npos);
+}
+
+TEST(the_failed_paths_stay_kept_whatever_the_app_drew) {
+    apkrt::process::forget_failed_paths();
+    apkrt::process::note_failed_path("openat", "/before", 2);
+    apkrt::process::note_failed_path("openat", "/after", 2);
+    CHECK(apkrt::process::failed_paths_lines() ==
+          "W/apkrt   : failed path: openat /before ENOENT\nW/apkrt   : failed path: openat /after ENOENT\n");
 }
 
 TEST(a_status_of_0_logs_no_failed_paths) {
     const auto ended = in_child([](int) {
         become_app_process();
         apkrt::process::forget_failed_paths();
+        apkrt::process::forget_output();
+        apkrt::process::note_output(2, "text\n", 5);
         apkrt::process::note_failed_path("openat", "/data/lib/site.py", 2);
         apkrt::process::note_exit(0, 0);
         ::_exit(0);

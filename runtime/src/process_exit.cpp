@@ -18,6 +18,7 @@
 #include <os/proc.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -377,7 +378,7 @@ const char *error_name(int error) {
 }  // namespace
 
 void note_failed_path(const char *syscall, const std::string &path, int error) {
-    if (error_name(error) == nullptr || first_frame_seen()) return;
+    if (error_name(error) == nullptr) return;
     const std::string kept = path.substr(0, failed_path_length);
     const std::lock_guard lock(failed_paths_mutex);
     if (failed_path_count > 0) {
@@ -401,16 +402,60 @@ std::string failed_paths_lines() {
 }
 
 namespace {
-std::atomic<bool> first_frame{false};
+
+constexpr std::size_t output_size = 4096;
+
+std::mutex output_mutex;
+char output[output_size];       // guarded by output_mutex; a ring of the last bytes written
+std::size_t output_total = 0;   // how many bytes were written in all
+
 }  // namespace
 
-void note_first_frame() {
-    if (first_frame.exchange(true)) return;
-    forget_failed_paths();
+void note_output(int fd, const char *data, std::size_t length) {
+    if ((fd != 1 && fd != 2) || data == nullptr || length == 0) return;
+    if (length > output_size) {
+        data += length - output_size;
+        length = output_size;
+    }
+    const std::lock_guard lock(output_mutex);
+    for (std::size_t index = 0; index < length; index++) output[(output_total + index) % output_size] = data[index];
+    output_total += length;
 }
 
-bool first_frame_seen() {
-    return first_frame.load(std::memory_order_acquire);
+std::string output_lines() {
+    std::string text;
+    {
+        const std::lock_guard lock(output_mutex);
+        const std::size_t kept = std::min(output_total, output_size);
+        for (std::size_t index = output_total - kept; index < output_total; index++) {
+            text += output[index % output_size];
+        }
+        // Cut by the ring: the first line is a piece of one, and is dropped.
+        if (output_total > output_size) {
+            const auto newline = text.find('\n');
+            text = newline == std::string::npos ? std::string() : text.substr(newline + 1);
+        }
+    }
+    std::string lines;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        std::size_t end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        std::string line;
+        for (std::size_t index = start; index < end; index++) {
+            const unsigned char byte = static_cast<unsigned char>(text[index]);
+            if (byte == '\r') continue;
+            line += (byte >= 0x20 && byte < 0x7f) || byte == '\t' ? static_cast<char>(byte) : '?';
+        }
+        if (!line.empty()) lines += "W/apkrt   : stderr: " + line + "\n";
+        start = end + 1;
+    }
+    return lines;
+}
+
+void forget_output() {
+    const std::lock_guard lock(output_mutex);
+    output_total = 0;
 }
 
 void forget_failed_paths() {
@@ -421,7 +466,7 @@ void forget_failed_paths() {
 void note_exit(int status, std::uint64_t frame_pointer) {
     if (session::end_handler().function == nullptr) return;
     std::string line = exit_callers(status, frame_pointer);
-    if (status != 0) line += failed_paths_lines();
+    if (status != 0) line += failed_paths_lines() + output_lines();
     static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
 }
 
