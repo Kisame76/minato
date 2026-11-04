@@ -821,6 +821,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BatteryActivity
       limit=120
       ;;
+    # sdk-extensions-test: its activity asks android.os.ext.SdkExtensions for the version of each extension and for all
+    # of them, and logs what it answers or throws; ends with "done".
+    sdk-extensions-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ExtensionsActivity
+      limit=90
+      ;;
     # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with
     # "done"; the script has red.jpg and blue.jpg in Pictures and in MediaStore, and taps the thumbnails by their
     # descriptions (tools/ui-pick.py), the first is red.jpg.

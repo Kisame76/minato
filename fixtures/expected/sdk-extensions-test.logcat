@@ -1,0 +1,16 @@
+I/sdk-extensions-test: ready
+I/sdk-extensions-test: getExtensionVersion 30 = 13
+I/sdk-extensions-test: getExtensionVersion 31 = 13
+I/sdk-extensions-test: getExtensionVersion 33 = 13
+I/sdk-extensions-test: getExtensionVersion 34 = 13
+I/sdk-extensions-test: getExtensionVersion 35 = 13
+I/sdk-extensions-test: getExtensionVersion 1000000 = 13
+I/sdk-extensions-test: getExtensionVersion 29 throws java.lang.IllegalArgumentException: not a valid extension: 29
+I/sdk-extensions-test: getExtensionVersion 0 throws java.lang.IllegalArgumentException: not a valid extension: 0
+I/sdk-extensions-test: getExtensionVersion -1 throws java.lang.IllegalArgumentException: not a valid extension: -1
+I/sdk-extensions-test: getExtensionVersion 32 = 0
+I/sdk-extensions-test: getExtensionVersion 36 = 0
+I/sdk-extensions-test: getExtensionVersion 12345 = 0
+I/sdk-extensions-test: getAllExtensionVersions {30=13, 31=13, 33=13, 34=13, 35=13, 1000000=13}
+I/sdk-extensions-test: the map cannot be changed: java.lang.UnsupportedOperationException
+I/sdk-extensions-test: done
