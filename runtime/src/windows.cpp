@@ -210,6 +210,7 @@ int apkrt_window_remove(uint64_t id) {
         notify_waiters();
         with = buffers;
     }
+    apkrt::stall::surface_removed(id);  // stop watching it if it was an app surface (ignored otherwise)
     if (with.removed != nullptr) with.removed(with.context, id);
     if (layer != nullptr) CFRelease(layer);
     return 0;
@@ -265,9 +266,15 @@ int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height) {
 }
 
 void apkrt_window_presented(uint64_t id) {
-    apkrt::stall::presented(clock_gettime_nsec_np(CLOCK_MONOTONIC));  // the stall watchdog's last-present time
+    apkrt::stall::presented(id, clock_gettime_nsec_np(CLOCK_MONOTONIC));  // the stall watchdog's last frame for id
     const std::lock_guard<std::mutex> hold(lock);
     if (Window *window = find(id)) ++window->presents;
+}
+
+void apkrt_stall_surface_created(uint64_t id) {
+    // The host calls this when it hands an app surface (a SurfaceView's surface, a NativeActivity's native window) to
+    // the guest: the stall watchdog then expects a first frame on `id`. The decor and other windows are not surfaces.
+    apkrt::stall::surface_created(id, clock_gettime_nsec_np(CLOCK_MONOTONIC));
 }
 
 int apkrt_is_background(void) {

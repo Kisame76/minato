@@ -335,6 +335,13 @@ int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height);
 /// For graphics/host: after a present that succeeded, counted for apkrt_window_presents.
 void apkrt_window_presented(uint64_t id);
 
+/// For the host: `id` (apkrt_window_add) is an app surface -- a SurfaceView's surface or a NativeActivity's native
+/// window handed to the app -- so the stall watchdog expects a first frame on it and dumps the threads if none comes
+/// within the timeout, even when the decor has drawn. Call it once per surface, after apkrt_window_add, and for the
+/// session's window too, which is a NativeActivity's surface (a Java app's decor presents at once); not for dialogs
+/// or other requested windows. apkrt_window_remove stops the watch.
+void apkrt_stall_surface_created(uint64_t id);
+
 /// For graphics/host: 1 while the process is in the background, else 0; a sequentially consistent load.
 int apkrt_is_background(void);
 

@@ -1,8 +1,11 @@
-// Minato's stall diagnostic (not an Android feature): when a resumed app shows no first frame within a timeout, or
-// stops presenting after it had, the watchdog dumps every thread's stack once into the session log, so a black screen
-// names where each thread waits. It reuses the ANR watchdog's SIGQUIT path for the managed (ART) threads and adds the
-// native threads with symbols, the way process_exit's exit_callers line does. The decision (tick) is pure and tested;
-// the daemon that runs it, the native dump and the signal are the host's side.
+// Minato's stall diagnostic (not an Android feature): it watches each app surface -- a SurfaceView's surface or the
+// native window handed to the app (apkrt_stall_surface_created). When a surface shows no first frame within a timeout,
+// or a continuous renderer stops presenting after it had, the watchdog dumps every thread's stack once into the
+// session log, so a black screen names where each thread waits. A present on another window (the app's decor) does not
+// count as a surface's frame -- the Unity 6 case, where the decor drew while the SurfaceView never presented. It
+// reuses the ANR watchdog's SIGQUIT path for the managed (ART) threads and adds the native threads with symbols, the
+// way process_exit's exit_callers line does. The decision (tick) is pure and tested; the daemon that runs it, the
+// native dump and the signal are the host's side.
 #pragma once
 
 #include <cstdint>
@@ -10,19 +13,31 @@
 
 namespace apkrt::stall {
 
-/// The app resumed at `now_ns` (APKRT_EVENT_RESUME): arm the timer. A later resume keeps the one-per-session latch.
+/// The app resumed (APKRT_EVENT_RESUME): a paused app is watched again. `now_ns` is unused -- each surface carries its
+/// own creation time -- but kept so the session posts it the same way as paused(). The one-per-session latch stays.
 void resumed(std::uint64_t now_ns);
 
-/// The app paused or stopped (APKRT_EVENT_PAUSE/STOP): disarm until the next resume.
+/// The app paused or stopped (APKRT_EVENT_PAUSE/STOP): report nothing until the next resume.
 void paused();
 
-/// A frame was presented at `now_ns` (apkrt_window_presented): the latest activity the timer measures from.
-void presented(std::uint64_t now_ns);
+/// An app surface was created at `now_ns` (apkrt_stall_surface_created from the host, when a SurfaceView's surface or a
+/// NativeActivity's native window is handed to the app): the watchdog now expects a first frame on it within the
+/// timeout. A second call for a live `id` is ignored.
+void surface_created(std::uint64_t id, std::uint64_t now_ns);
 
-/// The watchdog's check at `now_ns`. Returns the reason to dump the first time the app has been resumed and has gone
-/// longer than the timeout without a present -- measured from the last present, or from the resume before the first
-/// frame -- and latches, so it returns "" ever after: the dump is once per session. Returns "" while paused, within
-/// the timeout, or once it has dumped. Pure: no log and no signal, so the host's daemon owns those.
+/// A frame was presented on the surface `id` at `now_ns` (apkrt_window_presented). A present on an `id` that is not a
+/// tracked app surface -- the decor, a dialog -- is ignored: it is not that surface's frame.
+void presented(std::uint64_t id, std::uint64_t now_ns);
+
+/// The surface `id` was removed (surfaceDestroyed / apkrt_window_remove): stop watching it, so a surface torn down
+/// before its first frame is not reported. An `id` that is not tracked is ignored.
+void surface_removed(std::uint64_t id);
+
+/// The watchdog's check at `now_ns`. Returns the reason to dump the first time a watched app surface has gone longer
+/// than the timeout without its first frame (measured from the surface's creation), or a continuous renderer's surface
+/// has gone longer than the timeout since its last frame, and latches, so it returns "" ever after: the dump is once
+/// per session. Returns "" while paused, within the timeout, or once it has dumped. Pure: no log and no signal, so the
+/// host's daemon owns those.
 std::string tick(std::uint64_t now_ns);
 
 /// The no-present timeout; the default is 10 s (the lead's figure). A test sets it small.

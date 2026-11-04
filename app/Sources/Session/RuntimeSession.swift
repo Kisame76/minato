@@ -50,6 +50,8 @@ final class RuntimeSessionHost: SessionHost {
     func addWindow(width: Int32, height: Int32) -> UInt64 {
         let window = apkrt_window_add(layer.map { Unmanaged.passUnretained($0).toOpaque() }, width, height)
         if window != 0 { windows.insert(window) }
+        // A NativeActivity's render surface is the session's window; a Java app's decor presents within ms.
+        if window != 0 { apkrt_stall_surface_created(window) }
         noteWindow("window \(window) added (the session's window, \(width)x\(height))")
         return window
     }
@@ -177,6 +179,8 @@ final class RuntimeSessionHost: SessionHost {
         let window = surfaces?.add(frame: frame, z: z, opaque: opaque) { layer in
             apkrt_window_add(Unmanaged.passUnretained(layer).toOpaque(), size.width, size.height)
         } ?? 0
+        // The app's render surface: the runtime's watchdog expects its first frame (stall_watchdog.h).
+        if window != 0 { apkrt_stall_surface_created(window) }
         noteWindow("window \(window) added (a surface, \(size.width)x\(size.height))")
         return window
     }

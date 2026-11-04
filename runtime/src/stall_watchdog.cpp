@@ -7,6 +7,7 @@
 #include <ctime>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include <dlfcn.h>
 #include <mach/mach.h>
@@ -17,26 +18,32 @@
 namespace apkrt::stall {
 namespace {
 
+// A "stopped presenting" stall counts only for a continuous renderer -- >= `continuous_frames` presents in the
+// `continuous_window_ns` before the last one -- so a surface that drew a few frames and went idle (a paused game, a
+// static screen) never triggers a dump. "No first frame" needs no such gate.
+constexpr std::size_t continuous_frames = 30;
+constexpr std::uint64_t continuous_window_ns = 2'000'000'000ull;  // 2 s
+
+// One watched app surface: a SurfaceView's surface or a NativeActivity's native window.
+struct Surface {
+    std::uint64_t id;
+    std::uint64_t created_ns;
+    std::uint64_t last_present_ns = 0;                 // 0: no frame presented on it yet
+    std::uint64_t present_times[continuous_frames] = {};  // ring of the last `continuous_frames` present times
+    std::uint64_t present_count = 0;
+};
+
 std::mutex lock;
-std::uint64_t resume_ns = 0;        // 0: not resumed since the last reset
-std::uint64_t last_present_ns = 0;  // 0: no frame presented yet
+std::vector<Surface> surfaces;
 bool is_paused = false;
 bool has_dumped = false;
 std::uint64_t timeout_ns = 10'000'000'000ull;  // 10 s
-// A "stopped presenting" stall counts only for a continuous renderer -- >= `continuous_frames` presents in the
-// `continuous_window_ns` before the last one -- so an idle Java UI, which posts no frame while nothing changes (a
-// settings screen, a paused view), never triggers a dump. "No first frame" needs no such gate.
-constexpr std::size_t continuous_frames = 30;
-constexpr std::uint64_t continuous_window_ns = 2'000'000'000ull;  // 2 s
-std::uint64_t present_times[continuous_frames] = {};  // ring of the last `continuous_frames` present times
-std::uint64_t present_count = 0;
 
 }  // namespace
 
-void resumed(std::uint64_t now_ns) {
+void resumed(std::uint64_t /*now_ns*/) {
     const std::lock_guard<std::mutex> hold(lock);
-    resume_ns = now_ns;
-    is_paused = false;
+    is_paused = false;  // the surfaces carry their own creation times; a resume only lifts the pause gate
 }
 
 void paused() {
@@ -44,35 +51,65 @@ void paused() {
     is_paused = true;
 }
 
-void presented(std::uint64_t now_ns) {
+void surface_created(std::uint64_t id, std::uint64_t now_ns) {
     const std::lock_guard<std::mutex> hold(lock);
-    last_present_ns = now_ns;
-    present_times[present_count % continuous_frames] = now_ns;
-    ++present_count;
+    for (const Surface &surface : surfaces) {
+        if (surface.id == id) return;  // already watched
+    }
+    surfaces.push_back(Surface{id, now_ns});
+}
+
+void presented(std::uint64_t id, std::uint64_t now_ns) {
+    const std::lock_guard<std::mutex> hold(lock);
+    for (Surface &surface : surfaces) {
+        if (surface.id != id) continue;
+        surface.last_present_ns = now_ns;
+        surface.present_times[surface.present_count % continuous_frames] = now_ns;
+        ++surface.present_count;
+        return;
+    }
+    // `id` is not a watched app surface (the decor, a dialog): not a surface's first frame, so it is ignored.
+}
+
+void surface_removed(std::uint64_t id) {
+    const std::lock_guard<std::mutex> hold(lock);
+    for (auto it = surfaces.begin(); it != surfaces.end(); ++it) {
+        if (it->id == id) {
+            surfaces.erase(it);
+            return;
+        }
+    }
 }
 
 std::string tick(std::uint64_t now_ns) {
     const std::lock_guard<std::mutex> hold(lock);
-    if (resume_ns == 0 || is_paused || has_dumped) return {};
-    // Measure from the last present, or from the resume while no frame has been presented since (a stale present from
-    // before the resume must not fire at once): the later of the two.
-    const std::uint64_t since = last_present_ns > resume_ns ? last_present_ns : resume_ns;
-    if (now_ns <= since || now_ns - since <= timeout_ns) return {};
-    const std::uint64_t seconds = (now_ns - since) / 1'000'000'000ull;
-    if (last_present_ns == 0) {
-        has_dumped = true;
-        return "no first frame " + std::to_string(seconds) + "s after resume";
+    if (is_paused || has_dumped) return {};
+    for (const Surface &surface : surfaces) {
+        if (surface.last_present_ns == 0) {
+            // No first frame: measured from the surface's creation, whatever any other window has drawn.
+            if (now_ns > surface.created_ns && now_ns - surface.created_ns > timeout_ns) {
+                has_dumped = true;
+                return "no first frame " + std::to_string((now_ns - surface.created_ns) / 1'000'000'000ull) +
+                       "s after the app surface was created";
+            }
+            continue;
+        }
+        // Stopped presenting: fire only for a continuous renderer. A surface with fewer than `continuous_frames`
+        // presents in the window before its last one is a quiet screen, not a stall -- do not fire or latch (it may
+        // become a continuous renderer and stall later). present_times[present_count % continuous_frames] is the
+        // oldest of the last `continuous_frames` presents once that many have happened.
+        if (surface.present_count < continuous_frames ||
+            surface.last_present_ns - surface.present_times[surface.present_count % continuous_frames] >
+                continuous_window_ns) {
+            continue;
+        }
+        if (now_ns > surface.last_present_ns && now_ns - surface.last_present_ns > timeout_ns) {
+            has_dumped = true;
+            return "stopped presenting for " +
+                   std::to_string((now_ns - surface.last_present_ns) / 1'000'000'000ull) + "s";
+        }
     }
-    // Stopped presenting: fire only for a continuous renderer. An idle UI's last present is old but there were not
-    // `continuous_frames` presents in the window before it, so it is a quiet screen, not a stall -- do not fire or
-    // latch (it may become a continuous renderer and stall later). present_times[present_count % continuous_frames]
-    // is the oldest of the last `continuous_frames` presents once that many have happened.
-    if (present_count < continuous_frames ||
-        last_present_ns - present_times[present_count % continuous_frames] > continuous_window_ns) {
-        return {};
-    }
-    has_dumped = true;
-    return "stopped presenting for " + std::to_string(seconds) + "s";
+    return {};
 }
 
 void set_timeout_ns(std::uint64_t ns) {
@@ -82,12 +119,10 @@ void set_timeout_ns(std::uint64_t ns) {
 
 void reset_for_test() {
     const std::lock_guard<std::mutex> hold(lock);
-    resume_ns = 0;
-    last_present_ns = 0;
+    surfaces.clear();
     is_paused = false;
     has_dumped = false;
     timeout_ns = 10'000'000'000ull;
-    present_count = 0;
 }
 
 namespace {
