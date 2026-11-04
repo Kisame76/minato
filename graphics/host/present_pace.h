@@ -45,4 +45,10 @@ int minato_present_wait(void *layer, uint64_t swapchain, int64_t deadline);
 /* For a drawable of graphics/host's own (window.m): it goes to Core Animation as it comes, without a record. */
 void minato_present_unpaced(void *drawable);
 
+/* The window's buffers by contents (window.m, ADR-0043 b5 detail 4): `layer`'s sublayer "minato.window.buffers"
+   shows a buffer now, and the next drawable of the layer that goes to Core Animation hides it, as another producer
+   took the window. Returns 1 when a drawable of the layer went to Core Animation since the last call, whose frame a
+   CPU post covers with a transparent drawable of its own; 0 then, and for a layer that is no MinatoMetalLayer. */
+int minato_present_buffers_shown(void *layer);
+
 #endif

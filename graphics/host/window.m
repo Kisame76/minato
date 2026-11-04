@@ -19,10 +19,14 @@
      Android's hidden window gives its surface's back: the next lock makes new buffers and answers all of one dirty.
    - A post shows the buffer as the contents of the window layer's lowest sublayer, "minato.window.buffers", in one
      Core Animation transaction without actions, and counts it (apkrt_window_presented); the window's layer takes no
-     drawable. The sublayer is opaque for RGBX_8888 and RGB_565 and black below them and below any buffer of an
+     drawable. The first drawable another producer presents on the window's layer hides the sublayer (layer.m), and a
+     post after one presents a transparent drawable first, so that its frame shows no more under transparent pixels
+     (detail 4: a CAMetalLayer's own contents show its drawables, which our contents there would displace for good
+     [measured, S5]). The sublayer is opaque for RGBX_8888 and RGB_565 and black below them and below any buffer of an
      opaque layer, as Core Animation takes RGBX's fourth byte as alpha even on an opaque layer [measured, S5]: on
      black that alpha changes nothing. The transaction commits only in the foreground and counts for "scheduled", as
      libvulkan's submits do (vulkan.m).
+   - At TRIM_MEMORY_UI_HIDDEN the sublayer lets its buffer go too.
    - In the Simulator, whose Metal has no B5G6R5Unorm and whose Core Animation shows no 'L565' IOSurface [measured,
      S5], a post draws the buffer into the window layer's next drawable with a Metal pass instead, BGRA8Unorm (F15),
      RGBX_8888's alpha as 1, and presents it; the layer's nextDrawable lets MinatoMetalLayer record it.
@@ -484,16 +488,49 @@ static void read_done(MinatoCPUBuffer *buffer) {
 /* The window layer's sublayer that shows its buffers, made at the first post, lowest among its sublayers. */
 static NSString *const buffers_layer_name = @"minato.window.buffers";
 
-static CALayer *buffers_layer(CALayer *layer) {
+/* The window layer's buffers' sublayer, nil before its first post. */
+static CALayer *found_buffers_layer(CALayer *layer) {
     for (CALayer *sublayer in layer.sublayers) {
         if ([sublayer.name isEqualToString:buffers_layer_name]) {
             return sublayer;
         }
     }
+    return nil;
+}
+
+static CALayer *buffers_layer(CALayer *layer) {
+    CALayer *found = found_buffers_layer(layer);
+    if (found != nil) {
+        return found;
+    }
     CALayer *made = [CALayer layer];
     made.name = buffers_layer_name;
     [layer insertSublayer:made atIndex:0];
     return made;
+}
+
+/* A transparent drawable on the window's layer, presented at once and without a record, so that the frame of another
+   producer's drawables shows no more under the buffers' transparent pixels. */
+static void clear_drawables(CAMetalLayer *layer) {
+    if (layer.device == nil) {
+        return;
+    }
+    id<CAMetalDrawable> drawable = [layer nextDrawable];
+    if (drawable == nil) {
+        return;
+    }
+    minato_present_unpaced((__bridge void *)drawable);
+    id<MTLCommandQueue> clearing = layer.device == device ? queue : [layer.device newCommandQueue];
+    id<MTLCommandBuffer> commands = [clearing commandBuffer];
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = drawable.texture;
+    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    [[commands renderCommandEncoderWithDescriptor:pass] endEncoding];
+    [commands commit];
+    [commands waitUntilScheduled];
+    [drawable present];
 }
 
 /* Shows the buffer as the window layer's sublayer's contents, in the foreground, and counts the post; hides the layer
@@ -522,10 +559,14 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     dispatch_once(&once, ^{
         black = CGColorCreateSRGB(0, 0, 0, 1);
     });
+    if (minato_present_buffers_shown((__bridge void *)layer) && [layer isKindOfClass:CAMetalLayer.class]) {
+        clear_drawables((CAMetalLayer *)layer);
+    }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     layer.hidden = NO;
     CALayer *buffers = buffers_layer(layer);
+    buffers.hidden = NO;
     buffers.frame = layer.bounds;
     buffers.opaque = format != format_rgba_8888;
     buffers.backgroundColor = format != format_rgba_8888 || layer.opaque ? black : NULL;
@@ -691,18 +732,34 @@ static void removed(void *context, uint64_t window_id) {
     pthread_mutex_unlock(&state_lock);
 }
 
-/* TRIM_MEMORY_UI_HIDDEN: the buffers of each window without a lock go; a GPU read still running keeps its buffer
-   until it ends. */
+/* TRIM_MEMORY_UI_HIDDEN: the buffers of each window without a lock go, the one its sublayer shows too; a GPU read
+   still running keeps its buffer until it ends. */
 static void trimmed(void *context) {
     (void)context;
+    NSMutableArray<NSNumber *> *trimmed_ids = [NSMutableArray array];
     pthread_mutex_lock(&state_lock);
-    for (MinatoCPUWindow *window in windows.allValues) {
+    for (NSNumber *window_id in windows) {
+        MinatoCPUWindow *window = windows[window_id];
         if (window->locked == nil) {
             window->buffers = nil;
             window->front = nil;
+            [trimmed_ids addObject:window_id];
         }
     }
     pthread_mutex_unlock(&state_lock);
+    // The buffer the sublayer shows goes too, outside the lock.
+    for (NSNumber *window_id in trimmed_ids) {
+        @autoreleasepool {
+            CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id.unsignedLongLongValue);
+            CALayer *buffers = layer != nil ? found_buffers_layer(layer) : nil;
+            if (buffers != nil) {
+                [CATransaction begin];
+                [CATransaction setDisableActions:YES];
+                buffers.contents = nil;
+                [CATransaction commit];
+            }
+        }
+    }
 }
 
 int minato_graphics_window_scheduled(uint64_t deadline) {

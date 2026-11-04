@@ -11,7 +11,8 @@ BOOL minato_test_watch_hidden(CALayer *layer);
 
 /* MINATO_WINDOW_WATCH=contents (the variable is a comma-separated list, "hidden,contents" for both): prints each
    IOSurface a sublayer of `layer` takes as its contents, as "window host: contents <n>: <width> x <height>, <format>[
-   on black], CRC-32 <crc>", and "window host: contents let go"; NO without it. */
+   on black], CRC-32 <crc>", each change of that sublayer's hidden, as "window host: the buffers' layer is hidden" or
+   "shown", and "window host: contents let go"; with MINATO_WINDOW_WATCH=let-go only the last. NO without either. */
 BOOL minato_test_watch_contents(CALayer *layer);
 
 /* For session_layers_test.m: the session's root layer, nil before the session window's first layer, and a wait until

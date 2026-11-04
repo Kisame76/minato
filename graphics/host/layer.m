@@ -2,6 +2,7 @@
 // on the layer's drawables (ADR-0041 decision 11 c), present_pace.h).
 #import "minato_layer.h"
 
+#import <QuartzCore/CATransaction.h>
 #import <objc/runtime.h>
 
 #include <TargetConditionals.h>
@@ -255,6 +256,9 @@ struct pace {
     MinatoLayerRecording *_current;
     /// Zeroed with the layer, which is an unlocked lock and no records.
     struct pace _pace;
+    /// The window's buffers' sublayer shows (minato_present_buffers_shown), and a drawable went to Core Animation
+    /// since the last call.
+    _Atomic(int) _buffers_shown, _drawn;
 }
 
 static void pace_adopt(MinatoMetalLayer *layer, id<CAMetalDrawable> drawable, int64_t waited);
@@ -426,8 +430,30 @@ static BOOL pace_hands_over(id<CAMetalDrawable> drawable, int64_t time) {
     return hands_over;
 }
 
+int minato_present_buffers_shown(void *layer) {
+    MinatoMetalLayer *paced = paced_layer(layer);
+    if (paced == nil) return 0;
+    atomic_store(&paced->_buffers_shown, 1);
+    return atomic_exchange(&paced->_drawn, 0);
+}
+
+/// A drawable of the layer goes to Core Animation: the window's buffers' sublayer hides, if it shows.
+static void drawn(id<CAMetalDrawable> drawable) {
+    MinatoMetalLayer *layer = paced_layer((__bridge void *)drawable.layer);
+    if (layer == nil) return;
+    atomic_store(&layer->_drawn, 1);
+    if (!atomic_exchange(&layer->_buffers_shown, 0)) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for (CALayer *sublayer in layer.sublayers) {
+        if ([sublayer.name isEqualToString:@"minato.window.buffers"]) sublayer.hidden = YES;
+    }
+    [CATransaction commit];
+}
+
 static void paced_present(id self, SEL command) {
     if (pace_hands_over(self, 0)) {
+        drawn(self);
         ((void (*)(id, SEL))class_getMethodImplementation(drawable_class, command))(self, command);
     }
 }
@@ -435,6 +461,7 @@ static void paced_present(id self, SEL command) {
 static void paced_present_at(id self, SEL command, CFTimeInterval time) {
     // Core Animation's host time in seconds, as CLOCK_UPTIME_RAW counts it.
     if (pace_hands_over(self, time > 0 ? (int64_t)llround(time * 1e9) : 0)) {
+        drawn(self);
         const IMP present_at = class_getMethodImplementation(drawable_class, command);
         ((void (*)(id, SEL, CFTimeInterval))present_at)(self, command, time);
     }

@@ -207,6 +207,10 @@ foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_te
   target_link_libraries(${program} PRIVATE EGL GLESv3 minato_bind nativewindow dl)
   target_compile_options(${program} PRIVATE -Wall -Wextra)
 endforeach()
+# ADR-0043 b5: window-switch-test, one window by the CPU, then by EGL, then by the CPU again.
+add_executable(window-switch-test "${tests}/window_switch_test.c")
+target_link_libraries(window-switch-test PRIVATE EGL GLESv3 nativewindow dl)
+target_compile_options(window-switch-test PRIVATE -Wall -Wextra)
 # ADR-0058 c): buffer-queue-test, libnativewindow's buffer queue through its private functions.
 add_executable(buffer-queue-test "${tests}/buffer_queue_test.c")
 target_include_directories(buffer-queue-test PRIVATE "${repo}/runtime/include")

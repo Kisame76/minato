@@ -377,7 +377,7 @@ if(TARGET minato_graphics_host)
   # go, and the next lock answers a new one, wholly dirty.
   add_guest_test(window_trim window-trim-test window_trim_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
-    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:trim:2")
+    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:trim:2" "MINATO_WINDOW_WATCH=set:let-go")
   # ADR-0043 b5, detail 3: the same buffers' back-pressure, at most one post a display-link tick, with the window host
   # ticking at 100 Hz until the window has 30 presents.
   add_guest_test(window_pace window-pace-test window_pace_test
@@ -463,6 +463,11 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW=set:64x48")
     add_guest_test(gles_front gles-front-test gles_front_test "${gles_system_libraries}" ${with_angle})
     add_guest_test(gles_gate gles-gate-test gles_gate_test "${gles_system_libraries}" ${with_angle})
+    # ADR-0043 b5, detail 4: the switch from the CPU's buffers to EGL's drawables on one window and back, with the
+    # window host printing the buffers shown and their sublayer's hidden, and the Metal hook the drawables.
+    add_guest_test(window_switch window-switch-test window_switch_test "${gles_system_libraries}"
+      "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=set:${angle}" "MINATO_WINDOW=set:64x48"
+      "MINATO_WINDOW_WATCH=set:contents" "MINATO_METAL_HOOK=set:present:4" HOST_LINES "^metal:")
     # ADR-0065 step 4: GL_VENDOR and GL_RENDERER with and without a device profile (apk-run's --device-profile).
     add_guest_test(gles_profile gles-profile-test gles_profile_test "${gles_system_libraries}" ${with_angle}
       "MINATO_DEVICE_PROFILE=unset:")
@@ -633,7 +638,7 @@ if(TARGET minato_graphics_host)
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
     graphics.window_trim graphics.window_pace graphics.window_background graphics.window_hide
-    graphics.window_hide_opaque graphics.window_app
+    graphics.window_hide_opaque graphics.window_app graphics.window_switch
     graphics.gles31_app graphics.gles_app_vulkan graphics.gles_live_vulkan graphics.gles_gate_vulkan
     PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
@@ -655,6 +660,7 @@ else()
       vulkan_moltenvk vulkan_queue vulkan_present
       vulkan_drop probe
       gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
+      window_switch
       gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class gles31_app gles_app_vulkan
       gles_live_vulkan gles_gate_vulkan)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo

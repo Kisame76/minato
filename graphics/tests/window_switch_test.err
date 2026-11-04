@@ -1,0 +1,6 @@
+window host: contents 1: 64 x 48, RGBA_8888, CRC-32 478dd1fc
+window host: the buffers' layer is hidden
+window host: the buffers' layer is shown
+window host: contents 2: 64 x 48, RGBA_8888, CRC-32 3f16f3f3
+metal: drawable 1: 64 x 48, BGRA8Unorm, CRC-32 ec8c3e46
+metal: drawable 2: 64 x 48, BGRA8Unorm, CRC-32 8a258aec

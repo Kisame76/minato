@@ -39,14 +39,27 @@
 /* MINATO_WINDOW_WATCH=hidden: CALayer's setHidden:, which prints each change of the window layer's hidden on the
    thread that makes it. Key-value observing never saw those changes [measured], probably as Core Animation makes
    its setters when they are first used [inferred]. */
-static CALayer *watched;
+static CALayer *watched, *contents_parent;
 static IMP set_hidden;
 
+/* With MINATO_WINDOW_WATCH=contents, also the window's buffers' sublayer: "the buffers' layer is hidden" or "shown". */
 static void watched_set_hidden(id self, SEL selector, BOOL hidden) {
-    if (self == watched && ((CALayer *)self).hidden != hidden) {
+    CALayer *layer = self;
+    if (layer.hidden != hidden && layer == watched) {
         fprintf(stderr, "window host: the layer is %s\n", hidden ? "hidden" : "shown");
+    } else if (layer.hidden != hidden && contents_parent != nil && layer.superlayer == contents_parent) {
+        fprintf(stderr, "window host: the buffers' layer is %s\n", hidden ? "hidden" : "shown");
     }
     ((void (*)(id, SEL, BOOL))set_hidden)(self, selector, hidden);
+}
+
+static void hook_set_hidden(void) {
+    if (set_hidden == NULL) {
+        CALayer *made = [CALayer layer];
+        made.hidden = NO;  // the setter, made
+        set_hidden = method_setImplementation(class_getInstanceMethod(CALayer.class, @selector(setHidden:)),
+                                              (IMP)watched_set_hidden);
+    }
 }
 
 /* Whether MINATO_WINDOW_WATCH, a comma-separated list, names `what`. */
@@ -67,8 +80,7 @@ BOOL minato_test_watch_hidden(CALayer *layer) {
     }
     watched = layer;
     layer.hidden = NO;  // the setter, made
-    set_hidden = method_setImplementation(class_getInstanceMethod([layer class], @selector(setHidden:)),
-                                          (IMP)watched_set_hidden);
+    hook_set_hidden();
     return YES;
 }
 
@@ -77,10 +89,11 @@ BOOL minato_test_watch_hidden(CALayer *layer) {
    the format it shows ("RGBX_8888" for an opaque layer's 'RGBA' surface), "on black" for a black background and the
    CRC-32 of the BGRA pixels window.m's former pass drew from it (RGBX's alpha as 255, RGB_565 widened as Metal's
    unorm conversion does), and ", animated" when the transaction has actions, which cross-fade contents, on the
-   thread that sets it. As Core Animation holds a surface it shows in use until a while after its replacement (about
+   thread that sets it, and "contents let go" for nil; with MINATO_WINDOW_WATCH=let-go only that line. As Core
+   Animation holds a surface it shows in use until a while after its replacement (about
    10 ms on the iPhone [measured, S5]; graphics-run's layer is on no screen), the watch holds each one in use
    (IOSurfaceIncrementUseCount) until 500 ms after its replacement, so that a lock that would not wait for it shows. */
-static CALayer *contents_parent;
+static BOOL contents_lines;
 static IOSurfaceRef held_surface;
 static IMP set_contents;
 static unsigned contents_count;
@@ -152,7 +165,9 @@ static void watched_set_contents(id self, SEL selector, id contents) {
     CALayer *layer = self;
     if (contents_parent != nil && layer.superlayer == contents_parent) {
         if (contents != nil && CFGetTypeID((__bridge CFTypeRef)contents) == IOSurfaceGetTypeID()) {
-            print_contents(layer, (__bridge IOSurfaceRef)contents);
+            if (contents_lines) {
+                print_contents(layer, (__bridge IOSurfaceRef)contents);
+            }
             hold((__bridge IOSurfaceRef)contents);
         } else if (contents == nil && layer.contents != nil) {
             fprintf(stderr, "window host: contents let go\n");
@@ -163,10 +178,14 @@ static void watched_set_contents(id self, SEL selector, id contents) {
 }
 
 BOOL minato_test_watch_contents(CALayer *layer) {
-    if (!watching("contents")) {
+    contents_lines = watching("contents");
+    if (!contents_lines && !watching("let-go")) {
         return NO;
     }
     contents_parent = layer;
+    if (contents_lines) {
+        hook_set_hidden();
+    }
     CALayer *made = [CALayer layer];
     made.contents = nil;  // the setter, made
     set_contents = method_setImplementation(class_getInstanceMethod(CALayer.class, @selector(setContents:)),
