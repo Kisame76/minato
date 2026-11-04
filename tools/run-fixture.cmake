@@ -104,6 +104,8 @@ endfunction()
 execute_process(COMMAND "${RUN}" ${options} "${container}"
   RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
 without_zygote("${error}" error)
+# libgui's "queueBuffer (handle=0x...) failed" names a buffer's address, which differs every run.
+string(REGEX REPLACE "handle=0x[0-9a-fA-F]+" "handle=<address>" error "${error}")
 # A program that abort() ends: CMake names the signal, a shell shows 128 + SIGABRT (6), as Android's does; one that
 # SIGKILL ends, 128 + SIGKILL (9).
 if(status STREQUAL "Subprocess aborted")

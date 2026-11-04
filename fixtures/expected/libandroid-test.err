@@ -1,3 +1,4 @@
+E/Surface : Surface::unlockAndPost failed, no locked buffer
 W/libandroid: AThermal_acquireManager: not implemented
 W/libandroid: AThermal_getCurrentThermalStatus: not implemented
 W/libandroid: AThermal_getThermalHeadroom: not implemented
