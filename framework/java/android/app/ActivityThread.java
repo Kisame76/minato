@@ -427,6 +427,8 @@ public final class ActivityThread {
         // plan's gap 21).
         RuntimeHooks.setTimeZoneIdSupplier(() -> SystemProperties.get("persist.sys.timezone"));
         TrafficStats.attachSocketTagger();
+        // The system bars' sizes the host passed in the environment, which com.android.minato.view cannot read itself.
+        SystemBarInsets.initial(barInsets());
         // RuntimeInit.commonInit's MIME table: the extensions of framework.jar's res/*.mime.types.
         MimeMap.setDefaultSupplier(DefaultMimeMapFactory::create);
         String packageName = null;
