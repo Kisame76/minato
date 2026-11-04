@@ -20,6 +20,8 @@
    - With MINATO_WINDOW_SCRIPT=trim:<n> instead, it begins a session as for glue, and a thread of its own waits until
      the window has <n> presents and then posts APKRT_EVENT_TRIM_MEMORY at TRIM_MEMORY_UI_HIDDEN (20), as the App does
      when the scene goes to the background, which the program, no activity-host, never reads.
+   - With MINATO_WINDOW_TICKS=<hz>:<n> too, a thread of its own ticks the display link (apkrt_vsync_post) at <hz>
+     until the window has <n> presents, and then stops, which it prints to stderr (ADR-0043 b5's back-pressure).
    - With MINATO_WINDOW_OPAQUE=1 too, the layer is opaque; with MINATO_WINDOW_WATCH=hidden, it prints each change of
      the layer's hidden to stderr (ADR-0043 b3, the hide rule), with MINATO_WINDOW_WATCH=contents each buffer that
      graphics/host's window shows by contents (session_layers.h), and with "hidden,contents" both.
@@ -128,6 +130,22 @@ static void *trim(void *unused) {
     }
     fprintf(stderr, "host: trim memory at UI_HIDDEN: %s\n",
             apkrt_session_post(APKRT_EVENT_TRIM_MEMORY, 20, 0, 0) != 0 ? "posted" : "not posted");
+    return NULL;
+}
+
+/* MINATO_WINDOW_TICKS=<hz>:<presents>: the display link's ticks, until the window has that many presents. */
+static int tick_hz;
+static unsigned long tick_presents;
+
+static void *tick(void *unused) {
+    (void)unused;
+    const int64_t period = 1000000000 / tick_hz;
+    while (apkrt_window_presents(minato_test_window) < tick_presents) {
+        const int64_t now = (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        apkrt_vsync_post(now, now + period);
+        usleep((useconds_t)(period / 1000));
+    }
+    fprintf(stderr, "window host: the display link stops after %lu presents\n", tick_presents);
     return NULL;
 }
 
@@ -342,6 +360,16 @@ __attribute__((constructor)) static void add_window(void) {
     }
     if (getenv("MINATO_WINDOW_BUFFERS") != NULL) {
         apkrt_window_set_gate(minato_test_window, 0);  // until 200 ms after the fake's first lock
+    }
+    const char *ticks = getenv("MINATO_WINDOW_TICKS");
+    if (ticks != NULL) {
+        if (sscanf(ticks, "%d:%lu", &tick_hz, &tick_presents) != 2 || tick_hz <= 0) {
+            fprintf(stderr, "window host: MINATO_WINDOW_TICKS=%s is not <hz>:<presents>\n", ticks);
+            exit(2);
+        }
+        pthread_t thread;
+        pthread_create(&thread, NULL, tick, NULL);
+        pthread_detach(thread);
     }
     const char *script = getenv("MINATO_WINDOW_SCRIPT");
     if (script != NULL) {

@@ -7,6 +7,11 @@
      the GPU reads it), the one posted longest ago, and waits up to a second for one, as Android's dequeueBuffer
      blocks while no buffer is free; Core Animation tells no end of a use, so the wait looks every 0.5 ms. A new
      geometry makes three new buffers.
+   - Back-pressure (ADR-0043 b5, detail 3): Core Animation lets go at once a buffer replaced before it was composited,
+     so nothing would hold a post that runs ahead of the display. As Android's dequeueBuffer blocks while no buffer
+     is free, which SurfaceFlinger frees once a refresh, a lock waits until the display link has ticked since the
+     window's last post (apkrt_vsync_grid): at most one post a refresh. Not in the background, before the first
+     tick, nor past two periods after the post, for a display link that stopped.
    - A lock copies the last posted pixels into its buffer outside the new dirty rectangle, as libgui's Surface::lock
      does. Each buffer keeps one rectangle around what changed since it was last posted; the copy takes that rectangle
      less the dirty one. The first lock of a geometry answers the whole buffer as dirty.
@@ -95,6 +100,7 @@ static const uint64_t buffer_wait_ns = 1000000000;
     MinatoCPUBuffer *locked, *front;  // the guest's, and the last posted
     int32_t dirty[4];                 // the locked buffer's
     uint64_t posts;
+    uint64_t posted_ns;               // the last post's time, CLOCK_UPTIME_RAW; 0 before
 }
 @end
 
@@ -310,6 +316,16 @@ static BOOL wait_freed(uint64_t deadline) {
     return YES;
 }
 
+/* Whether the window's next lock may take a buffer: the display link has ticked since its last post (the header). */
+static BOOL ticked_since_post(const MinatoCPUWindow *window) {
+    int64_t tick = 0, period = 0;
+    if (window->posted_ns == 0 || apkrt_is_background() || apkrt_vsync_grid(&tick, &period) != 0 || period <= 0) {
+        return YES;
+    }
+    return tick > (int64_t)window->posted_ns ||
+           clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= window->posted_ns + 2 * (uint64_t)period;
+}
+
 static int locked(void *context, uint64_t window_id, struct apkrt_window_buffer *request) {
     (void)context;
     MTLPixelFormat pixel_format;
@@ -327,6 +343,13 @@ static int locked(void *context, uint64_t window_id, struct apkrt_window_buffer 
     const int32_t width = request->width, height = request->height;
     const uint64_t deadline = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + buffer_wait_ns;
     pthread_mutex_lock(&state_lock);
+    for (MinatoCPUWindow *last = windows[@(window_id)]; by_contents && last != nil && !ticked_since_post(last);
+         last = windows[@(window_id)]) {
+        if (!wait_freed(deadline)) {
+            pthread_mutex_unlock(&state_lock);
+            return -linux_etimedout;
+        }
+    }
     if ([removed_ids containsObject:@(window_id)]) {
         pthread_mutex_unlock(&state_lock);
         return -linux_enodev;
@@ -630,6 +653,7 @@ static int posted(void *context, uint64_t window_id) {
         }
         memset(buffer->behind, 0, sizeof buffer->behind);
         buffer->posted = ++window->posts;
+        window->posted_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         buffer->reading = YES;
         window->front = buffer;
     }
