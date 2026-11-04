@@ -86,6 +86,26 @@ std::span<const apk_c_range> c_ranges(const Container &container) {
             container.info->c_range_count};
 }
 
+std::optional<unsigned> c_range_register(std::uint64_t pc) {
+    for (const auto *container = first.load(std::memory_order_acquire); container != nullptr;
+         container = container->next) {
+        const auto ranges = c_ranges(*container);
+        if (ranges.empty()) continue;
+        const auto offset = pc - container->header;
+        if (offset > 0xffff'ffffULL) continue;  // not in this container: its ranges are header-relative uint32s
+        // The ranges are sorted by start; take the last one that starts at or before offset and check its end.
+        // dyld maps containers into disjoint regions, so at most one container can hold pc (see the header).
+        const auto *begin = ranges.data();
+        const auto *after = std::upper_bound(
+            begin, begin + ranges.size(), offset,
+            [](std::uint64_t at, const apk_c_range &range) { return at < range.start; });
+        if (after == begin) continue;
+        const auto &range = *(after - 1);
+        if (offset < range.end) return range.reg;
+    }
+    return std::nullopt;
+}
+
 Settled settle(const apk_island &island, std::uint64_t header, const GuestContext &context,
                std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18, bool resumable) {
     const std::uint64_t word = (context.pc - (header + island.stub)) / 4;

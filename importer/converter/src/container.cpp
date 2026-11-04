@@ -1161,6 +1161,22 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         throw Incompatible(std::format("internal: wrote {} (c) ranges but reserved space for {}", c_ranges.size(),
                                        c_range_count));
     }
+    // The signal path binary-searches the table by `start` (ADR-0020 must-have 6, apk_c_range), so it must be sorted:
+    // emit_c_rename returns each function's body range (in the image) and its sync-island stub ranges (in the stub
+    // area) in emission order, which is not ascending by start across functions or between a function's body and
+    // its stubs. Sort the whole table before writing it.
+    std::sort(c_ranges.begin(), c_ranges.end(),
+              [](const apk_c_range &a, const apk_c_range &b) { return a.start < b.start; });
+    // The signal path's binary search also needs the ranges non-overlapping (a pc is in at most one): every (c)
+    // body and sync-island stub occupies its own disjoint span by construction, so overlap means a converter bug.
+    // Fail loudly here rather than let a signal silently read the stale slot 11 for a covered pc (ADR-0020 6).
+    for (std::size_t i = 1; i < c_ranges.size(); ++i) {
+        if (c_ranges[i].start < c_ranges[i - 1].end) {
+            throw Incompatible(std::format("internal: (c) ranges overlap ([{:#x},{:#x}) and [{:#x},{:#x}))",
+                                           c_ranges[i - 1].start, c_ranges[i - 1].end, c_ranges[i].start,
+                                           c_ranges[i].end));
+        }
+    }
     std::memcpy(bytes.data() + c_ranges_offset, c_ranges.data(), c_ranges.size() * sizeof(apk_c_range));
     std::vector<apk_run> run_table;
     for (const auto &run : runs) {

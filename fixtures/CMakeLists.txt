@@ -300,6 +300,9 @@ add_executable(x18-stress suite/x18-stress.c suite/x18-stress.S)
 # c-rename-test: a function option (c) renames whole (ADR-0020); runtime-only -- it is ABI-correct only after
 # conversion, so it runs through apk-run but not natively (fixtures/tests.txt).
 add_executable(c-rename-test suite/c-rename-test.c suite/c-rename-test.S)
+# c-signal-test: the signal path hands a handler the guest x18 of a (c)-renamed function from the rename register
+# and carries its write back (ADR-0020 must-have 6, design-A step A0); runtime-only, like c-rename-test.
+add_executable(c-signal-test suite/c-signal-test.c suite/c-signal-test.S)
 # island-bench: what one pass through an island costs, against a twin the converter leaves alone
 # (ADR-0020 X6).
 add_executable(island-bench bench/island-bench.c bench/island-bench.S)

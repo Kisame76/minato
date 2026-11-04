@@ -451,6 +451,32 @@ TEST(c_ranges_are_the_table_for_a_new_container_and_empty_for_an_old_one) {
     }
 }
 
+// ADR-0020 must-have 6 (option c): c_range_register finds, for a pc inside a (c) function's R-range of a loaded
+// container, the register that holds the guest x18 there, and nullopt anywhere else. The signal path calls it so a
+// handler reads x18 from that register instead of the stale TSD slot 11. add() keeps the container for the life of
+// the process, so the backing is static. The two ranges are sorted by start, as the converter writes them.
+TEST(c_range_register_finds_the_register_inside_a_range_and_nothing_outside) {
+    alignas(apk_container_info) static std::byte buffer[sizeof(apk_container_info) + 2 * sizeof(apk_c_range)] = {};
+    auto *info = reinterpret_cast<apk_container_info *>(buffer);
+    auto *table = reinterpret_cast<apk_c_range *>(buffer + sizeof(apk_container_info));
+    table[0] = {0x100, 0x200, 11, {}};
+    table[1] = {0x300, 0x340, 13, {}};
+    info->version = APK_CONTAINER_RANGES_VERSION;
+    info->c_ranges = sizeof(apk_container_info);
+    info->c_range_count = 2;
+    apkrt::islands::add(buffer, *info, "c-range-lookup");
+    const auto header = reinterpret_cast<std::uint64_t>(buffer);
+    using apkrt::islands::c_range_register;
+    CHECK(c_range_register(header + 0x100) == 11u);  // start is inclusive
+    CHECK(c_range_register(header + 0x1ff) == 11u);  // the last byte of the range
+    CHECK(c_range_register(header + 0x300) == 13u);
+    CHECK(c_range_register(header + 0x33f) == 13u);
+    CHECK(!c_range_register(header + 0x0f0).has_value());  // before the first range
+    CHECK(!c_range_register(header + 0x200).has_value());  // end is exclusive
+    CHECK(!c_range_register(header + 0x250).has_value());  // between the two ranges
+    CHECK(!c_range_register(header + 0x340).has_value());  // past the last range
+}
+
 TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     const auto &loaded = program();
     Covered covered;

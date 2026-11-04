@@ -269,7 +269,10 @@ void setup_frame(ThreadSignals &state, int signal, const LinuxSiginfo &info, con
     state.frame_mask_set = false;
     uc.fault_address = fault != nullptr ? fault->address : 0;
     std::memcpy(uc.regs, context.x, sizeof uc.regs);
-    uc.regs[18] = apkrt_get_guest_x18();  // XNU clears the register itself; the guest's x18 is in slot 11
+    // Inside a (c)-renamed range the guest x18 lives in the rename register of the saved context, not in slot 11
+    // (ADR-0020 must-have 6); otherwise XNU clears the register itself and the guest's x18 is in slot 11.
+    if (const auto reg = islands::c_range_register(context.pc)) uc.regs[18] = context.x[*reg];
+    else uc.regs[18] = apkrt_get_guest_x18();
     uc.sp = context.sp;
     uc.pc = context.pc;
     uc.pstate = context.nzcv & (0xf000'0000 | kept_pstate_bits());  // NZCV and the kept bits (ADR-0047 b2)
@@ -837,6 +840,9 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
     if (fpsimd == nullptr) return false;
     std::memcpy(context.x, uc.regs, sizeof context.x);
     apkrt_set_guest_x18(uc.regs[18]);
+    // When the handler returns into a (c)-renamed range, its (possibly changed) x18 must reach the rename register
+    // the function resumes on, not only slot 11 (ADR-0020 must-have 6); the next exit sync reconciles slot 11.
+    if (const auto reg = islands::c_range_register(uc.pc)) context.x[*reg] = uc.regs[18];
     context.sp = uc.sp;
     context.pc = uc.pc;
     // NZCV, and the kept bits as the frame has them, as Linux's restore_sigframe takes PSTATE (ADR-0047 b2).

@@ -530,6 +530,12 @@ TEST(renames_x18_across_a_hard_function_instead_of_refusing_it) {
     CHECK(body);
     // The hard x18 site is patched to a branch into its sync island, not left as `ret x18`.
     CHECK(branch_target(container.bytes, info.image_offset + 0x21c).has_value());
+    // The table is sorted by start (apk_c_range): the signal path binary-searches it. A function's body range (in
+    // the image) and its sync-island stub ranges (in the stub area, below the image) come out of emission unsorted,
+    // so the converter sorts the whole table. With fewer than two ranges the order would be trivially right.
+    CHECK(ranges.size() >= 2);
+    CHECK(std::is_sorted(ranges.begin(), ranges.end(),
+                         [](const apk_c_range &a, const apk_c_range &b) { return a.start < b.start; }));
 }
 
 TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {

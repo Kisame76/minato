@@ -1,0 +1,1 @@
+signal handler reads and writes the guest x18 of a (c)-renamed function: yes

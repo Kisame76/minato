@@ -53,6 +53,9 @@ x18-stress system
 # A function option (c) renames whole (ADR-0020): ABI-correct only after conversion, so runtime-only (the raw
 # code keeps its value in the platform x18 and does not save/restore it).
 c-rename-test system runtime-only
+# The signal path reads/writes the guest x18 of a (c)-renamed function via its rename register (ADR-0020 A0):
+# the function keeps its value in the platform x18 after conversion, so runtime-only like c-rename-test.
+c-signal-test system runtime-only
 # Boehm's stop-the-world with SIGPWR and SIGXCPU, as IL2CPP's collector makes it (ADR-0033 test 4, part c).
 stw-test system
 # Descriptor numbers are the guest's own, whatever the process holds on the host (ADR-0027).

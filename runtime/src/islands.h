@@ -39,6 +39,14 @@ const apk_island *island_at(const Container &container, std::uint64_t pc);
 /// that range's register; the signal path reads them to hand a handler the right x18. Safe in signal handlers.
 std::span<const apk_c_range> c_ranges(const Container &container);
 
+/// The register that holds the guest x18 at `pc`, if `pc` lies in a (c)-function R-range of any loaded container
+/// (ADR-0020 must-have 6, option c), else nullopt. The signal path calls it on delivery and return: inside a (c)
+/// range the guest x18 is in this register of the saved context, not in TSD slot 11. Walks the container list with
+/// acquire loads, like container_at, and binary-searches each container's c_ranges (sorted by start). Because dyld
+/// maps every container's __TEXT into its own disjoint region, a pc in one container's mapping cannot alias an
+/// address inside another's, so at most one container matches. Safe in signal handlers: no locks, no allocation.
+std::optional<unsigned> c_range_register(std::uint64_t pc);
+
 /// A thread's state after it left an island, and the x18 it has then.
 struct Settled {
     GuestContext context;
