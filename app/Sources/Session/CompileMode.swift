@@ -72,7 +72,7 @@ final class CompileSession {
     private func ended(status: Int32) {
         log.info("Compiling \(self.entry.id, privacy: .public) ended with status \(status)")
         #if DEBUG
-        SessionCheck.event("compile ended \(status)")
+        SessionCheck.event("compile ended \(status) peak \(Self.peakFootprintMegabytes)")
         #endif
         restart()
     }
@@ -85,6 +85,21 @@ final class CompileSession {
         #endif
         restart()
     }
+
+    #if DEBUG
+    /// The process's peak physical footprint in MB, the memory iOS counts against it (the compile measures), -1 when
+    /// the kernel does not say.
+    private static var peakFootprintMegabytes: Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int(info.ledger_phys_footprint_peak / 1_048_576) : -1
+    }
+    #endif
 
     private func restart() {
         Restart.now { [weak self] in self?.restartFailed = true }

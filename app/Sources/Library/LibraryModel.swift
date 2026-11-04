@@ -206,6 +206,12 @@ final class LibraryModel {
               let bootClassPath = GuestStart.bootClassPathChecksum(guestSystem: guest.path) else { return }
         await firstSigningLook()
         optimizingIDs = Set(work.map(\.package))
+        #if DEBUG
+        let sizesBefore = work.map {
+            Self.fileSizes($0.folder.appending(path: "data/local/tmp"), ["base.odex", "base.vdex"])
+        }
+        let taking = Date.now
+        #endif
         do {
             try await library.takeCompileWork(bootClassPath: bootClassPath, converter: converter(currentSigner()))
         } catch {
@@ -213,7 +219,27 @@ final class LibraryModel {
         }
         optimizingIDs = []
         entries = await library.entries
+        #if DEBUG
+        let seconds = Date.now.timeIntervalSince(taking)
+        for (item, sizes) in zip(work, sizesBefore) {
+            let kept = entries.first { $0.id == item.package }.map {
+                Self.fileSizes(paths.oatContainerDirectory(for: $0), ["base.odex.dylib"])
+            } ?? [0]
+            SessionCheck.event("compiled kept \(item.package) odex \(sizes[0]) vdex \(sizes[1]) container \(kept[0]) "
+                + "taking \(String(format: "%.2f", seconds))")
+        }
+        #endif
     }
+
+    #if DEBUG
+    /// The sizes in bytes of the files `names` in `folder`, 0 for one that is not there (the compile measures).
+    private nonisolated static func fileSizes(_ folder: URL, _ names: [String]) -> [Int] {
+        names.map { name in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: folder.appending(path: name).path)
+            return (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        }
+    }
+    #endif
 
     /// This build's identity, which every report records (ADR-0055 decision 5): the LC_UUID of the image that holds the
     /// app's code, its analyzer and its converter (Minato.debug.dylib in a Debug build), which every build changes. So

@@ -192,6 +192,18 @@ if [[ -n "${HANG:-}" ]]; then
   APPS+=("hang-test io.github.kisame76.minato.test.hang")
   ONLY=hang-test
 fi
+# COMPILE: the measures of M6 c's E6 (tools/compile-measure.sh): compute-app-test and godot-bench-gles, each started
+# plain, left by Quit so that the library asks for compile mode, compiled by dex2oat in a process of its own, signed at
+# the next library start and started again with its compiled code. It prints a "csv," line for each (the columns are
+# tools/compile-measure.sh's); the Debug build's events carry dex2oat's peak footprint and the library's sizes and
+# signing time (app/Sources/Session/CompileMode.swift, LibraryModel.swift).
+if [[ -n "${COMPILE:-}" ]]; then
+  for app in "compute-app-test io.github.kisame76.minato.test.computeapp" \
+             "godot-bench-gles io.github.kisame76.minato.godotbench.gles"; do
+    [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
+  done
+  ONLY="compute-app-test godot-bench-gles"
+fi
 # IME: ime-test alone (ADR-0068 step 2c), whose text comes from the operator's taps on UIKit's keyboard.
 if [[ -n "${IME:-}" ]]; then
   APPS+=("ime-test io.github.kisame76.minato.test.ime")
@@ -1159,6 +1171,95 @@ if [[ -n "${HANG:-}" ]]; then
   QUIT_AFTER=
   end_start hang-test 1
   sed 's/^/      | /' "$WORK/hang-test-1.log" | grep "hang-test" || true
+fi
+
+# COMPILE: one app's plain start, its compile in compile mode and its compiled start (M6 c, E6).
+run_compile_measure() {
+  local app=$1 package=$2 file pattern plain="" compiled="" status="" peak="" odex="" vdex="" container="" taking=""
+  local began ended dex_mb
+  read -r file pattern <<< "$(last_line "$app")"
+  QUIT_AFTER=${COMPILE_QUIT_AFTER:-60}
+  if begin_start "$app" "$package" 1; then
+    if await_line "$file" "$pattern" 600; then
+      plain=$(seconds "$TAP" "$SEEN")
+      ok "  plain: its last line $plain s after the tap"
+    else
+      failed_line "no last line of the plain start" "$app-1"
+    fi
+    # The Quit ends the session; it asks for compile mode, which the app starts as a process of its own.
+    if [[ -n "$plain" ]] && await_event "process compileMode $package.*" 240 \
+       && await_event "compile started $package" 60; then
+      began=${EVENT%% *}
+      if await_event "compile ended .*" 900; then
+        ended=${EVENT%% *}
+        status=$(sed -E 's/^[0-9.]+ [0-9]+ compile ended ([0-9-]+).*/\1/' <<< "$EVENT")
+        peak=$(sed -nE 's/.* peak ([0-9-]+)$/\1/p' <<< "$EVENT")
+        if [[ "$status" == 0 ]]; then
+          ok "  dex2oat: $(seconds "$began" "$ended") s, peak $peak MB"
+        else
+          fail "  dex2oat ended with status $status"
+        fi
+      else
+        failed_line "compile mode did not end" "$app-1"
+      fi
+      if [[ "$status" == 0 ]]; then
+        # The library process signs and keeps the code at its start, after the restart.
+        if await_event "compiled kept $package .*" 240; then
+          read -r odex vdex container taking <<< "$(sed -E \
+            's/.* odex ([0-9]+) vdex ([0-9]+) container ([0-9]+) taking ([0-9.]+)$/\1 \2 \3 \4/' <<< "$EVENT")"
+          ok "  kept: odex $odex, vdex $vdex, container $container bytes, taking $taking s"
+        else
+          failed_line "the library did not keep the compiled code" "$app-1"
+        fi
+      fi
+    elif [[ -n "$plain" ]]; then
+      failed_line "no compile mode after the Quit" "$app-1"
+    fi
+  fi
+  QUIT_AFTER=
+  end_start "$app" 1
+  if [[ -n "$container" ]]; then
+    QUIT_AFTER=${COMPILE_QUIT_AFTER:-60}
+    if begin_start "$app" "$package" 2; then
+      if await_line "$file" "$pattern" 600; then
+        compiled=$(seconds "$TAP" "$SEEN")
+        ok "  compiled: its last line $compiled s after the tap"
+      else
+        failed_line "no last line of the compiled start" "$app-2"
+      fi
+    fi
+    QUIT_AFTER=
+    end_start "$app" 2
+  fi
+  dex_mb=$(python3 - "$(apk "$app")" <<'PY'
+import sys
+import zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    dex = [i.file_size for i in archive.infolist() if i.filename.startswith("classes") and i.filename.endswith(".dex")]
+    print(f"{sum(dex) / 1048576:.2f}")
+PY
+)
+  python3 - "$app" "$dex_mb" "${plain:-}" "${compiled:-}" "${began:-}" "${ended:-}" "${peak:-}" "${odex:-}" \
+    "${vdex:-}" "${container:-}" "${taking:-}" <<'PY'
+import sys
+app, dex, plain, compiled, began, ended, peak, odex, vdex, container, taking = sys.argv[1:]
+def number(text):
+    return float(text) if text else None
+def cell(value, digits):
+    return "" if value is None else f"{value:.{digits}f}"
+seconds = None if not began or not ended else float(ended) - float(began)
+ratio = None if not plain or not compiled else float(compiled) / float(plain)
+per_mb = None if seconds is None or float(dex) == 0 else seconds / float(dex)
+peak_per_mb = None if not peak or int(peak) < 0 or float(dex) == 0 else int(peak) / float(dex)
+print("csv," + ",".join([app, dex, cell(number(plain), 1), cell(number(compiled), 1), cell(ratio, 2), cell(seconds, 1),
+                         cell(per_mb, 2), peak, cell(peak_per_mb, 1), odex, vdex, container, taking]))
+PY
+}
+if [[ -n "${COMPILE:-}" ]]; then
+  echo "csv,app,dex_mb,plain_s,compiled_s,compiled_over_plain,dex2oat_s,dex2oat_s_per_dex_mb,peak_mb,"\
+"peak_mb_per_dex_mb,odex_bytes,vdex_bytes,container_bytes,take_s"
+  wanted compute-app-test && run_compile_measure compute-app-test io.github.kisame76.minato.test.computeapp
+  wanted godot-bench-gles && run_compile_measure godot-bench-gles io.github.kisame76.minato.godotbench.gles
 fi
 
 echo "java start check: $failures failed"
