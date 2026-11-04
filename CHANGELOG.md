@@ -84,6 +84,6 @@ All notable changes to Minato are documented in this file. The format follows
   efficiency cores, as on an Android phone, instead of a single core
 - Apps see the iPhone's network, over Wi-Fi or cellular, and notice when it changes, instead of finding none, so apps
   that wait for the network before they load no longer wait forever; apps that ask whether Wi-Fi is on find it on
-  while the iPhone uses Wi-Fi
+  while the iPhone uses Wi-Fi, and the iPhone's Low Data Mode reads as Android's Data Saver
 - Apps that ask for a network of a kind, such as any network with Internet or a cellular one, no longer crash, and
   hear only of networks that match

@@ -1005,6 +1005,12 @@ run_app() {
     network-request-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RequestActivity
       ;;
+    # restrict-background-test (ADR-0054 step d)): the restrict-background status, then its change broadcasts while
+    # the script turns Data Saver on and, 2 s later, off (cmd netpolicy), as Minato follows the iPhone's Low Data
+    # Mode. It ends with "done".
+    restrict-background-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RestrictActivity
+      ;;
     # wifi-state-test (ADR-0054 step d)): the sticky CONNECTIVITY_ACTION and WIFI_STATE_CHANGED_ACTION at a receiver's
     # registering, and WifiManager's state and connection info without a location permission, on the emulator's Wi-Fi
     # as for network-test. It ends with "done".
@@ -1249,6 +1255,14 @@ run_app() {
     # shellcheck disable=SC2086
     run cmd window user-rotation $rotation >/dev/null
     [[ "$turned" == yes ]] || return 1
+  fi
+  if [[ "$app" == restrict-background-test ]]; then
+    # Data Saver on once the app is ready, off 2 s later; off at the end in any case.
+    local saved=yes
+    { wait_for "$app" ready && sleep 1 && run cmd netpolicy set restrict-background true >/dev/null && sleep 2 &&
+      run cmd netpolicy set restrict-background false >/dev/null; } || saved=no
+    run cmd netpolicy set restrict-background false >/dev/null || true
+    [[ "$saved" == yes ]] || return 1
   fi
   if [[ "$app" == battery-test ]]; then
     # The battery's steps, two seconds apart once the app is ready: to 50 %, unplugged (AC off, then discharging),

@@ -39,7 +39,10 @@ import java.util.Map;
  * only while the callback is still registered, as AOSP's CallbackHandler drops a message whose callback is gone.
  * The sticky CONNECTIVITY_ACTION (ConnectivityService's, with its legacy extras; noConnectivity once the network is
  * gone) and WIFI_STATE_CHANGED_ACTION (Wi-Fi enabled while the path goes over it, else disabled) are made when a
- * receiver first asks for them and sent again on each change; WifiManager answers from the same state.
+ * receiver first asks for them and sent again on each change; WifiManager answers from the same state. Data Saver is
+ * the host's Low Data Mode (a constrained path): the restrict-background status is ENABLED while the network's path
+ * is constrained, else DISABLED, and ACTION_RESTRICT_BACKGROUND_CHANGED goes to registered receivers on each change,
+ * as NetworkPolicyManagerService sends it.
  */
 @SuppressWarnings("deprecation") // NetworkInfo and CONNECTIVITY_ACTION, Android's legacy answers
 public final class LocalNetwork {
@@ -49,6 +52,7 @@ public final class LocalNetwork {
     private static final int CELLULAR = 0x4;
     private static final int WIRED = 0x8;
     private static final int EXPENSIVE = 0x10;
+    private static final int CONSTRAINED = 0x20;
     private static final int TRANSPORTS = WIFI | CELLULAR | WIRED;
     /** NetworkCapabilities' system API NET_CAPABILITY_NOT_VCN_MANAGED, which every network not of a VCN has. */
     private static final int NET_CAPABILITY_NOT_VCN_MANAGED = 28;
@@ -107,6 +111,19 @@ public final class LocalNetwork {
             readLocked();
             return sNetwork == null || (sState & EXPENSIVE) != 0;
         }
+    }
+
+    /** ConnectivityManager's restrict-background status: ENABLED in Low Data Mode, else DISABLED. */
+    public static int restrictBackgroundStatus() {
+        synchronized (sLock) {
+            readLocked();
+            return restrictedLocked() ? ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
+                    : ConnectivityManager.RESTRICT_BACKGROUND_STATUS_DISABLED;
+        }
+    }
+
+    private static boolean restrictedLocked() {
+        return sNetwork != null && (sState & CONSTRAINED) != 0;
     }
 
     /** The legacy info of `network` if it is the active one (null: the active one), else null. */
@@ -315,15 +332,22 @@ public final class LocalNetwork {
     /** APKRT_EVENT_NETWORK: the host's path changed to `state`. */
     public static void onEvent(int state) {
         List<Intent> stickies = new ArrayList<>();
-        boolean wifiBefore;
+        boolean wifiBefore, restrictedBefore, restricted;
         synchronized (sLock) {
             readLocked();
             wifiBefore = wifiLocked();
+            restrictedBefore = restrictedLocked();
             changeLocked(state, stickies);
             if (sStickiesSent && wifiLocked() != wifiBefore) stickies.add(wifiStateLocked(wifiLocked(), wifiBefore));
             if (!sStickiesSent) stickies.clear();
+            restricted = restrictedLocked();
         }
         send(stickies);
+        if (restricted != restrictedBefore) {
+            Intent intent = new Intent(ConnectivityManager.ACTION_RESTRICT_BACKGROUND_CHANGED);
+            intent.setFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY);
+            LocalNetworkBroadcasts.send(intent);
+        }
     }
 
     /** The change to `state`: the callbacks posted, and CONNECTIVITY_ACTION for a network gone or come. */

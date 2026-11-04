@@ -95,6 +95,8 @@
 //   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set);
+//   network:<flags>  (ADR-0054 step d)) the host's network changes to the APKRT_NETWORK_* flags <flags> (decimal), as
+//               graphics/host's path monitor sets them (apkrt_network_set): 35 is Wi-Fi in Low Data Mode, 3 Wi-Fi;
 //   back        (ADR-0041 decision 10) the system's back without a gesture, as a button sends it:
 //               APKRT_EVENT_BACK with COMMIT, progress 0 and EDGE_LEFT, whose answer it does not wait for. The guest's
 //               BACK_AT_ROOT request, where Android moves the task to the back and the App opens its menu, prints
@@ -374,6 +376,13 @@ bool parse_battery(const std::string &step, int &level, int &state) {
            state >= APKRT_BATTERY_STATE_UNKNOWN && state <= APKRT_BATTERY_STATE_FULL;
 }
 
+/// `step` as network:<flags>, the APKRT_NETWORK_* flags (0 to 63); false for any other step.
+bool parse_network(const std::string &step, int &flags) {
+    int used = 0;
+    return std::sscanf(step.c_str(), "network:%d%n", &flags, &used) == 1 && used == static_cast<int>(step.size()) &&
+           flags >= 0 && flags <= 63;
+}
+
 /// `step` as barinsets:<top>:<bottom>, the system bars' heights in px; false for any other step.
 bool parse_bar_insets(const std::string &step, int &top, int &bottom) {
     int used = 0;
@@ -388,8 +397,8 @@ bool parse_trim_memory(const std::string &step, int &level) {
            used == static_cast<int>(step.size()) && level >= 0 && level <= 100;
 }
 
-/// --lifecycle's steps: start first, then background and foreground in turn, and touches, battery changes and backs
-/// after the start or a foreground; false for any other list.
+/// --lifecycle's steps: start first, then background and foreground in turn, and touches, battery and network changes
+/// and backs after the start or a foreground; false for any other list.
 bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) {
     std::istringstream list(value);
     std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
@@ -398,7 +407,7 @@ bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) 
         int level = 0, state = 0, top = 0, bottom = 0;
         if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state) || step == "back" ||
                               step == "imehide" || parse_bar_insets(step, top, bottom) ||
-                              parse_trim_memory(step, level))) {
+                              parse_trim_memory(step, level) || parse_network(step, level))) {
             steps.push_back(step);
             continue;
         }
@@ -1076,6 +1085,8 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             std::fprintf(stderr, "apk-run: the start was answered\n");
         } else if (int level = 0, state = 0; parse_battery(steps[index], level, state)) {
             apkrt_battery_set(level, state);
+        } else if (int flags = 0; parse_network(steps[index], flags)) {
+            apkrt_network_set(static_cast<std::uint32_t>(flags));
         } else if (int top = 0, bottom = 0; parse_bar_insets(steps[index], top, bottom)) {
             post(APKRT_EVENT_BAR_INSETS, static_cast<std::uint64_t>(top), static_cast<std::uint64_t>(bottom), 0);
         } else if (int trim = 0; parse_trim_memory(steps[index], trim)) {

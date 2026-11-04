@@ -3,7 +3,8 @@
 // decision 4's "no network"), which LocalNetwork keeps: the active network, its legacy info, capabilities and link,
 // and the network callbacks, which LocalNetwork keeps for every manager, as AOSP's static map of them. A listen or
 // a request hears of the active network while it satisfies the NetworkRequest, as the default network's callback
-// does; a request with a timeout hears onUnavailable when none does by then. Background data is not restricted.
+// does; a request with a timeout hears onUnavailable when none does by then. Background data is restricted in the
+// host's Low Data Mode, as by Android's Data Saver (LocalNetwork).
 // ConnectivityService's ACCESS_NETWORK_STATE check comes first, with its message.
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -77,7 +78,7 @@ class ConnectivityManager {
     }
 
     public int getRestrictBackgroundStatus() {
-        return RESTRICT_BACKGROUND_STATUS_DISABLED;
+        return LocalNetwork.restrictBackgroundStatus();
     }
 
     public void registerDefaultNetworkCallback(NetworkCallback networkCallback) {

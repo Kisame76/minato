@@ -1,0 +1,5 @@
+I/restrict-background-test: status: DISABLED
+I/restrict-background-test: ready
+I/restrict-background-test: changed 1: registered only true, status ENABLED
+I/restrict-background-test: changed 2: registered only true, status DISABLED
+I/restrict-background-test: done
