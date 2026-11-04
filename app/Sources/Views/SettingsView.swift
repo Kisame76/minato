@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(SigningCoordinator.self) private var signing
     @AppStorage(GameSession.showsFPSKey) private var showsFPS = false
+    @State private var showsWelcome = false
 
     var body: some View {
         let certificate = CodeSigning.storedCertificateInfo()
@@ -48,6 +49,10 @@ struct SettingsView: View {
                 Section {
                     NavigationLink("Storage") { StorageView() }
                 }
+                Section {
+                    // The welcome sheet of the first launch.
+                    Button("How to Use Minato") { showsWelcome = true }
+                }
                 Section("About") {
                     LabeledContent("Version", value: version)
                     LabeledContent("Runtime", value: String(cString: apkrt_version()))
@@ -55,6 +60,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $showsWelcome) { WelcomeView() }
         }
     }
 

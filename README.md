@@ -74,7 +74,7 @@ Minato is distributed only by sideloading with [SideStore](https://sidestore.io)
 3. Open Minato once. It needs the certificate it was signed with, to sign the code of the apps you import: with
    SideStore it takes it by itself; with AltStore it asks you once to tap "Export" there.
 4. Add apps with "+" in the library, or with "Open with" from the Files app. The original file stays where it is.
-   Tap an app to start it; swipe down from the top edge for Minato's menu, where Quit returns to the library.
+   Tap an app to start it.
 
 What a free Apple account means:
 
@@ -85,6 +85,15 @@ What a free Apple account means:
 
 Minato needs an iPhone with iOS 26 or later; it is developed and measured on iOS 27 with an A17 Pro. Releases are
 betas, listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Leaving an app
+
+An app fills the whole screen. To get back to Minato, open Minato's menu and tap Quit:
+
+- swipe down with three fingers anywhere on the screen, or
+- swipe down from the top edge. iOS keeps that edge for itself too, so sometimes it takes a second swipe.
+
+The menu also turns the frame rate display on and off. Settings › How to Use Minato shows this again.
 
 ## Building
 

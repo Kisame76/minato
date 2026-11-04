@@ -9,6 +9,7 @@ struct LibraryScene: View {
     @Bindable var signing: SigningCoordinator
     @State private var problem: LaunchMode.Problem?
     @State private var reporting: AppReport?
+    @State private var showsWelcome = LibraryScene.welcomeNeedsShowing
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
     @Environment(\.scenePhase) private var scenePhase
 
@@ -32,7 +33,11 @@ struct LibraryScene: View {
                     Task { await library.open(url) }
                 }
             }
-            .sheet(isPresented: $signing.showsSetup) {
+            // The welcome first, then the certificate's setup, if it asks then too.
+            .sheet(isPresented: $showsWelcome, onDismiss: { Welcome().shown() }) {
+                WelcomeView()
+            }
+            .sheet(isPresented: setupShown) {
                 CertificateSetupView()
                     .environment(signing)
             }
@@ -86,6 +91,18 @@ struct LibraryScene: View {
             guard let entry = library.items.first(where: { $0.id == notice.package })?.entry else { return nil }
             return library.report(of: entry, ending: AppReport.Ending(notice.cause))
         }
+    }
+
+    /// Not while tools/session-check.sh or another check drives the library: the sheet would cover what it looks at.
+    private static var welcomeNeedsShowing: Bool {
+        #if DEBUG
+        if FileManager.default.fileExists(atPath: SessionCheck.folder.path) { return false }
+        #endif
+        return Welcome().needsShowing
+    }
+
+    private var setupShown: Binding<Bool> {
+        Binding(get: { signing.showsSetup && !showsWelcome }, set: { signing.showsSetup = $0 })
     }
 
     private var problemShown: Binding<Bool> {

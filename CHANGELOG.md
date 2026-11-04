@@ -44,6 +44,8 @@ All notable changes to Minato are documented in this file. The format follows
   report of the app and its last session, with that session's log, to read and trim first, then a prefilled GitHub
   issue or Share; nothing leaves the iPhone without your tap
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
+- A welcome screen at the first launch shows how to add and start apps and how to get back to Minato from an app;
+  Settings › How to Use Minato shows it again
 - When iOS closed an app, for example because it used too much memory, or the app ended with an error status, the
   library says so the next time Minato opens
 - Apps are told when they leave the screen, as Android tells them, so apps that free memory then do so in Minato too,
