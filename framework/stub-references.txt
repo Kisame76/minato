@@ -175,13 +175,10 @@ android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a sys
 # ADR-0045 gap 1, batch 1b: UserManager over the local user service. What it reaches only for a work profile or
 # with a system permission, which neither Minato's one user nor any app has.
 android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
+android.app.admin.DevicePolicyManager <- android.provider.ContactsInternal  # stays: a quick contact of a managed profile (maybeStartManagedQuickContact), which a contact of user 0 never is
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 
 # The compatibility plan's gap 5, widgets, batch 1: what its types still name as stubs.
-android.provider.ContactsContract$CommonDataKinds$Email <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
-android.provider.ContactsContract$Contacts <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
-android.provider.ContactsContract$PhoneLookup <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
-android.provider.ContactsContract$QuickContact <- android.widget.QuickContactBadge  # gap: a contact badge's lookup and its quick contact, which ask the contacts provider
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), the framework breadth's android.app batch
 
 # ADR-0045 gap 1, batch 2: NotificationManager over the local notification service, with Notification, its

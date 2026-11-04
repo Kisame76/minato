@@ -1163,6 +1163,7 @@ frameworks_base/core/java/android/content/ContentProviderOperation.java
 frameworks_base/core/java/android/content/ContentQueryMap.java
 frameworks_base/core/java/android/content/ContentUris.java
 frameworks_base/core/java/android/content/ContextParams.java
+frameworks_base/core/java/android/content/CursorEntityIterator.java
 frameworks_base/core/java/android/content/CursorLoader.java
 frameworks_base/core/java/android/content/DialogInterface.java
 frameworks_base/core/java/android/content/Entity.java
@@ -2008,6 +2009,8 @@ frameworks_base/core/java/android/hardware/DataSpace.java
 frameworks_base/core/java/android/hardware/GeomagneticField.java
 frameworks_base/core/java/android/preference/PreferenceDataStore.java
 frameworks_base/core/java/android/provider/AlarmClock.java
+frameworks_base/core/java/android/provider/ContactsContract.java
+frameworks_base/core/java/android/provider/ContactsInternal.java
 frameworks_base/core/java/android/provider/FontRequest.java
 frameworks_base/core/java/android/provider/FontsContract.java
 frameworks_base/core/java/android/provider/OpenableColumns.java

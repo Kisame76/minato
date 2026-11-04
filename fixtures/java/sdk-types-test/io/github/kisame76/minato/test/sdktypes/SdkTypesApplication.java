@@ -8,6 +8,7 @@ import android.graphics.drawable.PaintDrawable;
 import android.graphics.drawable.PictureDrawable;
 import android.hardware.GeomagneticField;
 import android.provider.AlarmClock;
+import android.provider.ContactsContract;
 import android.provider.OpenableColumns;
 import android.text.AlteredCharSequence;
 import android.text.LoginFilter;
@@ -135,6 +136,14 @@ public class SdkTypesApplication extends Application {
         Log.i(TAG, "provider: " + OpenableColumns.DISPLAY_NAME + " " + OpenableColumns.SIZE);
         Log.i(TAG, "provider alarm: " + AlarmClock.ACTION_SET_ALARM + " " + AlarmClock.EXTRA_HOUR + " "
                 + AlarmClock.EXTRA_MINUTES + " " + AlarmClock.ACTION_SET_TIMER + " " + AlarmClock.EXTRA_LENGTH);
+        // What Fresco's UriUtil reads in its static initializer (react-native's image view), and the contacts URIs
+        // an app builds queries from.
+        Log.i(TAG, "provider contacts: " + ContactsContract.AUTHORITY + " " + ContactsContract.AUTHORITY_URI + " "
+                + ContactsContract.Contacts.CONTENT_URI + " " + ContactsContract.Contacts.CONTENT_LOOKUP_URI + " "
+                + ContactsContract.Contacts.CONTENT_TYPE + " " + ContactsContract.RawContacts.CONTENT_URI + " "
+                + ContactsContract.Data.CONTENT_URI + " " + ContactsContract.CommonDataKinds.Phone.CONTENT_URI + " "
+                + ContactsContract.CommonDataKinds.Phone.NUMBER + " "
+                + android.net.Uri.withAppendedPath(ContactsContract.AUTHORITY_URI, "display_photo"));
     }
 
     private static void keystore() {
