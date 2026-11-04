@@ -297,6 +297,9 @@ target_link_libraries(mouse-native-test PRIVATE android log)
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)
 # x18-stress: eight threads with x18 islands under SIGUSR1 from the main thread.
 add_executable(x18-stress suite/x18-stress.c suite/x18-stress.S)
+# c-rename-test: a function option (c) renames whole (ADR-0020); runtime-only -- it is ABI-correct only after
+# conversion, so it runs through apk-run but not natively (fixtures/tests.txt).
+add_executable(c-rename-test suite/c-rename-test.c suite/c-rename-test.S)
 # island-bench: what one pass through an island costs, against a twin the converter leaves alone
 # (ADR-0020 X6).
 add_executable(island-bench bench/island-bench.c bench/island-bench.S)

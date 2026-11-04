@@ -50,6 +50,9 @@ frame-cap-test system libraries=libframe-cap-api.so,libframe-cap-engine.so
 # x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).
 x18-test system
 x18-stress system
+# A function option (c) renames whole (ADR-0020): ABI-correct only after conversion, so runtime-only (the raw
+# code keeps its value in the platform x18 and does not save/restore it).
+c-rename-test system runtime-only
 # Boehm's stop-the-world with SIGPWR and SIGXCPU, as IL2CPP's collector makes it (ADR-0033 test 4, part c).
 stw-test system
 # Descriptor numbers are the guest's own, whatever the process holds on the host (ADR-0027).

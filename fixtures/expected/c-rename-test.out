@@ -1,0 +1,1 @@
+a (c)-renamed function runs correctly under a SIGALRM storm: yes
