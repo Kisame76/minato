@@ -1002,9 +1002,9 @@ run_pixels() {
           pixels_checkpoint "$app" return
         fi
       else
-        # ADR-0041 gap 4's iOS side is open: RuntimeSession.swift sets no window handler, so a dialog's window request
+        # Without the session's window handler (RuntimeSession.swift, ADR-0041 gap 4) a dialog's window request
         # answers -EOPNOTSUPP, which ViewRootImpl takes in silence, and the dialog never shows.
-        failed_line "known gap: no \"ready: dialog 1\"; the iOS session has no window handler for dialogs (gap 4)" \
+        failed_line "no \"ready: dialog 1\": the dialog's window never came (the session's window handler, gap 4)" \
           "$app-start"
       fi
     elif await_line guest-log "^I/$app: done$" 300; then

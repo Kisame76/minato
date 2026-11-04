@@ -939,6 +939,16 @@ final class GameSession {
         if !wasBroken, bridge.isBroken { report(handled) }
     }
 
+    /// A window request of the guest's (ADR-0041, gap 4), on the main thread, in the order the runtime took them.
+    func windowRequested(_ request: WindowRequest) {
+        #if DEBUG
+        SessionCheck.event("window \(request.operation) token \(request.token) type \(request.type)")
+        #endif
+        let wasBroken = bridge.isBroken
+        let handled = bridge.windowRequested(request, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
+    }
+
     private func deliver(_ event: Lifecycle.Event) {
         report(bridge.handle(event, host: host))
     }

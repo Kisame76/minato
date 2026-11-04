@@ -38,6 +38,11 @@ public enum SessionEvent: Sendable, Equatable {
     case surfaceCreated(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case surfaceResized(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case surfaceDestroyed(token: UInt64, window: UInt64)
+    /// A window of the guest's own (ADR-0041, gap 4): the answer to a make, with its window and the buffer's size, and
+    /// to a place with another size; WINDOW_DESTROYED when the host took it away at the background or the end.
+    case windowCreated(token: UInt64, window: UInt64, width: Int32, height: Int32)
+    case windowResized(token: UInt64, window: UInt64, width: Int32, height: Int32)
+    case windowDestroyed(token: UInt64, window: UInt64)
     /// The answer to an open request (ADR-0062), APKRT_EVENT_OPEN_RESULT.
     case openResult(id: UInt64, outcome: OpenOutcome)
     /// The answer to a pick request (ADR-0057), APKRT_EVENT_PICK_RESULT: Activity's result code (RESULT_OK -1,
@@ -144,6 +149,13 @@ public protocol SessionHost: AnyObject {
     func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32)
     /// `apkrt_window_remove` for a surface's window, whose layer goes with it; the window's frame rate stays.
     func removeSurface(_ window: UInt64)
+    /// A window of the guest's own (ADR-0041, gap 4): `apkrt_window_add` of the request's buffer size on a layer at its
+    /// frame, in ADR-0041's order of windows; its gate starts closed. Its ID, or 0 when the host has none for it.
+    func addRequestedWindow(_ request: WindowRequest) -> UInt64
+    /// The requested window's layer takes the place's frame, alpha and dim.
+    func placeRequestedWindow(_ window: UInt64, _ request: WindowRequest)
+    /// `apkrt_window_remove` for requested window `token`'s window, whose layer goes with it.
+    func removeRequestedWindow(_ window: UInt64, token: UInt64)
 }
 
 /// The guest's window in size compat (ADR-0041, decision 12 b): its frame in the host's window, in pixels, its
@@ -269,6 +281,22 @@ public struct SessionBridge: Sendable {
     /// The surfaces in the order they were made, until the guest removes them.
     private var surfaces: [Surface] = []
 
+    /// A window of the guest's own (ADR-0041, gap 4), kept as apk-run's headless host keeps one.
+    private struct RequestedWindow: Sendable, Equatable {
+        var token: UInt64
+        var window: UInt64
+        var size: PixelSize
+        /// A sub-window, whose WINDOW_DESTROYED comes before its parent's.
+        var sub: Bool
+        /// Its window went with the window's, at the background or the end.
+        var taken = false
+        /// The guest was told with WINDOW_DESTROYED.
+        var announced = false
+    }
+
+    /// The requested windows in the order they were made, until the guest removes them.
+    private var requestedWindows: [RequestedWindow] = []
+
     /// The windows of the surfaces the guest has, in the order they were made, for the FPS label.
     public var surfaceWindows: [UInt64] {
         surfaces.filter { !$0.taken }.map(\.window)
@@ -367,6 +395,48 @@ public struct SessionBridge: Sendable {
     public mutating func surfaceRequested(_ request: SurfaceRequest, host: SessionHost) -> Handled {
         if !isBroken, !lifecycle.hasEnded { answer(request, host: host) }
         return Handled()
+    }
+
+    /// A window request as the runtime checked it (ADR-0041, gap 4), answered as apk-run's headless host answers it:
+    /// a make gets a window and WINDOW_CREATED, its gate open while the window's is; a place moves its layer, and
+    /// another size gives its window that size, then WINDOW_RESIZED; a remove takes the window away without an event.
+    /// A place or remove of a window the host took away does nothing, but the remove forgets it. After the end every
+    /// request is dropped. Nothing the lifecycle awaits comes of it.
+    @discardableResult
+    public mutating func windowRequested(_ request: WindowRequest, host: SessionHost) -> Handled {
+        if !isBroken, !lifecycle.hasEnded { answer(request, host: host) }
+        return Handled()
+    }
+
+    private mutating func answer(_ request: WindowRequest, host: SessionHost) {
+        let index = requestedWindows.firstIndex { $0.token == request.token }
+        let size = request.size
+        switch request.operation {
+        case .make:
+            guard index == nil else { return }  // the runtime refuses it first
+            let window = host.addRequestedWindow(request)
+            guard window != 0 else { return }
+            requestedWindows.append(RequestedWindow(token: request.token, window: window, size: size,
+                                                    sub: request.isSubWindow))
+            guard posted(.windowCreated(token: request.token, window: window, width: size.width,
+                                        height: size.height), host: host) else { return }
+            if gateIsOpen { host.setGate(window, open: true) }
+        case .place:
+            guard let index, !requestedWindows[index].taken else { return }
+            let window = requestedWindows[index].window
+            host.placeRequestedWindow(window, request)
+            guard size != requestedWindows[index].size else { return }
+            requestedWindows[index].size = size
+            host.setWindowSize(window, width: size.width, height: size.height)
+            _ = posted(.windowResized(token: request.token, window: window, width: size.width, height: size.height),
+                       host: host)
+        case .remove:
+            guard let index else { return }
+            if !requestedWindows[index].taken {
+                host.removeRequestedWindow(requestedWindows[index].window, token: request.token)
+            }
+            requestedWindows.remove(at: index)
+        }
     }
 
     /// The answer to open request `id` (ADR-0062), posted unless the channel broke or the session ended.
@@ -505,6 +575,7 @@ public struct SessionBridge: Sendable {
             gateIsOpen = true
             host.setGate(window, open: true)
             for surface in surfaces where !surface.taken { host.setGate(surface.window, open: true) }
+            for requested in requestedWindows where !requested.taken { host.setGate(requested.window, open: true) }
         }
         // The callback the lifecycle awaits is always the last it gave.
         if let callback = lifecycle.awaits, serial != 0 {
@@ -519,14 +590,21 @@ public struct SessionBridge: Sendable {
         gateIsOpen = false
         host.setGate(window, open: false)
         for surface in surfaces where !surface.taken { host.setGate(surface.window, open: false) }
+        for requested in requestedWindows where !requested.taken { host.setGate(requested.window, open: false) }
     }
 
-    /// Every surface's window goes (apkrt.h's surface handler, apk-run's take_away): with the window's at the
-    /// background and the end, and at onDestroy those made in the background, which hear nothing of it.
+    /// Every surface's and every requested window's window goes (apkrt.h's surface and window handlers, apk-run's
+    /// take_away): with the window's at the background and the end, and at onDestroy those made in the background,
+    /// which hear nothing of it.
     private mutating func takeSurfacesAway(_ host: SessionHost) {
         for index in surfaces.indices where !surfaces[index].taken {
             host.removeSurface(surfaces[index].window)
             surfaces[index].taken = true
+        }
+        // The requested windows after them, as apk-run takes its windows away (ADR-0041, gap 4).
+        for index in requestedWindows.indices where !requestedWindows[index].taken {
+            host.removeRequestedWindow(requestedWindows[index].window, token: requestedWindows[index].token)
+            requestedWindows[index].taken = true
         }
     }
 
@@ -562,6 +640,16 @@ public struct SessionBridge: Sendable {
             for index in surfaces.indices where surfaces[index].taken && !surfaces[index].announced {
                 surfaces[index].announced = true
                 events.append(.surfaceDestroyed(token: surfaces[index].token, window: surfaces[index].window))
+            }
+            // Then the requested windows', the sub-windows' first, each kind in the order made (apk-run's
+            // post_destroyed).
+            for subs in [true, false] {
+                for index in requestedWindows.indices where requestedWindows[index].sub == subs
+                    && requestedWindows[index].taken && !requestedWindows[index].announced {
+                    requestedWindows[index].announced = true
+                    events.append(.windowDestroyed(token: requestedWindows[index].token,
+                                                   window: requestedWindows[index].window))
+                }
             }
             return events + [event]
         case .onStop:

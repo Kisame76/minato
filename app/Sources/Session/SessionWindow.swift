@@ -362,27 +362,27 @@ final class SessionLayersView: UIView {
     #endif
 }
 
-/// The SurfaceViews' layers (ADR-0043 c4 (d)): each a MinatoMetalLayer, whose presents are paced as the window's
-/// (graphics/host's layer.m), in one of two containers beside the window's layer, the one below it for a negative z
-/// and the one above it for a positive one, by z, then in make order (`SurfaceOrder`); frames come in the window's
-/// pixels. The containers go in with the first surface. While a surface lies below the window, the window's layer
-/// has no background of its own, which would cover the surface wherever the window is transparent (its SurfaceView's
-/// hole), and the black is behind the surfaces instead. Used on the main thread, for the bridge.
+/// The SurfaceViews' layers (ADR-0043 c4 (d)) and the requested windows' (ADR-0041 gap 4: dialogs, popups, toasts,
+/// translucent activities and sub-windows, plan step 6 (c)): each a MinatoMetalLayer, whose presents are paced as the
+/// window's (graphics/host's layer.m), in one of two containers beside the window's layer, below it or above it, in
+/// Android 15's order of windows (WindowTree on WindowOrder, decision 1), with one black dim below the topmost window
+/// that dims, at its amount; frames come in the window's pixels, and a requested window's alpha is its layer's
+/// opacity. The containers go in with the first layer. While a layer lies below the window, the window's layer has
+/// no background of its own, which would cover that layer wherever the window is transparent (its SurfaceView's
+/// hole), and the black is behind them instead. Touches stay the session view's: WindowManagerGlobal routes them to
+/// the windows, and gives them the focus (gap 4 b2). Used on the main thread, for the bridge.
 final class SurfaceLayers {
-    private struct Entry {
-        let layer: MinatoMetalLayer
-        var key: SurfaceOrder.Key
-    }
-
     /// The session view's layer, which holds the window's layer and the containers.
     private let backdrop: CALayer
     private let windowLayer: CAMetalLayer
     private let below = CALayer()
     private let above = CALayer()
-    private var entries: [UInt64: Entry] = [:]
-    private var made: UInt64 = 0
+    private let dim = CALayer()
+    /// The layers besides the window's: c4's surfaces by their window's ID, the requested windows by their token.
+    private var layers: [WindowOrder.Layer: CALayer] = [:]
+    private var tree = WindowTree()
     private var surfaceBelow = false
-    /// The window layer's own background, the view's black, while a surface lies below.
+    /// The window layer's own background, the view's black, while a layer lies below.
     private var windowBackground: CGColor?
     /// Runs with each new surface's layer before the guest gets its window: a benchmark records it.
     var onAdd: (CAMetalLayer) -> Void = { _ in }
@@ -394,6 +394,8 @@ final class SurfaceLayers {
     init(backdrop: CALayer, windowLayer: CAMetalLayer) {
         self.backdrop = backdrop
         self.windowLayer = windowLayer
+        dim.backgroundColor = UIColor.black.cgColor
+        dim.opacity = 0
     }
 
     /// A new surface's layer at `frame`, below the window for a negative z, with the window that `register` gives
@@ -406,36 +408,65 @@ final class SurfaceLayers {
         onAdd(layer)
         let window = register(layer)
         guard window != 0 else { return 0 }
-        if below.superlayer == nil {
-            Self.withoutAnimation {
-                backdrop.insertSublayer(below, below: windowLayer)
-                backdrop.insertSublayer(above, above: windowLayer)
-            }
-            laidOut()
-        }
-        made += 1
-        entries[window] = Entry(layer: layer, key: SurfaceOrder.Key(z: z, made: made))
-        insert(window)
+        installContainers()
+        layers[.surface(window)] = layer
+        tree.addSurface(id: window, z: z)
+        arrange()
         return window
     }
 
     func place(_ window: UInt64, frame: PixelRect, z: Int32) {
-        guard var entry = entries[window] else { return }
-        Self.withoutAnimation { entry.layer.frame = points(frame) }
-        guard entry.key.z != z else { return }
-        entry.key.z = z
-        entries[window] = entry
-        insert(window)
+        guard let layer = layers[.surface(window)] else { return }
+        Self.withoutAnimation { layer.frame = points(frame) }
+        tree.placeSurface(id: window, z: z)
+        arrange()
     }
 
     func remove(_ window: UInt64) {
-        guard let entry = entries.removeValue(forKey: window) else { return }
-        Self.withoutAnimation { entry.layer.removeFromSuperlayer() }
-        updateBackgrounds()
+        guard layers.removeValue(forKey: .surface(window)) != nil else { return }
+        tree.remove(.surface(window))
+        arrange()
+    }
+
+    /// A requested window's layer at its frame, with its alpha as the layer's opacity, opaque as its format says, with
+    /// the window that `register` gives it (apkrt_window_add), or 0 without one.
+    func addWindow(_ request: WindowRequest, register: (CAMetalLayer) -> UInt64) -> UInt64 {
+        let layer = MinatoMetalLayer()
+        layer.contentsScale = windowLayer.contentsScale
+        layer.isOpaque = request.opaque
+        Self.withoutAnimation {
+            layer.opacity = request.alpha
+            layer.frame = points(request.frame)
+        }
+        let window = register(layer)
+        guard window != 0 else { return 0 }
+        installContainers()
+        layers[.window(request.token)] = layer
+        tree.addWindow(token: request.token, type: request.type, parent: request.parent, group: request.group,
+                       dim: request.dim)
+        arrange()
+        return window
+    }
+
+    /// A requested window's new frame, alpha and dim, which may move the dim.
+    func placeWindow(token: UInt64, frame: PixelRect, alpha: Float, dim amount: Float) {
+        guard let layer = layers[.window(token)] else { return }
+        Self.withoutAnimation {
+            layer.opacity = alpha
+            layer.frame = points(frame)
+        }
+        tree.placeWindow(token: token, dim: amount)
+        arrange()
+    }
+
+    func removeWindow(token: UInt64) {
+        guard layers.removeValue(forKey: .window(token)) != nil else { return }
+        tree.remove(.window(token))
+        arrange()
     }
 
     /// The session's view was laid out: the containers lie where the window's layer lies, at its scale (ADR-0041,
-    /// decision 12 b), so that the surfaces' frames stay the window's pixels.
+    /// decision 12 b), so that the layers' frames stay the window's pixels, and the dim covers the window.
     func laidOut() {
         guard below.superlayer != nil else { return }
         Self.withoutAnimation {
@@ -444,24 +475,36 @@ final class SurfaceLayers {
                 container.bounds = windowLayer.bounds
                 container.position = windowLayer.position
             }
+            dim.frame = windowLayer.bounds
         }
     }
 
-    /// The layer goes to its side at its place by z, then in make order.
-    private func insert(_ window: UInt64) {
-        guard let entry = entries[window] else { return }
-        let side = SurfaceOrder.isBelowWindow(z: entry.key.z) ? below : above
-        let others = (side.sublayers ?? []).filter { $0 !== entry.layer }
-        let keys = others.compactMap { layer in entries.values.first { $0.layer === layer }?.key }
+    private func installContainers() {
+        guard below.superlayer == nil else { return }
         Self.withoutAnimation {
-            entry.layer.removeFromSuperlayer()
-            side.insertSublayer(entry.layer, at: UInt32(SurfaceOrder.index(of: entry.key, among: keys)))
+            backdrop.insertSublayer(below, below: windowLayer)
+            backdrop.insertSublayer(above, above: windowLayer)
+        }
+        laidOut()
+    }
+
+    /// Each container's layers in the tree's order, the dim at its amount.
+    private func arrange() {
+        let split = tree.split
+        Self.withoutAnimation {
+            dim.opacity = tree.dimAmount
+            below.sublayers = split.below.compactMap(layer(for:))
+            above.sublayers = split.above.compactMap(layer(for:))
         }
         updateBackgrounds()
     }
 
+    private func layer(for layer: WindowOrder.Layer) -> CALayer? {
+        layer == .dim ? dim : layers[layer]
+    }
+
     private func updateBackgrounds() {
-        let hasBelow = webViewsBelow || entries.values.contains { SurfaceOrder.isBelowWindow(z: $0.key.z) }
+        let hasBelow = webViewsBelow || !tree.split.below.isEmpty
         guard hasBelow != surfaceBelow else { return }
         surfaceBelow = hasBelow
         // The layers' own property, not the view's backgroundColor, which would also clear the layer's opacity.

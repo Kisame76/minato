@@ -175,6 +175,25 @@ final class RuntimeSessionHost: SessionHost {
         surfaces?.remove(window)
     }
 
+    /// A window of the guest's own (ADR-0041, gap 4) on a layer in the windows' order, of its buffer's size; the
+    /// registry retains the layer while the window is there. 0 before the view exists or when the registry has no
+    /// room.
+    func addRequestedWindow(_ request: WindowRequest) -> UInt64 {
+        surfaces?.addWindow(request) { layer in
+            apkrt_window_add(Unmanaged.passUnretained(layer).toOpaque(), request.size.width, request.size.height)
+        } ?? 0
+    }
+
+    func placeRequestedWindow(_ window: UInt64, _ request: WindowRequest) {
+        surfaces?.placeWindow(token: request.token, frame: request.frame, alpha: request.alpha, dim: request.dim)
+    }
+
+    /// The frame rate stays, as for a surface.
+    func removeRequestedWindow(_ window: UInt64, token: UInt64) {
+        _ = apkrt_window_remove(window)
+        surfaces?.removeWindow(token: token)
+    }
+
     /// `apkrt_session_wait`, off the main thread but for the bridge's background wait: 1 answered, 0 timed out, -1 the
     /// channel broke or the program ended.
     static func wait(serial: UInt32, seconds: Double) -> Int32 {
@@ -214,6 +233,11 @@ final class RuntimeSessionHost: SessionHost {
         case .surfaceResized(let token, let window, let width, let height):
             (APKRT_EVENT_SURFACE_RESIZED, token, window, pair(width, height))
         case .surfaceDestroyed(let token, let window): (APKRT_EVENT_SURFACE_DESTROYED, token, window, 0)
+        case .windowCreated(let token, let window, let width, let height):
+            (APKRT_EVENT_WINDOW_CREATED, token, window, pair(width, height))
+        case .windowResized(let token, let window, let width, let height):
+            (APKRT_EVENT_WINDOW_RESIZED, token, window, pair(width, height))
+        case .windowDestroyed(let token, let window): (APKRT_EVENT_WINDOW_DESTROYED, token, window, 0)
         case .openResult(let id, let outcome): (APKRT_EVENT_OPEN_RESULT, id, outcome.resultCode, outcome.reason)
         // The result code as a 32-bit int in the low bits (guest_interface.h).
         case .pickResult(let id, let code, let count):
@@ -249,6 +273,8 @@ final class RuntimeSessionHost: SessionHost {
         session.end = Self.endHandler
         session.request = Self.requestHandler
         session.surface = Self.surfaceHandler
+        // The guest's dialogs, popups and toasts on layers of their own (ADR-0041, gap 4).
+        session.window = Self.windowHandler
         // The guest's WebViews on graphics/host's WKWebView, in the session's view (ADR-0056 c2).
         session.webview = minato_webview_handle
         Self.setWebViewWindows(session.context)
@@ -409,6 +435,32 @@ final class RuntimeSessionHost: SessionHost {
         }
     }
 
+    /// The runtime's checked window request as the bridge takes it (ADR-0041, gap 4), or nil for an op it does not
+    /// know.
+    static func windowRequest(_ record: apkrt_window_request) -> WindowRequest? {
+        let operation: WindowRequest.Operation
+        switch record.op {
+        case APKRT_WINDOW_MAKE.rawValue: operation = .make
+        case APKRT_WINDOW_PLACE.rawValue: operation = .place
+        case APKRT_WINDOW_REMOVE.rawValue: operation = .remove
+        default: return nil
+        }
+        return WindowRequest(
+            operation: operation, token: record.token, type: record.type, parent: record.parent,
+            frame: PixelRect(left: record.left, top: record.top, right: record.right, bottom: record.bottom),
+            size: PixelSize(width: record.width, height: record.height), opaque: record.opaque != 0,
+            group: record.group, alpha: Float(bitPattern: record.alpha), dim: Float(bitPattern: record.dim))
+    }
+
+    /// The session's window handler (ADR-0041, gap 4), as the surface handler: on the guest thread under the
+    /// runtime's window lock, so a copy of the request goes to the main queue, in the order the runtime took them.
+    static let windowHandler: apkrt_window_handler = { _, record in
+        guard let request = record.flatMap({ RuntimeSessionHost.windowRequest($0.pointee) }) else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { GameSession.current?.windowRequested(request) }
+        }
+    }
+
     /// The session's request handler: it runs on the guest thread that asks and must not block, so the
     /// request goes to the main queue; the text lives only until it returns, so it is copied first. A frame
     /// rate goes to the clock at once, which takes it without blocking: the runtime reports none for a
@@ -463,6 +515,14 @@ final class NoGuestSessionHost: SessionHost {
 
     func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32) {}
     func removeSurface(_ window: UInt64) {}
+
+    func addRequestedWindow(_ request: WindowRequest) -> UInt64 {
+        window += 1
+        return window
+    }
+
+    func placeRequestedWindow(_ window: UInt64, _ request: WindowRequest) {}
+    func removeRequestedWindow(_ window: UInt64, token: UInt64) {}
 
     static func wait(serial: UInt32, seconds: Double) -> Int32 { 1 }
 

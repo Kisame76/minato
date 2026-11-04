@@ -20,6 +20,9 @@ struct SessionBridgeTests {
         case addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool)
         case placeSurface(UInt64, frame: PixelRect, z: Int32)
         case removeSurface(UInt64)
+        case addRequestedWindow(token: UInt64)
+        case placeRequestedWindow(UInt64, frame: PixelRect, alpha: Float, dim: Float)
+        case removeRequestedWindow(UInt64)
     }
 
     /// A session that records every call; window IDs and serial numbers count from 1, as the runtime's.
@@ -67,6 +70,19 @@ struct SessionBridgeTests {
         }
 
         func removeSurface(_ window: UInt64) { calls.append(.removeSurface(window)) }
+
+        /// A requested window counts with the session's windows too.
+        func addRequestedWindow(_ request: WindowRequest) -> UInt64 {
+            calls.append(.addRequestedWindow(token: request.token))
+            defer { nextWindow += 1 }
+            return nextWindow
+        }
+
+        func placeRequestedWindow(_ window: UInt64, _ request: WindowRequest) {
+            calls.append(.placeRequestedWindow(window, frame: request.frame, alpha: request.alpha, dim: request.dim))
+        }
+
+        func removeRequestedWindow(_ window: UInt64, token: UInt64) { calls.append(.removeRequestedWindow(window)) }
 
         func waitScheduled(seconds: Double) -> Bool {
             calls.append(.waitScheduled(seconds))
@@ -969,5 +985,138 @@ struct SessionBridgeTests {
             .post(.surfaceCreated(token: 5, window: 2, width: Self.width, height: Self.height)),
         ])
         #expect(bridge.isBroken)
+    }
+
+    // MARK: ADR-0041 gap 4: the guest's own windows (dialogs, popups, toasts), as apk-run's headless host answers them
+
+    static let dialogFrame = PixelRect(left: 100, top: 900, right: 1190, bottom: 1900)
+    static let dialogSize = PixelSize(width: 1090, height: 1000)
+
+    static func window(_ operation: WindowRequest.Operation, _ token: UInt64, type: Int32 = 2, parent: UInt64 = 0,
+                       frame: PixelRect = dialogFrame, size: PixelSize = dialogSize, alpha: Float = 1,
+                       dim: Float = 0.6) -> WindowRequest {
+        WindowRequest(operation: operation, token: token, type: type, parent: parent, frame: frame, size: size,
+                      opaque: false, group: 1, alpha: alpha, dim: dim)
+    }
+
+    /// A make gets a window, WINDOW_CREATED with its size, and its gate open with the window's; a place with the same
+    /// size moves it without an event, another size gives the window that size and WINDOW_RESIZED; a remove takes it
+    /// away without an event (apkrt.h's window handler).
+    @Test func aRequestedWindowIsMadePlacedAndRemoved() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        #expect(host.take() == [
+            .addRequestedWindow(token: 9),
+            .post(.windowCreated(token: 9, window: 2, width: Self.dialogSize.width, height: Self.dialogSize.height)),
+            .setGate(2, open: true),
+        ])
+        bridge.windowRequested(Self.window(.place, 9, alpha: 0.5, dim: 0.3), host: host)
+        #expect(host.take() == [.placeRequestedWindow(2, frame: Self.dialogFrame, alpha: 0.5, dim: 0.3)])
+        let wider = PixelSize(width: 1190, height: 1000)
+        bridge.windowRequested(Self.window(.place, 9, size: wider), host: host)
+        #expect(host.take() == [
+            .placeRequestedWindow(2, frame: Self.dialogFrame, alpha: 1, dim: 0.6),
+            .setWindowSize(2, width: 1190, height: 1000),
+            .post(.windowResized(token: 9, window: 2, width: 1190, height: 1000)),
+        ])
+        bridge.windowRequested(Self.window(.remove, 9), host: host)
+        #expect(host.take() == [.removeRequestedWindow(2)])
+    }
+
+    /// The requested windows' gates follow the window's, as the surfaces' do.
+    @Test func aRequestedWindowsGateFollowsTheWindows() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        _ = host.take()
+
+        bridge.handle(.inactive, host: host)
+        #expect(host.take() == [.post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false)])
+        bridge.handle(.active, host: host)
+        #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true), .setGate(2, open: true)])
+    }
+
+    /// At the background every requested window goes with the window and the surfaces, before PAUSE; WINDOW_DESTROYED
+    /// comes after PAUSE, the focus and the surfaces' SURFACE_DESTROYED, before NATIVE_WINDOW_DESTROYED, a
+    /// sub-window's before its parent's (apkrt.h's window handler; apk-run's take_away and post_destroyed). The
+    /// guest's later place and remove change nothing.
+    @Test func theBackgroundTakesTheRequestedWindowsWithTheWindow() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        bridge.windowRequested(Self.window(.make, 10, type: 1000, parent: 9), host: host)
+        bridge.handle(.inactive, host: host)
+        _ = host.take()
+
+        let wait = try #require(bridge.handle(.background, host: host).wait)
+        #expect(host.take() == [
+            .removeWindow(1), .removeSurface(2), .removeRequestedWindow(3), .removeRequestedWindow(4), .post(.pause),
+            .post(.surfaceDestroyed(token: 5, window: 2)), .post(.windowDestroyed(token: 10, window: 4)),
+            .post(.windowDestroyed(token: 9, window: 3)), .post(.nativeWindowDestroyed(window: 1)),
+            .waitAnswer(wait.serial), .setBackground(true), .waitScheduled(SessionBridge.scheduledTimeout),
+        ])
+        bridge.windowRequested(Self.window(.place, 9), host: host)
+        bridge.windowRequested(Self.window(.remove, 10), host: host)
+        bridge.windowRequested(Self.window(.remove, 9), host: host)
+        #expect(host.take() == [])
+    }
+
+    /// An app that ends with the focus: its requested windows go with the window, and their WINDOW_DESTROYED comes
+    /// before NATIVE_WINDOW_DESTROYED.
+    @Test(arguments: [Lifecycle.Event.quit, .finish])
+    func anEndTakesTheRequestedWindowsWithTheWindow(end: Lifecycle.Event) {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        _ = host.take()
+
+        bridge.handle(end, host: host)
+        #expect(host.take() == [
+            .post(.pause), .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false),
+            .removeWindow(1), .removeRequestedWindow(2), .post(.windowDestroyed(token: 9, window: 2)),
+            .post(.nativeWindowDestroyed(window: 1)),
+        ])
+    }
+
+    /// A window made in the background opens with the window's gate at the return, after Continue.
+    @Test func aWindowMadeInTheBackgroundOpensWithTheReturn() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        bridge.finished(try #require(bridge.handle(.background, host: host).wait), result: 1, host: host)
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        _ = host.take()
+
+        bridge.handle(.foreground, host: host)
+        bridge.handle(.active, host: host)
+        bridge.handle(.menuClosed, host: host)
+        #expect(host.take().suffix(3) == [
+            .post(.windowFocusChanged(true)), .setGate(3, open: true), .setGate(2, open: true),
+        ])
+    }
+
+    /// A window made in the background gets its window with a closed gate; at onDestroy it goes without an event, as
+    /// the surfaces made there do. After the end every request is dropped.
+    @Test func aWindowMadeInTheBackgroundStaysClosedAndGoesAtOnDestroy() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        bridge.finished(try #require(bridge.handle(.background, host: host).wait), result: 1, host: host)
+        _ = host.take()
+
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        #expect(host.take() == [
+            .addRequestedWindow(token: 9),
+            .post(.windowCreated(token: 9, window: 2, width: Self.dialogSize.width, height: Self.dialogSize.height)),
+        ])
+        let destroy = try #require(bridge.handle(.finish, host: host).wait)
+        #expect(host.take() == [.removeRequestedWindow(2), .post(.destroy)])
+        bridge.finished(destroy, result: 0, host: host)
+        _ = host.take()
+        bridge.windowRequested(Self.window(.make, 11), host: host)
+        #expect(host.take() == [])
     }
 }
