@@ -47,6 +47,9 @@ import UIKit
 ///            background task held, so that a check sees the screen, cancels or goes to the background meanwhile.
 ///   no-compile  game mode's sessions ask for no compile mode, so that the next guest log is the app's own, not
 ///            dex2oat's (ADR-0053, M6 c, E5); compile mode itself still runs for a request already there.
+///   footprint-log  every 10 s from the guest's start the process's physical footprint, the memory iOS counts
+///            against it, and every iOS memory warning, one line each in tmp/session-check/footprint-log:
+///            "<seconds since 1970> footprint <bytes>" and "<seconds since 1970> warning <bytes>".
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -89,6 +92,47 @@ enum SessionCheck {
             close(file)
         }
         event("guest log on")
+        startFootprintLog()
+    }
+
+    /// Where the footprint log's sampler lives while the process runs.
+    private static let footprintTimer = Mutex<DispatchSourceTimer?>(nil)
+
+    /// The footprint-log request: a line now and every 10 s, and one per memory warning, in the file the script reads.
+    private static func startFootprintLog() {
+        guard requested("footprint-log") else { return }
+        let file = folder.appending(path: "footprint-log")
+        try? Data().write(to: file)
+        @Sendable func line(_ kind: String) {
+            let text = String(format: "%.3f", Date.now.timeIntervalSince1970) + " \(kind) \(physFootprint)\n"
+            guard let handle = try? FileHandle(forWritingTo: file) else { return }
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(text.utf8))
+        }
+        _ = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
+        ) { _ in
+            line("warning")
+            event("memory warning")
+        }
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: 10)
+        timer.setEventHandler { line("footprint") }
+        timer.resume()
+        footprintTimer.withLock { $0 = timer }
+    }
+
+    /// The process's physical footprint in bytes, -1 when the kernel does not say.
+    private static var physFootprint: Int64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int64(info.phys_footprint) : -1
     }
 
     /// The way the script asks for.

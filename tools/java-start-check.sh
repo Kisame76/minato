@@ -89,6 +89,11 @@
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
+#   MINUTES    how long renpy-memory-test plays and is sampled, 15 by default; the app runs only with
+#              ONLY=renpy-memory-test. The game (tools/renpy-memory.sh's, built with BUILD_ONLY) shows distinct
+#              full-screen backgrounds one after another as a visual novel does; the Debug build writes the process's
+#              physical footprint every 10 s and every iOS memory warning to tmp/session-check/footprint-log. The
+#              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory".
 #   GODOT_TEST no: test 2's Godot APKs of tools/build-godot.sh (ADR-0042 b)), godot-bench-vulkan and godot-bench-gles,
 #              stay out; else they run too: their "godot-bench: " lines must be Android 15's
 #              (fixtures/expected/godot-bench-*.logcat) and their run must have frames and no failures, as
@@ -160,6 +165,9 @@ APPS+=("splits-test io.github.kisame76.minato.test.splits")
 [[ ! -f build/renpy-splash-test/renpy-splash-test.apk ]] ||
   APPS+=("renpy-splash-test io.github.kisame76.minato.test.renpy")
 APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
+# Minato's Ren'Py memory game (tools/renpy-memory.sh), only with ONLY=renpy-memory-test: it plays for MINUTES.
+[[ " $ONLY " != *" renpy-memory-test "* ]] ||
+  APPS+=("renpy-memory-test io.github.kisame76.minato.test.renpymemory")
 # pad-test too, when Google's Play libraries are there to build it with (ADR-0050 c)).
 if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
   APPS+=("pad-test io.github.kisame76.minato.test.pad")
@@ -266,6 +274,7 @@ for app in "${APPS[@]}"; do
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
     vk-ahb-test) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test) ;;
+    renpy-memory-test) BUILD_ONLY=1 tools/renpy-memory.sh ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -517,6 +526,7 @@ begin_start() {
   seen=0
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
+  [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
   [[ -z "${QUIT_AFTER:-}" ]] || echo "$QUIT_AFTER" > "$CHECK/quit"
   send_requests
   launch
@@ -1305,6 +1315,63 @@ if wanted renpy-splash-test && listed renpy-splash-test; then
   else
     fail "  renpy-splash-test: no Interface start in the log"
   fi
+fi
+# Minato's Ren'Py memory game for MINUTES: the footprint over time and the memory warnings it got. The game says more
+# scenes than MINUTES can play, so the sitting ends it, not the game; each warning reaches the guest as one onLowMemory
+# once it has started (Lifecycle's memoryWarning), so the two counts are the warnings since the guest's start.
+if wanted renpy-memory-test && listed renpy-memory-test; then
+  minutes=${MINUTES:-15}
+  environment=$WORK/guest-environment
+  echo "MINATO_SCENES=$((minutes * 120))" > "$environment"
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy to --source "$environment" --destination "tmp/guest-environment"
+  else
+    cp "$environment" "$CONTAINER/tmp/guest-environment"
+  fi
+  if begin_start renpy-memory-test io.github.kisame76.minato.test.renpymemory 1; then
+    end=$((SECONDS + minutes * 60))
+    ended=no
+    while (( SECONDS < end )); do
+      sleep 20
+      fetch_events
+      if tail -n +$((seen + 1)) "$EVENTS" | grep -E '^[0-9.]+ [0-9]+ (could not start|program ended) ' >/dev/null; then
+        ended=yes
+        break
+      fi
+    done
+    fetch "$CHECK_REL/footprint-log" || true
+    if [[ "$ended" == yes ]]; then
+      failed_line "the game ended before $minutes min" "renpy-memory-test-1"
+    else
+      ok "  played for $minutes min"
+    fi
+  fi
+  end_start renpy-memory-test 1
+  # An empty file is no guest environment (the script cannot delete in the iPhone's container).
+  if [[ "$ON_DEVICE" == yes ]]; then
+    : > "$WORK/guest-environment"
+    devicectl_copy to --source "$WORK/guest-environment" --destination "tmp/guest-environment" || true
+  else
+    rm -f "$CONTAINER/tmp/guest-environment"
+  fi
+  python3 - "$CHECK/footprint-log" <<'PY' || fail "  renpy-memory-test: no footprint samples"
+import sys
+footprints, warnings = [], 0
+try:
+    for line in open(sys.argv[1], encoding="utf-8"):
+        _, kind, value = line.split()
+        if kind == "footprint" and int(value) >= 0:
+            footprints.append(int(value) / 1048576)
+        elif kind == "warning":
+            warnings += 1
+except OSError:
+    pass
+if not footprints:
+    sys.exit(1)
+else:
+    print(f"csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory\n"
+          f"csv,{min(footprints):.0f},{max(footprints):.0f},{footprints[-1]:.0f},{warnings},{warnings}")
+PY
 fi
 if [[ -n "${COMPILE:-}" ]]; then
   echo "csv,app,dex_mb,plain_s,compiled_s,compiled_over_plain,dex2oat_s,dex2oat_s_per_dex_mb,peak_mb,"\
