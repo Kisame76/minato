@@ -202,7 +202,8 @@ if [[ -n "${COMPILE:-}" ]]; then
              "godot-bench-gles io.github.kisame76.minato.godotbench.gles"; do
     [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
   done
-  ONLY="compute-app-test godot-bench-gles"
+  # COMPILE=1 runs both; COMPILE="compute-app-test" (or godot-bench-gles) only that one.
+  if [[ "$COMPILE" == 1 ]]; then ONLY="compute-app-test godot-bench-gles"; else ONLY=$COMPILE; fi
 fi
 # IME: ime-test alone (ADR-0068 step 2c), whose text comes from the operator's taps on UIKit's keyboard.
 if [[ -n "${IME:-}" ]]; then
@@ -528,6 +529,7 @@ begin_start() {
 }
 # The start's files, kept as $WORK/$1-$2.log and .out, after Minato's end.
 end_start() {
+  local file
   terminate
   for file in guest-log guest-out; do fetch "$CHECK_REL/$file" || true; done
   cp "$CHECK/guest-log" "$WORK/$1-$2.log" 2>/dev/null || : > "$WORK/$1-$2.log"
@@ -976,7 +978,7 @@ fi
 # Test 2's Godot APKs (ADR-0042 b)): their "godot-bench: " lines with Godot's padded tag must be Android 15's, and their
 # run line must have frames and no failures, as tools/godot-java-check.sh checks them on the Mac.
 for flavor in vulkan gles; do
-  [[ -n "$GODOT_TEST" ]] && wanted "godot-bench-$flavor" || continue
+  [[ -z "${COMPILE:-}" && -n "$GODOT_TEST" ]] && wanted "godot-bench-$flavor" || continue
   [[ "$flavor" == gles || "$ON_DEVICE" == yes ]] || continue
   run_start "godot-bench-$flavor" "io.github.kisame76.minato.godotbench.$flavor" 1
   python3 - "$WORK/godot-bench-$flavor-1.log" "fixtures/expected/godot-bench-$flavor.logcat" "godot-bench-$flavor" \
@@ -1186,9 +1188,14 @@ run_compile_measure() {
     else
       failed_line "no last line of the plain start" "$app-1"
     fi
-    # The Quit ends the session; it asks for compile mode, which the app starts as a process of its own.
-    if [[ -n "$plain" ]] && await_event "process compileMode $package.*" 240 \
-       && await_event "compile started $package" 60; then
+    # The Quit ends the session; it asks for compile mode, which the app starts as a process of its own. An app that
+    # ends itself first (Godot kills itself after its run) is left without the request: a short start with a Quit asks.
+    if [[ -n "$plain" ]] && ! await_event "process compileMode $package.*" "${COMPILE_WAIT:-100}"; then
+      end_start "$app" 1
+      QUIT_AFTER=3
+      if begin_start "$app" "$package" 3; then await_event "process compileMode $package.*" 240 || true; fi
+    fi
+    if [[ -n "$plain" && -n "$EVENT" ]] && await_event "compile started $package" 60; then
       began=${EVENT%% *}
       if await_event "compile ended .*" 900; then
         ended=${EVENT%% *}
