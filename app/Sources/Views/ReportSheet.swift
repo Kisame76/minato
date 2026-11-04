@@ -31,6 +31,7 @@ struct ReportSheet: View {
                     TextEditor(text: $summary)
                         .font(.footnote.monospaced())
                         .frame(minHeight: 240)
+                        .accessibilityLabel("Report")
                 } header: {
                     Text("This goes into a public issue: remove anything personal.")
                 }
@@ -39,6 +40,7 @@ struct ReportSheet: View {
                         TextEditor(text: $log)
                             .font(.caption2.monospaced())
                             .frame(minHeight: 320)
+                            .accessibilityLabel("Log of the Last Session")
                     }
                 }
             }

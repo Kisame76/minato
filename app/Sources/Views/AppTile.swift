@@ -45,6 +45,16 @@ struct AppTile: View {
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
 
     var body: some View {
+        rowSwipes(tile)
+            .deletionDialog(isPresented: deletionShown, entries: actions.deleting.map { [$0] }) { entries in
+                Task { await model.remove(entries) }
+            }
+            .clearDataDialog(isPresented: clearingShown, entry: actions.clearing) { entry in
+                Task { await model.clearData(of: entry) }
+            }
+    }
+
+    private var tile: some View {
         Group {
             if asRow {
                 AppRow(item: item, showsSelection: isSelecting && item.entry != nil, isSelected: isSelected)
@@ -55,6 +65,9 @@ struct AppTile: View {
         }
         .contentShape(.rect)
         .onTapGesture { tap() }
+        // VoiceOver's double tap does what a tap does: starts the app, or selects it.
+        .accessibilityAddTraits(item.entry == nil ? [] : .isButton)
+        .accessibilityAction { tap() }
         .contextMenu {
             if !isSelecting, let entry = item.entry {
                 Button("Get Info", systemImage: "info.circle") { actions.shownEntry = entry }
@@ -85,30 +98,34 @@ struct AppTile: View {
                 }
             }
         }
-        .swipeActions(edge: .leading) {
-            if asRow, !isSelecting, let entry = item.entry, entry.canBeFavorite {
-                Button(item.isFavorite ? "Unfavorite" : "Favorite",
-                       systemImage: item.isFavorite ? "star.slash" : "star") {
-                    Task { await model.setFavorite([entry], !item.isFavorite) }
+    }
+
+    /// The List view's swipes; a grid tile has none, since a swipe modifier there still lets the tile slide along its
+    /// row and snap back.
+    @ViewBuilder private func rowSwipes(_ content: some View) -> some View {
+        if asRow {
+            content
+                .swipeActions(edge: .leading) {
+                    if !isSelecting, let entry = item.entry, entry.canBeFavorite {
+                        Button(item.isFavorite ? "Unfavorite" : "Favorite",
+                               systemImage: item.isFavorite ? "star.slash" : "star") {
+                            Task { await model.setFavorite([entry], !item.isFavorite) }
+                        }
+                        .tint(.yellow)
+                    }
                 }
-                .tint(.yellow)
-            }
-        }
-        .swipeActions(edge: .trailing) {
-            if asRow, !isSelecting, let entry = item.entry {
-                // It asks first, so the row stays until the answer.
-                Button("Delete", systemImage: "trash") {
-                    actions.deleting = entry
-                    actions.deletingTile = tileKey
+                .swipeActions(edge: .trailing) {
+                    if !isSelecting, let entry = item.entry {
+                        // It asks first, so the row stays until the answer.
+                        Button("Delete", systemImage: "trash") {
+                            actions.deleting = entry
+                            actions.deletingTile = tileKey
+                        }
+                        .tint(.red)
+                    }
                 }
-                .tint(.red)
-            }
-        }
-        .deletionDialog(isPresented: deletionShown, entries: actions.deleting.map { [$0] }) { entries in
-            Task { await model.remove(entries) }
-        }
-        .clearDataDialog(isPresented: clearingShown, entry: actions.clearing) { entry in
-            Task { await model.clearData(of: entry) }
+        } else {
+            content
         }
     }
 

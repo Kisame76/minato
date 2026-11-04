@@ -210,6 +210,46 @@ struct NavigationDataTests {
         #expect(LibraryArrangement().choosing(.manual) == LibraryArrangement())
     }
 
+    /// The active order's direction, which the "…" menu shows under its name as Files does: by name ascending or
+    /// descending, by a date newest or oldest first (Last Opened as Files' Date), by size largest or smallest first.
+    @Test func theDirectionUnderTheActiveOrderIsFiles() {
+        let directions: [(LibrarySort, Bool, LibrarySortDirection?)] = [
+            (.manual, true, nil),
+            (.name, true, .ascending), (.name, false, .descending),
+            (.dateAdded, false, .newestToOldest), (.dateAdded, true, .oldestToNewest),
+            (.lastOpened, false, .newestToOldest), (.lastOpened, true, .oldestToNewest),
+            (.size, false, .largestToSmallest), (.size, true, .smallestToLargest),
+        ]
+        for (sort, ascending, direction) in directions {
+            #expect(LibraryArrangement(sort: sort, ascending: ascending).direction == direction, "\(sort) \(ascending)")
+        }
+    }
+
+    /// A tile shows its status in one line, without a reason (the user's equal rows); the reason is apart, for Get
+    /// Info and VoiceOver, and a ready app that runs without some libraries is shown as ready.
+    @Test func aStatusKeepsItsReasonApartFromItsLine() {
+        #expect(LibraryItemStatus.incompatible("needs OpenGL ES 3.2").reason == "needs OpenGL ES 3.2")
+        #expect(LibraryItemStatus.invalid("not a ZIP file").reason == "not a ZIP file")
+        #expect(LibraryItemStatus.notInstalled("a split is missing").reason == "a split is missing")
+        #expect(LibraryItemStatus.readyWithout(["libfoo.so"]).showsAsReady)
+        #expect(LibraryItemStatus.ready.showsAsReady)
+        #expect(!LibraryItemStatus.needsSplits.showsAsReady)
+        for status: LibraryItemStatus in [.new, .installing(0.5), .updating, .optimizing, .ready, .readyWithout(["a"]),
+                                          .needsSplits] {
+            #expect(status.reason == nil)
+        }
+    }
+
+    /// What the "…" menu says under the active Manual: how to move apps, or why they cannot move now.
+    @Test func theNoteUnderTheActiveManualSaysHowOrWhyNot() {
+        let manual = LibraryArrangement()
+        #expect(manual.manualNote(searching: false, filter: .all) == .dragToRearrange)
+        #expect(manual.manualNote(searching: false, filter: .favorites) == .notWhileFiltering)
+        #expect(manual.manualNote(searching: true, filter: .all) == .notWhileSearching)
+        #expect(manual.manualNote(searching: true, filter: .ready) == .notWhileSearching)
+        #expect(LibraryArrangement(sort: .name, ascending: true).manualNote(searching: false, filter: .all) == nil)
+    }
+
     @Test func onlyTheManualOrderWithoutASearchMovesApps() {
         #expect(LibraryArrangement().movesApps(searching: false))
         #expect(!LibraryArrangement().movesApps(searching: true))

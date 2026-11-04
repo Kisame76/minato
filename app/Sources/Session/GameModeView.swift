@@ -34,6 +34,12 @@ struct GameModeView: View {
         }, onTextView: { session.attach($0) }, onKeyboardCover: { session.keyboardCovers($0) },
                        onView: { session.attach($0) })
             .ignoresSafeArea()
+            // VoiceOver keeps the three-finger swipe for scrolling: its escape gesture, a two-finger scrub, opens the
+            // menu, with Quit.
+            .accessibilityElement()
+            .accessibilityLabel(session.entry.displayName)
+            .accessibilityHint("Scrub with two fingers for Minato’s menu.")
+            .accessibilityAction(.escape) { session.openMenu() }
             .overlay(alignment: .top) {
                 if session.showsHint {
                     Text("Swipe down with three fingers for the menu.")

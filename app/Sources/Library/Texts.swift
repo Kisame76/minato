@@ -32,6 +32,27 @@ enum Texts {
         }
     }
 
+    /// Under the active Manual in the "…" menu: how apps move, or why not now.
+    static func manualNote(_ note: LibraryManualNote) -> String {
+        switch note {
+        case .dragToRearrange: "Drag to Rearrange"
+        case .notWhileFiltering: "Not While Filtering"
+        case .notWhileSearching: "Not While Searching"
+        }
+    }
+
+    /// The active order's direction under its name in the "…" menu, Files' words.
+    static func sortDirection(_ direction: LibrarySortDirection) -> String {
+        switch direction {
+        case .ascending: "Ascending"
+        case .descending: "Descending"
+        case .newestToOldest: "Newest to Oldest"
+        case .oldestToNewest: "Oldest to Newest"
+        case .largestToSmallest: "Largest to Smallest"
+        case .smallestToLargest: "Smallest to Largest"
+        }
+    }
+
     /// VoiceOver's actions for the manual order, as an alternative to dragging.
     static func moveName(_ step: LibraryMoveStep) -> String {
         switch step {
@@ -67,20 +88,28 @@ enum Texts {
         }
     }
 
+    /// A tile's and a row's one line: the status alone, as the Home Screen's labels (the user's equal rows).
     static func statusLine(_ status: LibraryItem.Status) -> String {
         switch status {
         case .new: "New"
         case .installing: "Installing…"
         case .updating: "Updating…"
         case .optimizing: "Optimizing…"
-        case .ready: "Ready"
-        case .readyWithout(let libraries):
-            libraries.count == 1 ? "Ready, without \(libraries[0])" : "Ready, without \(libraries.count) libraries"
-        case .needsSplits: "Needs split APKs"
-        case .incompatible(let reason): "Incompatible: \(reason)"
-        case .invalid(let reason): "Not a valid APK: \(reason)"
-        case .notInstalled(let reason): "Not installed: \(reason)"
+        case .ready, .readyWithout: "Ready"
+        case .needsSplits: "Needs Split APKs"
+        case .incompatible: "Incompatible"
+        case .invalid: "Invalid APK"
+        case .notInstalled: "Not Installed"
         }
+    }
+
+    /// The status with its reason, for Get Info and for VoiceOver on a tile.
+    static func statusDetail(_ status: LibraryItem.Status) -> String {
+        if case .readyWithout(let libraries) = status {
+            return libraries.count == 1
+                ? "Ready, without \(libraries[0])" : "Ready, without \(libraries.count) libraries"
+        }
+        return status.reason.map { "\(statusLine(status)): \($0)" } ?? statusLine(status)
     }
 
     /// Why tapping an app does not start it (ADR-0032, decision 3).

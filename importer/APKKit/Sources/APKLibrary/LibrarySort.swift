@@ -96,6 +96,36 @@ public struct LibraryArrangement: Equatable, Sendable {
     public func arranged(_ entries: [LibraryEntry], lastOpened: [String: Date]) -> [LibraryEntry] {
         sort.sorted(entries, ascending: ascending, lastOpened: lastOpened)
     }
+
+    /// What the "…" menu shows under the active Manual: that apps move by dragging, or why they cannot now
+    /// (`movesApps`); nil for the other orders.
+    public func manualNote(searching: Bool, filter: LibraryFilter) -> LibraryManualNote? {
+        guard sort == .manual else { return nil }
+        if searching { return .notWhileSearching }
+        return filter == .all ? .dragToRearrange : .notWhileFiltering
+    }
+
+    /// The direction the "…" menu shows under the active order, in Files' words; Manual has none.
+    public var direction: LibrarySortDirection? {
+        switch sort {
+        case .manual: nil
+        case .name: ascending ? .ascending : .descending
+        case .dateAdded, .lastOpened: ascending ? .oldestToNewest : .newestToOldest
+        case .size: ascending ? .smallestToLargest : .largestToSmallest
+        }
+    }
+}
+
+/// The note under the active Manual in the "…" menu.
+public enum LibraryManualNote: Sendable, Equatable {
+    case dragToRearrange, notWhileFiltering, notWhileSearching
+}
+
+/// A sort order's direction as Files names it under Name, Date and Size.
+public enum LibrarySortDirection: Sendable, Equatable {
+    case ascending, descending
+    case newestToOldest, oldestToNewest
+    case largestToSmallest, smallestToLargest
 }
 
 /// The library's filter, from its "…" menu as Photos' (the navigation design, section 3): a preference of the device
@@ -164,5 +194,39 @@ extension LibraryEntry {
     /// The installed files' bytes: the base APK, the splits and the OBBs.
     public var installedSize: UInt64 {
         ([base].compactMap { $0 } + splits + obbs).reduce(0) { $0 + $1.size }
+    }
+}
+
+/// An app's status in the library (Library and Home's tiles, the List view's rows, Get Info).
+public enum LibraryItemStatus: Sendable, Equatable {
+    case new
+    case installing(Double)
+    /// Its converted code is being signed with a new certificate (ADR-0023).
+    case updating
+    /// The code compile mode compiled for it is being signed and kept (ADR-0053, M6 c).
+    case optimizing
+    case ready
+    /// Ready, but the check left these libraries out: the app runs without them (ADR-0055 a2).
+    case readyWithout([String])
+    case needsSplits
+    case incompatible(String)
+    case invalid(String)
+    /// A set that was not installed, with why, in words to show (ADR-0048 b7b).
+    case notInstalled(String)
+
+    /// Why the app cannot start, which a tile leaves out of its one line (Get Info and VoiceOver say it).
+    public var reason: String? {
+        switch self {
+        case .incompatible(let reason), .invalid(let reason), .notInstalled(let reason): reason
+        default: nil
+        }
+    }
+
+    /// Whether the tile says Ready: also an app that runs without some libraries, as Get Info names them.
+    public var showsAsReady: Bool {
+        switch self {
+        case .ready, .readyWithout: true
+        default: false
+        }
     }
 }

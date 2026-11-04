@@ -12,22 +12,7 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "impo
 
 /// One tile in the library grid: an installed entry or a pick that is not imported yet.
 struct LibraryItem: Identifiable {
-    enum Status {
-        case new
-        case installing(Double)
-        /// Its converted code is being signed with a new certificate (ADR-0023).
-        case updating
-        /// The code compile mode compiled for it is being signed and kept (ADR-0053, M6 c).
-        case optimizing
-        case ready
-        /// Ready, but the check left these libraries out: the app runs without them (ADR-0055 a2).
-        case readyWithout([String])
-        case needsSplits
-        case incompatible(String)
-        case invalid(String)
-        /// A set that was not installed, with why, in words to show (ADR-0048 b7b).
-        case notInstalled(String)
-    }
+    typealias Status = LibraryItemStatus
 
     let id: String
     let title: String

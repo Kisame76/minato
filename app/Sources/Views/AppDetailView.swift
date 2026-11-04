@@ -20,7 +20,7 @@ struct AppDetailView: View {
                             .frame(width: 64, height: 64)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.displayName).font(.headline)
-                            StatusView(status: Texts.status(of: entry))
+                            StatusView(status: Texts.status(of: entry), alignment: .leading, showsReason: true)
                         }
                     }
                 }

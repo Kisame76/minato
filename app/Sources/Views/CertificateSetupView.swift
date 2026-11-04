@@ -20,25 +20,11 @@ struct CertificateSetupView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Image(systemName: "signature")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.tint)
-                Text(explanation)
-                    .multilineTextAlignment(.center)
-                status
-                Spacer()
-                if let store = signing.setupStore, !isBusy {
-                    Button(signing.problem == nil ? "Get Certificate from \(store.name)" : "Try Again") {
-                        Task { await signing.getCertificate(from: store) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                }
-                Button("Import a .p12 File…") { isPicking = true }
-                    .disabled(isBusy)
+            // The buttons at the bottom while everything fits; at the larger text sizes the whole sheet scrolls.
+            ViewThatFits(in: .vertical) {
+                content(fillsHeight: true)
+                ScrollView { content(fillsHeight: false) }
             }
-            .padding(24)
             .navigationTitle("One-Time Setup")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -63,6 +49,31 @@ struct CertificateSetupView: View {
                 Text(fileError ?? "")
             }
         }
+    }
+
+    private func content(fillsHeight: Bool) -> some View {
+        VStack(spacing: 24) {
+            Image(systemName: "signature")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            Text(explanation)
+                .multilineTextAlignment(.center)
+            status
+            if fillsHeight {
+                Spacer()
+            }
+            if let store = signing.setupStore, !isBusy {
+                Button(signing.problem == nil ? "Get Certificate from \(store.name)" : "Try Again") {
+                    Task { await signing.getCertificate(from: store) }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+            Button("Import a .p12 File…") { isPicking = true }
+                .disabled(isBusy)
+        }
+        .padding(24)
     }
 
     private var explanation: String {

@@ -11,6 +11,7 @@ struct AppCard: View {
     var showsReadyStatus = true
     var showsSelection = false
     var isSelected = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         // The label 8 pt below the icon, as on the Home Screen: the icon's 6 pt for the selection and 2.
@@ -34,26 +35,30 @@ struct AppCard: View {
                             .padding(.bottom, 6)
                     }
                 }
+                .overlay { InstallProgress(status: item.status) }
                 .padding(6)
                 .background(isSelected ? Color(.systemGray5) : .clear, in: .rect(cornerRadius: 12))
             Text(item.title)
                 .font(.caption)
-                .lineLimit(1)
+                // One line as on the Home Screen; two at the accessibility sizes, which the tile caps at the first, as
+                // its column has room for (the List view shows every size). Every tile reserves them, so that the
+                // rows are of one height.
+                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1, reservesSpace: true)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 4)
                 .background(isSelected ? Color(.systemGray5) : .clear, in: .rect(cornerRadius: 5))
-            if showsReadyStatus || !isReady {
-                StatusView(status: item.status)
-            }
+            // Hidden but kept where Home leaves Ready out, so that its rows stay of one height too.
+            let showsStatus = showsReadyStatus || !item.status.showsAsReady
+            StatusView(status: item.status)
+                .opacity(showsStatus ? 1 : 0)
+                .accessibilityHidden(!showsStatus)
         }
         .frame(maxWidth: .infinity, alignment: .top)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private var isReady: Bool {
-        if case .ready = item.status { true } else { false }
-    }
 }
 
 /// One app's row in the library's List view (the navigation design, section 3): its icon, its name, version and status
@@ -62,38 +67,36 @@ struct AppRow: View {
     let item: LibraryItem
     var showsSelection = false
     var isSelected = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private static let iconSize: CGFloat = 40
 
     var body: some View {
-        HStack(spacing: 12) {
-            if showsSelection {
-                SelectionMark(isSelected: isSelected)
-            }
-            AppIcon(url: item.iconURL, cornerRadius: Self.iconSize * 17 / 60)
-                .frame(width: Self.iconSize, height: Self.iconSize)
-                .overlay(alignment: .bottomLeading) {
-                    if item.isFavorite {
-                        Image(systemName: "star.fill")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 1.5)
-                            .padding(3)
-                            .accessibilityLabel("Favorite")
-                    }
+        // At the accessibility sizes the row stacks, as the Settings app's rows do, and the name wraps.
+        let stacks = typeSize.isAccessibilitySize
+        let layout = stacks
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
+            HStack(spacing: 12) {
+                if showsSelection {
+                    SelectionMark(isSelected: isSelected)
                 }
+                icon
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
-                    .lineLimit(1)
+                    .lineLimit(stacks ? nil : 1)
                 if let version = item.entry?.report.map({ $0.versionName ?? String($0.versionCode) }) {
                     Text("Version \(version)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(stacks ? nil : 1)
                 }
                 StatusView(status: item.status, alignment: .leading)
             }
-            Spacer(minLength: 8)
+            if !stacks {
+                Spacer(minLength: 8)
+            }
             if let entry = item.entry {
                 Text(Int64(clamping: entry.installedSize).formatted(.byteCount(style: .file)))
                     .font(.subheadline)
@@ -104,6 +107,38 @@ struct AppRow: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var icon: some View {
+        AppIcon(url: item.iconURL, cornerRadius: Self.iconSize * 17 / 60)
+            .frame(width: Self.iconSize, height: Self.iconSize)
+            .overlay { InstallProgress(status: item.status) }
+            .overlay(alignment: .bottomLeading) {
+                if item.isFavorite {
+                    Image(systemName: "star.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 1.5)
+                        .padding(3)
+                        .accessibilityLabel("Favorite")
+                }
+            }
+    }
+}
+
+/// An install's progress as a ring on the app's icon, as the Home Screen shows an app that installs; the status line
+/// under it says Installing.
+struct InstallProgress: View {
+    let status: LibraryItem.Status
+
+    var body: some View {
+        if case .installing(let fraction) = status {
+            ProgressView(value: fraction)
+                .progressViewStyle(.circular)
+                .padding(6)
+                .background(.regularMaterial, in: Circle())
+                .accessibilityHidden(true)
+        }
     }
 }
 
@@ -146,6 +181,8 @@ struct AppIcon: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        // The app's name next to it says which app it is.
+        .accessibilityHidden(true)
     }
 }
 
@@ -153,39 +190,42 @@ struct StatusView: View {
     let status: LibraryItem.Status
     /// Centred under a tile, leading in a row.
     var alignment: HorizontalAlignment = .center
+    /// Get Info says the reason too; a tile and a row show the status alone in one line, which every one of them
+    /// reserves, so that the rows are of one height (the user's equal rows). VoiceOver reads the reason everywhere.
+    var showsReason = false
 
     var body: some View {
-        switch status {
-        case .installing(let fraction):
-            VStack(alignment: alignment, spacing: 4) {
-                ProgressView(value: fraction)
-                    .frame(width: 72)
-                Text(Texts.statusLine(status))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        case .updating, .optimizing:
-            HStack(spacing: 4) {
+        HStack(spacing: 4) {
+            switch status {
+            case .updating, .optimizing:
                 ProgressView()
                     .controlSize(.mini)
-                Text(Texts.statusLine(status))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            default:
+                EmptyView()
             }
-        default:
-            Text(Texts.statusLine(status))
-                .font(.footnote)
-                .foregroundStyle(color)
-                .lineLimit(2)
-                .multilineTextAlignment(alignment == .leading ? .leading : .center)
+            if showsReason {
+                text(Texts.statusDetail(status))
+            } else {
+                text(Texts.statusLine(status))
+                    .lineLimit(1, reservesSpace: true)
+            }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Texts.statusDetail(status))
+    }
+
+    private func text(_ line: String) -> some View {
+        Text(line)
+            .font(.footnote)
+            .foregroundStyle(color)
+            .multilineTextAlignment(alignment == .leading ? .leading : .center)
     }
 
     /// Grey like the subtitles in Files, colour only where something needs attention.
     private var color: Color {
         switch status {
-        case .new, .installing, .updating, .optimizing, .ready: .secondary
-        case .needsSplits, .readyWithout: .orange
+        case .new, .installing, .updating, .optimizing, .ready, .readyWithout: .secondary
+        case .needsSplits: .orange
         case .incompatible, .invalid, .notInstalled: .red
         }
     }

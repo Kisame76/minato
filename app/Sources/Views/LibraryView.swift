@@ -218,29 +218,39 @@ struct LibraryView: View {
                 Menu("More", systemImage: "ellipsis") {
                     Button("Select", systemImage: "checkmark.circle") { isSelecting = true }
                         .disabled(!model.items.contains { $0.entry != nil })
+                    // As Files' menu: the view as rows with the checkmark, the symbol and the name.
                     Section {
                         Picker("View", selection: $layout) {
                             Label("Icons", systemImage: "square.grid.2x2").tag(LibraryLayout.icons)
                             Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
                         }
-                        .pickerStyle(.palette)
+                        .pickerStyle(.inline)
                     }
                     Section {
-                        Picker("Filter", selection: $filter) {
-                            ForEach(LibraryFilter.allCases, id: \.self) { Text(Texts.filterName($0)) }
-                        }
-                    }
-                    Section("Sort By") {
                         ForEach(LibrarySort.allCases, id: \.self) { order in
                             Toggle(isOn: chosen(order)) {
-                                // The active order's direction, as in Files; Manual has none.
-                                if order == sort, order != .manual {
-                                    Label(Texts.sortName(order), systemImage: ascending ? "chevron.up" : "chevron.down")
-                                } else {
-                                    Text(Texts.sortName(order))
+                                Text(Texts.sortName(order))
+                                // The active order's direction under its name, as in Files; under Manual how apps
+                                // move, or why not now.
+                                if order == sort, let direction = arrangement.direction {
+                                    Text(Texts.sortDirection(direction))
+                                } else if order == sort,
+                                          let note = arrangement.manualNote(searching: !trimmedQuery.isEmpty,
+                                                                            filter: filter) {
+                                    Text(Texts.manualNote(note))
                                 }
                             }
                         }
+                    }
+                    // A submenu at the bottom with the choice under its name, as Files' View Options.
+                    Section {
+                        Picker(selection: $filter) {
+                            ForEach(LibraryFilter.allCases, id: \.self) { Text(Texts.filterName($0)) }
+                        } label: {
+                            Text("Filter")
+                            Text(Texts.filterName(filter))
+                        }
+                        .pickerStyle(.menu)
                     }
                 }
             }
