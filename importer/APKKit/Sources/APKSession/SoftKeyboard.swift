@@ -260,6 +260,17 @@ public struct SoftKeyboard: Sendable {
     /// The bar above the keyboard, once the live editor's text has come (keyboard plan b).
     public var bar: TextBar? { extracted.map(TextBar.init) }
 
+    /// Whether the bar shows, with the keyboard's top without the bar at `keyboardTop` in the window's pixels: for a
+    /// field that asks for no extract UI (IME_FLAG_NO_EXTRACT_UI, as SDL2's), where Android shows none, only while the
+    /// keyboard covers the field, since the field shows its own text otherwise; always for the others.
+    public func showsBar(keyboardTop: Double?) -> Bool {
+        guard let editor, editor.imeOptions & Self.noExtractUI != 0, let field, let keyboardTop else { return true }
+        return field.bottom > keyboardTop
+    }
+
+    /// EditorInfo.IME_FLAG_NO_EXTRACT_UI.
+    static let noExtractUI: Int32 = 0x1000_0000
+
     /// A tap in the bar at `offset`, in UTF-16 units of its text: the guest's cursor goes there, in the field's own
     /// offsets, as Android's extract mode moves it (InputMethodService.onExtractedSelectionChanged); nothing for a
     /// field that cannot be edited, or before its text has come.

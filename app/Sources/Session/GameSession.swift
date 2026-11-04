@@ -79,6 +79,8 @@ final class GameSession {
     /// where the typed text goes.
     @ObservationIgnored private var softKeyboard: SoftKeyboard
     @ObservationIgnored private weak var textView: SoftKeyboardView?
+    /// The keyboard's cover of the session's view, the bar in it, in the guest's pixels (ADR-0068 step 2d).
+    @ObservationIgnored private var keyboardCover: Int32 = 0
     @ObservationIgnored private let textSink = TextChannelSink()
     /// Ticks while the gate is open (ADR-0036, decision 2), at the rate the guest's window prefers; there
     /// once the session opens, since it runs a thread of its own.
@@ -821,13 +823,14 @@ final class GameSession {
         case .field:
             _ = softKeyboard.handle(request)
             outsideTap.field = softKeyboard.field.map(inPoints)
+            showBar()
             return
         case .extract:
             _ = softKeyboard.handle(request)
             #if DEBUG
             SessionCheck.event("keyboard \(softKeyboard.bar.map(String.init(describing:)) ?? "no text bar")")
             #endif
-            textView?.showText(softKeyboard.bar)
+            showBar()
             return
         case .hide:
             break
@@ -854,6 +857,18 @@ final class GameSession {
         let scale = Double(runtime?.layer?.contentsScale ?? 1)
         return FieldRect(left: rect.left / scale, top: rect.top / scale, right: rect.right / scale,
                          bottom: rect.bottom / scale)
+    }
+
+    /// The bar's text, or none where the field shows its own (SoftKeyboard.showsBar): the keyboard's top without the
+    /// bar in the guest's pixels, from the cover, which takes the bar in while it shows.
+    private func showBar() {
+        guard let textView else { return }
+        var top: Double?
+        if keyboardCover > 0 {
+            let scale = Double(runtime?.layer?.contentsScale ?? 1) / Double(bridge.letterbox?.scale ?? 1)
+            top = Double(bridge.guestSize.height) - Double(keyboardCover) + Double(textView.barHeight) * scale
+        }
+        textView.showText(softKeyboard.showsBar(keyboardTop: top) ? softKeyboard.bar : nil)
     }
 
     /// UIKit took the keyboard away on its own: a tap outside the field (hideForTap), an iPad's dismiss key. The menu's
@@ -896,6 +911,8 @@ final class GameSession {
         #if DEBUG
         SessionCheck.event("keyboard covers \(pixels)")
         #endif
+        keyboardCover = pixels
+        showBar()
         let wasBroken = bridge.isBroken
         let handled = bridge.keyboardCovers(pixels: pixels, host: host)
         if !wasBroken, bridge.isBroken { report(handled) }

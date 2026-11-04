@@ -32,6 +32,8 @@ import android.view.ViewTreeObserver;
 import android.view.WindowManager;
 import android.graphics.Rect;
 
+import com.android.minato.view.TextMask;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
@@ -386,14 +388,9 @@ class InputMethodManager {
                     }
                 }
                 final int type = mInfo.inputType;
-                final int variation = type & EditorInfo.TYPE_MASK_VARIATION;
                 final int typeClass = type & EditorInfo.TYPE_MASK_CLASS;
-                final boolean password = typeClass == EditorInfo.TYPE_CLASS_TEXT
-                        && (variation == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
-                                || variation == EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-                                || variation == EditorInfo.TYPE_TEXT_VARIATION_WEB_PASSWORD)
-                        || typeClass == EditorInfo.TYPE_CLASS_NUMBER
-                                && variation == EditorInfo.TYPE_NUMBER_VARIATION_PASSWORD;
+                // A visible password shows its text, as SDL2's DummyEdit's field does on Android.
+                final boolean password = TextMask.masks(type);
                 final int flags = (type != EditorInfo.TYPE_NULL ? 1 : 0) | (password ? 2 : 0)
                         | ((type & EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) != 0 && typeClass == EditorInfo.TYPE_CLASS_TEXT
                                 ? 4 : 0);

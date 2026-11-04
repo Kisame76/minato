@@ -623,6 +623,9 @@ final class SoftKeyboardView: UIView, UIKeyInput {
         rebuildBar()
     }
 
+    /// The bar's height in points while it shows, 0 without it.
+    var barHeight: CGFloat { bar?.frame.height ?? 0 }
+
     /// The served field's text for the bar, nil before the guest has sent it or once its editor has gone.
     func showText(_ textBar: TextBar?) {
         let height = bar?.frame.height

@@ -67,6 +67,30 @@ import Testing
         #expect(keyboard.field == nil)
     }
 
+    // MARK: - A field without extract UI
+
+    /// SDL2's field asks for no extract UI (IME_FLAG_NO_EXTRACT_UI), so Android shows no bar: ours shows only while the
+    /// keyboard's top (without the bar) lies above the field's bottom, both in the window's pixels.
+    @Test func aFieldWithoutExtractUIHasTheBarOnlyWhileTheKeyboardCoversIt() {
+        var keyboard = SoftKeyboard()
+        _ = keyboard.handle(.start(serial: 5, editor: EditorSpec(
+            inputType: 0x91, imeOptions: 0x1200_0000, capsMode: 0, selectionStart: -1, selectionEnd: -1, hint: "")))
+        _ = keyboard.handle(.show(serial: 5))
+        #expect(keyboard.showsBar(keyboardTop: 600), "no field yet")
+        _ = keyboard.handle(.field(serial: 5, FieldRect(left: 100, top: 300, right: 900, bottom: 360)))
+        #expect(!keyboard.showsBar(keyboardTop: 600), "the field above the keyboard")
+        #expect(keyboard.showsBar(keyboardTop: 340), "the keyboard over the field's lower part")
+        #expect(keyboard.showsBar(keyboardTop: 200), "the keyboard over the whole field")
+        #expect(keyboard.showsBar(keyboardTop: nil), "no keyboard's top known")
+    }
+
+    /// Every other field keeps the bar, as before (keyboard plan b).
+    @Test func aFieldWithExtractUIKeepsTheBar() {
+        var keyboard = shown()
+        _ = keyboard.handle(.field(serial: 5, FieldRect(left: 100, top: 300, right: 900, bottom: 360)))
+        #expect(keyboard.showsBar(keyboardTop: 600))
+    }
+
     // MARK: - The keyboard's bar
 
     @Test func theLiveSerialsExtractFillsTheBarAndAStaleOneIsDropped() throws {
