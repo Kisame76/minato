@@ -1,0 +1,39 @@
+I/media-player-ogg-test: tone.ogg: set ok
+I/media-player-ogg-test: tone.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: tone.ogg: duration 253, size 0x0, position 0, playing false, looping false
+I/media-player-ogg-test: tone.ogg: 1 tracks
+I/media-player-ogg-test: tone.ogg track 0: type 2, language und, format none
+I/media-player-ogg-test: tone.ogg: selected audio 0
+I/media-player-ogg-test: tone.ogg: start ok, playing true
+I/media-player-ogg-test: tone.ogg: completed, playing false
+I/media-player-ogg-test: tone.ogg: start again ok, playing true
+I/media-player-ogg-test: tone.ogg: completed again
+I/media-player-ogg-test: long.ogg: set ok
+I/media-player-ogg-test: long.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: long.ogg: duration 1200, size 0x0, position 0, playing false, looping false
+I/media-player-ogg-test: long.ogg: 1 tracks
+I/media-player-ogg-test: long.ogg track 0: type 2, language und, format none
+I/media-player-ogg-test: long.ogg: selected audio 0
+I/media-player-ogg-test: long.ogg: start ok, playing true
+I/media-player-ogg-test: long.ogg: completed, playing false
+I/media-player-ogg-test: long.ogg: start again ok, playing true
+I/media-player-ogg-test: long.ogg: completed again
+I/media-player-ogg-test: tone.ogg: set ok
+I/media-player-ogg-test: tone.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: tone.ogg looping: set ok, looping true, start ok
+I/media-player-ogg-test: tone.ogg looping: callbacks after 1200 ms [], playing true, position within the file true
+I/media-player-ogg-test: tone.ogg looping: off ok, looping false
+I/media-player-ogg-test: tone.ogg looping: completed, playing false
+I/media-player-ogg-test: long.ogg: set ok
+I/media-player-ogg-test: long.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: long.ogg: seek 600 ok, callbacks [seek complete], position 600
+I/media-player-ogg-test: long.ogg: seek 0 ok, callbacks [seek complete], position 0
+I/media-player-ogg-test: long.ogg: seek 1100 ok, callbacks [seek complete], position 1100
+I/media-player-ogg-test: long.ogg: seek 250 ok, callbacks [seek complete], position 250
+I/media-player-ogg-test: long.ogg: start ok
+I/media-player-ogg-test: long.ogg: pause ok, playing false
+I/media-player-ogg-test: long.ogg: position after 300 ms from 250 before the end true
+I/media-player-ogg-test: broken.ogg: set ok
+I/media-player-ogg-test: broken.ogg: prepare java.io.IOException: Prepare failed.: status=0x1, callbacks [(none in 5000 ms)]
+I/media-player-ogg-test: broken.ogg: duration 0, callbacks [error -38 0]
+I/media-player-ogg-test: done

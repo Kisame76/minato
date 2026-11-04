@@ -62,6 +62,7 @@
 
 #include "core_jni_helpers.h"
 #include "minato_parcel.h"
+#include "vorbis_wav.h"
 
 // android_view_Surface.cpp's: a Java Surface's window, acquired for the caller.
 extern "C" ANativeWindow *minato_ANativeWindow_fromSurface(JNIEnv *env, jobject surface);
@@ -255,6 +256,15 @@ public:
         call.offset = offset;
         call.length = length;
         mSourceName = "GenFD";
+        if ((mVorbis = VorbisWav::open(fd, offset, length)) != nullptr) {
+            // Ogg Vorbis, which the host does not read: a WAV of its samples, which the host reads from this player
+            // (READ), and OggExtractor's track and duration.
+            call.kind = APKRT_MEDIA_PLAYER_CALLBACK;
+            call.fd = -1;
+            call.offset = 0;
+            call.length = mVorbis->size();
+            return playerCall(APKRT_MEDIA_PLAYER_SOURCE, &call) == 0 ? OK : UNKNOWN_ERROR;
+        }
         mExtractFd = fcntl(fd, F_DUPFD_CLOEXEC, 0);  // the extractor's, as GenericSource keeps its own
         mExtractOffset = offset;
         mExtractLength = length;
@@ -733,7 +743,12 @@ private:
             case APKRT_MEDIA_PLAYER_PREPARED: {
                 std::vector<Track> tracks;
                 int64_t durationUs = event.value;
-                if (!extract(env, &tracks, &durationUs)) tracks = fetchTracks();
+                if (mVorbis != nullptr) {
+                    tracks.push_back({MEDIA_TRACK_TYPE_AUDIO, "audio/vorbis", "und"});
+                    durationUs = mVorbis->durationUs();
+                } else if (!extract(env, &tracks, &durationUs)) {
+                    tracks = fetchTracks();
+                }
                 {
                     std::lock_guard hold(mMutex);
                     mDurationUs = durationUs;
@@ -946,7 +961,16 @@ private:
         call.id = mId;
         call.token = event.token;
         std::vector<jbyte> bytes;
-        if (env == nullptr || mDataSource == nullptr || event.ext1 < 0) {
+        if (mVorbis != nullptr && event.ext1 >= 0) {
+            bytes.resize(static_cast<size_t>(event.ext1));
+            const ssize_t got = mVorbis->read(event.value, reinterpret_cast<uint8_t *>(bytes.data()), bytes.size());
+            if (got < 0) {
+                call.flags = APKRT_MEDIA_PLAYER_READ_FAILED;
+            } else {
+                call.data = reinterpret_cast<uintptr_t>(bytes.data());
+                call.size = static_cast<uint64_t>(got);
+            }
+        } else if (env == nullptr || mDataSource == nullptr || event.ext1 < 0) {
             call.flags = APKRT_MEDIA_PLAYER_READ_FAILED;
         } else if (event.ext1 > 0) {
             jbyteArray array = env->NewByteArray(event.ext1);
@@ -1007,6 +1031,7 @@ private:
     jlong mDataSourceSize = -1;
     int mExtractFd = -1;            // an fd source's for the extractor, the player's own
     int64_t mExtractOffset = 0, mExtractLength = 0;
+    std::unique_ptr<VorbisWav> mVorbis;  // an Ogg Vorbis source's WAV, read on the player's thread
 
     std::mutex mMutex;  // for the fields below
     bool mConnected = true;

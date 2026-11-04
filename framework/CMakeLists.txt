@@ -345,7 +345,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_media_ImageWriter.cpp
             native/android_runtime/android_media_MediaCodec.cpp
             native/android_runtime/android_media_MediaExtractor.cpp
-            native/android_runtime/android_media_MediaPlayer.cpp
+            native/android_runtime/android_media_MediaPlayer.cpp native/android_runtime/vorbis_wav.cpp
             native/android_runtime/android_hardware_camera2_utils_SurfaceUtils.cpp
             "${SOURCES}/frameworks_native_graphics/libs/ui/PublicFormat.cpp"
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
@@ -369,8 +369,8 @@ target_include_directories(android_runtime PUBLIC native/android_runtime "${jni}
 file(COPY "${SOURCES}/frameworks_native_headers/opengl/include/ETC1" DESTINATION "${CMAKE_BINARY_DIR}/etc1-include")
 target_include_directories(android_runtime PRIVATE "${CMAKE_BINARY_DIR}/etc1-include")
 set_target_properties(android_runtime PROPERTIES CXX_STANDARD 20)
-# stb_vorbis (Sean Barrett, MIT or public domain; third_party/sources.json): SoundPool's Ogg Vorbis decoder, whole files
-# from memory only. Third-party C, so no
+# stb_vorbis (Sean Barrett, MIT or public domain; third_party/sources.json): the Ogg Vorbis decoder of SoundPool, whole
+# files from memory, and of MediaPlayer (vorbis_wav.cpp), a mapped file decoded where it is read. Third-party C, so no
 # warnings.
 set_source_files_properties("${SOURCES}/stb_vorbis/stb_vorbis.c" PROPERTIES COMPILE_OPTIONS "-w"
   COMPILE_DEFINITIONS "STB_VORBIS_NO_STDIO;STB_VORBIS_NO_PUSHDATA_API")

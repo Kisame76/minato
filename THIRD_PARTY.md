@@ -411,9 +411,9 @@ Cowan. TagSoup is licensed under the Apache License, Version 2.0", the project's
 `MODULE_LICENSE_APACHE2` is present, and `METADATA` says `license_type: NOTICE`. Android.bp also lists AFL-3.0 and
 "legacy unencumbered" for the project, both permissive; there is no GPL file or header in the files we take.
 
-stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), SoundPool's Ogg Vorbis decoder (the compatibility plan's gap 13, step
-4), fetched by `tools/fetch-sources.py --set framework`, on 2026-10-30, built into `libandroid_runtime.so` without stdio
-and the push-data API:
+stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), the Ogg Vorbis decoder of SoundPool (the compatibility plan's gap 13,
+step 4) and of MediaPlayer (ADR-0060 e2), fetched by `tools/fetch-sources.py --set framework`, on 2026-10-30, built into
+`libandroid_runtime.so` without stdio and the push-data API:
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|

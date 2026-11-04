@@ -6,7 +6,8 @@
 # Android 15's logs (fixtures/expected/<app>.logcat, from tools/android-reference.sh --app <app>): a player's answers
 # in each state, the sources, seeks, a playback to its end into an ImageReader, the http refusals and DRM. A session
 # (a configuration), whose frame clock lets the main Looper run the players' callbacks past the first traversal. And
-# ringtone-test (the RingtoneManager step): RingtoneManager, Ringtone and MediaPlayer with the default sounds.
+# ringtone-test (the RingtoneManager step): RingtoneManager, Ringtone and MediaPlayer with the default sounds. And
+# media-player-ogg-test (ADR-0060 e2): Ogg Vorbis assets from their descriptors, as libGDX plays its music.
 # Needs tools/build-art.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/media-player-check.sh
 set -euo pipefail
@@ -21,10 +22,11 @@ cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-bionic.sh >/dev/null
 tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
-for app in media-player-test media-player-test-offline ringtone-test; do
+for app in media-player-test media-player-test-offline media-player-ogg-test ringtone-test; do
   tools/build-java-test-app.sh "$app" >/dev/null
   package=io.github.kisame76.minato.test.mediaplayer application=MediaPlayerApplication
   [[ "$app" != *-offline ]] || package=${package}offline
+  [[ "$app" != media-player-ogg-test ]] || package=${package}ogg application=MediaPlayerOggApplication
   [[ "$app" != ringtone-test ]] || package=io.github.kisame76.minato.test.ringtone application=RingtoneApplication
   python3 framework/tests/java_app_run.py "$app" "$package" \
     "${package%offline}.$application" build/art build/bionic/lib \

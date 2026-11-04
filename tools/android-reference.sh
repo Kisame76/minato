@@ -677,7 +677,7 @@ run_app() {
       ;;
     # media-player-test (ADR-0060 e2e) and its twin without the INTERNET permission, from the same sources: a playback
     # and the http sources' waits take up to three minutes.
-    media-player-test | media-player-test-offline)
+    media-player-test | media-player-test-offline | media-player-ogg-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=240
       ;;
