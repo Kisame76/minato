@@ -686,6 +686,13 @@ if(APK_HOST_BUILD)
       "${CMAKE_CURRENT_BINARY_DIR}/frame_rate_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/frame-cap-test.out")
   set_tests_properties(runtime.frame_rate PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
 
+  # The LuaJIT switch (guest JIT engines switched to their interpreter): luaL_openlibs of a LuaJIT, then luaJIT_setmode off.
+  add_test(NAME runtime.luajit_switch
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/luajit_switch_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/luajit_switch_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/luajit-switch-test.out")
+  set_tests_properties(runtime.luajit_switch PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+
   # Blocking syscalls against signals (ADR-0026), on host threads and on clone children.
   add_executable(blocking_test tests/blocking_test.cpp tests/blocking_probe.S tests/threads_probe.S)
   target_include_directories(blocking_test PRIVATE src)

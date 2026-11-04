@@ -1,0 +1,4 @@
+luajit-switch-test: luaL_newstate
+luajit-switch-test: luaL_openlibs
+luajit-switch-test: JIT engine on
+luajit-switch-test: the trace compiler asked for executable memory

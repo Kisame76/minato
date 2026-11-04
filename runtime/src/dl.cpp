@@ -945,11 +945,12 @@ void *guest_dlsym(void *handle, const char *name, const char *version_text, cons
                               found_in->object.name);
     }
     // The FPS unlock's wrappers stand for the registration functions here too (ADR-0066).
-    if (const auto *taken = linker::override_of(name); taken != nullptr && &found_in->object != taken->wrapper) {
+    if (const auto *known = linker::override_of(name); known != nullptr && &found_in->object != known->wrapper) {
         const Library *caller_library = containing(state, reinterpret_cast<std::uint64_t>(caller));
-        if (caller_library == nullptr || &caller_library->object != taken->wrapper) {
-            *taken->original = linker::symbol_address(found_in->object, *symbol);
-            return reinterpret_cast<void *>(linker::symbol_address(*taken->wrapper, *taken->replacement));
+        if (caller_library == nullptr || &caller_library->object != known->wrapper) {
+            if (const auto *taken = linker::override_for(name, found_in->object, *symbol); taken != nullptr) {
+                return reinterpret_cast<void *>(linker::symbol_address(*taken->wrapper, *taken->replacement));
+            }
         }
     }
     return address_of(state, *found_in, *symbol);
@@ -1029,6 +1030,36 @@ std::vector<Library *> preload_frame_rate(State &state, Library &program, bool &
                              .original = slot});
     }
     linker::set_overrides(std::move(overrides));
+    return added;
+}
+
+/// The LuaJIT switch, libminato-luajit.so (runtime/android/luajit.c), loaded as an LD_PRELOAD library like the FPS
+/// unlock's when it is among the system's libraries, and without an error when it is not: luaL_openlibs of an object
+/// that also defines luaJIT_setmode becomes its wrapper, which switches LuaJIT's trace compiler off after the libraries
+/// are open, so that it never asks for executable memory. The libraries it adds to the program's group, none without
+/// it.
+std::vector<Library *> preload_luajit_switch(State &state, Library &program, bool &missed) {
+    constexpr std::string_view name = "libminato-luajit.so";
+    auto located = locate(state, *program.ns, name, &program, true, missed);
+    if (located.loaded != nullptr) return {};
+    if (!located.found) return {};  // an old system without it: nothing is switched
+    auto &library = load_library(state, name, std::move(*located.found), *located.space);
+    library.object.dynamic.global = true;
+    auto added = load_needed(state, library, false, missed);
+    const auto &object = library.object;
+    const auto symbol = [&](const char *wanted) {
+        const auto *found = linker::find_symbol(object, wanted);
+        if (found == nullptr) throw LoadError(std::format("{} lacks {}", name, wanted));
+        return found;
+    };
+    linker::add_overrides({{.name = "luaL_openlibs",
+                            .wrapper = &object,
+                            .replacement = symbol("minato_luajit_openlibs"),
+                            .original = reinterpret_cast<std::uint64_t *>(
+                                linker::symbol_address(object, *symbol("minato_luajit_original"))),
+                            .requires_symbol = "luaJIT_setmode",
+                            .companion = reinterpret_cast<std::uint64_t *>(
+                                linker::symbol_address(object, *symbol("minato_luajit_setmode")))}});
     return added;
 }
 
@@ -1165,6 +1196,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         bool missed = false;  // libc.so's start sets errno to 0 anyway
         auto added = load_needed(state, program, true, missed);
         for (auto *library : preload_frame_rate(state, program, missed)) added.push_back(library);
+        for (auto *library : preload_luajit_switch(state, program, missed)) added.push_back(library);
         for (auto *library : added) {
             library->global = true;
             library->group_root = &program;

@@ -488,9 +488,8 @@ Definition lookup(const Object &object, std::uint32_t index, std::span<const Obj
         if (const auto *definition = find_symbol(*candidate, name, version)) {
             note_resolved("import", name, object.name, candidate->name);
             // Never for the wrapper's own lookups, which reach the definition it stands for.
-            if (const auto *taken = override_of(name);
-                taken != nullptr && candidate != taken->wrapper && &object != taken->wrapper) {
-                *taken->original = symbol_address(*candidate, *definition);
+            if (const auto *taken = override_for(name, *candidate, *definition);
+                taken != nullptr && &object != taken->wrapper) {
                 return {taken->wrapper, taken->replacement, name};
             }
             return {candidate, definition, name};
@@ -516,6 +515,23 @@ bool is_tls_relocation(std::uint32_t type) {
 
 void set_overrides(std::vector<Override> taken) {
     overrides = std::move(taken);
+}
+
+void add_overrides(std::vector<Override> taken) {
+    for (auto &one : taken) overrides.push_back(std::move(one));
+}
+
+const Override *override_for(std::string_view name, const Object &definer, const Symbol &found) {
+    const auto *taken = override_of(name);
+    if (taken == nullptr || &definer == taken->wrapper) return nullptr;
+    const Symbol *companion = nullptr;
+    if (!taken->requires_symbol.empty()) {
+        companion = find_symbol(definer, taken->requires_symbol);
+        if (companion == nullptr) return nullptr;
+    }
+    *taken->original = symbol_address(definer, found);
+    if (companion != nullptr && taken->companion != nullptr) *taken->companion = symbol_address(definer, *companion);
+    return taken;
 }
 
 const Override *override_of(std::string_view name) {

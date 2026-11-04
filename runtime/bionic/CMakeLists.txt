@@ -311,6 +311,12 @@ apk_bionic_unit(apk_frame_rate SOURCES "${android_sources}/frame_rate.c" INCLUDE
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libminato-frame-rate UNITS apk_frame_rate NEEDED libc)
 
+# libminato-luajit.so (the LuaJIT switch): the wrapper of luaL_openlibs that switches LuaJIT's engine off after the
+# libraries open, which the loader preloads when it is among the system's libraries (runtime/android/luajit.c).
+apk_bionic_unit(apk_luajit SOURCES "${android_sources}/luajit.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libminato-luajit UNITS apk_luajit NEEDED libc)
+
 # activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 # process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with
 # libandroid's asset manager and the JNI stub. A PIE with linker64 as its interpreter, like the NDK's

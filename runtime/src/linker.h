@@ -106,13 +106,26 @@ struct Override {
     const Object *wrapper = nullptr;
     const Symbol *replacement = nullptr;
     std::uint64_t *original = nullptr;
+    /// Only a definition of `name` in an object that also defines `requires_symbol` (empty for any) is replaced, and
+    /// the address of that symbol goes into `*companion`, for the replacement to call: the LuaJIT switch replaces
+    /// luaL_openlibs only where luaJIT_setmode is defined beside it.
+    std::string requires_symbol;
+    std::uint64_t *companion = nullptr;
 };
 
 /// The overrides from now on, none by default. Set at the program's start, before any guest thread.
 void set_overrides(std::vector<Override> overrides);
 
+/// More overrides, after those already set; the same time as set_overrides.
+void add_overrides(std::vector<Override> overrides);
+
 /// The override of `name`, or nullptr.
 const Override *override_of(std::string_view name);
+
+/// The override that applies to the definition of `name` found in `definer`, writing the addresses it needs into the
+/// override's slots (`original`, and `companion` for a `requires_symbol`): nullptr when none applies, also when
+/// `definer` lacks the required symbol or is the wrapper itself.
+const Override *override_for(std::string_view name, const Object &definer, const Symbol &found);
 
 /// Applies every relocation of `object` (RELA, PLT, RELR) except the TLS ones, resolving symbols in
 /// `scope`. ifunc symbols and R_AARCH64_IRELATIVE call their resolver, which is guest code, with
