@@ -25,6 +25,7 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <TargetConditionals.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -52,6 +53,7 @@ static const uint64_t buffer_wait_ns = 1000000000;
     IOSurfaceRef surface;
     id<MTLTexture> texture;
     BOOL copies;        // the texture is no view of the surface: a post copies the pixels into it (the Simulator)
+    uint8_t *wide;      // RGB_565's pixels as RGBA_8888 for its copy, where Metal has no B5G6R5Unorm (the Simulator)
     int32_t behind[4];  // around what changed since this buffer was last posted
     uint64_t posted;    // the window's post count at its last post, 0 before
     BOOL reading;       // a post's command buffer reads it
@@ -63,6 +65,7 @@ static const uint64_t buffer_wait_ns = 1000000000;
     if (surface != NULL) {
         CFRelease(surface);
     }
+    free(wide);
 }
 @end
 
@@ -151,6 +154,16 @@ static BOOL texture_format(int32_t format, MTLPixelFormat *pixel_format, int32_t
 
 static MinatoCPUBuffer *new_buffer(int32_t width, int32_t height, int32_t bytes, uint32_t surface_format,
                                    MTLPixelFormat pixel_format) {
+#if TARGET_OS_SIMULATOR
+    // The Simulator's Metal has no B5G6R5Unorm, and a question about it ends the process: there an RGB_565 buffer's
+    // texture is RGBA8Unorm, of its own, which each post fills with the buffer's pixels widened.
+    const BOOL widens = pixel_format == MTLPixelFormatB5G6R5Unorm;
+    if (widens) {
+        pixel_format = MTLPixelFormatRGBA8Unorm;
+    }
+#else
+    const BOOL widens = NO;
+#endif
     const size_t minimum = (size_t)[device minimumLinearTextureAlignmentForPixelFormat:pixel_format];
     const size_t alignment = minimum > 64 ? minimum : 64;
     const size_t row = (IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, (size_t)width * (size_t)bytes) + alignment - 1) /
@@ -174,7 +187,13 @@ static MinatoCPUBuffer *new_buffer(int32_t width, int32_t height, int32_t bytes,
                                                                                       mipmapped:NO];
     descriptor.usage = MTLTextureUsageShaderRead;
     descriptor.storageMode = MTLStorageModeShared;
-    buffer->texture = [device newTextureWithDescriptor:descriptor iosurface:surface plane:0];
+    buffer->texture = widens ? nil : [device newTextureWithDescriptor:descriptor iosurface:surface plane:0];
+    if (widens) {
+        buffer->wide = malloc((size_t)width * (size_t)height * 4);
+        if (buffer->wide == NULL) {
+            return nil;
+        }
+    }
     if (buffer->texture == nil) {
         // Where Metal takes no IOSurface [unverified: the Simulator], a texture of its own, filled at each post.
         buffer->texture = [device newTextureWithDescriptor:descriptor];
@@ -391,6 +410,21 @@ static void set_hidden(CALayer *layer, BOOL hidden) {
     [CATransaction commit];
 }
 
+/* RGB_565's pixels as RGBA_8888, each channel widened as Metal's unorm conversion does. */
+static void widen_565(const uint8_t *bits, size_t row, int32_t width, int32_t height, uint8_t *wide) {
+    for (int32_t y = 0; y < height; y++) {
+        const uint16_t *pixels = (const uint16_t *)(const void *)(bits + (size_t)y * row);
+        uint8_t *out = wide + (size_t)y * (size_t)width * 4;
+        for (int32_t x = 0; x < width; x++) {
+            const uint32_t value = pixels[x];
+            out[4 * x] = (uint8_t)(((value >> 11) * 255 + 15) / 31);
+            out[4 * x + 1] = (uint8_t)((((value >> 5) & 63) * 255 + 31) / 63);
+            out[4 * x + 2] = (uint8_t)(((value & 31) * 255 + 15) / 31);
+            out[4 * x + 3] = 255;
+        }
+    }
+}
+
 /* The buffer's read ended: it may be locked again. */
 static void read_done(MinatoCPUBuffer *buffer) {
     pthread_mutex_lock(&state_lock);
@@ -445,10 +479,17 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     }
     if (buffer->copies) {
         IOSurfaceLock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
+        const uint8_t *bits = IOSurfaceGetBaseAddress(buffer->surface);
+        size_t row = IOSurfaceGetBytesPerRow(buffer->surface);
+        if (buffer->wide != NULL) {
+            widen_565(bits, row, width, height, buffer->wide);
+            bits = buffer->wide;
+            row = (size_t)width * 4;
+        }
         [buffer->texture replaceRegion:MTLRegionMake2D(0, 0, (NSUInteger)width, (NSUInteger)height)
                            mipmapLevel:0
-                             withBytes:IOSurfaceGetBaseAddress(buffer->surface)
-                           bytesPerRow:IOSurfaceGetBytesPerRow(buffer->surface)];
+                             withBytes:bits
+                           bytesPerRow:row];
         IOSurfaceUnlock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
     }
     id<MTLCommandBuffer> commands = [queue commandBuffer];
