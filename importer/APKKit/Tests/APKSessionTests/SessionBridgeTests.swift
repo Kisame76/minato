@@ -710,7 +710,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true), .setGate(2, open: true)])
         bridge.handle(.menuOpened, host: host)
         #expect(host.take() == [
-            .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false), .post(.pause),
+            .post(.pause), .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false),
         ])
     }
 

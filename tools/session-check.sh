@@ -450,8 +450,10 @@ check_window() {
 }
 
 START="onCreate onStart onResume onNativeWindowCreated onWindowFocusChanged(true)"
-MENU="onWindowFocusChanged(false)"
-QUIT="onPause onNativeWindowDestroyed onStop onDestroy"
+# Minato's menu pauses the app: onPause, then the focus goes, as for a dialog of another task on Android 15
+# (menu-pause-test); Quit in it gives up the window without a second onPause (ADR-0032 decision 7, the menu's pause).
+MENU="onPause onWindowFocusChanged(false)"
+QUIT="onNativeWindowDestroyed onStop onDestroy"
 # An app that ends itself with the focus: onPause before the focus goes, Android 15's order (App's c6 host fixes).
 FINISH="onPause onWindowFocusChanged(false) onNativeWindowDestroyed onStop onDestroy"
 
@@ -1033,7 +1035,7 @@ run_translucent() {
   await_event "request finish" 20 && ok "  the app finishes itself after its return" || fail "  no FINISH"
   await_event "program ended .*" 10 || fail "  activity-host did not end"
   await_event "process library.*" 30 || fail "  no library after the end"
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onResume onWindowFocusChanged(true) onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $FINISH" \
+  expect "  the callbacks" "$START $MENU onResume onWindowFocusChanged(true) onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $FINISH" \
     "$(callbacks_of "$pid")"
   expect "  the requests" "windowOpaque(false) keepScreenOn(true) finish" "$(requests_of "$pid")"
   expect "  the layer's opacity" "1 0" "$(opacity_of "$pid")"
@@ -1412,7 +1414,7 @@ run_audio_live() {
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
   # The return under Minato's menu, Continue, then the Quit's menu pauses the app and Quit ends it.
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $MENU $QUIT" \
     "$(callbacks_of "$pid")"
 
   audio=$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "audio" { $1 = $2 = ""; sub(/^ +/, ""); print }')

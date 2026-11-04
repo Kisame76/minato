@@ -264,8 +264,8 @@ struct LifecycleTests {
     @Test(arguments: [35, 27, 10])
     func quitAtTheRootStopsAndEndsWithoutOnDestroy(targetSdk: Int) {
         var lifecycle = Lifecycle(targetSdk: targetSdk)
-        let pause: [Lifecycle.Callback] = targetSdk >= 11 ? [.onWindowFocusChanged(false), .onPause]
-            : [.onWindowFocusChanged(false), .onSaveInstanceState, .onPause]
+        let pause: [Lifecycle.Callback] = targetSdk >= 11 ? [.onPause, .onWindowFocusChanged(false)]
+            : [.onSaveInstanceState, .onPause, .onWindowFocusChanged(false)]
         #expect(Self.run([.start, .active, .menuOpened], on: &lifecycle).last == pause)
         let stop: [Lifecycle.Callback] = targetSdk >= 28 ? [.onStop, .onSaveInstanceState]
             : targetSdk >= 11 ? [.onSaveInstanceState, .onStop] : [.onStop]
@@ -296,12 +296,13 @@ struct LifecycleTests {
         #expect(lifecycle.hasEnded)
     }
 
-    /// Minato's menu over the app is as a window over a paused activity on Android: the focus goes, then onPause; its
-    /// window stays, behind a closed gate. Continue resumes it, then gives the focus back.
+    /// Minato's menu over the app is as a dialog of another task over an activity on Android 15 (menu-pause-test):
+    /// onPause, then the focus goes; its window stays, behind a closed gate. Continue resumes it, then gives the focus
+    /// back.
     @Test func theMenuPausesTheAppAndContinueResumesIt() {
         var lifecycle = Self.running()
 
-        #expect(lifecycle.handle(.menuOpened) == [.onWindowFocusChanged(false), .onPause])
+        #expect(lifecycle.handle(.menuOpened) == [.onPause, .onWindowFocusChanged(false)])
         #expect(lifecycle.gate == .closed)
         #expect(!lifecycle.framesRun(javaApp: false))
         #expect(lifecycle.handle(.menuClosed) == [.onResume, .onWindowFocusChanged(true)])
@@ -313,7 +314,7 @@ struct LifecycleTests {
         var lifecycle = Lifecycle(targetSdk: 10)
         _ = Self.run([.start, .active], on: &lifecycle)
 
-        #expect(lifecycle.handle(.menuOpened) == [.onWindowFocusChanged(false), .onSaveInstanceState, .onPause])
+        #expect(lifecycle.handle(.menuOpened) == [.onSaveInstanceState, .onPause, .onWindowFocusChanged(false)])
     }
 
     /// A menu opened while the scene is inactive pauses all the same; Continue resumes once the scene is active.

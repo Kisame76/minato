@@ -154,7 +154,8 @@ public struct Lifecycle: Sendable, Equatable {
             return updateFocus()
         case .menuOpened:
             menuIsOpen = true
-            return updateFocus() + pause()
+            // onPause, then the focus's loss, as for a dialog of another task on Android 15 (menu-pause-test).
+            return pause() + updateFocus()
         case .menuClosed:
             menuIsOpen = false
             // Continue after the return starts the stopped app, as the keyguard's dismiss does on Android 15.
