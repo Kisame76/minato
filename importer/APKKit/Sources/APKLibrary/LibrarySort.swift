@@ -88,14 +88,42 @@ public struct LibraryArrangement: Equatable, Sendable {
     }
 
     /// Apps are dragged only in the manual order, so that a sort order never overwrites it, and not in a search's
-    /// results, which have gaps.
-    public func movesApps(searching: Bool) -> Bool {
-        sort == .manual && !searching
+    /// results or under a filter, which have gaps.
+    public func movesApps(searching: Bool, filter: LibraryFilter = .all) -> Bool {
+        sort == .manual && !searching && filter == .all
     }
 
     public func arranged(_ entries: [LibraryEntry], lastOpened: [String: Date]) -> [LibraryEntry] {
         sort.sorted(entries, ascending: ascending, lastOpened: lastOpened)
     }
+}
+
+/// The library's filter, from its "…" menu as Photos' (the navigation design, section 3): a preference of the device
+/// that holds across launches, and the search works inside it.
+public enum LibraryFilter: String, Sendable, CaseIterable, Codable {
+    case all
+    case favorites
+    case ready
+    /// Needs split APKs, incompatible, or a failed import.
+    case notReady
+
+    /// The entries this filter shows, in the order they came in; the favorites' own order does not count.
+    public func filtered(_ entries: [LibraryEntry], favorites: [String]) -> [LibraryEntry] {
+        switch self {
+        case .all:
+            return entries
+        case .favorites:
+            let wanted = Set(favorites)
+            return entries.filter { wanted.contains($0.id) }
+        case .ready:
+            return entries.filter { $0.state == .ready }
+        case .notReady:
+            return entries.filter { $0.state != .ready }
+        }
+    }
+
+    /// Picks that are still being installed are no app yet: only the whole library lists them.
+    public var showsPendingImports: Bool { self == .all }
 }
 
 extension LibraryEntry {

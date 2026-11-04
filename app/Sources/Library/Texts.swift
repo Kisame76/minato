@@ -32,6 +32,26 @@ enum Texts {
         }
     }
 
+    /// The filters in the library's "…" menu, Photos' words (the navigation design, section 3).
+    static func filterName(_ filter: LibraryFilter) -> String {
+        switch filter {
+        case .all: "All Apps"
+        case .favorites: "Favorites"
+        case .ready: "Ready"
+        case .notReady: "Not Ready"
+        }
+    }
+
+    /// What the library says when a filter shows no app.
+    static func filterEmpty(_ filter: LibraryFilter) -> (title: String, description: String) {
+        switch filter {
+        case .all: ("No Apps", "Tap + to add APK files.")
+        case .favorites: ("No Favorites", "Touch and hold an app and choose Favorite.")
+        case .ready: ("No Ready Apps", "Apps that can start show up here.")
+        case .notReady: ("All Apps Are Ready", "Apps that cannot start yet show up here.")
+        }
+    }
+
     static func statusLine(_ status: LibraryItem.Status) -> String {
         switch status {
         case .new: "New"

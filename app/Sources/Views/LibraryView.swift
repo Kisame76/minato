@@ -37,6 +37,7 @@ struct LibraryView: View {
     @AppStorage("libraryLayout") private var layout = LibraryLayout.icons
     @AppStorage("librarySort") private var sort = LibrarySort.manual
     @AppStorage("librarySortAscending") private var ascending = true
+    @AppStorage("libraryFilter") private var filter = LibraryFilter.all
 
     var body: some View {
         NavigationStack {
@@ -139,9 +140,19 @@ struct LibraryView: View {
             .animation(.default, value: model.note)
             .overlay {
                 if visibleItems.isEmpty {
-                    ContentUnavailableView.search(text: query)
+                    noMatches
                 }
             }
+        }
+    }
+
+    /// A search finds nothing, or the filter shows no app.
+    @ViewBuilder private var noMatches: some View {
+        if !trimmedQuery.isEmpty {
+            ContentUnavailableView.search(text: query)
+        } else {
+            let empty = Texts.filterEmpty(filter)
+            ContentUnavailableView(empty.title, systemImage: filterSymbol, description: Text(empty.description))
         }
     }
 
@@ -197,6 +208,11 @@ struct LibraryView: View {
                         }
                         .pickerStyle(.palette)
                     }
+                    Section {
+                        Picker("Filter", selection: $filter) {
+                            ForEach(LibraryFilter.allCases, id: \.self) { Text(Texts.filterName($0)) }
+                        }
+                    }
                     Section("Sort By") {
                         ForEach(LibrarySort.allCases, id: \.self) { order in
                             Toggle(isOn: chosen(order)) {
@@ -238,10 +254,21 @@ struct LibraryView: View {
         })
     }
 
+    private var filterSymbol: String {
+        switch filter {
+        case .all: "square.grid.2x2"
+        case .favorites: "star"
+        case .ready: "checkmark.circle"
+        case .notReady: "exclamationmark.triangle"
+        }
+    }
+
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
 
-    /// Only in the manual order, outside a search and a selection.
-    private var movesApps: Bool { arrangement.movesApps(searching: !trimmedQuery.isEmpty) && !isSelecting }
+    /// Only in the manual order, outside a search, a filter and a selection.
+    private var movesApps: Bool {
+        arrangement.movesApps(searching: !trimmedQuery.isEmpty, filter: filter) && !isSelecting
+    }
 
     /// Picks still being installed are not in the order yet; before the first of them is the end.
     private func move(_ ids: [LibraryItem.ID], before: LibraryItem.ID?) {
@@ -250,7 +277,11 @@ struct LibraryView: View {
     }
 
     private var visibleItems: [LibraryItem] {
-        let items = model.items(arranged: arrangement)
+        var items = model.items(arranged: arrangement)
+        if filter != .all {
+            let shown = Set(filter.filtered(model.entries, favorites: model.favorites).map(\.id))
+            items = items.filter { $0.entry.map { shown.contains($0.id) } ?? filter.showsPendingImports }
+        }
         let query = trimmedQuery
         guard !query.isEmpty else { return items }
         return items.filter { item in
@@ -260,7 +291,7 @@ struct LibraryView: View {
     }
 
     private var title: String {
-        guard isSelecting else { return "Library" }
+        guard isSelecting else { return filter == .all ? "Library" : Texts.filterName(filter) }
         return switch selectedEntries.count {
         case 0: "Select Items"
         case 1: "1 Item Selected"
