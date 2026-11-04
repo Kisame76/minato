@@ -1,0 +1,8 @@
+lock 1: 0
+post 1, shown: 0
+lock 2: 0
+post 2, transparent: 0
+lock 3: 0
+its dirty rectangle: 8 8 16 16
+outside it the hidden post's pixels: yes
+post 3, shown: 0

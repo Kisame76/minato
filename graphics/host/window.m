@@ -80,6 +80,9 @@ static const uint64_t in_use_poll_ns = 500000;
 /* How long a lock waits for a buffer that the GPU has read. */
 static const uint64_t buffer_wait_ns = 1000000000;
 
+/* How long a window the hide rule hid posts nothing before it keeps only its front buffer (drop_spares). */
+static const uint64_t spare_ns = 1000000000;
+
 @interface MinatoCPUBuffer : NSObject {
 @public
     IOSurfaceRef surface;
@@ -409,6 +412,17 @@ static int locked(void *context, uint64_t window_id, struct apkrt_window_buffer 
         window->format = request->format;
         window->bytes = bytes;
         window->stride = (int32_t)(IOSurfaceGetBytesPerRow(buffers[0]->surface) / (size_t)bytes);
+    }
+    if (window->buffers.count < buffer_count && free_buffer(window) == nil) {
+        // One of the spares a hidden window let go (drop_spares) again, which the copy-back fills.
+        MinatoCPUBuffer *spare = new_buffer(width, height, bytes, surface_format, pixel_format);
+        if (spare == nil) {
+            pthread_mutex_unlock(&state_lock);
+            return -linux_enomem;
+        }
+        const int32_t whole[4] = {0, 0, width, height};
+        memcpy(spare->behind, whole, sizeof whole);
+        window->buffers = [window->buffers arrayByAddingObject:spare];
     }
     MinatoCPUBuffer *buffer;
     while ((buffer = free_buffer(window)) == nil) {
@@ -793,6 +807,30 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     return YES;
 }
 
+/* The window's post `post` hid its layer (the hide rule) and it posted nothing since: it keeps only that front buffer,
+   and its next lock makes another (locked()). A transparent window over a SurfaceView, a game's window, holds one
+   full-screen buffer instead of three; Android's queue keeps its three, a named departure for memory. */
+static void drop_spares(uint64_t window_id, uint64_t post) {
+    @autoreleasepool {
+        CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id);
+        if (layer == nil || !layer.hidden) {
+            return;
+        }
+        pthread_mutex_lock(&state_lock);
+        MinatoCPUWindow *window = windows[@(window_id)];
+        if (window != nil && window->posts == post && window->locked == nil && window->front != nil) {
+            NSMutableArray<MinatoCPUBuffer *> *kept = [NSMutableArray arrayWithObject:window->front];
+            for (MinatoCPUBuffer *buffer in window->buffers) {
+                if (buffer != window->front && buffer->reading) {
+                    [kept addObject:buffer];
+                }
+            }
+            window->buffers = kept;
+        }
+        pthread_mutex_unlock(&state_lock);
+    }
+}
+
 static int posted(void *context, uint64_t window_id) {
     (void)context;
     pthread_mutex_lock(&state_lock);
@@ -834,6 +872,13 @@ static int posted(void *context, uint64_t window_id) {
                         : !presented(window_id, buffer, width, height, format, visible)) {
             read_done(buffer);
         }
+    }
+    if (by_contents && !visible) {
+        const uint64_t post = buffer->posted;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)spare_ns),
+                       dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                           drop_spares(window_id, post);
+                       });
     }
     return 0;
 }
@@ -926,10 +971,68 @@ int minato_graphics_set_window_buffers(void) {
                : -1;
 }
 
+// The layers of the tree under `layer`, in the order Core Animation draws them (zPosition aside).
+static void draw_order(CALayer *layer, NSMutableArray<CALayer *> *order) {
+    [order addObject:layer];
+    for (CALayer *sublayer in layer.sublayers) {
+        draw_order(sublayer, order);
+    }
+}
+
+// The opacity `layer` is drawn with, 0 when it or a layer above it is hidden.
+static float drawn_opacity(CALayer *layer) {
+    float opacity = 1;
+    for (CALayer *at = layer; at != nil; at = at.superlayer) {
+        opacity = at.hidden ? 0 : opacity * at.opacity;
+    }
+    return opacity;
+}
+
+// The lines after the first of a dump's facts: the window layer's frame in its root's points and its root's size,
+// the opacity it is drawn with, each layer drawn over it that shows something, cut to the frame, and each dumped
+// window drawn under it that it overlaps, so that a screenshot is compared only where the window is what it shows.
+static NSString *placed(CALayer *layer, NSArray<CALayer *> *order, NSDictionary<NSValue *, NSNumber *> *dumped) {
+    CALayer *root = layer;
+    while (root.superlayer != nil) {
+        root = root.superlayer;
+    }
+    const CGRect frame = [layer convertRect:layer.bounds toLayer:root];
+    NSMutableString *lines = [NSMutableString stringWithFormat:@"frame %g %g %g %g in %g %g alpha %g\n",
+                                                               frame.origin.x, frame.origin.y, frame.size.width,
+                                                               frame.size.height, root.bounds.size.width,
+                                                               root.bounds.size.height, drawn_opacity(layer)];
+    const NSUInteger at = [order indexOfObjectIdenticalTo:layer];
+    for (NSUInteger index = 0; at != NSNotFound && index < order.count; index++) {
+        CALayer *other = order[index];
+        BOOL inside = NO;
+        for (CALayer *up = other; up != nil && !inside; up = up.superlayer) {
+            inside = up == layer;
+        }
+        const CGRect cut = CGRectIntersection(frame, [other convertRect:other.bounds toLayer:root]);
+        if (inside || CGRectIsEmpty(cut) || drawn_opacity(other) == 0) {
+            continue;
+        }
+        NSNumber *window_id = dumped[[NSValue valueWithNonretainedObject:other]];
+        if (index < at && window_id != nil) {
+            [lines appendFormat:@"under %@\n", window_id];
+        } else if (index > at && (other.contents != nil || [other isKindOfClass:[CAMetalLayer class]] ||
+                                  (other.backgroundColor != NULL && CGColorGetAlpha(other.backgroundColor) > 0))) {
+            [lines appendFormat:@"above %g %g %g %g\n", cut.origin.x, cut.origin.y, cut.size.width, cut.size.height];
+        }
+    }
+    return lines;
+}
+
 int minato_graphics_window_dump(const char *folder) {
     if (![NSFileManager.defaultManager createDirectoryAtPath:@(folder) withIntermediateDirectories:YES attributes:nil
                                                        error:nil]) {
         return -1;
+    }
+    // An earlier dump's windows go, also those that are gone since.
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:@(folder) error:nil]) {
+        if ([name hasPrefix:@"window-"]) {
+            [NSFileManager.defaultManager removeItemAtPath:[@(folder) stringByAppendingPathComponent:name] error:nil];
+        }
     }
     NSMutableArray *dumps = [NSMutableArray array];
     pthread_mutex_lock(&state_lock);
@@ -937,10 +1040,26 @@ int minato_graphics_window_dump(const char *folder) {
         MinatoCPUWindow *window = windows[window_id];
         if (window->front != nil) {
             [dumps addObject:@[window_id, window->front, @(window->width), @(window->height), @(window->format),
-                                @(window->front->posted)]];
+                                @(window->front->posted), @(window->buffers.count)]];
         }
     }
     pthread_mutex_unlock(&state_lock);
+    // The dumped windows' layers by layer, and the draw order of their trees.
+    NSMutableDictionary<NSValue *, NSNumber *> *layers = [NSMutableDictionary dictionary];
+    NSMutableArray<CALayer *> *order = [NSMutableArray array];
+    for (NSArray *dump in dumps) {
+        CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer([dump[0] unsignedLongLongValue]);
+        CALayer *root = layer;
+        while (root.superlayer != nil) {
+            root = root.superlayer;
+        }
+        if (layer != nil && [order indexOfObjectIdenticalTo:root] == NSNotFound) {
+            draw_order(root, order);
+        }
+        if (layer != nil) {
+            layers[[NSValue valueWithNonretainedObject:layer]] = dump[0];
+        }
+    }
     int written = 0;
     for (NSArray *dump in dumps) {
         const uint64_t window_id = [dump[0] unsignedLongLongValue];
@@ -967,9 +1086,10 @@ int minato_graphics_window_dump(const char *folder) {
         }
         IOSurfaceUnlock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
         static const char *const names[] = {"", "RGBA_8888", "RGBX_8888", "", "RGB_565"};
-        NSString *facts = [NSString stringWithFormat:@"%dx%d %s%s post %llu %s\n", width, height, names[format],
-                                                     black ? " on black" : "", [dump[5] unsignedLongLongValue],
-                                                     hidden ? "hidden" : "shown"];
+        NSString *facts = [NSString stringWithFormat:@"%dx%d %s%s post %llu %s\n%@buffers %@\n", width, height,
+                                                     names[format], black ? " on black" : "",
+                                                     [dump[5] unsignedLongLongValue], hidden ? "hidden" : "shown",
+                                                     layer != nil ? placed(layer, order, layers) : @"", dump[6]];
         NSString *base = [NSString stringWithFormat:@"%s/window-%llu", folder, (unsigned long long)window_id];
         if (![pixels writeToFile:[base stringByAppendingString:@".rgba"] atomically:YES] ||
             ![facts writeToFile:[base stringByAppendingString:@".txt"] atomically:YES encoding:NSUTF8StringEncoding

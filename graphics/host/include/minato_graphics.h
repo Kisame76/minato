@@ -103,9 +103,13 @@ int minato_graphics_set_window_crc(const char *path);
 int minato_graphics_set_window_by_drawables(int drawables);
 
 /* Step f's dump (Debug builds and the Mac's tests): each window's last shown buffer goes to `folder`, made if need
-   be, as window-<id>.rgba, its rows tight in RGBA, RGBX_8888's alpha as 255 and RGB_565 widened, and
-   window-<id>.txt, one line "<width>x<height> <format>[ on black] post <n> shown" (or "hidden", as the hide rule
-   left its layer). Returns how many windows it wrote, -1 when a file could not be written. */
+   be, in place of an earlier dump's windows, as window-<id>.rgba, its rows tight in RGBA, RGBX_8888's alpha as 255
+   and RGB_565 widened, and window-<id>.txt: a line "<width>x<height> <format>[ on black] post <n> shown" (or
+   "hidden", as the hide rule left its layer), then "frame <x> <y> <width> <height> in <width> <height> alpha <a>",
+   the layer's frame in its root's points, the root's size and the opacity it is drawn with, an "above <x> <y>
+   <width> <height>" for each layer drawn over it that shows something, cut to the frame, and an "under <id>" for
+   each dumped window drawn under it that it overlaps, and last "buffers <n>", how many buffers the window has.
+   Returns how many windows it wrote, -1 when a file could not be written. */
 int minato_graphics_window_dump(const char *folder);
 
 /* "Scheduled" for the windows' buffers: waits until no post is between its count and its commit, then until Metal

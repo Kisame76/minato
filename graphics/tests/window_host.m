@@ -26,9 +26,12 @@
      100 ms after the window's <n>th present the window host prints whether each record is a post by contents,
      tick-timed, and each one with a presented time is on the grid of the last tick it posted before the post's
      commit: the target of the first refresh after the commit.
-   - With MINATO_WINDOW_BUFFER_DUMP=<n>:<folder> too, 200 ms after the window's <n>th present the window host has
-     graphics/host dump the windows' last shown buffers into <folder> (minato_graphics_window_dump, step f) and prints
-     each dump's facts and the CRC-32 of its RGBA bytes.
+   - With MINATO_WINDOW_BUFFER_DUMP=<n>:<folder>[:<ms>] too, 200 ms (or <ms>) after the window's <n>th present the
+     window host has graphics/host dump the windows' last shown buffers into <folder> (minato_graphics_window_dump,
+     step f) and prints each dump's facts, their lines joined by "; ", and the CRC-32 of its RGBA bytes, and whether
+     a window-99.txt put there before the dump is gone. With MINATO_WINDOW_SCENE=1 too, the window's layer is at 10,
+     8 in a container of opacity 0.5 in a root of 100 x 80 points, below a layer that covers 40, 30, 30 x 20 of it
+     and three that do not show over it: one without contents, a hidden one and one beside it.
    - With MINATO_WINDOW_OPAQUE=1 too, the layer is opaque; with MINATO_WINDOW_WATCH=hidden, it prints each change of
      the layer's hidden to stderr (ADR-0043 b3, the hide rule), with MINATO_WINDOW_WATCH=contents each buffer that
      graphics/host's window shows by contents (session_layers.h), and with "hidden,contents" both.
@@ -204,7 +207,7 @@ static void *check_recording(void *unused) {
 }
 
 /* MINATO_WINDOW_BUFFER_DUMP: the windows' last shown buffers, dumped after that many presents. */
-static unsigned long dump_presents;
+static unsigned long dump_presents, dump_delay_ms = 200;
 static char dump_folder[512];
 
 static uint32_t dump_crc(const uint8_t *bytes, size_t length) {
@@ -223,14 +226,21 @@ static void *dump_buffers(void *unused) {
     while (apkrt_window_presents(minato_test_window) < dump_presents) {
         usleep(1000);
     }
-    usleep(200000);  // after MINATO_WINDOW_RECORD's check
+    usleep((useconds_t)dump_delay_ms * 1000);  // by default after MINATO_WINDOW_RECORD's check
+    char path[600], facts[512] = "", line[256];
+    // An earlier dump's window that is gone since.
+    [NSFileManager.defaultManager createDirectoryAtPath:@(dump_folder) withIntermediateDirectories:YES attributes:nil
+                                                  error:nil];
+    snprintf(path, sizeof path, "%s/window-99.txt", dump_folder);
+    [@"gone" writeToFile:@(path) atomically:YES encoding:NSUTF8StringEncoding error:nil];
     const int dumped = minato_graphics_window_dump(dump_folder);
-    fprintf(stderr, "window host: dumped %d window%s\n", dumped, dumped == 1 ? "" : "s");
-    char path[600], facts[256] = "";
+    fprintf(stderr, "window host: dumped %d window%s; an earlier dump's window-99.txt is gone: %s\n", dumped,
+            dumped == 1 ? "" : "s", access(path, F_OK) != 0 ? "yes" : "no");
     snprintf(path, sizeof path, "%s/window-%llu.txt", dump_folder, (unsigned long long)minato_test_window);
     FILE *text = fopen(path, "r");
-    if (text != NULL && fgets(facts, sizeof facts, text) != NULL) {
-        facts[strcspn(facts, "\n")] = '\0';
+    while (text != NULL && fgets(line, sizeof line, text) != NULL) {
+        line[strcspn(line, "\n")] = '\0';
+        snprintf(facts + strlen(facts), sizeof facts - strlen(facts), "%s%s", facts[0] != '\0' ? "; " : "", line);
     }
     if (text != NULL) {
         fclose(text);
@@ -446,7 +456,7 @@ __attribute__((constructor)) static void add_window(void) {
         minato_test_watch_hidden(layer);
         minato_test_watch_contents(layer);
         const char *dump = getenv("MINATO_WINDOW_BUFFER_DUMP");
-        if (dump != NULL && sscanf(dump, "%lu:%511s", &dump_presents, dump_folder) == 2) {
+        if (dump != NULL && sscanf(dump, "%lu:%511[^:]:%lu", &dump_presents, dump_folder, &dump_delay_ms) >= 2) {
             pthread_t thread;
             pthread_create(&thread, NULL, dump_buffers, NULL);
             pthread_detach(thread);
@@ -459,6 +469,29 @@ __attribute__((constructor)) static void add_window(void) {
             pthread_t thread;
             pthread_create(&thread, NULL, check_recording, NULL);
             pthread_detach(thread);
+        }
+        const char *scene = getenv("MINATO_WINDOW_SCENE");
+        if (scene != NULL && strcmp(scene, "1") == 0) {
+            static CALayer *root;
+            root = [CALayer layer];
+            root.frame = CGRectMake(0, 0, 100, 80);
+            CALayer *container = [CALayer layer];
+            container.frame = root.bounds;
+            container.opacity = 0.5;
+            layer.frame = CGRectMake(10, 8, width, height);
+            [container addSublayer:layer];
+            [root addSublayer:container];
+            CGColorRef gray = CGColorCreateSRGB(0.5, 0.5, 0.5, 1);
+            const CGRect above[] = {{{40, 30}, {30, 20}}, {{20, 20}, {10, 10}}, {{12, 40}, {10, 10}},
+                                    {{80, 60}, {10, 10}}};
+            for (int index = 0; index < 4; index++) {
+                CALayer *other = [CALayer layer];
+                other.frame = above[index];
+                other.backgroundColor = index == 1 ? NULL : gray;  // 1: without contents
+                other.hidden = index == 2;
+                [root addSublayer:other];
+            }
+            CGColorRelease(gray);
         }
         minato_test_window = apkrt_window_add((__bridge void *)layer, width, height);
     }
