@@ -355,6 +355,11 @@ long sys_fstatfs(int fd, std::uint64_t buffer);
 // --- eventfd, epoll, ppoll and pselect6 (sys_events.cpp, ADR-0027) -----------------------------------
 
 long sys_eventfd2(unsigned initial, int flags);
+/// timerfd_create, timerfd_settime and timerfd_gettime: a timer whose expirations a read takes as a u64 and that poll
+/// and epoll see readable. REALTIME's absolute time is turned into a delay once; CANCEL_ON_SET never cancels.
+long sys_timerfd_create(int clock, int flags);
+long sys_timerfd_settime(int fd, int flags, std::uint64_t value, std::uint64_t old);
+long sys_timerfd_gettime(int fd, std::uint64_t current);
 
 /// read, write, readv and writev of an eventfd (Description::Kind::eventfd), with at least one vector.
 long transfer_count(descriptors::Description &counter, bool writing, const iovec *vectors, int count);

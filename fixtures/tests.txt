@@ -62,6 +62,8 @@ stw-test system
 fd-test system
 # eventfd, epoll, poll and select, as Android's looper uses them (ADR-0027).
 poll-test system
+# timerfd: one-shot and periodic timers, polling, epoll, absolute times and the errors (Flutter's message loop).
+timerfd-test system
 # Sockets: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054 step a).
 socket-test system
 # Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).

@@ -620,6 +620,7 @@ std::optional<std::string> descriptor_target(int fd) {
     if (!description->written_path.empty()) return description->written_path;
     using Kind = descriptors::Description::Kind;
     if (description->kind() == Kind::eventfd) return "anon_inode:[eventfd]";
+    if (description->kind() == Kind::timerfd) return "anon_inode:[timerfd]";
     if (description->kind() == Kind::epoll) return "anon_inode:[eventpoll]";
     struct stat status{};
     if (::fstat(description->host(), &status) != 0) return std::nullopt;

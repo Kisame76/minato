@@ -1,0 +1,53 @@
+create: ok
+read of a timer that was never armed: -1 errno 11 (Try again)
+settime 100 ms: 0
+poll at once: 0
+gettime: 0
+remaining about 100 ms: yes, interval 0
+read before it expires: -1 errno 11 (Try again)
+poll for 2 s: 1
+it expired on time, revents 0x1
+read after it expired: 8
+  count 1
+read again: -1 errno 11 (Try again)
+gettime after the expiry: 0
+  disarmed: yes
+settime 20 ms, every 20 ms: 0
+read after 210 ms: 8
+  count between 6 and 11
+gettime of a periodic timer: 0
+  interval 20 ms, remaining within it: yes
+settime 5 s: 0
+  old interval 20 ms
+read after settime: -1 errno 11 (Try again)
+disarm: 0
+  old remaining about 5 s: yes
+gettime when disarmed: 0
+  zero: yes
+settime absolute, 50 ms ahead: 0
+poll for 2 s: 1
+read: 8
+  count 1
+settime absolute, in the past: 0
+read: 8
+  count 1
+epoll_ctl add: 0
+epoll_wait at once: 0
+epoll_wait for 2 s: 1
+  events 0x1, fd matches: yes
+epoll_wait again, level-triggered: 1
+read: 8
+epoll_wait after the read: 0
+read of 4 bytes: -1 errno 22 (Invalid argument)
+write: -1 errno 22 (Invalid argument)
+create with a bad clock: -1 errno 22 (Invalid argument)
+create with a bad flag: -1 errno 22 (Invalid argument)
+create on CLOCK_BOOTTIME: 1
+settime with a bad nanosecond: -1 errno 22 (Invalid argument)
+settime with a bad flag: -1 errno 22 (Invalid argument)
+settime on a bad descriptor: -1 errno 9 (Bad file descriptor)
+settime on a pipe: -1 errno 22 (Invalid argument)
+gettime on a pipe: -1 errno 22 (Invalid argument)
+blocking read: 8
+  it waited on time, count 1
+done

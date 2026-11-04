@@ -7,10 +7,14 @@
 #include "syscalls.h"
 
 #include <fcntl.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/event.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <climits>
 #include <cstdint>
@@ -19,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -46,12 +51,12 @@ bool valid(const timespec &time) {
 /// while the counter is not 0: every write adds one, and at `most_held` takes one out first, so that a
 /// kqueue filter with EV_CLEAR (EPOLLET) sees every write and the write end always has room (EPOLLOUT).
 /// A read that takes the counter to 0 empties the pipe.
-class EventCounter final : public Description {
+class EventCounter : public Description {
 public:
     /// Takes both ends of the pipe, non-blocking.
-    EventCounter(int read_end, int write_end, std::uint64_t initial, bool semaphore, bool nonblocking)
-        : Description(read_end, false, false, nonblocking, Kind::eventfd), write_end_(write_end),
-          semaphore_(semaphore) {
+    EventCounter(int read_end, int write_end, std::uint64_t initial, bool semaphore, bool nonblocking,
+                 Kind kind = Kind::eventfd)
+        : Description(read_end, false, false, nonblocking, kind), write_end_(write_end), semaphore_(semaphore) {
         static_cast<void>(add(initial));
     }
     ~EventCounter() override { ::close(write_end_); }
@@ -82,7 +87,16 @@ public:
     /// of 1 fits.
     std::uint32_t poll_bits() {
         const std::lock_guard lock(mutex_);
-        return (counter_ != 0 ? pollin : 0) | (counter_ < UINT64_MAX - 1 ? pollout : 0);
+        // A timerfd is never writable (Linux's timerfd_poll reports POLLIN only).
+        return (counter_ != 0 ? pollin : 0) | (kind() == Kind::eventfd && counter_ < UINT64_MAX - 1 ? pollout : 0);
+    }
+
+protected:
+    /// Empties the counter, as a timerfd's settime does.
+    void clear() {
+        const std::lock_guard lock(mutex_);
+        counter_ = 0;
+        empty_the_pipe();
     }
 
 private:
@@ -151,6 +165,7 @@ long read_count(EventCounter &counter, const iovec *vectors, int count) {
 /// An eventfd's write of one buffer, as eventfd_write does. A write that would take the counter to
 /// 2^64 - 1 answers EAGAIN even without O_NONBLOCK, where Linux waits: no program comes close.
 long write_count(EventCounter &counter, const void *buffer, std::size_t size) {
+    if (counter.kind() == Kind::timerfd) return -linux_errno::einval;  // timerfd has no write
     std::uint64_t value;
     if (size < sizeof value) return -linux_errno::einval;
     std::memcpy(&value, buffer, sizeof value);
@@ -183,6 +198,9 @@ int filters_for(const Description &description, std::uint32_t wanted, Filter (&f
         case Kind::eventfd:
             if (wanted & pollin) add(host, EVFILT_READ);
             if (wanted & pollout) add(static_cast<const EventCounter &>(description).write_end(), EVFILT_WRITE);
+            return count;
+        case Kind::timerfd:
+            if (wanted & pollin) add(host, EVFILT_READ);
             return count;
         case Kind::epoll:
         case Kind::channel:
@@ -220,6 +238,7 @@ std::uint32_t bits_of(Description &description, std::int16_t filter, bool end, s
     switch (description.kind()) {
         // EPOLLOUT stays true (decision 8): the write end of the pipe always has room.
         case Kind::eventfd: return static_cast<EventCounter &>(description).poll_bits() | pollout;
+        case Kind::timerfd: return static_cast<EventCounter &>(description).poll_bits();
         case Kind::epoll: return readable;
         case Kind::channel: return channels::readable(description) ? readable : 0;
         case Kind::file: break;
@@ -498,7 +517,7 @@ public:
         if (!description) return -1;
         Entry entry{std::move(description)};
         // An eventfd's POLLOUT is its counter's, which no filter has to wait for.
-        if (entry.description->kind() == Kind::eventfd) wanted &= ~pollout;
+        if (entry.description->kind() == Kind::eventfd || entry.description->kind() == Kind::timerfd) wanted &= ~pollout;
         Filter filters[2];
         const int count = pollable(*entry.description) ? filters_for(*entry.description, wanted, filters) : 0;
         for (int index = 0; index < count; ++index) {
@@ -518,7 +537,8 @@ public:
         Description &description = *entry.description;
         std::uint32_t bits = 0;
         switch (description.kind()) {
-            case Kind::eventfd: return static_cast<EventCounter &>(description).poll_bits();
+            case Kind::eventfd:
+            case Kind::timerfd: return static_cast<EventCounter &>(description).poll_bits();
             case Kind::channel: return channels::readable(description) ? readable : 0;
             case Kind::epoll: break;  // its kqueue is readable while it has events, those that wait too
             case Kind::file:
@@ -685,6 +705,189 @@ long select_descriptors(int count, std::uint64_t read_set, std::uint64_t write_s
     return end == WaitEnd::done ? ready : 0;
 }
 
+
+// --- timerfd -------------------------------------------------------------------------------------------
+
+/// A timerfd's count is an EventCounter's: a host pipe shows when it can be read and the counter lives in the object,
+/// which a read takes whole and a settime resets. What counts the expirations is one helper thread of the process with
+/// its own kqueue, whose EVFILT_TIMER's `data` is the number of times a periodic timer fired since the thread last
+/// looked, as timerfd's overruns are. The thread is no guest thread (no entry in the guest thread table, it never
+/// calls into guest code and holds no loader or graphics lock) and blocks every signal, so that it takes none that is
+/// aimed at the process. Times are Darwin's CLOCK_UPTIME_RAW, Linux's CLOCK_MONOTONIC here (syscalls.cpp); an
+/// absolute time on another clock is turned into a delay once, at settime, so that CLOCK_REALTIME's absolute time does
+/// not follow a later jump of the wall clock and TFD_TIMER_CANCEL_ON_SET never reports ECANCELED (a named limit).
+class TimerFd;
+
+class TimerThread {
+public:
+    static TimerThread &instance() {
+        static TimerThread thread;
+        return thread;
+    }
+
+    void add(std::uint64_t id, const std::shared_ptr<TimerFd> &timer) {
+        const std::lock_guard lock(mutex_);
+        owners_[id] = timer;
+    }
+
+    void drop(std::uint64_t id) {
+        disarm(id);
+        const std::lock_guard lock(mutex_);
+        owners_.erase(id);
+    }
+
+    /// Fires once after `delay` nanoseconds, or every `period` nanoseconds when `period` is set (no first delay then).
+    void arm(std::uint64_t id, std::int64_t delay, bool periodic, std::uint64_t generation) {
+        struct kevent change;
+        EV_SET(&change, id, EVFILT_TIMER, periodic ? EV_ADD : (EV_ADD | EV_ONESHOT), NOTE_NSECONDS,
+               std::max<std::int64_t>(delay, 1), reinterpret_cast<void *>(generation));
+        ::kevent(queue_, &change, 1, nullptr, 0, nullptr);
+    }
+
+    void disarm(std::uint64_t id) {
+        struct kevent change;
+        EV_SET(&change, id, EVFILT_TIMER, EV_DELETE, 0, 0, nullptr);
+        ::kevent(queue_, &change, 1, nullptr, 0, nullptr);
+    }
+
+private:
+    TimerThread() : queue_(::kqueue()) {
+        ::fcntl(queue_, F_SETFD, FD_CLOEXEC);
+        std::thread([this] { loop(); }).detach();
+    }
+
+    void loop();
+
+    int queue_;
+    std::mutex mutex_;
+    std::unordered_map<std::uint64_t, std::weak_ptr<TimerFd>> owners_;
+};
+
+/// A time as the call gives it, in nanoseconds.
+std::int64_t to_ns(const timespec &time) {
+    return static_cast<std::int64_t>(time.tv_sec) * 1'000'000'000 + time.tv_nsec;
+}
+
+timespec to_timespec(std::int64_t ns) {
+    return {static_cast<time_t>(ns / 1'000'000'000), static_cast<long>(ns % 1'000'000'000)};
+}
+
+/// The guest clocks a timerfd takes, as Darwin's (syscalls.cpp: CLOCK_BOOTTIME goes on like Darwin's CLOCK_MONOTONIC).
+std::int64_t clock_ns(int linux_clock) {
+    switch (linux_clock) {
+        case 0: return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_REALTIME));
+        case 7: return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_MONOTONIC));
+        default: return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+    }
+}
+
+std::int64_t uptime_ns() {
+    return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+}
+
+struct TimerSpec {
+    timespec interval;
+    timespec value;
+};
+
+class TimerFd final : public EventCounter {
+public:
+    TimerFd(int read_end, int write_end, int clock, bool nonblocking, std::uint64_t id)
+        : EventCounter(read_end, write_end, 0, false, nonblocking, Kind::timerfd), clock_(clock), id_(id) {}
+    ~TimerFd() override { TimerThread::instance().drop(id_); }
+
+    /// timerfd_settime: the old setting is left in `old`; the count goes back to 0, as Linux does.
+    void set(bool absolute, const TimerSpec &spec, TimerSpec &old) {
+        const std::lock_guard lock(timer_mutex_);
+        old = current();
+        ++generation_;
+        TimerThread::instance().disarm(id_);
+        clear();
+        interval_ = to_ns(spec.interval);
+        periodic_running_ = false;
+        const std::int64_t value = to_ns(spec.value);
+        if (value == 0) {
+            armed_ = false;
+            return;
+        }
+        std::int64_t delay = absolute ? value - clock_ns(clock_) : value;
+        if (delay < 1) delay = 1;  // a time that has passed fires at once
+        armed_ = true;
+        deadline_ = uptime_ns() + delay;
+        TimerThread::instance().arm(id_, delay, false, generation_);
+    }
+
+    TimerSpec get() {
+        const std::lock_guard lock(timer_mutex_);
+        return current();
+    }
+
+    /// The helper thread's report: `count` expirations of the arming `generation`.
+    void fired(std::uint64_t generation, std::uint64_t count) {
+        const std::lock_guard lock(timer_mutex_);
+        if (generation != generation_ || !armed_) return;
+        static_cast<void>(add(count));
+        if (interval_ <= 0) {
+            armed_ = false;
+            return;
+        }
+        if (!periodic_running_) {  // the first, one-shot expiry: from here on the period repeats
+            periodic_running_ = true;
+            deadline_ = uptime_ns() + interval_;
+            TimerThread::instance().arm(id_, interval_, true, generation_);
+        } else {
+            deadline_ += static_cast<std::int64_t>(count) * interval_;
+        }
+    }
+
+private:
+    /// Under timer_mutex_.
+    TimerSpec current() const {
+        TimerSpec spec{to_timespec(interval_), {0, 0}};
+        if (!armed_) return spec;
+        std::int64_t remaining = deadline_ - uptime_ns();
+        if (remaining <= 0) remaining = interval_ > 0 ? interval_ - (-remaining) % interval_ : 0;
+        spec.value = to_timespec(remaining);
+        return spec;
+    }
+
+    std::mutex timer_mutex_;
+    const int clock_;
+    const std::uint64_t id_;
+    std::uint64_t generation_ = 0;
+    bool armed_ = false;
+    bool periodic_running_ = false;
+    std::int64_t deadline_ = 0;  // CLOCK_UPTIME_RAW's ns of the next expiry
+    std::int64_t interval_ = 0;
+};
+
+void TimerThread::loop() {
+    sigset_t all;
+    sigfillset(&all);
+    pthread_sigmask(SIG_SETMASK, &all, nullptr);
+    struct kevent events[16];
+    for (;;) {
+        const int got = ::kevent(queue_, nullptr, 0, events, 16, nullptr);
+        if (got < 0) {
+            if (errno == EINTR) continue;
+            return;
+        }
+        for (int index = 0; index < got; ++index) {
+            if (events[index].filter != EVFILT_TIMER) continue;
+            std::shared_ptr<TimerFd> timer;
+            {
+                const std::lock_guard lock(mutex_);
+                const auto owner = owners_.find(events[index].ident);
+                if (owner != owners_.end()) timer = owner->second.lock();
+            }
+            if (timer) {
+                timer->fired(reinterpret_cast<std::uint64_t>(events[index].udata),
+                             events[index].data > 0 ? static_cast<std::uint64_t>(events[index].data) : 1);
+            }
+        }
+    }
+}
+
 }  // namespace
 
 long sys_eventfd2(unsigned initial, int flags) {
@@ -699,6 +902,50 @@ long sys_eventfd2(unsigned initial, int flags) {
     auto counter = std::make_shared<EventCounter>(ends[0], ends[1], initial, (flags & efd_semaphore) != 0,
                                                   (flags & efd_nonblock) != 0);
     return descriptors::add(std::move(counter), (flags & efd_cloexec) != 0);
+}
+
+long sys_timerfd_create(int clock, int flags) {
+    constexpr int tfd_nonblock = 04000, tfd_cloexec = 02000000;
+    if (flags & ~(tfd_nonblock | tfd_cloexec)) return -linux_errno::einval;
+    if (clock == 8 || clock == 9) return -linux_errno::eperm;  // the alarm clocks need CAP_WAKE_ALARM
+    if (clock != 0 && clock != 1 && clock != 7) return -linux_errno::einval;
+    int ends[2];
+    if (::pipe(ends) != 0) return -to_linux_errno(errno);
+    for (const int end : ends) {
+        ::fcntl(end, F_SETFD, FD_CLOEXEC);
+        ::fcntl(end, F_SETFL, O_NONBLOCK);
+    }
+    static std::atomic<std::uint64_t> next_id{1};
+    const std::uint64_t id = next_id++;
+    auto timer = std::make_shared<TimerFd>(ends[0], ends[1], clock, (flags & tfd_nonblock) != 0, id);
+    TimerThread::instance().add(id, timer);
+    return descriptors::add(std::move(timer), (flags & tfd_cloexec) != 0);
+}
+
+long sys_timerfd_settime(int fd, int flags, std::uint64_t value, std::uint64_t old) {
+    constexpr int tfd_abstime = 1, tfd_cancel_on_set = 2;
+    if (flags & ~(tfd_abstime | tfd_cancel_on_set)) return -linux_errno::einval;
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (description->kind() != Kind::timerfd) return -linux_errno::einval;
+    if (value == 0) return -linux_errno::efault;
+    TimerSpec spec;
+    std::memcpy(&spec, reinterpret_cast<const void *>(value), sizeof spec);
+    if (!valid(spec.interval) || !valid(spec.value)) return -linux_errno::einval;
+    TimerSpec previous;
+    static_cast<TimerFd &>(*description).set((flags & tfd_abstime) != 0, spec, previous);
+    if (old != 0) std::memcpy(reinterpret_cast<void *>(old), &previous, sizeof previous);
+    return 0;
+}
+
+long sys_timerfd_gettime(int fd, std::uint64_t current) {
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    if (description->kind() != Kind::timerfd) return -linux_errno::einval;
+    if (current == 0) return -linux_errno::efault;
+    const TimerSpec spec = static_cast<TimerFd &>(*description).get();
+    std::memcpy(reinterpret_cast<void *>(current), &spec, sizeof spec);
+    return 0;
 }
 
 long transfer_count(descriptors::Description &description, bool writing, const iovec *vectors, int count) {

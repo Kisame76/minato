@@ -150,6 +150,9 @@ using namespace apkrt::sys;
 namespace nr {
 constexpr std::uint64_t getcwd = 17;
 constexpr std::uint64_t eventfd2 = 19;
+constexpr std::uint64_t timerfd_create = 85;
+constexpr std::uint64_t timerfd_settime = 86;
+constexpr std::uint64_t timerfd_gettime = 87;
 constexpr std::uint64_t epoll_create1 = 20;
 constexpr std::uint64_t epoll_ctl = 21;
 constexpr std::uint64_t epoll_pwait = 22;
@@ -794,6 +797,12 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_pipe2(x[0], as_int(x[1]));
         case nr::eventfd2:
             return sys_eventfd2(static_cast<unsigned>(x[0]), as_int(x[1]));
+        case nr::timerfd_create:
+            return sys_timerfd_create(as_int(x[0]), as_int(x[1]));
+        case nr::timerfd_settime:
+            return sys_timerfd_settime(as_int(x[0]), as_int(x[1]), x[2], x[3]);
+        case nr::timerfd_gettime:
+            return sys_timerfd_gettime(as_int(x[0]), x[1]);
         case nr::epoll_create1:
             return sys_epoll_create1(as_int(x[0]));
         case nr::epoll_ctl:
