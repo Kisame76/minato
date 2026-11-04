@@ -70,6 +70,10 @@ timerfd-test system
 sched-priority-test system
 # Sockets: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054 step a).
 socket-test system
+# getaddrinfo without a reachable network: its output depends on the network the run has, so it is shown, not
+# compared; runtime.gai_offline compares it with Android's in airplane mode, under the corpus profile that puts the
+# resolver out of reach (runtime/tests/gai_offline_run.py).
+gai-offline-test system measures
 # Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).
 memory-test system
 # 2,000 handlers of __cxa_atexit, whose read-only array bionic grows with mremap (ADR-0021, Godot's stop 8).

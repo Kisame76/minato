@@ -185,6 +185,9 @@ add_executable(timerfd-test suite/timerfd-test.c)
 # sched-priority-test: sched_get_priority_max and sched_get_priority_min for every scheduling policy.
 add_executable(sched-priority-test suite/sched-priority-test.c)
 # socket-test: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054).
+# gai-offline-test: getaddrinfo without a reachable network (runtime/tests/gai_offline_run.py; on Android in airplane
+# mode).
+add_executable(gai-offline-test suite/gai-offline-test.c)
 add_executable(socket-test suite/socket-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
 # (ADR-0035).

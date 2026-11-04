@@ -1,0 +1,3 @@
+gai-offline-test: example.com: rc=7 (No address associated with hostname) errno=0 (none)
+gai-offline-test: localhost: resolved yes
+gai-offline-test: no-such-name.invalid: rc=7 (No address associated with hostname) errno=0 (none)

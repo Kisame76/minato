@@ -14,3 +14,13 @@
 (allow network-outbound (remote unix-socket))
 (deny network-inbound)
 (allow network-inbound (local ip "localhost:*"))
+;; The runtime's DNS proxy (the guest's /dev/socket/dnsproxyd) binds and serves a unix socket in the user's temporary
+;; folder; only unix sockets there, never an address of the network.
+(allow network-bind (local unix-socket (subpath "/private/var/folders")))
+(allow network-inbound (local unix-socket (subpath "/private/var/folders")))
+;; No network, as airplane mode leaves a device: the host's resolver (mDNSResponder) is out of reach, so that a lookup
+;; fails with the code of a failed resolver (the guest sees EAI_NODATA and errno 0, as Android's does) and an app
+;; starts without a network, instead of a lookup that would leave the machine.
+(deny network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
+(deny mach-lookup (global-name "com.apple.dnssd.service") (global-name "com.apple.dnssd.mdnsresponder")
+                  (global-name "com.apple.mDNSResponder"))
