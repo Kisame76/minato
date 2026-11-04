@@ -330,7 +330,9 @@ enum apkrt_event_type {
                                           // TRIM_MEMORY_BACKGROUND (40), when it is cached; the levels from
                                           // RUNNING_MODERATE to COMPLETE are deprecated since API 34 and the system
                                           // sends no others. The host posts 20 when the scene goes to the
-                                          // background; a memory warning keeps posting APKRT_EVENT_LOW_MEMORY
+                                          // background, and its post lets the windows' buffers go
+                                          // (apkrt_window_buffers' trim); a memory warning keeps posting
+                                          // APKRT_EVENT_LOW_MEMORY
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and

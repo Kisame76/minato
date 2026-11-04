@@ -364,11 +364,16 @@ int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *contex
 ///   "gone" while the app's thread is inside removed. The buffers synchronize the two themselves.
 /// - lock and post must not wait long: they run inside a private syscall that guest signals cannot interrupt, and the
 ///   present gate before the post is the only wait. A post without a locked buffer answers -EINVAL.
+/// - trim, which may be NULL, comes from apkrt_session_post of APKRT_EVENT_TRIM_MEMORY at TRIM_MEMORY_UI_HIDDEN (20)
+///   or above, on the poster's thread, before the event: the buffers let go of what no lock holds, as Android's window
+///   gives its surface's buffers back once the app's UI is hidden. A window's next lock answers a new buffer, all of
+///   it dirty.
 struct apkrt_window_buffers {
     int (*lock)(void *context, uint64_t id, struct apkrt_window_buffer *buffer);
     int (*post)(void *context, uint64_t id);
     void (*removed)(void *context, uint64_t id);
     void *context;
+    void (*trim)(void *context);
 };
 
 /// For graphics/host: sets the windows' buffers, which the runtime copies, or takes them away with NULL. Returns 0,

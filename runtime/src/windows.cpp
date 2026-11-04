@@ -151,6 +151,15 @@ void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::ui
     report(bits);
 }
 
+void trim_buffers() {
+    apkrt_window_buffers with;
+    {
+        const std::lock_guard<std::mutex> hold(lock);
+        with = buffers;
+    }
+    if (with.trim != nullptr) with.trim(with.context);
+}
+
 }  // namespace apkrt::windows
 
 using namespace apkrt::windows;

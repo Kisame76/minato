@@ -363,6 +363,11 @@ if(TARGET minato_graphics_host)
   add_guest_test(window_buffers window-buffers-test window_buffers_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
     "MINATO_WINDOW=set:64x48" "MINATO_METAL_HOOK=set:present:6")
+  # The same buffers at TRIM_MEMORY_UI_HIDDEN, which graphics-run's host posts after two presents: the window's buffers
+  # go, and the next lock answers a new one, wholly dirty.
+  add_guest_test(window_trim window-trim-test window_trim_test
+    "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
+    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:trim:2")
   # ADR-0058 a): libnativewindow's AHardwareBuffer on graphics/host's hardware buffers, with Android 15's answers.
   add_guest_test(ahb ahb-test ahb_test "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so"
     "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")
@@ -612,7 +617,7 @@ if(TARGET minato_graphics_host)
     graphics.vulkan_present graphics.vulkan_drop graphics.gles_app
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
-    graphics.window_background graphics.window_hide graphics.window_hide_opaque graphics.window_app
+    graphics.window_trim graphics.window_background graphics.window_hide graphics.window_hide_opaque graphics.window_app
     graphics.gles31_app graphics.gles_app_vulkan graphics.gles_live_vulkan graphics.gles_gate_vulkan
     PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
@@ -630,7 +635,8 @@ if(TARGET minato_graphics_host)
   endif()
 else()
   foreach(name IN ITEMS bind bind_missing bind_no_driver vulkan_fake vulkan_window window_lock window_buffers
-      window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop probe
+      window_trim window_background window_hide window_hide_opaque vulkan_moltenvk vulkan_queue vulkan_present
+      vulkan_drop probe
       gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
       gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class gles31_app gles_app_vulkan
       gles_live_vulkan gles_gate_vulkan)

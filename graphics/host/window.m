@@ -7,6 +7,8 @@
    - A lock copies the last posted pixels into its buffer outside the new dirty rectangle, as libgui's Surface::lock
      does. Each buffer keeps one rectangle around what changed since it was last posted; the copy takes that rectangle
      less the dirty one. The first lock of a geometry answers the whole buffer as dirty.
+   - At TRIM_MEMORY_UI_HIDDEN (apkrt_window_buffers' trim) the buffers of every window that holds no lock go, as
+     Android's hidden window gives its surface's back: the next lock makes new buffers and answers all of one dirty.
    - A post draws the buffer into the window layer's next drawable with a Metal pass, BGRA8Unorm (F15), RGBX_8888's
      alpha as 1, presents it and counts it (apkrt_window_presented). The layer's nextDrawable lets MinatoMetalLayer
      record it. Its command buffer commits only in the foreground and counts for "scheduled", as libvulkan's submits
@@ -296,7 +298,7 @@ static int locked(void *context, uint64_t window_id, struct apkrt_window_buffer 
     }
     if (window->buffers == nil || window->width != width || window->height != height ||
         window->format != request->format) {
-        // A new geometry: three new buffers, once the GPU reads none of the old ones.
+        // A new geometry, or the buffers trimmed: three new buffers, once the GPU reads none of the old ones.
         BOOL in_time = YES;
         for (BOOL reading = YES; reading && in_time;) {
             reading = NO;
@@ -543,6 +545,20 @@ static void removed(void *context, uint64_t window_id) {
     pthread_mutex_unlock(&state_lock);
 }
 
+/* TRIM_MEMORY_UI_HIDDEN: the buffers of each window without a lock go; a GPU read still running keeps its buffer
+   until it ends. */
+static void trimmed(void *context) {
+    (void)context;
+    pthread_mutex_lock(&state_lock);
+    for (MinatoCPUWindow *window in windows.allValues) {
+        if (window->locked == nil) {
+            window->buffers = nil;
+            window->front = nil;
+        }
+    }
+    pthread_mutex_unlock(&state_lock);
+}
+
 int minato_graphics_window_scheduled(uint64_t deadline) {
     while (atomic_load(&in_flight) != 0) {
         if (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= deadline) {
@@ -574,7 +590,7 @@ static int scheduled_provider(void *context, uint64_t deadline) {
 }
 
 int minato_graphics_set_window_buffers(void) {
-    static const struct apkrt_window_buffers buffers = {locked, posted, removed, NULL};
+    static const struct apkrt_window_buffers buffers = {locked, posted, removed, NULL, trimmed};
     pthread_mutex_lock(&state_lock);
     if (windows == nil) {
         windows = [NSMutableDictionary dictionary];

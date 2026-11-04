@@ -1198,6 +1198,9 @@ extern "C" void apkrt_permission_answer(uint32_t request_id, int32_t group, int3
 extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2) {
     using namespace apkrt::session;
     if (!begun.load(std::memory_order_acquire)) return 0;
+    // TRIM_MEMORY_UI_HIDDEN and above: the windows' buffers go first, as Android's hidden window gives its surface's
+    // back before the app hears of the trim.
+    if (type == APKRT_EVENT_TRIM_MEMORY && a0 >= 20) apkrt::windows::trim_buffers();
     // The answer to a pick request frees its ID, also when the post fails: the request is over.
     if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
     if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);

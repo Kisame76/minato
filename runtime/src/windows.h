@@ -29,4 +29,8 @@ long post_buffer(std::uint64_t id);
 /// window comes once apkrt_window_remove has returned. Nothing for a window that is removed or unknown.
 void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::uint32_t bits));
 
+/// The windows' buffers' trim, if they have one, outside the registry's lock: apkrt_session_post of
+/// APKRT_EVENT_TRIM_MEMORY at TRIM_MEMORY_UI_HIDDEN or above.
+void trim_buffers();
+
 }  // namespace apkrt::windows

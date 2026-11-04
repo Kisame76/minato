@@ -321,7 +321,7 @@ void fake_removed(void *, std::uint64_t id) {
     note("removed " + std::to_string(id));
 }
 
-const apkrt_window_buffers fake_buffers{fake_lock, fake_post, fake_removed, &fake};
+const apkrt_window_buffers fake_buffers{fake_lock, fake_post, fake_removed, &fake, nullptr};
 
 /// The calls so far, which it forgets; with `on_this_thread`, whether each came on the calling thread.
 std::vector<std::string> taken_calls(bool *on_this_thread = nullptr) {
@@ -351,9 +351,9 @@ TEST(without_buffers_lock_and_post_answer_enosys_as_the_stubs_did) {
 
 TEST(the_buffers_come_whole_or_not_at_all) {
     CHECK(apkrt_set_window_buffers(nullptr) == 0);
-    const apkrt_window_buffers without_post{fake_lock, nullptr, fake_removed, &fake};
-    const apkrt_window_buffers without_lock{nullptr, fake_post, fake_removed, &fake};
-    const apkrt_window_buffers without_removed{fake_lock, fake_post, nullptr, &fake};
+    const apkrt_window_buffers without_post{fake_lock, nullptr, fake_removed, &fake, nullptr};
+    const apkrt_window_buffers without_lock{nullptr, fake_post, fake_removed, &fake, nullptr};
+    const apkrt_window_buffers without_removed{fake_lock, fake_post, nullptr, &fake, nullptr};
     CHECK(apkrt_set_window_buffers(&without_post) == -1);
     CHECK(apkrt_set_window_buffers(&without_lock) == -1);
     CHECK(apkrt_set_window_buffers(&without_removed) == -1);

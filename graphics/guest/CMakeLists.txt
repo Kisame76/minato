@@ -115,8 +115,8 @@ foreach(program IN ITEMS vulkan-window-test vulkan-drop-test vulkan-destroy-test
 endforeach()
 
 # ADR-0043 b1 and b2: window-lock-test, libnativewindow's lock and post against graphics-run's fake buffers, and
-# window-buffers-test, window-background-test and window-hide-test (b3) against graphics/host's.
-foreach(test IN ITEMS window_lock_test window_buffers_test window_background_test window_hide_test)
+# window-buffers-test, window-trim-test, window-background-test and window-hide-test (b3) against graphics/host's.
+foreach(test IN ITEMS window_lock_test window_buffers_test window_trim_test window_background_test window_hide_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c")
   target_link_libraries(${program} PRIVATE nativewindow dl)

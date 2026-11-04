@@ -17,6 +17,9 @@
      window's removal, only then onPause, the window's destruction, the saved state and onStop, each answer
      within 500 ms of its event); the foreground and onDestroy. It prints each step to stderr, and the command
      buffers guest threads committed from "scheduled" to the foreground, which must be none.
+   - With MINATO_WINDOW_SCRIPT=trim:<n> instead, it begins a session as for glue, and a thread of its own waits until
+     the window has <n> presents and then posts APKRT_EVENT_TRIM_MEMORY at TRIM_MEMORY_UI_HIDDEN (20), as the App does
+     when the scene goes to the background, which the program, no activity-host, never reads.
    - With MINATO_WINDOW_OPAQUE=1 too, the layer is opaque; with MINATO_WINDOW_WATCH=hidden, it prints each change of
      the layer's hidden to stderr (ADR-0043 b3, the hide rule).
    - With MINATO_WINDOW_BUFFERS=fake too (ADR-0043 b1, graphics.window_lock), graphics_run.c puts a fake in the place
@@ -114,6 +117,16 @@ static void *glue(void *unused) {
     fprintf(stderr, "host: in the foreground\n");
     apkrt_set_background(0);
     apkrt_session_post(APKRT_EVENT_DESTROY, 0, 0, 0);
+    return NULL;
+}
+
+static void *trim(void *unused) {
+    (void)unused;
+    while (apkrt_window_presents(minato_test_window) < presents) {
+        usleep(1000);
+    }
+    fprintf(stderr, "host: trim memory at UI_HIDDEN: %s\n",
+            apkrt_session_post(APKRT_EVENT_TRIM_MEMORY, 20, 0, 0) != 0 ? "posted" : "not posted");
     return NULL;
 }
 
@@ -282,7 +295,7 @@ static void fake_removed(void *context, uint64_t id) {
     fprintf(stderr, "fake buffers: window %llu removed\n", (unsigned long long)id);
 }
 
-static const struct apkrt_window_buffers fake_buffers = {fake_lock, fake_post, fake_removed, NULL};
+static const struct apkrt_window_buffers fake_buffers = {fake_lock, fake_post, fake_removed, NULL, NULL};
 
 void minato_test_use_fake_buffers(void) {
     const char *buffers = getenv("MINATO_WINDOW_BUFFERS");
@@ -332,7 +345,8 @@ __attribute__((constructor)) static void add_window(void) {
     if (script != NULL) {
         pthread_t thread;
         void *(*play)(void *) = background;
-        if (strcmp(script, "glue") == 0) {
+        const BOOL trims = sscanf(script, "trim:%lu", &presents) == 1;
+        if (strcmp(script, "glue") == 0 || trims) {
             const struct apkrt_session session = {
                 .end = ended,
                 .configuration = {.scale = 1, .width = width, .height = height, .orientation = 2, .night = 1,
@@ -341,9 +355,11 @@ __attribute__((constructor)) static void add_window(void) {
                 fprintf(stderr, "window host: the runtime refused the session\n");
                 exit(2);
             }
-            play = glue;
+            play = trims ? trim : glue;
         } else if (sscanf(script, "background:%lu:%d", &presents, &hold_ms) < 1) {
-            fprintf(stderr, "window host: MINATO_WINDOW_SCRIPT=%s is neither background:<presents> nor glue\n", script);
+            fprintf(stderr,
+                    "window host: MINATO_WINDOW_SCRIPT=%s is neither background:<presents>, trim:<presents> nor glue\n",
+                    script);
             exit(2);
         }
         pthread_create(&thread, NULL, play, NULL);
