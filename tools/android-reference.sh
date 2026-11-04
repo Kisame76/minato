@@ -231,6 +231,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
   "$app" == action-mode-standalone-test || "$app" == trim-memory-test || "$app" == selection-mode-test ||
+  "$app" == insertion-mode-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -1092,6 +1093,13 @@ run_app() {
     selection-mode-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SelectActivity
       ;;
+    # insertion-mode-test (the text cursor's insertion mode): a tap in the empty space after an EditText's text, a tap
+    # on the insertion handle below the cursor and a long press in the empty space, at the places the app names; the
+    # last two start the insertion's floating action mode, which the app's custom callback and its activity log; ends
+    # with "done".
+    insertion-mode-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.InsertActivity
+      ;;
     # action-bar-test (the platform action bar, compatibility plan gap 5): a default-theme activity that uses
     # getActionBar(), an options menu with an overflow, hide and show, and an action mode; ends with "done".
     action-bar-test | action-bar-test-34)
@@ -1466,6 +1474,18 @@ run_app() {
     }
     { tap_when_ready "dialog 1" && tap_when_ready "dialog 2" && tap_when_ready "popup 1" &&
       tap_when_ready "popup 2" && tap_when_ready "popup 2 again"; } || return 1
+  fi
+  if [[ "$app" == insertion-mode-test ]]; then
+    wait_for "$app" "ready: long press at " || return 1
+    local tap handle
+    tap=$(app_lines "$app" | sed -n "s/.*ready: tap at \([0-9]*\),\([0-9]*\)\$/\1 \2/p" | tail -n 1)
+    handle=$(app_lines "$app" | sed -n "s/.*ready: handle at \([0-9]*\),\([0-9]*\)\$/\1 \2/p" | tail -n 1)
+    sleep 1
+    run input tap $tap
+    sleep 1.5
+    run input tap $handle
+    sleep 1.5
+    run input swipe $tap $tap 1000
   fi
   if [[ "$app" == selection-mode-test ]]; then
     wait_for "$app" "ready: long press at " || return 1

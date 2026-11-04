@@ -1,0 +1,15 @@
+I/insertion-mode-test: onCreate
+I/insertion-mode-test: ready: tap at 1146,378
+I/insertion-mode-test: ready: handle at 609,463
+I/insertion-mode-test: ready: long press at 1146,378
+I/insertion-mode-test: onCreateActionMode type 1, menu [Paste, Select all]
+I/insertion-mode-test: onPrepareActionMode
+I/insertion-mode-test: onActionModeStarted type 1, selection 16-16
+I/insertion-mode-test: onDestroyActionMode
+I/insertion-mode-test: onActionModeFinished
+I/insertion-mode-test: onCreateActionMode type 1, menu [Paste, Select all]
+I/insertion-mode-test: onPrepareActionMode
+I/insertion-mode-test: onActionModeStarted type 1, selection 16-16
+I/insertion-mode-test: onDestroyActionMode
+I/insertion-mode-test: onActionModeFinished
+I/insertion-mode-test: done

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- insertion-mode-test (the text cursor's insertion mode, after selection-mode-test): an EditText whose empty
+     space a tap puts the cursor in, with its insertion handle; a tap on the handle and a long press in the empty
+     space start the insertion's floating action mode (ActionMode.TYPE_FLOATING) with its Paste: the app's custom
+     insertion callback sees its menu and its type. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.insertionmode" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.insertionmode.InsertActivity" android:exported="true"
+        android:label="@string/app_name" android:windowSoftInputMode="stateAlwaysHidden"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
