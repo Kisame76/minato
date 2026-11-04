@@ -39,6 +39,8 @@ All notable changes to Minato are documented in this file. The format follows
   in your own order, which you set on iOS 27 and later by dragging an app to another place
 - A filter in the library's "…" menu shows All Apps, Favorites, Ready or Not Ready; it stays when you open Minato
   again, and the search works inside it
+- With VoiceOver, apps in the library's own order have the actions Move Up, Move Down, Move to Top and Move to
+  Bottom, as an alternative to dragging
 - Clear App Data, in an app's menu and in Get Info: it deletes the app's saved data, such as progress and settings,
   as Android's Clear storage does, and keeps the app and its OBB files
 - Settings › Storage lists each app's space, the app and its data apart, largest first

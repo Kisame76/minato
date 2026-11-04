@@ -126,6 +126,40 @@ public enum LibraryFilter: String, Sendable, CaseIterable, Codable {
     public var showsPendingImports: Bool { self == .all }
 }
 
+/// Where an app goes in the manual order, for Library.move(_:before:), and its new place among the apps, from 1.
+public struct LibraryMove: Equatable, Sendable {
+    /// The app it goes before; nil is the end.
+    public let before: String?
+    public let position: Int
+
+    public init(before: String?, position: Int) {
+        self.before = before
+        self.position = position
+    }
+}
+
+/// VoiceOver's actions for the manual order, as an alternative to dragging.
+public enum LibraryMoveStep: Sendable, CaseIterable {
+    case up, down, toTop, toBottom
+
+    /// Where `id` goes among `ids`, the apps in their manual order, or nil when it is there already or unknown.
+    public func move(_ id: String, in ids: [String]) -> LibraryMove? {
+        guard let index = ids.firstIndex(of: id) else { return nil }
+        let target: Int
+        switch self {
+        case .up: target = index - 1
+        case .down: target = index + 1
+        case .toTop: target = 0
+        case .toBottom: target = ids.count - 1
+        }
+        guard target >= 0, target < ids.count, target != index else { return nil }
+        // Before the app that stands at the target's place once `id` has left its own.
+        var others = ids
+        others.remove(at: index)
+        return LibraryMove(before: target < others.count ? others[target] : nil, position: target + 1)
+    }
+}
+
 extension LibraryEntry {
     /// The installed files' bytes: the base APK, the splits and the OBBs.
     public var installedSize: UInt64 {

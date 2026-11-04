@@ -32,6 +32,21 @@ enum Texts {
         }
     }
 
+    /// VoiceOver's actions for the manual order, as an alternative to dragging.
+    static func moveName(_ step: LibraryMoveStep) -> String {
+        switch step {
+        case .up: "Move Up"
+        case .down: "Move Down"
+        case .toTop: "Move to Top"
+        case .toBottom: "Move to Bottom"
+        }
+    }
+
+    /// What VoiceOver says after a move.
+    static func moved(position: Int, of count: Int) -> String {
+        "Position \(position) of \(count)"
+    }
+
     /// The filters in the library's "…" menu, Photos' words (the navigation design, section 3).
     static func filterName(_ filter: LibraryFilter) -> String {
         switch filter {

@@ -165,6 +165,23 @@ struct LibraryView: View {
                 selection.insert(item.id)
             }
         }
+        .accessibilityActions { moveActions(item) }
+    }
+
+    /// VoiceOver's way to the manual order, where dragging is: the steps this app can take.
+    @ViewBuilder private func moveActions(_ item: LibraryItem) -> some View {
+        if movesApps, item.entry != nil {
+            let ids = model.entries.map(\.id)
+            ForEach(LibraryMoveStep.allCases, id: \.self) { step in
+                if let destination = step.move(item.id, in: ids) {
+                    Button(Texts.moveName(step)) {
+                        move([item.id], before: destination.before)
+                        AccessibilityNotification.Announcement(
+                            Texts.moved(position: destination.position, of: ids.count)).post()
+                    }
+                }
+            }
+        }
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
