@@ -285,6 +285,42 @@ struct APKAnalyzerTests {
         #expect(try engine(TestAPK(files: sdl)) == "SDL")
     }
 
+    /// The runtime of a .NET or LuaJIT app is named in Get Info; nothing else changes (no issue, no status), as the
+    /// host switches may make them run. Synthetic libraries only: a stub with the name, or one that exports
+    /// luaJIT_setmode, as an engine that links LuaJIT in does.
+    @Test func namesDotNetAndLuaJITRuntimes() throws {
+        func engine(_ apk: TestAPK) throws -> (String?, Compatibility.Status) {
+            let report = try APKAnalyzer.analyze(apk.archive(), preferredLanguages: [])
+            return (report.engine, report.compatibility.status)
+        }
+        func exporting(_ symbol: String, as path: String) -> ZipBuilder.Entry {
+            .init(name: path, content: SymbolELF.make(defined: [symbol]))
+        }
+        let sdl = Self.library("lib/arm64-v8a/libSDL2.so")
+        let mono = TestAPK(files: [Self.library("lib/arm64-v8a/libmonosgen-2.0.so")])
+        let monoAssemblies = TestAPK(files: [Self.library("lib/arm64-v8a/libgame.so"),
+                                             .init(name: "assemblies/Game.dll", content: Data(count: 64))])
+        let monoBlob = TestAPK(files: [Self.library("lib/arm64-v8a/libgame.so"),
+                                       .init(name: "assemblies/assemblies.blob", content: Data(count: 64))])
+        let coreCLR = TestAPK(files: [Self.library("lib/arm64-v8a/libcoreclr.so")])
+        let coreCLRHost = TestAPK(files: [Self.library("lib/arm64-v8a/libnet-android.release.so")])
+        let luaJITNamed = TestAPK(files: [Self.library("lib/arm64-v8a/libluajit-5.1.so")])
+        let luaJITLinkedIn = TestAPK(files: [sdl, exporting("luaJIT_setmode", as: "lib/arm64-v8a/liblove.so")])
+        let plainLua = TestAPK(files: [sdl, exporting("lua_newstate", as: "lib/arm64-v8a/liblove.so")])
+        let network = TestAPK(files: [Self.library("lib/arm64-v8a/libnetwork.so")])
+
+        #expect(try engine(mono) == (".NET (Xamarin/MAUI)", .ready))
+        #expect(try engine(monoAssemblies) == (".NET (Xamarin/MAUI)", .ready))
+        #expect(try engine(monoBlob) == (".NET (Xamarin/MAUI)", .ready))
+        #expect(try engine(coreCLR) == (".NET (CoreCLR)", .ready))
+        #expect(try engine(coreCLRHost) == (".NET (CoreCLR)", .ready))
+        #expect(try engine(luaJITNamed) == ("LuaJIT", .ready))
+        // Before SDL: LÖVE-like apps load SDL too.
+        #expect(try engine(luaJITLinkedIn) == ("LuaJIT", .ready))
+        #expect(try engine(plainLua) == ("SDL", .ready))
+        #expect(try engine(network) == (nil, .ready))
+    }
+
     @Test func detectsGooglePlayDependencies() throws {
         let apk = TestAPK(manifestChildren: [
             E("uses-permission", [.android("name", 0x0101_0003, .string("com.android.vending.BILLING"))]),

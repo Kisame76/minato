@@ -102,7 +102,9 @@ public enum APKAnalyzer {
             splitName: manifest.splitName,
             requiresSplits: needsSplits ?? manifest.requiresSplits,
             playDependencies: playDependencies(manifest),
-            engine: engine(allLibraryNames, assetFolders: assetFolders(apks.map(\.archive))),
+            engine: engine(allLibraryNames, assetFolders: assetFolders(apks.map(\.archive)),
+                           hasAssemblies: hasAssemblies(apks.map(\.archive)),
+                           exportsLuaJIT: { exportsLuaJIT(arm64Libraries) }),
             iconPath: icon?.path,
             signature: signature(of: base, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
@@ -277,7 +279,31 @@ public enum APKAnalyzer {
         })
     }
 
-    private static func engine(_ libraries: Set<String>, assetFolders: Set<String>) -> String? {
+    /// Whether an APK holds .NET assemblies: an assemblies/ folder (also under assets/) or an assemblies blob.
+    private static func hasAssemblies(_ archives: [ZipArchive]) -> Bool {
+        archives.contains { archive in
+            archive.entries.contains { entry in
+                let name = entry.name
+                let file = name.split(separator: "/").last.map(String.init) ?? ""
+                return name.hasPrefix("assemblies/") || name.hasPrefix("assets/assemblies/")
+                    || (file.hasPrefix("assemblies.") && file.hasSuffix(".blob"))
+            }
+        }
+    }
+
+    /// Whether an arm64 library defines luaJIT_setmode, which an engine that links LuaJIT in still exports. A file
+    /// that cannot be read has no verdict and does not count.
+    private static func exportsLuaJIT(_ libraries: [(split: String?, archive: ZipArchive, entry: ZipEntry)]) -> Bool {
+        libraries.contains { library in
+            guard let data = try? library.archive.data(for: library.entry),
+                  let symbols = try? ELFSymbols.read(data) else { return false }
+            return symbols.defined.contains("luaJIT_setmode")
+        }
+    }
+
+    /// `exportsLuaJIT` reads the libraries' symbols, so it is asked only when no engine matched before it.
+    private static func engine(_ libraries: Set<String>, assetFolders: Set<String>, hasAssemblies: Bool,
+                               exportsLuaJIT: () -> Bool) -> String? {
         // Ren'Py: CPython and SDL2 as libraries, its own scripts and the app's as assets (renpy/ and game/, or with
         // the packager's "x-" prefix), or a library of its own name.
         let renpy = libraries.contains { $0.hasPrefix("librenpy") }
@@ -293,11 +319,15 @@ public enum APKAnalyzer {
             ({ $0.contains("libyoyo.so") }, "GameMaker"),
             ({ $0.contains("libflutter.so") }, "Flutter"),
             ({ $0.contains("libreactnativejni.so") }, "React Native"),
-            ({ $0.contains("libmonodroid.so") || $0.contains("libxamarin-app.so") }, ".NET (Xamarin/MAUI)"),
+            ({ $0.contains("libmonodroid.so") || $0.contains("libxamarin-app.so") || $0.contains("libmonosgen-2.0.so")
+                || hasAssemblies }, ".NET (Xamarin/MAUI)"),
+            ({ $0.contains("libcoreclr.so") || $0.contains { $0.hasPrefix("libnet-") } }, ".NET (CoreCLR)"),
             ({ _ in renpy }, "Ren'Py"),
-            ({ $0.contains("libSDL2.so") || $0.contains("libSDL3.so") }, "SDL"),
         ]
-        return known.first { $0.test(libraries) }?.name
+        if let name = known.first(where: { $0.test(libraries) })?.name { return name }
+        // LuaJIT before SDL: LÖVE-like apps load SDL too.
+        if libraries.contains(where: { $0.hasPrefix("libluajit") }) || exportsLuaJIT() { return "LuaJIT" }
+        return libraries.contains("libSDL2.so") || libraries.contains("libSDL3.so") ? "SDL" : nil
     }
 
     // MARK: - Icon
