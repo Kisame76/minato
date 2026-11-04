@@ -96,7 +96,8 @@
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set);
 //   network:<flags>  (ADR-0054 step d)) the host's network changes to the APKRT_NETWORK_* flags <flags> (decimal), as
-//               graphics/host's path monitor sets them (apkrt_network_set): 35 is Wi-Fi in Low Data Mode, 3 Wi-Fi;
+//               graphics/host's path monitor sets them (apkrt_network_set): 35 is Wi-Fi in Low Data Mode, 3 Wi-Fi,
+//               3349 cellular over LTE (radio 13 in bits 8 to 15, metered);
 //   back        (ADR-0041 decision 10) the system's back without a gesture, as a button sends it:
 //               APKRT_EVENT_BACK with COMMIT, progress 0 and EDGE_LEFT, whose answer it does not wait for. The guest's
 //               BACK_AT_ROOT request, where Android moves the task to the back and the App opens its menu, prints
@@ -376,11 +377,11 @@ bool parse_battery(const std::string &step, int &level, int &state) {
            state >= APKRT_BATTERY_STATE_UNKNOWN && state <= APKRT_BATTERY_STATE_FULL;
 }
 
-/// `step` as network:<flags>, the APKRT_NETWORK_* flags (0 to 63); false for any other step.
+/// `step` as network:<flags>, the APKRT_NETWORK_* flags with the radio (0 to 65535); false for any other step.
 bool parse_network(const std::string &step, int &flags) {
     int used = 0;
     return std::sscanf(step.c_str(), "network:%d%n", &flags, &used) == 1 && used == static_cast<int>(step.size()) &&
-           flags >= 0 && flags <= 63;
+           flags >= 0 && flags <= 0xffff;
 }
 
 /// `step` as barinsets:<top>:<bottom>, the system bars' heights in px; false for any other step.

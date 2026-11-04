@@ -1271,6 +1271,10 @@ struct apkrt_location_fix {
 #define APKRT_NETWORK_WIRED       0x8   // it uses Ethernet
 #define APKRT_NETWORK_EXPENSIVE   0x10  // nw_path_is_expensive: metered (cellular, a personal hotspot)
 #define APKRT_NETWORK_CONSTRAINED 0x20  // nw_path_is_constrained: Low Data Mode
+/// Bits 8 to 15: the cellular path's radio as TelephonyManager's NETWORK_TYPE_* (13 LTE, 20 NR, ...), 0 unknown or
+/// not cellular; the iPhone's CoreTelephony gives it (CTTelephonyNetworkInfo's data service), the Mac never.
+#define APKRT_NETWORK_RADIO_SHIFT 8
+#define APKRT_NETWORK_RADIO_MASK  0xff00
 
 // MARK: - The vsync and input channels (ADR-0036, decision 1)
 //

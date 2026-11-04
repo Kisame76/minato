@@ -470,6 +470,16 @@ mobile_data_off() {
 mobile_data_back() {
   run svc data enable >/dev/null || true
 }
+# cellular-network-test's network: the emulator's cellular network alone, its Wi-Fi off until the exit (wifi_back), and
+# 10 s for the default network to move to it.
+wifi_off() {
+  run svc data enable >/dev/null || true
+  run svc wifi disable >/dev/null
+  sleep 10
+}
+wifi_back() {
+  run svc wifi enable >/dev/null || true
+}
 
 sounds_back() {
   local entry name value cache
@@ -1004,6 +1014,12 @@ run_app() {
     # no cellular network. It ends with "done".
     network-request-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RequestActivity
+      ;;
+    # cellular-network-test (ADR-0054 step d)): the default network's legacy info with its subtype, its capabilities
+    # and metering, on the emulator's cellular network alone: its Wi-Fi off for the run (wifi_off). It ends with
+    # "done".
+    cellular-network-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CellularActivity
       ;;
     # restrict-background-test (ADR-0054 step d)): the restrict-background status, then its change broadcasts while
     # the script turns Data Saver on and, 2 s later, off (cmd netpolicy), as Minato follows the iPhone's Low Data
@@ -1706,6 +1722,10 @@ if [[ -n "$app" ]]; then
   if [[ "$app" == network-test || "$app" == network-request-test || "$app" == wifi-state-test ]]; then
     trap 'mobile_data_back; [[ -z "$started" ]] || emulator_stop' EXIT
     mobile_data_off
+  fi
+  if [[ "$app" == cellular-network-test ]]; then
+    trap 'wifi_back; [[ -z "$started" ]] || emulator_stop' EXIT
+    wifi_off
   fi
   # key-test (ADR-0045 step 7c) runs without an input method too, as Minato has none: its keys reach the EditText
   # as a hardware keyboard's do; so does second-windows-test, whose windows' order an input method's window changed.

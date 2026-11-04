@@ -54,6 +54,14 @@ public final class LocalNetwork {
     private static final int WIRED = 0x8;
     private static final int EXPENSIVE = 0x10;
     private static final int CONSTRAINED = 0x20;
+    private static final int RADIO_SHIFT = 8;
+    private static final int RADIO_MASK = 0xff00;
+    /** TelephonyManager's getNetworkTypeName for NETWORK_TYPE_UNKNOWN (0) to NETWORK_TYPE_NR (20). */
+    private static final String[] RADIO_NAMES = {
+        "UNKNOWN", "GPRS", "EDGE", "UMTS", "CDMA", "CDMA - EvDo rev. 0", "CDMA - EvDo rev. A", "CDMA - 1xRTT", "HSDPA",
+        "HSUPA", "HSPA", "iDEN", "CDMA - EvDo rev. B", "LTE", "CDMA - eHRPD", "HSPA+", "GSM", "TD_SCDMA", "IWLAN",
+        "LTE_CA", "NR",
+    };
     private static final int TRANSPORTS = WIFI | CELLULAR | WIRED;
     /** NetworkCapabilities' system API NET_CAPABILITY_NOT_VCN_MANAGED, which every network not of a VCN has. */
     private static final int NET_CAPABILITY_NOT_VCN_MANAGED = 28;
@@ -136,11 +144,16 @@ public final class LocalNetwork {
         }
     }
 
-    /** The legacy info of a network of `state` in `detailed`, with ConnectivityService's empty extra info. */
+    /**
+     * The legacy info of a network of `state` in `detailed`, with ConnectivityService's empty extra info; a cellular
+     * one has its radio as subtype, named as TelephonyManager names it.
+     */
     private static NetworkInfo infoLocked(int state, NetworkInfo.DetailedState detailed) {
         NetworkInfo info;
         if ((state & CELLULAR) != 0) {
-            info = new NetworkInfo(ConnectivityManager.TYPE_MOBILE, 0, "MOBILE", "");
+            int radio = (state & RADIO_MASK) >> RADIO_SHIFT;
+            info = new NetworkInfo(ConnectivityManager.TYPE_MOBILE, radio, "MOBILE",
+                    radio < RADIO_NAMES.length ? RADIO_NAMES[radio] : "UNKNOWN(" + radio + ")");
         } else if ((state & WIRED) != 0 && (state & WIFI) == 0) {
             info = new NetworkInfo(ConnectivityManager.TYPE_ETHERNET, 0, "ETHERNET", "");
         } else {

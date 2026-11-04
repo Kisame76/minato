@@ -1,0 +1,6 @@
+I/cellular-network-test: ready
+I/cellular-network-test: network info: MOBILE 0, subtype 10 HSPA, CONNECTED, roaming false
+I/cellular-network-test: active network info: MOBILE 0, subtype 10 HSPA, CONNECTED, roaming false
+I/cellular-network-test: capabilities: cellular true, wifi false, INTERNET true, NOT_METERED false
+I/cellular-network-test: metered: true
+I/cellular-network-test: done
