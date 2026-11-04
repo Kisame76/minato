@@ -992,11 +992,6 @@ pause, lost = f"I/{sys.argv[2]}: APP_CMD_PAUSE", f"I/{sys.argv[2]}: APP_CMD_LOST
 pairs = [i for i in range(len(lines) - 1) if lines[i] == pause and lines[i + 1] == lost]
 for i in pairs[:-1]:
     lines[i], lines[i + 1] = lost, pause
-# The return under Minato's menu: RESUME comes with Continue, right before the focus.
-start, resume, gained = (f"I/{sys.argv[2]}: APP_CMD_{name}" for name in ("START", "RESUME", "GAINED_FOCUS"))
-for at in [i for i, line in enumerate(lines) if line == start][1:]:
-    moved = lines.index(resume, at)
-    lines.insert(lines.index(gained, moved) - 1, lines.pop(moved))
 print("\n".join(lines))
 PY
 }
@@ -1038,7 +1033,7 @@ run_translucent() {
   await_event "request finish" 20 && ok "  the app finishes itself after its return" || fail "  no FINISH"
   await_event "program ended .*" 10 || fail "  activity-host did not end"
   await_event "process library.*" 30 || fail "  no library after the end"
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onResume onWindowFocusChanged(true) onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onNativeWindowCreated onResume onWindowFocusChanged(true) $FINISH" \
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onResume onWindowFocusChanged(true) onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $FINISH" \
     "$(callbacks_of "$pid")"
   expect "  the requests" "windowOpaque(false) keepScreenOn(true) finish" "$(requests_of "$pid")"
   expect "  the layer's opacity" "1 0" "$(opacity_of "$pid")"
@@ -1102,8 +1097,8 @@ run_activity() {
     || fail "  activity-host did not end"
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
-  # The return starts the app under Minato's menu; Continue resumes it (ADR-0032 decision 7, the menu's pause).
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onNativeWindowCreated onResume onWindowFocusChanged(true) $FINISH" \
+  # The return waits stopped under Minato's menu; Continue starts it again (ADR-0032 decision 7, the menu's pause).
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $FINISH" \
     "$(callbacks_of "$pid")"
   expect "  the requests" "keepScreenOn(true) finish" "$(requests_of "$pid")"
   # The layer starts opaque, as Android's window from NativeActivity's RGB_565, and stays so (ADR-0030 V5).
@@ -1417,7 +1412,7 @@ run_audio_live() {
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
   # The return under Minato's menu, Continue, then the Quit's menu pauses the app and Quit ends it.
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onNativeWindowCreated onResume onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
     "$(callbacks_of "$pid")"
 
   audio=$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "audio" { $1 = $2 = ""; sub(/^ +/, ""); print }')

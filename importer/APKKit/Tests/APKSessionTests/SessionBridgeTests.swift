@@ -267,14 +267,14 @@ struct SessionBridgeTests {
         _ = host.take()
 
         bridge.handle(.foreground, host: host)
-        #expect(host.take() == [
-            .setBackground(false), .addWindow(width: Self.width, height: Self.height), .post(.start),
-        ] + Self.shown(2, first: false))
-        // Minato's menu waits over the app, which resumes with Continue.
+        #expect(host.take() == [.setBackground(false)])
+        // Minato's menu waits over the stopped app, which starts again with Continue, as after Android's keyguard.
         bridge.handle(.active, host: host)
         #expect(host.take() == [])
         bridge.handle(.menuClosed, host: host)
-        #expect(host.take() == [.post(.resume), .post(.windowFocusChanged(true)), .setGate(2, open: true)])
+        #expect(host.take() == [
+            .addWindow(width: Self.width, height: Self.height), .post(.start), .post(.resume),
+        ] + Self.shown(2, first: false) + [.post(.windowFocusChanged(true)), .setGate(2, open: true)])
     }
 
     @Test func foregroundBeforeTheAnswerComesAfterIt() {
@@ -287,10 +287,7 @@ struct SessionBridgeTests {
         #expect(bridge.handle(.foreground, host: host).wait == nil)
         #expect(host.take() == [.setBackground(false)])
         #expect(bridge.finished(wait!, result: 1, host: host).wait == nil)
-        #expect(host.take() == [
-            .post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState),
-            .addWindow(width: Self.width, height: Self.height), .post(.start),
-        ] + Self.shown(2, first: false))
+        #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState)])
     }
 
     /// An app that ends with the focus keeps its window and open gate through onPause, as on Android; the gate closes
@@ -339,6 +336,7 @@ struct SessionBridgeTests {
         _ = bridge.finished(early, result: 0, host: host).wait
         bridge.handle(.foreground, host: host)
         bridge.handle(.active, host: host)
+        bridge.handle(.menuClosed, host: host)
         bridge.handle(.inactive, host: host)
         let later = bridge.handle(.background, host: host).wait!
         _ = host.take()
@@ -601,6 +599,7 @@ struct SessionBridgeTests {
         _ = host.take()
 
         bridge.handle(.foreground, host: host)
+        bridge.handle(.menuClosed, host: host)
         #expect(host.take().contains(.addWindow(width: Self.width, height: Self.height)))
         #expect(bridge.letterbox == Letterbox(frame: PixelRect(left: 359, top: 0, right: 1649, bottom: 2796), scale: 1,
                                              size: Self.fullSize))
@@ -656,6 +655,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
         bridge.finished(try #require(wait), result: 1, host: host)
         bridge.handle(.foreground, host: host)
+        bridge.handle(.menuClosed, host: host)
         #expect(host.take().contains(.addWindow(width: Self.height, height: Self.width)))
     }
 

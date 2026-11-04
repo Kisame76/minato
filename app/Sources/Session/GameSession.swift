@@ -592,8 +592,8 @@ final class GameSession {
         showMenuForTheReturn()
     }
 
-    /// The return shows Minato's menu over the app, which the background paused and stopped and which resumes only
-    /// with Continue (ADR-0032, decision 7, the menu's pause).
+    /// The return shows Minato's menu over the app, which the background paused and stopped and which starts again
+    /// only with Continue (ADR-0032, decision 7, the menu's pause).
     private func showMenuForTheReturn() {
         guard bridge.lifecycle.menuIsOpen, !menuIsOpen else { return }
         #if BENCHMARK

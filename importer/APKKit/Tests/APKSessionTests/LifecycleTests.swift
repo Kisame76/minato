@@ -81,7 +81,8 @@ struct LifecycleTests {
         #expect(lifecycle.handle(.background) == background)
         #expect(lifecycle.awaits == .onNativeWindowDestroyed)
         #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == answer)
-        #expect(lifecycle.handle(.foreground) == [.onStart, .onNativeWindowCreated])
+        #expect(lifecycle.handle(.foreground) == [])
+        #expect(lifecycle.handle(.menuClosed) == [.onStart, .onResume, .onNativeWindowCreated])
     }
 
     @Test(arguments: [35, 27, 10])
@@ -125,15 +126,17 @@ struct LifecycleTests {
         #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onSaveInstanceState])
     }
 
-    /// The return starts the app with its window under the menu; Continue resumes it.
+    /// The return leaves the app stopped under the menu, as Android leaves an activity under the keyguard; Continue
+    /// starts and resumes it with its window, as the keyguard's dismiss does.
     @Test func comesBackFromTheBackground() {
         var lifecycle = Self.running()
         _ = Self.run([.inactive, .background, .answered(.onNativeWindowDestroyed)], on: &lifecycle)
 
-        #expect(lifecycle.handle(.foreground) == [.onStart, .onNativeWindowCreated])
-        #expect(lifecycle.gate == .closed)
+        #expect(lifecycle.handle(.foreground) == [])
+        #expect(lifecycle.gate == .gone)
         #expect(lifecycle.handle(.active) == [])
-        #expect(lifecycle.handle(.menuClosed) == [.onResume, .onWindowFocusChanged(true)])
+        #expect(lifecycle.handle(.menuClosed)
+            == [.onStart, .onResume, .onNativeWindowCreated, .onWindowFocusChanged(true)])
         #expect(lifecycle.gate == .open)
     }
 
@@ -153,9 +156,8 @@ struct LifecycleTests {
 
         #expect(lifecycle.handle(.foreground) == [])
         #expect(lifecycle.handle(.active) == [])
-        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed))
-            == [.onStop, .onSaveInstanceState, .onStart, .onNativeWindowCreated])
-        #expect(lifecycle.gate == .closed)
+        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onSaveInstanceState])
+        #expect(lifecycle.gate == .gone)
     }
 
     @Test func eventsDuringAWaitRunAfterItInTheirOrder() {
@@ -324,8 +326,8 @@ struct LifecycleTests {
         #expect(lifecycle.handle(.active) == [.onWindowFocusChanged(true)])
     }
 
-    /// The background of a paused app stops it without a second pause, and the menu waits on the return: the app
-    /// starts with its window but resumes only with Continue, as an activity under Android's keyguard.
+    /// The background of a paused app stops it without a second pause, and the menu waits on the return: the app stays
+    /// stopped until Continue, as an activity under Android's keyguard.
     @Test func theBackgroundUnderTheMenuStopsAndTheReturnWaitsForContinue() {
         var lifecycle = Self.running()
         _ = lifecycle.handle(.menuOpened)
@@ -333,13 +335,14 @@ struct LifecycleTests {
         #expect(Self.run([.inactive, .background], on: &lifecycle) == [[], [.onNativeWindowDestroyed]])
         #expect(lifecycle.gate == .gone)
         #expect(Self.run([.answered(.onNativeWindowDestroyed), .foreground, .active], on: &lifecycle)
-            == [[.onStop, .onSaveInstanceState], [.onStart, .onNativeWindowCreated], []])
-        #expect(lifecycle.gate == .closed)
-        #expect(lifecycle.handle(.menuClosed) == [.onResume, .onWindowFocusChanged(true)])
+            == [[.onStop, .onSaveInstanceState], [], []])
+        #expect(lifecycle.gate == .gone)
+        #expect(lifecycle.handle(.menuClosed)
+            == [.onStart, .onResume, .onNativeWindowCreated, .onWindowFocusChanged(true)])
         #expect(lifecycle.gate == .open)
     }
 
-    /// Leaving Minato pauses and stops the app as before, and its return shows the menu over the paused app.
+    /// Leaving Minato pauses and stops the app as before, and its return shows the menu over the stopped app.
     @Test func theBackgroundOpensTheMenuForTheReturn() {
         var lifecycle = Self.running()
         #expect(!lifecycle.menuIsOpen)
@@ -348,19 +351,22 @@ struct LifecycleTests {
             == [[.onWindowFocusChanged(false)], [.onPause, .onNativeWindowDestroyed]])
         #expect(lifecycle.menuIsOpen)
         #expect(Self.run([.answered(.onNativeWindowDestroyed), .foreground, .active], on: &lifecycle)
-            == [[.onStop, .onSaveInstanceState], [.onStart, .onNativeWindowCreated], []])
-        #expect(lifecycle.handle(.menuClosed) == [.onResume, .onWindowFocusChanged(true)])
+            == [[.onStop, .onSaveInstanceState], [], []])
+        #expect(lifecycle.handle(.menuClosed)
+            == [.onStart, .onResume, .onNativeWindowCreated, .onWindowFocusChanged(true)])
         #expect(!lifecycle.menuIsOpen)
     }
 
-    /// Quit in the menu that waits on the return ends the app from its start, without a resume.
+    /// Quit in the menu that waits on the return ends the stopped app with onDestroy alone, as Android ends a stopped
+    /// activity.
     @Test func quitInTheMenuOnTheReturnEndsWithoutAResume() {
         var lifecycle = Self.running()
         _ = Self.run([.inactive, .background, .answered(.onNativeWindowDestroyed), .foreground, .active],
                      on: &lifecycle)
 
-        #expect(lifecycle.handle(.quit) == [.onNativeWindowDestroyed])
-        #expect(lifecycle.handle(.answered(.onNativeWindowDestroyed)) == [.onStop, .onDestroy])
+        #expect(lifecycle.handle(.quit) == [.onDestroy])
+        #expect(lifecycle.handle(.answered(.onDestroy)) == [])
+        #expect(lifecycle.hasEnded)
     }
 
     /// A Java app's frames run from its start to its end while the scene is in the foreground, whatever the gate
@@ -443,8 +449,7 @@ struct LifecycleTests {
     /// A turn while the host waits for an answer runs after it, as every event does.
     @Test func aTurnWhileTheHostWaitsComesAfterTheAnswer() {
         var lifecycle = Self.running()
-        _ = Self.run([.inactive, .background], on: &lifecycle)
-        _ = lifecycle.handle(.foreground)
+        _ = Self.run([.inactive, .background, .foreground, .menuClosed], on: &lifecycle)
         #expect(lifecycle.awaits == .onNativeWindowDestroyed)
 
         #expect(lifecycle.handle(.turned) == [])

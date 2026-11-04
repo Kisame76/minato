@@ -66,8 +66,8 @@ public struct Lifecycle: Sendable, Equatable {
         case notStarted
         /// Started or resumed, with its window.
         case resumed
-        /// Paused under Minato's menu, with its window behind the closed gate: as an activity under a window that does
-        /// not cover it all, or under the keyguard after the return (ADR-0032, decision 7, the menu's pause).
+        /// Paused under Minato's menu, with its window behind the closed gate: as an activity under a dialog of another
+        /// task (ADR-0032, decision 7, the menu's pause).
         case paused
         /// Without a window: from onPause on, stopping or stopped.
         case stopped
@@ -81,7 +81,7 @@ public struct Lifecycle: Sendable, Equatable {
     private var isInBackground = false
     private var isActive = false
     /// Whether Minato's menu is over the app: from the menu's opening, and from the background on, so that the
-    /// return shows it and the app resumes only with Continue.
+    /// return shows it and the app starts again only with Continue.
     public private(set) var menuIsOpen = false
     /// What the guest was told last with onWindowFocusChanged.
     private var hasFocus = false
@@ -157,7 +157,10 @@ public struct Lifecycle: Sendable, Equatable {
             return updateFocus() + pause()
         case .menuClosed:
             menuIsOpen = false
-            return resume() + updateFocus()
+            // Continue after the return starts the stopped app, as the keyguard's dismiss does on Android 15.
+            guard phase == .stopped, !isInBackground, !isEnding, !endsStopped else { return resume() + updateFocus() }
+            phase = .resumed
+            return [.onStart, .onResume, .onNativeWindowCreated] + updateFocus()
         case .memoryWarning:
             return phase == .notStarted ? [] : [.onLowMemory]
         case .turned:
@@ -174,12 +177,8 @@ public struct Lifecycle: Sendable, Equatable {
         case .foreground:
             isInBackground = false
             if phase == .notStarted { return startIfDue() }
-            guard phase == .stopped else { return [] }
-            // Under the menu the app starts with its window and waits for Continue, as under the keyguard.
-            guard !menuIsOpen else {
-                phase = .paused
-                return [.onStart, .onNativeWindowCreated]
-            }
+            // Under the menu the app stays stopped until Continue, as an activity under Android 15's keyguard.
+            guard phase == .stopped, !menuIsOpen else { return [] }
             phase = .resumed
             return [.onStart, .onResume, .onNativeWindowCreated] + updateFocus()
         case .quit, .finish:
