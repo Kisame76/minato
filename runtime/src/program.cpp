@@ -18,6 +18,7 @@
 #include "proc.h"
 #include "process_exit.h"
 #include "sockets.h"
+#include "stall_watchdog.h"
 #include "syscall_frame.h"
 #include "threads.h"
 
@@ -186,6 +187,7 @@ extern "C" int apkrt_start_program(const char *container_path, const char *const
         return -1;
     }
     apkrt::process::program_starts();  // the measures' start (apkrt_report_exit_measures)
+    apkrt::stall::start_thread();      // the stall watchdog's daemon: no first frame / stopped presenting -> dump
     try {
         launch(container_path, argv, envp);
         return 0;

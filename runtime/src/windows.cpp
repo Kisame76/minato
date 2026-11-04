@@ -5,7 +5,9 @@
 #include "windows.h"
 
 #include "APKRuntime/apkrt.h"
+#include "process_exit.h"
 #include "signals.h"
+#include "stall_watchdog.h"
 #include "syscalls.h"
 
 #include <CoreFoundation/CoreFoundation.h>
@@ -263,6 +265,8 @@ int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height) {
 }
 
 void apkrt_window_presented(uint64_t id) {
+    apkrt::process::note_first_frame();  // the shared "first frame seen" flag (Formate's failed-path ring keys off it)
+    apkrt::stall::presented(clock_gettime_nsec_np(CLOCK_MONOTONIC));  // the stall watchdog's last-present time
     const std::lock_guard<std::mutex> hold(lock);
     if (Window *window = find(id)) ++window->presents;
 }

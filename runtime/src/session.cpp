@@ -4,12 +4,14 @@
 #include "descriptors.h"
 #include "guest_context.h"
 #include "permissions.h"
+#include "stall_watchdog.h"
 #include "syscalls.h"
 #include "windows.h"
 
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -1198,6 +1200,12 @@ extern "C" void apkrt_permission_answer(uint32_t request_id, int32_t group, int3
 extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2) {
     using namespace apkrt::session;
     if (!begun.load(std::memory_order_acquire)) return 0;
+    // Minato's stall watchdog: resume arms its no-first-frame timer, pause or stop disarms it (session log diagnostic).
+    if (type == APKRT_EVENT_RESUME) {
+        apkrt::stall::resumed(clock_gettime_nsec_np(CLOCK_MONOTONIC));
+    } else if (type == APKRT_EVENT_PAUSE || type == APKRT_EVENT_STOP) {
+        apkrt::stall::paused();
+    }
     // TRIM_MEMORY_UI_HIDDEN and above: the windows' buffers go first, as Android's hidden window gives its surface's
     // back before the app hears of the trim.
     if (type == APKRT_EVENT_TRIM_MEMORY && a0 >= 20) apkrt::windows::trim_buffers();
