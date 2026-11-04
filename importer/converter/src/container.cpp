@@ -850,22 +850,27 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
         instruction & 0x1f, address, site, more == 0 ? std::string() : std::format(" (and {} more)", more)));
 }
 
-// Option (c) and the islands must never rewrite the same site: a (c) function renames x18 across its whole body and
-// patches its own entry/exit/call sites, so a function that also holds an island construct (a thread-pointer or
-// syscall site, an x18 island, an exclusive window or a jump table) is dropped from the plan and stays refused --
-// (c) would rewrite it twice, or a signal in that island's stub would read the stale slot 11. The richer co-resident
-// case (notably the svc that clusters with the hard x18 in protected code) is a later step.
+// Option (c) and the islands must agree on every site of a taken function. A (c) function renames x18 across its
+// whole body, so a single or no-save x18 site or an exclusive window inside it is NOT emitted (ADR-0020 A1): the
+// rename already handles those x18 uses, so such a construct no longer drops the function. Three kinds still drop it
+// and keep it refused: a thread-pointer or syscall site (its stub shuttles state (c) does not touch -- step A2
+// extends the (c) ranges over that stub), and a jump table (whether (c) renames a `br x18` to `br <register>`
+// correctly is not yet verified, so we do not suppress its island -- a named limit for a later step).
 void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Findings &findings) {
-    const auto overlaps = [&](const WholeFunctionRename &function) {
+    const auto holds_an_island_c_cannot_absorb = [&](const WholeFunctionRename &function) {
         const auto inside = [&](std::uint64_t address) { return address >= function.begin && address < function.end; };
-        for (const auto &site : findings.sites) if (inside(site.address)) return true;
-        for (const auto &region : findings.exclusive_regions) if (inside(region.address)) return true;
+        for (const auto &site : findings.sites) {
+            const bool non_x18 = site.kind == rewrite::SiteKind::thread_pointer_read ||
+                                 site.kind == rewrite::SiteKind::thread_pointer_write ||
+                                 site.kind == rewrite::SiteKind::syscall;
+            if (non_x18 && inside(site.address)) return true;
+        }
         for (const auto &table : findings.jump_tables) if (inside(table.address)) return true;
         return false;
     };
     std::vector<WholeFunctionRename> kept;
     for (const auto &function : plan.functions) {
-        if (!overlaps(function)) kept.push_back(function);
+        if (!holds_an_island_c_cannot_absorb(function)) kept.push_back(function);
     }
     std::vector<std::uint64_t> covered;
     for (const auto address : plan.covered_sites) {
@@ -947,6 +952,23 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     report.x18_writes = static_cast<std::uint32_t>(findings.x18_writes.size());
     report.x18_saves = static_cast<std::uint32_t>(findings.x18_saves.size());
 
+    // ADR-0020 A1: a single/no-save x18 site or an exclusive window whose address a (c) function covers is NOT
+    // emitted -- the whole-function rename already turns that x18 use into the free register, so an island there would
+    // double-handle it (and its stub would read the stale slot 11 on a signal). These predicates name what option (c)
+    // suppresses; the pre-count and the emission below both use them, so island_count and the stub bytes match the
+    // add_island calls. Thread-pointer, syscall and jump-table sites never reach here:
+    // keep_c_functions_clear_of_islands drops any function holding one, so no (c) range covers it.
+    const auto in_c_function = [&](std::uint64_t address) {
+        for (const auto &function : c_plan.functions) {
+            if (address >= function.begin && address < function.end) return true;
+        }
+        return false;
+    };
+    const auto x18_site_suppressed = [&](const rewrite::Site &site) {
+        return (site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave) &&
+               in_c_function(site.address);
+    };
+
     // Layout of the container (APKRuntime/container_format.h): __TEXT with the header and the first run when it is
     // code, a segment for every other run, the runtime slots' page after the image (in the last run when that is
     // writable), then __LINKEDIT.
@@ -979,13 +1001,18 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
 
     const std::uint64_t info_offset = align_up(macho::header_size(dylib) + macho::signature_headroom, 8);
     // The island table follows __apk_info: one entry per x18 island, in the order of the stubs; then the runs.
-    // Both x18 and x18_nosave sites become an island (ADR-0020 C7), so both are counted here -- this must match
-    // the add_island calls in the site loop below, or the table is mis-sized and the runs overwrite it.
+    // Both x18 and x18_nosave sites become an island (ADR-0020 C7), so both are counted here -- but a single/no-save
+    // x18 site or an exclusive window a (c) function covers is renamed, not islanded (A1), so it is excluded. (Jump
+    // tables are never inside a (c) function: keep_c_functions_clear_of_islands drops such a function.) This must
+    // match the add_island calls in the site loop below, or the table is mis-sized and the runs overwrite it.
     const auto island_count =
-        static_cast<std::size_t>(std::ranges::count_if(findings.sites, [](const rewrite::Site &site) {
-            return site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave;
+        static_cast<std::size_t>(std::ranges::count_if(findings.sites, [&](const rewrite::Site &site) {
+            return !x18_site_suppressed(site) &&
+                   (site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave);
         })) +
-        findings.exclusive_regions.size() + findings.jump_tables.size();
+        static_cast<std::size_t>(std::ranges::count_if(
+            findings.exclusive_regions, [&](const auto &region) { return !in_c_function(region.address); })) +
+        findings.jump_tables.size();
     // Option (c)'s R-range table (apk_c_range) sits between the runs and the stubs; its sync islands follow the x18
     // islands in the stub area. The range count is address-independent (c_rename_ranges counts the body plus one or
     // two per sync point), so a dummy address serves for the pre-count.
@@ -999,8 +1026,9 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     const std::uint64_t c_ranges_offset = align_up(runs_offset + runs.size() * sizeof(apk_run), 8);
     const std::uint64_t stubs_offset = align_up(c_ranges_offset + c_range_count * sizeof(apk_c_range), 16);
     std::uint64_t stubs_size = 0;
-    for (const auto &site : findings.sites) stubs_size += rewrite::stub_size(site);
-    for (const auto &region : findings.exclusive_regions) stubs_size += rewrite::exclusive_region_stub_size(region);
+    for (const auto &site : findings.sites) if (!x18_site_suppressed(site)) stubs_size += rewrite::stub_size(site);
+    for (const auto &region : findings.exclusive_regions)
+        if (!in_c_function(region.address)) stubs_size += rewrite::exclusive_region_stub_size(region);
     for (const auto &table : findings.jump_tables) stubs_size += rewrite::jump_table_stub_size(table);
     for (const auto &function : c_plan.functions) {
         stubs_size +=
@@ -1090,6 +1118,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     // Rewrite the sites; each stub goes into the stub area in the order of the sites.
     std::uint64_t stub = stubs_offset;
     for (const auto &site : findings.sites) {
+        if (x18_site_suppressed(site)) continue;  // A1: a (c) function renamed this x18 use; no island for it
         const std::uint64_t site_address = container_address(site.address);
         const auto size = rewrite::stub_size(site);
         const auto patch = rewrite::emit(site, site_address, stub, runtime_slots + offsetof(apk_runtime_slots, syscall_entry),
@@ -1109,6 +1138,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     }
     // Relocate each load-/store-exclusive window with x18 as one island (ADR-0020 X2c).
     for (const auto &region : findings.exclusive_regions) {
+        if (in_c_function(region.address)) continue;  // A1: a (c) function renamed the window's x18 to the register
         const std::uint64_t region_address = container_address(region.address);
         const auto size = rewrite::exclusive_region_stub_size(region);
         const auto patch = rewrite::emit_exclusive_region(region, region_address, stub,
@@ -1118,7 +1148,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         stub += size;
         ++report.x18_islands;
     }
-    // Each br x18 that ends a jump table: an island with its landing pads (ADR-0020 X2d).
+    // Each br x18 that ends a jump table: an island with its landing pads (ADR-0020 X2d). A (c) function never holds
+    // one (keep_c_functions_clear_of_islands drops it), so none is suppressed here.
     for (const auto &table : findings.jump_tables) {
         const std::uint64_t branch_address = container_address(table.address);
         const auto size = rewrite::jump_table_stub_size(table);

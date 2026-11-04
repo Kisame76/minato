@@ -538,6 +538,66 @@ TEST(renames_x18_across_a_hard_function_instead_of_refusing_it) {
                          [](const apk_c_range &a, const apk_c_range &b) { return a.start < b.start; }));
 }
 
+// ADR-0020 option (c) step A1: a (c) function may hold ISLANDABLE x18 uses too, not only hard ones. Here a single
+// `add x0,x0,x18` (an x18 island on its own) sits next to a hard `ret x18`. The whole-function rename converts every
+// x18 use in the body to the free register, so convert() emits NO x18 island inside the function and
+// keep_c_functions_clear_of_islands no longer drops it for one. Before A1 the overlap filter dropped the function
+// for the add's island and the whole file was refused.
+TEST(takes_a_function_with_a_mix_of_islandable_and_hard_x18_uses_and_islands_none_of_them) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x20}});  // fn = [0x200, 0x220)
+    prog.put<std::uint32_t>(0x200, 0xd503'201f);  // nop: was mrs TPIDR_EL0 -- remove the thread-pointer island
+    prog.put<std::uint32_t>(0x208, 0xd503'201f);  // nop: was svc -- remove the syscall veneer
+    prog.put<std::uint32_t>(0x20c, 0xd503'201f);  // nop: was msr TPIDR_EL0 -- remove the thread-pointer island
+    prog.put<std::uint32_t>(0x210, 0xd503'201f);  // nop: was mrs xzr, TPIDR_EL0
+    prog.put<std::uint32_t>(0x214, 0xd503'201f);  // nop: was ret -- the single exit is the ret x18
+    prog.put<std::uint32_t>(0x218, 0x8b12'0000);  // add x0, x0, x18: an ISLANDABLE single x18 read -- today an island
+    prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: the HARD x18 use (register return), no island
+    const auto container = convert(prog);         // before A1 keep-clear drops fn for the add's island -> Incompatible
+    const auto info = read_info(container.bytes);
+    CHECK(info.version == 6);
+    // (c) took the function: a body range covers the islandable site, with the rename register.
+    std::optional<std::uint8_t> reg;
+    for (const auto &range : c_range_table(container)) {
+        if (range.start <= info.image_offset + 0x218 && info.image_offset + 0x218 < range.end) reg = range.reg;
+    }
+    CHECK(reg.has_value());
+    // The islandable add was RENAMED in place (x18 -> the rename register), not turned into a branch to an island.
+    if (reg) CHECK(word_at(container.bytes, info.image_offset + 0x218) == (0x8b00'0000u | (std::uint32_t{*reg} << 16)));
+    // No x18 island at all: the rename handled every x18 use of the function.
+    CHECK(island_table(container).empty());
+}
+
+// ADR-0020 option (c) step A1, the real-world construct: a closed LL/SC window on x18 (islandable on its own, an
+// exclusive_region) inside a (c) function. The whole-function rename turns its ldxr/stxr x18 into the free register,
+// so the window runs natively on a kernel-preserved register and no exclusive-window island is emitted. This is the
+// cluster Unity's protected code has (a hard x18 use next to an exclusive window); before A1 it was refused.
+TEST(takes_a_function_with_a_closed_exclusive_window_and_a_hard_x18_use_without_an_island) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x20}});  // fn = [0x200, 0x220)
+    prog.put<std::uint32_t>(0x200, 0xd503'201f);  // nop: was mrs TPIDR_EL0
+    prog.put<std::uint32_t>(0x204, 0xd503'201f);  // nop: was the stack-guard load
+    prog.put<std::uint32_t>(0x208, 0xc85f'7c52);  // ldxr x18, [x2]       : the window opens (x18 the loaded value)
+    prog.put<std::uint32_t>(0x20c, 0x9100'0652);  // add  x18, x18, #1
+    prog.put<std::uint32_t>(0x210, 0xc803'7c52);  // stxr w3, x18, [x2]   : the window closes -> islandable, not hard
+    prog.put<std::uint32_t>(0x214, 0x35ff'ffa3);  // cbnz w3, 0x208       : the normal LL/SC retry (an internal edge)
+    prog.put<std::uint32_t>(0x218, 0xd503'201f);  // nop
+    prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18              : the HARD x18 use (register return)
+    const auto container = convert(prog);         // before A1 keep-clear drops fn for the window's island -> refused
+    const auto info = read_info(container.bytes);
+    CHECK(info.version == 6);
+    std::optional<std::uint8_t> reg;
+    for (const auto &range : c_range_table(container)) {
+        if (range.start <= info.image_offset + 0x208 && info.image_offset + 0x208 < range.end) reg = range.reg;
+    }
+    CHECK(reg.has_value());
+    // The window's ldxr/stxr were renamed in place to the free register (Rt field), not relocated into an island.
+    if (reg) {
+        // ldxr <reg>, [x2] and stxr w3, <reg>, [x2]
+        CHECK(word_at(container.bytes, info.image_offset + 0x208) == (0xc85f'7c40u | std::uint32_t{*reg}));
+        CHECK(word_at(container.bytes, info.image_offset + 0x210) == (0xc803'7c40u | std::uint32_t{*reg}));
+    }
+    CHECK(island_table(container).empty());  // no exclusive-window island inside the (c) function
+}
+
 TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
     // ADR-0007 decision 2, as amended: the whole image moves by a multiple of 4 KiB, as AOSP's 16 KiB compat mode
     // moves its load bias, and nothing in it changes.
