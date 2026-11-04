@@ -103,7 +103,7 @@ public enum APKAnalyzer {
             requiresSplits: needsSplits ?? manifest.requiresSplits,
             playDependencies: playDependencies(manifest),
             engine: engine(allLibraryNames, assetFolders: assetFolders(apks.map(\.archive)),
-                           hasAssemblies: hasAssemblies(apks.map(\.archive)),
+                           hasAssemblies: hasAssemblies(apks.map(\.archive)), hasPrivateTar: hasPrivateTar(apks.map(\.archive)),
                            exportsLuaJIT: { exportsLuaJIT(arm64Libraries) }),
             iconPath: icon?.path,
             signature: signature(of: base, targetSdk: manifest.targetSdk),
@@ -291,6 +291,11 @@ public enum APKAnalyzer {
         }
     }
 
+    /// Whether an APK holds python-for-android's Python bundle as assets/private.tar.
+    private static func hasPrivateTar(_ archives: [ZipArchive]) -> Bool {
+        archives.contains { $0.entries.contains { $0.name == "assets/private.tar" } }
+    }
+
     /// Whether an arm64 library defines luaJIT_setmode, which an engine that links LuaJIT in still exports. A file
     /// that cannot be read has no verdict and does not count.
     private static func exportsLuaJIT(_ libraries: [(split: String?, archive: ZipArchive, entry: ZipEntry)]) -> Bool {
@@ -303,7 +308,7 @@ public enum APKAnalyzer {
 
     /// `exportsLuaJIT` reads the libraries' symbols, so it is asked only when no engine matched before it.
     private static func engine(_ libraries: Set<String>, assetFolders: Set<String>, hasAssemblies: Bool,
-                               exportsLuaJIT: () -> Bool) -> String? {
+                               hasPrivateTar: Bool, exportsLuaJIT: () -> Bool) -> String? {
         // Ren'Py: CPython and SDL2 as libraries, its own scripts and the app's as assets (renpy/ and game/, or with
         // the packager's "x-" prefix), or a library of its own name.
         let renpy = libraries.contains { $0.hasPrefix("librenpy") }
@@ -323,6 +328,10 @@ public enum APKAnalyzer {
                 || hasAssemblies }, ".NET (Xamarin/MAUI)"),
             ({ $0.contains("libcoreclr.so") || $0.contains { $0.hasPrefix("libnet-") } }, ".NET (CoreCLR)"),
             ({ _ in renpy }, "Ren'Py"),
+            // python-for-android: CPython 3 and SDL, with the Python bundle as a library file or as assets/private.tar.
+            ({ $0.contains { $0.hasPrefix("libpython3") }
+                && ($0.contains("libpybundle.so") || hasPrivateTar)
+                && ($0.contains("libSDL2.so") || $0.contains("libSDL3.so") || $0.contains("libmain.so")) }, "Kivy"),
         ]
         if let name = known.first(where: { $0.test(libraries) })?.name { return name }
         // LuaJIT before SDL: LÖVE-like apps load SDL too.

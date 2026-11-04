@@ -280,7 +280,8 @@ struct APKAnalyzerTests {
         #expect(try engine(renpyAssets) == "Ren'Py")
         #expect(try engine(renpyPrefixed) == "Ren'Py")
         #expect(try engine(renpyLibrary) == "Ren'Py")
-        #expect(try engine(pythonOnly) == "SDL")
+        // python-for-android's SDL2 bootstrap (CPython 3, SDL2, libmain, assets/private.tar) is Kivy's.
+        #expect(try engine(pythonOnly) == "Kivy")
         #expect(try engine(sdlGame) == "SDL")
         #expect(try engine(TestAPK(files: sdl)) == "SDL")
     }
@@ -319,6 +320,23 @@ struct APKAnalyzerTests {
         #expect(try engine(luaJITLinkedIn) == ("LuaJIT", .ready))
         #expect(try engine(plainLua) == ("SDL", .ready))
         #expect(try engine(network) == (nil, .ready))
+    }
+
+    /// python-for-android (Kivy): CPython 3 and SDL as libraries and the Python bundle as libpybundle.so or assets/private.tar.
+    /// Before SDL, as LuaJIT is; without the bundle it is plain SDL or Python. Synthetic names only.
+    @Test func namesKivyApps() throws {
+        func engine(_ files: [ZipBuilder.Entry]) throws -> String? {
+            try APKAnalyzer.analyze(TestAPK(files: files).archive(), preferredLanguages: []).engine
+        }
+        let base = [Self.library("lib/arm64-v8a/libpython3.11.so"), Self.library("lib/arm64-v8a/libSDL2.so"),
+                    Self.library("lib/arm64-v8a/libmain.so")]
+        let bundle = ZipBuilder.Entry(name: "lib/arm64-v8a/libpybundle.so", content: Data(count: 3_000))
+        let tar = ZipBuilder.Entry(name: "assets/private.tar", content: Data(count: 3_000))
+
+        #expect(try engine(base + [bundle]) == "Kivy")
+        #expect(try engine(base + [tar]) == "Kivy")
+        #expect(try engine(base) == "SDL")
+        #expect(try engine([Self.library("lib/arm64-v8a/libpython3.11.so"), bundle]) == nil)
     }
 
     @Test func detectsGooglePlayDependencies() throws {
