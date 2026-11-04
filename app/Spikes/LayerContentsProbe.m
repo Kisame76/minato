@@ -147,7 +147,13 @@ static BOOL set_up(void) {
 static IOSurfaceRef new_surface(int32_t width, int32_t height, int format) {
     const MTLPixelFormat pixel = format == format_565 ? MTLPixelFormatB5G6R5Unorm : MTLPixelFormatRGBA8Unorm;
     const size_t bytes = format == format_565 ? 2 : 4;
+#if TARGET_OS_SIMULATOR
+    // The Simulator's device asserts on asking about B5G6R5Unorm, which it does not have.
+    const size_t minimum =
+        format == format_565 ? 64 : (size_t)[device minimumLinearTextureAlignmentForPixelFormat:pixel];
+#else
     const size_t minimum = (size_t)[device minimumLinearTextureAlignmentForPixelFormat:pixel];
+#endif
     const size_t alignment = minimum > 64 ? minimum : 64;
     const size_t row = (IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, (size_t)width * bytes) + alignment - 1) /
                        alignment * alignment;
@@ -717,6 +723,26 @@ static void run_screen(CALayer *container, int mode, int format, BOOL black, int
     stop_ticks();
     usleep(200000);
     const int64_t presenting_footprint = footprint();
+#if TARGET_OS_OSX
+    // footprint -v names each IOSurface: the screen-sized ones are the three buffers and whatever presenting adds.
+    char command[96], line[512], names[512] = "";
+    snprintf(command, sizeof command, "/usr/bin/footprint -v -p %d 2>/dev/null", getpid());
+    char size[32];
+    snprintf(size, sizeof size, " %dx%d ", width, height);
+    unsigned surfaces = 0, drawables = 0;
+    FILE *listing = popen(command, "r");
+    while (listing != NULL && fgets(line, sizeof line, listing) != NULL) {
+        if (strstr(line, "IOSurface SID") != NULL && strstr(line, size) != NULL) {
+            surfaces++;
+            drawables += strstr(line, "Drawable") != NULL;
+        }
+    }
+    if (listing != NULL) {
+        pclose(listing);
+    }
+    snprintf(names, sizeof names, "%u IOSurfaces of %dx%d while presenting, %u of them drawables", surfaces, width,
+             height, drawables);
+#endif
     atomic_store(&watching, 0);
     pthread_join(watcher, NULL);
 
@@ -833,6 +859,9 @@ static void run_screen(CALayer *container, int mode, int format, BOOL black, int
     report("  footprint: buffers %.1f MiB, presenting +%.1f MiB, %.1f MiB left after the layer's removal",
            mib(buffered_footprint - start_footprint), mib(presenting_footprint - buffered_footprint),
            mib(footprint() - start_footprint));
+#if TARGET_OS_OSX
+    report("  %s", names);
+#endif
 }
 
 // MARK: - 4: the render server's snapshot (iPhone)
@@ -905,6 +934,44 @@ static int bands_error(uint8_t colors[4][3], int want[4][3]) {
     return largest;
 }
 
+/* Each drawable in a color of its own, so that a snapshot tells the last one from the one before. */
+static const uint8_t drawable_colors[3][3] = {{250, 200, 0}, {0, 200, 250}, {200, 0, 250}};
+static unsigned drawables_presented;
+
+static void present_color(CAMetalLayer *layer) {
+    const uint8_t *color = drawable_colors[drawables_presented++ % 3];
+    id<CAMetalDrawable> drawable = [layer nextDrawable];
+    id<MTLCommandBuffer> commands = [queue commandBuffer];
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = drawable.texture;
+    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, 1);
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    [[commands renderCommandEncoderWithDescriptor:pass] endEncoding];
+    [commands presentDrawable:drawable];
+    [commands commit];
+}
+
+/* What band 1 of the snapshot shows, and what the layer's contents hold. */
+static void switch_line(UIWindow *window, const char *step, CAMetalLayer *layer, IOSurfaceRef buffer) {
+    uint8_t colors[4][3];
+    snapshot_bands(window, colors);
+    __block NSString *held;
+    on_main(^{
+        id contents = layer.contents;
+        if (contents == nil) {
+            held = @"nil";
+        } else if (CFGetTypeID((__bridge CFTypeRef)contents) == IOSurfaceGetTypeID()) {
+            held = contents == (__bridge id)buffer ? @"the buffer" : @"another IOSurface";
+        } else {
+            held = NSStringFromClass([contents class]);
+        }
+    });
+    const uint8_t *last = drawable_colors[(drawables_presented + 2) % 3];
+    report("4 switch, %s: band 1 shows %u %u %u (the last drawable %u %u %u, the buffer's band 200 40 40), contents %s",
+           step, colors[0][0], colors[0][1], colors[0][2], last[0], last[1], last[2], held.UTF8String);
+}
+
 static void check_snapshots(UIWindow *window, CALayer *container, int32_t width, int32_t height) {
     const uint8_t below[3] = {51, 153, 255};
     __block CAMetalLayer *layer;
@@ -943,33 +1010,75 @@ static void check_snapshots(UIWindow *window, CALayer *container, int32_t width,
                colors[3][2]);
     }
 
-    // The switch: contents, then a drawable on the same layer, then contents again.
+    // The switch, with RGBA_8888's bands (the Simulator has no RGB_565). On the window's layer itself, new: first a
+    // drawable alone, the control that the snapshot shows drawables, then contents, a drawable, contents again, a
+    // drawable, contents let go (nil) and a drawable, then the layer's own contents of the first drawable put back
+    // and a drawable. Then on a child CALayer that holds the buffer over a new window layer: hidden, the parent's
+    // drawable shows; shown, the buffer.
     on_main(^{
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        [layer removeFromSuperlayer];
+        layer = [CAMetalLayer layer];
+        layer.frame = container.bounds;
         layer.device = device;
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         layer.drawableSize = CGSizeMake(width, height);
+        [container addSublayer:layer];
+        [CATransaction commit];
     });
-    const char *steps[3] = {"a drawable after contents", "contents after a drawable", "a drawable again"};
-    for (int step = 0; step < 3; step++) {
-        if (step == 1) {
-            set_contents(layer, surfaces[2], NO);
+    __block id own = nil;
+    const char *steps[9] = {"a drawable alone", "contents", "a drawable after contents", "contents after a drawable",
+                            "a drawable again", "contents let go", "a drawable after contents let go",
+                            "the layer's own contents put back", "a drawable after they are back"};
+    for (int step = 0; step < 9; step++) {
+        if (step == 1 || step == 3) {
+            set_contents(layer, surfaces[0], NO);
+        } else if (step == 5) {
+            set_contents(layer, NULL, NO);
+        } else if (step == 7) {
+            on_main(^{
+                [CATransaction begin];
+                [CATransaction setDisableActions:YES];
+                layer.contents = own;
+                [CATransaction commit];
+            });
         } else {
-            id<CAMetalDrawable> drawable = [layer nextDrawable];
-            id<MTLCommandBuffer> commands = [queue commandBuffer];
-            MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
-            pass.colorAttachments[0].texture = drawable.texture;
-            pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-            pass.colorAttachments[0].clearColor = MTLClearColorMake(250 / 255.0, 200 / 255.0, 0, 1);
-            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-            [[commands renderCommandEncoderWithDescriptor:pass] endEncoding];
-            [commands presentDrawable:drawable];
-            [commands commit];
+            present_color(layer);
         }
         usleep(150000);
-        uint8_t colors[4][3];
-        snapshot_bands(window, colors);
-        report("4 switch, %s: band 1 shows %u %u %u (the drawable 250 200 0, RGB_565's band 255 0 0)", steps[step],
-               colors[0][0], colors[0][1], colors[0][2]);
+        if (step == 0) {
+            on_main(^{
+                own = layer.contents;
+            });
+        }
+        switch_line(window, steps[step], layer, surfaces[0]);
+    }
+    __block CALayer *child;
+    on_main(^{
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        [layer removeFromSuperlayer];
+        layer = [CAMetalLayer layer];
+        layer.frame = container.bounds;
+        layer.device = device;
+        layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+        layer.drawableSize = CGSizeMake(width, height);
+        child = [CALayer layer];
+        child.frame = layer.bounds;
+        [layer addSublayer:child];
+        [container addSublayer:layer];
+        [CATransaction commit];
+    });
+    const char *child_steps[4] = {"child: the buffer", "child hidden, a drawable", "child shown again",
+                                  "child hidden again, a drawable"};
+    for (int step = 0; step < 4; step++) {
+        set_contents(child, surfaces[0], step == 1 || step == 3);
+        if (step == 1 || step == 3) {
+            present_color(layer);
+        }
+        usleep(150000);
+        switch_line(window, child_steps[step], layer, surfaces[0]);
     }
     on_main(^{
         [layer removeFromSuperlayer];
