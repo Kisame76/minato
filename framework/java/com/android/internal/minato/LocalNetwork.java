@@ -38,11 +38,12 @@ import java.util.Map;
  * unregistering. They run on the Handler given at the registering, else on the process's ConnectivityThread, and
  * only while the callback is still registered, as AOSP's CallbackHandler drops a message whose callback is gone.
  * The sticky CONNECTIVITY_ACTION (ConnectivityService's, with its legacy extras; noConnectivity once the network is
- * gone) and WIFI_STATE_CHANGED_ACTION (Wi-Fi enabled while the path goes over it, else disabled) are made when a
- * receiver first asks for them and sent again on each change; WifiManager answers from the same state. Data Saver is
- * the host's Low Data Mode (a constrained path): the restrict-background status is ENABLED while the network's path
- * is constrained, else DISABLED, and ACTION_RESTRICT_BACKGROUND_CHANGED goes to registered receivers on each change,
- * as NetworkPolicyManagerService sends it.
+ * gone), WIFI_STATE_CHANGED_ACTION (Wi-Fi enabled while the path goes over it, else disabled) and Wi-Fi's
+ * NETWORK_STATE_CHANGED_ACTION (its NetworkInfo connected or disconnected, without the BSSID and WifiInfo, which need
+ * a location permission) are made when a receiver first asks for them and sent again on each change; WifiManager
+ * answers from the same state. Data Saver is the host's Low Data Mode (a constrained path): the restrict-background
+ * status is ENABLED while the network's path is constrained, else DISABLED, and ACTION_RESTRICT_BACKGROUND_CHANGED
+ * goes to registered receivers on each change, as NetworkPolicyManagerService sends it.
  */
 @SuppressWarnings("deprecation") // NetworkInfo and CONNECTIVITY_ACTION, Android's legacy answers
 public final class LocalNetwork {
@@ -194,6 +195,7 @@ public final class LocalNetwork {
             sStickiesSent = true;
             if (sNetwork != null) stickies.add(connectivityLocked(sState, false));
             stickies.add(wifiStateLocked(wifiLocked(), null));
+            stickies.add(wifiNetworkLocked(wifiLocked()));
         }
         send(stickies);
     }
@@ -219,6 +221,17 @@ public final class LocalNetwork {
         int before = previous == null ? (enabled ? WifiManager.WIFI_STATE_ENABLING : WifiManager.WIFI_STATE_UNKNOWN)
                 : previous ? WifiManager.WIFI_STATE_ENABLED : WifiManager.WIFI_STATE_DISABLED;
         intent.putExtra(WifiManager.EXTRA_PREVIOUS_WIFI_STATE, before);
+        return intent;
+    }
+
+    /** ClientModeImpl's NETWORK_STATE_CHANGED_ACTION for an app without a location permission: the NetworkInfo. */
+    private static Intent wifiNetworkLocked(boolean connected) {
+        NetworkInfo info = new NetworkInfo(ConnectivityManager.TYPE_WIFI, 0, "WIFI", "");
+        info.setDetailedState(connected ? NetworkInfo.DetailedState.CONNECTED : NetworkInfo.DetailedState.DISCONNECTED,
+                null, "");
+        info.setIsAvailable(connected);
+        Intent intent = new Intent(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        intent.putExtra(WifiManager.EXTRA_NETWORK_INFO, info);
         return intent;
     }
 
@@ -338,7 +351,10 @@ public final class LocalNetwork {
             wifiBefore = wifiLocked();
             restrictedBefore = restrictedLocked();
             changeLocked(state, stickies);
-            if (sStickiesSent && wifiLocked() != wifiBefore) stickies.add(wifiStateLocked(wifiLocked(), wifiBefore));
+            if (sStickiesSent && wifiLocked() != wifiBefore) {
+                stickies.add(wifiStateLocked(wifiLocked(), wifiBefore));
+                stickies.add(wifiNetworkLocked(wifiLocked()));
+            }
             if (!sStickiesSent) stickies.clear();
             restricted = restrictedLocked();
         }

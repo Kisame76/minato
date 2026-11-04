@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The network's broadcasts and Wi-Fi's state as an app without a location permission sees them (wifi-state-test,
-     ADR-0054 step d)): the sticky CONNECTIVITY_ACTION and WIFI_STATE_CHANGED_ACTION at the registering of a receiver,
-     and WifiManager's state and connection info, redacted as Android redacts them, on a device online over Wi-Fi. -->
+     ADR-0054 step d)): the sticky CONNECTIVITY_ACTION, WIFI_STATE_CHANGED_ACTION and NETWORK_STATE_CHANGED_ACTION at
+     the registering of a receiver, and WifiManager's state and connection info, redacted as Android redacts them, on a
+     device online over Wi-Fi. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.wifistate" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>

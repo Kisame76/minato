@@ -20,8 +20,9 @@ import java.util.List;
 
 /**
  * The network's broadcasts and Wi-Fi's state as an app without a location permission sees them (ADR-0054 step d)), on
- * a device online over Wi-Fi: the sticky CONNECTIVITY_ACTION and WIFI_STATE_CHANGED_ACTION that the registering of a
- * receiver answers and delivers, with their extras, and WifiManager's state and connection info, without the link
+ * a device online over Wi-Fi: the sticky CONNECTIVITY_ACTION, WIFI_STATE_CHANGED_ACTION and
+ * NETWORK_STATE_CHANGED_ACTION that the registering of a receiver answers and delivers, with their extras (a WifiInfo
+ * by its class's name, as its values are the device's), and WifiManager's state and connection info, without the link
  * speed, frequency and signal, which iOS does not tell an app. It ends with "done".
  */
 public class WifiStateActivity extends Activity {
@@ -45,7 +46,11 @@ public class WifiStateActivity extends Activity {
             Object value = extras.get(name);
             if (value instanceof NetworkInfo) {
                 NetworkInfo info = (NetworkInfo) value;
-                value = info.getTypeName() + " " + info.getState();
+                value = info.getTypeName() + " " + info.getState() + (info.getDetailedState() == null ? ""
+                        : info.getDetailedState().name().equals(info.getState().name()) ? ""
+                        : " " + info.getDetailedState());
+            } else if (value instanceof WifiInfo) {
+                value = "a WifiInfo";
             }
             if (line.length() > 0) line.append(", ");
             line.append(name).append('=').append(value);
@@ -72,6 +77,9 @@ public class WifiStateActivity extends Activity {
         Intent wifiState = registerReceiver(receiver("wifi state"),
                 new IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION), Context.RECEIVER_NOT_EXPORTED);
         log("wifi state sticky: " + (wifiState == null ? "none" : extras(wifiState)));
+        Intent network = registerReceiver(receiver("wifi network"),
+                new IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION), Context.RECEIVER_NOT_EXPORTED);
+        log("wifi network sticky: " + (network == null ? "none" : extras(network)));
 
         WifiManager wifi = getSystemService(WifiManager.class);
         log("wifi enabled " + wifi.isWifiEnabled() + ", state " + wifi.getWifiState());

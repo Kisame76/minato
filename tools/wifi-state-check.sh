@@ -2,9 +2,9 @@
 # Runs wifi-state-test on the Mac (ADR-0054 step d)): builds what tools/webview-host-check.sh builds, with
 # wifi-state-test, and starts it through graphics-run, whose graphics host reports the Mac's network from
 # Network.framework's path monitor (graphics/host/network.m); then compares the app's log with Android 15's on
-# apk-runner-35 with its mobile data off (fixtures/expected/wifi-state-test.logcat): the sticky CONNECTIVITY_ACTION and
-# WIFI_STATE_CHANGED_ACTION at a receiver's registering, and WifiManager's state and redacted connection info. The Mac
-# must be online over Wi-Fi.
+# apk-runner-35 with its mobile data off (fixtures/expected/wifi-state-test.logcat): the sticky CONNECTIVITY_ACTION,
+# WIFI_STATE_CHANGED_ACTION and NETWORK_STATE_CHANGED_ACTION at a receiver's registering, and WifiManager's state and
+# redacted connection info. The Mac must be online over Wi-Fi.
 # The run's home folder is the check's own (CFFIXED_USER_HOME), removed before and after.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/wifi-state-check.sh
