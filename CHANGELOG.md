@@ -58,6 +58,9 @@ All notable changes to Minato are documented in this file. The format follows
   you can cancel), and their code runs compiled from then on
 - Settings › Acknowledgements says where the source code of Minato's GPL-licensed parts is: on each release's page,
   next to the app
+- Swipe left and right to move between Home, Library and Settings
+- Get Info names the engine of apps made with .NET, LuaJIT or Kivy
+- Games that bundle LuaJIT, as many LÖVE games do, run on LuaJIT's interpreter, since iOS does not allow its compiler
 
 ### Changed
 
@@ -77,6 +80,14 @@ All notable changes to Minato are documented in this file. The format follows
   each model
 - An app's dialogs and other floating windows are centred between the status bar and the home indicator, as Android
   centres them between its bars, instead of in the whole screen
+- The library's tiles show each app's status in one line, and every row has the same height; the reason is in Get Info
+- The library's "…" menu shows the view and the sort order as Files does, with the active order's direction under its
+  name, and says when Manual cannot move apps
+- Minato's own screens follow larger text sizes and read well with VoiceOver
+- In game engines' text fields, a tap outside goes to the game and the keyboard stays, as on Android; Return finishes
+  the field
+- Games that draw with OpenGL ES or Vulkan use less memory: the transparent window over their picture keeps one
+  full-screen buffer, 14 to 29 MB less on an iPhone 15 Pro Max
 
 ### Fixed
 
@@ -101,3 +112,11 @@ All notable changes to Minato are documented in this file. The format follows
   while the iPhone uses Wi-Fi, and the iPhone's Low Data Mode reads as Android's Data Saver
 - Apps that ask for a network of a kind, such as any network with Internet or a cellular one, no longer crash, and
   hear only of networks that match
+- Android apps' dialogs, popups and toasts show on the iPhone, with the dim behind a dialog, instead of staying
+  invisible
+- The bar above the keyboard shows what you type in game engines' name fields instead of dots, and shows only while the
+  keyboard covers the field
+- A tile in the library no longer slides sideways under your finger
+- Apps made with Flutter no longer stop at their start for a missing system timer
+- Apps that ask for Android's SDK extension versions, as Capacitor apps do, no longer stop at that question
+- Kivy apps import instead of being refused for their Python bundle

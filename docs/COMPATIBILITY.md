@@ -94,13 +94,23 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
   starts in the Simulator with its picture and sound; a run on the iPhone is not confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
-- **libGDX:** untested. Its Java code runs compiled after the first close, and `SoundPool` plays WAV, Ogg Vorbis, MP3,
+- **libGDX:** an open-source libGDX game draws with OpenGL ES 2 on the Mac, then stops when MediaPlayer cannot prepare
+  its Ogg Vorbis music. Its Java code runs compiled after the first close, and `SoundPool` plays WAV, Ogg Vorbis, MP3,
   AAC and FLAC.
 - **Cocos2d-x, axmol, Defold, GameMaker:** untested.
-- **Flutter:** untested. Release builds compile Dart ahead of time and need no JIT.
-- **React Native with Hermes:** untested.
-- **.NET, Xamarin, MAUI, MonoGame:** not expected to work, since they need a JIT.
-- **Cordova, Capacitor, HTML5 games:** untested. They are a WebView, which shows its pages inside the app.
+- **Flutter:** an open-source Flutter app starts and keeps running on the Mac; the iPhone is not confirmed yet. Release
+  builds compile Dart ahead of time and need no JIT.
+- **React Native with Hermes:** untested. **With JavaScriptCore:** an open-source app stops when JavaScriptCore asks for
+  memory it can write and run, which iOS refuses; switching its JIT off (ADR-0071) is the next step.
+- **LuaJIT (LÖVE and others):** an app whose LuaJIT exports its API runs on LuaJIT's interpreter, as Minato switches
+  the compiler off (ADR-0071; checked with a stand-in library so far). An open-source LÖVE game starts on the Mac and
+  stops after two system calls Minato does not answer yet. A LuaJIT linked into the app without its exports keeps its
+  compiler, which iOS refuses.
+- **Kivy (python-for-android):** imports; Get Info names it. Starting one is not checked yet.
+- **.NET, Xamarin, MAUI, MonoGame:** Get Info names the runtime. Mono's JIT can be switched to its interpreter for apps
+  built with ahead-of-time code (ADR-0071, planned); CoreCLR apps are not covered.
+- **Cordova, Capacitor, HTML5 games:** they are a WebView, which shows its pages inside the app. An open-source
+  Capacitor app that asked for Android's SDK extension versions no longer stops at that question.
 
 ## The gaps, counted
 
