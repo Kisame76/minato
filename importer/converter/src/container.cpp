@@ -852,10 +852,13 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
 
 // Option (c) and the islands must agree on every site of a taken function. A (c) function renames x18 across its
 // whole body, so a single or no-save x18 site or an exclusive window inside it is NOT emitted (ADR-0020 A1): the
-// rename already handles those x18 uses, so such a construct no longer drops the function. Three kinds still drop it
-// and keep it refused: a thread-pointer or syscall site (its stub shuttles state (c) does not touch -- step A2
-// extends the (c) ranges over that stub), and a jump table (whether (c) renames a `br x18` to `br <register>`
-// correctly is not yet verified, so we do not suppress its island -- a named limit for a later step).
+// rename already handles those x18 uses, so such a construct no longer drops the function. Three kinds of island
+// still drop it and keep it refused: a thread-pointer or syscall site (its stub shuttles state (c) does not touch --
+// step A2 extends the (c) ranges over that stub), a jump table (whether (c) renames a `br x18` to `br <register>`
+// correctly is not yet verified, so we do not suppress its island -- a named limit for a later step), and an
+// exclusive window that straddles the function's begin or end (A1b): a window wholly inside is renamed in place, but
+// one that only overlaps would leave its words outside [begin, end) on physical x18 while the inside words become the
+// register, and no island can span both halves -- so drop the function.
 void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Findings &findings) {
     const auto holds_an_island_c_cannot_absorb = [&](const WholeFunctionRename &function) {
         const auto inside = [&](std::uint64_t address) { return address >= function.begin && address < function.end; };
@@ -866,6 +869,13 @@ void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Finding
             if (non_x18 && inside(site.address)) return true;
         }
         for (const auto &table : findings.jump_tables) if (inside(table.address)) return true;
+        for (const auto &region : findings.exclusive_regions) {
+            const std::uint64_t start = region.address;
+            const std::uint64_t stop = region.address + 4 * region.words.size();  // one past the store-exclusive
+            const bool overlaps = start < function.end && stop > function.begin;
+            const bool wholly_inside = start >= function.begin && stop <= function.end;
+            if (overlaps && !wholly_inside) return true;  // straddles a boundary (scan cannot build this; defense)
+        }
         return false;
     };
     std::vector<WholeFunctionRename> kept;
@@ -968,6 +978,18 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         return (site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave) &&
                in_c_function(site.address);
     };
+    // An exclusive window is renamed in place (no island) only when its WHOLE span lies inside a (c) function; a
+    // window that merely starts inside must still be islanded, as its words past the function end keep physical x18.
+    // keep_c_functions_clear_of_islands drops any (c) function a window straddles, so a surviving function holds only
+    // wholly-inside or wholly-outside windows -- but the pre-count and emission both test the whole span, so the
+    // island table matches the add_island calls whatever the plan holds (A1b).
+    const auto exclusive_window_in_c_function = [&](const rewrite::ExclusiveRegion &region) {
+        const std::uint64_t stop = region.address + 4 * region.words.size();  // one past the store-exclusive
+        for (const auto &function : c_plan.functions) {
+            if (region.address >= function.begin && stop <= function.end) return true;
+        }
+        return false;
+    };
 
     // Layout of the container (APKRuntime/container_format.h): __TEXT with the header and the first run when it is
     // code, a segment for every other run, the runtime slots' page after the image (in the last run when that is
@@ -1011,7 +1033,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                    (site.kind == rewrite::SiteKind::x18 || site.kind == rewrite::SiteKind::x18_nosave);
         })) +
         static_cast<std::size_t>(std::ranges::count_if(
-            findings.exclusive_regions, [&](const auto &region) { return !in_c_function(region.address); })) +
+            findings.exclusive_regions, [&](const auto &region) { return !exclusive_window_in_c_function(region); })) +
         findings.jump_tables.size();
     // Option (c)'s R-range table (apk_c_range) sits between the runs and the stubs; its sync islands follow the x18
     // islands in the stub area. The range count is address-independent (c_rename_ranges counts the body plus one or
@@ -1028,7 +1050,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     std::uint64_t stubs_size = 0;
     for (const auto &site : findings.sites) if (!x18_site_suppressed(site)) stubs_size += rewrite::stub_size(site);
     for (const auto &region : findings.exclusive_regions)
-        if (!in_c_function(region.address)) stubs_size += rewrite::exclusive_region_stub_size(region);
+        if (!exclusive_window_in_c_function(region)) stubs_size += rewrite::exclusive_region_stub_size(region);
     for (const auto &table : findings.jump_tables) stubs_size += rewrite::jump_table_stub_size(table);
     for (const auto &function : c_plan.functions) {
         stubs_size +=
@@ -1138,7 +1160,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     }
     // Relocate each load-/store-exclusive window with x18 as one island (ADR-0020 X2c).
     for (const auto &region : findings.exclusive_regions) {
-        if (in_c_function(region.address)) continue;  // A1: a (c) function renamed the window's x18 to the register
+        // A1: a (c) function renamed the window's x18 to the register.
+        if (exclusive_window_in_c_function(region)) continue;
         const std::uint64_t region_address = container_address(region.address);
         const auto size = rewrite::exclusive_region_stub_size(region);
         const auto patch = rewrite::emit_exclusive_region(region, region_address, stub,

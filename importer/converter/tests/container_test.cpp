@@ -594,8 +594,40 @@ TEST(takes_a_function_with_a_closed_exclusive_window_and_a_hard_x18_use_without_
         // ldxr <reg>, [x2] and stxr w3, <reg>, [x2]
         CHECK(word_at(container.bytes, info.image_offset + 0x208) == (0xc85f'7c40u | std::uint32_t{*reg}));
         CHECK(word_at(container.bytes, info.image_offset + 0x210) == (0xc803'7c40u | std::uint32_t{*reg}));
+        // and the add x18, x18, #1 between them became add <reg>, <reg>, #1
+        CHECK(word_at(container.bytes, info.image_offset + 0x20c) ==
+              (0x9100'0400u | (std::uint32_t{*reg} << 5) | std::uint32_t{*reg}));
     }
     CHECK(island_table(container).empty());  // no exclusive-window island inside the (c) function
+}
+
+// ADR-0020 option (c) step A1b: a (c) function absorbs an exclusive window only when the window's WHOLE span lies
+// inside it. A window that merely overlaps the function -- starting before begin and running in, or starting inside
+// and running past end -- would leave its outside words on physical x18 while the whole-function rename turns its
+// inside words into the register, and no island can span both halves. keep_c_functions_clear_of_islands drops such a
+// function and leaves its x18 site refused. scan() cannot build a window straddling a taken function (the gate needs
+// a hard transfer at begin-4 and end-4, which a window word can never be), so the straddling region is injected here
+// to check the defensive drop directly -- the way c_rename_plan is unit-tested, not through convert().
+TEST(drops_a_c_function_an_exclusive_window_straddles) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // fn = [0x200, 0x218)
+    prog.put<std::uint32_t>(0x200, 0xd503'201f);  // nop: was mrs TPIDR_EL0 -- no thread-pointer island inside fn
+    prog.put<std::uint32_t>(0x208, 0xd503'201f);  // nop: was svc           -- no syscall veneer inside fn
+    prog.put<std::uint32_t>(0x20c, 0xd503'201f);  // nop: was msr TPIDR_EL0
+    prog.put<std::uint32_t>(0x210, 0xd503'201f);  // nop: was mrs xzr
+    prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18 inside fn: the hard use, so (c) takes fn on its own
+    const auto scan = apk::container::scan_code(prog.bytes);
+    auto plan = apk::container::c_rename_plan(prog.bytes, scan.findings.x18_unsupported);
+    CHECK(plan.functions.size() == 1 && plan.functions[0].begin == 0x200 && plan.functions[0].end == 0x218);
+    CHECK(plan.covered_sites == std::vector<std::uint64_t>{0x214});
+
+    // A window [0x1f8, 0x204): its load-exclusive sits before fn's begin (0x200) and its store-exclusive runs into
+    // fn -- the old gap where the whole-function rename touched the inside words but an island relocated the window.
+    apk::rewrite::Findings straddled = scan.findings;
+    straddled.exclusive_regions.push_back(apk::rewrite::ExclusiveRegion{
+        .address = 0x1f8, .words = {0xc85f'7c52, 0x9100'0652, 0xc803'7c52}});  // ldxr/add/stxr x18, [0x1f8, 0x204)
+    apk::container::keep_c_functions_clear_of_islands(plan, straddled);
+    CHECK(plan.functions.empty());      // fn dropped: no (c) range covers it
+    CHECK(plan.covered_sites.empty());  // its site is no longer covered, so convert() refuses the file
 }
 
 TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
