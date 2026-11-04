@@ -30,10 +30,13 @@ import java.util.Map;
  * gives them, over Wi-Fi, cellular or Ethernet as the path's interface is (Wi-Fi when it names none of them),
  * validated, and metered when the path is expensive. Another transport, or a path back after none, is a new
  * network. The callbacks of every ConnectivityManager, which AOSP keeps in a static map too, hear of it as Android
- * 15's do: at the registering while a network is there and when one comes, onAvailable, onCapabilitiesChanged,
- * onLinkPropertiesChanged and onBlockedStatusChanged(false); onCapabilitiesChanged when only its metering changes;
- * onLost when it goes. They run on the Handler given at the registering, else on the process's ConnectivityThread,
- * and only while the callback is still registered, as AOSP's CallbackHandler drops a message whose callback is gone.
+ * 15's do while it satisfies their NetworkRequest's capabilities (any network for the default network's): at the
+ * registering while it is there and when it comes or starts to satisfy them, onAvailable, onCapabilitiesChanged,
+ * onLinkPropertiesChanged and onBlockedStatusChanged(false); onCapabilitiesChanged when only its metering changes and
+ * it still does; onLost when it goes or no longer does. A request with a timeout that no network satisfies when it
+ * runs out hears onUnavailable and nothing after it, as ConnectivityService releases it, but stays registered for its
+ * unregistering. They run on the Handler given at the registering, else on the process's ConnectivityThread, and
+ * only while the callback is still registered, as AOSP's CallbackHandler drops a message whose callback is gone.
  * The sticky CONNECTIVITY_ACTION (ConnectivityService's, with its legacy extras; noConnectivity once the network is
  * gone) and WIFI_STATE_CHANGED_ACTION (Wi-Fi enabled while the path goes over it, else disabled) are made when a
  * receiver first asks for them and sent again on each change; WifiManager answers from the same state.
@@ -53,7 +56,7 @@ public final class LocalNetwork {
     private static final int FIRST_NET_ID = 100;
 
     private static final Object sLock = new Object();
-    private static final Map<ConnectivityManager.NetworkCallback, Handler> sCallbacks = new LinkedHashMap<>();
+    private static final Map<ConnectivityManager.NetworkCallback, Listener> sCallbacks = new LinkedHashMap<>();
     private static boolean sRead;
     private static int sState;
     private static Network sNetwork;
@@ -62,6 +65,24 @@ public final class LocalNetwork {
     private static boolean sStickiesSent;
 
     private LocalNetwork() {}
+
+    /** A callback's Handler and the capabilities it asks for (null: any network's, the default network's). */
+    private static final class Listener {
+        final Handler handler;
+        final NetworkCapabilities need;
+        boolean released;  // a request whose timeout ran out: ConnectivityService has let it go
+
+        Listener(Handler handler, NetworkCapabilities need) {
+            this.handler = handler;
+            this.need = need;
+        }
+
+        /** Whether a network of `capabilities` (null: none) is one this callback hears of. */
+        boolean wants(NetworkCapabilities capabilities) {
+            return !released && capabilities != null
+                    && (need == null || need.satisfiedByNetworkCapabilities(capabilities));
+        }
+    }
 
     /** The state, read from the runtime at the first use: no network without one (-ENODATA, no host monitor). */
     private static void readLocked() {
@@ -203,10 +224,15 @@ public final class LocalNetwork {
     }
 
     private static NetworkCapabilities capabilitiesLocked() {
+        return capabilitiesOf(sState);
+    }
+
+    /** The capabilities of a network of `state`. */
+    private static NetworkCapabilities capabilitiesOf(int state) {
         NetworkCapabilities capabilities = new NetworkCapabilities();
-        if ((sState & CELLULAR) != 0) {
+        if ((state & CELLULAR) != 0) {
             capabilities.addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR);
-        } else if ((sState & WIRED) != 0 && (sState & WIFI) == 0) {
+        } else if ((state & WIRED) != 0 && (state & WIFI) == 0) {
             capabilities.addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET);
         } else {
             capabilities.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
@@ -217,7 +243,7 @@ public final class LocalNetwork {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED)
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
                 .addCapability(NET_CAPABILITY_NOT_VCN_MANAGED);
-        if ((sState & EXPENSIVE) == 0) capabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
+        if ((state & EXPENSIVE) == 0) capabilities.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         return capabilities;
     }
 
@@ -248,18 +274,35 @@ public final class LocalNetwork {
     }
 
     /**
-     * Keeps `callback` until its unregistering, on `handler` (null: ConnectivityThread's); it hears of the active
-     * network at once. False when it is registered already.
+     * Keeps `callback` until its unregistering, on `handler` (null: ConnectivityThread's), for networks that satisfy
+     * `need` (null: any); it hears of the active network at once if that one does. With `timeoutMs` above 0, a
+     * request's: onUnavailable then, unless a network satisfies it. False when it is registered already.
      */
-    public static boolean register(ConnectivityManager.NetworkCallback callback, Handler handler) {
+    public static boolean register(ConnectivityManager.NetworkCallback callback, Handler handler,
+            NetworkCapabilities need, int timeoutMs) {
         synchronized (sLock) {
             readLocked();
             if (sCallbacks.containsKey(callback)) return false;
-            Handler target = handler != null ? handler : connectivityThreadLocked();
-            sCallbacks.put(callback, target);
-            if (sNetwork != null) available(callback, target, sNetwork, capabilitiesLocked(), linkLocked());
+            Listener listener = new Listener(handler != null ? handler : connectivityThreadLocked(),
+                    need == null ? null : new NetworkCapabilities(need));
+            sCallbacks.put(callback, listener);
+            NetworkCapabilities capabilities = sNetwork == null ? null : capabilitiesLocked();
+            if (listener.wants(capabilities)) {
+                available(callback, listener.handler, sNetwork, capabilities, linkLocked());
+            }
+            if (timeoutMs > 0) listener.handler.postDelayed(() -> timedOut(callback, listener), timeoutMs);
             return true;
         }
+    }
+
+    /** ConnectivityService's timeout of a request: released, with onUnavailable, unless a network satisfies it. */
+    private static void timedOut(ConnectivityManager.NetworkCallback callback, Listener listener) {
+        synchronized (sLock) {
+            if (sCallbacks.get(callback) != listener) return;
+            if (listener.wants(sNetwork == null ? null : capabilitiesLocked())) return;
+            listener.released = true;
+        }
+        callback.onUnavailable();
     }
 
     /** Forgets `callback`; false when it is not registered. */
@@ -287,17 +330,27 @@ public final class LocalNetwork {
     private static void changeLocked(int state, List<Intent> stickies) {
         int before = sState;
         Network old = sNetwork;
+        NetworkCapabilities was = old == null ? null : capabilitiesOf(before);
         sState = state;
         boolean up = (state & SATISFIED) != 0;
         if (old != null && up && (before & TRANSPORTS) == (state & TRANSPORTS)) {
             if (((before ^ state) & EXPENSIVE) != 0) {
                 NetworkCapabilities capabilities = capabilitiesLocked();
-                for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
-                    entry.getValue().post(() -> {
-                        if (registered(entry.getKey())) {
-                            entry.getKey().onCapabilitiesChanged(old, new NetworkCapabilities(capabilities));
-                        }
-                    });
+                for (Map.Entry<ConnectivityManager.NetworkCallback, Listener> entry : entries()) {
+                    ConnectivityManager.NetworkCallback callback = entry.getKey();
+                    Listener listener = entry.getValue();
+                    boolean wanted = listener.wants(was), wants = listener.wants(capabilities);
+                    if (wanted && wants) {
+                        listener.handler.post(() -> {
+                            if (registered(callback)) {
+                                callback.onCapabilitiesChanged(old, new NetworkCapabilities(capabilities));
+                            }
+                        });
+                    } else if (wanted) {
+                        lost(callback, listener, old);
+                    } else if (wants) {
+                        available(callback, listener.handler, old, capabilities, linkLocked());
+                    }
                 }
             }
             return;
@@ -305,19 +358,26 @@ public final class LocalNetwork {
         if (old != null) {
             sNetwork = null;
             if (!up) stickies.add(connectivityLocked(before, true));
-            for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
-                entry.getValue().post(() -> {
-                    if (registered(entry.getKey())) entry.getKey().onLost(old);
-                });
+            for (Map.Entry<ConnectivityManager.NetworkCallback, Listener> entry : entries()) {
+                if (entry.getValue().wants(was)) lost(entry.getKey(), entry.getValue(), old);
             }
         }
         if (up) {
             sNetwork = new Network(sNextNetId++);
             stickies.add(connectivityLocked(state, false));
-            for (Map.Entry<ConnectivityManager.NetworkCallback, Handler> entry : entries()) {
-                available(entry.getKey(), entry.getValue(), sNetwork, capabilitiesLocked(), linkLocked());
+            NetworkCapabilities capabilities = capabilitiesLocked();
+            for (Map.Entry<ConnectivityManager.NetworkCallback, Listener> entry : entries()) {
+                if (entry.getValue().wants(capabilities)) {
+                    available(entry.getKey(), entry.getValue().handler, sNetwork, capabilities, linkLocked());
+                }
             }
         }
+    }
+
+    private static void lost(ConnectivityManager.NetworkCallback callback, Listener listener, Network network) {
+        listener.handler.post(() -> {
+            if (registered(callback)) callback.onLost(network);
+        });
     }
 
     private static boolean registered(ConnectivityManager.NetworkCallback callback) {
@@ -326,7 +386,7 @@ public final class LocalNetwork {
         }
     }
 
-    private static List<Map.Entry<ConnectivityManager.NetworkCallback, Handler>> entries() {
+    private static List<Map.Entry<ConnectivityManager.NetworkCallback, Listener>> entries() {
         return new ArrayList<>(sCallbacks.entrySet());
     }
 

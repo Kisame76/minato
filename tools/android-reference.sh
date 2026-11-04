@@ -999,6 +999,12 @@ run_app() {
     network-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.NetworkActivity
       ;;
+    # network-request-test (ADR-0054 step d)): built NetworkRequests, which capabilities satisfy them, listens and
+    # requests for the Internet and for cellular, one with a timeout, on the emulator's Wi-Fi as for network-test, with
+    # no cellular network. It ends with "done".
+    network-request-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RequestActivity
+      ;;
     # wifi-state-test (ADR-0054 step d)): the sticky CONNECTIVITY_ACTION and WIFI_STATE_CHANGED_ACTION at a receiver's
     # registering, and WifiManager's state and connection info without a location permission, on the emulator's Wi-Fi
     # as for network-test. It ends with "done".
@@ -1683,7 +1689,7 @@ if [[ -n "$app" ]]; then
     trap 'sounds_back; [[ -z "$started" ]] || emulator_stop' EXIT
     sounds_off
   fi
-  if [[ "$app" == network-test || "$app" == wifi-state-test ]]; then
+  if [[ "$app" == network-test || "$app" == network-request-test || "$app" == wifi-state-test ]]; then
     trap 'mobile_data_back; [[ -z "$started" ]] || emulator_stop' EXIT
     mobile_data_off
   fi

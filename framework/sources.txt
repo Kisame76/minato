@@ -1801,6 +1801,9 @@ mime_map/mime/java/android/content/type/DefaultMimeMapFactory.java
 connectivity_java/framework/src/android/net/ParseException.java
 # SupplicantState, the state of WifiInfo's connection (ADR-0054 step d)): Wi-Fi's, from the fetched module source.
 wifi_java/framework/java/android/net/wifi/SupplicantState.java
+# EthernetNetworkSpecifier, which NetworkRequest.Builder's setNetworkSpecifier(String) makes of an interface's name
+# (ADR-0054 step d)): connectivity's, from the fetched module source.
+connectivity_java/framework-t/src/android/net/EthernetNetworkSpecifier.java
 frameworks_base/core/java/android/webkit/WebChromeClient.java
 
 # The Unity test APK probe's gap sort, category 2 (Grafik), webview-camera-test: Movie, whose GIFs hwui's GIFMovie decodes over

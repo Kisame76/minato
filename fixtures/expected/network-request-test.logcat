@@ -1,0 +1,14 @@
+I/network-request-test: default request: capabilities [13, 14, 15, 28, 37], transports []
+I/network-request-test: internet request: capabilities [12, 13, 14, 15, 28, 37], INTERNET true, wifi false
+I/network-request-test: cellular request: transports [0], cellular true
+I/network-request-test: mms request: capabilities [0, 13, 14, 15, 37]
+I/network-request-test: request without NOT_VPN: capabilities [13, 14, 28, 37]
+I/network-request-test: equal requests: true, internet and cellular false
+I/network-request-test: satisfied by the active network: default true, internet true, cellular false, mms false; by null false
+I/network-request-test: cellular listen: none
+I/network-request-test: internet listen: onAvailable, onCapabilitiesChanged, onLinkPropertiesChanged, onBlockedStatusChanged false
+I/network-request-test: internet request: onAvailable, onCapabilitiesChanged, onLinkPropertiesChanged, onBlockedStatusChanged false
+I/network-request-test: cellular request with a timeout of 1 s: onUnavailable
+I/network-request-test: its unregistering after that: unregistered
+I/network-request-test: request with a timeout of 0: IllegalArgumentException: timeoutMs must be strictly positive.
+I/network-request-test: done
