@@ -3,4 +3,5 @@
 public enum LaunchMode: Equatable, Sendable {
     case library
     case gameMode
+    case compileMode
 }

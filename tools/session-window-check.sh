@@ -21,7 +21,7 @@ xcrun --sdk macosx swiftc "${FLAGS[@]}" -parse-as-library -emit-library -emit-mo
   "$SESSION/MenuSwipe.swift" \
   "$SESSION/SessionOrientation.swift" "$SESSION/InterfaceOrientations.swift" "$SESSION/SoftKeyboard.swift" \
   "$SESSION/HardwareKeyboard.swift" "$SESSION/KeyboardCover.swift" "$SESSION/TextBar.swift" \
-  "$SESSION/OutsideTap.swift" app/HostChecks/LaunchMode.swift
+  "$SESSION/OutsideTap.swift" "$SESSION/GuestInsets.swift" app/HostChecks/LaunchMode.swift
 xcrun --sdk macosx swiftc "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lAPKSession -Xlinker -rpath -Xlinker "$PWD/$OUT" \
   -o "$OUT/session-window-check" app/Sources/Session/SessionWindow.swift app/Sources/Session/KeyboardBarView.swift \
   app/HostChecks/MinatoMetalLayer.swift \
