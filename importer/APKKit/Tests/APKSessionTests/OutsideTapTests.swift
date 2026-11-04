@@ -23,6 +23,32 @@ import Testing
         return tap.touched(.ended, [change(1, x + dx, y + dy)], keyboardShown: shown)
     }
 
+    /// A field without extract UI (SDL2's, 0x91 with IME_FLAG_NO_EXTRACT_UI) keeps the keyboard at a tap outside, as
+    /// Android 15 does (Planung's Ren'Py run): the tap reaches the guest at once; every other field's keyboard goes.
+    @Test func aFieldWithoutExtractUIKeepsTheKeyboardAndTheTapReachesTheGuest() {
+        var keyboard = SoftKeyboard()
+        _ = keyboard.handle(.start(serial: 5, editor: EditorSpec(
+            inputType: 0x91, imeOptions: 0x1200_0000, capsMode: 0, selectionStart: -1, selectionEnd: -1, hint: "")))
+        #expect(keyboard.keepsKeyboardAtOutsideTap)
+        var tap = OutsideTap()
+        tap.field = Self.field
+        tap.keepsKeyboard = keyboard.keepsKeyboardAtOutsideTap
+        _ = tap.touched(.began, [Self.change(1, 200, 400)], keyboardShown: true)
+        #expect(tap.release().map(\.phase) == [.began])
+        #expect(tap.touched(.ended, [Self.change(1, 200, 400)], keyboardShown: true) == .none)
+        #expect(tap.release().map(\.phase) == [.ended])
+
+        var plain = SoftKeyboard()
+        _ = plain.handle(.start(serial: 5, editor: EditorSpec(
+            inputType: 0x1, imeOptions: 0, capsMode: 0, selectionStart: 0, selectionEnd: 0, hint: "")))
+        #expect(!plain.keepsKeyboardAtOutsideTap)
+        #expect(!SoftKeyboard().keepsKeyboardAtOutsideTap)
+        var hides = OutsideTap()
+        hides.field = Self.field
+        hides.keepsKeyboard = plain.keepsKeyboardAtOutsideTap
+        #expect(Self.tap(&hides, 200, 400) == .hide)
+    }
+
     @Test func aTapOutsideThePlacedFieldHidesAtOnce() {
         var tap = OutsideTap()
         tap.field = Self.field

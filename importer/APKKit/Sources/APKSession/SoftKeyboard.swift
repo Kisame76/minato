@@ -268,6 +268,12 @@ public struct SoftKeyboard: Sendable {
         return field.bottom > keyboardTop
     }
 
+    /// Whether a tap outside the field leaves the keyboard up and reaches the guest: for a field without extract UI
+    /// (SDL2's), as Android 15 does, since its game asks for the keyboard again anyway; BACK and Return end it.
+    public var keepsKeyboardAtOutsideTap: Bool {
+        editor.map { $0.imeOptions & Self.noExtractUI != 0 } ?? false
+    }
+
     /// EditorInfo.IME_FLAG_NO_EXTRACT_UI.
     static let noExtractUI: Int32 = 0x1000_0000
 

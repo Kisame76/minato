@@ -41,6 +41,8 @@ public struct OutsideTap: Sendable {
 
     /// Where the focused field lies; nil while the guest has placed none.
     public var field: FieldRect?
+    /// The field keeps the keyboard at a tap outside (SoftKeyboard.keepsKeyboardAtOutsideTap): every touch goes on.
+    public var keepsKeyboard = false
     private var touch: UInt?
     private var startX = 0.0
     private var startY = 0.0
@@ -75,6 +77,7 @@ public struct OutsideTap: Sendable {
 
     /// A touch callback of the session's view, in its points.
     public mutating func touched(_ phase: TouchPhase, _ changes: [TouchChange], keyboardShown: Bool) -> Decision {
+        let keyboardShown = keyboardShown && !keepsKeyboard
         let callback = Callback(phase: phase, changes: changes)
         switch phase {
         case .began:

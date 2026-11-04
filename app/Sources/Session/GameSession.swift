@@ -712,6 +712,8 @@ final class GameSession {
         if phase == .began { changes.forEach { SessionCheck.touchClock($0.samples.last?.timestamp ?? 0) } }
         #endif
         touches.scale = scale
+        // SDL's field keeps the keyboard at a tap outside, as on Android 15, and the tap goes to the game.
+        outsideTap.keepsKeyboard = softKeyboard.keepsKeyboardAtOutsideTap
         let decision = outsideTap.touched(phase, changes, keyboardShown: softKeyboard.isShown)
         // A touch that may put the keyboard away waits in outsideTap; the tap that does never reaches the guest.
         for callback in outsideTap.release() { post(touches.translate(callback.phase, callback.changes)) }

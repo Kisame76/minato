@@ -981,6 +981,30 @@ run_ends() {
   await_event "program ended 137" 60 || { abort_round "game mode did not end"; return; }
   await_event "process library.*" 30 && expect "  the library shows nothing" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
+
+  # An exit status of 1 to 128 is shown at the library's next start, "It ended with status N." (the decision of
+  # 2026-11-01): through the end handler, as a program's exit(1) ends, and without it, as a process that ends at once.
+  begin_round "an exit with status 1" || return 0
+  echo "$PKG" > "$CHECK/tap"
+  echo 1 > "$CHECK/self-kill"
+  send_requests
+  launch
+  await_event "program ended 1" 60 || { abort_round "game mode did not end"; return; }
+  await_event "process library.*" 30 && expect "  the library shows the status" \
+    "process library quitUnexpectedly Session Check status 1" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
+
+  begin_round "an end with status 1 without the end handler" || return 0
+  echo "$PKG" > "$CHECK/tap"
+  echo 1 > "$CHECK/crash"
+  send_requests
+  launch
+  await_event "crash 1" 60 || { abort_round "game mode did not end"; return; }
+  sleep 1
+  launch
+  await_event "process library.*" && expect "  the library shows the status" \
+    "process library quitUnexpectedly Session Check status 1" "$(event_of "$EVENT")" \
+    || fail "  no library after the end"
 }
 
 # Android 15's log of test app $1 (fixtures/expected/$1.logcat) with test 7's departure at Home: the focus goes
