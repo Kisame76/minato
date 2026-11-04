@@ -1,6 +1,6 @@
 # Compatibility
 
-What runs in Minato today, what is missing, and what will never work. Status as of 2026-10-31. Numbers in
+What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-03. Numbers in
 parentheses refer to the records indexed in [DESIGN.md](DESIGN.md).
 
 The goal is that every app whose purpose fits the limits at the end of this page works after its import, without
@@ -28,12 +28,14 @@ asset access and orientation changes. An app whose launcher subclasses NativeAct
 the framework calls its native code makes through JNI work. An app whose launcher is `android.app.NativeActivity`
 itself still starts without Java, where such calls fail, until ADR-0069 moves it to the Java path too.
 
-**Java and Kotlin apps,** on AOSP's ART in the interpreter:
+**Java and Kotlin apps,** on AOSP's ART, in its fast interpreter and, once an app was optimized after its first
+close, as compiled code:
 
 - the activity lifecycle, intents within the app, activity results, launch modes and start flags;
 - views drawn in software: text, buttons, check boxes, edit fields, images, scroll views, list views, switches,
   seek and progress bars, the common layouts, `Canvas` and image decoding;
 - dialogs, toasts, popups and translucent activities as windows of their own;
+- web pages in a `WebView` inside the app, with their cookies and the app's own JavaScript objects;
 - `SurfaceView`, `GLSurfaceView`, `TextureView`, `SurfaceTexture` and hardware buffers;
 - resources, assets, `SharedPreferences`, SQLite, the app's file paths, OBB files;
 - Java cryptography and TLS (Conscrypt with BoringSSL), sockets and DNS;
@@ -54,8 +56,8 @@ itself still starts without Java, where such calls fail, until ADR-0069 moves it
 benchmark (see [BENCHMARKS.md](BENCHMARKS.md)), a Godot test game reaches parity with its native iOS build in all
 six configurations, and Minato's own scene in five of six; the sixth, Vulkan under heavy load at 120 Hz, reached
 91 % of the native FPS, and its causes are measured. ES 3.1 through ANGLE's Vulkan backend is slower under heavy
-load (56 % of the native FPS in that test). Java code runs in ART's interpreter today, so apps that do much work in
-Java are slower than on a phone until compiled code (ADR-0053) becomes the default.
+load (56 % of the native FPS in that test). Java code runs on ART's fast interpreter and, once an app was optimized
+after its first close, as compiled code, so apps that do much work in Java may still be slower than on a phone.
 
 ## APK formats
 
@@ -92,62 +94,77 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
   starts in the Simulator with its picture and sound; a run on the iPhone is not confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
-- **libGDX:** untested. Its Java code runs in the interpreter, and `SoundPool` plays WAV, Ogg Vorbis, MP3, AAC and FLAC.
+- **libGDX:** untested. Its Java code runs compiled after the first close, and `SoundPool` plays WAV, Ogg Vorbis, MP3,
+  AAC and FLAC.
 - **Cocos2d-x, axmol, Defold, GameMaker:** untested.
 - **Flutter:** untested. Release builds compile Dart ahead of time and need no JIT.
 - **React Native with Hermes:** untested.
 - **.NET, Xamarin, MAUI, MonoGame:** not expected to work, since they need a JIT.
-- **Cordova, Capacitor, HTML5 games:** not yet. They are a WebView, which shows no web pages yet.
+- **Cordova, Capacitor, HTML5 games:** untested. They are a WebView, which shows its pages inside the app.
 
 ## The gaps, counted
 
-The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-10-31: **11 closed, 9 partly closed,
-2 open.**
+The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-03: **11 closed, 8 partly closed,
+3 that are limits we name.**
 
 **Closed:**
 
-- 4 KB libraries: libraries aligned for 4 KB pages load (ADR-0007).
+- 4 KB libraries: libraries aligned for 4 KB pages load.
 - Second windows: dialogs, toasts, popups and translucent activities.
 - Activity results, start flags and launch modes.
 - SQLite.
+- WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects.
+- Speed of Java code: the fast interpreter is the default and an app is compiled once after its first close.
 - Missing NDK libraries: the whole API 35 set exists, some as stubs.
-- Files, pickers and shared media (ADR-0057).
-- Intents to iOS: links, mail, messages, calls, maps and shares (ADR-0062).
-- Graphics coverage: ES 3.1, `SurfaceTexture` and hardware buffers (ADR-0044, ADR-0058). ES 3.2 and Vulkan features
-  that MoltenVK lacks stay limits.
-- Play Asset Delivery at run time (ADR-0050).
+- Files, pickers and shared media.
+- Intents to iOS: links, mail, messages, calls, maps and shares.
+- Play Asset Delivery at run time.
 - Time zone data for ICU.
-- Google Play services absent: an app that looks for Google Play services or the Play Store gets the answers an Android
-  phone without them gives (package lookups, binds and starts, store links, content providers, package contexts, the
-  install source), and a test compares them with Android 15 (`gms-absent-test`). Minato never names a store as the
+
+**Closed except for a limit that is named below:**
+
+- Widgets and menus: every widget the plan listed is in, with the action bar and the text selection menus. The
+  magnifier that shows the text under your finger while you drag a selection handle has no picture.
+- Google Play services absent: an app that looks for Google Play services or the Play Store gets the answers an
+  Android phone without them gives, and a test compares them with Android 15. Minato never names a store as the
   installer. What an app's own libraries do with those answers is the app's behavior.
+- Graphics coverage: ES 3.1, `SurfaceTexture` and hardware buffers. ES 3.2 is not available, and Vulkan features that
+  MoltenVK lacks stay missing.
 
 **Partly closed:**
 
-- System services that answer null: several batches are in; 125 service types are still missing.
-- Networking: sockets, DNS, netlink and the INTERNET permission are in; the check on the real network on the iPhone
-  is open (ADR-0054).
-- Widgets and menus: the common widgets are in; `Toolbar`, `ActionMenuView`, `MediaController`, `Magnifier` and
-  `ZoomButtonsController` are not.
-- Services, broadcasts, jobs, alarms and notifications: services and broadcasts work inside the app; jobs and
-  alarms are kept but never run, and notifications are not shown.
-- Speed of Java code: nterp and compiled code pass their tests but are not the default (ADR-0053).
-- Text input, keys and controllers: the keyboard, the Return key, hardware keys and the keyboard's inset work; an app
-  sees controllers, a mouse and a trackpad, but the iPhone side that reads them is still to come, so they do not
-  reach an app yet; panning the content above the keyboard is not done (ADR-0068).
-- Java media and video: `AudioTrack`, `MediaPlayer`, `MediaCodec` for video and `MediaExtractor` are in. `SoundPool`
-  arrived after the recount and plays WAV, Ogg Vorbis, MP3, AAC and FLAC (Opus not yet); `MediaCodec` decodes AAC audio,
-  other audio codecs come later (ADR-0060).
-- Device features and permissions: sensors and location are in; the camera and microphone recording are missing
-  (only the microphone's permission path exists, ADR-0064).
-- Framework breadth: 577 public types of Android 15's API are still missing from `framework.jar` (297 pure Java, 125
-  services, 47 with native code, 81 from modules), down from 704 two weeks earlier.
+- System services that answer null: many are in; 124 service types of Android 15 are still missing.
+- Networking: sockets, DNS, the INTERNET permission and the real network (Wi-Fi state, connectivity changes) are in;
+  a sitting on the iPhone has not confirmed all of it.
+- Services, broadcasts, jobs, alarms and notifications: services and broadcasts work inside the app. Jobs and alarms
+  are kept but never run, and notifications are not shown.
+- Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's
+  inset work. An app sees controllers, a mouse and a trackpad, but the iPhone side that reads them is still to come, so
+  they do not reach an app yet.
+- Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer`,
+  `MediaExtractor` and `MediaCodec` for H.264, HEVC, AAC, MP3 and FLAC are in. Opus and other audio codecs are not.
+- Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, but it
+  does not yet say "needs a JIT" for Mono, LuaJIT or emulator cores.
+- Device features and permissions: sensors and location work, with iOS's prompt. There is no microphone input and no
+  camera.
+- Framework breadth: 573 public types of Android 15's API are still missing from `framework.jar` (296 pure Java, 124
+  services, 45 with native code, 81 from modules, 27 not fetched).
 
-**Open:**
+## What does not work yet
 
-- WebView: an app that makes one starts, and the WebView answers as an empty one does on Android, but it shows no web
-  pages yet: the iPhone's web view behind it is the next step (ADR-0056).
-- Runtimes that need a JIT: they are not yet named at import; they fail at run time.
+In plain terms, as a user meets it:
+
+- No microphone input: an app that records gets an error (AAudio input answers "unavailable" and OpenSL ES has no
+  recorder).
+- No camera.
+- Jobs and alarms never run, so background work an app schedules for later does not happen.
+- Notifications are not shown.
+- Game controllers, a mouse and a trackpad do not reach an app on the iPhone yet.
+- OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
+  missing too.
+- The magnifier for text selection has no picture: dragging a selection handle works, but the loupe above the finger
+  stays empty.
+- Opus audio is not decoded.
 
 ## What the library tells you
 
