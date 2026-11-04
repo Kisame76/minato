@@ -1,0 +1,4 @@
+jsc-switch-test: constructor: JSC_useJIT=unset JavaScriptCoreUseJIT=unset
+jsc-switch-test: app: JSC_useJIT=unset
+jsc-switch-test: first context: JSC_useJIT=unset JavaScriptCoreUseJIT=unset
+jsc-switch-test: the JIT reserved a code pool and asked for it executable

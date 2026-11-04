@@ -119,6 +119,12 @@ add_library(fake-luajit SHARED suite/libfake-luajit.c)
 add_library(fake-lua SHARED suite/libfake-lua.c)
 add_executable(luajit-switch-test suite/luajit-switch-test.c)
 target_link_libraries(luajit-switch-test PRIVATE fake-luajit dl)
+# jsc-switch-test and the library that stands in for JavaScriptCore by its exported names (the JavaScriptCore switch,
+# runtime/tests/jsc_switch_run.py): the app opens it with dlopen, before or after its own first getenv.
+add_library(fake-jsc SHARED suite/libfake-jsc.c)
+add_executable(jsc-switch-test suite/jsc-switch-test.c)
+target_link_libraries(jsc-switch-test PRIVATE dl)
+add_dependencies(jsc-switch-test fake-jsc)
 # ns-test and its libraries (ADR-0039 a, ADR-0040 decision 2, ADR-0046 a): a program outside the APEXes, and a
 # library for the folders of ART and Conscrypt that needs libns-dep.so and opens libns-plugin.so, both beside it
 # only; runtime.system_links places them (runtime/tests/ns_run.py).

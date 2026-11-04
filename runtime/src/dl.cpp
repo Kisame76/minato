@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -157,6 +158,8 @@ struct State {
     char **envp = nullptr;
     // The FPS unlock's rate (ADR-0066), 0 for none, as the host set it before the program starts.
     int frame_rate_unlock = 0;
+    // libminato-jsc.so's function (the JavaScriptCore switch), null when the system lacks the library.
+    void (*jsc_set_environment)() = nullptr;
 };
 
 State &state() {
@@ -697,6 +700,20 @@ Namespace *as_namespace(State &state, const void *handle) {
     return nullptr;
 }
 
+/// Before the constructors of `objects` run: a library that defines JSGlobalContextCreate is JavaScriptCore, which
+/// reads its options, the JIT's among them, from the environment (in a static initializer of some builds, else at the
+/// first context), and mprotects its code pool executable, which iOS refuses (the guest's answer is EACCES, and JSC
+/// crashes on it). So the two variables are set first, whatever the app set itself.
+void prepare_jit_engines(State &state, std::span<const Object *const> objects) {
+    if (state.jsc_set_environment == nullptr) return;
+    for (const auto *object : objects) {
+        if (linker::find_symbol(*object, "JSGlobalContextCreate") != nullptr) {
+            call_guest(state.jsc_set_environment);
+            return;
+        }
+    }
+}
+
 /// dlopen, or android_dlopen_ext in the namespace `in`, or in the one of an e0 ld-android.so's `search_path`.
 void *guest_dlopen(const char *name, int flags, const void *caller, int *error_number,
                    const char *search_path = nullptr, Namespace *in = nullptr) {
@@ -768,6 +785,7 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         list(state, index);
         std::vector<const Object *> objects;
         for (auto *library : added) objects.push_back(&library->object);
+        prepare_jit_engines(state, objects);
         linker::run_constructors(objects, state.argc, state.argv, state.envp, false);
         return root;
     } catch (const std::exception &failure) {
@@ -1033,6 +1051,29 @@ std::vector<Library *> preload_frame_rate(State &state, Library &program, bool &
     return added;
 }
 
+/// A guest library of the system's that the loader preloads like an LD_PRELOAD library, when it is there: loaded, in
+/// the global group, with the libraries it needs. None when the system lacks it (an old system: nothing is switched) or
+/// the program already has it.
+struct Preloaded {
+    Library *library = nullptr;
+    std::vector<Library *> added;
+};
+
+std::optional<Preloaded> preload_optional(State &state, Library &program, bool &missed, std::string_view name) {
+    auto located = locate(state, *program.ns, name, &program, true, missed);
+    if (located.loaded != nullptr || !located.found) return std::nullopt;
+    auto &library = load_library(state, name, std::move(*located.found), *located.space);
+    library.object.dynamic.global = true;
+    auto added = load_needed(state, library, false, missed);
+    return Preloaded{&library, std::move(added)};
+}
+
+const linker::Symbol *required_symbol(const linker::Object &object, std::string_view library, const char *wanted) {
+    const auto *found = linker::find_symbol(object, wanted);
+    if (found == nullptr) throw LoadError(std::format("{} lacks {}", library, wanted));
+    return found;
+}
+
 /// The LuaJIT switch, libminato-luajit.so (runtime/android/luajit.c), loaded as an LD_PRELOAD library like the FPS
 /// unlock's when it is among the system's libraries, and without an error when it is not: luaL_openlibs of an object
 /// that also defines luaJIT_setmode becomes its wrapper, which switches LuaJIT's trace compiler off after the libraries
@@ -1040,18 +1081,10 @@ std::vector<Library *> preload_frame_rate(State &state, Library &program, bool &
 /// it.
 std::vector<Library *> preload_luajit_switch(State &state, Library &program, bool &missed) {
     constexpr std::string_view name = "libminato-luajit.so";
-    auto located = locate(state, *program.ns, name, &program, true, missed);
-    if (located.loaded != nullptr) return {};
-    if (!located.found) return {};  // an old system without it: nothing is switched
-    auto &library = load_library(state, name, std::move(*located.found), *located.space);
-    library.object.dynamic.global = true;
-    auto added = load_needed(state, library, false, missed);
-    const auto &object = library.object;
-    const auto symbol = [&](const char *wanted) {
-        const auto *found = linker::find_symbol(object, wanted);
-        if (found == nullptr) throw LoadError(std::format("{} lacks {}", name, wanted));
-        return found;
-    };
+    auto preloaded = preload_optional(state, program, missed, name);
+    if (!preloaded) return {};
+    const auto &object = preloaded->library->object;
+    const auto symbol = [&](const char *wanted) { return required_symbol(object, name, wanted); };
     linker::add_overrides({{.name = "luaL_openlibs",
                             .wrapper = &object,
                             .replacement = symbol("minato_luajit_openlibs"),
@@ -1060,7 +1093,20 @@ std::vector<Library *> preload_luajit_switch(State &state, Library &program, boo
                             .requires_symbol = "luaJIT_setmode",
                             .companion = reinterpret_cast<std::uint64_t *>(
                                 linker::symbol_address(object, *symbol("minato_luajit_setmode")))}});
-    return added;
+    return std::move(preloaded->added);
+}
+
+/// The JavaScriptCore switch, libminato-jsc.so (runtime/android/jsc.c), loaded the same way: its one function, which
+/// sets the two variables that make JavaScriptCore start its interpreter (ADR-0071), is kept for the loader to call
+/// when a library that defines JSGlobalContextCreate is mapped (prepare_jit_engines).
+std::vector<Library *> preload_jsc_switch(State &state, Library &program, bool &missed) {
+    constexpr std::string_view name = "libminato-jsc.so";
+    auto preloaded = preload_optional(state, program, missed, name);
+    if (!preloaded) return {};
+    const auto &object = preloaded->library->object;
+    state.jsc_set_environment = reinterpret_cast<void (*)()>(
+        linker::symbol_address(object, *required_symbol(object, name, "minato_jsc_set_environment")));
+    return std::move(preloaded->added);
 }
 
 [[noreturn]] void fail(const std::string &message) {
@@ -1197,6 +1243,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         auto added = load_needed(state, program, true, missed);
         for (auto *library : preload_frame_rate(state, program, missed)) added.push_back(library);
         for (auto *library : preload_luajit_switch(state, program, missed)) added.push_back(library);
+        for (auto *library : preload_jsc_switch(state, program, missed)) added.push_back(library);
         for (auto *library : added) {
             library->global = true;
             library->group_root = &program;

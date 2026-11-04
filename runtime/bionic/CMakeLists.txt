@@ -317,6 +317,12 @@ apk_bionic_unit(apk_luajit SOURCES "${android_sources}/luajit.c" INCLUDES ${andr
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libminato-luajit UNITS apk_luajit NEEDED libc)
 
+# libminato-jsc.so (the JavaScriptCore switch): the function that sets JSC_useJIT=0 and JavaScriptCoreUseJIT=0, which
+# the loader calls before the constructors of a library that defines JSGlobalContextCreate (runtime/android/jsc.c).
+apk_bionic_unit(apk_jsc SOURCES "${android_sources}/jsc.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libminato-jsc UNITS apk_jsc NEEDED libc)
+
 # activity-host (ADR-0028, decision 1): the guest program /system/bin/activity-host, which plays Android's app
 # process for a NativeActivity (runtime/activity-host): the session's events become the app's callbacks, with
 # libandroid's asset manager and the JNI stub. A PIE with linker64 as its interpreter, like the NDK's
