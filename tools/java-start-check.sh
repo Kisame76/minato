@@ -94,6 +94,17 @@
 #              full-screen backgrounds one after another as a visual novel does; the Debug build writes the process's
 #              physical footprint every 10 s and every iOS memory warning to tmp/session-check/footprint-log. The
 #              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory".
+#   PIXELS     a folder: only the pixel round of ADR-0043 b5's step f runs (tools/window-contents-check.sh), with
+#              views-test, dialog-test, second-windows-test, activity-flow-test and window-formats-test (ONLY= picks),
+#              each started with SessionCheck's window-crc. At each checkpoint the windows' dump (window-dump) and a
+#              screenshot go into <folder>/<app>/<checkpoint>/ (dump/, screen.png, compare.txt), and
+#              tools/window_pixels.py compares them: after the start (the Java apps' "done", second-windows-test's
+#              first dialog, which waits for a tap; window-formats-test once for each format it shows), then after
+#              Home and the return, once the menu's Continue came ("menu
+#              continued", Android's order: onStart, onResume, the window). The start's guest log is kept as
+#              <folder>/<app>/guest-log, window-formats-test's compared with Android 15's, and SessionCheck's
+#              footprint log as <folder>/<app>/footprint-log. PIXELS_DRAWABLES=1 draws the windows by drawables
+#              (window-by-drawables, a Debug switch), for the memory comparison.
 #   GODOT_TEST no: test 2's Godot APKs of tools/build-godot.sh (ADR-0042 b)), godot-bench-vulkan and godot-bench-gles,
 #              stay out; else they run too: their "godot-bench: " lines must be Android 15's
 #              (fixtures/expected/godot-bench-*.logcat) and their run must have frames and no failures, as
@@ -238,6 +249,16 @@ if [[ -n "${RESUME:-}" && -z "${ONLY// /}" ]]; then
     [[ " ${APPS[*]%% *} " != *" $name "* ]] || ONLY+=" $name"
   done
 fi
+# PIXELS: the pixel round's apps (ADR-0043 b5, step f), ONLY's or all five.
+if [[ -n "${PIXELS:-}" ]]; then
+  for app in "views-test io.github.kisame76.minato.test.views" "dialog-test io.github.kisame76.minato.test.dialog" \
+             "second-windows-test io.github.kisame76.minato.test.secondwindows" \
+             "activity-flow-test io.github.kisame76.minato.test.activityflow" \
+             "window-formats-test io.github.kisame76.minato.test.windowformats"; do
+    [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
+  done
+  [[ -n "${ONLY// /}" ]] || ONLY="views-test dialog-test second-windows-test activity-flow-test window-formats-test"
+fi
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -260,6 +281,7 @@ last_line() {
     # Godot's run line, with its padded tag (framework/tests/godot_java_run.py's LAST).
     godot-bench-*) echo "guest-log ^I/godot *: run [^:]+: [0-9]+ frames, [0-9]+ failures$" ;;
     vk-ahb-test) echo "guest-log ^I/vk-ahb-test: android_main returns$" ;;   # a NativeActivity's end
+    window-formats-test) echo "guest-log ^I/window-formats-test: android_main returns$" ;;
     *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
   esac
 }
@@ -271,7 +293,7 @@ apk() {
     packs-test) echo "build/packs-test/packs-test.apks" ;;
     pad-test) echo "build/pad-test/pad-test.apks" ;;
     splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
-    vk-ahb-test) echo "build/fixtures/apks/$1.apk" ;;
+    vk-ahb-test|window-formats-test) echo "build/fixtures/apks/$1.apk" ;;
     renpy-splash-test|renpy-stay-test) echo "build/renpy-splash-test/$1.apk" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
@@ -289,7 +311,7 @@ for app in "${APPS[@]}"; do
     packs-test) tools/build-packs-test.sh >/dev/null ;;
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
-    vk-ahb-test) tools/build-fixtures.sh >/dev/null ;;
+    vk-ahb-test|window-formats-test) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test|renpy-stay-test) ;;
     renpy-memory-test) BUILD_ONLY=1 tools/renpy-memory.sh ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
@@ -356,7 +378,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -548,6 +570,13 @@ begin_start() {
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
+  # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
+  # drawables' pass.
+  if [[ -n "${PIXELS:-}" ]]; then
+    echo yes > "$CHECK/window-crc"
+    echo yes > "$CHECK/footprint-log"
+    [[ -z "${PIXELS_DRAWABLES:-}" ]] || echo yes > "$CHECK/window-by-drawables"
+  fi
   [[ -z "${QUIT_AFTER:-}" ]] || echo "$QUIT_AFTER" > "$CHECK/quit"
   send_requests
   launch
@@ -876,6 +905,146 @@ for app in "${APPS[@]}"; do
   state=$(field state "$package")
   if [[ "$state" == "{'ready': {}}" ]]; then ok "$package is ready"; else fail "$package is not ready: $state"; fi
 done
+
+# The pixel round (PIXELS, ADR-0043 b5's step f). A screenshot into $1, of the iPhone's screen or the Simulator's
+# first display.
+capture() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    on_device capture screenshot --device "$DEVICE_ID" -q --destination "$1" >/dev/null 2>&1
+  else
+    xcrun simctl io "$SIM_UDID" screenshot "$1" >/dev/null 2>&1 ||
+      xcrun simctl io "$SIM_UDID" screenshot --display=1 "$1" >/dev/null 2>&1
+  fi
+}
+# Checkpoint $2 of app $1: the screen and the windows' dump, compared (tools/window_pixels.py); with $3, a window of
+# the dump must have that format.
+pixels_checkpoint() {
+  local app=$1 name=$2 dir="$PIXELS/$1/$2"
+  rm -rf "${dir:?}"
+  mkdir -p "$dir"
+  request window-dump
+  capture "$dir/screen.png" || { fail "  $name: no screenshot"; return; }
+  if ! await_event "window dump -?[0-9]+" 15; then
+    failed_line "$name: no window dump" "$app-$name"
+    return
+  fi
+  if (( ${EVENT##* } <= 0 )); then
+    fail "  $name: the dump wrote ${EVENT##* } windows"
+    return
+  fi
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy from --source "$CHECK_REL/window-dump-files" --destination "$dir/dump" || {
+      fail "  $name: the dump could not be fetched"
+      return
+    }
+  else
+    cp -R "$CHECK/window-dump-files" "$dir/dump"
+  fi
+  # On an opaque layer, a NativeActivity's, RGBA_8888 shows on black too.
+  if [[ -n "${3:-}" ]] && ! grep -q -E " ${3% on black}( on black)? post " "$dir"/dump/window-*.txt; then
+    fail "  $name: no window of the dump is $3"
+  fi
+  if python3 tools/window_pixels.py screen "$dir/dump" "$dir/screen.png" >"$dir/compare.txt" 2>&1; then
+    ok "  $name: the screen shows each window's buffer"
+  else
+    fail "  $name: the screen differs from the windows' buffers"
+  fi
+  sed 's/^/      | /' "$dir/compare.txt"
+}
+# Home and the return: back once the menu's Continue came, which starts the app again as Android does.
+pixels_return() {
+  launch "$AWAY"
+  sleep 3
+  launch
+  await_event "menu continued" 30 || { fail "  no Continue after the return"; return 1; }
+}
+# Waits up to $2 seconds for a second line of the guest log that matches the extended regex $1.
+await_second() {
+  local end=$((SECONDS + $2))
+  while (( SECONDS < end )); do
+    fetch "$CHECK_REL/guest-log" || true
+    (( $(grep -c -E "$1" "$CHECK/guest-log" 2>/dev/null || true) >= 2 )) && return 0
+    sleep 0.2
+  done
+  return 1
+}
+# App $1 (package $2) through the pixel round.
+run_pixels() {
+  local app=$1 package=$2
+  if begin_start "$app" "$package" 1; then
+    if [[ "$app" == window-formats-test ]]; then
+      local format
+      for format in RGBA_8888 RGBX_8888 RGB_565; do
+        if ! await_line guest-log "^I/window-formats-test: showing $format$" 60; then
+          failed_line "no \"showing $format\"" "$app-$format"
+          break
+        fi
+        case "$format" in RGBA_8888) pixels_checkpoint "$app" "$format" "$format" ;;
+          *) pixels_checkpoint "$app" "$format" "$format on black" ;;
+        esac
+      done
+      if await_line guest-log "^I/window-formats-test: waiting for the window to go$" 30 && pixels_return; then
+        # RGB_565 shown again, on the window of the return.
+        if await_second "^I/window-formats-test: showing RGB_565$" 30; then
+          pixels_checkpoint "$app" return "RGB_565 on black"
+        else
+          failed_line "no RGB_565 again after the return" "$app-return"
+        fi
+        await_line guest-log "^I/window-formats-test: android_main returns$" 30 || failed_line "no end" "$app-end"
+      fi
+    elif [[ "$app" == second-windows-test ]]; then
+      # Without the Mac host's taps it stops at its first dialog, dimmed over the activity: the two windows'
+      # checkpoint, then Home and the return.
+      if await_line guest-log "^I/second-windows-test: ready: dialog 1, " 120; then
+        pixels_checkpoint "$app" start
+        if pixels_return; then
+          sleep 2
+          pixels_checkpoint "$app" return
+        fi
+      else
+        # ADR-0041 gap 4's iOS side is open: RuntimeSession.swift sets no window handler, so a dialog's window request
+        # answers -EOPNOTSUPP, which ViewRootImpl takes in silence, and the dialog never shows.
+        failed_line "known gap: no \"ready: dialog 1\"; the iOS session has no window handler for dialogs (gap 4)" \
+          "$app-start"
+      fi
+    elif await_line guest-log "^I/$app: done$" 300; then
+      sleep 2
+      pixels_checkpoint "$app" start
+      if pixels_return; then
+        sleep 2
+        pixels_checkpoint "$app" return
+      fi
+    else
+      failed_line "no done" "$app-start"
+    fi
+    fetch "$CHECK_REL/footprint-log" || true
+    mkdir -p "$PIXELS/$app"
+    cp "$CHECK/footprint-log" "$PIXELS/$app/footprint-log" 2>/dev/null || true
+  fi
+  end_start "$app" 1
+  mkdir -p "$PIXELS/$app"
+  cp "$WORK/$app-1.log" "$PIXELS/$app/guest-log"
+  # window-formats-test's lines, Home and the return included, must be Android 15's (run_one's comparison).
+  if [[ "$app" == window-formats-test ]]; then
+    python3 - "$app" "$WORK/$app-1.log" "fixtures/expected/$app.logcat" <<'PY' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+app, log, expected = sys.argv[1:]
+compare_log(app, subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected,
+            {})
+PY
+  fi
+}
+if [[ -n "${PIXELS:-}" ]]; then
+  for app in "${APPS[@]}"; do
+    run_pixels "${app%% *}" "${app#* }"
+  done
+  echo "java start check: $failures failed"
+  exit $((failures > 0))
+fi
 
 # RESUME=1 runs only the resume round, for the apps ONLY names (default: the four that draw in the Simulator).
 if [[ -n "${RESUME:-}" ]]; then
