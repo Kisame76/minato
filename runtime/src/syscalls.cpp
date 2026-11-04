@@ -214,6 +214,8 @@ constexpr std::uint64_t sched_getparam = 121;
 constexpr std::uint64_t sched_setaffinity = 122;
 constexpr std::uint64_t sched_getaffinity = 123;
 constexpr std::uint64_t sched_yield = 124;
+constexpr std::uint64_t sched_get_priority_max = 125;
+constexpr std::uint64_t sched_get_priority_min = 126;
 constexpr std::uint64_t kill = 129;
 constexpr std::uint64_t tkill = 130;
 constexpr std::uint64_t tgkill = 131;
@@ -311,6 +313,21 @@ long sys_sched_getparam(int pid, std::uint64_t parameters) {
     if (!names_own_thread(pid)) return -linux_errno::esrch;
     *as_pointer<int>(parameters) = 0;  // struct sched_param { int sched_priority; }
     return 0;
+}
+
+/// The priority range of a scheduling policy, as Linux's sched_get_priority_max and _min (kernel/sched/core.c) answer
+/// it: 1 to 99 for SCHED_FIFO (1) and SCHED_RR (2), 0 for SCHED_OTHER (0), SCHED_BATCH (3), SCHED_IDLE (5) and
+/// SCHED_DEADLINE (6), EINVAL for any other number.
+long sys_sched_get_priority(int policy, bool maximum) {
+    switch (policy) {
+        case 1:
+        case 2: return maximum ? 99 : 1;
+        case 0:
+        case 3:
+        case 5:
+        case 6: return 0;
+        default: return -linux_errno::einval;
+    }
 }
 
 /// The device's active CPUs as Linux's CPU mask: one bit each, up to 64.
@@ -902,6 +919,10 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_sched_getscheduler(as_int(x[0]));
         case nr::sched_getparam:
             return sys_sched_getparam(as_int(x[0]), x[1]);
+        case nr::sched_get_priority_max:
+            return sys_sched_get_priority(as_int(x[0]), true);
+        case nr::sched_get_priority_min:
+            return sys_sched_get_priority(as_int(x[0]), false);
         case nr::sigaltstack:
             return sys_sigaltstack(x[0], x[1]);
 

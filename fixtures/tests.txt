@@ -64,6 +64,8 @@ fd-test system
 poll-test system
 # timerfd: one-shot and periodic timers, polling, epoll, absolute times and the errors (Flutter's message loop).
 timerfd-test system
+# sched_get_priority_max and sched_get_priority_min for every policy (the start of Love2D's engine).
+sched-priority-test system
 # Sockets: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054 step a).
 socket-test system
 # Every size class of the allocator, ART's 2 GiB window at a 4 GiB boundary, RLIMIT_STACK (ADR-0035).

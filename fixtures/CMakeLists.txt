@@ -174,6 +174,8 @@ add_executable(fd-test suite/fd-test.c)
 add_executable(poll-test suite/poll-test.c)
 # timerfd-test: timerfd_create, timerfd_settime and timerfd_gettime as event loops use them.
 add_executable(timerfd-test suite/timerfd-test.c)
+# sched-priority-test: sched_get_priority_max and sched_get_priority_min for every scheduling policy.
+add_executable(sched-priority-test suite/sched-priority-test.c)
 # socket-test: socketpairs, AF_UNIX names, TCP and UDP on loopback, flags, options and signals (ADR-0054).
 add_executable(socket-test suite/socket-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
