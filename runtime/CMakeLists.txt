@@ -296,6 +296,9 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" $<TARGET_FILE:apk-convert> "${PROJECT_SOURCE_DIR}/build/sources")
   set_tests_properties(runtime.art_build PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:" TIMEOUT 600)
 
+  # The stamp of ART's sources (tools/art_sources.py), which the checks on build/art compare with the tree.
+  add_test(NAME runtime.art_sources COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_sources_test.py")
+
   # The Mac harness's finalizer timeout for the run-tests (60 s, a test's own value kept); skipped without AOSP's art/test.
   add_test(NAME runtime.art_run_tests_options
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run_tests_options_test.py" "${PROJECT_SOURCE_DIR}")

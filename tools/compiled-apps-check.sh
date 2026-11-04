@@ -12,6 +12,7 @@
 # Usage: tools/compiled-apps-check.sh [<runs, default 10>]
 set -euo pipefail
 cd "$(dirname "$0")/.."
+python3 tools/art_sources.py --check runtime/art build/art || exit 1
 if [[ -z "${COMPILED_APPS_CAFFEINATED:-}" ]]; then
   COMPILED_APPS_CAFFEINATED=1 exec caffeinate -i "$0" "$@"
 fi

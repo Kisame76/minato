@@ -18,6 +18,7 @@
 # Usage: tools/oat-status-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+python3 tools/art_sources.py --check runtime/art build/art || exit 1
 
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi

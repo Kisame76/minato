@@ -23,3 +23,5 @@ cmake -S runtime/art -B build/art -G Ninja \
   -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/art "$@"
+# The stamp the checks on this build compare with the tree (tools/art_sources.py).
+python3 tools/art_sources.py runtime/art > build/art/sources.sha256
