@@ -115,7 +115,8 @@
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
 // alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
 // geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
-// ("apk-run: the first post of window <id>"), which java_app_run.py --drawn looks for. Before a touch they mark
+// ("apk-run: the first post of window <id>"), which java_app_run.py --drawn looks for; MINATO_HEADLESS_LOST_POSTS=<n>
+// loses the session's first n posts (headless_post). Before a touch they mark
 // each window's last frame, and before the next step, or a second after a last touch, each window there at the touch
 // or made since gets a line for the corpus harness's "frame" level: "apk-run: window <id> after <step>: <n> posts
 // since, <m> in all, the frame changed|the frame stayed|a new window[, removed]", where a frame changed when one
@@ -755,9 +756,30 @@ int headless_lock(void *, std::uint64_t id, apkrt_window_buffer *buffer) {
     return answer;
 }
 
+/// MINATO_HEADLESS_LOST_POSTS=<n>: the session's first n posts drop their buffer and answer -ENODEV, as a post to a
+/// window lost meanwhile does, saying so on stderr; a window's first post is then the first one that is not lost.
+std::mutex lost_lock;
+int lost_posts = -1;  // -1 until the first post reads the variable
+std::map<std::uint64_t, bool> first_lost;
+
 int headless_post(void *, std::uint64_t id) {
     bool first = false;
     const int answer = buffers.post(id, first);
+    const std::lock_guard<std::mutex> hold(lost_lock);
+    if (lost_posts < 0) {
+        const char *environment = std::getenv("MINATO_HEADLESS_LOST_POSTS");
+        lost_posts = environment != nullptr ? std::atoi(environment) : 0;
+    }
+    if (answer == 0 && lost_posts > 0) {
+        --lost_posts;
+        if (first) first_lost[id] = true;
+        std::fprintf(stderr, "apk-run: the post of window %llu is lost\n", static_cast<unsigned long long>(id));
+        return -ENODEV;
+    }
+    if (answer == 0 && first_lost[id]) {
+        first_lost[id] = false;
+        first = true;
+    }
     if (first) std::fprintf(stderr, "apk-run: the first post of window %llu\n", static_cast<unsigned long long>(id));
     return answer;
 }

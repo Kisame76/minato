@@ -1,6 +1,7 @@
 /* ADR-0043 b1: libnativewindow's ANativeWindow_lock and ANativeWindow_unlockAndPost against graphics-run's fake
    buffers (window_host.m, MINATO_WINDOW_BUFFERS=fake) on the window host's window, ID 1, of 64 x 48 pixels.
-   - Android's answers: INVALID_OPERATION (-ENOSYS) for a post without a lock and for a second lock.
+   - Android's answers: INVALID_OPERATION (-ENOSYS) for a post without a lock and for a second lock, with libgui's
+     lines in the log, "Surface::unlockAndPost failed, no locked buffer" and "Surface::lock failed, already locked".
    - The buffer: setBuffersGeometry's size and format, else the window's size and NativeActivity's RGBX_8888; the
      whole buffer as the dirty rectangle without one; the buffers' answers in place of the app's (the fake's: the
      whole buffer for a new geometry, else the app's rectangle within the buffer).

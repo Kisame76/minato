@@ -16,6 +16,7 @@
 // An ImageWriter connects to it as its producer (the graphics breadth's G3b): then the queue drops no frame, has the
 // writer's slots next to the consumer's, and calls the writer back at each release of one of its frames.
 #include <android/hardware_buffer.h>
+#include <android/log.h>
 #include <android/native_window.h>
 #include <errno.h>
 #include <pthread.h>
@@ -932,6 +933,7 @@ int32_t ANativeWindow_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffe
     pthread_mutex_lock(&window->lock);
     if (window->locked) {
         pthread_mutex_unlock(&window->lock);
+        __android_log_print(ANDROID_LOG_ERROR, "Surface", "Surface::lock failed, already locked");
         return kInvalidOperation;
     }
     if (window->claimed) {
@@ -972,14 +974,19 @@ int32_t ANativeWindow_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffe
 }
 
 // After the window's present gate, as libEGL's swap waits there (ADR-0032, decision 6), the host's buffers present
-// the locked buffer. Once the window is gone the gate answers 1, and the host only takes the buffer back.
+// the locked buffer. Once the window is gone the gate answers 1, and the host only takes the buffer back. A post
+// without a lock and one the host refuses log what Android 15's libgui logs (Surface::unlockAndPost and queueBuffer),
+// with the window in place of the buffer's handle.
 int32_t ANativeWindow_unlockAndPost(ANativeWindow* window) {
     if (!is_window(window)) return -EINVAL;
     if (window->queue != nullptr) return queue_post(window);
     pthread_mutex_lock(&window->lock);
     const bool locked = window->locked;
     pthread_mutex_unlock(&window->lock);
-    if (!locked) return kInvalidOperation;
+    if (!locked) {
+        __android_log_print(ANDROID_LOG_ERROR, "Surface", "Surface::unlockAndPost failed, no locked buffer");
+        return kInvalidOperation;
+    }
     long gate;
     do {
         gate = syscall(APKRT_NR_WINDOW_GATE, window->id, APKRT_GATE_PRESENT);
@@ -988,6 +995,11 @@ int32_t ANativeWindow_unlockAndPost(ANativeWindow* window) {
     pthread_mutex_lock(&window->lock);
     window->locked = false;
     pthread_mutex_unlock(&window->lock);
+    if (result != 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "Surface", "queueBuffer: error queuing buffer, %d", result);
+        __android_log_print(ANDROID_LOG_ERROR, "Surface", "queueBuffer (handle=%p) failed (%s)",
+                            static_cast<void*>(window), strerror(-result));
+    }
     return result;
 }
 

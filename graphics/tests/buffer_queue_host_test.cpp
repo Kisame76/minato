@@ -123,6 +123,11 @@ int minato_host_syscall(int, ...) {
     return -1;
 }
 
+// A host window's failed lock or post logs as libgui does; a queue window logs nothing.
+int __android_log_print(int, const char *, const char *, ...) {
+    return 0;
+}
+
 }  // extern "C"
 
 namespace {
