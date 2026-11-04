@@ -356,7 +356,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -538,6 +538,8 @@ begin_start() {
   mkdir -p "$CHECK"
   # The guest log is the app's, not dex2oat's: no compile mode after a session, but in the COMPILE round.
   [[ -n "${COMPILE:-}" ]] || echo yes > "$CHECK/no-compile"
+  # The menu that waits over the app at a return from the background chooses Continue after 1 s (the menu's pause).
+  echo yes > "$CHECK/continue"
   [[ "$ON_DEVICE" == yes ]] || rm -f "$REQUEST"
   : > "$WORK/$app-$round.log"
   : > "$WORK/$app-$round.out"

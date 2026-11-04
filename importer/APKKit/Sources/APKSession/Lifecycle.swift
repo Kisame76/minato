@@ -66,6 +66,9 @@ public struct Lifecycle: Sendable, Equatable {
         case notStarted
         /// Started or resumed, with its window.
         case resumed
+        /// Paused under Minato's menu, with its window behind the closed gate: as an activity under a window that does
+        /// not cover it all, or under the keyguard after the return (ADR-0032, decision 7, the menu's pause).
+        case paused
         /// Without a window: from onPause on, stopping or stopped.
         case stopped
         case ended
@@ -77,7 +80,9 @@ public struct Lifecycle: Sendable, Equatable {
     /// Whether iOS has the scene in the background, also before the start.
     private var isInBackground = false
     private var isActive = false
-    private var menuIsOpen = false
+    /// Whether Minato's menu is over the app: from the menu's opening, and from the background on, so that the
+    /// return shows it and the app resumes only with Continue.
+    public private(set) var menuIsOpen = false
     /// What the guest was told last with onWindowFocusChanged.
     private var hasFocus = false
     /// Whether the window now given up ends the app (Quit, finish) rather than going to the background.
@@ -92,7 +97,7 @@ public struct Lifecycle: Sendable, Equatable {
     public var hasEnded: Bool { phase == .ended }
 
     public var gate: Gate {
-        guard phase == .resumed else { return .gone }
+        guard phase == .resumed || phase == .paused else { return .gone }
         return hasFocus ? .open : .closed
     }
 
@@ -149,30 +154,37 @@ public struct Lifecycle: Sendable, Equatable {
             return updateFocus()
         case .menuOpened:
             menuIsOpen = true
-            return updateFocus()
+            return updateFocus() + pause()
         case .menuClosed:
             menuIsOpen = false
-            return updateFocus()
+            return resume() + updateFocus()
         case .memoryWarning:
             return phase == .notStarted ? [] : [.onLowMemory]
         case .turned:
             // Android 15's order for a turn the activity handles (rotation-test); without a window, the next
             // one has the new size.
-            return phase == .resumed ? [.onConfigurationChanged, .onNativeWindowResized] : []
+            return phase == .resumed || phase == .paused ? [.onConfigurationChanged, .onNativeWindowResized] : []
         case .background:
             isInBackground = true
-            guard phase == .resumed else { return [] }
+            // The return shows the menu over the app (the menu's pause).
+            if phase != .notStarted { menuIsOpen = true }
+            guard phase == .resumed || phase == .paused else { return [] }
             isEnding = false
             return giveUpWindow()
         case .foreground:
             isInBackground = false
             if phase == .notStarted { return startIfDue() }
             guard phase == .stopped else { return [] }
+            // Under the menu the app starts with its window and waits for Continue, as under the keyguard.
+            guard !menuIsOpen else {
+                phase = .paused
+                return [.onStart, .onNativeWindowCreated]
+            }
             phase = .resumed
             return [.onStart, .onResume, .onNativeWindowCreated] + updateFocus()
         case .quit, .finish:
             switch phase {
-            case .resumed:
+            case .resumed, .paused:
                 isEnding = true
                 return giveUpWindow()
             case .stopped:
@@ -186,7 +198,7 @@ public struct Lifecycle: Sendable, Equatable {
             }
         case .quitAtRoot:
             switch phase {
-            case .resumed:
+            case .resumed, .paused:
                 isEnding = false
                 endsStopped = true
                 return giveUpWindow()
@@ -240,13 +252,31 @@ public struct Lifecycle: Sendable, Equatable {
     private mutating func giveUpWindow() -> [Callback] {
         let focus: [Callback] = hasFocus ? [.onWindowFocusChanged(false)] : []
         hasFocus = false
+        // A paused app has had its pause, and its state saved where its targetSdk wants it then.
+        let wasPaused = phase == .paused
         phase = .stopped
         awaits = .onNativeWindowDestroyed
+        if wasPaused { return [.onNativeWindowDestroyed] }
         if isEnding {
             return [.onPause] + focus + [.onNativeWindowDestroyed]
         }
         let save: [Callback] = targetSdk < Self.honeycomb ? [.onSaveInstanceState] : []
         return focus + save + [.onPause, .onNativeWindowDestroyed]
+    }
+
+    /// The menu's pause of a resumed app: onPause, after the state's save below Honeycomb, as AOSP's
+    /// performPauseActivity does; the window stays.
+    private mutating func pause() -> [Callback] {
+        guard phase == .resumed else { return [] }
+        phase = .paused
+        return (targetSdk < Self.honeycomb ? [.onSaveInstanceState] : []) + [.onPause]
+    }
+
+    /// Continue resumes an app the menu paused.
+    private mutating func resume() -> [Callback] {
+        guard phase == .paused else { return [] }
+        phase = .resumed
+        return [.onResume]
     }
 
     /// onWindowFocusChanged when the app gains or loses the focus: resumed, active and without the menu.

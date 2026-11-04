@@ -174,11 +174,11 @@ struct SessionBridgeTests {
         bridge.handle(.inactive, host: host)
         #expect(host.take() == [.post(.windowFocusChanged(false)), .setGate(1, open: false)])
         bridge.handle(.menuOpened, host: host)
-        #expect(host.take() == [])
+        #expect(host.take() == [.post(.pause)])
         bridge.handle(.active, host: host)
         #expect(host.take() == [])
         bridge.handle(.menuClosed, host: host)
-        #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true)])
+        #expect(host.take() == [.post(.resume), .post(.windowFocusChanged(true)), .setGate(1, open: true)])
     }
 
     /// The program ended while the focus went: the gate closes all the same.
@@ -268,11 +268,13 @@ struct SessionBridgeTests {
 
         bridge.handle(.foreground, host: host)
         #expect(host.take() == [
-            .setBackground(false), .addWindow(width: Self.width, height: Self.height),
-            .post(.start), .post(.resume),
+            .setBackground(false), .addWindow(width: Self.width, height: Self.height), .post(.start),
         ] + Self.shown(2, first: false))
+        // Minato's menu waits over the app, which resumes with Continue.
         bridge.handle(.active, host: host)
-        #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(2, open: true)])
+        #expect(host.take() == [])
+        bridge.handle(.menuClosed, host: host)
+        #expect(host.take() == [.post(.resume), .post(.windowFocusChanged(true)), .setGate(2, open: true)])
     }
 
     @Test func foregroundBeforeTheAnswerComesAfterIt() {
@@ -287,8 +289,7 @@ struct SessionBridgeTests {
         #expect(bridge.finished(wait!, result: 1, host: host).wait == nil)
         #expect(host.take() == [
             .post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState),
-            .addWindow(width: Self.width, height: Self.height),
-            .post(.start), .post(.resume),
+            .addWindow(width: Self.width, height: Self.height), .post(.start),
         ] + Self.shown(2, first: false))
     }
 
@@ -709,7 +710,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.windowFocusChanged(true)), .setGate(1, open: true), .setGate(2, open: true)])
         bridge.handle(.menuOpened, host: host)
         #expect(host.take() == [
-            .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false),
+            .post(.windowFocusChanged(false)), .setGate(1, open: false), .setGate(2, open: false), .post(.pause),
         ])
     }
 
@@ -907,6 +908,7 @@ struct SessionBridgeTests {
         ])
         bridge.handle(.foreground, host: host)
         bridge.handle(.active, host: host)
+        bridge.handle(.menuClosed, host: host)
         #expect(host.take().suffix(3) == [
             .post(.windowFocusChanged(true)), .setGate(3, open: true), .setGate(2, open: true),
         ])

@@ -55,6 +55,9 @@ import UIKit
 ///            presented so far and the scene's state (the resume round of tools/java-start-check.sh).
 ///   menu     the same poll opens game mode's menu, logs "menu opened" and closes it 0.5 s later, as the three-finger
 ///            gesture and the menu's Continue do; the file goes.
+///   continue  the menu that waits over the app at a return from the background (ADR-0032 decision 7, the menu's
+///            pause) chooses Continue after the seconds the file names (1 when it names none) and logs "menu
+///            continued"; the file stays for every return.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -383,6 +386,18 @@ enum SessionCheck {
                     session.closeMenu()
                 }
             }
+        }
+    }
+
+    /// Back from the background with the menu over the app: Continue, as the user would.
+    @MainActor
+    static func returned(to session: GameSession) {
+        guard requested("continue") else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(text(of: "continue").flatMap(Double.init) ?? 1))
+            guard session.menuIsOpen else { return }
+            event("menu continued")
+            session.closeMenu()
         }
     }
 

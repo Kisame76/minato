@@ -37,7 +37,10 @@
 # "inactive", before onPause, where Android pauses first; its end has Android's order (App's c6 host fixes); its
 # layer is opaque. TRANSLUCENT=1 runs activity-test's entry
 # activity_test_translucent_onCreate, packed as an app of its own, which asks for RGBA_8888 in onCreate: the
-# session reports the window translucent before any other request, and the layer follows (ADR-0030 V5). LIVE=1 runs test 8 of ADR-0032 with the live variants of ADR-0036 a)
+# session reports the window translucent before any other request, and the layer follows (ADR-0030 V5); Minato's
+# menu pauses the app and Continue resumes it, then Home and the return, which waits under the menu for Continue
+# (ADR-0032 decision 7, the menu's pause), each in Android's order. In every round the Debug request "continue"
+# chooses Continue 1 s after a return. LIVE=1 runs test 8 of ADR-0032 with the live variants of ADR-0036 a)
 # (build/fixtures/apks/gles-live.apk and, on the iPhone, vulkan-live.apk, which needs MoltenVK): each draws paced
 # by AChoreographer and asks for 120 and 60 Hz in turn every 5 s; game mode goes Home and back, and Quit returns
 # to the library. It checks that the FPS label counts in both windows, that the app ends with "windows 2,
@@ -282,7 +285,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash self-kill start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash self-kill start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile menu continue end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -518,6 +521,8 @@ begin_round() {
   echo yes > "$CHECK/no-guest"
   # A guest app's session asks for no compile mode, which would start in place of the next round's library.
   echo yes > "$CHECK/no-compile"
+  # The menu that waits over the app at a return chooses Continue after 1 s, as the user would.
+  echo yes > "$CHECK/continue"
 }
 
 # Waits for the event "exit" and checks that process $1 wrote it: a restart ends the old process itself.
@@ -987,6 +992,11 @@ pause, lost = f"I/{sys.argv[2]}: APP_CMD_PAUSE", f"I/{sys.argv[2]}: APP_CMD_LOST
 pairs = [i for i in range(len(lines) - 1) if lines[i] == pause and lines[i + 1] == lost]
 for i in pairs[:-1]:
     lines[i], lines[i + 1] = lost, pause
+# The return under Minato's menu: RESUME comes with Continue, right before the focus.
+start, resume, gained = (f"I/{sys.argv[2]}: APP_CMD_{name}" for name in ("START", "RESUME", "GAINED_FOCUS"))
+for at in [i for i, line in enumerate(lines) if line == start][1:]:
+    moved = lines.index(resume, at)
+    lines.insert(lines.index(gained, moved) - 1, lines.pop(moved))
 print("\n".join(lines))
 PY
 }
@@ -1012,14 +1022,24 @@ run_translucent() {
   local pid
   pid=$(pid_of "$EVENT")
   await_event 'callback onWindowFocusChanged\(true\)' 20 || { abort_round "the app did not gain the focus"; return; }
+  # Minato's menu pauses the app and Continue resumes it (ADR-0032 decision 7, the menu's pause). No second tap: the
+  # library would take it after the end.
+  rm -f "$CHECK/tap"
+  echo yes > "$CHECK/menu"
+  send_requests
+  await_event "menu closed" 10 || fail "  the menu did not open and close"
   sleep 1
   launch com.apple.Preferences
   await_event "callback onSaveInstanceState" 10 || fail "  no onSaveInstanceState in the background"
+  await_event "menu opened for the return" 10 && ok "  the menu waits for the return" || fail "  no menu for the return"
   sleep 1
   launch
+  await_event "menu continued" 20 && ok "  Continue after the return" || fail "  no Continue after the return"
   await_event "request finish" 20 && ok "  the app finishes itself after its return" || fail "  no FINISH"
   await_event "program ended .*" 10 || fail "  activity-host did not end"
   await_event "process library.*" 30 || fail "  no library after the end"
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onResume onWindowFocusChanged(true) onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onNativeWindowCreated onResume onWindowFocusChanged(true) $FINISH" \
+    "$(callbacks_of "$pid")"
   expect "  the requests" "windowOpaque(false) keepScreenOn(true) finish" "$(requests_of "$pid")"
   expect "  the layer's opacity" "1 0" "$(opacity_of "$pid")"
 }
@@ -1065,9 +1085,11 @@ run_activity() {
   send_requests
   launch
   await_event "process gameMode $ACTIVITY_PKG .*" 60 || { abort_round "no game mode after the tap"; return; }
-  local pid start
+  local pid start mark=$seen
   pid=$(pid_of "$EVENT")
+  # The start's window size is logged next to its callbacks, before or after the focus.
   await_event "start window [0-9]+x[0-9]+" && start=${EVENT##* } || start=none
+  seen=$mark
   await_event 'callback onWindowFocusChanged\(true\)' 20 || { abort_round "activity-test did not gain the focus"; return; }
   shot "activity-1-started"
   sleep 1
@@ -1080,7 +1102,8 @@ run_activity() {
     || fail "  activity-host did not end"
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) $FINISH" \
+  # The return starts the app under Minato's menu; Continue resumes it (ADR-0032 decision 7, the menu's pause).
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onNativeWindowCreated onResume onWindowFocusChanged(true) $FINISH" \
     "$(callbacks_of "$pid")"
   expect "  the requests" "keepScreenOn(true) finish" "$(requests_of "$pid")"
   # The layer starts opaque, as Android's window from NativeActivity's RGB_565, and stays so (ADR-0030 V5).
@@ -1393,7 +1416,8 @@ run_audio_live() {
     "$(event_of "$EVENT")" || fail "  activity-host did not end"
   await_event "process library.*" 30 && expect "  back in the library, without a notice" "process library" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
-  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onResume onNativeWindowCreated onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
+  # The return under Minato's menu, Continue, then the Quit's menu pauses the app and Quit ends it.
+  expect "  the callbacks" "$START onWindowFocusChanged(false) onPause onNativeWindowDestroyed onStop onSaveInstanceState onStart onNativeWindowCreated onResume onWindowFocusChanged(true) onWindowFocusChanged(false) $QUIT" \
     "$(callbacks_of "$pid")"
 
   audio=$(head -n "$seen" "$EVENTS" | awk -v pid="$pid" '$2 == pid && $3 == "audio" { $1 = $2 = ""; sub(/^ +/, ""); print }')

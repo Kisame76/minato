@@ -18,6 +18,8 @@ final class GameSession {
     private(set) var menuIsOpen = false
     /// The menu opened for a back at the task's root (ADR-0041 decision 10): its Quit leaves the app stopped.
     private(set) var menuIsAtRoot = false
+    /// The background opened the menu, which waits over the app at the return.
+    @ObservationIgnored private var menuWaitsOnReturn = false
     private(set) var showsHint: Bool
     /// The FPS label is on (ADR-0032, decision 9); off by default, since it makes Core Animation composite
     /// the layer. One setting for every app, kept across sessions.
@@ -567,11 +569,16 @@ final class GameSession {
         case .active:
             if old == .background { deliver(.foreground) }
             deliver(.active)
+            #if DEBUG
+            if menuWaitsOnReturn { SessionCheck.returned(to: self) }
+            #endif
+            menuWaitsOnReturn = false
         case .inactive:
             deliver(old == .background ? .foreground : .inactive)
         case .background:
             if old == .active { deliver(.inactive) }
             deliver(.background)
+            showMenuForTheReturn()
         @unknown default:
             break
         }
@@ -582,6 +589,22 @@ final class GameSession {
     private func enteredBackground() {
         deliver(.inactive)
         deliver(.background)
+        showMenuForTheReturn()
+    }
+
+    /// The return shows Minato's menu over the app, which the background paused and stopped and which resumes only
+    /// with Continue (ADR-0032, decision 7, the menu's pause).
+    private func showMenuForTheReturn() {
+        guard bridge.lifecycle.menuIsOpen, !menuIsOpen else { return }
+        #if BENCHMARK
+        guard benchmark == nil else { return }
+        #endif
+        menuIsOpen = true
+        menuIsAtRoot = false
+        menuWaitsOnReturn = true
+        #if DEBUG
+        SessionCheck.event("menu opened for the return")
+        #endif
     }
 
     func memoryWarning() {
