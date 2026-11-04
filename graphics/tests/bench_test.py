@@ -23,12 +23,18 @@ too for the INHERIT that libvulkan offers, and the host build's Vulkan scene ask
 
 With --record-class, ADR-0042 c) 2): graphics.recorder_class. For each API, the host build records the same run through
 MinatoLayerRecorder on a layer class without its own nextDrawable, as Godot's GDTMetalLayer (record-class), with the
-same checks; the host also checks which classes the recorder attaches to and that a second layer records nothing."""
+same checks; the host also checks which classes the recorder attaches to and that a second layer records nothing.
+
+The APKs must be built from the tree's own graphics/bench: tools/build-bench.sh's sources.sha256 next to them must
+be bench_sources.py's digest of it, or the test fails at once, as APKs of another scene fail every APK check. The
+programs' waits count only their own rounds (patience.h), so a busy Mac stretches a run instead of failing it."""
 import argparse
 import pathlib
 import re
 import subprocess
 import sys
+
+from bench_sources import digest
 
 FRAMES = 1080
 CRC = re.compile(r"crc frame 1000: ([0-9a-f]{8})\b")
@@ -295,6 +301,20 @@ def record_class(args, scratch):
     return 1 if failures else 0
 
 
+def current(args):
+    """Whether the APKs in --bench were built from the sources next to --manifests (graphics/bench/android)."""
+    stamp = pathlib.Path(args.bench) / "sources.sha256"
+    try:
+        built = stamp.read_text().strip()
+    except OSError:
+        fail(f"no {stamp}: run tools/build-bench.sh")
+        return False
+    if built != digest(pathlib.Path(args.manifests).parent):
+        fail(f"the APKs in {args.bench} were built from other sources than graphics/bench's: run tools/build-bench.sh")
+        return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser()
     for option in ("host", "app-test", "scratch", "bench", "bionic", "system", "front", "manifests", "angle",
@@ -304,10 +324,12 @@ def main():
     parser.add_argument("--record-class", action="store_true")
     args = parser.parse_args()
     scratch = pathlib.Path(args.scratch)
-    if args.record:
-        return record(args, scratch)
     if args.record_class:
         return record_class(args, scratch)
+    if not current(args):
+        return 1
+    if args.record:
+        return record(args, scratch)
 
     plain = ""
     plain_by_api = {}

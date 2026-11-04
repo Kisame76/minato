@@ -21,6 +21,7 @@
 
 #include "minato_bench.h"
 #include "minato_layer.h"
+#include "patience.h"
 #include "recording_check.h"
 
 #include <time.h>
@@ -67,16 +68,26 @@ std::int64_t now() {
     return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
 }
 
-/// Waits until the scene drew `count` frames or its run ended: true for the frames.
+/// Waits until the scene drew `count` frames or its run ended: true for the frames. `limit` counts this thread's
+/// rounds (patience.h).
 bool drawn(std::uint64_t count, std::chrono::milliseconds limit) {
-    const auto deadline = std::chrono::steady_clock::now() + limit;
+    Patience patience(limit);
     char error[256];
-    while (std::chrono::steady_clock::now() < deadline) {
+    do {
         if (minato_bench_frames() >= count) return true;
         if (minato_bench_wait(0, error, sizeof error) != 1) return false;
         std::this_thread::sleep_for(100us);
+    } while (patience.more(100us));
+    return minato_bench_frames() >= count;
+}
+
+/// minato_bench_wait for up to `seconds` of this thread's rounds.
+int ended(double seconds, char *error, std::size_t size) {
+    Patience patience(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(seconds)));
+    int status;
+    while ((status = minato_bench_wait(0.1, error, size)) == 1 && patience.more(100ms)) {
     }
-    return false;
+    return status;
 }
 
 }  // namespace
@@ -194,7 +205,7 @@ int main(int argc, char **argv) {
         }
         if (!drawn(ticks / every + 1, ticks == 0 ? 20000ms : 5000ms)) break;
     }
-    const int status = minato_bench_wait(10, error, sizeof error);
+    const int status = ended(10, error, sizeof error);
     std::printf("host: %llu ticks, %llu frames\n", static_cast<unsigned long long>(ticks + 1),
                 static_cast<unsigned long long>(minato_bench_frames()));
     if (status != 0) {

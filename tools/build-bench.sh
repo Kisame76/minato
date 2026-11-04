@@ -3,7 +3,8 @@
 #   tools/build-bench.sh        the APKs: graphics/bench/android with the NDK for arm64-v8a, its libraries into
 #                               build/graphics/bench/bin, then build/graphics/bench/bench-gles.apk,
 #                               bench-vulkan.apk and bench-gles31.apk, bench-gles's library under an ES 3.1
-#                               manifest (ADR-0044 d2)), with tools/make-apk.sh
+#                               manifest (ADR-0044 d2)), with tools/make-apk.sh, and the digest of their sources
+#                               as sources.sha256 (graphics/tests/bench_sources.py), which graphics.bench checks
 #   tools/build-bench.sh --ios  the scene built for iOS: MinatoBench.framework for the device and the Simulator
 #                               (graphics/bench with the presets ios-release and ios-simulator-release, in
 #                               build/native/<preset>-bench), packed into build/MinatoBench.xcframework. It links
@@ -75,3 +76,4 @@ for app in bench-gles bench-vulkan bench-gles31; do
   tools/make-apk.sh --manifest "graphics/bench/android/$app/AndroidManifest.xml" --lib "$out/bin/lib$library.so" \
     --lib "$out/bin/libbench-scripting.so" --out "$out/$app.apk"
 done
+python3 graphics/tests/bench_sources.py graphics/bench > "$out/sources.sha256"

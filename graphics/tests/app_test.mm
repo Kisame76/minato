@@ -71,6 +71,7 @@
 #include "apkconv/container.h"
 #include "minato_graphics.h"
 #include "minato_layer.h"
+#include "patience.h"
 #include "recording_check.h"
 
 #include <time.h>
@@ -173,15 +174,15 @@ void on_end(void *, int status) {
 /// Waits up to `limit` until `predicate` holds, serving the main queue meanwhile as the App's main thread does:
 /// MoltenVK on macOS reads a layer's screen on the main queue (screenMVK through mvkDispatchToMainAndWait, e.g. in
 /// vkGetRefreshCycleDurationGOOGLE), which would wait forever on a main thread that only sleeps. On iOS MoltenVK
-/// reads UIScreen.mainScreen without the main queue.
+/// reads UIScreen.mainScreen without the main queue. `limit` counts this thread's rounds (patience.h).
 template <typename Predicate>
 bool wait_for(Predicate predicate, std::chrono::seconds limit) {
-    const auto deadline = std::chrono::steady_clock::now() + limit;
+    Patience patience(limit);
     for (;;) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
         std::unique_lock hold(seen.lock);
         if (seen.changed.wait_for(hold, 10ms, predicate)) return true;
-        if (std::chrono::steady_clock::now() >= deadline) return false;
+        if (!patience.more(10ms)) return false;
     }
 }
 
@@ -730,15 +731,16 @@ void play_present(const std::string &app, const fs::path &expected, const fs::pa
     ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
 }
 
-/// Waits until the window counted `count` presents or the app asked to finish: true for the presents.
+/// Waits until the window counted `count` presents or the app asked to finish: true for the presents. `limit`
+/// counts this thread's rounds (patience.h).
 bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseconds limit) {
-    const auto deadline = std::chrono::steady_clock::now() + limit;
-    while (std::chrono::steady_clock::now() < deadline) {
+    Patience patience(limit);
+    do {
         if (apkrt_window_presents(window) >= count) return true;
         if (requested("FINISH")) return false;
         std::this_thread::sleep_for(100us);
-    }
-    return false;
+    } while (patience.more(100us));
+    return apkrt_window_presents(window) >= count;
 }
 
 /// bench-gles and bench-vulkan: the start, the frames in lockstep with the ticks until the app finishes, the quit.
