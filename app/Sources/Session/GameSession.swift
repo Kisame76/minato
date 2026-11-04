@@ -42,7 +42,8 @@ final class GameSession {
     /// What the guest asks the user to pick (ADR-0057), over game mode.
     @ObservationIgnored private lazy var picks: PickPresenter = {
         let data = (try? LibraryPaths.standard())?.dataDirectory(for: entry.id)
-        return PickPresenter(dataFolder: data?.appending(path: "data"), download: data?.appending(path: "download")) {
+        return PickPresenter(dataFolder: data?.appending(path: "data"), download: data?.appending(path: "download"),
+                             documents: data?.appending(path: "documents"), appName: entry.displayName) {
             [weak self] id, picked in self?.pickAnswered(id, picked)
         }
     }()
@@ -399,6 +400,7 @@ final class GameSession {
                 data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
                 download: data.appending(path: "download").path,
+                documents: data.appending(path: "documents").path,
                 guestSystem: bundle.appending(path: "Guest").path, splits: splits, environment: guestEnvironment)
         case .art:
             // An unsigned APK has no signers.json.
@@ -415,6 +417,7 @@ final class GameSession {
                 data: data.appending(path: "data").path, deviceData: data.appending(path: "data_de").path,
                 external: data.appending(path: "external").path, obb: data.appending(path: "obb").path,
                 download: data.appending(path: "download").path,
+                documents: data.appending(path: "documents").path,
                 guestData: paths.guestDataDirectory(for: entry.id).path,
                 guestSystem: bundle.appending(path: "Guest").path,
                 // The kept pack slices and the feature modules' splits, which prepareJavaStart lays out in

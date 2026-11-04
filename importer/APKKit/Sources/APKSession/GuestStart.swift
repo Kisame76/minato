@@ -61,12 +61,13 @@ public struct GuestStart: Sendable, Equatable {
     /// lies beside base.apk at the code path under the same name, and activity-host gets one `--split` for each.
     public init?(package: String, library: String, function: String?, apk: String, apkSHA256: String,
                  appLibraries: String, data: String, deviceData: String, external: String, obb: String,
-                 download: String, guestSystem: String, splits: [String] = [], environment extra: [String] = []) {
+                 download: String, documents: String, guestSystem: String, splits: [String] = [],
+                 environment extra: [String] = []) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "\(app)/base.apk", host: apk)] + Self.splitMounts(splits, app: app)
             + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb,
-                             download: download)
+                             download: download, documents: documents)
             + [Path(guest: "/system", host: "\(guestSystem)/system")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
@@ -90,7 +91,8 @@ public struct GuestStart: Sendable, Equatable {
     /// local_testing_dir (ADR-0050 decision 2). `splits` as for the NativeActivity start: ActivityThread gets one
     /// `--split` for each, after `--apk`.
     public init?(javaApp package: String, apk: String, apkSHA256: String, signers: String?, appLibraries: String,
-                 data: String, deviceData: String, external: String, obb: String, download: String, guestData: String,
+                 data: String, deviceData: String, external: String, obb: String, download: String, documents: String,
+                 guestData: String,
                  guestSystem: String, localTesting: Bool = false, splits: [String] = [],
                  environment extra: [String] = [], oat: OatFolders? = nil) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
@@ -102,7 +104,7 @@ public struct GuestStart: Sendable, Equatable {
             + Self.splitMounts(splits, app: app)
             + (signers.map { [Path(guest: "\(app)/signers.json", host: $0)] } ?? [])
             + Self.dataMounts(package: package, data: data, deviceData: deviceData, external: external, obb: obb,
-                             download: download)
+                             download: download, documents: documents)
             + [Path(guest: "/system", host: "\(guestSystem)/system"), Path(guest: "/apex", host: "\(guestSystem)/apex")]
         libraryDirectories = [
             Path(guest: "/system/lib64", host: "\(guestSystem)/lib64"),
@@ -203,15 +205,17 @@ public struct GuestStart: Sendable, Equatable {
     /// /sdcard there, as Android 15's zygote and its storage links do. Its device protected data is
     /// /data/user_de/0/<package>, where Android 15 keeps it with no link, which createDeviceProtectedStorageContext's
     /// files and preferences name. Download is the app's own folder, where the host clones the files the user picks
-    /// (ADR-0057 step b), as the harness's.
+    /// (ADR-0057 step b), as the harness's, and so is Documents, the place of its saves and of the folder it opens
+    /// (step d): the app's own, where Android shares it between apps.
     private static func dataMounts(package: String, data: String, deviceData: String, external: String,
-                                   obb: String, download: String) -> [Path] {
+                                   obb: String, download: String, documents: String) -> [Path] {
         [
             Path(guest: "/data/data/\(package)", host: data),
             Path(guest: "/data/user_de/0/\(package)", host: deviceData),
             Path(guest: "/storage/emulated/0/Android/data/\(package)", host: external),
             Path(guest: "/storage/emulated/0/Android/obb/\(package)", host: obb),
             Path(guest: "/storage/emulated/0/Download", host: download),
+            Path(guest: "/storage/emulated/0/Documents", host: documents),
         ]
     }
 

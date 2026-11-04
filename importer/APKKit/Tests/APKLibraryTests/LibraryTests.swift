@@ -156,7 +156,7 @@ struct LibraryTests {
         // installd's createAppData makes cache and code_cache in the app's credential and device protected data at the
         // install (ADR-0039 d6).
         for folder in ["data", "data/cache", "data/code_cache", "data_de", "data_de/cache", "data_de/code_cache",
-                       "external", "obb", "download"] {
+                       "external", "obb", "download", "documents"] {
             #expect(sandbox.exists(sandbox.paths.dataDirectory(for: "org.example.game").appendingPathComponent(folder)))
         }
         #expect(await library.entries.map(\.id) == ["org.example.game"])
@@ -174,14 +174,42 @@ struct LibraryTests {
 
         try sandbox.paths.prepareData(for: "org.example.game")
 
-        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb", "download"] {
+        for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb",
+                       "download", "documents"] {
             #expect(sandbox.exists(data.appendingPathComponent(folder)))
         }
         // The clones of the user's files are the user's, not the app's: left out of backups, as Android leaves out its
         // shared storage (ADR-0057 step b).
         let download = data.appendingPathComponent("download").path
         #expect(getxattr(download, "com.apple.metadata:com_apple_backup_excludeItem", nil, 0, 0, XATTR_NOFOLLOW) >= 0)
+        // Documents holds what the app saves there (ADR-0057 step d), its saves among them: backed up as its data is.
+        let documents = data.appendingPathComponent("documents").path
+        #expect(getxattr(documents, "com.apple.metadata:com_apple_backup_excludeItem", nil, 0, 0, XATTR_NOFOLLOW) < 0)
         #expect(try Data(contentsOf: save) == Data("kept".utf8))
+    }
+
+    /// The Documents folder is the root of the guest's Documents mount (ADR-0057 step d), as Download is of its own.
+    @Test func aLinkOrAFileWhereTheDocumentsFolderBelongs() throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let data = sandbox.paths.dataDirectory(for: "org.example.game")
+        let documents = data.appendingPathComponent("documents")
+        let outside = sandbox.root.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: documents, withDestinationURL: outside)
+
+        try sandbox.paths.prepareData(for: "org.example.game")
+
+        var status = stat()
+        #expect(lstat(documents.path, &status) == 0 && status.st_mode & S_IFMT == S_IFDIR)
+
+        try FileManager.default.removeItem(at: documents)
+        try Data("a file".utf8).write(to: documents)
+        #expect(throws: LibraryError.documentsFolderIsNoFolder("org.example.game")) {
+            try sandbox.paths.prepareData(for: "org.example.game")
+        }
+        #expect(try Data(contentsOf: documents) == Data("a file".utf8))
     }
 
     /// The Download folder is the root of the guest's Download mount, as the OBB folder of its OBB mounts: a link in

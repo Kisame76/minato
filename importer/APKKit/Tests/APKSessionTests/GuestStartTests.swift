@@ -20,7 +20,8 @@ struct GuestStartTests {
             package: package, library: library, function: function,
             apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", deviceData: "/v/data/p/data_de", external: "/v/data/p/external",
-            obb: "/v/data/p/obb", download: "/v/data/p/download", guestSystem: "/b/Minato.app/Guest",
+            obb: "/v/data/p/obb", download: "/v/data/p/download",
+            documents: "/v/data/p/documents", guestSystem: "/b/Minato.app/Guest",
             environment: environment)
     }
 
@@ -53,6 +54,7 @@ struct GuestStartTests {
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
             .init(guest: "/storage/emulated/0/Download", host: "/v/data/p/download"),
+            .init(guest: "/storage/emulated/0/Documents", host: "/v/data/p/documents"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
         ])
     }
@@ -95,6 +97,7 @@ struct GuestStartTests {
             javaApp: package, apk: "/v/apps/p/1/base.apk", apkSHA256: sha256, signers: signers,
             appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", deviceData: "/v/data/p/data_de",
             external: "/v/data/p/external", obb: "/v/data/p/obb", download: "/v/data/p/download",
+            documents: "/v/data/p/documents",
             guestData: "/c/guest/p/data",
             guestSystem: "/b/Minato.app/Guest", localTesting: localTesting, splits: splits, environment: environment)
     }
@@ -107,6 +110,7 @@ struct GuestStartTests {
             javaApp: Self.package, apk: "/v/apps/p/1/base.apk", apkSHA256: Self.sha256, signers: nil,
             appLibraries: "/v/apps/p/1/lib", data: "/v/data/p/data", deviceData: "/v/data/p/data_de",
             external: "/v/data/p/external", obb: "/v/data/p/obb", download: "/v/data/p/download",
+            documents: "/v/data/p/documents",
             guestData: "/c/guest/p/data", guestSystem: "/b/Minato.app/Guest",
             oat: .init(code: "/v/apps/p/1/oat", containers: "/v/apps/p/1/oat-containers"))
         #expect(oat?.mounts.contains(.init(guest: "\(Self.codePath)/oat/arm64", host: "/v/apps/p/1/oat")) == true)
@@ -216,6 +220,7 @@ struct GuestStartTests {
             .init(guest: "/storage/emulated/0/Android/data/\(Self.package)", host: "/v/data/p/external"),
             .init(guest: "/storage/emulated/0/Android/obb/\(Self.package)", host: "/v/data/p/obb"),
             .init(guest: "/storage/emulated/0/Download", host: "/v/data/p/download"),
+            .init(guest: "/storage/emulated/0/Documents", host: "/v/data/p/documents"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
             .init(guest: "/apex", host: "/b/Minato.app/Guest/apex"),
         ])
@@ -256,7 +261,8 @@ struct GuestStartTests {
             package: Self.package, library: "activity-test", function: nil,
             apk: "/v/apps/p/1/base.apk", apkSHA256: Self.sha256, appLibraries: "/v/apps/p/1/lib",
             data: "/v/data/p/data", deviceData: "/v/data/p/data_de", external: "/v/data/p/external",
-            obb: "/v/data/p/obb", download: "/v/data/p/download", guestSystem: "/b/Minato.app/Guest",
+            obb: "/v/data/p/obb", download: "/v/data/p/download",
+            documents: "/v/data/p/documents", guestSystem: "/b/Minato.app/Guest",
             splits: Self.splits)
         #expect(start?.mounts.prefix(3) == [
             .init(guest: "\(app)/base.apk", host: "/v/apps/p/1/base.apk"),

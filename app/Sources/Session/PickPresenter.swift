@@ -6,19 +6,20 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "sess
 
 /// ADR-0057's host for the guest's pickers over game mode, one request at a time (PickQueue), each answered once.
 /// Documents (kinds 1 and 2) in UIDocumentPickerViewController, opened in place, so that each file is read under its
-/// own security scope and coordination and cloned into the app's Download folder (DocumentClones); the save dialog,
-/// the folder and the photo picker (kinds 3 to 5) answer RESULT_CANCELED until their views come, as does a request in
-/// the background. The picker takes its turn with the open requests' sheets (SheetTurns).
+/// own security scope and coordination and cloned into the app's Download folder (DocumentClones). A save and a folder
+/// (kinds 3 and 4, step d) ask in an alert with DocumentsUI's words whether the app may use its Documents folder, the
+/// place of both (LocationAnswer); the photo picker (kind 5) answers RESULT_CANCELED until its view comes, as does a
+/// request in the background. The picker takes its turn with the open requests' sheets (SheetTurns).
 @MainActor
 final class PickPresenter: NSObject {
     /// One presentation of a request: its ID, a token of its own, as the guest may use an ID again after a cancel, the
-    /// most documents it takes, its picker once shown, whether its files are being cloned, and its cancel, which the
-    /// clone work reads.
+    /// most documents it takes, its picker or alert once shown, whether its files are being cloned, and its cancel,
+    /// which the clone work reads.
     private struct Shown {
         let id: UInt64
         let token: UInt64
         let most: Int
-        var picker: UIDocumentPickerViewController?
+        var picker: UIViewController?
         var cloning = false
         let cancel = Cancel()
     }
@@ -52,14 +53,18 @@ final class PickPresenter: NSObject {
     private var shown: Shown?
     private var tokens: UInt64 = 0
     private let clones: DocumentClones?
+    private let locations: LocationAnswer?
+    /// The app's name in the alerts.
+    private let appName: String
     /// The clones of one request after the other's, each to its end (the review).
     private let work = SerialWork()
     private let answer: (UInt64, Int?) -> Void
     private lazy var steps = SheetSteps<PickQueue.Step>(owner: self) { [unowned self] in perform($0) }
 
-    /// `dataFolder` and `download` are the app's, from the host's records; `answer` gets a request's number of picks,
-    /// nil for a cancel.
-    init(dataFolder: URL?, download: URL?, answer: @escaping (UInt64, Int?) -> Void) {
+    /// `dataFolder`, `download` and `documents` are the app's, from the host's records, `appName` its name; `answer`
+    /// gets a request's number of picks, nil for a cancel.
+    init(dataFolder: URL?, download: URL?, documents: URL?, appName: String,
+         answer: @escaping (UInt64, Int?) -> Void) {
         clones = dataFolder.flatMap { data in
             download.map {
                 // A document picked again keeps its clone unless the user changed it elsewhere, and no new clone takes
@@ -69,6 +74,8 @@ final class PickPresenter: NSObject {
                                busy: { WriteBackHost.shared.busy($0) })
             }
         }
+        locations = dataFolder.flatMap { data in documents.map { LocationAnswer(dataFolder: data, documents: $0) } }
+        self.appName = appName
         self.answer = answer
     }
 
@@ -117,6 +124,23 @@ final class PickPresenter: NSObject {
             }
             return
         }
+        if request.kind == .createDocument || request.kind == .openTree {
+            let alert = locationAlert(request, token)
+            shown?.picker = alert
+            top.present(alert, animated: true)
+            #if DEBUG
+            SessionCheck.event("pick alert \(alert.title ?? "")")
+            if SessionCheck.allowsPicks {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self, weak alert] in
+                    guard let self, let alert, self.shown?.token == token else { return }
+                    SessionCheck.event("pick allowed")
+                    alert.presentingViewController?.dismiss(animated: true)
+                    self.allowed(request, token)
+                }
+            }
+            #endif
+            return
+        }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: request.contentTypes, asCopy: false)
         picker.allowsMultipleSelection = request.several
         picker.delegate = self
@@ -124,6 +148,32 @@ final class PickPresenter: NSObject {
         top.present(picker, animated: true)
         // A swipe down ends the picker without a word to its delegate.
         picker.presentationController?.delegate = self
+    }
+
+    /// DocumentsUI's question for a folder (open_tree_dialog_title and _message, "Allow"), and for a save its "Save"
+    /// with the title the app proposed; Cancel is a cancel, as DocumentsUI's back is.
+    private func locationAlert(_ request: PickRequest, _ token: UInt64) -> UIAlertController {
+        let folder = LocationAnswer.folderName
+        let tree = request.kind == .openTree
+        let name = DocumentClones.plainName(Array(request.title.utf8))
+        let title = tree ? "Allow “\(appName)” to access files in “\(folder)”?" : "Save “\(name)” in “\(folder)”?"
+        let message = "This will let “\(appName)” access current and future content stored in “\(folder)”."
+        let alert = UIAlertController(title: title, message: tree ? message : nil, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in self?.ended(token, nil) })
+        let allow = UIAlertAction(title: tree ? "Allow" : "Save", style: .default) { [weak self] _ in
+            self?.allowed(request, token)
+        }
+        alert.addAction(allow)
+        alert.preferredAction = allow
+        return alert
+    }
+
+    /// The user allowed presentation `token`'s save or folder: its place made and named in the manifest, or a cancel.
+    private func allowed(_ request: PickRequest, _ token: UInt64) {
+        guard let shown, shown.token == token else { return }
+        let picked = locations?.answer(id: shown.id, request)
+        if picked == nil { log.error("pick \(shown.id): no place in Documents") }
+        ended(token, picked)
     }
 
     /// Presentation `token` ended with `picked` files, nil for a cancel; nothing for one that is no longer shown.

@@ -162,7 +162,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "media-extractor-test io.github.kisame76.minato.test.mediaextractor"
       "media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio"
       "media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders"
-      "webview-test io.github.kisame76.minato.test.webview")
+      "webview-test io.github.kisame76.minato.test.webview"
+      "documents-tree-test io.github.kisame76.minato.test.documentstree")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -381,7 +382,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents footprint-log end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents footprint-log pick-allow end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -573,6 +574,8 @@ begin_start() {
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
+  # A save's or a folder's alert answers Allow by itself, as the user's tap does (ADR-0057 step d).
+  [[ "$app" != documents-tree-test ]] || echo yes > "$CHECK/pick-allow"
   # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
   # drawables' pass, with PIXELS_CONTENTS by contents in the Simulator.
   if [[ -n "${PIXELS:-}" ]]; then
@@ -1106,6 +1109,29 @@ first, second, expected = sys.argv[1:]
 # One log of the two starts, as java_app_run.py --restart counts them.
 log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
 compare_log("context-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
+EOF
+fi
+
+# ADR-0057 step d: documents-tree-test opens Documents, allowed in Minato's alert, and makes a file there; its second
+# start reads it through the grant it kept. Both starts' lines must be Android 15's.
+if wanted documents-tree-test; then
+  run_start documents-tree-test io.github.kisame76.minato.test.documentstree 1
+  if grep -q " pick allowed$" "$EVENTS"; then
+    ok "  the folder's alert came and was allowed"
+  else
+    fail "  no folder alert allowed: $(grep -o "pick alert .*" "$EVENTS" | head -n 1)"
+  fi
+  run_start documents-tree-test io.github.kisame76.minato.test.documentstree 2
+  python3 - "$WORK/documents-tree-test-1.log" "$WORK/documents-tree-test-2.log" \
+    fixtures/expected/documents-tree-test.logcat <<'EOF' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+first, second, expected = sys.argv[1:]
+log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
+compare_log("documents-tree-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
 EOF
 fi
 

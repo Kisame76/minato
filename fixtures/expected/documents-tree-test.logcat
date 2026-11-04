@@ -1,0 +1,18 @@
+I/documents-tree-test: kept: 0
+I/documents-tree-test: start tree
+I/documents-tree-test: result: code=-1 data=set
+I/documents-tree-test: flags: 195
+I/documents-tree-test: tree: content://com.android.externalstorage.documents /tree/primary:Documents
+I/documents-tree-test: persist: ok 1
+I/documents-tree-test: created: content://com.android.externalstorage.documents /tree/primary:Documents/document/primary:Documents/documents-tree-test.txt
+I/documents-tree-test: write: ok
+I/documents-tree-test: read: level 3\n
+I/documents-tree-test: listed: 1
+I/documents-tree-test: done
+I/documents-tree-test: kept: 1
+I/documents-tree-test: kept tree: content://com.android.externalstorage.documents /tree/primary:Documents read=true write=true
+I/documents-tree-test: read again: level 3\n
+I/documents-tree-test: deleted: true
+I/documents-tree-test: listed after delete: 0
+I/documents-tree-test: released: 0
+I/documents-tree-test: done

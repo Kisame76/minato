@@ -222,9 +222,14 @@ public final class DocumentClones: Sendable {
         return Clone(name: name, made: true, version: made?.1)
     }
 
-    /// The manifest to "<id>.partial" in <data>/.minato/picks, renamed to "<id>", so that the guest never reads half
-    /// of it; a planted file or link of the temporary name is unlinked, never followed or written to.
     private func writeManifest(id: UInt64, _ manifest: String) -> Bool {
+        Self.writeManifest(in: dataFolder, id: id, manifest)
+    }
+
+    /// The manifest to "<id>.partial" in <dataFolder>/.minato/picks, renamed to "<id>", so that the guest never reads
+    /// half of it; a planted file or link of the temporary name is unlinked, never followed or written to. A save's
+    /// and a folder's answers write theirs too (LocationAnswer).
+    static func writeManifest(in dataFolder: URL, id: UInt64, _ manifest: String) -> Bool {
         let data = Darwin.open(dataFolder.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard data >= 0 else { return false }
         defer { close(data) }

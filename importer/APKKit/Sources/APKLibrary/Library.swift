@@ -17,6 +17,8 @@ public enum LibraryError: Error, Equatable, Sendable {
     case obbFolderIsNoFolder(String)
     /// The same for the app's Download folder, the root of the guest's Download mount (ADR-0057 step b).
     case downloadFolderIsNoFolder(String)
+    /// The same for its Documents folder, the root of the guest's Documents mount (ADR-0057 step d).
+    case documentsFolderIsNoFolder(String)
 }
 
 extension LibraryError: LocalizedError {
@@ -29,6 +31,7 @@ extension LibraryError: LocalizedError {
         case .nothingToImport: "it has no APK or OBB file"
         case .obbFolderIsNoFolder(let package): "the OBB folder of \(package) is not a folder"
         case .downloadFolderIsNoFolder(let package): "the Download folder of \(package) is not a folder"
+        case .documentsFolderIsNoFolder(let package): "the Documents folder of \(package) is not a folder"
         }
     }
 }

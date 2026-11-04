@@ -854,6 +854,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SavesActivity
       limit=120
       ;;
+    # documents-tree-test (ADR-0057 step d): its activity opens Documents with OPEN_DOCUMENT_TREE, makes a file there
+    # and ends with "done"; its second start, after a force-stop, reads the file through the kept grant.
+    documents-tree-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=.DocumentsTreeActivity limit=120
+      ;;
     # alert-test (the Unity test APK probe's blocker 14): its activity runs when the window has the focus and ends with "done".
     alert-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AlertActivity limit=90
@@ -1241,6 +1247,11 @@ run_app() {
     run rm -rf /sdcard/Download/treetest /sdcard/Download/note.txt /sdcard/Download/renamed.txt
     device push "fixtures/apps/$app/files/treetest" /sdcard/Download/ >/dev/null
   fi
+  if [[ "$app" == documents-tree-test ]]; then
+    # ADR-0057 step d: no file of the test's in Documents yet, which DocumentsUI opens at (EXTRA_INITIAL_URI).
+    run mkdir -p /sdcard/Documents
+    run rm -f '/sdcard/Documents/documents-tree-test*.txt'
+  fi
   if [[ "$app" == photos-test ]]; then
     # ADR-0057 step c: the two photos the picker shows, in Pictures and indexed by MediaStore as the scanner does.
     local photo
@@ -1410,6 +1421,27 @@ run_app() {
       wait_for "$app" "start tree" && sleep 3 && $pick download && $pick tap treetest 20 &&
       $pick tap "USE THIS FOLDER" 20 && $pick tap ALLOW 20 && wait_for "$app" done 60; } || picks=failed
     run rm -rf /sdcard/Download/treetest /sdcard/Download/note.txt /sdcard/Download/renamed.txt
+    [[ "$picks" == ok ]] || return 1
+  fi
+  if [[ "$app" == documents-tree-test ]]; then
+    # ADR-0057 step d: DocumentsUI opens at Documents; USE THIS FOLDER and the dialog that follows (ALLOW). Then a
+    # force-stop and a second start, which reads the file through the kept grant and deletes it.
+    local pick="python3 tools/ui-pick.py $ADB $serial" picks=ok ended=0
+    # Word splitting is wanted: $pick is a command.
+    # shellcheck disable=SC2086
+    { wait_for "$app" "start tree" && sleep 3 && $pick tap "USE THIS FOLDER" 20 && $pick tap ALLOW 20 &&
+      wait_for "$app" done 60; } || picks=failed
+    if [[ "$picks" == ok ]]; then
+      run am force-stop "$package"
+      run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+      for _ in $(seq 1 60); do
+        ended=$(app_lines "$app" | grep -c -E ": done.?$" || true)
+        [[ "$ended" -lt 2 ]] || break
+        sleep 0.5
+      done
+      [[ "$ended" -ge 2 ]] || picks=failed
+    fi
+    run rm -f '/sdcard/Documents/documents-tree-test*.txt'
     [[ "$picks" == ok ]] || return 1
   fi
   if [[ "$app" == photos-test ]]; then

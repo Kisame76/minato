@@ -78,22 +78,23 @@ public struct LibraryPaths: Sendable {
         dataDirectory(for: package).appendingPathComponent("profile.json")
     }
 
-    /// Makes the app's data, device protected data, external, OBB and Download folders, with the two that installd's
-    /// createAppData makes at an install in /data/user/0/<package> and in /data/user_de/0/<package>: cache and
-    /// code_cache (ADR-0039, decision 6). What is there stays, so an app installed before gets the ones it lacks at its
-    /// next start; the app's files, shared_prefs and the rest come when Context first asks for them, as on Android. The
-    /// OBB folder is excluded from backups each time, also an app's from before, as a store gives its files again (the
-    /// M5 plan's decision 9, ADR-0049 c2).
+    /// Makes the app's data, device protected data, external, OBB, Download and Documents folders, with the two that
+    /// installd's createAppData makes at an install in /data/user/0/<package> and in /data/user_de/0/<package>: cache
+    /// and code_cache (ADR-0039, decision 6). What is there stays, so an app installed before gets the ones it lacks at
+    /// its next start; the app's files, shared_prefs and the rest come when Context first asks for them, as on Android.
+    /// The OBB folder is excluded from backups each time, also an app's from before, as a store gives its files again
+    /// (the M5 plan's decision 9, ADR-0049 c2).
     ///
-    /// The OBB folder is the root of the guest's OBB mounts, and the Download folder of its Download mount, so no
-    /// guest can put anything in their place. Should a link stand there all the same, it goes as a link, never
-    /// followed, and anything else that is no folder stops the import or the start and stays as it is (the
-    /// review). They are read with lstat, never through a URL, which keeps the resource values it read once.
+    /// The OBB folder is the root of the guest's OBB mounts, and Download and Documents of theirs, so no guest can put
+    /// anything in their place. Should a link stand there all the same, it goes as a link, never followed, and anything
+    /// else that is no folder stops the import or the start and stays as it is (the review). They are read with lstat,
+    /// never through a URL, which keeps the resource values it read once.
     public func prepareData(for package: String) throws {
         let data = dataDirectory(for: package)
         var obb = data.appendingPathComponent("obb", isDirectory: true)
         for (name, error) in [("obb", LibraryError.obbFolderIsNoFolder(package)),
-                              ("download", LibraryError.downloadFolderIsNoFolder(package))] {
+                              ("download", LibraryError.downloadFolderIsNoFolder(package)),
+                              ("documents", LibraryError.documentsFolderIsNoFolder(package))] {
             let folder = data.appendingPathComponent(name, isDirectory: true)
             var status = stat()
             guard lstat(folder.path, &status) == 0 else { continue }
@@ -104,7 +105,7 @@ public struct LibraryPaths: Sendable {
             }
         }
         for folder in ["data/cache", "data/code_cache", "data_de/cache", "data_de/code_cache", "external", "obb",
-                       "download"] {
+                       "download", "documents"] {
             try FileManager.default.createDirectory(at: data.appendingPathComponent(folder, isDirectory: true),
                                                     withIntermediateDirectories: true)
         }

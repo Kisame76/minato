@@ -24,12 +24,20 @@ struct PickQueueTests {
         #expect(queue.ended(id: 1, picked: nil) == [.answer(id: 1, picked: nil), .present(id: 2, Self.request)])
     }
 
-    @Test func theKindsWithoutAViewAndABadTextAreCancelledAtOnce() {
+    @Test func thePhotosWithoutAViewAndABadTextAreCancelledAtOnce() {
         var queue = PickQueue()
-        for (id, text) in [(1, "3\t0\t0\ttext/plain\tnote.txt"), (2, "4\t0\t0\t\t"), (3, "5\t1\t20\timage/*\t"),
-                           (4, "nonsense")] as [(UInt64, String)] {
+        for (id, text) in [(3, "5\t1\t20\timage/*\t"), (4, "nonsense")] as [(UInt64, String)] {
             #expect(queue.requested(id: id, text: text) == [.answer(id: id, picked: nil)])
         }
+    }
+
+    /// Step d: a save and a folder are shown as the documents are, one after the other.
+    @Test func aSaveAndAFolderAreShown() {
+        var queue = PickQueue()
+        let save = "3\t0\t0\ttext/plain\tnote.txt", tree = "4\t0\t0\t\t"
+        #expect(queue.requested(id: 1, text: save) == [.present(id: 1, PickRequest(text: save)!)])
+        #expect(queue.requested(id: 2, text: tree) == [])
+        #expect(queue.ended(id: 1, picked: 1) == [.answer(id: 1, picked: 1), .present(id: 2, PickRequest(text: tree)!)])
     }
 
     @Test func aRequestInTheBackgroundIsCancelledAtOnce() {

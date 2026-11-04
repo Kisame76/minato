@@ -3,8 +3,8 @@ import Synchronization
 
 /// The guest's pick requests as the iPhone's host shows them (ADR-0057): one at a time, in the order the runtime took
 /// them; each answered once with APKRT_EVENT_PICK_RESULT, and a cancelled one never, as APKRT_REQUEST_PICK_CANCEL
-/// asks. A request in the background, one of a kind without a view yet (3 to 5) and a text the host cannot read are
-/// answered as cancelled at once.
+/// asks. A request in the background, the photo picker's (kind 5), which has no view yet, and a text the host cannot
+/// read are answered as cancelled at once.
 public struct PickQueue: Sendable {
     /// What the host does next.
     public enum Step: Sendable, Equatable {
@@ -26,7 +26,7 @@ public struct PickQueue: Sendable {
         // An ID that waits already has its answer to come; the runtime refuses such a request first.
         guard shown != id, !waiting.contains(where: { $0.id == id }) else { return [] }
         guard !inBackground, let request = PickRequest(text: text),
-              request.kind == .openDocument || request.kind == .getContent
+              request.kind != .photos
         else { return [.answer(id: id, picked: nil)] }
         waiting.append((id, request))
         return shown == nil ? next() : []

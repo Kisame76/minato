@@ -68,6 +68,8 @@ import UIKit
 ///   window-dump  the poll has graphics/host dump each window's last shown buffer into
 ///            tmp/session-check/window-dump-files/ (minato_graphics_window_dump), logs "window dump <n>" and removes
 ///            the file (step f's screenshots compare with it).
+///   pick-allow  a save's or a folder's alert (ADR-0057 step d) chooses Save or Allow by itself 1 s after it is up,
+///            as the user's tap does, and logs "pick allowed"; the file stays for every alert.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -92,6 +94,9 @@ enum SessionCheck {
 
     /// Whether game mode's sessions ask for no compile mode.
     static var withoutCompile: Bool { requested("no-compile") }
+
+    /// Whether a save's or a folder's alert answers by itself (ADR-0057 step d).
+    static var allowsPicks: Bool { requested("pick-allow") }
 
     /// How long compile mode waits before dex2oat starts; 0 without the request.
     static var compileHold: Double { text(of: "compile-hold").flatMap(Double.init) ?? 0 }
