@@ -630,6 +630,46 @@ TEST(drops_a_c_function_an_exclusive_window_straddles) {
     CHECK(plan.covered_sites.empty());  // its site is no longer covered, so convert() refuses the file
 }
 
+// ADR-0020 option (c) step A2: a (c) function may hold a co-resident syscall (svc) -- before A2 keep-clear dropped it
+// for the syscall island and the file was refused. A2 keeps it: the site loop patches the svc to a branch into its
+// veneer, and because that branch leaves the function it becomes a (c) branch_exit whose sync stores the rename
+// register to the guest-x18 TSD slot BEFORE the veneer runs. So slot 11 is current through the veneer, and a signal
+// stopped there (which reads the stale slot 11 over A0's path) sees the right x18. The pre-count builds a patched
+// preview of the body so it reserves that branch_exit island (Q2/Fix B; the write-of-x18-in-the-veneer case is a
+// named limit -- x18 is Android's reserved SCS pointer, and the veneer returns straight to site+4 with no reload).
+TEST(takes_a_c_function_with_a_co_resident_syscall) {
+    auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // fn = [0x200, 0x218)
+    prog.put<std::uint32_t>(0x200, 0xd503'201f);  // nop: was mrs TPIDR_EL0
+    prog.put<std::uint32_t>(0x204, 0xd503'201f);  // nop: was the stack-guard load
+    prog.put<std::uint32_t>(0x208, 0xd400'0001);  // svc #0: the co-resident syscall, inside the (c) function
+    prog.put<std::uint32_t>(0x20c, 0xd503'201f);  // nop: was msr TPIDR_EL0
+    prog.put<std::uint32_t>(0x210, 0xd503'201f);  // nop: was mrs xzr
+    prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18: the hard x18 use, so (c) takes fn
+    const auto container = convert(prog);         // before A2 keep-clear drops fn for the svc island -> Incompatible
+    const auto info = read_info(container.bytes);
+    CHECK(info.version == 6);
+    // (c) took the function: a body range covers it with the rename register.
+    std::optional<std::uint8_t> reg;
+    for (const auto &range : c_range_table(container)) {
+        if (range.start <= info.image_offset + 0x214 && info.image_offset + 0x214 < range.end) reg = range.reg;
+    }
+    CHECK(reg.has_value());
+    // The svc was patched to a branch into its (c) branch_exit sync island, not left in place.
+    const auto sync = branch_target(container.bytes, info.image_offset + 0x208);
+    CHECK(sync.has_value());
+    // That island stores the rename register to the guest-x18 slot (str <reg>, [x16, #APKRT_GUEST_X18_OFFSET]) before
+    // branching on to the veneer, so slot 11 is current while the thread is in the veneer stub.
+    if (sync && reg) {
+        const std::uint32_t store =
+            0xf900'0000u | ((APKRT_GUEST_X18_OFFSET / 8u) << 10) | (16u << 5) | std::uint32_t{*reg};
+        bool synced = false;
+        for (std::uint64_t word = 0; word < 6; ++word) {
+            if (word_at(container.bytes, *sync + word * 4) == store) synced = true;
+        }
+        CHECK(synced);
+    }
+}
+
 TEST(moves_a_4_kib_image_so_that_its_writable_part_starts_a_16_kib_page) {
     // ADR-0007 decision 2, as amended: the whole image moves by a multiple of 4 KiB, as AOSP's 16 KiB compat mode
     // moves its load bias, and nothing in it changes.
@@ -1017,8 +1057,9 @@ TEST(a_16_kib_tls_block_keeps_the_refusal) {
 // symbol and the message is unchanged (the other refusal tests build no symbol table).
 TEST(a_refusal_names_the_enclosing_symbol) {
     auto named = static_program(0x4800, {{"guest_atomic", 0x200, 0x20}});
-    named.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18
-    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: refused, no island follows it
+    named.put<std::uint32_t>(0x214, 0x17ff'fffb);  // b 0x200 (begin): a non-call branch to begin -> (c) cannot take fn
+    named.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18: an indirect island, not refused
+    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: the sole refused site, no island follows a return
     CHECK_THROWS(Incompatible, convert(named), "x18 at 0x21c in guest_atomic+0x1c (.text) cannot run on iOS");
 }
 
@@ -1026,8 +1067,9 @@ TEST(a_refusal_names_the_enclosing_symbol) {
 TEST(a_refusal_caps_a_long_symbol_name) {
     const std::string long_name(200, 'z');
     auto named = static_program(0x4800, {{long_name, 0x200, 0x20}});
-    named.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18
-    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: refused, no island follows it
+    named.put<std::uint32_t>(0x214, 0x17ff'fffb);  // b 0x200 (begin): a non-call branch to begin -> (c) cannot take fn
+    named.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18: an indirect island, not refused
+    named.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: the sole refused site, no island follows a return
     CHECK_THROWS(Incompatible, convert(named), std::string(157, 'z') + "...");
 }
 

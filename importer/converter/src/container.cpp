@@ -852,22 +852,21 @@ void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_b
 
 // Option (c) and the islands must agree on every site of a taken function. A (c) function renames x18 across its
 // whole body, so a single or no-save x18 site or an exclusive window inside it is NOT emitted (ADR-0020 A1): the
-// rename already handles those x18 uses, so such a construct no longer drops the function. Three kinds of island
-// still drop it and keep it refused: a thread-pointer or syscall site (its stub shuttles state (c) does not touch --
-// step A2 extends the (c) ranges over that stub), a jump table (whether (c) renames a `br x18` to `br <register>`
-// correctly is not yet verified, so we do not suppress its island -- a named limit for a later step), and an
-// exclusive window that straddles the function's begin or end (A1b): a window wholly inside is renamed in place, but
-// one that only overlaps would leave its words outside [begin, end) on physical x18 while the inside words become the
-// register, and no island can span both halves -- so drop the function.
+// rename already handles those x18 uses, so such a construct no longer drops the function. A thread-pointer or
+// syscall site inside it is kept and handled (ADR-0020 A2): the site loop patches it to a branch into its veneer, and
+// because that branch leaves the function it becomes a (c) branch_exit whose sync stores the register to slot 11
+// before the veneer runs -- so a signal stopped in the veneer, which reads slot 11, sees the current x18 (the pre-
+// count reserves that branch_exit island through c_function_preview below). A signal's READ there is exact; a handler
+// that WRITES x18 between that store and the resume at site+4 (the island's pop/b tail and the veneer, not the
+// dispatcher) reaches only slot 11, not the register -- the A2 lost-write limit. Two kinds of island still drop the
+// function and keep it refused: a jump table (whether (c) renames a `br x18` to `br <register>` correctly is not yet
+// verified, so we do not suppress its island -- a named limit for a later step), and an exclusive window that
+// straddles the function's begin or end (A1b): a window wholly inside is renamed in place, but one that only overlaps
+// would leave its words outside [begin, end) on physical x18 while the inside words become the register, and no
+// island can span both halves -- so drop the function.
 void keep_c_functions_clear_of_islands(CRenamePlan &plan, const rewrite::Findings &findings) {
     const auto holds_an_island_c_cannot_absorb = [&](const WholeFunctionRename &function) {
         const auto inside = [&](std::uint64_t address) { return address >= function.begin && address < function.end; };
-        for (const auto &site : findings.sites) {
-            const bool non_x18 = site.kind == rewrite::SiteKind::thread_pointer_read ||
-                                 site.kind == rewrite::SiteKind::thread_pointer_write ||
-                                 site.kind == rewrite::SiteKind::syscall;
-            if (non_x18 && inside(site.address)) return true;
-        }
         for (const auto &table : findings.jump_tables) if (inside(table.address)) return true;
         for (const auto &region : findings.exclusive_regions) {
             const std::uint64_t start = region.address;
@@ -1035,13 +1034,34 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         static_cast<std::size_t>(std::ranges::count_if(
             findings.exclusive_regions, [&](const auto &region) { return !exclusive_window_in_c_function(region); })) +
         findings.jump_tables.size();
+    // emit_c_rename below runs on the body AFTER the site loop patches each tp/syscall site inside the function to a
+    // branch into its veneer (ADR-0020 A2); c_sync_points then reads that branch as a branch_exit and lays a sync
+    // island for it. The pre-count here reads the unpatched body, so build the same preview: replace each in-function
+    // veneer site with the branch (or, for a thread-pointer read into xzr, the nop) it becomes, so c_rename_ranges and
+    // c_rename_stub_bytes count that branch_exit island. The exact branch target does not change the count.
+    const auto c_function_preview = [&](const WholeFunctionRename &function) {
+        const auto original = file_bytes_at(file, elf_bytes, function.begin, function.end - function.begin, "function");
+        std::vector<std::byte> body(original.begin(), original.end());
+        for (const auto &site : findings.sites) {
+            const bool veneer = site.kind == rewrite::SiteKind::thread_pointer_read ||
+                                site.kind == rewrite::SiteKind::thread_pointer_write ||
+                                site.kind == rewrite::SiteKind::syscall;
+            if (!veneer || site.address < function.begin || site.address >= function.end) continue;
+            const auto offset = static_cast<std::size_t>(site.address - function.begin);
+            const bool into_xzr = site.kind == rewrite::SiteKind::thread_pointer_read && site.reg == 31;
+            const std::uint32_t word =
+                into_xzr ? 0xd503'201fu  // nop, no stub (emit() returns nop for a read into xzr)
+                         : (0x1400'0000u | (((static_cast<std::uint32_t>(body.size() - offset)) / 4) & 0x03ff'ffffu));
+            std::memcpy(body.data() + offset, &word, sizeof word);  // `b` to one past the end: a branch leaving fn
+        }
+        return body;
+    };
     // Option (c)'s R-range table (apk_c_range) sits between the runs and the stubs; its sync islands follow the x18
     // islands in the stub area. The range count is address-independent (c_rename_ranges counts the body plus one or
     // two per sync point), so a dummy address serves for the pre-count.
     std::uint64_t c_range_count = 0;
     for (const auto &function : c_plan.functions) {
-        const auto body = file_bytes_at(file, elf_bytes, function.begin, function.end - function.begin, "function");
-        c_range_count += rewrite::c_rename_ranges(body, 0, function.reg, 0).size();
+        c_range_count += rewrite::c_rename_ranges(c_function_preview(function), 0, function.reg, 0).size();
     }
     const std::uint64_t islands_offset = align_up(info_offset + sizeof(apk_container_info), 8);
     const std::uint64_t runs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 8);
@@ -1053,9 +1073,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         if (!exclusive_window_in_c_function(region)) stubs_size += rewrite::exclusive_region_stub_size(region);
     for (const auto &table : findings.jump_tables) stubs_size += rewrite::jump_table_stub_size(table);
     for (const auto &function : c_plan.functions) {
-        stubs_size +=
-            rewrite::c_rename_stub_bytes(file_bytes_at(file, elf_bytes, function.begin, function.end - function.begin,
-                                                       "function"));
+        stubs_size += rewrite::c_rename_stub_bytes(c_function_preview(function));
     }
     const std::uint64_t image_offset = page_up(stubs_offset + stubs_size);
     const auto container_address = [&](std::uint64_t address) {
