@@ -53,6 +53,8 @@ add_executable(libc-test suite/libc-test.c)
 add_executable(files-test suite/files-test.c)
 # Without builtins, so that clang does not fold the math calls at compile time.
 add_executable(math-test suite/math-test.c)
+# scudo-region-test: one size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27).
+add_executable(scudo-region-test suite/scudo-region-test.c)
 target_compile_options(math-test PRIVATE -fno-builtin)
 target_link_libraries(math-test PRIVATE m)
 # The logger functions of liblog came with API 30.

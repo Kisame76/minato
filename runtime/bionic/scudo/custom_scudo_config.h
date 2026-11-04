@@ -34,16 +34,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Minato (ADR-0035): AOSP's config/custom_scudo_config.h from platform/external/scudo at
+// Minato (ADR-0035, amended): AOSP's config/custom_scudo_config.h from platform/external/scudo at
 // 67dd481e24c770b9f416f61844c2d015f125c134 (third_party/sources.json), with two values of
 // AndroidNormalConfig::Primary changed:
-//   - RegionSizeLog 26, a region of 64 MiB per size class, instead of 28 (256 MiB);
+//   - RegionSizeLog 27, a region of 128 MiB per size class, instead of 28 (256 MiB);
 //   - EnableContiguousRegions false instead of Scudo's default true: a size class reserves its
 //     region when it is first used, instead of all 33 regions in one piece at the first malloc.
-// The primary then takes at most 33 x 64 MiB = 2.06 GiB of address space, in pieces of 64 MiB,
+// The primary then takes at most 33 x 128 MiB = 4.1 GiB of address space, in pieces of 128 MiB,
 // instead of 8.25 GiB in one piece, which an iPhone app without increased-memory-limit cannot
-// reserve. EnableRandomOffset applies only to contiguous regions, so it no longer has an effect.
-// runtime/bionic/CMakeLists.txt puts this folder before AOSP's config/ for bionic_libscudo.
+// reserve (only 7.84 GiB of VA; ADR-0012 spike S2). 4.1 GiB fits even that budget beside ART's heap
+// window (2 GiB without the entitlement), so both install paths keep working, while a single size
+// class now holds 128 MiB -- the amendment's reason: at the earlier 64 MiB a Ren'Py 7.8.7 game ran a
+// class out of its region during init ("Can't populate more pages for size class 800 / 1104 / 1648 /
+// 7120", fixtures/suite/scudo-region-test.c). EnableRandomOffset applies only to contiguous regions,
+// so it has no effect. runtime/bionic/CMakeLists.txt puts this folder before AOSP's config/ for
+// bionic_libscudo.
 
 #pragma once
 
@@ -152,7 +157,7 @@ struct AndroidNormalConfig {
   struct Primary {
     using SizeClassMap = AndroidNormalSizeClassMap;
 #if SCUDO_CAN_USE_PRIMARY64
-    static const uptr RegionSizeLog = 26U; // Minato (ADR-0035): 28U in AOSP
+    static const uptr RegionSizeLog = 27U; // Minato (ADR-0035, amended): 28U in AOSP, 26U before
     static const bool EnableContiguousRegions = false; // Minato (ADR-0035)
     typedef u32 CompactPtrT;
     static const uptr CompactPtrScale = SCUDO_MIN_ALIGNMENT_LOG;
