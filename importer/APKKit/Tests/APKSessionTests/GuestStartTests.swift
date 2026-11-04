@@ -126,7 +126,8 @@ struct GuestStartTests {
 
     /// dex2oat as runtime/tests/dex2oat_make.py starts it for an app (framework_jar=): the app's whole boot class
     /// path, its class loader context, the filter speed, the APK at its code path as both the dex file and the
-    /// location ART compares with the app's run-time path, and the output in /out.
+    /// location ART compares with the app's run-time path, and the output in the app's own /data/local/tmp, where the
+    /// app may make files (the runtime's owners, as Android 15's: everything outside /data and /storage is root's).
     @Test func aCompileStartRunsDex2oatWithTheAppsBootClassPathAndContext() {
         let start = Self.compileStart()
         let bootClassPath = [
@@ -138,7 +139,8 @@ struct GuestStartTests {
         #expect(start?.program == "/b/Minato.app/Guest/bin/dex2oat.dylib")
         #expect(start?.arguments == [
             "/apex/com.android.art/bin/dex2oat64", "--dex-file=\(Self.codePath)/base.apk",
-            "--dex-location=\(Self.codePath)/base.apk", "--oat-file=/out/base.odex", "--oat-location=/out/base.odex",
+            "--dex-location=\(Self.codePath)/base.apk", "--oat-file=/data/local/tmp/base.odex",
+            "--oat-location=/data/local/tmp/base.odex",
             "--instruction-set=arm64", "--compiler-filter=speed", "--base=0x70000000",
             "--class-loader-context=PCL[];PCL[]",
             "--runtime-arg", "-Xbootclasspath:\(bootClassPath)",
@@ -152,7 +154,6 @@ struct GuestStartTests {
         #expect(start?.mounts == [
             .init(guest: "/data", host: "/v/apps/p/1/oat.work/data"),
             .init(guest: "\(Self.codePath)/base.apk", host: "/v/apps/p/1/base.apk"),
-            .init(guest: "/out", host: "/v/apps/p/1/oat.work"),
             .init(guest: "/system", host: "/b/Minato.app/Guest/system"),
             .init(guest: "/apex", host: "/b/Minato.app/Guest/apex"),
         ])

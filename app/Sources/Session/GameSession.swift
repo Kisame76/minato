@@ -487,15 +487,35 @@ final class GameSession {
     }
 
     /// Back to the library, once the exports to Photos under way are done or 5 s have passed (ADR-0057 step e) and the
-    /// app's edits of the user's files are written back, 5 s at most (its addendum).
+    /// app's edits of the user's files are written back, 5 s at most (its addendum). After a session of an app that is
+    /// not compiled for this Minato, through compile mode (ADR-0053, M6 c, E5): the user just left it, so nothing
+    /// waits.
     private func restart() {
         // The end is the user's or the app's: no notice at the library's next start (ADR-0032, decision 8).
         SessionEndReport.ended()
         SessionLogTap.end()
+        if startFailure == nil { requestCompileIfNeeded() }
         Task { [weak self, photos = runtime?.photos] in
             await photos?.settle(within: 5)
             await WriteBackHost.shared.endSession()
             Restart.now { [weak self] in self?.restartFailed = true }
+        }
+    }
+
+    /// The launch request of compile mode for this app, when it has Java code without compiled code for the bundle's
+    /// boot class path and its compile did not fail for it.
+    private func requestCompileIfNeeded() {
+        guard let paths = try? LibraryPaths.standard(), let guest = Bundle.main.resourceURL?.appending(path: "Guest"),
+              let bootClassPath = GuestStart.bootClassPathChecksum(guestSystem: guest.path),
+              let entry = ((try? Library.entries(in: paths)) ?? []).first(where: { $0.id == self.entry.id }),
+              paths.needsCompiling(entry, bootClassPath: bootClassPath)
+        else { return }
+        do {
+            try LaunchRequestStore(folder: paths.applicationSupport)
+                .write(LaunchRequest(package: entry.id, time: .now, kind: .compile))
+        } catch {
+            log.error(
+                "\(entry.id, privacy: .public): no compile request: \(error.localizedDescription, privacy: .public)")
         }
     }
 

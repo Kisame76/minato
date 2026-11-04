@@ -111,7 +111,7 @@ struct StatusView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-        case .updating:
+        case .updating, .optimizing:
             HStack(spacing: 4) {
                 ProgressView()
                     .controlSize(.mini)
@@ -131,7 +131,7 @@ struct StatusView: View {
     /// Grey like the subtitles in Files, colour only where something needs attention.
     private var color: Color {
         switch status {
-        case .new, .installing, .updating, .ready: .secondary
+        case .new, .installing, .updating, .optimizing, .ready: .secondary
         case .needsSplits, .readyWithout: .orange
         case .incompatible, .invalid, .notInstalled: .red
         }

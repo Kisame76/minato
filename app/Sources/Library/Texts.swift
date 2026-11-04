@@ -26,6 +26,7 @@ enum Texts {
         case .new: "New"
         case .installing: "Installing…"
         case .updating: "Updating…"
+        case .optimizing: "Optimizing…"
         case .ready: "Ready"
         case .readyWithout(let libraries):
             libraries.count == 1 ? "Ready, without \(libraries[0])" : "Ready, without \(libraries.count) libraries"
@@ -82,7 +83,7 @@ enum Texts {
             ("Can’t Open “\(entry.displayName)”", "This is not a valid APK: \(reason).")
         case .notInstalled(let reason):
             ("Can’t Open “\(entry.displayName)”", "Not installed: " + (reason.hasSuffix(".") ? reason : reason + "."))
-        case .ready, .readyWithout, .new, .installing, .updating:
+        case .ready, .readyWithout, .new, .installing, .updating, .optimizing:
             // A ready app without a report; an entry's status is never one of the other three.
             ("Can’t Open “\(entry.displayName)”", "Import it again.")
         }

@@ -131,6 +131,7 @@ enum SessionCheck {
         let seconds = request.map { String(format: " %.3f", Date.now.timeIntervalSince($0.time)) } ?? ""
         switch mode {
         case .gameMode(let entry): event("process gameMode \(entry.id)\(seconds)")
+        case .compileMode(let entry): event("process compileMode \(entry.id)\(seconds)")
         case .library(nil): event("process library\(seconds)")
         case .library(.appNotFound(let package)): event("process library appNotFound \(package)\(seconds)")
         case .library(.appNotReady(let entry)): event("process library appNotReady \(entry.id)\(seconds)")

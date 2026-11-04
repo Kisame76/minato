@@ -37,6 +37,9 @@ public struct LibraryEntry: Sendable, Equatable, Codable, Identifiable {
     /// The compiled code of this version (ADR-0053, M6 c): which boot class path its oat was made for, and the format
     /// version of its signed container; nil while the app is not compiled.
     public var compiled: CompiledCode? = nil
+    /// The checksum of the boot class path for which compiling this version failed or was ended by iOS (E5): not
+    /// tried again for it; nil when no compile failed.
+    public var compileFailed: String? = nil
     /// The installed version's folder in apps/<package>/, the first 16 hex digits of its APK's SHA-256
     /// (ADR-0034), or of a split set's digest (ADR-0048, decision 6); nil for an entry from before version folders,
     /// whose files lie in apps/<package>/.

@@ -17,6 +17,8 @@ struct LibraryItem: Identifiable {
         case installing(Double)
         /// Its converted code is being signed with a new certificate (ADR-0023).
         case updating
+        /// The code compile mode compiled for it is being signed and kept (ADR-0053, M6 c).
+        case optimizing
         case ready
         /// Ready, but the check left these libraries out: the app runs without them (ADR-0055 a2).
         case readyWithout([String])
@@ -141,6 +143,8 @@ final class LibraryModel {
     private(set) var signingBeforeStart: Set<String> = []
     /// Entries being checked again after a Minato update (ADR-0055 decision 5), shown as "Updating" too.
     private(set) var recheckingIDs: Set<String> = []
+    /// The apps whose compiled code the library takes from compile mode now (ADR-0053, M6 c).
+    private(set) var optimizingIDs: Set<String> = []
     /// The app whose restart into game mode did not work: the user opens Minato again, and its launch
     /// request is still there (ADR-0032, decision 2).
     var restartFailedFor: LibraryEntry?
@@ -189,7 +193,26 @@ final class LibraryModel {
         if let openedLibrary {
             checks = Task { await Self.useChecks(in: openedLibrary, guest: Bundle.main.bundleURL.appending(path: "Guest")) }
             Task { await recheckAll() }
+            Task { await takeCompileWork() }
         }
+    }
+
+    /// What compile mode left (ADR-0053, M6 c, E5), once the first look at the certificate has ended: the library signs
+    /// and keeps each compiled app's code, shown as "Optimizing" meanwhile, and records a compile that failed.
+    private func takeCompileWork() async {
+        guard let library, let paths, let guest = Bundle.main.resourceURL?.appending(path: "Guest") else { return }
+        let work = CompileWork.all(caches: paths.caches)
+        guard !work.isEmpty,
+              let bootClassPath = GuestStart.bootClassPathChecksum(guestSystem: guest.path) else { return }
+        await firstSigningLook()
+        optimizingIDs = Set(work.map(\.package))
+        do {
+            try await library.takeCompileWork(bootClassPath: bootClassPath, converter: converter(currentSigner()))
+        } catch {
+            log.error("Compiled code not taken: \(error.localizedDescription, privacy: .public)")
+        }
+        optimizingIDs = []
+        entries = await library.entries
     }
 
     /// This build's identity, which every report records (ADR-0055 decision 5): the LC_UUID of the image that holds the
@@ -263,7 +286,8 @@ final class LibraryModel {
                 LibraryItem(
                     id: entry.id,
                     title: entry.displayName,
-                    status: isUpdating(entry) ? .updating : Texts.status(of: entry),
+                    status: optimizingIDs.contains(entry.id) ? .optimizing
+                        : isUpdating(entry) ? .updating : Texts.status(of: entry),
                     entry: entry,
                     iconURL: entry.iconFile.flatMap { paths?.applicationSupport.appendingPathComponent($0) },
                     isFavorite: favorites.contains(entry.id))
@@ -340,6 +364,7 @@ final class LibraryModel {
 
     func isUpdating(_ entry: LibraryEntry) -> Bool {
         resigningIDs.contains(entry.id) || signingBeforeStart.contains(entry.id) || recheckingIDs.contains(entry.id)
+            || optimizingIDs.contains(entry.id)
     }
 
     /// One tap on an installed app (decision 3): starts it, after signing its native code when the current

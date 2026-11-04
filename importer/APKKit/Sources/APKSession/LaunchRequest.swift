@@ -1,14 +1,31 @@
 import APKLibrary
 import Foundation
 
-/// What makes the next launch game mode (ADR-0032, decision 1): the app to start, and when it was asked for.
+/// What makes the next launch game mode (ADR-0032, decision 1): the app to start, and when it was asked for; or compile
+/// mode, which compiles the app's code (ADR-0053, M6 c), a guest start of its own since ART allows one runtime per
+/// process.
 public struct LaunchRequest: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        case run
+        case compile
+    }
+
     public var package: String
     public var time: Date
+    public var kind: Kind
 
-    public init(package: String, time: Date) {
+    public init(package: String, time: Date, kind: Kind = .run) {
         self.package = package
         self.time = time
+        self.kind = kind
+    }
+
+    /// A request an earlier build wrote has no kind: it runs the app.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        package = try container.decode(String.self, forKey: .package)
+        time = try container.decode(Date.self, forKey: .time)
+        kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .run
     }
 }
 
@@ -60,9 +77,12 @@ public enum LaunchMode: Equatable, Sendable {
 
     case library(Problem?)
     case gameMode(LibraryEntry)
+    /// Compiles the app's Java code (ADR-0053, M6 c), then back to the library.
+    case compileMode(LibraryEntry)
 
-    /// Game mode for a request that names a ready app, a NativeActivity app or one with Java code (ADR-0039 c5);
-    /// the library otherwise, with the reason when there was a request.
+    /// Game mode for a request that names a ready app, a NativeActivity app or one with Java code (ADR-0039 c5),
+    /// compile mode for a compile request of a ready app with Java code; the library otherwise, with the reason when
+    /// the request's app is gone or not ready.
     public init(request: LaunchRequest?, entries: [LibraryEntry]) {
         guard let request else {
             self = .library(nil)
@@ -76,6 +96,12 @@ public enum LaunchMode: Equatable, Sendable {
             self = .library(.appNotReady(entry))
             return
         }
-        self = .gameMode(entry)
+        switch request.kind {
+        case .run:
+            self = .gameMode(entry)
+        case .compile:
+            // A NativeActivity app has no Java code that ART would run compiled.
+            if case .art = entry.report?.runtime { self = .compileMode(entry) } else { self = .library(nil) }
+        }
     }
 }

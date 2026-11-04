@@ -13,11 +13,11 @@ public struct InterfaceOrientations: OptionSet, Sendable {
 }
 
 extension LaunchMode {
-    /// The library stays in portrait (decision 1.1). Game mode allows Info.plist's three until its session
-    /// holds its own orientation.
+    /// The library stays in portrait (decision 1.1), and so does compile mode's screen. Game mode allows Info.plist's
+    /// three until its session holds its own orientation.
     public var orientations: InterfaceOrientations {
         switch self {
-        case .library: .portrait
+        case .library, .compileMode: .portrait
         case .gameMode: [.portrait, .landscape]
         }
     }

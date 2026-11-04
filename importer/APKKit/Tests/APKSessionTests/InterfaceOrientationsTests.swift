@@ -19,6 +19,12 @@ struct InterfaceOrientationsTests {
         #expect(mode.orientations == [.portrait, .landscapeLeft, .landscapeRight])
     }
 
+    @Test func compileModeIsPortraitOnlyAsTheLibrary() throws {
+        let mode = LaunchMode.compileMode(try LaunchRequestTests.entry(nativeActivity: false))
+
+        #expect(mode.orientations == .portrait)
+    }
+
     @Test func landscapeIsBothSides() {
         #expect(InterfaceOrientations.landscape == [.landscapeLeft, .landscapeRight])
         #expect(!InterfaceOrientations.landscape.contains(.portrait))

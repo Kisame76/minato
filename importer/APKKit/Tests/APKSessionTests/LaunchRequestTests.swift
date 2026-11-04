@@ -115,4 +115,52 @@ struct LaunchRequestTests {
 
         #expect(LaunchMode(request: LaunchRequest(package: entry.id, time: Date()), entries: [entry]) == .gameMode(entry))
     }
+
+    /// ADR-0053, M6 c (E5): a request to compile an app's code, the restart after its session.
+    @Test func aCompileRequestIsWrittenAndReadWithItsKind() throws {
+        let folder = try Folder()
+        defer { folder.remove() }
+        let store = LaunchRequestStore(folder: folder.url)
+        let request = LaunchRequest(package: "org.example.game", time: Date(timeIntervalSince1970: 1), kind: .compile)
+
+        try store.write(request)
+
+        #expect(store.take() == request)
+    }
+
+    @Test func aRequestWithoutAKindRunsTheApp() throws {
+        // A request an earlier build wrote names no kind.
+        let folder = try Folder()
+        defer { folder.remove() }
+        let store = LaunchRequestStore(folder: folder.url)
+        try Data(#"{"package":"org.example.game","time":1000}"#.utf8).write(to: store.file)
+
+        #expect(store.take() == LaunchRequest(package: "org.example.game", time: Date(timeIntervalSince1970: 1)))
+        #expect(LaunchRequest(package: "org.example.game", time: Date()).kind == .run)
+    }
+
+    @Test func aCompileRequestForAReadyAppWithJavaCodeStartsCompileMode() throws {
+        let entry = try Self.entry(nativeActivity: false)
+
+        let mode = LaunchMode(request: LaunchRequest(package: entry.id, time: Date(), kind: .compile), entries: [entry])
+
+        #expect(mode == .compileMode(entry))
+    }
+
+    @Test func aCompileRequestForANativeActivityAppStartsTheLibrary() throws {
+        // A NativeActivity app has no Java code that ART would run compiled.
+        let entry = try Self.entry()
+
+        let mode = LaunchMode(request: LaunchRequest(package: entry.id, time: Date(), kind: .compile), entries: [entry])
+
+        #expect(mode == .library(nil))
+    }
+
+    @Test func aCompileRequestForAnAppThatIsNotReadyStartsTheLibraryWithAMessage() throws {
+        let entry = try Self.entry(state: .needsSplits, nativeActivity: false)
+
+        let mode = LaunchMode(request: LaunchRequest(package: entry.id, time: Date(), kind: .compile), entries: [entry])
+
+        #expect(mode == .library(.appNotReady(entry)))
+    }
 }

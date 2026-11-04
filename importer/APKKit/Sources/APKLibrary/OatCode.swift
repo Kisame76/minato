@@ -43,17 +43,26 @@ extension Library {
         }
         try record(id: id) {
             $0.compiled = CompiledCode(bootClassPath: bootClassPath, containerVersion: converter.containerVersion)
+            $0.compileFailed = nil
         }
     }
 
-    /// Takes what a compile start left in its output folder (GuestStart(compile:)): base.odex and base.vdex, kept as
-    /// `installCompiledCode` keeps them. The folder is removed in every case, so that a killed or failed dex2oat leaves
-    /// neither a half odex nor a reason to look again; the entry stays as it was and the error says why.
+    /// Records that compiling the app `id` for the boot class path `bootClassPath` failed or that iOS ended it, so
+    /// that compile mode does not follow every session of the app (E5); a new version or boot class path tries again.
+    public func recordCompileFailure(id: String, bootClassPath: String) throws {
+        try record(id: id) { $0.compileFailed = bootClassPath }
+    }
+
+    /// Takes what a compile start left in its output folder (GuestStart(compile:)): base.odex and base.vdex in its
+    /// data/local/tmp, which is dex2oat's /data/local/tmp, kept as `installCompiledCode` keeps them. The folder is
+    /// removed in every case, so that a killed or failed dex2oat leaves neither a half odex nor a reason to look again;
+    /// the entry stays as it was and the error says why.
     public func adoptCompiledOutput(id: String, output: URL, bootClassPath: String,
                                     converter: any ContainerConverting) throws {
         defer { try? FileManager.default.removeItem(at: output) }
-        try installCompiledCode(id: id, odex: output.appendingPathComponent("base.odex"),
-                                vdex: output.appendingPathComponent("base.vdex"), bootClassPath: bootClassPath,
+        let written = output.appendingPathComponent("data/local/tmp", isDirectory: true)
+        try installCompiledCode(id: id, odex: written.appendingPathComponent("base.odex"),
+                                vdex: written.appendingPathComponent("base.vdex"), bootClassPath: bootClassPath,
                                 converter: converter)
     }
 
@@ -66,6 +75,13 @@ extension Library {
 }
 
 extension LibraryPaths {
+    /// Whether compile mode compiles the app after its session (E5): an app with Java code, which has no compiled code
+    /// for the boot class path `bootClassPath` and whose compile did not fail for it.
+    public func needsCompiling(_ entry: LibraryEntry, bootClassPath: String) -> Bool {
+        guard case .art = entry.report?.runtime, entry.compileFailed != bootClassPath else { return false }
+        return oatFolders(for: entry, bootClassPath: bootClassPath) == nil
+    }
+
     /// `Library.oatFolders` for an entry in hand, which a start reads without the library: the entry's record of what
     /// its compiled code was made for, and the three files there.
     public func oatFolders(for entry: LibraryEntry, bootClassPath: String) -> (code: URL, containers: URL)? {

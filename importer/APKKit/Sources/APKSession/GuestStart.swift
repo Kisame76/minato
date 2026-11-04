@@ -160,15 +160,16 @@ public struct GuestStart: Sendable, Equatable {
     /// A compile start (ADR-0053, M6 c): dex2oat64 for the app's base.apk, as runtime/tests/dex2oat_make.py starts
     /// it for an app. It compiles at the filter speed for the app's boot class path and class loader context
     /// ("PCL[];PCL[]", the loader our ActivityThread makes), the APK at its code path as the dex file and as the
-    /// location ART compares with the run-time path, and writes base.odex and base.vdex into /out, the host folder
-    /// `output`. dex2oat's /data is `output`/data (the caller makes data/dalvik-cache/arm64 and data/local/tmp there).
+    /// location ART compares with the run-time path, and writes base.odex and base.vdex into /data/local/tmp, which is
+    /// `output`/data/local/tmp: dex2oat's /data is `output`/data (the caller makes data/dalvik-cache/arm64 and
+    /// data/local/tmp there), the app's own, where it may make files, as the runtime gives everything outside /data and
+    /// /storage root's owner, as Android 15 does.
     /// nil when `apkSHA256` is no SHA-256.
     public init?(compile package: String, apk: String, apkSHA256: String, output: String, guestSystem: String) {
         guard let app = Self.codePath(package: package, apkSHA256: apkSHA256) else { return nil }
         codePath = app
         mounts = [Path(guest: "/data", host: "\(output)/data"),
                   Path(guest: "\(app)/base.apk", host: apk),
-                  Path(guest: "/out", host: output),
                   Path(guest: "/system", host: "\(guestSystem)/system"),
                   Path(guest: "/apex", host: "\(guestSystem)/apex")]
         libraryDirectories = [
@@ -178,7 +179,8 @@ public struct GuestStart: Sendable, Equatable {
         ]
         program = "\(guestSystem)/bin/dex2oat.dylib"
         arguments = ["/apex/com.android.art/bin/dex2oat64", "--dex-file=\(app)/base.apk",
-                     "--dex-location=\(app)/base.apk", "--oat-file=/out/base.odex", "--oat-location=/out/base.odex",
+                     "--dex-location=\(app)/base.apk", "--oat-file=/data/local/tmp/base.odex",
+                     "--oat-location=/data/local/tmp/base.odex",
                      "--instruction-set=arm64",
                      "--compiler-filter=speed", "--base=0x70000000", "--class-loader-context=PCL[];PCL[]",
                      "--runtime-arg", "-Xbootclasspath:\(Self.appBootClassPath)",

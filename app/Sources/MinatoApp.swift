@@ -81,6 +81,9 @@ struct MinatoApp: App {
         case .gameMode(let entry):
             GameModeView(entry: entry)
                 .onOpenURL { url in Self.takeOverDuringSession(url) }
+        case .compileMode(let entry):
+            CompileModeView(entry: entry)
+                .onOpenURL { url in Self.takeOverDuringSession(url) }
         case .library(let problem):
             if let library, let signing {
                 LibraryScene(library: library, signing: signing, problem: problem)
@@ -101,7 +104,11 @@ struct MinatoApp: App {
         try? SessionLog(folder: paths.sessionLogDirectory).keepLeftovers()
         if let request {
             let seconds = Date.now.timeIntervalSince(request.time)
-            let chosen = if case .gameMode = mode { "game mode" } else { "the library" }
+            let chosen = switch mode {
+            case .gameMode: "game mode"
+            case .compileMode: "compile mode"
+            case .library: "the library"
+            }
             log.info("Launch request for \(request.package, privacy: .public), \(seconds, format: .fixed(precision: 3)) s after the tap: \(chosen, privacy: .public)")
         }
         #if DEBUG

@@ -90,9 +90,11 @@ struct OatCodeTests {
         let entry = try await Self.installed(sandbox, library)
         let made = try Self.compiled(sandbox)
         let output = sandbox.root.appendingPathComponent("oat.work")
-        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: made.odex, to: output.appendingPathComponent("base.odex"))
-        try FileManager.default.copyItem(at: made.vdex, to: output.appendingPathComponent("base.vdex"))
+        // dex2oat's /data/local/tmp, where the compile start has it write.
+        let written = output.appendingPathComponent("data/local/tmp")
+        try FileManager.default.createDirectory(at: written, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: made.odex, to: written.appendingPathComponent("base.odex"))
+        try FileManager.default.copyItem(at: made.vdex, to: written.appendingPathComponent("base.vdex"))
 
         try await library.adoptCompiledOutput(
             id: entry.id, output: output, bootClassPath: "bcp-1", converter: NativeCodeTests.Converter())
@@ -107,8 +109,9 @@ struct OatCodeTests {
         let library = try Library(paths: sandbox.paths)
         let entry = try await Self.installed(sandbox, library)
         let output = sandbox.root.appendingPathComponent("oat.work")
-        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        try Data("half".utf8).write(to: output.appendingPathComponent("base.odex"))  // no vdex: dex2oat was killed
+        let written = output.appendingPathComponent("data/local/tmp")
+        try FileManager.default.createDirectory(at: written, withIntermediateDirectories: true)
+        try Data("half".utf8).write(to: written.appendingPathComponent("base.odex"))  // no vdex: dex2oat was killed
 
         await #expect(throws: (any Error).self) {
             try await library.adoptCompiledOutput(
@@ -118,5 +121,93 @@ struct OatCodeTests {
         #expect(await library.entries.first?.compiled == nil)
         #expect(await library.oatFolders(id: entry.id, bootClassPath: "bcp-1") == nil)
         #expect(!sandbox.exists(output))
+    }
+
+    /// A Java app, whose code compile mode compiles (E5).
+    static func javaApp(_ sandbox: Sandbox, _ library: Library, versionCode: Int32 = 1) async throws -> LibraryEntry {
+        let file = try sandbox.file(SampleAPK.make(versionCode: versionCode, nativeActivity: false),
+                                    named: "app-\(versionCode).apk")
+        return try await library.importFile(file, signing: nil).entry
+    }
+
+    @Test func aJavaAppNeedsCompilingUntilItIsCompiledForTheBootClassPath() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.javaApp(sandbox, library)
+        #expect(sandbox.paths.needsCompiling(entry, bootClassPath: "bcp-1"))
+        let made = try Self.compiled(sandbox)
+
+        try await library.installCompiledCode(
+            id: entry.id, odex: made.odex, vdex: made.vdex, bootClassPath: "bcp-1",
+            converter: NativeCodeTests.Converter())
+
+        let compiled = try #require(await library.entries.first)
+        #expect(!sandbox.paths.needsCompiling(compiled, bootClassPath: "bcp-1"))
+        // A framework change makes it stale: compiled again.
+        #expect(sandbox.paths.needsCompiling(compiled, bootClassPath: "bcp-2"))
+    }
+
+    @Test func aNativeActivityAppNeedsNoCompiling() async throws {
+        // It has no Java code that ART would run.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.installed(sandbox, library)
+
+        #expect(!sandbox.paths.needsCompiling(entry, bootClassPath: "bcp-1"))
+    }
+
+    @Test func aFailedCompileIsNotTriedAgainForTheSameBootClassPath() async throws {
+        // A compile that fails or that iOS ends (dex2oat's memory) would otherwise follow every session of the app.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.javaApp(sandbox, library)
+
+        try await library.recordCompileFailure(id: entry.id, bootClassPath: "bcp-1")
+
+        let failed = try #require(await library.entries.first)
+        #expect(failed.compileFailed == "bcp-1")
+        #expect(!sandbox.paths.needsCompiling(failed, bootClassPath: "bcp-1"))
+        // Another framework may compile it.
+        #expect(sandbox.paths.needsCompiling(failed, bootClassPath: "bcp-2"))
+        // It survives a relaunch.
+        #expect(try await Library(paths: sandbox.paths).entries.first?.compileFailed == "bcp-1")
+    }
+
+    @Test func compiledCodeClearsAnEarlierFailure() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.javaApp(sandbox, library)
+        try await library.recordCompileFailure(id: entry.id, bootClassPath: "bcp-1")
+        let made = try Self.compiled(sandbox)
+
+        try await library.installCompiledCode(
+            id: entry.id, odex: made.odex, vdex: made.vdex, bootClassPath: "bcp-2",
+            converter: NativeCodeTests.Converter())
+
+        #expect(await library.entries.first?.compileFailed == nil)
+    }
+
+    @Test func anUpdateIsNeitherCompiledNorFailed() async throws {
+        // A new version has other code: it is compiled again.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let entry = try await Self.javaApp(sandbox, library)
+        let made = try Self.compiled(sandbox)
+        try await library.installCompiledCode(
+            id: entry.id, odex: made.odex, vdex: made.vdex, bootClassPath: "bcp-1",
+            converter: NativeCodeTests.Converter())
+        try await library.recordCompileFailure(id: entry.id, bootClassPath: "bcp-2")
+
+        let updated = try await Self.javaApp(sandbox, library, versionCode: 2)
+
+        #expect(updated.report?.versionCode == 2)
+        #expect(updated.compiled == nil)
+        #expect(updated.compileFailed == nil)
+        #expect(sandbox.paths.needsCompiling(updated, bootClassPath: "bcp-1"))
     }
 }
