@@ -50,7 +50,16 @@ final class RuntimeSessionHost: SessionHost {
     func addWindow(width: Int32, height: Int32) -> UInt64 {
         let window = apkrt_window_add(layer.map { Unmanaged.passUnretained($0).toOpaque() }, width, height)
         if window != 0 { windows.insert(window) }
+        noteWindow("window \(window) added (the session's window, \(width)x\(height))")
         return window
+    }
+
+    /// A Debug build's session log line for a window that came or went, with its ID and the call (ADR-0043 b5): a
+    /// refused post (libgui's "queueBuffer: error queuing buffer, -19") then names who removed its window.
+    private func noteWindow(_ line: @autoclosure () -> String) {
+        #if DEBUG
+        fputs("I/MinatoSession: \(line())\n", stderr)
+        #endif
     }
 
     func setGate(_ window: UInt64, open: Bool) {
@@ -65,6 +74,7 @@ final class RuntimeSessionHost: SessionHost {
         presentsOfRemovedWindows += apkrt_window_presents(window)
         #endif
         _ = apkrt_window_remove(window)
+        noteWindow("window \(window) removed (by removeWindow)")
         windows.remove(window)
         // Its WebViews go with it: the next window starts opaque, as the guest wants it.
         if webViews.removeValue(forKey: window) != nil { updateWindowLayer() }
@@ -159,9 +169,11 @@ final class RuntimeSessionHost: SessionHost {
     /// A SurfaceView's window on a layer of its own beside the window's (ADR-0043 c4); the registry retains the layer
     /// while the window is there. 0 before the view exists or when the registry has no room.
     func addSurface(frame: PixelRect, z: Int32, size: PixelSize, opaque: Bool) -> UInt64 {
-        surfaces?.add(frame: frame, z: z, opaque: opaque) { layer in
+        let window = surfaces?.add(frame: frame, z: z, opaque: opaque) { layer in
             apkrt_window_add(Unmanaged.passUnretained(layer).toOpaque(), size.width, size.height)
         } ?? 0
+        noteWindow("window \(window) added (a surface, \(size.width)x\(size.height))")
+        return window
     }
 
     func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32) {
@@ -172,6 +184,7 @@ final class RuntimeSessionHost: SessionHost {
     /// preference is the session's (ADR-0043 c4 (a)'s named limit).
     func removeSurface(_ window: UInt64) {
         _ = apkrt_window_remove(window)
+        noteWindow("window \(window) removed (by removeSurface)")
         surfaces?.remove(window)
     }
 
@@ -179,9 +192,12 @@ final class RuntimeSessionHost: SessionHost {
     /// registry retains the layer while the window is there. 0 before the view exists or when the registry has no
     /// room.
     func addRequestedWindow(_ request: WindowRequest) -> UInt64 {
-        surfaces?.addWindow(request) { layer in
+        let window = surfaces?.addWindow(request) { layer in
             apkrt_window_add(Unmanaged.passUnretained(layer).toOpaque(), request.size.width, request.size.height)
         } ?? 0
+        let size = request.size
+        noteWindow("window \(window) added (requested window \(request.token), \(size.width)x\(size.height))")
+        return window
     }
 
     func placeRequestedWindow(_ window: UInt64, _ request: WindowRequest) {
@@ -191,6 +207,7 @@ final class RuntimeSessionHost: SessionHost {
     /// The frame rate stays, as for a surface.
     func removeRequestedWindow(_ window: UInt64, token: UInt64) {
         _ = apkrt_window_remove(window)
+        noteWindow("window \(window) removed (by removeRequestedWindow, token \(token))")
         surfaces?.removeWindow(token: token)
     }
 

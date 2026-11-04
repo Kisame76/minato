@@ -2,13 +2,19 @@
 # ADR-0043 b5's step f: whether every window that an app draws by the CPU shows what it posted, in the Simulator or,
 # with --device, on the iPhone. It runs tools/java-start-check.sh's pixel round (PIXELS) on a Debug build:
 # views-test (RGBX_8888, text and a Button drawn in software), dialog-test (a dimmed window over the activity's),
-# second-windows-test (sub-windows, toasts, alpha), activity-flow-test (translucent windows over Main's) and
-# window-formats-test (RGBA_8888, RGBX_8888 and RGB_565 in turn), each through its start, Home and the return. At each
+# second-windows-test (sub-windows, toasts, alpha), activity-flow-test (translucent windows over Main's),
+# window-formats-test (RGBA_8888, RGBX_8888 and RGB_565 in turn) and views-test-landscape (views-test in landscape),
+# each through its start, Home and the return. At each
 # checkpoint the screenshot must show each window's last buffer where nothing covers it (tools/window_pixels.py,
 # within 3 per channel after the sRGB to Display P3 conversion), and window-formats-test's log must be Android 15's.
 # With --device a second run of views-test draws its windows by drawables (MINATO_WINDOW_BY_DRAWABLES's Debug switch,
 # SessionCheck's window-by-drawables), and the check prints both runs' physical footprint, the changelog's number.
-# Results: build/window-contents-check/<contents|drawables>/<app>/<checkpoint>/ (screen.png, dump/, compare.txt),
+# In the Simulator, which draws by drawables, a second run of every app shows the windows by contents, the iPhone's
+# way (MINATO_WINDOW_BY_CONTENTS's Debug switch, SessionCheck's window-by-contents), so the device's path is checked
+# without the iPhone; but for window-formats-test, whose RGB_565 buffer shows black as contents there (the Simulator's
+# Metal has no 16-bit format), which the iPhone's run checks.
+# Results: build/window-contents-check/<contents|drawables|by-contents>/<app>/<checkpoint>/ (screen.png, dump/,
+# compare.txt),
 # never in the repo; they are deleted with the next run.
 # Usage: tools/window-contents-check.sh [--device] [--dry-run] [simulator or iPhone name or identifier]
 set -euo pipefail
@@ -25,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-apps="views-test dialog-test second-windows-test activity-flow-test window-formats-test"
+apps="views-test dialog-test second-windows-test activity-flow-test window-formats-test views-test-landscape"
 out=build/window-contents-check
 if [[ "$dry_run" == yes ]]; then
   echo "window contents check: ${device[*]:-the Simulator}"
@@ -36,8 +42,12 @@ if [[ "$dry_run" == yes ]]; then
       echo "  $app: checkpoints start, then Home, Continue and return"
     fi
   done
-  [[ ${#device[@]} -eq 0 ]] || echo "  views-test again by drawables, for the footprint"
-  echo "  about $(( ${#device[@]} > 0 ? 18 : 12 )) minutes after the Debug build; results in $out"
+  if [[ ${#device[@]} -eq 0 ]]; then
+    echo "  every app but window-formats-test again by contents, the iPhone's way"
+  else
+    echo "  views-test again by drawables, for the footprint"
+  fi
+  echo "  about $(( ${#device[@]} > 0 ? 18 : 24 )) minutes after the Debug build; results in $out"
   exit 0
 fi
 
@@ -45,7 +55,13 @@ rm -rf "${out:?}"
 mkdir -p "$out"
 failed=0
 PIXELS="$out/contents" tools/java-start-check.sh ${device[@]+"${device[@]}"} "$@" || failed=1
-if [[ ${#device[@]} -gt 0 ]]; then
+if [[ ${#device[@]} -eq 0 ]]; then
+  by_contents=" ${ONLY:-$apps} "
+  by_contents=${by_contents// window-formats-test / }
+  if [[ -n "${by_contents// /}" ]]; then
+    ONLY="$by_contents" PIXELS="$out/by-contents" PIXELS_CONTENTS=1 tools/java-start-check.sh "$@" || failed=1
+  fi
+else
   PIXELS="$out/drawables" PIXELS_DRAWABLES=1 ONLY=views-test \
     tools/java-start-check.sh ${device[@]+"${device[@]}"} "$@" || failed=1
   # The footprint once the app has settled: the largest sample of each run's views-test.

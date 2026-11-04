@@ -68,10 +68,12 @@ enum { buffer_count = 3 };
 
 /* Whether posts show the buffers as a sublayer's contents; the Simulator draws them into a drawable, and so does a
    Debug build after minato_graphics_set_window_by_drawables(1) or with MINATO_WINDOW_BY_DRAWABLES=1, for step f's
-   comparison of the footprint. Decided at the first lock. */
+   comparison of the footprint. A Debug build in the Simulator shows them by contents after
+   minato_graphics_set_window_by_contents(1) or with MINATO_WINDOW_BY_CONTENTS=1, so that a check there runs the
+   iPhone's way. Decided at the first lock. */
 static BOOL by_contents = !TARGET_OS_SIMULATOR;
 #ifndef NDEBUG
-static BOOL by_drawables_asked;
+static BOOL by_drawables_asked, by_contents_asked;
 #endif
 
 /* How often a lock that waits looks whether Core Animation still uses a buffer. */
@@ -153,9 +155,11 @@ static BOOL set_up(void) {
     static BOOL ready;
     dispatch_once(&once, ^{
 #ifndef NDEBUG
-        const char *drawables = getenv("MINATO_WINDOW_BY_DRAWABLES");
+        const char *drawables = getenv("MINATO_WINDOW_BY_DRAWABLES"), *contents = getenv("MINATO_WINDOW_BY_CONTENTS");
         if (by_drawables_asked || (drawables != NULL && strcmp(drawables, "1") == 0)) {
             by_contents = NO;
+        } else if (by_contents_asked || (contents != NULL && strcmp(contents, "1") == 0)) {
+            by_contents = YES;
         }
 #endif
         device = MTLCreateSystemDefaultDevice();
@@ -521,6 +525,16 @@ int minato_graphics_set_window_by_drawables(int drawables) {
     return 0;
 #else
     (void)drawables;
+    return -1;
+#endif
+}
+
+int minato_graphics_set_window_by_contents(int contents) {
+#ifndef NDEBUG
+    by_contents_asked = contents != 0;
+    return 0;
+#else
+    (void)contents;
     return -1;
 #endif
 }

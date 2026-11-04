@@ -102,6 +102,12 @@ int minato_graphics_set_window_crc(const char *path);
    a Release build, which ignores it. */
 int minato_graphics_set_window_by_drawables(int drawables);
 
+/* The iPhone's way in the Simulator, in Debug builds only: with 1 before the first lock, the windows' posts show their
+   buffers as the window layer's sublayer's contents, as on the iPhone, instead of drawing them into drawables, so that
+   a check in the Simulator runs the device's path. by_drawables wins when both are asked. Returns 0, or -1 in a
+   Release build, which ignores it. */
+int minato_graphics_set_window_by_contents(int contents);
+
 /* Step f's dump (Debug builds and the Mac's tests): each window's last shown buffer goes to `folder`, made if need
    be, in place of an earlier dump's windows, as window-<id>.rgba, its rows tight in RGBA, RGBX_8888's alpha as 255
    and RGB_565 widened, and window-<id>.txt: a line "<width>x<height> <format>[ on black] post <n> shown" (or

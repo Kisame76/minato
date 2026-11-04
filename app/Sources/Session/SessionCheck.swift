@@ -63,6 +63,8 @@ import UIKit
 ///            (ADR-0043 b5, step f).
 ///   window-by-drawables  graphics/host draws the windows' buffers into drawables, as before ADR-0043 b5, from the
 ///            guest's start on (minato_graphics_set_window_by_drawables), for step f's footprint comparison.
+///   window-by-contents  graphics/host shows the windows' buffers as contents in the Simulator too, the iPhone's
+///            way, from the guest's start on (minato_graphics_set_window_by_contents).
 ///   window-dump  the poll has graphics/host dump each window's last shown buffer into
 ///            tmp/session-check/window-dump-files/ (minato_graphics_window_dump), logs "window dump <n>" and removes
 ///            the file (step f's screenshots compare with it).
@@ -102,6 +104,9 @@ enum SessionCheck {
     static func guestStarts() {
         if requested("window-by-drawables"), minato_graphics_set_window_by_drawables(1) == 0 {
             event("window by drawables")
+        }
+        if requested("window-by-contents"), minato_graphics_set_window_by_contents(1) == 0 {
+            event("window by contents")
         }
         guard requested("guest-log") else { return }
         for (name, descriptor) in [("guest-log", Int32(2)), ("guest-out", Int32(1))] {

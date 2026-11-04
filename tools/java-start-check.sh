@@ -104,7 +104,8 @@
 #              continued", Android's order: onStart, onResume, the window). The start's guest log is kept as
 #              <folder>/<app>/guest-log, window-formats-test's compared with Android 15's, and SessionCheck's
 #              footprint log as <folder>/<app>/footprint-log. PIXELS_DRAWABLES=1 draws the windows by drawables
-#              (window-by-drawables, a Debug switch), for the memory comparison.
+#              (window-by-drawables, a Debug switch), for the memory comparison; PIXELS_CONTENTS=1 shows them by
+#              contents in the Simulator, the iPhone's way (window-by-contents, a Debug switch).
 #   GODOT_TEST no: test 2's Godot APKs of tools/build-godot.sh (ADR-0042 b)), godot-bench-vulkan and godot-bench-gles,
 #              stay out; else they run too: their "godot-bench: " lines must be Android 15's
 #              (fixtures/expected/godot-bench-*.logcat) and their run must have frames and no failures, as
@@ -254,10 +255,12 @@ if [[ -n "${PIXELS:-}" ]]; then
   for app in "views-test io.github.kisame76.minato.test.views" "dialog-test io.github.kisame76.minato.test.dialog" \
              "second-windows-test io.github.kisame76.minato.test.secondwindows" \
              "activity-flow-test io.github.kisame76.minato.test.activityflow" \
-             "window-formats-test io.github.kisame76.minato.test.windowformats"; do
+             "window-formats-test io.github.kisame76.minato.test.windowformats" \
+             "views-test-landscape io.github.kisame76.minato.test.viewslandscape"; do
     [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
   done
-  [[ -n "${ONLY// /}" ]] || ONLY="views-test dialog-test second-windows-test activity-flow-test window-formats-test"
+  [[ -n "${ONLY// /}" ]] ||
+    ONLY="views-test dialog-test second-windows-test activity-flow-test window-formats-test views-test-landscape"
 fi
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
@@ -378,7 +381,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents footprint-log end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -571,11 +574,12 @@ begin_start() {
   echo yes > "$CHECK/guest-log"
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
   # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
-  # drawables' pass.
+  # drawables' pass, with PIXELS_CONTENTS by contents in the Simulator.
   if [[ -n "${PIXELS:-}" ]]; then
     echo yes > "$CHECK/window-crc"
     echo yes > "$CHECK/footprint-log"
     [[ -z "${PIXELS_DRAWABLES:-}" ]] || echo yes > "$CHECK/window-by-drawables"
+    [[ -z "${PIXELS_CONTENTS:-}" ]] || echo yes > "$CHECK/window-by-contents"
   fi
   [[ -z "${QUIT_AFTER:-}" ]] || echo "$QUIT_AFTER" > "$CHECK/quit"
   send_requests
