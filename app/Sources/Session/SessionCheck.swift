@@ -45,6 +45,8 @@ import UIKit
 ///            the file goes. The view itself keeps its size.
 ///   compile-hold  seconds: compile mode waits that long before dex2oat starts, with its screen up and its
 ///            background task held, so that a check sees the screen, cancels or goes to the background meanwhile.
+///   no-compile  game mode's sessions ask for no compile mode, so that the next guest log is the app's own, not
+///            dex2oat's (ADR-0053, M6 c, E5); compile mode itself still runs for a request already there.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -66,6 +68,9 @@ enum SessionCheck {
 
     /// Whether game mode runs without a guest.
     static var withoutGuest: Bool { requested("no-guest") }
+
+    /// Whether game mode's sessions ask for no compile mode.
+    static var withoutCompile: Bool { requested("no-compile") }
 
     /// How long compile mode waits before dex2oat starts; 0 without the request.
     static var compileHold: Double { text(of: "compile-hold").flatMap(Double.init) ?? 0 }

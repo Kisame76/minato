@@ -29,6 +29,27 @@ public struct LaunchRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// How game mode's session ended. Only a clean end asks for compile mode (ADR-0053, M6 c, E5): a crash's or a kill's
+/// notice comes at the library's next start, never after an "Optimizing" screen.
+public enum SessionEnd: Equatable, Sendable {
+    /// The activities ended: the user's Quit, or the app's own finish.
+    case lifecycleEnded
+    /// The program ended with this status, after onDestroy or by itself.
+    case exited(Int32)
+    /// The session's channel broke.
+    case channelBroke
+    /// The app could not start.
+    case startFailed
+
+    public var asksForCompile: Bool {
+        switch self {
+        case .lifecycleEnded: true
+        case .exited(let status): status == 0
+        case .channelBroke, .startFailed: false
+        }
+    }
+}
+
 /// The request as a file in Application Support: written atomically, read once.
 public struct LaunchRequestStore: Sendable {
     public let file: URL

@@ -163,4 +163,15 @@ struct LaunchRequestTests {
 
         #expect(mode == .library(.appNotReady(entry)))
     }
+
+    @Test(arguments: [SessionEnd.lifecycleEnded, .exited(0)])
+    func aCleanEndAsksForCompileMode(end: SessionEnd) {
+        #expect(end.asksForCompile)
+    }
+
+    /// The notice of a crash or a kill comes at the library's next start, never after an "Optimizing" screen.
+    @Test(arguments: [SessionEnd.exited(1), .exited(137), .exited(-1), .channelBroke, .startFailed])
+    func anEndThatWentWrongAsksForNoCompileMode(end: SessionEnd) {
+        #expect(!end.asksForCompile)
+    }
 }

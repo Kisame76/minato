@@ -43,7 +43,8 @@ enum SessionLogTap {
         self.package = package
         self.log = log
         self.writer = writer
-        let reader = Thread { copy(from: ends[0], to: writer, tee: before) }
+        let readEnd = ends[0]
+        let reader = Thread { copy(from: readEnd, to: writer, tee: before) }
         reader.name = "MinatoSessionLog"
         reader.start()
         apkrt_drain_log_at_end { SessionLogTap.drain() }

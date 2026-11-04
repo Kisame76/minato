@@ -282,7 +282,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash self-kill start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash self-kill start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request
 # the script does not have goes as an empty file, which the app takes for none: devicectl cannot delete a
 # file, and its --remove-existing-content empties the app's whole container, not just the folder.
@@ -516,6 +516,8 @@ begin_round() {
   seen=0
   # Only test 7 runs a guest: the test app's library is no NativeActivity.
   echo yes > "$CHECK/no-guest"
+  # A guest app's session asks for no compile mode, which would start in place of the next round's library.
+  echo yes > "$CHECK/no-compile"
 }
 
 # Waits for the event "exit" and checks that process $1 wrote it: a restart ends the old process itself.

@@ -76,8 +76,8 @@ extension AppReport.Ending {
 
 extension AppReport.Device {
     /// This iPhone: Minato's version, the model identifier (hw.machine, the simulated model's in the Simulator) and
-    /// the iOS version.
-    static var current: AppReport.Device {
+    /// the iOS version. UIDevice is the main actor's.
+    @MainActor static var current: AppReport.Device {
         AppReport.Device(minato: MinatoVersion(info: Bundle.main.infoDictionary).text, model: modelIdentifier,
                          ios: UIDevice.current.systemVersion)
     }

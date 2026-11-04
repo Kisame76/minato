@@ -325,7 +325,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -503,6 +503,8 @@ begin_start() {
   terminate
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
+  # The guest log is the app's, not dex2oat's: no compile mode after a session, but in the COMPILE round.
+  [[ -n "${COMPILE:-}" ]] || echo yes > "$CHECK/no-compile"
   [[ "$ON_DEVICE" == yes ]] || rm -f "$REQUEST"
   : > "$WORK/$app-$round.log"
   : > "$WORK/$app-$round.out"
@@ -1227,6 +1229,9 @@ run_compile_measure() {
   end_start "$app" 1
   if [[ -n "$container" ]]; then
     QUIT_AFTER=${COMPILE_QUIT_AFTER:-60}
+    # E4's proof, in the Simulator: ART's -verbose:oat log (the Debug guest environment) must say the library's own
+    # odex is the best oat file and executable. begin_start leaves tmp/guest-environment alone.
+    [[ "$ON_DEVICE" == yes ]] || echo "MINATO_MEASURE_ART_OPTIONS=-verbose:oat" > "$CONTAINER/tmp/guest-environment"
     if begin_start "$app" "$package" 2; then
       if await_line "$file" "$pattern" 600; then
         compiled=$(seconds "$TAP" "$SEEN")
@@ -1237,6 +1242,15 @@ run_compile_measure() {
     fi
     QUIT_AFTER=
     end_start "$app" 2
+    if [[ "$ON_DEVICE" != yes ]]; then
+      rm -f "$CONTAINER/tmp/guest-environment"
+      if grep -q "/oat/arm64/base.odex (executable=1)" "$WORK/$app-2.log"; then
+        ok "  oat proof: ART runs the library's own odex, executable"
+      else
+        failed_line "no oat proof: the compiled start's log does not say its odex is executable" "$app-2"
+        grep -i "oat" "$WORK/$app-2.log" | head -n 5 | sed 's/^/      | /' || true
+      fi
+    fi
   fi
   dex_mb=$(python3 - "$(apk "$app")" <<'PY'
 import sys
