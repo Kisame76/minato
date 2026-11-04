@@ -11,7 +11,8 @@
  *     FLAG_DIR_SUPPORTS_CREATE, DELETE, RENAME, MOVE, FLAG_SUPPORTS_METADATA and FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE
  *     (49484);
  *   - a document that does not exist gives no cursor (FileNotFoundException, logged), and an id of another root, the
- *     same;
+ *     same; below a granted tree, a read or a query of one that does not exist throws IllegalArgumentException, from
+ *     isChildDocument as AOSP's, and its type is null (Android 15, documents-tree-test);
  *   - the app reaches a document it holds a grant for, and the SecurityException of ContentProvider's check without
  *     one (Android's check runs in the provider's process for a caller of another uid; here the app is its own
  *     caller, so the check is made at the document, with UriGrants).
@@ -145,7 +146,11 @@ public final class ExternalStorageProvider extends DocumentsProvider {
             final String child = fileFor(documentId).getCanonicalPath();
             return child.equals(parent) || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
         } catch (IOException e) {
-            return false;
+            // As AOSP's: a document that is not there is no answer, and DocumentsProvider.enforceTree lets it through
+            // to the app (Android 15: IllegalArgumentException for a read and a query of a missing document below a
+            // granted tree), not the SecurityException of a document outside it.
+            throw new IllegalArgumentException(
+                    "Failed to determine if " + documentId + " is child of " + parentDocumentId + ": " + e);
         }
     }
 

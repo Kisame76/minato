@@ -8,6 +8,9 @@ I/documents-tree-test: created: content://com.android.externalstorage.documents 
 I/documents-tree-test: write: ok
 I/documents-tree-test: read: level 3\n
 I/documents-tree-test: listed: 1
+I/documents-tree-test: missing read: java.lang.IllegalArgumentException
+I/documents-tree-test: missing query: java.lang.IllegalArgumentException
+I/documents-tree-test: missing type: null
 I/documents-tree-test: done
 I/documents-tree-test: kept: 1
 I/documents-tree-test: kept tree: content://com.android.externalstorage.documents /tree/primary:Documents read=true write=true

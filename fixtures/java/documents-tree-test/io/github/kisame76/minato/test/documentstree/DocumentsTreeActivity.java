@@ -109,7 +109,25 @@ public class DocumentsTreeActivity extends Activity {
         } catch (Exception e) {
             log("create: " + type(e));
         }
+        missing(tree, treeId);
         done();
+    }
+
+    /** A document that is not there, below the granted folder: what reading, querying and typing it throw or give. */
+    private void missing(Uri tree, String treeId) {
+        Uri gone = DocumentsContract.buildDocumentUriUsingTree(tree, treeId + "/documents-tree-test-missing.txt");
+        log("missing read: " + read(gone));
+        try (Cursor cursor = getContentResolver().query(gone,
+                new String[] {DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            log("missing query: " + (cursor == null ? "null" : "rows " + cursor.getCount()));
+        } catch (Exception e) {
+            log("missing query: " + type(e));
+        }
+        try {
+            log("missing type: " + getContentResolver().getType(gone));
+        } catch (Exception e) {
+            log("missing type: " + type(e));
+        }
     }
 
     /** The next start: the file read through the kept grant, then deleted, and the grant let go. */
