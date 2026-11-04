@@ -887,6 +887,14 @@ class ContextImpl {
         }
     }
 
+    /**
+     * As Android 15's ContextImpl: the app's own context may load unsafe resources, another package's only when it
+     * ignores security.
+     */
+    public boolean canLoadUnsafeResources() {
+        return getPackageName().equals(getOpPackageName()) || (mFlags & Context.CONTEXT_IGNORE_SECURITY) != 0;
+    }
+
     public boolean isCredentialProtectedStorage() {
         return (mFlags & Context.CONTEXT_CREDENTIAL_PROTECTED_STORAGE) != 0;
     }

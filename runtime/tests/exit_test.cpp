@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -269,6 +270,83 @@ TEST(a_status_other_than_0_names_the_callers_up_the_frame_chain) {
     CHECK(line.find(" <- exit_test_caller_b+4 (") != std::string::npos);
     CHECK(line.ends_with("\n"));
     CHECK(apkrt::process::exit_callers(0, reinterpret_cast<std::uint64_t>(&chain[0])).empty());
+}
+
+TEST(the_last_16_failed_paths_are_named_newest_last) {
+    // An app that ends itself with an error status after a file it needed was not there (a Python without its
+    // stdlib): the paths the guest's lookups failed on, which no Android log names.
+    apkrt::process::forget_failed_paths();
+    CHECK(apkrt::process::failed_paths_lines().empty());
+    for (int index = 0; index < 20; index++) {
+        apkrt::process::note_failed_path("openat", "/data/lib/site" + std::to_string(index) + ".py", 2);
+    }
+    const std::string lines = apkrt::process::failed_paths_lines();
+    CHECK(lines.find("site3.py") == std::string::npos);
+    CHECK(lines.starts_with("W/apkrt   : failed path: openat /data/lib/site4.py ENOENT\n"));
+    CHECK(lines.ends_with("W/apkrt   : failed path: openat /data/lib/site19.py ENOENT\n"));
+    CHECK(std::count(lines.begin(), lines.end(), '\n') == 16);
+}
+
+TEST(only_a_missing_a_denied_or_a_wrong_path_counts_and_a_repeat_once) {
+    apkrt::process::forget_failed_paths();
+    apkrt::process::note_failed_path("openat", "/a", 2);
+    apkrt::process::note_failed_path("openat", "/a", 2);  // the same lookup again in a row
+    apkrt::process::note_failed_path("newfstatat", "/b", 13);
+    apkrt::process::note_failed_path("faccessat", "/c", 20);
+    apkrt::process::note_failed_path("openat", "/d", 17);  // EEXIST: the program asked for it
+    CHECK(apkrt::process::failed_paths_lines() ==
+          "W/apkrt   : failed path: openat /a ENOENT\n"
+          "W/apkrt   : failed path: newfstatat /b EACCES\n"
+          "W/apkrt   : failed path: faccessat /c ENOTDIR\n");
+}
+
+TEST(a_long_failed_path_is_cut_to_159_characters) {
+    apkrt::process::forget_failed_paths();
+    apkrt::process::note_failed_path("openat", "/" + std::string(400, 'x'), 2);
+    const std::string lines = apkrt::process::failed_paths_lines();
+    CHECK(lines == "W/apkrt   : failed path: openat /" + std::string(158, 'x') + " ENOENT\n");
+}
+
+TEST(a_status_other_than_0_in_an_app_process_logs_the_failed_paths_after_the_callers) {
+    const auto ended = in_child([](int) {
+        become_app_process();
+        apkrt::process::forget_failed_paths();
+        apkrt::process::note_failed_path("openat", "/data/lib/site.py", 2);
+        apkrt::process::note_exit(1, 0);
+        ::_exit(1);
+    });
+    const auto callers = ended.log.find("W/apkrt   : exit_group(1) from ");
+    const auto path = ended.log.find("W/apkrt   : failed path: openat /data/lib/site.py ENOENT\n");
+    CHECK(callers != std::string::npos && path != std::string::npos && callers < path);
+}
+
+TEST(the_first_frame_forgets_the_failed_paths_and_keeps_no_more) {
+    // The flag is process-wide, so the case runs in a child.
+    const auto ended = in_child([](int) {
+        become_app_process();
+        apkrt::process::forget_failed_paths();
+        apkrt::process::note_failed_path("openat", "/before", 2);
+        CHECK(!apkrt::process::first_frame_seen());
+        apkrt::process::note_first_frame();
+        apkrt::process::note_first_frame();  // idempotent
+        CHECK(apkrt::process::first_frame_seen());
+        CHECK(apkrt::process::failed_paths_lines().empty());
+        apkrt::process::note_failed_path("openat", "/after", 2);
+        CHECK(apkrt::process::failed_paths_lines().empty());
+        ::_exit(0);
+    });
+    CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 0);
+}
+
+TEST(a_status_of_0_logs_no_failed_paths) {
+    const auto ended = in_child([](int) {
+        become_app_process();
+        apkrt::process::forget_failed_paths();
+        apkrt::process::note_failed_path("openat", "/data/lib/site.py", 2);
+        apkrt::process::note_exit(0, 0);
+        ::_exit(0);
+    });
+    CHECK(ended.log.empty());
 }
 
 TEST(a_caller_frame_on_an_unreadable_page_ends_the_line_without_a_fault) {

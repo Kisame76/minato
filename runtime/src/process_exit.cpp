@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <mutex>
 
 namespace apkrt::process {
 namespace {
@@ -349,9 +350,78 @@ std::string exit_callers(int status, std::uint64_t frame_pointer, int limit) {
     return line + "\n";
 }
 
+namespace {
+
+constexpr std::size_t failed_path_slots = 16;
+constexpr std::size_t failed_path_length = 159;
+
+struct FailedPath {
+    std::string syscall;
+    std::string path;
+    int error = 0;
+};
+
+std::mutex failed_paths_mutex;
+FailedPath failed_paths[failed_path_slots];  // guarded by failed_paths_mutex; a ring
+std::size_t failed_path_count = 0;           // how many were kept in all
+
+const char *error_name(int error) {
+    switch (error) {
+        case 2: return "ENOENT";
+        case 13: return "EACCES";
+        case 20: return "ENOTDIR";
+        default: return nullptr;
+    }
+}
+
+}  // namespace
+
+void note_failed_path(const char *syscall, const std::string &path, int error) {
+    if (error_name(error) == nullptr || first_frame_seen()) return;
+    const std::string kept = path.substr(0, failed_path_length);
+    const std::lock_guard lock(failed_paths_mutex);
+    if (failed_path_count > 0) {
+        const FailedPath &last = failed_paths[(failed_path_count - 1) % failed_path_slots];
+        if (last.error == error && last.syscall == syscall && last.path == kept) return;
+    }
+    failed_paths[failed_path_count % failed_path_slots] = {syscall, kept, error};
+    failed_path_count++;
+}
+
+std::string failed_paths_lines() {
+    const std::lock_guard lock(failed_paths_mutex);
+    std::string lines;
+    const std::size_t first = failed_path_count > failed_path_slots ? failed_path_count - failed_path_slots : 0;
+    for (std::size_t index = first; index < failed_path_count; index++) {
+        const FailedPath &failed = failed_paths[index % failed_path_slots];
+        lines += std::format("W/apkrt   : failed path: {} {} {}\n", failed.syscall, failed.path,
+                             error_name(failed.error));
+    }
+    return lines;
+}
+
+namespace {
+std::atomic<bool> first_frame{false};
+}  // namespace
+
+void note_first_frame() {
+    if (first_frame.exchange(true)) return;
+    forget_failed_paths();
+}
+
+bool first_frame_seen() {
+    return first_frame.load(std::memory_order_acquire);
+}
+
+void forget_failed_paths() {
+    const std::lock_guard lock(failed_paths_mutex);
+    failed_path_count = 0;
+}
+
 void note_exit(int status, std::uint64_t frame_pointer) {
     if (session::end_handler().function == nullptr) return;
-    const std::string line = exit_callers(status, frame_pointer);
+    std::string line = exit_callers(status, frame_pointer);
+    if (status != 0) line += failed_paths_lines();
     static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
 }
 

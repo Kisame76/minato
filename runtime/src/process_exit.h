@@ -52,8 +52,30 @@ void report_death_by(int signal);
 /// frame-pointer chain from `frame_pointer` (x29); empty for status 0.
 std::string exit_callers(int status, std::uint64_t frame_pointer, int limit = 8);
 
+/// The last 16 paths the guest's lookups failed on (a missing file, a denied one, a component that is no directory),
+/// for the log of an app that ends itself with an error status after a file it needed was not there, whose own
+/// message nobody reads (a Python without its stdlib exits with 1 and an error on a pipe). `syscall` names the call
+/// ("openat"), `path` is the guest's path, `error` the Linux errno; other errors are not kept, and the same call on the
+/// same path again in a row is kept once. A path is cut to 159 characters. Safe from any thread.
+void note_failed_path(const char *syscall, const std::string &path, int error);
+
+/// "W/apkrt   : failed path: <syscall> <path> <ENOENT|EACCES|ENOTDIR>\n" for each kept path, oldest first; empty
+/// for none.
+std::string failed_paths_lines();
+
+/// Forgets the kept paths, for tests.
+void forget_failed_paths();
+
+/// The app's first frame has been presented: from then on no failed path is kept and the kept ones are forgotten, as
+/// they matter only to an app that ends before it shows anything. An atomic test-and-set, so a second call, or one from
+/// the render thread, changes nothing. The stall watchdog reads the same flag.
+void note_first_frame();
+
+/// Whether note_first_frame was called.
+bool first_frame_seen();
+
 /// exit_group's note before end(): in an app process (one with a session, as the Zygote line), exit_callers' line to
-/// stderr for a status other than 0.
+/// stderr for a status other than 0, and the failed paths' lines after it.
 void note_exit(int status, std::uint64_t frame_pointer);
 
 /// Reports `status` and the measures and ends the process with the status, keeping the low 8 bits as

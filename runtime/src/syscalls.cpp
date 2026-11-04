@@ -1033,6 +1033,18 @@ void trace(const apkrt_syscall_frame &frame, const long *result) {
     static_cast<void>(::write(STDERR_FILENO, line, std::min(static_cast<std::size_t>(length), sizeof line - 1)));
 }
 
+/// The path syscalls whose second argument is the guest's path, by name, for the failed paths the end's log shows.
+const char *path_syscall_name(std::uint64_t number) {
+    switch (number) {
+        case nr::openat: return "openat";
+        case nr::newfstatat: return "newfstatat";
+        case nr::faccessat: return "faccessat";
+        case nr::faccessat2: return "faccessat2";
+        case nr::readlinkat: return "readlinkat";
+        default: return nullptr;
+    }
+}
+
 }  // namespace
 
 extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
@@ -1044,6 +1056,16 @@ extern "C" void *apkrt_syscall_dispatch(apkrt_syscall_frame *frame) {
     if (tracing()) trace(*frame, nullptr);
     const long result = dispatch(*frame);
     if (tracing()) trace(*frame, &result);
+    if (result == -linux_errno::enoent || result == -linux_errno::eacces || result == -linux_errno::enotdir) {
+        // Only an app process (one with a session) shows them in its log, so only it keeps them.
+        if (const char *name = path_syscall_name(frame->x[8]);
+            name != nullptr && frame->x[1] != 0 && !apkrt::process::first_frame_seen() &&
+            apkrt::session::end_handler().function != nullptr) {
+            const char *guest_path = reinterpret_cast<const char *>(frame->x[1]);  // the call read it, so it is mapped
+            apkrt::process::note_failed_path(name, std::string(guest_path, ::strnlen(guest_path, 4096)),
+                                             static_cast<int>(-result));
+        }
+    }
     // A write to a pipe or socket nobody reads: Linux raises SIGPIPE along with EPIPE (and along with
     // the count of a write that got some bytes out first, sys_files.cpp), but not for a SOCK_SEQPACKET socket.
     if (result == -linux_errno::epipe && is_write(frame->x[8]) &&
