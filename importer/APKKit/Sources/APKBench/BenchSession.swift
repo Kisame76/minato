@@ -59,16 +59,19 @@ extension BenchPlan {
 }
 
 extension BenchCSV {
-    public static let drawablesHeader = "frame,next_drawable_ns,presented_ns"
+    public static let drawablesHeader = "frame,next_drawable_ns,presented_ns,tick_timed"
     public static let sessionHeader = """
         package,max_fps,link_period_median_ns,thermal_start,thermal_end,thermal_changes,low_power,battery_state,\
         battery_level,commit,configuration,debugger,qos,pixel_format,drawable_width,drawable_height,\
         max_drawable_count,lost,unanswered,exit_status
         """
 
-    /// One row per drawable in the order the layer gave them, so row k is the guest's frame k.
+    /// One row per drawable in the order the layer gave them, so row k is the guest's frame k; tick_timed 1 for a
+    /// window's post by contents, whose presented_ns is the display link's refresh, not a present's time.
     public static func drawables(_ drawables: [BenchDrawable]) -> String {
-        lines([drawablesHeader] + drawables.enumerated().map { "\($0),\($1.nextDrawableNs),\($1.presentedNs)" })
+        lines([drawablesHeader] + drawables.enumerated().map {
+            "\($0),\($1.nextDrawableNs),\($1.presentedNs),\($1.tickTimed ? 1 : 0)"
+        })
     }
 
     /// The header and the record's row.

@@ -51,4 +51,10 @@ void minato_present_unpaced(void *drawable);
    CPU post covers with a transparent drawable of its own; 0 then, and for a layer that is no MinatoMetalLayer. */
 int minato_present_buffers_shown(void *layer);
 
+/* A post of the window's buffers by contents committed at `committed_ns` (CLOCK_UPTIME_RAW): the next place of
+   `layer`'s running recording, tick-timed (minato_layer.h's struct minato_layer_drawable), as no drawable gives it a
+   presented time (ADR-0043 b5, detail 5). Nothing outside a recording, for a layer that is no MinatoMetalLayer, or
+   in the Simulator. */
+void minato_present_record_post(void *layer, int64_t committed_ns);
+
 #endif

@@ -378,11 +378,12 @@ if(TARGET minato_graphics_host)
   add_guest_test(window_trim window-trim-test window_trim_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
     "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_SCRIPT=set:trim:2" "MINATO_WINDOW_WATCH=set:let-go")
-  # ADR-0043 b5, detail 3: the same buffers' back-pressure, at most one post a display-link tick, with the window host
-  # ticking at 100 Hz until the window has 30 presents.
+  # ADR-0043 b5, details 3 and 5: the same buffers' back-pressure, at most one post a display-link tick, with the
+  # window host ticking at 100 Hz until the window has 30 presents, and the layer's records of the posts.
   add_guest_test(window_pace window-pace-test window_pace_test
     "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so" "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:"
-    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_TICKS=set:100:30")
+    "MINATO_WINDOW=set:64x48" "MINATO_WINDOW_TICKS=set:100:30" 
+    "MINATO_WINDOW_RECORD=set:64:35")
   # ADR-0058 a): libnativewindow's AHardwareBuffer on graphics/host's hardware buffers, with Android 15's answers.
   add_guest_test(ahb ahb-test ahb_test "${thunk_system_libraries};${APK_BIONIC_DIR}/libnativewindow.so"
     "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=unset:")

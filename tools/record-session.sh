@@ -3,8 +3,9 @@
 # APK_EMBED_BENCHMARK=YES) as tools/benchmark.sh does, installs it, starts it with -recordSession <package>
 # without a debugger and fetches the app's tmp/benchmark/session-<package>/ to build/record-session/<package>/
 # (build/record-session-simulator/ for the Simulator):
-#   drawables.csv  frame,next_drawable_ns,presented_ns: each drawable the layer gave, in order, so row k is
-#                  the app's frame k; presented_ns 0 for one that never reached the screen; CLOCK_UPTIME_RAW ns
+#   drawables.csv  frame,next_drawable_ns,presented_ns,tick_timed: each drawable the layer gave, in order, so row
+#                  k is the app's frame k; presented_ns 0 for one that never reached the screen; CLOCK_UPTIME_RAW ns;
+#                  tick_timed 1 for a window's post by contents, whose presented_ns is the display link's refresh
 #   session.csv    the conditions, one row: thermal state, Low Power Mode, battery, debugger, the layer's
 #                  values, lost drawables (past 7200), unanswered presented handlers and the exit status
 #   error          only when something is off: the reasons, "; " apart

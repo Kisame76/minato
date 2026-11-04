@@ -19,7 +19,8 @@
      Android's hidden window gives its surface's back: the next lock makes new buffers and answers all of one dirty.
    - A post shows the buffer as the contents of the window layer's lowest sublayer, "minato.window.buffers", in one
      Core Animation transaction without actions, and counts it (apkrt_window_presented); the window's layer takes no
-     drawable. The first drawable another producer presents on the window's layer hides the sublayer (layer.m), and a
+     drawable; a recording of the layer takes each post as a tick-timed record (detail 5, present_pace.h). The
+     first drawable another producer presents on the window's layer hides the sublayer (layer.m), and a
      post after one presents a transparent drawable first, so that its frame shows no more under transparent pixels
      (detail 4: a CAMetalLayer's own contents show its drawables, which our contents there would displace for good
      [measured, S5]). The sublayer is opaque for RGBX_8888 and RGB_565 and black below them and below any buffer of an
@@ -542,10 +543,12 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
         return NO;
     }
     if (!visible && !layer.opaque) {
-        // Hidden over nothing looks as transparent over nothing does; the post counts but shows nothing.
+        // Hidden over nothing looks as transparent over nothing does; the post counts but shows nothing, and its
+        // record keeps a recording's record k the window's post k.
         if (!layer.hidden) {
             set_hidden(layer, YES);
         }
+        minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         apkrt_window_presented(window_id);
         return NO;
     }
@@ -572,6 +575,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     buffers.backgroundColor = format != format_rgba_8888 || layer.opaque ? black : NULL;
     buffers.contents = (__bridge id)buffer->surface;
     [CATransaction commit];
+    minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
     atomic_fetch_sub(&in_flight, 1);
     apkrt_window_presented(window_id);
     return NO;

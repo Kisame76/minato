@@ -29,14 +29,16 @@ struct BenchSessionTests {
         let text = BenchCSV.drawables([
             BenchDrawable(nextDrawableNs: 110, presentedNs: 8_433_433),
             BenchDrawable(nextDrawableNs: 8_333_500, presentedNs: 0),
+            BenchDrawable(nextDrawableNs: 16_666_900, presentedNs: 33_333_333, tickTimed: true),
         ])
         #expect(text == """
-            frame,next_drawable_ns,presented_ns
-            0,110,8433433
-            1,8333500,0
+            frame,next_drawable_ns,presented_ns,tick_timed
+            0,110,8433433,0
+            1,8333500,0,0
+            2,16666900,33333333,1
 
             """)
-        #expect(BenchCSV.drawables([]) == "frame,next_drawable_ns,presented_ns\n")
+        #expect(BenchCSV.drawables([]) == "frame,next_drawable_ns,presented_ns,tick_timed\n")
     }
 
     @Test func aSessionIsTheHeaderAndOneRow() throws {

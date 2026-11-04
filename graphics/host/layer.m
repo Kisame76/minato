@@ -28,6 +28,7 @@ struct slot {
     _Atomic(int64_t) presented_ns;
     _Atomic(uint64_t) presented_id;
     _Atomic(uint32_t) handlers;
+    uint32_t tick_timed;
 };
 
 static int64_t now_ns(void) {
@@ -141,6 +142,7 @@ static int64_t host_ns(CFTimeInterval seconds) {
     drawable.drawable_id = slot->drawable_id;
     drawable.presented_id = atomic_load(&slot->presented_id);
     drawable.handlers = atomic_load(&slot->handlers);
+    drawable.tick_timed = slot->tick_timed;
     return drawable;
 }
 
@@ -435,6 +437,46 @@ int minato_present_buffers_shown(void *layer) {
     if (paced == nil) return 0;
     atomic_store(&paced->_buffers_shown, 1);
     return atomic_exchange(&paced->_drawn, 0);
+}
+
+void minato_present_record_post(void *layer, int64_t committed_ns) {
+#if TARGET_OS_SIMULATOR
+    (void)layer;
+    (void)committed_ns;
+#else
+    MinatoMetalLayer *paced = paced_layer(layer);
+    const uintptr_t active = paced != nil ? atomic_load_explicit(&paced->_active, memory_order_acquire) : 0;
+    if (active == 0) return;
+    MinatoLayerRecording *recording = (__bridge MinatoLayerRecording *)(void *)active;
+    // The same order as record_next_drawable's, for stop_recording.
+    atomic_fetch_add(&recording->_inside, 1);
+    if (!atomic_load(&recording->_stopped)) {
+        const uint64_t index = atomic_fetch_add(&recording->_taken, 1);
+        if (index < recording->_capacity) {
+            struct slot *slot = &recording->_slots[index];
+            slot->next_drawable_ns = committed_ns;
+            slot->tick_timed = 1;
+            // The first tick after the commit, and its target: Core Animation takes the commit at that tick's
+            // refresh and shows it at the next [inferred]. None without a tick within two periods.
+            int64_t tick = 0, period = 0;
+            if (apkrt_vsync_grid(&tick, &period) == 0 && period > 0 && committed_ns >= tick &&
+                committed_ns - tick < 2 * period) {
+                const int64_t first = tick + ((committed_ns - tick) / period + 1) * period;
+                atomic_store(&slot->presented_ns, first + period);
+            }
+            if (index == 0) {
+                recording->_qos = qos_class_self();
+                recording->_format = paced.pixelFormat;
+                recording->_size = paced.drawableSize;
+                recording->_maximum = paced.maximumDrawableCount;
+                recording->_opaque = paced.opaque;
+            }
+            atomic_fetch_add(&slot->handlers, 1);
+            atomic_fetch_add(&recording->_answered, 1);
+        }
+    }
+    atomic_fetch_sub(&recording->_inside, 1);
+#endif
 }
 
 /// A drawable of the layer goes to Core Animation: the window's buffers' sublayer hides, if it shows.

@@ -22,6 +22,10 @@
      when the scene goes to the background, which the program, no activity-host, never reads.
    - With MINATO_WINDOW_TICKS=<hz>:<n> too, a thread of its own ticks the display link (apkrt_vsync_post) at <hz>
      until the window has <n> presents, and then stops, which it prints to stderr (ADR-0043 b5's back-pressure).
+   - With MINATO_WINDOW_RECORD=<capacity>:<n> too, the layer records from the start (ADR-0043 b5, detail 5), and
+     100 ms after the window's <n>th present the window host prints whether each record is a post by contents,
+     tick-timed, and each one with a presented time is on the grid of the last tick it posted before the post's
+     commit: the target of the first refresh after the commit.
    - With MINATO_WINDOW_OPAQUE=1 too, the layer is opaque; with MINATO_WINDOW_WATCH=hidden, it prints each change of
      the layer's hidden to stderr (ADR-0043 b3, the hide rule), with MINATO_WINDOW_WATCH=contents each buffer that
      graphics/host's window shows by contents (session_layers.h), and with "hidden,contents" both.
@@ -136,16 +140,62 @@ static void *trim(void *unused) {
 /* MINATO_WINDOW_TICKS=<hz>:<presents>: the display link's ticks, until the window has that many presents. */
 static int tick_hz;
 static unsigned long tick_presents;
+enum { tick_capacity = 4096 };
+static int64_t tick_times[tick_capacity];
+static _Atomic(unsigned) tick_count;
 
 static void *tick(void *unused) {
     (void)unused;
     const int64_t period = 1000000000 / tick_hz;
     while (apkrt_window_presents(minato_test_window) < tick_presents) {
         const int64_t now = (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        const unsigned index = atomic_load(&tick_count);
+        if (index < tick_capacity) {
+            tick_times[index] = now;
+            atomic_store(&tick_count, index + 1);
+        }
         apkrt_vsync_post(now, now + period);
         usleep((useconds_t)(period / 1000));
     }
     fprintf(stderr, "window host: the display link stops after %lu presents\n", tick_presents);
+    return NULL;
+}
+
+/* MINATO_WINDOW_RECORD: the window layer's recording, checked after that many presents. */
+static MinatoMetalLayer *recorded;
+static unsigned long recorded_presents;
+
+static void *check_recording(void *unused) {
+    (void)unused;
+    while (apkrt_window_presents(minato_test_window) < recorded_presents) {
+        usleep(1000);
+    }
+    usleep(100000);
+    MinatoLayerRecording *recording = [recorded stopRecording:0];
+    const int64_t period = tick_hz > 0 ? 1000000000 / tick_hz : 0;
+    NSUInteger tick_timed = 0, presented = 0, on_grid = 0;
+    for (NSUInteger index = 0; index < recording.count; index++) {
+        const struct minato_layer_drawable drawable = [recording drawable:index];
+        tick_timed += drawable.tick_timed == 1 && drawable.drawable_id == 0;
+        if (drawable.presented_ns == 0) {
+            continue;
+        }
+        presented++;
+        // The last tick before the commit, the first refresh after the commit on its grid, and that one's target.
+        int64_t last = -1;
+        for (unsigned at = 0; at < atomic_load(&tick_count); at++) {
+            if (tick_times[at] <= drawable.next_drawable_ns) {
+                last = tick_times[at];
+            }
+        }
+        const int64_t refresh = last + ((drawable.next_drawable_ns - last) / period + 1) * period;
+        on_grid += last >= 0 && drawable.presented_ns == refresh + period;
+    }
+    fprintf(stderr,
+            "window host: the recording: %lu posts, each tick-timed: %s; each presented one at the target of the first "
+            "refresh after its commit: %s; at least 25 presented: %s\n",
+            (unsigned long)recording.count, recording.count > 0 && tick_timed == recording.count ? "yes" : "no",
+            presented > 0 && on_grid == presented ? "yes" : "no", presented >= 25 ? "yes" : "no");
     return NULL;
 }
 
@@ -352,6 +402,15 @@ __attribute__((constructor)) static void add_window(void) {
         layer.opaque = opaque != NULL && strcmp(opaque, "1") == 0;
         minato_test_watch_hidden(layer);
         minato_test_watch_contents(layer);
+        const char *record = getenv("MINATO_WINDOW_RECORD");
+        unsigned long capacity = 0;
+        if (record != NULL && sscanf(record, "%lu:%lu", &capacity, &recorded_presents) == 2 &&
+            [(MinatoMetalLayer *)layer startRecording:capacity]) {
+            recorded = (MinatoMetalLayer *)layer;
+            pthread_t thread;
+            pthread_create(&thread, NULL, check_recording, NULL);
+            pthread_detach(thread);
+        }
         minato_test_window = apkrt_window_add((__bridge void *)layer, width, height);
     }
     if (minato_test_window == 0 || apkrt_window_set_gate(minato_test_window, 1) != 0) {

@@ -34,10 +34,15 @@ public struct BenchDrawable: Equatable, Sendable {
     public var nextDrawableNs: Int64
     /// 0 for a drop: every presented handler has fired by the time the run is written.
     public var presentedNs: Int64
+    /// A post of a window's buffers by contents (ADR-0043 b5, detail 5), which has no drawable: `nextDrawableNs` is
+    /// the post's commit and `presentedNs` the target of the display link's first refresh after it, not a present's
+    /// time.
+    public var tickTimed: Bool
 
-    public init(nextDrawableNs: Int64, presentedNs: Int64) {
+    public init(nextDrawableNs: Int64, presentedNs: Int64, tickTimed: Bool = false) {
         self.nextDrawableNs = nextDrawableNs
         self.presentedNs = presentedNs
+        self.tickTimed = tickTimed
     }
 }
 

@@ -24,6 +24,10 @@ struct minato_layer_drawable {
     uint64_t presented_id;
     /* How often its presented handler ran: 1 once it did. */
     uint32_t handlers;
+    /* 1 for a post of the window's buffers by contents (ADR-0043 b5, detail 5), which has no drawable: drawable_id
+       0, next_drawable_ns the post's commit and presented_ns the target of the display link's first tick after it,
+       on the runtime's grid (apkrt_vsync_grid), 0 without a tick within two periods; its handlers 1. */
+    uint32_t tick_timed;
 };
 
 /* A recording, which keeps its numbers after -stopRecording:. */

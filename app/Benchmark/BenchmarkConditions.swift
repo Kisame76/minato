@@ -155,7 +155,8 @@ enum BenchmarkConditions {
         }
         let drawables = (0..<recording.count).map { index in
             let drawable = recording.drawable(index)
-            return BenchDrawable(nextDrawableNs: drawable.next_drawable_ns, presentedNs: drawable.presented_ns)
+            return BenchDrawable(nextDrawableNs: drawable.next_drawable_ns, presentedNs: drawable.presented_ns,
+                                 tickTimed: drawable.tick_timed == 1)
         }
         return (BenchRecording(qos: recording.qosName, pixelFormat: recording.pixelFormat.rawValue,
                                drawableWidth: Int(recording.drawableSize.width),
