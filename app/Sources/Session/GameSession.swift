@@ -208,6 +208,14 @@ final class GameSession {
                                   targetSdk: report?.targetSdk)
     }
 
+    #if DEBUG
+    /// The presents of every window and SurfaceView surface the guest has now (SessionCheck's ping request).
+    var allPresents: UInt64 {
+        let windows = [bridge.window] + bridge.surfaceWindows
+        return windows.reduce(0) { $0 + ($1 == 0 ? 0 : presents($1)) }
+    }
+    #endif
+
     /// iOS was asked to hold the window in `orientation`, which turns it after a while; a session that turns
     /// turns its window at each layout in another size.
     func holds(_ orientation: SessionOrientation) {

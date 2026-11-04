@@ -164,6 +164,9 @@ APPS+=("splits-test io.github.kisame76.minato.test.splits")
 # does not make: Interface start comes early, which game mode's turn to landscape must not catch without a window.
 [[ ! -f build/renpy-splash-test/renpy-splash-test.apk ]] ||
   APPS+=("renpy-splash-test io.github.kisame76.minato.test.renpy")
+# The same game that stays on screen (tools/renpy-splash-build.sh stay), for the resume round (RESUME) only.
+[[ -z "${RESUME:-}" || ! -f build/renpy-splash-test/renpy-stay-test.apk ]] ||
+  APPS+=("renpy-stay-test io.github.kisame76.minato.test.renpy")
 APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 # Minato's Ren'Py memory game (tools/renpy-memory.sh), only with ONLY=renpy-memory-test: it plays for MINUTES.
 [[ " $ONLY " != *" renpy-memory-test "* ]] ||
@@ -204,6 +207,13 @@ if [[ -n "${HANG:-}" ]]; then
   APPS+=("hang-test io.github.kisame76.minato.test.hang")
   ONLY=hang-test
 fi
+# RESUME: the user's bug of a black screen after leaving Minato and coming back. RESUME=1 (ONLY= picks the apps; the
+# default is those of godot-bench-gles, godot-bench-vulkan, renpy-splash-test, surface-test and views-test this run has)
+# starts each one, sends Minato to the background (AWAY) for RESUME_WAITS seconds (default "15 60"; iOS suspends a
+# background app), brings it back and checks, with SessionCheck's ping and menu requests: the host's main thread
+# answers, the guest's windows present new frames, the screenshot is not black, the menu opens. RESUME_SETTLE (8) is
+# the seconds an app runs before the first background (3 and a single 15 s trip for Godot's bench, which ends by itself
+# after about 14 s). Only that round runs. A touch is checked by hand (`motion` events).
 # COMPILE: the measures of M6 c's E6 (tools/compile-measure.sh): compute-app-test and godot-bench-gles, each started
 # plain, left by Quit so that the library asks for compile mode, compiled by dex2oat in a process of its own, signed at
 # the next library start and started again with its compiled code. It prints a "csv," line for each (the columns are
@@ -221,6 +231,12 @@ fi
 if [[ -n "${IME:-}" ]]; then
   APPS+=("ime-test io.github.kisame76.minato.test.ime")
   ONLY=ime-test
+fi
+# RESUME=1 without ONLY: the apps that draw, as far as this run has them (Vulkan needs a device, views-test too).
+if [[ -n "${RESUME:-}" && -z "${ONLY// /}" ]]; then
+  for name in godot-bench-gles godot-bench-vulkan renpy-stay-test surface-test views-test; do
+    [[ " ${APPS[*]%% *} " != *" $name "* ]] || ONLY+=" $name"
+  done
 fi
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
@@ -256,6 +272,7 @@ apk() {
     pad-test) echo "build/pad-test/pad-test.apks" ;;
     splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
     vk-ahb-test) echo "build/fixtures/apks/$1.apk" ;;
+    renpy-splash-test|renpy-stay-test) echo "build/renpy-splash-test/$1.apk" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
 }
@@ -273,7 +290,7 @@ for app in "${APPS[@]}"; do
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
     vk-ahb-test) tools/build-fixtures.sh >/dev/null ;;
-    renpy-splash-test) ;;
+    renpy-splash-test|renpy-stay-test) ;;
     renpy-memory-test) BUILD_ONLY=1 tools/renpy-memory.sh ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
@@ -339,7 +356,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu end events"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -381,7 +398,9 @@ screenshot() {
   if [[ "$ON_DEVICE" == yes ]]; then
     on_device capture screenshot --device "$DEVICE_ID" -q --destination "$LOGS/$1.png" >/dev/null 2>&1 || true
   else
-    xcrun simctl io "$SIM_UDID" screenshot "$LOGS/$1.png" >/dev/null 2>&1 || true
+    # A device with two displays (the iPhone Duo) wants one named: the primary's is 1.
+    xcrun simctl io "$SIM_UDID" screenshot "$LOGS/$1.png" >/dev/null 2>&1 ||
+      xcrun simctl io "$SIM_UDID" screenshot --display=1 "$LOGS/$1.png" >/dev/null 2>&1 || true
   fi
 }
 
@@ -650,6 +669,149 @@ run_media_bench() {
   fi
 }
 
+# A request of SessionCheck while the app runs: $1 is the file's name, on the iPhone sent into the container.
+request() {
+  if [[ "$ON_DEVICE" == yes ]]; then
+    rm -rf "$WORK/one"
+    mkdir "$WORK/one"
+    echo yes > "$WORK/one/$1"
+    devicectl_copy to --source "$WORK/one" --destination "$CHECK_REL"
+  else
+    echo yes > "$CHECK/$1"
+  fi
+}
+# The share of the screen's sampled points $1 (a PNG) that are not black, in percent; -1 when it cannot be read.
+lit_percent() {
+  python3 - "$1" <<'PY'
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+
+# sips scales the screenshot down, so that the decoding below stays small.
+small = tempfile.mktemp(suffix=".png")
+try:
+    subprocess.run(["sips", "-Z", "96", sys.argv[1], "--out", small], check=True, capture_output=True)
+    data = open(small, "rb").read()
+    position, chunks, header = 8, [], None
+    while position < len(data):
+        length, kind = struct.unpack(">I4s", data[position:position + 8])
+        body = data[position + 8:position + 8 + length]
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            chunks.append(body)
+        position += 12 + length
+    width, height, depth, color = header[:4]
+    channels = {2: 3, 6: 4}[color]
+    assert depth == 8
+    raw = zlib.decompress(b"".join(chunks))
+    stride, previous, lit, total = width * channels, bytearray(width * channels), 0, 0
+    for row in range(height):
+        kind = raw[row * (stride + 1)]
+        line = bytearray(raw[row * (stride + 1) + 1:(row + 1) * (stride + 1)])
+        for i in range(stride):
+            left = line[i - channels] if i >= channels else 0
+            up = previous[i]
+            corner = previous[i - channels] if i >= channels else 0
+            if kind == 1:
+                line[i] = (line[i] + left) & 255
+            elif kind == 2:
+                line[i] = (line[i] + up) & 255
+            elif kind == 3:
+                line[i] = (line[i] + (left + up) // 2) & 255
+            elif kind == 4:
+                guess = left + up - corner
+                near = min((abs(guess - left), left), (abs(guess - up), up), (abs(guess - corner), corner))[1]
+                line[i] = (line[i] + near) & 255
+        for x in range(width):
+            pixel = line[x * channels:x * channels + 3]
+            total += 1
+            lit += max(pixel) > 24
+        previous = line
+    print(round(100 * lit / total))
+except Exception:
+    print(-1)
+PY
+}
+# The resume round of app $1 (package $2), the user's bug of a black screen after leaving Minato and coming back: the
+# app runs, Minato goes to the background for 15 s and again for 60 s (iOS suspends a background app), and after each
+# return the host's main thread answers (ping), the guest's windows present new frames, the screen is not black, and the
+# menu's request gets its answer. A touch is checked by hand: `motion` events in tmp/session-check/events.
+# The guest may end by itself in the meantime (a run of the bench); that is no failure.
+run_resume() {
+  local app=$1 package=$2 wait_for presents_before presents_after lit
+  if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  # Godot's bench ends by itself after about 14 s of frames, so it gets one short background trip.
+  local settle=${RESUME_SETTLE:-8} waits=${RESUME_WAITS:-15 60}
+  case "$app" in godot-bench-*) settle=${RESUME_SETTLE:-3} waits=${RESUME_WAITS:-15} ;; esac
+  sleep "$settle"
+  request ping
+  if ! await_event "pong presents [0-9]+ scene .*" 15; then
+    failed_line "no pong before the background: the host's main thread does not answer" "$app-resume"
+    fetch_events
+    cp "$EVENTS" "$WORK/$app-resume-events.out" 2>/dev/null || true
+    end_start "$app" 1
+    return
+  fi
+  presents_before=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
+  ok "  running: $presents_before presents"
+  # shellcheck disable=SC2086
+  for wait_for in $waits; do
+    launch "$AWAY"
+    sleep "$wait_for"
+    launch
+    sleep 3
+    request ping
+    if ! await_event "pong presents [0-9]+ scene .*" 20; then
+      if await_event "(process |session ended|program ended).*" 1; then
+        ok "  after $wait_for s in the background: the app ended by itself"
+      else
+        failed_line "after $wait_for s in the background no pong: the host's main thread is stuck" "$app-resume"
+      fi
+      break
+    fi
+    presents_after=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
+    # The windows are made again at the return, so the counts before and after the background are not comparable:
+    # the frames of the app after the return are those between this ping and the next.
+    sleep 3
+    request ping
+    EVENT=""
+    await_event "pong presents [0-9]+ scene .*" 15 || true
+    screenshot "$app-resume-$wait_for"
+    lit=-1
+    [[ -z "${LOGS:-}" ]] || lit=$(lit_percent "$LOGS/$app-resume-$wait_for.png")
+    if [[ -z "$EVENT" ]]; then
+      failed_line "after $wait_for s in the background: the second ping got no answer" "$app-resume-$wait_for"
+    elif [[ "$app" == surface-test || "$app" == views-test ]]; then
+      echo "note  after $wait_for s: $app draws a still picture, so new frames say nothing"
+    elif (( $(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT") > presents_after )); then
+      presents_now=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
+      ok "  after $wait_for s in the background: new frames ($presents_after to $presents_now)"
+    else
+      failed_line "after $wait_for s in the background: no new frames in 3 s ($presents_after)" "$app-resume-$wait_for"
+    fi
+    if (( lit < 0 )); then
+      echo "note  after $wait_for s: no screenshot to judge"
+    elif (( lit >= 2 )); then
+      ok "  after $wait_for s in the background: the screen is not black ($lit % lit)"
+    else
+      failed_line "after $wait_for s in the background: the screen is black ($lit % lit)" "$app-resume-$wait_for"
+    fi
+    request menu
+    if await_event "menu opened" 15; then
+      ok "  after $wait_for s in the background: the menu answers"
+    else
+      failed_line "after $wait_for s in the background: no answer of the menu" "$app-resume-$wait_for"
+    fi
+    sleep 2
+  done
+  fetch_events
+  cp "$EVENTS" "$WORK/$app-resume-events.out" 2>/dev/null || true
+  end_start "$app" 1
+}
+
 # Import the apps; the Simulator signs a ready app's code ad hoc at its first tap.
 terminate
 rm -rf "$CHECK"
@@ -712,6 +874,15 @@ for app in "${APPS[@]}"; do
   state=$(field state "$package")
   if [[ "$state" == "{'ready': {}}" ]]; then ok "$package is ready"; else fail "$package is not ready: $state"; fi
 done
+
+# RESUME=1 runs only the resume round, for the apps ONLY names (default: the four that draw in the Simulator).
+if [[ -n "${RESUME:-}" ]]; then
+  for app in "${APPS[@]}"; do
+    run_resume "${app%% *}" "${app#* }"
+  done
+  echo "java start check: $failures failed"
+  exit $((failures > 0))
+fi
 
 if wanted app-start-test; then
   run_start app-start-test io.github.kisame76.minato.test.appstart 1

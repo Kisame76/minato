@@ -50,6 +50,11 @@ import UIKit
 ///   footprint-log  every 10 s from the guest's start the process's physical footprint, the memory iOS counts
 ///            against it, and every iOS memory warning, one line each in tmp/session-check/footprint-log:
 ///            "<seconds since 1970> footprint <bytes>" and "<seconds since 1970> warning <bytes>".
+///   ping     once a second while game mode runs: when the file is there, it goes and the event "pong presents <n>
+///            scene <state>" says that the host's main thread answers, how many frames the guest's windows have
+///            presented so far and the scene's state (the resume round of tools/java-start-check.sh).
+///   menu     the same poll opens game mode's menu, logs "menu opened" and closes it 0.5 s later, as the three-finger
+///            gesture and the menu's Continue do; the file goes.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -329,6 +334,7 @@ enum SessionCheck {
                 session.audio.disconnectAll()
             }
         }
+        poll(session)
         if requested("extra-session") {
             extraSessions.append(GameSession(entry: session.entry))
             event("extra session made")
@@ -351,6 +357,32 @@ enum SessionCheck {
             session.openMenu()
             try? await Task.sleep(for: .seconds(1.5))
             session.quit()
+        }
+    }
+
+    /// The ping and menu requests, which come while the session runs: once a second the files are looked for.
+    @MainActor
+    private static func poll(_ session: GameSession) {
+        Task { @MainActor [weak session] in
+            while let session {
+                try? await Task.sleep(for: .seconds(1))
+                if requested("ping") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "ping"))
+                    let state = switch UIApplication.shared.applicationState {
+                    case .active: "active"
+                    case .inactive: "inactive"
+                    default: "background"
+                    }
+                    event("pong presents \(session.allPresents) scene \(state)")
+                }
+                if requested("menu") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "menu"))
+                    session.openMenu()
+                    event("menu opened")
+                    try? await Task.sleep(for: .seconds(0.5))
+                    session.closeMenu()
+                }
+            }
         }
     }
 
