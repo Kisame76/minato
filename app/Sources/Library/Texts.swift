@@ -5,6 +5,14 @@ import Foundation
 
 /// User-facing wording for everything APKKit reports.
 enum Texts {
+    /// Minato's own question before iOS's (ADR-0063 decision 2), naming the app first.
+    static func permissionTitle(_ name: String, group: PermissionGroup) -> String {
+        switch group {
+        case .microphone: "Allow “\(name)” to use the microphone?"
+        case .location: "Allow “\(name)” to use your location?"
+        }
+    }
+
     static func status(of entry: LibraryEntry) -> LibraryItem.Status {
         switch entry.state {
         case .ready:

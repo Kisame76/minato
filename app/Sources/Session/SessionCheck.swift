@@ -78,6 +78,8 @@ import UIKit
 ///            connected" and "virtual pad done". The file goes.
 ///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
 ///            there before (the Simulator lists one of its own).
+///   permission-allow  Minato's alert for a permission request (ADR-0063 decision 2) chooses Allow by itself 1 s
+///            after it is up, as the user's tap does, and logs "permission allowed"; the file stays for every alert.
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -102,6 +104,9 @@ enum SessionCheck {
 
     /// Whether game mode's sessions ask for no compile mode.
     static var withoutCompile: Bool { requested("no-compile") }
+
+    /// Whether Minato's permission alert answers Allow by itself (ADR-0063 decision 2).
+    static var allowsPermissions: Bool { requested("permission-allow") }
 
     /// Whether a save's or a folder's alert answers by itself (ADR-0057 step d).
     static var allowsPicks: Bool { requested("pick-allow") }

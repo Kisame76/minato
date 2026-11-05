@@ -49,6 +49,9 @@ final class GameSession {
             [weak self] id, picked in self?.pickAnswered(id, picked)
         }
     }()
+    /// The guest's permission requests (ADR-0063 decision 2), over game mode.
+    @ObservationIgnored private lazy var permissions = PermissionPresenter(
+        file: (try? LibraryPaths.standard())?.permissionsFile(for: entry.id), appName: entry.displayName)
     /// The orientation iOS was asked to hold the window in.
     @ObservationIgnored private var heldOrientation: SessionOrientation?
 
@@ -327,6 +330,8 @@ final class GameSession {
         SessionCheck.guestStarts()
         #endif
         SessionLogTap.begin(package: entry.id)
+        // Before the session begins, so the app's first check finds the stored grant and no event goes.
+        permissions.seed()
         if let failure = runtime.begin(start, configuration: configuration) {
             return couldNotStart(failure)
         }
@@ -582,6 +587,7 @@ final class GameSession {
         case .active:
             if old == .background { deliver(.foreground) }
             deliver(.active)
+            if started { permissions.foreground() }
             #if DEBUG
             if menuWaitsOnReturn { SessionCheck.returned(to: self) }
             #endif
@@ -829,6 +835,10 @@ final class GameSession {
             openMenu(atRoot: true)
         case .orientation(let value):
             orientationRequested(Int(value))
+        case .permission(let id, let text):
+            permissions.requested(id: id, text: text)
+        case .permissionCancel(let id):
+            permissions.cancelled(id: id)
         }
     }
 

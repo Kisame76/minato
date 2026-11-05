@@ -425,6 +425,9 @@ final class RuntimeSessionHost: SessionHost {
             .ime(serial: Int64(bitPattern: argument), text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_BACK_AT_ROOT.rawValue: .backAtRoot
         case APKRT_REQUEST_ORIENTATION.rawValue: .orientation(argument: argument)
+        // Without a text the request is still answered, as denied.
+        case APKRT_REQUEST_PERMISSION.rawValue: .permission(id: argument, text: text.map { String(cString: $0) } ?? "")
+        case APKRT_REQUEST_PERMISSION_CANCEL.rawValue: .permissionCancel(id: argument)
         default: nil
         }
     }

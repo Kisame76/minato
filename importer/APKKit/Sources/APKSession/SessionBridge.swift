@@ -108,6 +108,10 @@ public enum SessionRequest: Sendable, Equatable {
     /// The top activity's `setRequestedOrientation`, an ActivityInfo.SCREEN_ORIENTATION_* value: the host turns for
     /// one that forces a side (SessionOrientation(requested:)).
     case orientation(Int32)
+    /// A dangerous permission group's request (ADR-0063 decision 2): its ID and "<group>\t<detail>".
+    case permission(id: UInt64, text: String)
+    /// The guest no longer wants the permission request `id`.
+    case permissionCancel(id: UInt64)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {

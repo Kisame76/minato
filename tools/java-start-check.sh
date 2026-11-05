@@ -165,7 +165,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "webview-test io.github.kisame76.minato.test.webview"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
-      "gamepad-test io.github.kisame76.minato.test.gamepad")
+      "gamepad-test io.github.kisame76.minato.test.gamepad"
+      "permission-request-test-fine io.github.kisame76.minato.test.permreqfine")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -1172,6 +1173,30 @@ with open(ours, "w", encoding="utf-8") as handle:
     handle.write(wanted)
 compare_log("orientation-request-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
 EOF
+fi
+
+# permission-request-test-fine asks for the location group, which goes to the host (ADR-0063 decision 2). Until the
+# location host comes, Minato answers it denied at once, without its alert: the app's requests end, with the location
+# permissions denied, and it reaches its last line (ADR-0063's step M1b compares the whole log with Android 15's).
+if wanted permission-request-test-fine; then
+  run_start permission-request-test-fine io.github.kisame76.minato.test.permreqfine 1
+  fetch_events
+  log="$WORK/permission-request-test-fine-1.log"
+  p=android.permission
+  for line in "result 1: 1 [$p.ACCESS_FINE_LOCATION denied]" \
+      "result 2: 3 [$p.ACCESS_COARSE_LOCATION denied, $p.ACCESS_FINE_LOCATION denied, $p.INTERNET granted]" "done"; do
+    if grep -q -F "I/permission-request-test-fine: $line" "$log"; then
+      ok "  $line"
+    else
+      fail "  no line \"$line\""
+    fi
+  done
+  answers=$(grep -c -E " permission [0-9]+ group 1 outcome 0$" "$EVENTS" || true)
+  if [[ "$answers" == 2 ]]; then
+    ok "  the host answered both location requests denied"
+  else
+    fail "  the host answered $answers location requests, not 2"
+  fi
 fi
 
 # gamepad-test (ADR-0068 decision 5): once it is ready, SessionCheck's pad request connects a hidden GCVirtualController
