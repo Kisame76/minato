@@ -50,9 +50,27 @@ def main():
             if name.endswith(".so"):
                 convert(apk_convert, os.path.join(bionic_lib, name), os.path.join(system, name + ".dylib"))
         convert(apk_convert, fixture, os.path.join(work, "gai-offline-test.dylib"))
+    # apk-run's mounts call realpath(), which lstats every component of a path; corpus.sb denies the home folder, so
+    # the repo's ancestor folders that lie under it (e.g. ~/dev for ~/projects/minato) must be allowed -- metadata only,
+    # so the home folder's files stay unreadable. tools/corpus-run.py writes the same rule for the corpus harness;
+    # mirror it here because gai_offline uses the static profile directly. (Without it, a lookup in a clone under the
+    # home folder fails before the fixture runs, as every contributor's clone does.)
+    home = os.path.expanduser("~")
+    ancestors, folder = [], os.path.dirname(REPO)
+    while folder.startswith(home):
+        ancestors.append(folder)
+        folder = os.path.dirname(folder)
+    profile = os.path.join(work, "gai-offline.sb")
+    with open(PROFILE) as source, open(profile, "w") as handle:
+        handle.write(source.read())
+        if ancestors:
+            literals = " ".join(f'(literal "{a}")' for a in ancestors)
+            handle.write(";; The repo's ancestor folders under the home folder, for realpath (it lstats each path "
+                         "component); metadata only.\n"
+                         f"(allow file-read-metadata {literals})\n")
     result = subprocess.run(
-        [sandbox, "-D", f"HOME={os.path.expanduser('~')}", "-D", f"REPO={REPO}", "-D", f"WORK={os.path.abspath(work)}",
-         "-f", PROFILE, apk_run, "--mount", f"/system={bionic_system}", "--libraries", f"/system/lib64={system}",
+        [sandbox, "-D", f"HOME={home}", "-D", f"REPO={REPO}", "-D", f"WORK={os.path.abspath(work)}",
+         "-f", profile, apk_run, "--mount", f"/system={bionic_system}", "--libraries", f"/system/lib64={system}",
          "--argv0", "./gai-offline-test", os.path.join(work, "gai-offline-test.dylib")],
         capture_output=True, text=True, errors="replace", timeout=120)
     if result.returncode != 0 or result.stdout.splitlines() != lines:
