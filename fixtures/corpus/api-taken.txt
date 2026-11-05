@@ -50,9 +50,9 @@ android.content.SyncInfo	waits for android.accounts.Account, which its static in
 android.widget.Spinner	waits for gap 4's ListPopupWindow, which its dropdown and its dialog make
 android.widget.AutoCompleteTextView	waits for gap 4's ListPopupWindow, its dropdown
 android.widget.MultiAutoCompleteTextView	waits for gap 4's ListPopupWindow, as AutoCompleteTextView
-android.widget.Toolbar	gap 5 batch 2 (Planung), with ActionMenuView's overflow popup (gap 4)
-android.widget.ActionMenuView	gap 5 batch 2 (Planung), its overflow popup (gap 4)
-android.widget.MediaController	gap 5 batch 2 (Planung), a window of its own (gap 4)
-android.widget.Magnifier	gap 5 batch 2 (Planung), a surface of its own
-android.widget.ZoomButtonsController	gap 5 batch 2 (Planung), a window of its own (gap 4)
+android.widget.Toolbar	gap 5 batch 2, with ActionMenuView's overflow popup (gap 4)
+android.widget.ActionMenuView	gap 5 batch 2, its overflow popup (gap 4)
+android.widget.MediaController	gap 5 batch 2, a window of its own (gap 4)
+android.widget.Magnifier	gap 5 batch 2, a surface of its own
+android.widget.ZoomButtonsController	gap 5 batch 2, a window of its own (gap 4)
 android.view.inspector.WindowInspector	waits for our WindowManagerGlobal's getWindowViews

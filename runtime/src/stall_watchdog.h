@@ -40,7 +40,7 @@ void surface_removed(std::uint64_t id);
 /// host's daemon owns those.
 std::string tick(std::uint64_t now_ns);
 
-/// The no-present timeout; the default is 10 s (the lead's figure). A test sets it small.
+/// The no-present timeout; the default is 10 s. A test sets it small.
 void set_timeout_ns(std::uint64_t ns);
 
 /// Clears every bit of state (arm, present, latch, timeout) for a test. Not used in production.

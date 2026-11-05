@@ -2558,7 +2558,7 @@ frameworks_base_types/media/java/android/media/AudioMixPortConfig.java
 frameworks_base_types/media/java/android/media/AudioDevicePortConfig.java
 frameworks_base_types/media/java/android/media/AudioHandle.java
 
-# android.location (ADR-0063 step 1, Planung): the client of the location service, LocationManager with its
+# android.location (ADR-0063 step 1): the client of the location service, LocationManager with its
 # requests, listeners and the AIDL interfaces they call; the service behind them is ours (framework/java).
 frameworks_base/core/java/android/location/Geofence.java
 frameworks_base/core/java/android/os/PackageTagsList.java

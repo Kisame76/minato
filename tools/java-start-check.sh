@@ -17,7 +17,7 @@
 # pack, whose slices the library keeps and the start lays out in local_testing, read-only, with the meta-data
 # local_testing_dir; its lines are the Mac's, fixtures/expected/packs-test-packs.logcat, with that set's sizes) and
 # pad-test (ADR-0050 test 3's, the default set of tools/build-pad-test.sh, built with Google's Play libraries, whose
-# asset-delivery serves both packs from those slices; skipped without the libraries, which only the user's go fetches)
+# asset-delivery serves both packs from those slices; skipped without the libraries, which are fetched separately)
 # are imported and tapped in the library,
 # and each one's lines must be Android 15's (fixtures/expected/<app>.logcat) as the Mac's harness compares
 # them: app-start-test's System.out lines (framework/tests/app_process_run.py), which SessionCheck's guest-log request

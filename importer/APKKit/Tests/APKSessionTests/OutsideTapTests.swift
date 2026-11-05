@@ -24,7 +24,7 @@ import Testing
     }
 
     /// A field without extract UI (SDL2's, 0x91 with IME_FLAG_NO_EXTRACT_UI) keeps the keyboard at a tap outside, as
-    /// Android 15 does (Planung's Ren'Py run): the tap reaches the guest at once; every other field's keyboard goes.
+    /// Android 15 does (seen in a Ren'Py run): the tap reaches the guest at once; every other field's keyboard goes.
     @Test func aFieldWithoutExtractUIKeepsTheKeyboardAndTheTapReachesTheGuest() {
         var keyboard = SoftKeyboard()
         _ = keyboard.handle(.start(serial: 5, editor: EditorSpec(

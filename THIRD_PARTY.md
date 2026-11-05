@@ -259,7 +259,7 @@ protobuf and Soong's libbuildversion stay build tools and do not ship.
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `graphics/java` and `ravenwood/annotations-src` (3.0 MB): the graphics and annotation classes that framework.jar's taken files name, as compile-only stubs or taken files (ADR-0039 b3) |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | the types' set (`build/sources/frameworks_base_types`: `media/java`, `telephony/java`, `apex/jobscheduler/framework/java` and others, as `third_party/sources.json` lists them): the files `framework/sources.txt` takes from it, AudioFormat, AudioRouting and VolumeAutomation among them; and `media/java/android/media/AudioTrack.java`'s checks, states and messages, adapted into our written AudioTrack with its notice (`framework/managers/android/media/AudioTrack.java`, gap 13) |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java`'s player (its IRingtonePlayer), adapted into `framework/java/android/media/LocalRingtonePlayer.java` with its notice, and `media/java/android/media/AudioManager.java`'s hasHapticChannelsImpl in our written AudioManager (ADR-0060 e2e1's RingtoneManager step) |
-| `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | only `apex/framework/java/android/media/ApplicationMediaCapabilities.java` and `MediaFeature.java` (0.04 MB, `build/sources/media_module`): what an app declares it can play, taken as they are by `framework/sources.txt` (the Unity test APK gap sort, Formate's category 1) |
+| `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | only `apex/framework/java/android/media/ApplicationMediaCapabilities.java` and `MediaFeature.java` (0.04 MB, `build/sources/media_module`): what an app declares it can play, taken as they are by `framework/sources.txt` (the Unity test APK gap sort, category 1) |
 | `platform/packages/providers/MediaProvider` | `8a53c6d378a9` | Apache-2.0 | `apex/framework/java/android/provider/MediaStore.java` with `Column.java` and `CloudMediaProviderContract.java`, which it names (0.34 MB, `build/sources/media_provider_module`): the contract apps use to query and insert photos and videos, taken as it is by `framework/sources.txt` (ADR-0057 step e) |
 | `platform/frameworks/libs/modules-utils` | `810bd8c57bb3` | Apache-2.0 | only `java/` (0.5 MB): `Preconditions`, the typed XML parsers and annotations that framework.jar's taken files use (ADR-0039 b3) |
 
@@ -352,8 +352,8 @@ nothing else of frameworks/av ships.
 
 SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set
 framework` on 2026-10-07 (`build/sources/sqlite`, the entry `sqlite`, digest
-`6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds libsqlite
-for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag
+`6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds
+libsqlite for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag
 RELEASE_PACKAGE_LIBSQLITE3 picks, with android/'s functions linked in whole (libsqlite3_android). Every app build ships
 it in its guest system, with these texts under "Framework sources". libandroid_runtime.so's database natives
 (`core/jni`'s `android_database_*.cpp`, unchanged) link it, and framework.jar takes `core/java/android/database/sqlite`
@@ -397,9 +397,9 @@ stripped, whitespace normalized, lines without an extension dropped).
 
 TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml` (framework breadth, step (a) after batch B4), fetched
 by `tools/fetch-sources.py --set framework` (2026-10-11; `build/sources/tagsoup`, the entry
-`tagsoup`, digest `0b418969…e428`). 0.37 MB, 15 source files of `platform/external/tagsoup` at android-15.0.0_r1 (commit
-`5c387116e235`) and its `LICENSE`; the tests, the `jaxp` folder and the command line tools' extras are left out. The
-sources are compiled into framework.jar as AOSP does (`org.ccil.cowan.tagsoup`).
+`tagsoup`, digest `0b418969…e428`). 0.37 MB, 15 source files of `platform/external/tagsoup` at android-15.0.0_r1
+(commit `5c387116e235`) and its `LICENSE`; the tests, the `jaxp` folder and the command line tools' extras are left out.
+The sources are compiled into framework.jar as AOSP does (`org.ccil.cowan.tagsoup`).
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
@@ -417,8 +417,8 @@ step 4) and of MediaPlayer (ADR-0060 e2), fetched by `tools/fetch-sources.py --s
 
 | Project | Commit | License | File | Size | SHA-256 |
 |---|---|---|---|---|---|
-| `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the user's choice) | `LICENSE` | 2,510 | `bebfe904b1430165…` |
-| `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the user's choice) | `stb_vorbis.c` | 192,790 | `4c7cb2ff1f7011e9…` |
+| `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the licensee's choice) | `LICENSE` | 2,510 | `bebfe904b1430165…` |
+| `nothings/stb` | `1ee679ca2ef7` | MIT or public domain (the licensee's choice) | `stb_vorbis.c` | 192,790 | `4c7cb2ff1f7011e9…` |
 
 The evidence for the license: the file's head says "public domain" and "See end of file for license information", and
 its end and `LICENSE` offer "ALTERNATIVE A - MIT License" and "ALTERNATIVE B - Public Domain (www.unlicense.org)".

@@ -11,7 +11,7 @@
 # peak physical footprint of the compile process) and per MB of dex, odex_bytes, vdex_bytes, container_bytes (the signed
 # container the library keeps) and take_s (the library's converting, signing and keeping). No device name or identifier
 # goes into it. A start that failed leaves its cells empty and the script's exit status 1.
-# On the iPhone (--device) the app must stay unlocked and the sitting needs the user's OK; without it, the Simulator.
+# On the iPhone (--device) the app must stay unlocked and the sitting needs the device owner's OK; without it, the Simulator.
 # Needs what tools/java-start-check.sh needs, and build/godot/godot-bench-gles.apk (tools/build-godot.sh).
 # Usage: tools/compile-measure.sh [--device] [<device or simulator name>]
 set -euo pipefail

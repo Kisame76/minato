@@ -105,7 +105,7 @@ android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClien
 android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activity  # stays: content capture's locus, which needs a ContentCaptureManager, and content capture is off (step c2c1)
 android.window.OnBackInvokedCallbackInfo <- android.window.WindowOnBackInvokedDispatcher  # stays: the dispatcher tells a window session its top callback only when attached to one, and Minato's windows have none (ADR-0041 c) wires the back gesture)
 
-# ADR-0045, the start's local services (Planung): the sensors, whose natives report none, so nothing that needs a
+# ADR-0045, the start's local services: the sensors, whose natives report none, so nothing that needs a
 # sensor runs.
 android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
 
@@ -114,7 +114,7 @@ android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorM
 # which ANGLE's Metal display lacks.
 android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's
 
-# ADR-0045, the input service (Planung, gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
+# ADR-0045, the input service (gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
 # over the local input service, which is AIDL's Default class, so IInputManager's Stub and Proxy never run. Minato's
 # devices, the virtual keyboard and the touchscreen, have no battery, lights, sensors or vibrators.
 android.hardware.input.InputDeviceLightsManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
@@ -126,13 +126,13 @@ android.hardware.input.PhysicalKeyLayout <- android.hardware.input.InputManager 
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
 
-# ADR-0042 b's start stops (Planung): android.transition names widgets, overlays and surfaces, which a transition meets
+# ADR-0042 b's start stops: android.transition names widgets, overlays and surfaces, which a transition meets
 # when it captures or runs, and the window's insets controller names its animation listener.
 
-# ADR-0045's storage and app ops step (Planung): StorageVolume, which our StorageManager lists, names the documents UI
+# ADR-0045's storage and app ops step: StorageVolume, which our StorageManager lists, names the documents UI
 # and the dump's writer.
 
-# ADR-0045's settings step (Planung, gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
+# ADR-0045's settings step (gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
 android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
@@ -140,7 +140,7 @@ android.os.PermissionEnforcer <- android.content.IContentService  # stays: ICont
 android.permission.PermissionManager <- android.content.AttributionSource  # stays: AttributionSource.isTrusted for a source with a token, which only another process's source carries
 com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # gap: a MIME type's icon, as for Icon
 
-# ADR-0045's text to speech (Planung, gap 13b): what only an engine or a virtual device reaches, which Minato has
+# ADR-0045's text to speech (gap 13b): what only an engine or a virtual device reaches, which Minato has
 # none of.
 android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeech  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
 

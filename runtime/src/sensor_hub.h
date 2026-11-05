@@ -102,7 +102,7 @@ std::optional<OpenQueue> open_queue();
 /// Closes queue `id`: its write end is closed and the queue dropped so no later push writes to it, under the hub lock,
 /// so a push on another thread cannot write to a closed or reused descriptor. A type this queue was the last to enable
 /// is stopped on the host, outside the lock. Harmless for an id that is not open. The guest owns the read end and closes
-/// it itself (the NDK destroy, or Planung after removeFd).
+/// it itself (the NDK destroy, or the framework after removeFd).
 void close_queue(int id);
 
 /// Enables `type` on queue `id` at `period_ns` (the guest's request, which the hub clamps to [min_delay, max_delay]).

@@ -486,7 +486,7 @@ def apply_patches():
 def gen(slices):
     gn = os.path.join(CHECKOUT, "buildtools", "mac", "gn")
     if not os.path.exists(gn):
-        raise SystemExit("build-angle: no checkout yet; run tools/build-angle.sh --fetch first (after the user's OK)")
+        raise SystemExit("build-angle: no checkout yet; run tools/build-angle.sh --fetch first")
     apply_patches()
     with open(os.path.join(ARGUMENTS, "common.gn")) as handle:
         common = handle.read()
