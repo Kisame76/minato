@@ -1,0 +1,6 @@
+# ime-prefill-test on the Mac (tools/ime-extract-check.sh): the app's own lines that do not depend on the input
+# method; what the host's text bar is given is checked from apk-run's ime lines. Android 15's lines, with LatinIME's
+# reads, are fixtures/expected/ime-prefill-test.logcat.
+logcat I/ime-prefill-test: ready
+logcat I/ime-prefill-test: while: text set
+logcat I/ime-prefill-test: done

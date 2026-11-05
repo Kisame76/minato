@@ -1,0 +1,21 @@
+I/ime-prefill-test: ready
+I/ime-prefill-test: before #1: editor selection 6,6, hint none
+I/ime-prefill-test: before #2: editor selection 6,6, hint none
+I/ime-prefill-test: before #3: editor selection 6,6, hint none
+I/ime-prefill-test: before #2: getTextBeforeCursor -> "Eileen"
+I/ime-prefill-test: before #2: getSelectedText -> null
+I/ime-prefill-test: before #2: getTextAfterCursor -> ""
+I/ime-prefill-test: while #1: editor selection 0,0, hint none
+I/ime-prefill-test: while #1: getSelectedText -> null
+I/ime-prefill-test: while #1: getTextBeforeCursor -> ""
+I/ime-prefill-test: while #1: getTextAfterCursor -> ""
+I/ime-prefill-test: while: text set
+I/ime-prefill-test: hint #1: editor selection 0,0, hint "Your name"
+I/ime-prefill-test: hint #1: getSelectedText -> null
+I/ime-prefill-test: hint #1: getTextBeforeCursor -> ""
+I/ime-prefill-test: hint #1: getTextAfterCursor -> ""
+I/ime-prefill-test: sdl #1: editor selection -1,-1, hint none
+I/ime-prefill-test: sdl #1: getSelectedText -> null
+I/ime-prefill-test: sdl #1: getTextBeforeCursor -> ""
+I/ime-prefill-test: sdl #1: getTextAfterCursor -> ""
+I/ime-prefill-test: done

@@ -1159,6 +1159,11 @@ run_app() {
       ;;
     # ime-surrounding-test-return (an SDL field's Enter, as Ren'Py's name field): its fixture input method types "hi"
     # and presses Enter, at which the field hides the keyboard as SDL2 does; ends with "done" 2 s later.
+    # ime-prefill-test (the text bar and a field's text before the keyboard comes): four fields in turn with the
+    # image's own keyboard, each logging what the keyboard reads of it; ends with "done".
+    ime-prefill-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PrefillActivity
+      ;;
     ime-surrounding-test-return)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity

@@ -29,6 +29,7 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh ime-extract-test >/dev/null
 tools/build-java-test-app.sh ime-surrounding-test >/dev/null
+tools/build-java-test-app.sh ime-prefill-test >/dev/null
 
 head='\t5\tnote\t'
 steps='start,text:0:1:0:!,text:1:1:0:ab,text:2:0:0:,text:4:2:4:'
@@ -69,3 +70,21 @@ python3 framework/tests/java_app_run.py \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/ime-surrounding-check \
   build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
   build/ime-surrounding-test/ime-surrounding-test.apk fixtures/expected/ime-surrounding-test.txt 1290x2796@3,en-US
+
+# A field's text before the keyboard comes (ime-prefill-test, four fields in turn): the bar is given what Android's
+# keyboard reads (fixtures/expected/ime-prefill-test.logcat, LatinIME on apk-runner-35): the text set before the focus,
+# the text the app sets while the field is served, an empty field with its hint, and an SDL2-style field, which hands
+# a keyboard no text of the game's own.
+python3 framework/tests/java_app_run.py \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t6\t6\t-1\t-1\t1\t\tEileen' \
+  --in-order 'apk-run: ime 3: extract\t3\t0\t0\t0\t-1\t-1\t1\t\t' \
+  --in-order 'apk-run: ime 3: extract\t3\t0\t4\t4\t-1\t-1\t1\t\tLucy' \
+  --in-order 'apk-run: ime 4: start\t1\t469762053\t0\t0\t0\t-1\t0\t0\tYour name' \
+  --in-order 'apk-run: ime 4: extract\t4\t0\t0\t0\t-1\t-1\t1\tYour name\t' \
+  --in-order 'apk-run: ime 5: extract\t5\t0\t0\t0\t-1\t-1\t1\t\t' \
+  --lifecycle start \
+  ime-prefill-test io.github.kisame76.minato.test.imeprefill android.app.Application \
+  build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
+  "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/ime-prefill-check \
+  build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
+  build/ime-prefill-test/ime-prefill-test.apk fixtures/expected/ime-prefill-test.txt 1290x2796@3,en-US
