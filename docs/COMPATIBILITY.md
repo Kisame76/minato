@@ -1,6 +1,6 @@
 # Compatibility
 
-What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-03. Numbers in
+What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-05. Numbers in
 parentheses refer to the records indexed in [DESIGN.md](DESIGN.md).
 
 The goal is that every app whose purpose fits the limits at the end of this page works after its import, without
@@ -150,8 +150,9 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 **Partly closed:**
 
 - System services that answer null: many are in, this release added the game, lock screen, USB, download, usage stats,
-  storage stats, restrictions, search, biometric, device policy, wallpaper and launcher apps managers; some of Android
-  15's service types are still missing.
+  storage stats, restrictions, search, biometric, device policy, wallpaper, launcher apps, media session, media router,
+  Bluetooth, subscription, Telecom, carrier configuration, NFC, MIDI, media projection and role managers, which answer
+  as a phone without that hardware or those permissions does; some of Android 15's service types are still missing.
 - Networking: sockets, DNS, the INTERNET permission and the real network (Wi-Fi state, connectivity changes) are in;
   a sitting on the iPhone has not confirmed all of it.
 - Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
@@ -177,7 +178,8 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   first, then iOS asks once for Minato, and a no stays a no after the second time, as on Android. The camera works
   through Android's Camera API; Camera2 and CameraX are not in yet.
 - Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added 32
-  more, and the ones still missing are rare in apps.
+  more, and the ones still missing are rare in apps. The text classifier answers as a phone without its model does, and
+  Linkify finds web and e-mail addresses but no phone numbers yet.
 
 ## What does not work yet
 
@@ -192,9 +194,8 @@ In plain terms, as a user meets it:
 - OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
   missing too.
 - Audio effects: the reverbs are an approximation of Android's (a tail of four feedback lines; an auxiliary reverb
-  acts as an insert on its session), `MediaPlayer` files whose audio the tap cannot
-  take play without the Equalizer, Bass Boost, Virtualizer and Loudness Enhancer, and their curves approximate
-  Android's.
+  acts as an insert on its session), `MediaPlayer` files whose audio the tap cannot take play without the Equalizer,
+  Bass Boost, Virtualizer and Loudness Enhancer, and their curves approximate Android's.
 
 ## What the library tells you
 

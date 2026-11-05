@@ -73,8 +73,8 @@ All notable changes to Minato are documented in this file. The format follows
   one that does is told the new size, and an app that asks for landscape or portrait gets it
 - Game controllers reach apps: Xbox, PlayStation, MFi and Switch Pro pads connect and disconnect as Android input
   devices, with buttons, sticks, triggers and the d-pad as Android 15 gives a standard pad
-- A mouse or trackpad reaches apps as Android 15's mouse, with hover, clicks of all five buttons and wheel or two-finger
-  scrolling, where iOS gives a pointer
+- A mouse or trackpad reaches apps as Android 15's mouse, with hover, clicks of all five buttons, dragging with a
+  button held, and wheel or two-finger scrolling in both directions, where iOS gives a pointer
 - Apps no longer wait forever when they ask for a permission: Minato asks you first for each app, then iOS, remembers
   your answer per app and stops asking after the second no, as Android does
 - Location works: apps get precise or approximate positions from the iPhone as Android 15 gives them, and approximate
@@ -97,7 +97,12 @@ All notable changes to Minato are documented in this file. The format follows
 - The text magnifier shows what is under your finger while you drag a selection handle
 - More of Android's system managers answer as on a phone without the hardware behind them instead of being missing: game
   mode, lock screen, USB, downloads, usage stats, storage stats, app restrictions, search, biometrics, device policy,
-  wallpaper and launcher apps, and 32 more of Android's public classes load
+  wallpaper and launcher apps, media sessions, the media router, Bluetooth, SIM subscriptions, Telecom, carrier
+  configuration, NFC, MIDI, media projection and roles, and 32 more of Android's public classes load
+- An app that sets its own language with LocaleManager gets it at once, in its texts and its screens, and keeps it
+  at its next start
+- Web and e-mail addresses in apps' texts become links where the app asks for them (Linkify), and apps that ask for
+  the text classifier get one, as on a phone without its model
 - Ren'Py games built on Python 2.7 get past ctypes' callbacks, which needed executable memory, through trampolines in
   Minato's signed code
 - Get Info says when an app's engine needs a JIT, which iOS does not allow
@@ -163,7 +168,8 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps made with Flutter no longer stop at their start for a missing system timer
 - Apps that ask for Android's SDK extension versions, as Capacitor apps do, no longer stop at that question
 - Kivy apps import instead of being refused for their Python bundle
-- Apps that ask for the priority range of a scheduling policy, as LÖVE does at its start, get Linux's answer
+- Apps that ask for the priority range of a scheduling policy, as LÖVE does at its start, get Linux's answer, and
+  apps that ask for a real-time priority for a thread get Android's no instead of an unsupported call
 - React Native apps that show images no longer stop at a missing Android contacts class
 - Reading a missing file in a folder an app was given access to throws Android's exception instead of a security
   error
