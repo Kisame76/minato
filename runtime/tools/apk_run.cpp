@@ -7,7 +7,7 @@
 //           [--pick-state <host directory>] [--export-dir <host directory>]
 //           [--pick-photo <host file>]... [--sensor-script <host file>]
 //           [--grant-location fine|coarse|denied] [--location-script <host file>]
-//           [--device-profile pixel|galaxy] [--frame-rate 60|120]
+//           [--device-profile pixel|galaxy] [--frame-rate 60|120] [--render-scale <0.25..1>]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>] [--webview-fake]
 //           [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
@@ -1135,12 +1135,17 @@ void play_touch(std::uint64_t input, const Touch &touch, std::int32_t rate) {
 
 /// --lifecycle's steps, then the quit after FINISH, on a thread of its own: the waits for answers may run on no
 /// guest thread.
-void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int32_t height, std::int32_t rate) {
+void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int32_t height, std::int32_t rate,
+                   double render_scale) {
     std::uint64_t window = 0;
     // graphics-run's layer for the window, the same at every start and return, or none.
     const auto *layers = apk_run_layers();
     const auto add_window = [&] {
-        return apkrt_window_add(layers != nullptr ? layers->window_layer(width, height) : nullptr, width, height);
+        const std::uint64_t id =
+            apkrt_window_add(layers != nullptr ? layers->window_layer(width, height) : nullptr, width, height);
+        // ADR-0067 step 2: the NativeActivity's window renders at the scale; the host upscales it (window.m's pair).
+        if (id != 0 && render_scale < 1) apkrt_window_set_render_scale(id, render_scale);
+        return id;
     };
     // The touch steps' input channel, none without one (ADR-0045 step 7b2).
     std::uint64_t input = 0;
@@ -1205,6 +1210,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             if (std::any_of(steps.begin(), steps.end(), touches)) {
                 input = apkrt_input_add();
                 if (input == 0) std::fprintf(stderr, "apk-run: no input channel for the touches\n");
+                else if (render_scale < 1) apkrt_input_set_scale(input, render_scale);  // touches in window pixels
             }
             post(APKRT_EVENT_INPUT_QUEUE_CREATED, input);
             const std::uint32_t shown = show(true);
@@ -1526,6 +1532,7 @@ int main(int argc, char **argv) {
     std::int32_t location_grant = -1;  // -1: no --grant-location, so the runtime stays at its default (no grant)
     std::string device_profile;        // empty: no --device-profile, so the host's own names (ADR-0065)
     int frame_rate = 0;                // 0: no --frame-rate, so no FPS unlock (ADR-0066)
+    double render_scale = 1;           // 1: no --render-scale, so the guest renders at the full size (ADR-0067 step 2)
     bool webview_fake = false;         // --webview-fake: the fake WebView host (ADR-0056 step b2)
     int index = 1;
     for (; index < argc && std::string_view(argv[index]).starts_with("--"); ++index) {
@@ -1592,6 +1599,16 @@ int main(int argc, char **argv) {
             // The FPS unlock (ADR-0066): 60 or 120.
             if (value != "60" && value != "120") return usage();
             frame_rate = std::stoi(value);
+        } else if (option == "--render-scale") {
+            // ADR-0067 step 2: the native-surface window and its input render at this fraction of the full size, 0.25
+            // to 1; the host upscales (window.m's layer pair). Parse strictly, so a typo is a usage error.
+            try {
+                std::size_t used = 0;
+                render_scale = std::stod(value, &used);
+                if (used != value.size() || !(render_scale >= 0.25 && render_scale <= 1.0)) return usage();
+            } catch (const std::exception &) {
+                return usage();
+            }
         } else if (option == "--scudo-regions") {
             // Force the guest libc build (ADR-0035 item 3): 27 (128 MiB scudo regions) or 28 (256 MiB), in place of the
             // address-space probe, so a check exercises either; the runtime reads MINATO_SCUDO_REGIONS (dl.cpp).
@@ -1656,7 +1673,7 @@ int main(int argc, char **argv) {
         // Events wait in the pipe until the guest reads them, so the start may be posted before the program runs.
         if (!lifecycle.empty()) {
             std::thread(run_lifecycle, lifecycle, session.configuration.width, session.configuration.height,
-                        session.configuration.refresh_rate)
+                        session.configuration.refresh_rate, render_scale)
                     .detach();
         }
     }
