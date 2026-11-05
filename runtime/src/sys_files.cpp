@@ -346,16 +346,54 @@ bool read_only(const Description &description) {
     return guest && read_only(*guest);
 }
 
+/// The directories above the app's external storage that Minato synthesises (no mount covers them) answer faccessat
+/// and stat as an app uid sees them on Android 15 (vfs review finding 1), which is scoped storage / FUSE, not the mode
+/// bits: write is refused everywhere, read on some, the app owns none, and each has its own mode. Keyed by the
+/// canonical guest path; /sdcard and /storage/self/primary are links that resolve to /storage/emulated/0 [verified:
+/// storage-access-test on the emulator, 2026-11-05]. The other synthesised parents (/data, /data/user and the like)
+/// are not here and keep the earlier answer.
+struct ImpliedStorage {
+    std::string_view path;
+    mode_t mode;             // the stat mode, with the setgid bit where Android has it
+    std::uint32_t uid, gid;  // not the app (self-owned is false on Android); root, with the external-storage group
+    bool readable;           // R_OK granted to the app uid; W_OK never, X_OK and F_OK always granted
+    long deny_errno;         // the errno a refused mode answers (EACCES, EPERM for /storage/emulated)
+};
+
+constexpr ImpliedStorage implied_storage[] = {
+    {"/storage", 040710, 0, 0, false, linux_errno::eacces},
+    {"/storage/emulated", 040550, 0, 0, false, linux_errno::eperm},
+    {"/storage/emulated/0", 042770, 0, ext_data_rw_gid, true, linux_errno::eacces},
+    {"/storage/self", 040755, 0, 0, true, linux_errno::eacces},
+    {"/storage/emulated/0/Android", 042771, 0, ext_data_rw_gid, true, linux_errno::eacces},
+    {"/storage/emulated/0/Android/data", 042771, 0, ext_data_rw_gid, false, linux_errno::eacces},
+    {"/storage/emulated/0/Android/obb", 042771, 0, ext_data_rw_gid, false, linux_errno::eacces},
+};
+
+const ImpliedStorage *implied_storage_of(std::string_view guest) {
+    for (const ImpliedStorage &entry : implied_storage) {
+        if (entry.path == guest) return &entry;
+    }
+    return nullptr;
+}
+
 /// What stat answers for a directory above the app's storage mounts that no mount covers, such as /storage/emulated/0:
-/// the guest sees it as a directory, as Android does, owned as android_owner says.
+/// the guest sees it as a directory, as Android does; one of the storage parents above with its own mode and owner,
+/// else (another synthesised parent) android_owner's app-owned 0771.
 LinuxStat implied_directory_status(const std::string &guest) {
-    const Owner owner = android_owner(guest);
     LinuxStat dir{};
-    dir.mode = S_IFDIR | 0771;  // the emulated volume's directories (owner: app_uid, ext_data_rw_gid)
     dir.nlink = 2;
+    dir.blksize = 4096;
+    if (const ImpliedStorage *storage = implied_storage_of(guest)) {
+        dir.mode = storage->mode;
+        dir.uid = storage->uid;
+        dir.gid = storage->gid;
+        return dir;
+    }
+    const Owner owner = android_owner(guest);
+    dir.mode = S_IFDIR | 0771;
     dir.uid = owner.uid;
     dir.gid = owner.gid;
-    dir.blksize = 4096;
     return dir;
 }
 
@@ -836,10 +874,17 @@ long sys_close(int fd) {
 long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     const auto host = resolve(directory, path);
     if (host.error != 0) {
-        // A virtual parent directory of the app's storage (e.g. /storage/emulated/0): the app owns it with rwx, as
-        // its emulated volume grants, so F_OK and read/write/execute pass. Without this exists() is false and a path
-        // walk or canonicalization (realpath) stops before reaching the storage below.
-        if (host.error == -linux_errno::enoent && vfs::is_implied_directory(host.guest)) return 0;
+        // A virtual parent directory of the app's storage (e.g. /storage/emulated/0): without this exists() is false
+        // and a path walk or canonicalization (realpath) stops before reaching the storage below. The storage parents
+        // answer each mode as an app uid sees them on Android (finding 1): F_OK and X_OK pass, W_OK is refused
+        // everywhere, R_OK only on some; other synthesised parents keep the earlier "everything passes".
+        if (host.error == -linux_errno::enoent && vfs::is_implied_directory(host.guest)) {
+            if (const ImpliedStorage *storage = implied_storage_of(host.guest)) {
+                const int granted = X_OK | (storage->readable ? R_OK : 0);  // W_OK never, X_OK and F_OK always
+                return (mode & 07 & ~granted) == 0 ? 0 : -storage->deny_errno;
+            }
+            return 0;
+        }
         return host.error;
     }
     int host_flags = host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH);

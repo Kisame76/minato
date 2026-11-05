@@ -1,0 +1,10 @@
+I/storage-access-test: /storage: access F=yes R=EACCES W=EACCES X=yes; mode=040710 self-owned=false
+I/storage-access-test: /storage/emulated: access F=yes R=EPERM W=EPERM X=yes; mode=040550 self-owned=false
+I/storage-access-test: /storage/emulated/0: access F=yes R=yes W=EACCES X=yes; mode=042770 self-owned=false
+I/storage-access-test: /sdcard: access F=yes R=yes W=EACCES X=yes; mode=042770 self-owned=false
+I/storage-access-test: /storage/self: access F=yes R=yes W=EACCES X=yes; mode=040755 self-owned=false
+I/storage-access-test: /storage/self/primary: access F=yes R=yes W=EACCES X=yes; mode=042770 self-owned=false
+I/storage-access-test: /storage/emulated/0/Android: access F=yes R=yes W=EACCES X=yes; mode=042771 self-owned=false
+I/storage-access-test: /storage/emulated/0/Android/data: access F=yes R=EACCES W=EACCES X=yes; mode=042771 self-owned=false
+I/storage-access-test: /storage/emulated/0/Android/obb: access F=yes R=EACCES W=EACCES X=yes; mode=042771 self-owned=false
+I/storage-access-test: done

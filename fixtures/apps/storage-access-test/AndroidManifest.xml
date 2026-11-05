@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- faccessat and stat on the directories above the app's external storage, as an app uid sees them (vfs review
+     finding 1): /storage, /storage/emulated, /storage/emulated/0, /sdcard, /storage/self and the app's Android folders.
+     The probe logs Os.access (F/R/W/X) and Os.stat for each, normalised so the AVD's and Minato's answers compare byte
+     for byte. The launcher activity is the framework's own android.app.Activity, so `am start` starts the process. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.storageaccess" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.storageaccess.StorageAccessApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
