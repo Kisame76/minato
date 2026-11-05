@@ -1,0 +1,8 @@
+I/camera-picture-test: a picture without a preview: java.lang.RuntimeException takePicture failed
+I/camera-picture-test: autoFocus: called back within 5 s true
+I/camera-picture-test: cancelAutoFocus: no exception
+I/camera-picture-test: takePicture: the JPEG within 10 s true, callbacks [shutter, raw, jpeg], raw data null true
+I/camera-picture-test: the JPEG: decodes at the picture size true
+I/camera-picture-test: preview enabled after the picture false
+I/camera-picture-test: preview enabled after a start again true
+I/camera-picture-test: done

@@ -62,7 +62,8 @@ namespace {
 
 constexpr jint kFacingBack = 0, kFacingFront = 1;  // Camera.CameraInfo's
 
-constexpr jint kMessagePreviewFrame = 0x010;  // CAMERA_MSG_PREVIEW_FRAME
+constexpr jint kMessageShutter = 0x002, kMessageFocus = 0x004, kMessagePreviewFrame = 0x010;  // CAMERA_MSG_*
+constexpr jint kMessageRawImage = 0x080, kMessageCompressedImage = 0x100;
 
 struct {
     jfieldID context;  // Camera.mNativeContext
@@ -148,7 +149,11 @@ struct Context {
     pthread_t thread{};
     bool thread_made = false;
     int32_t width = 0, height = 0;    // the preview's size
+    bool focusing = false, focus_seen = false;  // an autoFocus waits; its frames have shown FOCUSING
+    uint64_t focus_number = 0;        // its request's number
 };
+
+constexpr uint64_t kFocusRequest = 2;  // the request numbers of an autoFocus' trigger
 
 std::vector<Context *> gOpen;  // the contexts that hold their camera, with gLock held
 
@@ -292,6 +297,27 @@ void *preview_thread(void *argument) {
         }
         if (got != 0) break;
         if (frame.tokens[0] != 0) show(*context, frame.tokens[0], frame.timestamp_ns);
+        {
+            // autoFocus: done at the first frame that no longer focuses, after one that did (or the trigger's).
+            bool done = false, success = false;
+            {
+                const std::lock_guard<std::mutex> hold(gLock);
+                if (context->focusing) {
+                    const bool now = (frame.states & APKRT_CAMERA_STATE_FOCUSING) != 0;
+                    context->focus_seen |= now || frame.number == context->focus_number;
+                    if (context->focus_seen && !now) {
+                        done = true;
+                        success = (frame.states & APKRT_CAMERA_STATE_FOCUSED) != 0;
+                        context->focusing = false;
+                    }
+                }
+            }
+            if (done) {
+                env->CallStaticVoidMethod(gFields.camera, gFields.post, context->weak, kMessageFocus, success ? 1 : 0,
+                                          0, nullptr);
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
+        }
         if (frame.tokens[1] == 0) continue;
         jobject array = nullptr;
         bool manual = false;
@@ -562,6 +588,146 @@ jboolean PreviewEnabled(JNIEnv *env, jobject thiz) {
     return context != nullptr && context->previewing ? JNI_TRUE : JNI_FALSE;
 }
 
+/// autoFocus: a fixed lens reports success at once (as Camera2Client's FOCUS_MODE_FIXED); else a trigger, whose
+/// end the preview's frames show.
+void AutoFocus(JNIEnv *env, jobject thiz) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context == nullptr) return;
+    const std::string focus = value_of(context->parameters, "focus-mode");
+    if (focus == "fixed" || focus == "infinity" || !context->previewing) {
+        env->CallStaticVoidMethod(gFields.camera, gFields.post, context->weak, kMessageFocus, 1, 0, nullptr);
+        return;
+    }
+    apkrt_camera_controls controls = controls_of(*context);
+    controls.af_trigger = 1;  // CONTROL_AF_TRIGGER_START
+    apkrt_camera request{};
+    request.id = context->id;
+    request.data = reinterpret_cast<uintptr_t>(&controls);
+    request.targets = 1;
+    request.number = kFocusRequest;
+    if (camera_call(APKRT_CAMERA_REQUEST, &request) != 0) {
+        jniThrowRuntimeException(env, "autoFocus failed");
+        return;
+    }
+    context->focusing = true;
+    context->focus_seen = false;
+    context->focus_number = kFocusRequest;
+}
+
+void CancelAutoFocus(JNIEnv *env, jobject thiz) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context != nullptr) context->focusing = false;
+}
+
+/// A picture's capture: its callbacks posted in Android's order, shutter, raw (no data) and the JPEG.
+struct Picture {
+    Context *context;
+    jint messages;
+};
+
+void *picture_thread(void *argument) {
+    auto *picture = static_cast<Picture *>(argument);
+    Context *context = picture->context;
+    JNIEnv *env = nullptr;
+    JavaVMAttachArgs attach{JNI_VERSION_1_6, "CameraPicture", nullptr};
+    if (context->vm->AttachCurrentThread(&env, &attach) != JNI_OK) {
+        delete picture;
+        return nullptr;
+    }
+    const auto post = [&](jint message, jobject data) {
+        if ((picture->messages & message) == 0) return;
+        env->CallStaticVoidMethod(gFields.camera, gFields.post, context->weak, message, 0, 0, data);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    };
+    post(kMessageShutter, nullptr);
+    std::vector<uint8_t> jpeg;
+    for (int tries = 0; tries < 5000; tries++) {  // at most 10 s
+        apkrt_camera_frame frame{};
+        frame.jpeg = reinterpret_cast<uintptr_t>(jpeg.data());
+        frame.jpeg_capacity = jpeg.size();
+        apkrt_camera call{};
+        call.id = context->id;
+        call.data = reinterpret_cast<uintptr_t>(&frame);
+        const long got = camera_call(APKRT_CAMERA_FRAME, &call);
+        if (got == -ENOSPC) {
+            jpeg.resize(static_cast<size_t>(frame.jpeg_size));
+            continue;
+        }
+        if (got == -EAGAIN) {
+            const timespec wait{0, 2000000};
+            nanosleep(&wait, nullptr);
+            continue;
+        }
+        if (got != 0) break;
+        for (const uint64_t token : frame.tokens) {
+            if (token == 0) continue;
+            apkrt_camera discard{};
+            discard.id = context->id;
+            discard.data = token;
+            camera_call(APKRT_CAMERA_DISCARD, &discard);
+        }
+        if (frame.jpeg_size == 0) continue;
+        post(kMessageRawImage, nullptr);  // no raw image: its callback gets null, as Camera2Client's
+        jbyteArray bytes = env->NewByteArray(static_cast<jsize>(frame.jpeg_size));
+        if (bytes != nullptr) {
+            env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(frame.jpeg_size),
+                                    reinterpret_cast<const jbyte *>(jpeg.data()));
+            post(kMessageCompressedImage, bytes);
+            env->DeleteLocalRef(bytes);
+        }
+        break;
+    }
+    delete picture;
+    context->vm->DetachCurrentThread();
+    return nullptr;
+}
+
+/// takePicture: only while the preview runs, which stops for the picture, as Camera2Client's.
+void TakePicture(JNIEnv *env, jobject thiz, jint messages) {
+    Context *context;
+    {
+        const std::lock_guard<std::mutex> hold(gLock);
+        context = live(env, thiz);
+        if (context == nullptr) return;
+        if (!context->previewing || context->evicted) {
+            jniThrowRuntimeException(env, "takePicture failed");
+            return;
+        }
+    }
+    stop_preview(context);
+    const std::lock_guard<std::mutex> hold(gLock);
+    int32_t width = 0, height = 0;
+    std::sscanf(value_of(context->parameters, "picture-size").c_str(), "%dx%d", &width, &height);
+    const apkrt_camera_stream streams[1] = {
+            {APKRT_CAMERA_FORMAT_JPEG, static_cast<uint32_t>(width), static_cast<uint32_t>(height), 0}};
+    apkrt_camera call{};
+    call.id = context->id;
+    call.count = 1;
+    call.data = reinterpret_cast<uintptr_t>(streams);
+    apkrt_camera_controls controls = controls_of(*context);
+    int quality = 90, rotation = 0;
+    std::sscanf(value_of(context->parameters, "jpeg-quality").c_str(), "%d", &quality);
+    std::sscanf(value_of(context->parameters, "rotation").c_str(), "%d", &rotation);
+    controls.jpeg_quality = static_cast<uint8_t>(quality);
+    controls.jpeg_orientation = rotation;
+    apkrt_camera request{};
+    request.id = context->id;
+    request.data = reinterpret_cast<uintptr_t>(&controls);
+    request.targets = 1;
+    request.number = 3;
+    pthread_t thread;
+    auto *picture = new Picture{context, messages};
+    if (camera_call(APKRT_CAMERA_CONFIGURE, &call) != 0 || camera_call(APKRT_CAMERA_REQUEST, &request) != 0 ||
+        pthread_create(&thread, nullptr, picture_thread, picture) != 0) {
+        delete picture;
+        jniThrowRuntimeException(env, "takePicture failed");
+        return;
+    }
+    pthread_detach(thread);
+}
+
 void SetHasPreviewCallback(JNIEnv *env, jobject thiz, jboolean installed, jboolean manual) {
     const std::lock_guard<std::mutex> hold(gLock);
     Context *context = live(env, thiz);
@@ -595,6 +761,9 @@ const JNINativeMethod gCameraMethods[] = {
         {"previewEnabled", "()Z", reinterpret_cast<void *>(PreviewEnabled)},
         {"setHasPreviewCallback", "(ZZ)V", reinterpret_cast<void *>(SetHasPreviewCallback)},
         {"_addCallbackBuffer", "([BI)V", reinterpret_cast<void *>(AddCallbackBuffer)},
+        {"native_autoFocus", "()V", reinterpret_cast<void *>(AutoFocus)},
+        {"native_cancelAutoFocus", "()V", reinterpret_cast<void *>(CancelAutoFocus)},
+        {"native_takePicture", "(I)V", reinterpret_cast<void *>(TakePicture)},
         {"lock", "()V", reinterpret_cast<void *>(Lock)},
         {"unlock", "()V", reinterpret_cast<void *>(Unlock)},
         {"reconnect", "()V", reinterpret_cast<void *>(Reconnect)},
