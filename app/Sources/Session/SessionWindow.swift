@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         NotificationHost.shared.start()
+        #if DEBUG
+        SessionCheck.coldTapIfRequested()
+        #endif
         return true
     }
 

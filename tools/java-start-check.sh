@@ -1406,9 +1406,10 @@ if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
 fi
 
 # ADR-0074 decision 4's cold tap in the Simulator: once notify-tap-test has run and its notification is delivered,
-# Minato starts in the library and session-check's notification-cold-tap taps it as didReceive would while no session
-# runs: the library checks the stored content intent (its own TapActivity) and starts the app with it, so TapActivity
-# is the first activity, before the app's own send.
+# Minato starts and session-check's notification-cold-tap taps it as it launches, before the library has its entries,
+# as didReceive comes when the tap launched Minato: the tap waits for the library, which checks the stored content
+# intent (its own TapActivity) and starts the app with it, so TapActivity is the first activity, before the app's own
+# send.
 if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap 2; then
     await_line guest-log "^I/notify-tap-test: done$" 120 || failed_line "no done" notify-tap-test-2

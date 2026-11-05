@@ -394,7 +394,10 @@ final class LibraryModel {
     /// stored content intent when it names one of the installed version's own activities (NotificationTap.startIntent),
     /// else at its launcher.
     func launchFromNotification(package: String, intent: String?) async {
-        guard let entry = entries.first(where: { $0.id == package }), let paths else { return }
+        // The library's own entries: a tap that launched Minato comes before the first refresh fills `entries`.
+        guard let library, let paths, let entry = await library.entries.first(where: { $0.id == package }) else {
+            return
+        }
         let activities = InstalledActivities.read(folder: paths.versionDirectory(for: entry))
         let start = intent.flatMap { NotificationTap.startIntent($0, package: package, activities: activities) }
         #if DEBUG

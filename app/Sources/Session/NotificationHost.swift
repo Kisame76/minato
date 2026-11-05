@@ -20,8 +20,18 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     private static let tagKey = "minato.tag"
     private static let intentKey = "minato.intent"
     /// The library's start of an app for a tap while no session runs (ADR-0074 decision 4): the package and the
-    /// notification's stored content intent, which the library checks before it starts with it.
-    @MainActor static var onColdTap: ((_ package: String, _ intent: String?) -> Void)?
+    /// notification's stored content intent, which the library checks before it starts with it. A tap that came
+    /// before the library set it, as one that launched Minato can, waits for it.
+    @MainActor static var onColdTap: ((_ package: String, _ intent: String?) -> Void)? {
+        didSet {
+            guard let onColdTap, let tap = waitingColdTap else { return }
+            waitingColdTap = nil
+            onColdTap(tap.package, tap.intent)
+        }
+    }
+
+    /// A tap of no session that came before the library set onColdTap.
+    @MainActor private static var waitingColdTap: (package: String, intent: String?)?
 
     private let known = Mutex<PermissionDesk.IOSState?>(nil)
 
@@ -138,8 +148,10 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
         #endif
         if let session = GameSession.current {
             session.notificationTapped(package: key.package, id: key.id, tag: key.tag)
+        } else if let onColdTap {
+            onColdTap(key.package, key.intent)
         } else {
-            onColdTap?(key.package, key.intent)
+            waitingColdTap = (key.package, key.intent)
         }
     }
 
