@@ -171,7 +171,9 @@ void vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator) {
    profile's real device gives them. The device type, the limits, the API version and the features stay the driver's. */
 static void profile_text(const char *name, char *out, size_t size) {
     char value[PROP_VALUE_MAX] = "";
-    __system_property_get(name, value);
+    if (__system_property_get(name, value) <= 0) {
+        return;  /* a profile without this one keeps the driver's, as profile_number does */
+    }
     strncpy(out, value, size - 1);
     out[size - 1] = '\0';
 }

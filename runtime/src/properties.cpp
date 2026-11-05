@@ -165,6 +165,14 @@ constexpr DeviceProfile device_profiles[] = {
       {"ro.minato.gpu.vk_driver_id", "21"},
       {"ro.minato.gpu.vk_driver_name", "Samsung Proprietary driver"},
       {"ro.minato.gpu.vk_driver_info", "Driver version: 24.3.9, git hash: e5014ade39 "}}},
+    // graphics.vulkan_profile_partial's profile, no real device: the GPU's identity without the driver's properties,
+    // as a profile from the report of a driver without VK_KHR_driver_properties would give it. libvulkan keeps the
+    // driver's own ID, name and info in a chain then. No Build names, so they stay the host's.
+    {"partial",
+     {{"ro.minato.gpu.vk_device_name", "Partial GPU"},
+      {"ro.minato.gpu.vk_vendor_id", "5045"},
+      {"ro.minato.gpu.vk_device_id", "1"},
+      {"ro.minato.gpu.vk_driver_version", "1"}}},
 };
 /// apkrt_set_device_profile's, none (the host's own names) until it is called.
 std::atomic<const DeviceProfile *> device_profile{nullptr};
@@ -317,7 +325,9 @@ std::string area() {
     // The profile's names first: an Area keeps the first value a name gets, so they win over the table's and the
     // host's below.
     if (const auto *profile = device_profile.load()) {
-        for (const auto &[name, value] : profile->values) written.add(name, value);
+        for (const auto &[name, value] : profile->values) {
+            if (!name.empty()) written.add(name, value);  // a profile with fewer names leaves the rest empty
+        }
     }
     for (const auto &[name, value] : properties) written.add(name, value);
     const std::string model = machine();

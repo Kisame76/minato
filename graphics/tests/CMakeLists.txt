@@ -227,9 +227,9 @@ if(TARGET minato_graphics_host)
   set_source_files_properties(hardware_buffers_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.hardware_buffers COMMAND graphics-hardware-buffers-test)
   set_tests_properties(graphics.hardware_buffers PROPERTIES TIMEOUT 60)
-  # ADR-0067 step 1: graphics/host's layer pair for the upscaler (upscale.m): a fake guest draws at the low size on its own
-  # queue, the visible layer's drawable holds the upscaled picture (MetalFX and the bilinear pass), its presents are
-  # counted, and the hook never waits. `graphics-upscale-test --measure` prints step 0's scaler rows.
+  # ADR-0067 step 1: graphics/host's layer pair for the upscaler (upscale.m): a fake guest draws at the low size on
+  # its own queue, the visible layer's drawable holds the upscaled picture (MetalFX and the bilinear pass), its
+  # presents are counted, and the hook never waits. `graphics-upscale-test --measure` prints step 0's scaler rows.
   add_executable(graphics-upscale-test upscale_test.m)
   target_link_libraries(graphics-upscale-test PRIVATE minato_graphics_host apkrt apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
@@ -408,6 +408,9 @@ if(TARGET minato_graphics_host)
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:pixel")
   add_guest_test(vulkan_profile_galaxy vulkan-profile-test vulkan_profile_galaxy_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:galaxy")
+  # A profile without the driver's properties keeps the driver's own name and info in a chain.
+  add_guest_test(vulkan_profile_partial vulkan-profile-test vulkan_profile_partial_test "${vulkan_system_libraries}"
+    "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:partial")
   add_guest_test(vulkan_window vulkan-window-test vulkan_window_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_WINDOW=set:64x48")
   # ADR-0043 b1: libnativewindow's lock and post against the window host's fake buffers, whose first lock opens the
