@@ -19,7 +19,16 @@
 //   values) and keeps the app's string, as CameraParameters2 does, else throws RuntimeException("setParameters
 //   failed"). lock, unlock and reconnect succeed. Each throws RuntimeException("Camera is being used after
 //   Camera.release() was called") after a release, as get_native_camera does.
-// Camera's other natives (preview, focus, pictures, zoom, faces) stay unregistered until the next parts of step e.
+// - The preview (part 2): setPreviewTexture and setPreviewSurface claim the surface's window as its producer, as the
+//   codec does; startPreview configures the host's camera with the preview size's PRIVATE stream (and, with a
+//   preview callback, a YUV one of the same size) and a repeating request from the parameters, and a thread of the
+//   Camera's takes each frame: into a queue window's free slot (a frame without one is dropped, as a camera's when
+//   its consumer lags) at the frame's CLOCK_BOOTTIME time, or into a host window; with a preview callback, the YUV
+//   frame drawn into a buffer of the thread's own and given to Java as NV21 (CAMERA_MSG_PREVIEW_FRAME), in the app's
+//   buffers when it added them (setPreviewCallbackWithBuffer: none left, no frame). stopPreview stops the request
+//   and drops what waits; previewEnabled says whether it runs. While it runs, setParameters refuses another preview
+//   size or format, as Parameters::set does.
+// Camera's other natives (focus, pictures, zoom, faces) stay unregistered until the next parts of step e.
 #include <errno.h>
 #include <jni.h>
 #include <log/log.h>
@@ -29,24 +38,72 @@
 
 #include <algorithm>
 #include <mutex>
+#include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
+#include <android/hardware_buffer.h>
+#include <android/native_window.h>
+#include <dlfcn.h>
+#include <pthread.h>
+#include <time.h>
+
 #include <APKRuntime/apkrt.h>
+#include <APKRuntime/buffer_queue.h>
 #include <APKRuntime/guest_interface.h>
 
 #include "camera_parameters.h"
 #include "core_jni_helpers.h"
+#include "minato_gles.h"
 
 namespace android {
 namespace {
 
 constexpr jint kFacingBack = 0, kFacingFront = 1;  // Camera.CameraInfo's
 
+constexpr jint kMessagePreviewFrame = 0x010;  // CAMERA_MSG_PREVIEW_FRAME
+
 struct {
     jfieldID context;  // Camera.mNativeContext
     jfieldID facing, orientation, can_disable_shutter_sound;
+    jclass camera;  // global
+    jmethodID post;  // Camera.postEventFromNative
 } gFields;
+
+/// libnativewindow's private functions for a surface, looked up once, as MediaPlayer's natives do.
+struct WindowFunctions {
+    decltype(&minato_ANativeWindow_isQueue) isQueue = nullptr;
+    decltype(&minato_ANativeWindow_tryDequeue) dequeue = nullptr;
+    decltype(&minato_ANativeWindow_queueWith) queue = nullptr;
+    decltype(&minato_ANativeWindow_cancel) cancel = nullptr;
+    decltype(&minato_ANativeWindow_claim) claim = nullptr;
+    decltype(&minato_ANativeWindow_unclaim) unclaim = nullptr;
+    decltype(&minato_ANativeWindow_getInfo) info = nullptr;
+};
+
+const WindowFunctions *window_functions() {
+    static const WindowFunctions functions = [] {
+        WindowFunctions found;
+        if (void *library = dlopen("libnativewindow.so", RTLD_NOW)) {
+#define FIND(field, name) found.field = reinterpret_cast<decltype(found.field)>(dlsym(library, #name))
+            FIND(isQueue, minato_ANativeWindow_isQueue);
+            FIND(dequeue, minato_ANativeWindow_tryDequeue);
+            FIND(queue, minato_ANativeWindow_queueWith);
+            FIND(cancel, minato_ANativeWindow_cancel);
+            FIND(claim, minato_ANativeWindow_claim);
+            FIND(unclaim, minato_ANativeWindow_unclaim);
+            FIND(info, minato_ANativeWindow_getInfo);
+#undef FIND
+        }
+        return found;
+    }();
+    return functions.isQueue != nullptr && functions.dequeue != nullptr && functions.queue != nullptr &&
+                   functions.cancel != nullptr && functions.claim != nullptr && functions.unclaim != nullptr &&
+                   functions.info != nullptr
+               ? &functions
+               : nullptr;
+}
 
 std::mutex gLock;  // around the contexts, as AOSP's sLock
 
@@ -81,6 +138,16 @@ struct Context {
     bool evicted = false;  // a second open took the camera: the host's camera is closed
     minato::camera::Facts facts;
     std::string initial, parameters;  // Parameters::initialize's; the ones in force
+    JavaVM *vm = nullptr;
+    jobject weak = nullptr;  // the Java Camera's weak reference, a global one, for its events
+    // The preview.
+    ANativeWindow *window = nullptr;  // claimed, with a reference of ours; NULL for none
+    uint64_t host_window = 0;         // the window's ID when it is a host window
+    bool previewing = false, stopping = false, callback = false, manual = false;
+    std::vector<jobject> buffers;     // the app's callback buffers (global references), oldest first
+    pthread_t thread{};
+    bool thread_made = false;
+    int32_t width = 0, height = 0;    // the preview's size
 };
 
 std::vector<Context *> gOpen;  // the contexts that hold their camera, with gLock held
@@ -89,6 +156,219 @@ void close_camera(Context *context) {
     apkrt_camera call{};
     call.id = context->id;
     camera_call(APKRT_CAMERA_CLOSE, &call);
+}
+
+/// The value of `key` in flattened parameters, empty for none.
+std::string value_of(const std::string &params, const char *key) {
+    const std::string needle = std::string(key) + "=";
+    for (size_t at = params.find(needle); at != std::string::npos; at = params.find(needle, at + 1)) {
+        if (at != 0 && params[at - 1] != ';') continue;
+        const size_t start = at + needle.size(), end = params.find(';', start);
+        return params.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    }
+    return "";
+}
+
+/// The preview's repeating request's controls from the parameters in force, within the host's facts.
+apkrt_camera_controls controls_of(const Context &context) {
+    apkrt_camera_controls controls{};
+    const std::string focus = value_of(context.parameters, "focus-mode");
+    int32_t af = focus == "auto" ? 1 : focus == "macro" ? 2 : focus == "continuous-video" ? 3
+               : focus == "continuous-picture" ? 4 : 0;
+    const std::vector<int32_t> modes = context.facts.info.af_modes.value_or(std::vector<int32_t>{0});
+    if (std::find(modes.begin(), modes.end(), af) == modes.end()) af = modes.empty() ? 0 : modes[0];
+    controls.af_mode = static_cast<uint8_t>(af);
+    controls.awb_mode = 1, controls.ae_mode = 1, controls.jpeg_quality = 90, controls.zoom_ratio = 1;
+    int low = 0, high = 0;
+    std::sscanf(value_of(context.parameters, "preview-fps-range").c_str(), "%d,%d", &low, &high);
+    controls.fps_min = low / 1000, controls.fps_max = high / 1000;
+    const std::vector<int32_t> &ranges = context.facts.info.fps_ranges;
+    bool listed = false;
+    for (size_t n = 0; n + 1 < ranges.size(); n += 2) {
+        listed |= ranges[n] == controls.fps_min && ranges[n + 1] == controls.fps_max;
+    }
+    if (!listed && ranges.size() >= 2) controls.fps_min = ranges[0], controls.fps_max = ranges[1];
+    return controls;
+}
+
+/// A frame's preview token drawn into the window, or dropped without one or without a free slot.
+void show(const Context &context, uint64_t token, int64_t timestamp_ns) {
+    apkrt_camera call{};
+    call.id = context.id;
+    call.data = token;
+    const WindowFunctions *functions = window_functions();
+    if (context.window != nullptr && context.host_window != 0) {
+        call.size = context.host_window;
+        if (camera_call(APKRT_CAMERA_RENDER_WINDOW, &call) == 0) return;
+        return;  // the token ended either way
+    }
+    AHardwareBuffer *buffer = nullptr;
+    int32_t slot = -1;
+    uint64_t buffer_id = 0;
+    if (context.window == nullptr || functions == nullptr || functions->dequeue(context.window, &buffer, &slot) != 0 ||
+        AHardwareBuffer_getId(buffer, &buffer_id) != 0) {
+        if (buffer != nullptr) functions->cancel(context.window, slot);
+        camera_call(APKRT_CAMERA_DISCARD, &call);
+        return;
+    }
+    call.size = buffer_id;
+    if (camera_call(APKRT_CAMERA_RENDER, &call) == 0) {
+        minato_BufferQueue_settings settings{};
+        settings.timestamp = timestamp_ns;
+        settings.exact_time = 1;
+        functions->queue(context.window, slot, &settings);
+    } else {
+        functions->cancel(context.window, slot);
+    }
+}
+
+/// The YUV frame of `token` drawn into `target` and copied as NV21 into `out` (width x height x 3 / 2 bytes).
+bool nv21(const Context &context, uint64_t token, AHardwareBuffer *target, std::vector<uint8_t> &out) {
+    uint64_t buffer_id = 0;
+    apkrt_camera call{};
+    call.id = context.id;
+    call.data = token;
+    if (target == nullptr || AHardwareBuffer_getId(target, &buffer_id) != 0) {
+        camera_call(APKRT_CAMERA_DISCARD, &call);
+        return false;
+    }
+    call.size = buffer_id;
+    if (camera_call(APKRT_CAMERA_RENDER, &call) != 0) return false;
+    AHardwareBuffer_Planes planes{};
+    if (AHardwareBuffer_lockPlanes(target, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, nullptr, &planes) != 0 ||
+        planes.planeCount < 3) {
+        return false;
+    }
+    const auto width = static_cast<size_t>(context.width), height = static_cast<size_t>(context.height);
+    out.resize(width * height * 3 / 2);
+    for (size_t y = 0; y < height; y++) {
+        const auto *row = static_cast<uint8_t *>(planes.planes[0].data) + y * planes.planes[0].rowStride;
+        std::memcpy(out.data() + y * width, row, width);
+    }
+    uint8_t *vu = out.data() + width * height;
+    for (size_t y = 0; y < height / 2; y++) {
+        const auto *u = static_cast<uint8_t *>(planes.planes[1].data) + y * planes.planes[1].rowStride;
+        const auto *v = static_cast<uint8_t *>(planes.planes[2].data) + y * planes.planes[2].rowStride;
+        for (size_t x = 0; x < width / 2; x++) {
+            vu[(y * width / 2 + x) * 2] = v[x * planes.planes[2].pixelStride];
+            vu[(y * width / 2 + x) * 2 + 1] = u[x * planes.planes[1].pixelStride];
+        }
+    }
+    AHardwareBuffer_unlock(target, nullptr);
+    return true;
+}
+
+/// The preview's thread: each captured frame into the window, and with a preview callback its YUV copy to Java.
+void *preview_thread(void *argument) {
+    auto *context = static_cast<Context *>(argument);
+    JNIEnv *env = nullptr;
+    JavaVMAttachArgs attach{JNI_VERSION_1_6, "CameraPreview", nullptr};
+    if (context->vm->AttachCurrentThread(&env, &attach) != JNI_OK) return nullptr;
+    AHardwareBuffer_Desc description{};
+    description.width = static_cast<uint32_t>(context->width);
+    description.height = static_cast<uint32_t>(context->height);
+    description.layers = 1;
+    description.format = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420;
+    description.usage = AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN | AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT;
+    AHardwareBuffer *target = nullptr;
+    if (AHardwareBuffer_allocate(&description, &target) != 0) target = nullptr;
+    std::vector<uint8_t> bytes;
+    for (;;) {
+        bool stopping;
+        {
+            const std::lock_guard<std::mutex> hold(gLock);
+            stopping = context->stopping;
+        }
+        apkrt_camera_frame frame{};
+        apkrt_camera call{};
+        call.id = context->id;
+        call.data = reinterpret_cast<uintptr_t>(&frame);
+        const long got = camera_call(APKRT_CAMERA_FRAME, &call);
+        if (got == -EAGAIN) {
+            if (stopping) break;
+            const timespec wait{0, 2000000};
+            nanosleep(&wait, nullptr);
+            continue;
+        }
+        if (got != 0) break;
+        if (frame.tokens[0] != 0) show(*context, frame.tokens[0], frame.timestamp_ns);
+        if (frame.tokens[1] == 0) continue;
+        jobject array = nullptr;
+        bool manual = false;
+        {
+            const std::lock_guard<std::mutex> hold(gLock);
+            if (context->callback && !stopping) {
+                manual = context->manual;
+                if (manual && !context->buffers.empty()) {
+                    array = context->buffers.front();  // a global reference, ours now
+                    context->buffers.erase(context->buffers.begin());
+                }
+            }
+        }
+        const bool wanted = array != nullptr || (!manual && context->callback && !stopping);
+        if (!wanted) {
+            apkrt_camera discard{};
+            discard.id = context->id;
+            discard.data = frame.tokens[1];
+            camera_call(APKRT_CAMERA_DISCARD, &discard);
+            continue;
+        }
+        if (!nv21(*context, frame.tokens[1], target, bytes)) {
+            if (array != nullptr) env->DeleteGlobalRef(array);
+            continue;
+        }
+        const auto size = static_cast<jsize>(bytes.size());
+        if (array == nullptr) array = env->NewByteArray(size);
+        else if (env->GetArrayLength(static_cast<jbyteArray>(array)) < size) {
+            env->DeleteGlobalRef(array);
+            continue;  // a buffer too small: the frame is lost, as Android's
+        }
+        if (array == nullptr) continue;
+        env->SetByteArrayRegion(static_cast<jbyteArray>(array), 0, size, reinterpret_cast<const jbyte *>(bytes.data()));
+        env->CallStaticVoidMethod(gFields.camera, gFields.post, context->weak, kMessagePreviewFrame, 0, 0, array);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (manual) env->DeleteGlobalRef(array);
+        else env->DeleteLocalRef(array);
+    }
+    if (target != nullptr) AHardwareBuffer_release(target);
+    context->vm->DetachCurrentThread();
+    return nullptr;
+}
+
+/// The preview stopped, its thread joined; gLock must not be held.
+void stop_preview(Context *context) {
+    {
+        const std::lock_guard<std::mutex> hold(gLock);
+        if (!context->previewing) return;
+        context->stopping = true;
+        context->previewing = false;
+    }
+    apkrt_camera call{};
+    call.id = context->id;
+    camera_call(APKRT_CAMERA_STOP_REPEATING, &call);
+    if (context->thread_made) pthread_join(context->thread, nullptr);
+    context->thread_made = false;
+    camera_call(APKRT_CAMERA_FLUSH, &call);
+}
+
+/// The preview's surface: `window` claimed as its producer in place of the one before (NULL: none).
+bool set_window(Context *context, ANativeWindow *window) {
+    const WindowFunctions *functions = window_functions();
+    if (window != nullptr && (functions == nullptr || functions->claim(window) != 0)) {
+        ANativeWindow_release(window);
+        return false;
+    }
+    if (context->window != nullptr) {
+        functions->unclaim(context->window);
+        ANativeWindow_release(context->window);
+    }
+    context->window = window;
+    context->host_window = 0;
+    minato_window_info info{};
+    if (window != nullptr && functions->isQueue(window) == 0 && functions->info(window, &info) == 0) {
+        context->host_window = info.id;
+    }
+    return true;
 }
 
 /// The open camera of `thiz` with gLock held by the caller, or NULL with AOSP's RuntimeException after a release.
@@ -121,7 +401,7 @@ void GetCameraInfo(JNIEnv *env, jclass, jint cameraId, jint, jint, jint, jobject
     env->SetBooleanField(info, gFields.can_disable_shutter_sound, JNI_TRUE);
 }
 
-jint Setup(JNIEnv *env, jobject thiz, jobject, jint cameraId, jstring, jint, jboolean, jint, jint) {
+jint Setup(JNIEnv *env, jobject thiz, jobject weak_this, jint cameraId, jstring, jint, jboolean, jint, jint) {
     if (cameraId < 0 || static_cast<uint32_t>(cameraId) >= camera_count()) return -EACCES;
     auto *context = new Context;
     if (!camera_facts(static_cast<uint32_t>(cameraId), &context->facts)) {
@@ -150,18 +430,28 @@ jint Setup(JNIEnv *env, jobject thiz, jobject, jint cameraId, jstring, jint, jbo
         return -EACCES;  // Camera::connect's failure
     }
     context->id = call.id;
+    env->GetJavaVM(&context->vm);
+    context->weak = env->NewGlobalRef(weak_this);
     gOpen.push_back(context);
     env->SetLongField(thiz, gFields.context, reinterpret_cast<jlong>(context));
     return 0;
 }
 
 void Release(JNIEnv *env, jobject thiz) {
+    Context *context;
+    {
+        const std::lock_guard<std::mutex> hold(gLock);
+        context = reinterpret_cast<Context *>(env->GetLongField(thiz, gFields.context));
+        env->SetLongField(thiz, gFields.context, 0);
+        if (context == nullptr) return;  // released before, or never opened
+        gOpen.erase(std::remove(gOpen.begin(), gOpen.end(), context), gOpen.end());
+    }
+    stop_preview(context);
     const std::lock_guard<std::mutex> hold(gLock);
-    auto *context = reinterpret_cast<Context *>(env->GetLongField(thiz, gFields.context));
-    env->SetLongField(thiz, gFields.context, 0);
-    if (context == nullptr) return;  // released before, or never opened
     if (!context->evicted) close_camera(context);
-    gOpen.erase(std::remove(gOpen.begin(), gOpen.end(), context), gOpen.end());
+    set_window(context, nullptr);
+    for (jobject buffer : context->buffers) env->DeleteGlobalRef(buffer);
+    if (context->weak != nullptr) env->DeleteGlobalRef(context->weak);
     delete context;
 }
 
@@ -187,7 +477,9 @@ void SetParameters(JNIEnv *env, jobject thiz, jstring params) {
     const std::lock_guard<std::mutex> hold(gLock);
     Context *context = live(env, thiz);
     if (context == nullptr) return;
-    if (context->evicted || !minato::camera::accept_parameters(context->initial, asked)) {
+    // While the preview runs, its size and format must stay the ones in force.
+    const std::string &base = context->previewing ? context->parameters : context->initial;
+    if (context->evicted || !minato::camera::accept_parameters(base, asked, context->previewing)) {
         jniThrowRuntimeException(env, "setParameters failed");
         return;
     }
@@ -205,6 +497,90 @@ void Lock(JNIEnv *env, jobject thiz) { Keep(env, thiz, "java/lang/RuntimeExcepti
 void Unlock(JNIEnv *env, jobject thiz) { Keep(env, thiz, "java/lang/RuntimeException", "unlock failed"); }
 void Reconnect(JNIEnv *env, jobject thiz) { Keep(env, thiz, "java/io/IOException", "reconnect failed"); }
 
+void SetPreviewWindow(JNIEnv *env, jobject thiz, ANativeWindow *window, const char *what) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context == nullptr) {
+        if (window != nullptr) ANativeWindow_release(window);
+        return;
+    }
+    if (!set_window(context, window)) jniThrowException(env, "java/io/IOException", what);
+}
+
+void SetPreviewTexture(JNIEnv *env, jobject thiz, jobject texture) {
+    ANativeWindow *window = texture != nullptr ? minato_surface_texture_window(env, texture) : nullptr;
+    SetPreviewWindow(env, thiz, window, "setPreviewTexture failed");
+}
+
+void SetPreviewSurface(JNIEnv *env, jobject thiz, jobject surface) {
+    ANativeWindow *window = surface != nullptr ? minato_surface_window(env, surface) : nullptr;
+    SetPreviewWindow(env, thiz, window, "setPreviewDisplay failed");
+}
+
+void StartPreview(JNIEnv *env, jobject thiz) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context == nullptr || context->previewing) return;
+    int32_t width = 0, height = 0;
+    std::sscanf(value_of(context->parameters, "preview-size").c_str(), "%dx%d", &width, &height);
+    const apkrt_camera_stream streams[2] = {
+            {APKRT_CAMERA_FORMAT_PRIVATE, static_cast<uint32_t>(width), static_cast<uint32_t>(height), 0},
+            {APKRT_CAMERA_FORMAT_YUV_420_888, static_cast<uint32_t>(width), static_cast<uint32_t>(height), 0}};
+    apkrt_camera call{};
+    call.id = context->id;
+    call.count = 2;
+    call.data = reinterpret_cast<uintptr_t>(streams);
+    const apkrt_camera_controls controls = controls_of(*context);
+    apkrt_camera request{};
+    request.id = context->id;
+    request.data = reinterpret_cast<uintptr_t>(&controls);
+    request.targets = 3;
+    request.flags = APKRT_CAMERA_REPEATING;
+    if (context->evicted || camera_call(APKRT_CAMERA_CONFIGURE, &call) != 0 ||
+        camera_call(APKRT_CAMERA_REQUEST, &request) != 0) {
+        jniThrowRuntimeException(env, "startPreview failed");
+        return;
+    }
+    context->width = width, context->height = height;
+    context->stopping = false;
+    context->previewing = true;
+    context->thread_made = pthread_create(&context->thread, nullptr, preview_thread, context) == 0;
+}
+
+void StopPreview(JNIEnv *env, jobject thiz) {
+    Context *context;
+    {
+        const std::lock_guard<std::mutex> hold(gLock);
+        context = live(env, thiz);
+    }
+    if (context != nullptr) stop_preview(context);
+}
+
+jboolean PreviewEnabled(JNIEnv *env, jobject thiz) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    return context != nullptr && context->previewing ? JNI_TRUE : JNI_FALSE;
+}
+
+void SetHasPreviewCallback(JNIEnv *env, jobject thiz, jboolean installed, jboolean manual) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context == nullptr) return;
+    context->callback = installed;
+    context->manual = manual;
+    if (!installed) {  // JNICameraContext::setCallbackMode clears the buffers
+        for (jobject buffer : context->buffers) env->DeleteGlobalRef(buffer);
+        context->buffers.clear();
+    }
+}
+
+void AddCallbackBuffer(JNIEnv *env, jobject thiz, jbyteArray bytes, jint message) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context == nullptr || bytes == nullptr || message != kMessagePreviewFrame) return;
+    context->buffers.push_back(env->NewGlobalRef(bytes));
+}
+
 const JNINativeMethod gCameraMethods[] = {
         {"_getNumberOfCameras", "(II)I", reinterpret_cast<void *>(GetNumberOfCameras)},
         {"_getCameraInfo", "(IIIILandroid/hardware/Camera$CameraInfo;)V", reinterpret_cast<void *>(GetCameraInfo)},
@@ -212,6 +588,13 @@ const JNINativeMethod gCameraMethods[] = {
         {"native_release", "()V", reinterpret_cast<void *>(Release)},
         {"native_getParameters", "()Ljava/lang/String;", reinterpret_cast<void *>(GetParameters)},
         {"native_setParameters", "(Ljava/lang/String;)V", reinterpret_cast<void *>(SetParameters)},
+        {"setPreviewSurface", "(Landroid/view/Surface;)V", reinterpret_cast<void *>(SetPreviewSurface)},
+        {"setPreviewTexture", "(Landroid/graphics/SurfaceTexture;)V", reinterpret_cast<void *>(SetPreviewTexture)},
+        {"startPreview", "()V", reinterpret_cast<void *>(StartPreview)},
+        {"_stopPreview", "()V", reinterpret_cast<void *>(StopPreview)},
+        {"previewEnabled", "()Z", reinterpret_cast<void *>(PreviewEnabled)},
+        {"setHasPreviewCallback", "(ZZ)V", reinterpret_cast<void *>(SetHasPreviewCallback)},
+        {"_addCallbackBuffer", "([BI)V", reinterpret_cast<void *>(AddCallbackBuffer)},
         {"lock", "()V", reinterpret_cast<void *>(Lock)},
         {"unlock", "()V", reinterpret_cast<void *>(Unlock)},
         {"reconnect", "()V", reinterpret_cast<void *>(Reconnect)},
@@ -222,6 +605,9 @@ const JNINativeMethod gCameraMethods[] = {
 int register_android_hardware_Camera(JNIEnv *env) {
     jclass camera = FindClassOrDie(env, "android/hardware/Camera");
     gFields.context = GetFieldIDOrDie(env, camera, "mNativeContext", "J");
+    gFields.camera = MakeGlobalRefOrDie(env, camera);
+    gFields.post = GetStaticMethodIDOrDie(env, camera, "postEventFromNative",
+                                          "(Ljava/lang/Object;IIILjava/lang/Object;)V");
     jclass info = FindClassOrDie(env, "android/hardware/Camera$CameraInfo");
     gFields.facing = GetFieldIDOrDie(env, info, "facing", "I");
     gFields.orientation = GetFieldIDOrDie(env, info, "orientation", "I");

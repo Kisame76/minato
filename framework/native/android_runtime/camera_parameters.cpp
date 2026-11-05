@@ -492,8 +492,15 @@ bool integer(const std::string *text, long *value) {
 
 }  // namespace
 
-bool accept_parameters(const std::string &initial, const std::string &asked) {
+bool accept_parameters(const std::string &initial, const std::string &asked, bool previewing) {
     const auto base = unflatten(initial), next = unflatten(asked);
+    if (previewing) {
+        // The preview's size and format cannot change while it runs.
+        for (const char *key : {"preview-size", "preview-format"}) {
+            const std::string *value = find(next, key), *was = find(base, key);
+            if (value != nullptr && (was == nullptr || *value != *was)) return false;
+        }
+    }
     const auto same_or_listed = [&](const char *key, const char *values) {
         const std::string *value = find(next, key), *was = find(base, key);
         if (value == nullptr || (was != nullptr && *value == *was)) return true;

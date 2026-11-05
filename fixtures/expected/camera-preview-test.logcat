@@ -1,0 +1,10 @@
+I/camera-preview-test: preview enabled before the start false
+I/camera-preview-test: preview enabled after the start true
+I/camera-preview-test: frames into the SurfaceTexture: at least 10 in 2 s true, their timestamps rising true
+I/camera-preview-test: preview callbacks: at least 10 in 2 s true, each NV21's size true
+I/camera-preview-test: callbacks with buffers: three true, in the app's buffers true
+I/camera-preview-test: one-shot callback: one true
+I/camera-preview-test: another preview size while previewing: java.lang.RuntimeException setParameters failed
+I/camera-preview-test: preview enabled after the stop false
+I/camera-preview-test: frames after the stop: none true
+I/camera-preview-test: done

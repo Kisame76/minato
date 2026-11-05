@@ -76,6 +76,8 @@ std::string legacy_parameters(const StaticInfo &info, const VideoBounds &video);
 /// format, the JPEG and thumbnail qualities, the rotation, the effect, antibanding, scene, flash, white balance and
 /// focus modes, the exposure compensation and the zoom); a camera then gives `asked` back as its parameters, as
 /// CameraParameters2 keeps them.
-bool accept_parameters(const std::string &initial, const std::string &asked);
+/// While the preview runs (`previewing`), its size and format must stay those in force (`initial` then holds them),
+/// as Parameters::set refuses another one in its PREVIEW state.
+bool accept_parameters(const std::string &initial, const std::string &asked, bool previewing = false);
 
 }  // namespace minato::camera

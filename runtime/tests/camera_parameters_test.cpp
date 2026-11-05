@@ -371,6 +371,14 @@ TEST(set_parameters_takes_what_the_lists_hold_and_refuses_the_rest) {
     CHECK(!camera::accept_parameters(initial, none));
 }
 
+TEST(while_the_preview_runs_its_size_and_format_stay) {
+    const std::string initial = camera::legacy_parameters(emulator(), emulator_video);
+    CHECK(!camera::accept_parameters(initial, with(initial, "preview-size", "160x120"), true));
+    CHECK(!camera::accept_parameters(initial, with(initial, "preview-format", "yuv420p"), true));
+    CHECK(camera::accept_parameters(initial, with(initial, "jpeg-quality", "80"), true));
+    CHECK(camera::accept_parameters(initial, initial, true));  // the same size and format
+}
+
 }  // namespace
 
 int main() { return apk::testing::run_all(); }
