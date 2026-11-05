@@ -55,14 +55,14 @@ constexpr std::size_t queue_limit = 64;
 
 apkrt_sensor_host registered{};             // the host's context and start/stop
 bool have_host = false;                     // whether a host with >= 1 available sensor is set
-std::vector<std::int32_t> available_types;  // the TYPE_ numbers the host said CoreMotion can feed
+[[clang::no_destroy]] std::vector<std::int32_t> available_types;  // the TYPE_ numbers the host said CoreMotion can feed
 
 struct Queue {
     int id;
     int write_fd;                       // the hub's end of the pipe; push and flush write whole records here
     std::vector<std::int32_t> enabled;  // the types enabled on this queue, in the order enabled (for flush)
 };
-std::vector<Queue> queues;
+[[clang::no_destroy]] std::vector<Queue> queues;
 int next_queue_id = 1;
 
 // One queue's request for a type: which queue, at what period, and its pipe write end (kept here so a push needs no
@@ -79,7 +79,7 @@ struct TypeState {
     std::vector<Request> requests;
     std::int64_t commanded = -1;
 };
-std::vector<TypeState> states;
+[[clang::no_destroy]] std::vector<TypeState> states;
 
 const SensorInfo *table_entry(std::int32_t type) {
     for (const auto &s : table) {

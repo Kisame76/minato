@@ -119,7 +119,9 @@ struct Slot {
     std::mutex guest_lock;  // one guest syscall at a time writes the ring or changes the state
 };
 
-Slot slots[slot_count];
+// Immortal, with the mutex in each slot: the render block runs on CoreAudio's thread and the guest's syscalls on
+// threads of its own, both of which can still be running while exit() runs the static destructors (network.cpp).
+[[clang::no_destroy]] Slot slots[slot_count];
 // The slots' use, generations and opens; immortal (apkrt_audio_disconnected during exit, network.cpp).
 [[clang::no_destroy]] constinit std::mutex table_lock;
 

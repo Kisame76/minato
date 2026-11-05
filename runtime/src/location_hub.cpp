@@ -42,7 +42,7 @@ struct OneShot {
     std::uint64_t seq;    // the fix's sequence, once resolved
     apkrt_location_fix fix;
 };
-std::vector<OneShot> one_shots;
+[[clang::no_destroy]] std::vector<OneShot> one_shots;
 
 location::Fudger fudger;
 bool fudger_seeded = false;

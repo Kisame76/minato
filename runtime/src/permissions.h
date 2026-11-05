@@ -16,8 +16,10 @@ namespace apkrt::permissions {
 /// The outcome of a group the host has not answered yet; distinct from APKRT_PERMISSION_DENIED, which is an answer.
 constexpr int unknown = -1;
 
+/// Immortal: the host answers and the location hub reads from callbacks that can run while exit() runs the static
+/// destructors (network.cpp), and a destroyed mutex aborts the lock.
 inline std::mutex &store_mutex() {
-    static std::mutex mutex;
+    [[clang::no_destroy]] static std::mutex mutex;
     return mutex;
 }
 
