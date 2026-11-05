@@ -58,6 +58,16 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.media.midi.MidiDevice --class android.media.projection.MediaProjection \
   --class android.bluetooth.BluetoothManager --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
+  --class android.bluetooth.BluetoothGatt --class android.bluetooth.BluetoothGattCallback \
+  --class android.bluetooth.BluetoothGattService --class android.bluetooth.BluetoothGattCharacteristic \
+  --class android.bluetooth.BluetoothGattDescriptor --class android.bluetooth.BluetoothGattServer \
+  --class android.bluetooth.BluetoothGattServerCallback --class android.bluetooth.BluetoothSocket \
+  --class android.bluetooth.BluetoothServerSocket --class android.bluetooth.BluetoothClass \
+  --class android.bluetooth.le.BluetoothLeScanner --class android.bluetooth.le.BluetoothLeAdvertiser \
+  --class android.bluetooth.le.ScanCallback --class android.bluetooth.le.ScanFilter \
+  --class android.bluetooth.le.ScanRecord --class android.bluetooth.le.ScanResult \
+  --class android.bluetooth.le.ScanSettings --class android.bluetooth.le.AdvertiseCallback \
+  --class android.bluetooth.le.AdvertiseData --class android.bluetooth.le.AdvertiseSettings \
   --class android.nfc.NfcManager --class android.nfc.NfcAdapter --class android.app.role.RoleManager \
   --class android.hardware.fingerprint.FingerprintManager --class android.app.GrammaticalInflectionManager \
   --class android.print.PrintManager --class android.widget.ShareActionProvider \

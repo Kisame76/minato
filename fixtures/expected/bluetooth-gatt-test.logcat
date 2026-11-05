@@ -1,0 +1,74 @@
+I/bluetooth-gatt-test: class BluetoothGatt: BluetoothGatt
+I/bluetooth-gatt-test: class BluetoothGattCallback: BluetoothGattCallback
+I/bluetooth-gatt-test: class BluetoothGattService: BluetoothGattService
+I/bluetooth-gatt-test: class BluetoothGattCharacteristic: BluetoothGattCharacteristic
+I/bluetooth-gatt-test: class BluetoothGattDescriptor: BluetoothGattDescriptor
+I/bluetooth-gatt-test: class BluetoothGattServer: BluetoothGattServer
+I/bluetooth-gatt-test: class BluetoothGattServerCallback: BluetoothGattServerCallback
+I/bluetooth-gatt-test: class BluetoothSocket: BluetoothSocket
+I/bluetooth-gatt-test: class BluetoothServerSocket: BluetoothServerSocket
+I/bluetooth-gatt-test: class BluetoothClass: BluetoothClass
+I/bluetooth-gatt-test: class le.BluetoothLeScanner: BluetoothLeScanner
+I/bluetooth-gatt-test: class le.BluetoothLeAdvertiser: BluetoothLeAdvertiser
+I/bluetooth-gatt-test: class le.ScanCallback: ScanCallback
+I/bluetooth-gatt-test: class le.ScanSettings: ScanSettings
+I/bluetooth-gatt-test: class le.ScanResult: ScanResult
+I/bluetooth-gatt-test: class le.AdvertiseCallback: AdvertiseCallback
+I/bluetooth-gatt-test: adapter getName: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter getBondedDevices: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter getAddress: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter getScanMode: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter disable: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter getProfileConnectionState: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter startDiscovery: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter isDiscovering: throws java.lang.SecurityException
+I/bluetooth-gatt-test: adapter listenUsingRfcommWithServiceRecord: throws java.lang.SecurityException
+I/bluetooth-gatt-test: checkBluetoothAddress good: true
+I/bluetooth-gatt-test: checkBluetoothAddress lower case: false
+I/bluetooth-gatt-test: checkBluetoothAddress bad: false
+I/bluetooth-gatt-test: manager getConnectionState: throws java.lang.SecurityException
+I/bluetooth-gatt-test: manager getConnectedDevices GATT_SERVER: throws java.lang.SecurityException
+I/bluetooth-gatt-test: manager openGattServer null callback: throws java.lang.IllegalArgumentException
+I/bluetooth-gatt-test: getRemoteDevice address: 00:11:22:33:44:55
+I/bluetooth-gatt-test: getRemoteDevice toString: XX:XX:XX:XX:44:55
+I/bluetooth-gatt-test: getRemoteDevice equals: true
+I/bluetooth-gatt-test: getRemoteDevice lower case: throws java.lang.IllegalArgumentException
+I/bluetooth-gatt-test: getRemoteDevice bad: throws java.lang.IllegalArgumentException
+I/bluetooth-gatt-test: getRemoteDevice null: throws java.lang.IllegalArgumentException
+I/bluetooth-gatt-test: device getName: throws java.lang.SecurityException
+I/bluetooth-gatt-test: device getType: throws java.lang.SecurityException
+I/bluetooth-gatt-test: device getBondState: throws java.lang.SecurityException
+I/bluetooth-gatt-test: device getBluetoothClass: throws java.lang.SecurityException
+I/bluetooth-gatt-test: device getUuids: throws java.lang.SecurityException
+I/bluetooth-gatt-test: device connectGatt null callback: throws java.lang.NullPointerException
+I/bluetooth-gatt-test: device createRfcommSocketToServiceRecord is not null: true
+I/bluetooth-gatt-test: device DEVICE_TYPE_LE: 2
+I/bluetooth-gatt-test: device BOND_NONE: 10
+I/bluetooth-gatt-test: gatt constants: 0 257 3 1 2 7
+I/bluetooth-gatt-test: callback is abstract: true
+I/bluetooth-gatt-test: callback methods: [onCharacteristicChanged, onCharacteristicChanged, onCharacteristicRead, onCharacteristicRead, onCharacteristicWrite, onConnectionStateChange, onDescriptorRead, onDescriptorRead, onDescriptorWrite, onMtuChanged, onPhyRead, onPhyUpdate, onReadRemoteRssi, onReliableWriteCompleted, onServiceChanged, onServicesDiscovered]
+I/bluetooth-gatt-test: server callback methods: 11
+I/bluetooth-gatt-test: service type: 0
+I/bluetooth-gatt-test: service uuid: 0000180d-0000-1000-8000-00805f9b34fb
+I/bluetooth-gatt-test: service instanceId: 0
+I/bluetooth-gatt-test: service characteristics empty: 0
+I/bluetooth-gatt-test: service addCharacteristic: true 1 true true
+I/bluetooth-gatt-test: service addService: true 1
+I/bluetooth-gatt-test: characteristic fields: 00002a37-0000-1000-8000-00805f9b34fb 18 1 2 0 null null
+I/bluetooth-gatt-test: characteristic setValue bytes: true [1, 2, 3]
+I/bluetooth-gatt-test: characteristic setValue int: true [52, 18] 4660 18
+I/bluetooth-gatt-test: characteristic setValue string: hi i
+I/bluetooth-gatt-test: characteristic setValue float: [7, 0] 7.0
+I/bluetooth-gatt-test: characteristic setWriteType: 1
+I/bluetooth-gatt-test: characteristic descriptor: true 1 true true 17 00002902-0000-1000-8000-00805f9b34fb null
+I/bluetooth-gatt-test: descriptor setValue: true [1, 0]
+I/bluetooth-gatt-test: descriptor value constants: [2, 0] [0, 0]
+I/bluetooth-gatt-test: characteristic constants: 16 18 1
+I/bluetooth-gatt-test: service constants: 0 1
+I/bluetooth-gatt-test: callback onCharacteristicRead (deprecated) status 5
+I/bluetooth-gatt-test: callback onCharacteristicChanged (deprecated)
+I/bluetooth-gatt-test: callback onDescriptorRead (deprecated) status 7
+I/bluetooth-gatt-test: device connectGatt: throws java.lang.SecurityException
+I/bluetooth-gatt-test: device connectGatt transport: throws java.lang.SecurityException
+I/bluetooth-gatt-test: manager openGattServer: throws java.lang.SecurityException
+I/bluetooth-gatt-test: done

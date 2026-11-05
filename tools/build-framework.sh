@@ -259,6 +259,16 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
   --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
+  --class android.bluetooth.BluetoothGatt --class android.bluetooth.BluetoothGattCallback \
+  --class android.bluetooth.BluetoothGattService --class android.bluetooth.BluetoothGattCharacteristic \
+  --class android.bluetooth.BluetoothGattDescriptor --class android.bluetooth.BluetoothGattServer \
+  --class android.bluetooth.BluetoothGattServerCallback --class android.bluetooth.BluetoothSocket \
+  --class android.bluetooth.BluetoothServerSocket --class android.bluetooth.BluetoothClass \
+  --class android.bluetooth.le.BluetoothLeScanner --class android.bluetooth.le.BluetoothLeAdvertiser \
+  --class android.bluetooth.le.ScanCallback --class android.bluetooth.le.ScanFilter \
+  --class android.bluetooth.le.ScanRecord --class android.bluetooth.le.ScanResult \
+  --class android.bluetooth.le.ScanSettings --class android.bluetooth.le.AdvertiseCallback \
+  --class android.bluetooth.le.AdvertiseData --class android.bluetooth.le.AdvertiseSettings \
   --api "$SOURCES/nfc_api/nfc/api/current.txt" --class android.nfc.NfcManager \
   --class android.nfc.NfcAdapter \
   --api "$SOURCES/permission_api/framework-s/api/current.txt" --class android.app.role.RoleManager \
