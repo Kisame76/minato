@@ -166,7 +166,9 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
       "gamepad-test io.github.kisame76.minato.test.gamepad"
-      "permission-request-test-fine io.github.kisame76.minato.test.permreqfine")
+      "permission-request-test-fine io.github.kisame76.minato.test.permreqfine"
+      "location-manager-test-fine io.github.kisame76.minato.test.locmanfine"
+      "location-manager-test-coarse io.github.kisame76.minato.test.locmancoarse")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -582,6 +584,8 @@ begin_start() {
   [[ "$app" != documents-tree-test ]] || echo yes > "$CHECK/pick-allow"
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
+  # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
+  [[ "$app" != permission-request-test-fine ]] || echo yes > "$CHECK/permission-allow"
   # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
   # drawables' pass, with PIXELS_CONTENTS by contents in the Simulator.
   if [[ -n "${PIXELS:-}" ]]; then
@@ -1175,30 +1179,6 @@ compare_log("orientation-request-test", subprocess.CompletedProcess([], 0, "", l
 EOF
 fi
 
-# permission-request-test-fine asks for the location group, which goes to the host (ADR-0063 decision 2). Until the
-# location host comes, Minato answers it denied at once, without its alert: the app's requests end, with the location
-# permissions denied, and it reaches its last line (ADR-0063's step M1b compares the whole log with Android 15's).
-if wanted permission-request-test-fine; then
-  run_start permission-request-test-fine io.github.kisame76.minato.test.permreqfine 1
-  fetch_events
-  log="$WORK/permission-request-test-fine-1.log"
-  p=android.permission
-  for line in "result 1: 1 [$p.ACCESS_FINE_LOCATION denied]" \
-      "result 2: 3 [$p.ACCESS_COARSE_LOCATION denied, $p.ACCESS_FINE_LOCATION denied, $p.INTERNET granted]" "done"; do
-    if grep -q -F "I/permission-request-test-fine: $line" "$log"; then
-      ok "  $line"
-    else
-      fail "  no line \"$line\""
-    fi
-  done
-  answers=$(grep -c -E " permission [0-9]+ group 1 outcome 0$" "$EVENTS" || true)
-  if [[ "$answers" == 2 ]]; then
-    ok "  the host answered both location requests denied"
-  else
-    fail "  the host answered $answers location requests, not 2"
-  fi
-fi
-
 # gamepad-test (ADR-0068 decision 5): once it is ready, SessionCheck's pad request connects a hidden GCVirtualController
 # and plays tools/gamepad-check.sh's steps on it, which the app gets through GameController as a real pad's. Its lines
 # must be Android 15's for the AVD's uinput Xbox pad, with the virtual pad's name, vendor and product in the device
@@ -1276,6 +1256,39 @@ compare_log(app, subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-
             {})
 EOF
 }
+# ADR-0063 in the Simulator: iOS's location answer is granted beforehand (simctl privacy), and its position is the one
+# tools/android-reference.sh gives the emulator, 52.52 N, 13.405 E. permission-request-test-fine asks for the location
+# group, Minato's alert answers Allow by itself (permission-allow), and its log must be Android 15's with both granted.
+# location-manager-test-fine and -coarse start with the grant their names say, as the AVD's pm grant gives it: the
+# host's record of the app says so before the start, and Minato seeds the runtime from it; their fixes come from
+# CoreLocation, and their logs must be Android 15's.
+if [[ "$ON_DEVICE" == no ]] && { wanted permission-request-test-fine || wanted location-manager-test-fine ||
+    wanted location-manager-test-coarse; }; then
+  xcrun simctl privacy "$SIM_UDID" grant location "$BUNDLE_ID"
+  xcrun simctl location "$SIM_UDID" set 52.52,13.405
+  if wanted permission-request-test-fine; then
+    # A fresh app for the host: no answer stored from an earlier run.
+    rm -f "$SUPPORT/data/io.github.kisame76.minato.test.permreqfine/permissions.json"
+    run_one permission-request-test-fine io.github.kisame76.minato.test.permreqfine
+    fetch_events
+    # The app asks the host once: its second request finds both permissions granted, as on Android.
+    answers=$(grep -c -E " permission [0-9]+ group 1 outcome 1$" "$EVENTS" || true)
+    if [[ "$answers" == 1 ]]; then
+      ok "  the host granted the location request fine"
+    else
+      fail "  the host granted $answers location requests fine, not 1"
+    fi
+  fi
+  for twin in fine:1 coarse:2; do
+    app=location-manager-test-${twin%:*}
+    wanted "$app" || continue
+    package=io.github.kisame76.minato.test.locman${twin%:*}
+    mkdir -p "$SUPPORT/data/$package"
+    echo "{\"location\":{\"outcome\":${twin#*:},\"denials\":0}}" > "$SUPPORT/data/$package/permissions.json"
+    run_one "$app" "$package"
+  done
+fi
+
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
 run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 run_one jnigraphics-test io.github.kisame76.minato.test.jnigraphics

@@ -21,10 +21,76 @@ import Testing
         #expect(PermissionAsk(text: "2\t0\t1") == nil)
     }
 
-    @Test func locationIsDeniedAtOnceWithoutTheAlertUntilItsHostComes() {
+    @Test func locationAsksMinatosAlertThenIOSAndAFineRequestIsGrantedFine() {
         var desk = desk()
-        #expect(desk.requested(id: 5, text: "1\t1", ios: .notDetermined) == [.answer(id: 5, group: 1, outcome: 0)])
-        #expect(desk.records == PermissionRecords())
+        #expect(desk.requested(id: 5, text: "1\t1", ios: .notDetermined) == [.ask(id: 5, group: .location)])
+        #expect(desk.allowed(id: 5, ios: .notDetermined) == [.askIOS(id: 5, group: .location)])
+        #expect(desk.iosAnswered(id: 5, state: .granted) == [.answer(id: 5, group: 1, outcome: 1)])
+        #expect(desk.records.location == PermissionRecord(outcome: 1, denials: 0))
+        #expect(desk.records.microphone == PermissionRecord())
+    }
+
+    @Test func aCoarseOnlyRequestIsGrantedCoarseEvenWhenIOSGivesFullAccuracy() {
+        var desk = desk()
+        _ = desk.requested(id: 5, text: "1\t2", ios: .granted)
+        #expect(desk.allowed(id: 5, ios: .granted) == [.answer(id: 5, group: 1, outcome: 2)])
+        #expect(desk.records.location == PermissionRecord(outcome: 2, denials: 0))
+    }
+
+    @Test func aFineRequestUnderIOSsReducedAccuracyIsGrantedCoarse() {
+        var desk = desk()
+        _ = desk.requested(id: 5, text: "1\t1", ios: .notDetermined)
+        _ = desk.allowed(id: 5, ios: .notDetermined)
+        #expect(desk.iosAnswered(id: 5, state: .grantedReduced) == [.answer(id: 5, group: 1, outcome: 2)])
+    }
+
+    @Test func eachGroupKeepsItsOwnRecordAndDenials() {
+        var desk = desk()
+        _ = desk.requested(id: 1, text: "1\t1", ios: .granted)
+        _ = desk.denied(id: 1)
+        _ = desk.requested(id: 2, text: "1\t1", ios: .granted)
+        _ = desk.denied(id: 2)
+        #expect(desk.records.location == PermissionRecord(outcome: 0, denials: 2))
+        #expect(desk.requested(id: 3, text: "2\t0", ios: .granted) == [.ask(id: 3, group: .microphone)])
+        #expect(desk.requested(id: 4, text: "1\t1", ios: .granted).isEmpty)
+        #expect(desk.allowed(id: 3, ios: .granted) == [.answer(id: 3, group: 2, outcome: 1),
+                                                       .answer(id: 4, group: 1, outcome: 0)])
+    }
+
+    @Test func aStoredCoarseGrantAsksAgainForFine() {
+        var desk = desk(PermissionRecords(location: PermissionRecord(outcome: 2, denials: 0)))
+        #expect(desk.requested(id: 1, text: "1\t2", ios: .granted) == [.answer(id: 1, group: 1, outcome: 2)])
+        #expect(desk.requested(id: 2, text: "1\t1", ios: .granted) == [.ask(id: 2, group: .location)])
+        #expect(desk.allowed(id: 2, ios: .granted) == [.answer(id: 2, group: 1, outcome: 1)])
+    }
+
+    @Test func theStartSeedsEachGroupByItsOwnIOSAnswer() {
+        let records = PermissionRecords(microphone: PermissionRecord(outcome: 1, denials: 0),
+                                        location: PermissionRecord(outcome: 1, denials: 0))
+        let both = desk(records).seeds { $0 == .microphone ? .granted : .grantedReduced }
+        #expect(both == [.answer(id: 0, group: 2, outcome: 1), .answer(id: 0, group: 1, outcome: 2)])
+        #expect(desk(records).seeds { $0 == .microphone ? .denied : .granted }
+                == [.answer(id: 0, group: 1, outcome: 1)])
+    }
+
+    @Test func theForegroundFollowsIOSsLocationAccuracyAndRevoke() {
+        var desk = desk(PermissionRecords(location: PermissionRecord(outcome: 1, denials: 0)))
+        #expect(desk.foreground(ios: .granted).isEmpty)
+        #expect(desk.foreground(ios: .grantedReduced) == [.answer(id: 0, group: 1, outcome: 2)])
+        #expect(desk.records.location == PermissionRecord(outcome: 2, denials: 0))
+        #expect(desk.foreground(ios: .granted).isEmpty)
+        #expect(desk.foreground(ios: .denied) == [.answer(id: 0, group: 1, outcome: 0)])
+        #expect(desk.records.location == PermissionRecord(outcome: 0, denials: 0))
+    }
+
+    @Test func aFileWithoutALocationRecordKeepsItsMicrophoneRecord() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "permission-desk-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: "permissions.json")
+        try Data(#"{"microphone":{"outcome":1,"denials":0}}"#.utf8).write(to: file)
+        #expect(PermissionRecords.load(from: file)
+                == PermissionRecords(microphone: PermissionRecord(outcome: 1, denials: 0)))
     }
 
     @Test func aTextTheHostCannotReadIsDenied() {

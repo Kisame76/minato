@@ -1,7 +1,7 @@
 import Foundation
 
 /// A dangerous permission group the host decides (guest_interface.h, APKRT_PERMISSION_*).
-public enum PermissionGroup: Int32, Sendable, Codable {
+public enum PermissionGroup: Int32, Sendable, Codable, CaseIterable {
     case location = 1
     case microphone = 2
 }
@@ -25,8 +25,9 @@ public struct PermissionAsk: Sendable, Equatable {
     }
 }
 
-/// What the host answered an app for a group, kept across its sessions: the outcome (APKRT_PERMISSION_*) and the
-/// denials in a row, of which the second is Android's "don't ask again".
+/// What the host answered an app for a group, kept across its sessions: the outcome (APKRT_PERMISSION_*: 0 denied, 1
+/// granted, for location fine, 2 location coarse) and the denials in a row, of which the second is Android's "don't
+/// ask again".
 public struct PermissionRecord: Sendable, Equatable, Codable {
     public var outcome: Int32
     public var denials: Int
@@ -41,9 +42,23 @@ public struct PermissionRecord: Sendable, Equatable, Codable {
 /// app cannot write them.
 public struct PermissionRecords: Sendable, Equatable, Codable {
     public var microphone = PermissionRecord()
+    public var location = PermissionRecord()
 
-    public init(microphone: PermissionRecord = PermissionRecord()) {
+    public init(microphone: PermissionRecord = PermissionRecord(), location: PermissionRecord = PermissionRecord()) {
         self.microphone = microphone
+        self.location = location
+    }
+
+    /// A file of an older Minato may lack a group.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        microphone = try container.decodeIfPresent(PermissionRecord.self, forKey: .microphone) ?? PermissionRecord()
+        location = try container.decodeIfPresent(PermissionRecord.self, forKey: .location) ?? PermissionRecord()
+    }
+
+    subscript(group: PermissionGroup) -> PermissionRecord {
+        get { group == .microphone ? microphone : location }
+        set { if group == .microphone { microphone = newValue } else { location = newValue } }
     }
 
     /// The records in `file`; none for a missing or unreadable one.
@@ -63,15 +78,24 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
 /// The host's side of APKRT_REQUEST_PERMISSION (ADR-0063 decision 2, ADR-0064 decision 2): one request at a time, in
 /// the runtime's order. iOS's answer is Minato's, for every app, so Minato asks in an alert of its own that names the
 /// app first, and only a yes there goes on to iOS's prompt, and only while iOS has not answered; a no never reaches
-/// iOS. The answer is kept per app; a grant clears the denials, and a request after the second denial in a row is
-/// answered no at once, as Android stops showing its dialog then. When iOS has denied, the answer is no without the
-/// alert. Location is answered no at once until its host comes. The start seeds a stored grant iOS still gives, and
-/// each return to the foreground answers a grant that iOS no longer gives as a denial (request ID 0, not counted).
+/// iOS. The answer is kept per app and group; a grant clears the denials, and a request after the second denial in a
+/// row is answered no at once, as Android stops showing its dialog then. When iOS has denied, the answer is no without
+/// the alert. Location is fine for a request of ACCESS_FINE_LOCATION under iOS's full accuracy and coarse for a
+/// coarse-only request or under iOS's reduced accuracy (decision 3); a stored coarse grant asks again for fine. The
+/// start seeds a stored grant iOS still gives, and each return to the foreground answers a change of iOS's answer
+/// (request ID 0, not counted): a revoke as a denial, reduced accuracy as coarse.
 public struct PermissionDesk: Sendable {
-    /// iOS's answer for the group's own permission (AVAudioApplication.recordPermission for the microphone).
+    /// iOS's answer for the group's own permission (AVAudioApplication.recordPermission for the microphone,
+    /// CLLocationManager's authorization and accuracy for location).
     public enum IOSState: Sendable {
         case notDetermined, granted, denied
+        /// Location authorized with reduced accuracy (precise location off).
+        case grantedReduced
+
+        var grants: Bool { self == .granted || self == .grantedReduced }
     }
+
+    public typealias IOSStates = (PermissionGroup) -> IOSState
 
     public enum Step: Sendable, Equatable {
         /// apkrt_permission_answer(id, group, outcome).
@@ -84,47 +108,49 @@ public struct PermissionDesk: Sendable {
         case dismiss(id: UInt64)
     }
 
+    private struct Request {
+        var id: UInt64
+        var ask: PermissionAsk
+    }
+
     public private(set) var records: PermissionRecords
-    private var shown: (id: UInt64, group: PermissionGroup)?
-    private var waiting: [(id: UInt64, group: PermissionGroup)] = []
+    private var shown: Request?
+    private var waiting: [Request] = []
 
     public init(records: PermissionRecords) {
         self.records = records
     }
 
-    /// The runtime's request `id` with its text, at iOS's answer `ios`.
-    public mutating func requested(id: UInt64, text: String, ios: IOSState) -> [Step] {
+    /// The runtime's request `id` with its text, at iOS's answers `ios`.
+    public mutating func requested(id: UInt64, text: String, ios: IOSStates) -> [Step] {
         guard shown?.id != id, !waiting.contains(where: { $0.id == id }) else { return [] }
         guard let ask = PermissionAsk(text: text) else { return [.answer(id: id, group: 0, outcome: 0)] }
-        guard ask.group == .microphone else { return [.answer(id: id, group: ask.group.rawValue, outcome: 0)] }
-        waiting.append((id, ask.group))
+        waiting.append(Request(id: id, ask: ask))
         return shown == nil ? next(ios: ios) : []
     }
 
     /// The user allowed the shown request `id` in Minato's alert.
-    public mutating func allowed(id: UInt64, ios: IOSState) -> [Step] {
+    public mutating func allowed(id: UInt64, ios: IOSStates) -> [Step] {
         guard let shown, shown.id == id else { return [] }
-        switch ios {
-        case .notDetermined: return [.askIOS(id: id, group: shown.group)]
-        case .granted: return finish(granted: true, ios: ios)
-        case .denied: return finish(granted: false, ios: ios)
-        }
+        let state = ios(shown.ask.group)
+        return state == .notDetermined ? [.askIOS(id: id, group: shown.ask.group)] : finish(state, ios: ios)
     }
 
     /// The user said no in Minato's alert for the shown request `id`.
-    public mutating func denied(id: UInt64) -> [Step] {
+    public mutating func denied(id: UInt64, ios: IOSStates = { _ in .notDetermined }) -> [Step] {
         guard let shown, shown.id == id else { return [] }
-        return finish(granted: false, ios: .notDetermined)
+        return finish(.denied, ios: ios)
     }
 
-    /// iOS's prompt for the shown request `id` was answered.
-    public mutating func iosAnswered(id: UInt64, granted: Bool) -> [Step] {
+    /// iOS's prompt for the shown request `id` was answered with `state`.
+    public mutating func iosAnswered(id: UInt64, state: IOSState, ios: IOSStates? = nil) -> [Step] {
         guard let shown, shown.id == id else { return [] }
-        return finish(granted: granted, ios: granted ? .granted : .denied)
+        let group = shown.ask.group
+        return finish(state, ios: ios ?? { $0 == group ? state : .notDetermined })
     }
 
     /// The guest no longer wants request `id`: a shown one is dismissed, a waiting one dropped, neither answered.
-    public mutating func cancelled(id: UInt64, ios: IOSState = .notDetermined) -> [Step] {
+    public mutating func cancelled(id: UInt64, ios: IOSStates = { _ in .notDetermined }) -> [Step] {
         if shown?.id == id {
             shown = nil
             return [.dismiss(id: id)] + next(ios: ios)
@@ -133,52 +159,107 @@ public struct PermissionDesk: Sendable {
         return []
     }
 
-    /// At the session's start: the stored grant, when iOS still gives it.
-    public func seeds(ios: IOSState) -> [Step] {
-        records.microphone.outcome == 1 && ios == .granted ? [.answer(id: 0, group: 2, outcome: 1)] : []
+    /// At the session's start: each stored grant iOS still gives, coarse under iOS's reduced accuracy.
+    public func seeds(ios: IOSStates) -> [Step] {
+        [PermissionGroup.microphone, .location].compactMap { group in
+            let stored = records[group].outcome
+            guard stored != 0, ios(group).grants else { return nil }
+            return .answer(id: 0, group: group.rawValue, outcome: Self.adjusted(stored, group: group, ios(group)))
+        }
     }
 
-    /// At each return to the foreground: a stored grant that iOS no longer gives becomes a denial, not counted.
-    public mutating func foreground(ios: IOSState) -> [Step] {
-        guard records.microphone.outcome == 1, ios != .granted else { return [] }
-        records.microphone.outcome = 0
-        return [.answer(id: 0, group: 2, outcome: 0)]
+    /// At each return to the foreground: a stored grant that iOS no longer gives becomes a denial, a fine one under
+    /// iOS's reduced accuracy coarse; neither is counted as a denial.
+    public mutating func foreground(ios: IOSStates) -> [Step] {
+        var steps: [Step] = []
+        for group in [PermissionGroup.microphone, .location] {
+            let stored = records[group].outcome
+            guard stored != 0 else { continue }
+            let now = ios(group).grants ? Self.adjusted(stored, group: group, ios(group)) : 0
+            guard now != stored else { continue }
+            records[group].outcome = now
+            steps.append(.answer(id: 0, group: group.rawValue, outcome: now))
+        }
+        return steps
     }
 
-    private mutating func finish(granted: Bool, ios: IOSState) -> [Step] {
+    /// A stored outcome under iOS's answer: location's fine is coarse under reduced accuracy.
+    private static func adjusted(_ stored: Int32, group: PermissionGroup, _ state: IOSState) -> Int32 {
+        group == .location && state == .grantedReduced ? 2 : stored
+    }
+
+    /// The outcome of a grant of `ask` under iOS's answer: 1, for location 2 when coarse.
+    private static func granted(_ ask: PermissionAsk, _ state: IOSState) -> Int32 {
+        guard ask.group == .location else { return 1 }
+        return ask.detail == 2 || state == .grantedReduced ? 2 : 1
+    }
+
+    private mutating func finish(_ state: IOSState, ios: IOSStates) -> [Step] {
         guard let shown else { return [] }
         self.shown = nil
-        return [answer(shown.id, granted: granted)] + next(ios: ios)
+        return [answer(shown, state.grants ? Self.granted(shown.ask, state) : 0)] + next(ios: ios)
     }
 
     /// The answer of a request, which the record keeps.
-    private mutating func answer(_ id: UInt64, granted: Bool) -> Step {
-        if granted {
-            records.microphone = PermissionRecord(outcome: 1, denials: 0)
+    private mutating func answer(_ request: Request, _ outcome: Int32) -> Step {
+        let group = request.ask.group
+        if outcome != 0 {
+            records[group] = PermissionRecord(outcome: outcome, denials: 0)
         } else {
-            records.microphone.outcome = 0
-            records.microphone.denials += 1
+            records[group].outcome = 0
+            records[group].denials += 1
         }
-        return .answer(id: id, group: PermissionGroup.microphone.rawValue, outcome: granted ? 1 : 0)
+        return .answer(id: request.id, group: group.rawValue, outcome: outcome)
     }
 
     /// The next waiting request: answered at once from the record or iOS's denial, or shown.
-    private mutating func next(ios: IOSState) -> [Step] {
+    private mutating func next(ios: IOSStates) -> [Step] {
         var steps: [Step] = []
         while !waiting.isEmpty {
             let first = waiting.removeFirst()
-            if records.microphone.outcome == 1 && ios == .granted {
-                steps.append(.answer(id: first.id, group: first.group.rawValue, outcome: 1))
-            } else if records.microphone.denials >= 2 {
-                steps.append(.answer(id: first.id, group: first.group.rawValue, outcome: 0))
-            } else if ios == .denied {
-                steps.append(answer(first.id, granted: false))
+            let group = first.ask.group, record = records[group], state = ios(group)
+            // A stored grant answers, but a coarse one for a fine request asks again.
+            let covers = record.outcome == 1 || (record.outcome == 2 && Self.granted(first.ask, state) == 2)
+            if record.outcome != 0 && covers && state.grants {
+                steps.append(.answer(id: first.id, group: group.rawValue,
+                                     outcome: Self.adjusted(record.outcome, group: group, state)))
+            } else if record.denials >= 2 {
+                steps.append(.answer(id: first.id, group: group.rawValue, outcome: 0))
+            } else if state == .denied {
+                steps.append(answer(first, 0))
             } else {
                 shown = first
-                steps.append(.ask(id: first.id, group: first.group))
+                steps.append(.ask(id: first.id, group: group))
                 break
             }
         }
         return steps
+    }
+}
+
+extension PermissionDesk {
+    /// The same iOS answer for every group.
+    public mutating func requested(id: UInt64, text: String, ios: IOSState) -> [Step] {
+        requested(id: id, text: text, ios: { _ in ios })
+    }
+
+    public mutating func allowed(id: UInt64, ios: IOSState) -> [Step] {
+        allowed(id: id, ios: { _ in ios })
+    }
+
+    public mutating func iosAnswered(id: UInt64, granted: Bool) -> [Step] {
+        iosAnswered(id: id, state: granted ? .granted : .denied)
+    }
+
+    public mutating func cancelled(id: UInt64, ios: IOSState) -> [Step] {
+        cancelled(id: id, ios: { _ in ios })
+    }
+
+    public func seeds(ios: IOSState) -> [Step] {
+        seeds(ios: { _ in ios })
+    }
+
+    public mutating func foreground(ios: IOSState) -> [Step] {
+        foreground(ios: { _ in ios })
     }
 }

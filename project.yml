@@ -111,6 +111,8 @@ targets:
         MinatoCommit: $(MINATO_COMMIT)
         # What the apps the user runs save to Photos, with add-only access (ADR-0057 step e).
         NSPhotoLibraryAddUsageDescription: Lets apps you run in Minato save photos and videos to your library.
+        NSLocationWhenInUseUsageDescription: >-
+          Lets apps you run in Minato use your approximate or precise location, only when you allow it for that app.
         # No UIFileSharingEnabled: the app has no folder in the Files app (ADR-0018).
         # "Open with" hands over the original file instead of a copy in Documents/Inbox.
         LSSupportsOpeningDocumentsInPlace: true

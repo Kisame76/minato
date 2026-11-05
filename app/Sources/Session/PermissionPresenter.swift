@@ -25,31 +25,35 @@ final class PermissionPresenter {
         desk = PermissionDesk(records: file.map(PermissionRecords.load) ?? PermissionRecords())
     }
 
-    /// iOS's answer for the microphone, which is Minato's for every app.
-    private static var microphone: PermissionDesk.IOSState {
-        switch AVAudioApplication.shared.recordPermission {
-        case .granted: .granted
-        case .denied: .denied
-        default: .notDetermined
+    /// iOS's answer for a group, which is Minato's for every app.
+    private static func ios(_ group: PermissionGroup) -> PermissionDesk.IOSState {
+        switch group {
+        case .location: return LocationHost.shared.state
+        case .microphone:
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: return .granted
+            case .denied: return .denied
+            default: return .notDetermined
+            }
         }
     }
 
     /// Before the guest runs: the stored grant that iOS still gives, so the app's first check finds it.
     func seed() {
-        run(desk.seeds(ios: Self.microphone))
+        run(desk.seeds(ios: Self.ios))
     }
 
     /// The scene is active again: a grant iOS took back in Settings becomes a denial.
     func foreground() {
-        run(desk.foreground(ios: Self.microphone))
+        run(desk.foreground(ios: Self.ios))
     }
 
     func requested(id: UInt64, text: String) {
-        run(desk.requested(id: id, text: text, ios: Self.microphone))
+        run(desk.requested(id: id, text: text, ios: Self.ios))
     }
 
     func cancelled(id: UInt64) {
-        run(desk.cancelled(id: id, ios: Self.microphone))
+        run(desk.cancelled(id: id, ios: Self.ios))
     }
 
     private func run(_ steps: [PermissionDesk.Step]) {
@@ -65,10 +69,12 @@ final class PermissionPresenter {
             case .ask(let id, let group):
                 shownID = id
                 SheetTurns.shared.take(self) { [weak self] in self?.show(id, group) }
-            case .askIOS(let id, _):
+            case .askIOS(let id, .microphone):
                 AVAudioApplication.requestRecordPermission { granted in
-                    Task { @MainActor [weak self] in self?.iosAnswered(id, granted) }
+                    Task { @MainActor [weak self] in self?.iosAnswered(id, granted ? .granted : .denied) }
                 }
+            case .askIOS(let id, .location):
+                LocationHost.shared.requestAuthorization { [weak self] state in self?.iosAnswered(id, state) }
             case .dismiss(let id):
                 guard shownID == id else { continue }
                 shownID = nil
@@ -78,8 +84,8 @@ final class PermissionPresenter {
         }
     }
 
-    private func iosAnswered(_ id: UInt64, _ granted: Bool) {
-        run(desk.iosAnswered(id: id, granted: granted))
+    private func iosAnswered(_ id: UInt64, _ state: PermissionDesk.IOSState) {
+        run(desk.iosAnswered(id: id, state: state, ios: Self.ios))
     }
 
     private func save() {
@@ -128,6 +134,6 @@ final class PermissionPresenter {
         guard shownID == id else { return }
         shownID = nil
         SheetTurns.shared.give(self)
-        run(allowed ? desk.allowed(id: id, ios: Self.microphone) : desk.denied(id: id))
+        run(allowed ? desk.allowed(id: id, ios: Self.ios) : desk.denied(id: id, ios: Self.ios))
     }
 }

@@ -294,6 +294,8 @@ final class RuntimeSessionHost: SessionHost {
         }
         // The sensors CoreMotion feeds, before the guest runs (ADR-0061 step 3).
         MotionHost.shared.register()
+        // CoreLocation's fixes, before the guest runs (ADR-0063).
+        LocationHost.shared.register()
         var session = apkrt_session()
         session.context = Unmanaged.passUnretained(self).toOpaque()
         session.end = Self.endHandler
