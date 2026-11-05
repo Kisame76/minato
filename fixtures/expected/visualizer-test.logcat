@@ -1,0 +1,3 @@
+I/visualizer-test: RECORD_AUDIO granted false
+I/visualizer-test: Visualizer without the grant: java.lang.RuntimeException
+I/visualizer-test: done

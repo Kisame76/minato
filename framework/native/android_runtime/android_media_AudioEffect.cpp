@@ -25,7 +25,7 @@ constexpr int NATIVE_EVENT_CONTROL_STATUS = 0;
 
 std::mutex gLock;
 Service gService;
-std::map<int, jweak> gObjects;  // an instance's AudioEffect (weak, as Android's JNI keeps it)
+std::map<int, jobject> gObjects;  // an instance's java.lang.ref.WeakReference to its AudioEffect (a global ref)
 
 struct Fields {
     jfieldID nativeInstance;  // mNativeAudioEffect: the instance's id
@@ -123,7 +123,7 @@ jint setup(JNIEnv *env, jobject thiz, jobject weakThis, jstring type, jstring uu
         gEnv = nullptr;
         return status;
     }
-    gObjects[made] = env->NewWeakGlobalRef(weakThis);
+    gObjects[made] = env->NewGlobalRef(weakThis);
     env->SetLongField(thiz, gFields.nativeInstance, static_cast<jlong>(made));
     jint ids[1] = {made};
     env->SetIntArrayRegion(id, 0, 1, ids);
@@ -132,6 +132,7 @@ jint setup(JNIEnv *env, jobject thiz, jobject weakThis, jstring type, jstring uu
     env->DeleteLocalRef(descriptor);
     if (probe) {
         // A probe only asks whether the effect could be attached: no instance stays.
+        env->DeleteGlobalRef(gObjects[made]);
         gObjects.erase(made);
         gService.release(made);
         env->SetLongField(thiz, gFields.nativeInstance, 0);
@@ -147,7 +148,7 @@ void releaseInstance(JNIEnv *env, jobject thiz) {
     gEnv = env;
     auto found = gObjects.find(id);
     if (found != gObjects.end()) {
-        env->DeleteWeakGlobalRef(found->second);
+        env->DeleteGlobalRef(found->second);
         gObjects.erase(found);
     }
     gService.release(id);

@@ -1,0 +1,27 @@
+I/visualizer-test-granted: RECORD_AUDIO granted true
+I/visualizer-test-granted: capture size range: 2 values, min power of two true, max power of two true
+I/visualizer-test-granted: built, enabled false, capture size 1024
+I/visualizer-test-granted: setCaptureSize(256): 0, now 256
+I/visualizer-test-granted: setCaptureSize(3): java.lang.IllegalArgumentException, now 256
+I/visualizer-test-granted: setCaptureSize(range max + 1): java.lang.IllegalArgumentException
+I/visualizer-test-granted: setScalingMode(NORMALIZED): 0, now 0
+I/visualizer-test-granted: setScalingMode(AS_PLAYED): 0, now 1
+I/visualizer-test-granted: setScalingMode(7): -4
+I/visualizer-test-granted: setMeasurementMode(PEAK_RMS): 0, now 1
+I/visualizer-test-granted: getWaveForm while disabled: java.lang.IllegalStateException
+I/visualizer-test-granted: getFft while disabled: java.lang.IllegalStateException
+I/visualizer-test-granted: setEnabled(true): 0, enabled true
+I/visualizer-test-granted: setCaptureSize while enabled: java.lang.IllegalStateException
+I/visualizer-test-granted: getWaveForm: 0
+I/visualizer-test-granted: the waveform of silence is 128s: true
+I/visualizer-test-granted: getFft: 0
+I/visualizer-test-granted: getMeasurementPeakRms: 0, peak -9600, rms -9600
+I/visualizer-test-granted: getWaveForm with a short array: java.lang.IllegalArgumentException
+I/visualizer-test-granted: setDataCaptureListener while enabled: -5
+I/visualizer-test-granted: setDataCaptureListener while disabled: 0
+I/visualizer-test-granted: waveform callbacks came: true, fft callbacks came: true
+I/visualizer-test-granted: setEnabled(false): 0
+I/visualizer-test-granted: a second Visualizer on the session: false
+I/visualizer-test-granted: after release: java.lang.IllegalStateException
+I/visualizer-test-granted: on the output mix: built, capture size 1024
+I/visualizer-test-granted: done

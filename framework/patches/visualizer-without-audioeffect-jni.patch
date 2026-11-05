@@ -1,0 +1,34 @@
+Minato's patch to frameworks/base's media/java/android/media/audiofx/Visualizer.java at android-15.0.0_r1 (Apache-2.0),
+the audio effects plan: the static initializer loads no libaudioeffect_jni, and the setup passes no attribution source.
+
+Why: as audioeffect-without-audioeffect-jni.patch: the natives are libandroid_runtime's
+(framework/native/android_runtime/android_media_Visualizer.cpp), registered when the process starts, and the
+attribution source is a parcel for the audio server's permission check, which Minato's runtime does itself (the
+microphone grant).
+
+--- a/media/java/android/media/audiofx/Visualizer.java
++++ b/media/java/android/media/audiofx/Visualizer.java
+@@ -74,7 +74,7 @@
+ public class Visualizer {
+ 
+     static {
+-        System.loadLibrary("audioeffect_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_Visualizer.cpp), registered at the start.
+         native_init();
+     }
+ 
+@@ -232,12 +232,8 @@
+ 
+             // native initialization
+             // TODO b/182469354: make consistent with AudioRecord
+-            int result;
+-            try (ScopedParcelState attributionSourceState = AttributionSource.myAttributionSource()
+-                    .asScopedParcelState()) {
+-                result = native_setup(new WeakReference<>(this), audioSession, id,
+-                        attributionSourceState.getParcel());
+-            }
++            // Minato: no attribution source reaches the natives, which are the local effect service's.
++            int result = native_setup(new WeakReference<>(this), audioSession, id, null);
+             if (result != SUCCESS && result != ALREADY_EXISTS) {
+                 Log.e(TAG, "Error code "+result+" when initializing Visualizer.");
+                 switch (result) {

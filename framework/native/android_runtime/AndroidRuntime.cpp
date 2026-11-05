@@ -68,6 +68,7 @@ extern int register_android_hardware_Camera(JNIEnv *env);
 extern int register_android_media_AudioTrack(JNIEnv *env);
 extern int register_android_media_AudioRecord(JNIEnv *env);
 extern int register_android_media_AudioEffect(JNIEnv *env);
+extern int register_android_media_Visualizer(JNIEnv *env);
 extern int register_android_media_SoundPool(JNIEnv *env);
 extern int register_android_graphics_HardwareRenderer(JNIEnv *env);
 extern int register_android_graphics_SurfaceTexture(JNIEnv *env);
@@ -152,6 +153,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_hardware_SensorManager, register_android_hardware_HardwareBuffer,
           register_android_hardware_Camera,
           register_android_media_AudioTrack, register_android_media_AudioRecord, register_android_media_AudioEffect,
+          register_android_media_Visualizer,
           register_android_media_SoundPool,
           register_android_graphics_HardwareRenderer, register_android_graphics_SurfaceTexture,
           register_android_view_TextureView, register_android_hardware_SyncFence,

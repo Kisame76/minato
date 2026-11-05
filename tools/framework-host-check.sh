@@ -77,6 +77,9 @@ python3 framework/tests/axis_labels_test.py
 c++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -o "$OUT/audio_effect_service_test" \
   framework/tests/native/audio_effect_service_test.cpp
 "$OUT/audio_effect_service_test"
+c++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -o "$OUT/visualizer_state_test" \
+  framework/tests/native/visualizer_state_test.cpp
+"$OUT/visualizer_state_test"
 python3 tools/managergen/managergen.py --api framework/tests/managergen/sample-current.txt \
   --hand framework/tests/managergen/hand --out "$OUT/gen" \
   --class com.android.minato.sample.SampleManager --class com.android.minato.sample.SampleDevice \

@@ -709,6 +709,12 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
       mask=yes
       ;;
+    # visualizer-test and its twin visualizer-test-granted (the audio effects plan), from the same sources: the twin gets
+    # RECORD_AUDIO before the start.
+    visualizer-test | visualizer-test-granted)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
+      ;;
     # audiofx-test (the audio effects plan): the effects and their parameters on a track's session.
     audiofx-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
@@ -1267,7 +1273,8 @@ run_app() {
     rotation=$(run cmd window user-rotation | tr -d '\r')
     run cmd window user-rotation lock 0 >/dev/null
   fi
-  if [[ "$app" == mic-test-granted || "$app" == audio-input-test-granted ]]; then
+  if [[ "$app" == mic-test-granted || "$app" == audio-input-test-granted ||
+        "$app" == visualizer-test-granted ]]; then
     run pm grant "$package" android.permission.RECORD_AUDIO
   fi
   if [[ "$app" == camera-characteristics-test-granted || "$app" == camera-legacy-test ||
