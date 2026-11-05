@@ -19,6 +19,7 @@ android.os.VintfObject <- android.os.Build  # stays: Build.isBuildConsistent, a 
 android.os.PermissionEnforcer <- android.app.IAlarmManager  # stays: IAlarmManager's Stub and Proxy, which the local alarm service never runs
 android.os.PermissionEnforcer <- android.app.IGameManagerService  # stays: IGameManagerService's Stub and Proxy, which the local game service never runs (gap 1, batch A)
 android.os.PermissionEnforcer <- android.app.usage.IUsageStatsManager, android.hardware.usb.IUsbManager  # stays: their Stubs and Proxies, which the local usage stats and USB services never run (gap 1, batch A)
+android.os.PermissionEnforcer <- android.hardware.IConsumerIrService  # stays: IConsumerIrService's Stub, which no service runs: Minato has no IR service, so getSystemService answers null as on the AVD (gap 1, batch B)
 android.os.PowerWhitelistManager <- android.app.usage.UsageStatsManager  # stays: the deprecated whitelistAppTemporarily, which needs the power exemption service (gap 1, batch A)
 android.app.time.UnixEpochTime <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
 android.app.timedetector.ITimeDetectorService <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
@@ -177,8 +178,6 @@ android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a sys
 
 # ADR-0045 gap 1, batch 1b: UserManager over the local user service. What it reaches only for a work profile or
 # with a system permission, which neither Minato's one user nor any app has.
-android.app.admin.DevicePolicyManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
-android.app.admin.DevicePolicyManager <- android.provider.ContactsInternal  # stays: a quick contact of a managed profile (maybeStartManagedQuickContact), which a contact of user 0 never is
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 
 # The compatibility plan's gap 5, widgets, batch 1: what its types still name as stubs.
@@ -189,7 +188,6 @@ android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of 
 # RemoteViews, or in a style or call that a later piece brings.
 android.os.PermissionEnforcer <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
 android.service.notification.INotificationListener$Stub <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
-android.app.admin.DevicePolicyManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.app.admin.DevicePolicyResourcesManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.media.audiofx.HapticGenerator <- android.media.Ringtone  # gap: setHapticGeneratorEnabled (API 31), whose HapticGenerator.isAvailable asks the audio effects, a media type no step has taken; a Ringtone that never enables it never names it (ADR-0060 e2e1's RingtoneManager step)
 android.media.IAudioService <- android.media.PlayerBase  # stays: a player's calls to the audio service, which Minato has none of: the patched getService throws RemoteException first, which each caller takes (ADR-0060 e2e1)
@@ -231,7 +229,6 @@ android.media.MediaRecorder <- android.hardware.camera2.params.MandatoryStreamCo
 android.telephony.PhoneNumberUtils <- com.android.telephony.Rlog  # stays: Rlog.piiHandle's phone number branches, which the telephony service's logs use; the cells log ids through Rlog.pii
 
 # Batch B2 (retest 8's resolve list): android.accounts.
-android.app.admin.DevicePolicyManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: the two activities read the managed profile's strings from the device policy resources, and Minato has no device policy; an account type is never added (no authenticator)
 android.app.admin.DevicePolicyResourcesManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: as DevicePolicyManager
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator  # stays: IAccountAuthenticator's Stub, which an app's authenticator service makes, and Minato never binds one
 

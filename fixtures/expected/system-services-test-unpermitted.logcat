@@ -48,4 +48,18 @@ I/system-services-test-unpermitted: usb devices 0, accessories none
 I/system-services-test-unpermitted: download manager: android.app.DownloadManager, the same by class true
 I/system-services-test-unpermitted: usage stats manager: android.app.usage.UsageStatsManager, the same by class true
 I/system-services-test-unpermitted: usage stats 0
+I/system-services-test-unpermitted: restrictions manager: android.content.RestrictionsManager, the same by class true
+I/system-services-test-unpermitted: restrictions provider false, application restrictions 0
+I/system-services-test-unpermitted: search manager: android.app.SearchManager, the same by class true
+I/system-services-test-unpermitted: searchable info null
+I/system-services-test-unpermitted: consumer ir manager: null, the same by class true
+I/system-services-test-unpermitted: biometric manager: android.hardware.biometrics.BiometricManager, the same by class true
+I/system-services-test-unpermitted: device policy manager: android.app.admin.DevicePolicyManager, the same by class true
+I/system-services-test-unpermitted: admin active false, active admins null
+I/system-services-test-unpermitted: device owner app false, profile owner app false
+I/system-services-test-unpermitted: camera disabled false, keyguard disabled features 0
+I/system-services-test-unpermitted: password quality 0, complexity java.lang.SecurityException
+I/system-services-test-unpermitted: storage encryption status 5, active password sufficient java.lang.SecurityException
+I/system-services-test-unpermitted: lock task permitted false, application hidden java.lang.SecurityException
+I/system-services-test-unpermitted: lock now java.lang.SecurityException
 I/system-services-test-unpermitted: done

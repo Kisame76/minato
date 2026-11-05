@@ -25,6 +25,7 @@ import android.app.LocalAlarmManager;
 import android.location.LocalLocationManager;
 import android.app.LocalGameManager;
 import android.app.LocalJobScheduler;
+import android.content.LocalRestrictionsManager;
 import android.app.usage.LocalUsageStats;
 import android.hardware.usb.LocalUsbManager;
 import android.app.LocalUiModeManager;
@@ -84,6 +85,7 @@ public final class ServiceManager {
         sMakers.put(Context.VIBRATOR_MANAGER_SERVICE, VibratorManagerService::newBinder);
         sMakers.put(Context.UI_MODE_SERVICE, LocalUiModeManager::newBinder);
         sMakers.put(Context.GAME_SERVICE, LocalGameManager::newBinder);
+        sMakers.put(Context.RESTRICTIONS_SERVICE, LocalRestrictionsManager::newBinder);
         sMakers.put(Context.USB_SERVICE, LocalUsbManager::newBinder);
         sMakers.put(Context.USAGE_STATS_SERVICE, LocalUsageStats::newBinder);
         sMakers.put(Context.MEDIA_METRICS_SERVICE, LocalMediaMetricsManager::newBinder);

@@ -30,6 +30,11 @@ import android.hardware.SensorManager;
 import android.hardware.display.DisplayManager;
 import android.app.usage.IUsageStatsManager;
 import android.app.usage.UsageStatsManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.IRestrictionsManager;
+import android.content.RestrictionsManager;
+import android.hardware.ConsumerIrManager;
+import android.hardware.biometrics.BiometricManager;
 import android.hardware.input.InputManager;
 import android.hardware.usb.IUsbManager;
 import android.hardware.usb.UsbManager;
@@ -199,6 +204,19 @@ final class SystemServiceRegistry {
         // Gap 1, batch A step 2: as the tag's, over the local usage stats service.
         cached(Context.USAGE_STATS_SERVICE, UsageStatsManager.class, ctx -> new UsageStatsManager(ctx.getOuterContext(),
                 IUsageStatsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.USAGE_STATS_SERVICE))));
+        // Gap 1, batch B: as the tag's, over the local services of the small managers.
+        cached(Context.RESTRICTIONS_SERVICE, RestrictionsManager.class, ctx -> new RestrictionsManager(ctx,
+                IRestrictionsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.RESTRICTIONS_SERVICE))));
+        // Generated, as managergen writes the public API of a manager with no hand file: answers of a phone with no
+        // searchable activity.
+        cached(Context.SEARCH_SERVICE, SearchManager.class,
+                ctx -> new SearchManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
+        cached(Context.CONSUMER_IR_SERVICE, ConsumerIrManager.class, ctx -> new ConsumerIrManager(ctx));
+        // Ours under AOSP's name, a phone without a biometric sensor (see BiometricManager).
+        cached(Context.BIOMETRIC_SERVICE, BiometricManager.class, ctx -> new BiometricManager(ctx.getOuterContext()));
+        // Gap 1, batch C: ours under AOSP's name, a device with no admin, owner or managed profile.
+        cached(Context.DEVICE_POLICY_SERVICE, DevicePolicyManager.class,
+                ctx -> new DevicePolicyManager(ctx.getOuterContext()));
     }
 
     private SystemServiceRegistry() {

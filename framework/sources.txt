@@ -2718,3 +2718,14 @@ frameworks_base/core/java/android/app/usage/AppStandbyInfo.java
 frameworks_base/core/java/android/app/usage/EventList.java
 frameworks_base/core/java/android/provider/Downloads.java
 frameworks_base/core/java/android/app/usage/AppLaunchEstimateInfo.java
+# Gap 1's batch B: the small services real apps ask at start. RestrictionsManager over a local service
+# (android.content.LocalRestrictionsManager) and ConsumerIrManager, which answer as a phone does that has no restrictions
+# provider and no IR emitter; SearchManager and BiometricManager are registered without AIDL (see SystemServiceRegistry).
+frameworks_base/core/java/android/content/RestrictionsManager.java
+frameworks_base/core/java/android/content/IRestrictionsManager.aidl
+frameworks_base/core/java/android/hardware/ConsumerIrManager.java
+frameworks_base/core/java/android/hardware/IConsumerIrService.aidl
+# Gap 1's batch C: DevicePolicyManager as managergen writes it (tools/build-framework.sh) with the written part of
+# framework/managers; the receiver and the info that an app's admin classes extend and read are AOSP's.
+frameworks_base/core/java/android/app/admin/DeviceAdminReceiver.java
+frameworks_base/core/java/android/app/admin/DeviceAdminInfo.java

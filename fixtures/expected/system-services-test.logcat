@@ -48,4 +48,18 @@ I/system-services-test: usb devices 0, accessories none
 I/system-services-test: download manager: android.app.DownloadManager, the same by class true
 I/system-services-test: usage stats manager: android.app.usage.UsageStatsManager, the same by class true
 I/system-services-test: usage stats 0
+I/system-services-test: restrictions manager: android.content.RestrictionsManager, the same by class true
+I/system-services-test: restrictions provider false, application restrictions 0
+I/system-services-test: search manager: android.app.SearchManager, the same by class true
+I/system-services-test: searchable info null
+I/system-services-test: consumer ir manager: null, the same by class true
+I/system-services-test: biometric manager: android.hardware.biometrics.BiometricManager, the same by class true
+I/system-services-test: device policy manager: android.app.admin.DevicePolicyManager, the same by class true
+I/system-services-test: admin active false, active admins null
+I/system-services-test: device owner app false, profile owner app false
+I/system-services-test: camera disabled false, keyguard disabled features 0
+I/system-services-test: password quality 0, complexity java.lang.SecurityException
+I/system-services-test: storage encryption status 5, active password sufficient java.lang.SecurityException
+I/system-services-test: lock task permitted false, application hidden java.lang.SecurityException
+I/system-services-test: lock now java.lang.SecurityException
 I/system-services-test: done

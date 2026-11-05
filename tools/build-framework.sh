@@ -184,6 +184,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.telephony.TelephonyManager --class android.telephony.PhoneStateListener \
   --class android.telephony.TelephonyCallback \
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
+  --class android.app.admin.DevicePolicyManager \
   --class android.media.session.MediaController --class android.app.VoiceInteractor \
   --class android.window.SplashScreen \
   --class android.app.LocaleManager --class android.os.storage.OnObbStateChangeListener \

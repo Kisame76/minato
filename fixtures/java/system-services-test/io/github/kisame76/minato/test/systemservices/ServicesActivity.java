@@ -4,19 +4,25 @@ import android.app.Activity;
 import android.app.DownloadManager;
 import android.app.GameManager;
 import android.app.KeyguardManager;
+import android.app.SearchManager;
 import android.app.UiModeManager;
+import android.app.admin.DevicePolicyManager;
 import android.app.usage.UsageStatsManager;
-import android.hardware.usb.UsbManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.RestrictionsManager;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.content.res.Configuration;
+import android.hardware.ConsumerIrManager;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.usb.UsbManager;
 import android.media.metrics.LogSessionId;
-import android.net.Uri;
 import android.media.metrics.MediaMetricsManager;
 import android.media.metrics.PlaybackSession;
 import android.media.metrics.PlaybackStateEvent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -113,6 +119,8 @@ public class ServicesActivity extends Activity {
         usb();
         download();
         usageStats();
+        smallServices();
+        devicePolicy();
         Log.i(mTag, "done");
     }
 
@@ -244,7 +252,8 @@ public class ServicesActivity extends Activity {
     /** The usage stats manager as analytics libraries ask it, without usage access (batch A, step 2). */
     private void usageStats() {
         final Context application = getApplicationContext();
-        final UsageStatsManager manager = (UsageStatsManager) application.getSystemService(Context.USAGE_STATS_SERVICE);
+        final UsageStatsManager manager =
+                (UsageStatsManager) application.getSystemService(Context.USAGE_STATS_SERVICE);
         Log.i(mTag, "usage stats manager: " + name(manager) + ", the same by class "
                 + (manager == application.getSystemService(UsageStatsManager.class)));
         if (manager == null) {
@@ -253,6 +262,81 @@ public class ServicesActivity extends Activity {
         final long now = System.currentTimeMillis();
         Log.i(mTag, "usage stats " + manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 86400000L, now)
                 .size());
+    }
+
+    /** The small managers that libraries ask at start: restrictions, search, IR, biometrics. */
+    @SuppressWarnings("deprecation")
+    private void smallServices() {
+        final Context application = getApplicationContext();
+        final RestrictionsManager restrictions =
+                (RestrictionsManager) application.getSystemService(Context.RESTRICTIONS_SERVICE);
+        Log.i(mTag, "restrictions manager: " + name(restrictions) + ", the same by class "
+                + (restrictions == application.getSystemService(RestrictionsManager.class)));
+        if (restrictions != null) {
+            final Bundle bundle = restrictions.getApplicationRestrictions();
+            Log.i(mTag, "restrictions provider " + restrictions.hasRestrictionsProvider()
+                    + ", application restrictions " + (bundle == null ? "null" : String.valueOf(bundle.size())));
+        }
+        final SearchManager search = (SearchManager) application.getSystemService(Context.SEARCH_SERVICE);
+        Log.i(mTag, "search manager: " + name(search) + ", the same by class "
+                + (search == application.getSystemService(SearchManager.class)));
+        if (search != null) {
+            Log.i(mTag, "searchable info " + search.getSearchableInfo(getComponentName()));
+        }
+        final ConsumerIrManager ir = (ConsumerIrManager) application.getSystemService(Context.CONSUMER_IR_SERVICE);
+        Log.i(mTag, "consumer ir manager: " + name(ir) + ", the same by class "
+                + (ir == application.getSystemService(ConsumerIrManager.class)));
+        if (ir != null) {
+            Log.i(mDevice, "has ir emitter " + ir.hasIrEmitter());
+        }
+        final BiometricManager biometric = (BiometricManager) application.getSystemService(Context.BIOMETRIC_SERVICE);
+        Log.i(mTag, "biometric manager: " + name(biometric) + ", the same by class "
+                + (biometric == application.getSystemService(BiometricManager.class)));
+        if (biometric != null) {
+            Log.i(mDevice, "can authenticate weak "
+                    + answer(() -> biometric.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK))
+                    + ", device credential "
+                    + answer(() -> biometric.canAuthenticate(BiometricManager.Authenticators.DEVICE_CREDENTIAL)));
+        }
+    }
+
+    /** One call's answer, or the exception it throws. */
+    private static String answer(java.util.concurrent.Callable<?> call) {
+        try {
+            return String.valueOf(call.call());
+        } catch (Exception e) {
+            return e.getClass().getName();
+        }
+    }
+
+    /** The device policy manager as libraries ask it on a device with no admin, owner or managed profile. */
+    private void devicePolicy() {
+        final Context application = getApplicationContext();
+        final DevicePolicyManager manager =
+                (DevicePolicyManager) application.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        Log.i(mTag, "device policy manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(DevicePolicyManager.class)));
+        if (manager == null) {
+            return;
+        }
+        final ComponentName admin = getComponentName();
+        final String packageName = getPackageName();
+        Log.i(mTag, "admin active " + answer(() -> manager.isAdminActive(admin)) + ", active admins "
+                + answer(() -> manager.getActiveAdmins()));
+        Log.i(mTag, "device owner app " + answer(() -> manager.isDeviceOwnerApp(packageName)) + ", profile owner app "
+                + answer(() -> manager.isProfileOwnerApp(packageName)));
+        Log.i(mTag, "camera disabled " + answer(() -> manager.getCameraDisabled(null)) + ", keyguard disabled features "
+                + answer(() -> manager.getKeyguardDisabledFeatures(null)));
+        Log.i(mTag, "password quality " + answer(() -> manager.getPasswordQuality(null)) + ", complexity "
+                + answer(() -> manager.getPasswordComplexity()));
+        Log.i(mTag, "storage encryption status " + answer(() -> manager.getStorageEncryptionStatus())
+                + ", active password sufficient " + answer(() -> manager.isActivePasswordSufficient()));
+        Log.i(mTag, "lock task permitted " + answer(() -> manager.isLockTaskPermitted(packageName))
+                + ", application hidden " + answer(() -> manager.isApplicationHidden(admin, packageName)));
+        Log.i(mTag, "lock now " + answer(() -> {
+            manager.lockNow();
+            return "ok";
+        }));
     }
 
     private void uiMode() {
