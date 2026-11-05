@@ -575,6 +575,8 @@ public final class ActivityThread {
                             e);
                 }
             }
+            // The persisted jobs come back, as Android's job scheduler has them after a reboot.
+            LocalJobScheduler.restoreAtStart();
         } finally {
             if (targetSdk < Build.VERSION_CODES.O_MR1
                     || StrictMode.getThreadPolicy().equals(writesAllowedPolicy)) {

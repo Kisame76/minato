@@ -9,8 +9,8 @@
  *   - the job is kept by namespace and ID, and the same ID replaces it; a work item joins the equal job's queue; an
  *     app may keep 151 jobs, and the next one is refused with Android's message;
  *   - the pending jobs, one, the reason, cancel by ID, in a namespace, and all are answered from what is kept.
- * The jobs live as long as the process, where Android keeps the persisted ones across boots (a persisted job could be
- * put back at the app's next start, which is not done yet), and they run while it lives (the compatibility plan's
+ * The jobs live as long as the process, where Android keeps the persisted ones across boots (ours come back at the
+ * app's next start), and they run while it lives (the compatibility plan's
  * decision 6): a daemon thread starts a job when its minimum latency has passed and its constraints hold, or its
  * deadline has passed [measured: run-test on apk-runner-35: a job without a constraint starts within milliseconds, one
  * with an unmet constraint at its deadline, with isOverrideDeadlineExpired], by binding the app's JobService and
@@ -18,10 +18,11 @@
  * periodic one for its next period) or when it is cancelled (stopJob). The constraints: the network from the
  * ConnectivityManager's active network, charging and a battery that is not low from the battery's sticky broadcast,
  * storage never low, the device never idle, content URIs never triggered. Nothing runs while iOS suspends the app or
- * after it ends; no Doze, standby buckets or quotas. A persisted job is not put back at the app's next start (a later
- * step). Not checked: the user-initiated job's permission and state, the rate limit of persisted jobs, the expedited
- * jobs' quota, and a service of another package (the package manager knows the app's own only). Every other
- * call is AIDL's Default answer. Not under com.android.minato, whose classes tools/framework-host-check.sh compiles on
+ * after it ends; no Doze, standby buckets or quotas. A persisted job (setPersisted) is written to the app's data folder
+ * at every change and put back when the app starts again, as Android has it after a reboot. Not checked: the
+ * user-initiated job's permission and state, the rate limit of persisted jobs, the expedited jobs' quota, and a
+ * service of another package (the package manager knows the app's own only). Every other call is AIDL's Default
+ * answer. Not under com.android.minato, whose classes tools/framework-host-check.sh compiles on
  * the host without android.*.
  */
 package android.app;
@@ -52,12 +53,17 @@ import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.os.BatteryManager;
 import android.os.IBinder;
+import android.os.Parcel;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.ArrayMap;
 import android.util.Log;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -73,6 +79,8 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
         final JobInfo job;
         final List<JobWorkItem> work = new ArrayList<>();
         long scheduledAt = SystemClock.elapsedRealtime();
+        /** The wall clock at the scheduling, which a persisted job keeps across the app's starts. */
+        long wallScheduledAt = System.currentTimeMillis();
         /** The earliest start: the minimum latency (or a periodic job's window) and a backoff after a failure. */
         long notBefore;
         int failures;
@@ -253,6 +261,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                     entry.notBefore = now + Math.max(entry.job.getIntervalMillis() - entry.job.getFlexMillis(), 0);
                 } else {
                     mEntries.remove(entry);
+                    persistLocked();
                 }
             }
             mEntries.notifyAll();
@@ -418,6 +427,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             Entry entry = find(namespace, jobId);
             if (entry != null) {
                 mEntries.remove(entry);
+                persistLocked();
                 stopped = entry;
             }
         }
@@ -430,6 +440,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
     public void cancelAll() {
         synchronized (mEntries) {
             mEntries.clear();
+            persistLocked();
         }
     }
 
@@ -442,6 +453,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                     mEntries.remove(i);
                 }
             }
+            persistLocked();
         }
     }
 
@@ -555,6 +567,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             Entry existing = find(namespace, job.getId());
             if (work != null && existing != null && existing.job.equals(job)) {
                 existing.work.add(work);
+                persistLocked();
                 mEntries.notifyAll();
                 return JobScheduler.RESULT_SUCCESS;
             }
@@ -571,12 +584,117 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                 replaced = existing;
             }
             mEntries.add(entry);
+            persistLocked();
             mEntries.notifyAll();
         }
         if (replaced != null) {
             stopRunning(replaced);
         }
         return JobScheduler.RESULT_SUCCESS;
+    }
+
+    /** Where the persisted jobs are kept: the app's data folder (Android keeps them in the system's, over a reboot). */
+    private static File persistedFile() {
+        final Application app = ActivityThread.currentApplication();
+        return app == null ? null : new File(app.getDataDir(), "jobs-persisted.bin");
+    }
+
+    /** Writes the persisted jobs, and the work queued for them, whole: under mEntries after every change. */
+    private void persistLocked() {
+        final File file = persistedFile();
+        if (file == null) {
+            return;
+        }
+        final List<Entry> kept = new ArrayList<>();
+        for (Entry entry : mEntries) {
+            if (entry.job.isPersisted()) {
+                kept.add(entry);
+            }
+        }
+        if (kept.isEmpty()) {
+            file.delete();
+            return;
+        }
+        final Parcel parcel = Parcel.obtain();
+        try {
+            parcel.writeInt(kept.size());
+            for (Entry entry : kept) {
+                parcel.writeString(entry.namespace);
+                parcel.writeParcelable(entry.job, 0);
+                parcel.writeLong(entry.wallScheduledAt);
+                parcel.writeInt(entry.work.size());
+                for (JobWorkItem item : entry.work) {
+                    parcel.writeParcelable(item, 0);
+                }
+            }
+            final File temporary = new File(file.getPath() + ".new");
+            Files.write(temporary.toPath(), parcel.marshall());
+            Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            Log.w(TAG, "The persisted jobs could not be written: " + e);
+        } finally {
+            parcel.recycle();
+        }
+    }
+
+    /**
+     * Puts the persisted jobs back at the app's start, as Android does after a reboot: each with the time it has
+     * waited since it was scheduled counted (the wall clock's, as the elapsed one starts over), unless the app has
+     * scheduled the same job again by now. A file that cannot be read is dropped.
+     */
+    private void restorePersisted() {
+        final File file = persistedFile();
+        if (file == null || !file.isFile()) {
+            return;
+        }
+        final Parcel parcel = Parcel.obtain();
+        try {
+            final byte[] bytes = Files.readAllBytes(file.toPath());
+            parcel.unmarshall(bytes, 0, bytes.length);
+            parcel.setDataPosition(0);
+            final int count = parcel.readInt();
+            synchronized (mEntries) {
+                for (int i = 0; i < count; i++) {
+                    final String namespace = parcel.readString();
+                    final JobInfo job = parcel.readParcelable(JobInfo.class.getClassLoader(), JobInfo.class);
+                    final long wallScheduledAt = parcel.readLong();
+                    final int items = parcel.readInt();
+                    final List<JobWorkItem> work = new ArrayList<>();
+                    for (int j = 0; j < items; j++) {
+                        work.add(parcel.readParcelable(JobWorkItem.class.getClassLoader(), JobWorkItem.class));
+                    }
+                    if (job == null || find(namespace, job.getId()) != null) {
+                        continue;
+                    }
+                    final Entry entry = new Entry(namespace, job);
+                    final long waited = Math.max(System.currentTimeMillis() - wallScheduledAt, 0);
+                    entry.wallScheduledAt = wallScheduledAt;
+                    entry.scheduledAt -= waited;
+                    entry.notBefore -= waited;
+                    entry.work.addAll(work);
+                    mEntries.add(entry);
+                }
+                mEntries.notifyAll();
+            }
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "The persisted jobs could not be read: " + e);
+            file.delete();
+        } finally {
+            parcel.recycle();
+        }
+    }
+
+    /** The app's start: the persisted jobs come back once its Application is made (see restorePersisted). */
+    static void restoreAtStart() {
+        final File file = persistedFile();
+        if (file == null || !file.isFile()) {
+            return;
+        }
+        final IBinder binder = android.os.ServiceManager.getService(Context.JOB_SCHEDULER_SERVICE);
+        final IJobScheduler scheduler = binder == null ? null : IJobScheduler.Stub.asInterface(binder);
+        if (scheduler instanceof LocalJobScheduler) {
+            ((LocalJobScheduler) scheduler).restorePersisted();
+        }
     }
 
     private Entry find(String namespace, int jobId) {

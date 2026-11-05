@@ -1,0 +1,10 @@
+I/persisted-job-test: start 1
+I/persisted-job-test: job 1 scheduled: 1
+I/persisted-job-test: job 2 scheduled: 1
+I/persisted-job-test: done
+I/persisted-job-test: start 2
+I/persisted-job-test: job 1 pending: true
+I/persisted-job-test: job 1 persisted: true
+I/persisted-job-test: job 1 latency kept: true
+I/persisted-job-test: pending after cancelAll: 0
+I/persisted-job-test: done

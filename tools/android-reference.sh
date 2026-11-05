@@ -668,7 +668,7 @@ run_app() {
       | location-manager-test \
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
-      | device-profile-test | run-test)
+      | device-profile-test | run-test | persisted-job-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
@@ -1813,9 +1813,17 @@ run_app() {
       fi
     done
   fi
-  if [[ "$app" == context-test ]]; then
+  if [[ "$app" == context-test || "$app" == persisted-job-test ]]; then
     wait_for "$app" done || return 1
-    run am force-stop "$package"
+    # persisted-job-test's process is killed in the background, as a force-stop would cancel its jobs.
+    if [[ "$app" == persisted-job-test ]]; then
+      run input keyevent KEYCODE_HOME
+      sleep 1
+      run am kill "$package"
+      sleep 1
+    else
+      run am force-stop "$package"
+    fi
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
     local ended=0
     for _ in $(seq 1 60); do
