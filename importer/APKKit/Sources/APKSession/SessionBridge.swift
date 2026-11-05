@@ -105,10 +105,18 @@ public enum SessionRequest: Sendable, Equatable {
     /// A back at the task's root (ADR-0041 decision 10), where Android moves the task to the back: the host opens its
     /// menu instead.
     case backAtRoot
+    /// The top activity's `setRequestedOrientation`, an ActivityInfo.SCREEN_ORIENTATION_* value: the host turns for
+    /// one that forces a side (SessionOrientation(requested:)).
+    case orientation(Int32)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {
         .frameRate(Float(bitPattern: UInt32(truncatingIfNeeded: bits)))
+    }
+
+    /// APKRT_REQUEST_ORIENTATION's argument, the value sign-extended.
+    public static func orientation(argument: UInt64) -> SessionRequest {
+        .orientation(Int32(truncatingIfNeeded: Int64(bitPattern: argument)))
     }
 
     /// The lifecycle's event for the request, if it has one.
@@ -215,6 +223,9 @@ public struct SessionBridge: Sendable {
     public var windowSize = PixelSize(width: 0, height: 0)
     /// The session turns with the device (ADR-0038, decision 1.3): a layout in another size turns the window.
     public var turns = false
+    /// The side the app asked for last with setRequestedOrientation, which the host holds now: a layout in it turns
+    /// the window in a session that does not turn too.
+    public var requested: SessionOrientation?
     /// The activity handles a size change itself (ADR-0041, decision 12 a): another size in the same orientation
     /// reaches it as a turn does. Without, the guest keeps its size in size compat (decision 12 b).
     public var resizes = false
@@ -340,7 +351,9 @@ public struct SessionBridge: Sendable {
     /// A turn swaps the sides, which changes the orientation and the screen size only (ADR-0038); another size
     /// changes the smallest width and the screen layout as well, and the orientation where the longer side moves.
     private func handles(from old: PixelSize, to new: PixelSize) -> Bool {
-        if new.width == old.height, new.height == old.width { return turns }
+        if new.width == old.height, new.height == old.width {
+            return turns || requested?.fits(width: Double(new.width), height: Double(new.height)) == true
+        }
         let turned = (new.width > new.height) != (old.width > old.height)
         return resizes && (turns || !turned)
     }

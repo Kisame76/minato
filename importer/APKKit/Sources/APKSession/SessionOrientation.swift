@@ -36,6 +36,18 @@ public enum SessionOrientation: Sendable, Equatable {
         }
     }
 
+    /// For `setRequestedOrientation`'s value (APKRT_REQUEST_ORIENTATION): landscape or portrait for the values that
+    /// force one, as apk-run turns its window; nil for the others, which leave the session as it is.
+    public init?(requested screenOrientation: Int) {
+        switch screenOrientation {
+        // landscape, sensorLandscape, reverseLandscape, userLandscape
+        case 0, 6, 8, 11: self = .landscape
+        // portrait, sensorPortrait, reversePortrait, userPortrait
+        case 1, 7, 9, 12: self = .portrait
+        default: return nil
+        }
+    }
+
     /// What the window may take; nil for the orientation at start, which is the scene's.
     public var orientations: InterfaceOrientations? {
         switch self {

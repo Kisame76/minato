@@ -82,6 +82,16 @@ struct SessionOrientationTests {
         #expect(SessionOrientation(screenOrientation: 14, configChanges: Self.turnFlags, targetSdk: 35) == .atStart)
     }
 
+    /// setRequestedOrientation's values that force a side turn the session as apk-run turns its window; the others
+    /// (unspecified, user, behind, sensor, nosensor, fullSensor, fullUser, locked, later ones) leave it.
+    @Test func aRequestedOrientationForcesLandscapeOrPortraitOnly() {
+        for value in [0, 6, 8, 11] { #expect(SessionOrientation(requested: value) == .landscape, "\(value)") }
+        for value in [1, 7, 9, 12] { #expect(SessionOrientation(requested: value) == .portrait, "\(value)") }
+        for value in [-2, -1, 2, 3, 4, 5, 10, 13, 14, 15] {
+            #expect(SessionOrientation(requested: value) == nil, "\(value)")
+        }
+    }
+
     @Test func aTurningSessionAllowsPortraitAndBothLandscapeSides() {
         #expect(SessionOrientation.turns.orientations == [.portrait, .landscape])
         #expect(SessionOrientation.landscape.orientations == .landscape)

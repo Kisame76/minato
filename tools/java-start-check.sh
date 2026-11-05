@@ -163,7 +163,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio"
       "media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders"
       "webview-test io.github.kisame76.minato.test.webview"
-      "documents-tree-test io.github.kisame76.minato.test.documentstree")
+      "documents-tree-test io.github.kisame76.minato.test.documentstree"
+      "orientation-request-test io.github.kisame76.minato.test.orientationrequest")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -286,6 +287,7 @@ last_line() {
     godot-bench-*) echo "guest-log ^I/godot *: run [^:]+: [0-9]+ frames, [0-9]+ failures$" ;;
     vk-ahb-test) echo "guest-log ^I/vk-ahb-test: android_main returns$" ;;   # a NativeActivity's end
     window-formats-test) echo "guest-log ^I/window-formats-test: android_main returns$" ;;
+    orientation-request-test) echo "guest-log ^I/orientation-request-test: config [0-9]+ done$" ;;
     *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
   esac
 }
@@ -1132,6 +1134,40 @@ from java_app_run import compare_log
 first, second, expected = sys.argv[1:]
 log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
 compare_log("documents-tree-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
+EOF
+fi
+
+# orientation-request-test: each activity asks for landscape, then portrait, with setRequestedOrientation, which the
+# session turns for (APKRT_REQUEST_ORIENTATION). Its lines must be Android 15's, whose sizes are the AVD's screen, the
+# iPhone 15 Pro Max's: on another screen its portrait sizes in dp and pixels take their place, and the landscape's
+# must be them swapped.
+if wanted orientation-request-test; then
+  run_start orientation-request-test io.github.kisame76.minato.test.orientationrequest 1
+  python3 - "$WORK/orientation-request-test-1.log" fixtures/expected/orientation-request-test.logcat "$WORK" <<'EOF' \
+    || failures=$((failures + 1))
+import os
+import re
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+path, expected, work = sys.argv[1:]
+log = open(path, encoding="utf-8", errors="replace").read()
+wanted = open(expected, encoding="utf-8").read()
+tag = "I/orientation-request-test: "
+dp = re.search(rf"^{tag}plain 1 onCreate, saved none, orientation 1, (\d+) x (\d+) dp", log, re.M)
+pixels = re.search(rf"^{tag}plain 3 in portrait: decor (\d+) x (\d+),", log, re.M)
+if dp and pixels and (dp.groups(), pixels.groups()) != (("430", "932"), ("1290", "2796")):
+    (w, h), (pw, ph) = dp.groups(), pixels.groups()
+    print(f"note    the screen is {pw} x {ph} pixels, {w} x {h} dp, which take the place of Android's")
+    for old, new in (("430 x 932", f"{w} x {h}"), ("932 x 430", f"{h} x {w}"),
+                     ("1290 x 2796", f"{pw} x {ph}"), ("2796 x 1290", f"{ph} x {pw}")):
+        wanted = wanted.replace(old, new)
+ours = os.path.join(work, "orientation-request-test.logcat")
+with open(ours, "w", encoding="utf-8") as handle:
+    handle.write(wanted)
+compare_log("orientation-request-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
 EOF
 fi
 

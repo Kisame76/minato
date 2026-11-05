@@ -424,6 +424,7 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_IME.rawValue:
             .ime(serial: Int64(bitPattern: argument), text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_BACK_AT_ROOT.rawValue: .backAtRoot
+        case APKRT_REQUEST_ORIENTATION.rawValue: .orientation(argument: argument)
         default: nil
         }
     }

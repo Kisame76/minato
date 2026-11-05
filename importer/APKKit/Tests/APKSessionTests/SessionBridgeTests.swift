@@ -574,6 +574,53 @@ struct SessionBridgeTests {
         #expect(bridge.guestSize == Self.fullSize)
     }
 
+    /// setRequestedOrientation in a session that holds its orientation (APKRT_REQUEST_ORIENTATION): the layout in the
+    /// orientation the app asked for turns its window as in a session that turns, so Java hears the configuration and
+    /// the resize; and the layout back at the next request turns it back.
+    @Test func aRequestedOrientationTurnsASessionThatHoldsItsOwn() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+
+        bridge.requested = .landscape
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [
+            .post(.configurationChanged),
+            .setWindowSize(1, width: Self.height, height: Self.width),
+            .post(.nativeWindowResized(window: 1, width: Self.height, height: Self.width)),
+            .post(.contentRectChanged(left: 0, top: 0, right: Self.height, bottom: Self.width)),
+            .post(.nativeWindowRedrawNeeded(window: 1)),
+        ])
+        #expect(bridge.guestSize == PixelSize(width: Self.height, height: Self.width))
+
+        bridge.requested = .portrait
+        bridge.windowLaidOut(Self.fullSize, host: host)
+        #expect(host.take() == [
+            .post(.configurationChanged),
+            .setWindowSize(1, width: Self.width, height: Self.height),
+            .post(.nativeWindowResized(window: 1, width: Self.width, height: Self.height)),
+            .post(.contentRectChanged(left: 0, top: 0, right: Self.width, bottom: Self.height)),
+            .post(.nativeWindowRedrawNeeded(window: 1)),
+        ])
+    }
+
+    /// A layout against the orientation the app asked for, as iOS gives one late, keeps the guest's size as before.
+    @Test func aLayoutAgainstTheRequestedOrientationKeepsTheGuestsSize() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.requested = .portrait
+
+        bridge.windowLaidOut(PixelSize(width: Self.height, height: Self.width), host: host)
+        #expect(host.take() == [])
+        #expect(bridge.guestSize == Self.fullSize)
+    }
+
+    /// APKRT_REQUEST_ORIENTATION's argument, the value sign-extended: -1 is SCREEN_ORIENTATION_UNSPECIFIED.
+    @Test func anOrientationRequestCarriesTheSignedValue() {
+        #expect(SessionRequest.orientation(argument: UInt64.max) == .orientation(-1))
+        #expect(SessionRequest.orientation(argument: 6) == .orientation(6))
+        #expect(SessionRequest.orientation(6).event == nil)
+    }
+
     // ADR-0041, decision 12: a size change outside a turn, as the iPhone Duo's fold makes one.
 
     static let duoOpen = PixelSize(width: 2007, height: 2853)

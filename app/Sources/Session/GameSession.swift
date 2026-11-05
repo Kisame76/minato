@@ -816,7 +816,24 @@ final class GameSession {
         case .backAtRoot:
             // Where Android moves the task to the back, which would end Minato's session (ADR-0041 decision 10).
             openMenu(atRoot: true)
+        case .orientation(let value):
+            orientationRequested(Int(value))
         }
+    }
+
+    /// The top activity's setRequestedOrientation: for a value that forces a side, iOS is asked to hold that side
+    /// (ADR-0032's per-app orientation) and the bridge takes the layout in it as a turn, which reaches Java as the
+    /// configuration and the resize, as apk-run turns its window. Other values leave the session as it is.
+    private func orientationRequested(_ value: Int) {
+        #if DEBUG
+        SessionCheck.event("orientation request \(value)")
+        #endif
+        guard let side = SessionOrientation(requested: value), side != bridge.requested,
+              let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        else { return }
+        bridge.requested = side
+        // A refusal keeps the side the window has; the guest keeps its size then.
+        heldOrientation = AppDelegate.hold(side, in: scene) {}
     }
 
     /// The guest's input method (ADR-0068 step 2c): UIKit's keyboard follows its served editor, the bar above it the
