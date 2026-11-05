@@ -88,10 +88,10 @@ public final class PermissionPolicyTest {
         }
     }
 
-    public void testPostNotificationsIsDeniedBelowTargetSdk33() {
-        // Android 13's own prompt for older apps, at their first channel, is a step of its own (ADR-0074 N1b).
+    public void testPostNotificationsIsTheHostsToDecideBelowTargetSdk33Too() {
+        // Android 13's own prompt for older apps, at their first channel, asks the host as an app's request does (N1b).
         for (int targetSdk : new int[] {22, 23, 32}) {
-            check(grant("android.permission.POST_NOTIFICATIONS", DANGEROUS, targetSdk) == Grant.DENIED_FIXED,
+            check(grant("android.permission.POST_NOTIFICATIONS", DANGEROUS, targetSdk) == Grant.ASK_HOST,
                     "POST_NOTIFICATIONS at " + targetSdk);
         }
     }

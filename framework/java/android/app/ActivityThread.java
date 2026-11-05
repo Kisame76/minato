@@ -2716,6 +2716,33 @@ public final class ActivityThread {
         return nativeSessionRequestIme(serial, text.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Whether the notification prompt of an app below targetSdk 33 was raised already: once a process. */
+    private boolean mNotificationPrompted;
+
+    /**
+     * @hide NotificationService's (N1b, ADR-0074): Android 13 asks an app that targets below 33 for POST_NOTIFICATIONS
+     * at its first notification channel, in a dialog over its activity in front. Here that is the same request an
+     * Activity.requestPermissions makes, started on the main thread if the app has a live activity then, and at most
+     * once a process; the host answers it from its stored answer when it has one.
+     */
+    public static void promptForNotificationsIfDue() {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mNotificationPrompted || !thread.mPackage.notificationPromptDue()) {
+            return;
+        }
+        thread.mNotificationPrompted = true;
+        sMainThreadHandler.post(() -> {
+            if (thread.topLiveRecord() == null) {
+                thread.mNotificationPrompted = false;  // none in front: a later channel asks
+                return;
+            }
+            final Intent intent = new Intent(PackageManager.ACTION_REQUEST_PERMISSIONS);
+            intent.putExtra(PackageManager.EXTRA_REQUEST_PERMISSIONS_NAMES,
+                    new String[] {android.Manifest.permission.POST_NOTIFICATIONS});
+            thread.startActivity(intent, null, null, -1);
+        });
+    }
+
     /**
      * @hide SystemPermissionActivity's: the request `id` is not wanted any more; the host drops its sheet, no
      * answer.

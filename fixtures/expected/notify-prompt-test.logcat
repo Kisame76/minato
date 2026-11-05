@@ -1,0 +1,7 @@
+I/notify-prompt-test: before the channel: permission denied, enabled false, importance 0
+I/notify-prompt-test: right after the channel: permission denied, enabled false, importance 0
+I/notify-prompt-test: onResume
+I/notify-prompt-test: onPause
+I/notify-prompt-test: three seconds later: permission denied, enabled false, importance 0, focus false
+I/notify-prompt-test: after a second channel: permission denied, enabled false, importance 0, focus false
+I/notify-prompt-test: done

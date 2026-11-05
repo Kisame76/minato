@@ -2302,6 +2302,18 @@ final class ManifestPackage {
         return false;
     }
 
+    /**
+     * Whether Android 13 asks the user for POST_NOTIFICATIONS on this app's behalf at its first notification channel
+     * (N1b): the app targets below 33, so that it does not ask itself, and the host has not granted it nor refused it
+     * twice.
+     */
+    boolean notificationPromptDue() {
+        final String permission = "android.permission.POST_NOTIFICATIONS";
+        return mApplication.targetSdkVersion < 33
+                && PermissionPolicy.decide(policyApp(), permission).grant == PermissionPolicy.Grant.ASK_HOST
+                && answers().mustAsk(permission);
+    }
+
     /** PermissionPolicy's grant for the permission: the host's to answer, denied for good or granted (ADR-0063). */
     PermissionPolicy.Grant grantOf(String permission) {
         return PermissionPolicy.decide(policyApp(), permission).grant;

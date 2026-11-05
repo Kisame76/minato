@@ -274,10 +274,15 @@ public final class NotificationService extends INotificationManager.Default {
     public void createNotificationChannels(String pkg, ParceledListSlice channelsList) {
         checkSameApp(pkg);
         List<?> channels = channelsList.getList();
+        final int before = mChannels.size();
         for (int i = 0; i < channels.size(); i++) {
             NotificationChannel channel = (NotificationChannel) channels.get(i);
             Objects.requireNonNull(channel, "channel in list is null");
             createChannel(channel.copy());
+        }
+        if (mChannels.size() > before) {
+            // As Android 13's PermissionPolicyService: an app below targetSdk 33 is asked at its first channel.
+            ActivityThread.promptForNotificationsIfDue();
         }
     }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the notification prompt for an app that targets below 33 (notify-prompt-test, N1b): it declares no
+     POST_NOTIFICATIONS, as such an app does not, and creates a channel while its activity is in front; on Android 13
+     and later the system then asks the user. The label is the tag its lines carry. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.notifyprompt" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="32"/>
+  <application android:label="notify-prompt-test">
+    <activity android:name="io.github.kisame76.minato.test.notifyprompt.PromptActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

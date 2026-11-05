@@ -709,6 +709,11 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
       mask=yes
       ;;
+    # notify-prompt-test (N1b): an app that targets 32 creates a notification channel in front.
+    notify-prompt-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.notifyprompt.PromptActivity limit=60
+      ;;
     # visualizer-test and its twin visualizer-test-granted (the audio effects plan), from the same sources: the twin gets
     # RECORD_AUDIO before the start.
     visualizer-test | visualizer-test-granted)

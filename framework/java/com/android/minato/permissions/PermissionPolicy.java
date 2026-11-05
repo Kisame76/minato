@@ -14,9 +14,10 @@ import java.util.function.ToIntFunction;
  *   <li>a permission the app does not request, or that no package declares, is denied;</li>
  *   <li>the app's own permissions are granted;</li>
  *   <li>denied at every targetSdk: signature and internal permissions (Android never grants the platform's to an
- *       app without the platform's key), the special ones (overlay, settings writes, installing, all-files access)
- *       and POST_NOTIFICATIONS below targetSdk 33, whose prompt Android shows by itself at the app's first channel
- *       (ADR-0074, a step of its own);</li>
+ *       app without the platform's key), and the special ones (overlay, settings writes, installing, all-files
+ *       access);</li>
+ *   <li>POST_NOTIFICATIONS below targetSdk 33 is the host's to decide like an app's request (ASK_HOST), the prompt
+ *       Android shows by itself at such an app's first channel (ADR-0074, N1b);</li>
  *   <li>below targetSdk 23, Android's old model grants what the app requests;</li>
  *   <li>normal permissions are granted; storage up to targetSdk 32, since /storage/emulated/0 belongs to the app
  *       alone in Minato; the location group is the host's to decide ({@link Grant#ASK_HOST}, ADR-0063 decision 2);
@@ -142,7 +143,8 @@ public final class PermissionPolicy {
             return denied("a special permission, which M4 does not give");
         }
         if (permission.equals(POST_NOTIFICATIONS) && targetSdk < NOTIFICATIONS_SDK) {
-            return denied("notifications below targetSdk 33 count as off");
+            // Android 13 asks such an app at its first channel (N1b): the host answers, as for a request.
+            return ASK_HOST;
         }
         if (base != PROTECTION_NORMAL && base != PROTECTION_DANGEROUS) {
             return denied("an unknown protection level " + protectionLevel);
