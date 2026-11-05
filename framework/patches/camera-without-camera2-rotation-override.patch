@@ -1,12 +1,17 @@
-Minato's patch to frameworks/base's core/java/android/hardware/Camera.java at android-15.0.0_r1 (Apache-2.0), the
-Unity test APK probe's batch C: Camera.open(int) and getCameraInfo ask camera2's CameraManager for no rotation override.
+Minato's patch to frameworks/base's core/java/android/hardware/Camera.java at android-15.0.0_r1 (Apache-2.0): the
+legacy Camera without the services Minato does not have (the Unity test APK probe's batch C, ADR-0073 step e).
 
-Why: both ask CameraManager.getRotationOverride for the camera's ID first, and framework.jar leaves camera2 out (a
-compile-only stub), so an app that opens or describes camera 0 ended with NoClassDefFoundError, an Error that its
-catch of Exception does not take. The override only turns a camera's image for an app that a landscape-to-portrait
-or freeform compat mode covers; Minato has no camera (getNumberOfCameras answers 0), so there is nothing to turn,
-and both go on to the natives with ROTATION_OVERRIDE_NONE, which answer as Android 15 does for an ID without a
-camera.
+Why:
+- Camera.open(int) and getCameraInfo ask camera2's CameraManager for a rotation override first, and framework.jar
+  leaves camera2's manager out (a compile-only stub), so an app that opens or describes a camera ended with
+  NoClassDefFoundError, an Error that its catch of Exception does not take. The override only turns a camera's image
+  for an app that a landscape-to-portrait or freeform compat mode covers, which Minato has none of, so both go on to
+  the natives with ROTATION_OVERRIDE_NONE.
+- getCameraInfo and enableShutterSound ask the audio service whether the camera's sound is forced, and a Camera's
+  constructor watches the app ops service's OP_PLAY_AUDIO for its shutter sound; Minato has neither service's binder interface
+  (IAudioService, IAppOpsService), so each ended with NoClassDefFoundError once a camera exists. No sound is forced
+  (config_camera_sound_forced is false), and OP_PLAY_AUDIO answers its default, allowed, without changes: the
+  native's canDisableShutterSound stands, and the shutter sound is allowed.
 
 --- a/core/java/android/hardware/Camera.java
 +++ b/core/java/android/hardware/Camera.java
@@ -19,7 +24,27 @@ camera.
          getCameraInfo(cameraId, context, rotationOverride, cameraInfo);
      }
  
-@@ -441,7 +441,7 @@
+@@ -323,17 +323,8 @@
+             int rotationOverride, CameraInfo cameraInfo) {
+         _getCameraInfo(cameraId, rotationOverride, context.getDeviceId(),
+                 getDevicePolicyFromContext(context), cameraInfo);
+-        IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
+-        IAudioService audioService = IAudioService.Stub.asInterface(b);
+-        try {
+-            if (audioService.isCameraSoundForced()) {
+-                // Only set this when sound is forced; otherwise let native code
+-                // decide.
+-                cameraInfo.canDisableShutterSound = false;
+-            }
+-        } catch (RemoteException e) {
+-            Log.e(TAG, "Audio service is unavailable for queries");
+-        }
++        // Minato: no audio service forces the camera's sound (config_camera_sound_forced is false), so the native
++        // answer stands.
+     }
+ 
+     private native static void _getCameraInfo(int cameraId, int rotationOverride,
+@@ -441,7 +432,7 @@
       */
      public static Camera open(int cameraId) {
          Context context = ActivityThread.currentApplication().getApplicationContext();
@@ -28,3 +53,44 @@ camera.
          return open(cameraId, context, rotationOverride);
      }
  
+@@ -597,19 +588,9 @@
+     Camera() {}
+ 
+     private void initAppOps() {
+-        IBinder b = ServiceManager.getService(Context.APP_OPS_SERVICE);
+-        mAppOps = IAppOpsService.Stub.asInterface(b);
+-        // initialize mHasAppOpsPlayAudio
+-        updateAppOpsPlayAudio();
+-        // register a callback to monitor whether the OP_PLAY_AUDIO is still allowed
+-        mAppOpsCallback = new IAppOpsCallbackWrapper(this);
+-        try {
+-            mAppOps.startWatchingMode(AppOpsManager.OP_PLAY_AUDIO,
+-                    ActivityThread.currentPackageName(), mAppOpsCallback);
+-        } catch (RemoteException e) {
+-            Log.e(TAG, "Error registering appOps callback", e);
+-            mHasAppOpsPlayAudio = false;
+-        }
++        // Minato: OP_PLAY_AUDIO is allowed and never changes (the app ops service answers its default mode), so the
++        // shutter sound plays and nothing is watched.
++        mHasAppOpsPlayAudio = true;
+     }
+ 
+     private void releaseAppOps() {
+@@ -1579,16 +1560,8 @@
+      * @see ShutterCallback
+      */
+     public final boolean enableShutterSound(boolean enabled) {
++        // Minato: no audio service forces the camera's sound, as getCameraInfo's.
+         boolean canDisableShutterSound = true;
+-        IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
+-        IAudioService audioService = IAudioService.Stub.asInterface(b);
+-        try {
+-            if (audioService.isCameraSoundForced()) {
+-                canDisableShutterSound = false;
+-            }
+-        } catch (RemoteException e) {
+-            Log.e(TAG, "Audio service is unavailable for queries");
+-        }
+         if (!enabled && !canDisableShutterSound) {
+             return false;
+         }

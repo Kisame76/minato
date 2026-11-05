@@ -1661,6 +1661,12 @@ int main(int argc, char **argv) {
         if (value == "granted") apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_GRANTED);
         if (value == "denied") apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_DENIED);
     }
+    // The camera's grant (ADR-0073 decision 8) the same way: MINATO_GRANT_CAMERA=granted|denied.
+    if (const char *grant = std::getenv("MINATO_GRANT_CAMERA")) {
+        const std::string value = grant;
+        if (value == "granted") apkrt_permission_answer(0, APKRT_PERMISSION_CAMERA, APKRT_PERMISSION_GRANTED);
+        if (value == "denied") apkrt_permission_answer(0, APKRT_PERMISSION_CAMERA, APKRT_PERMISSION_DENIED);
+    }
     if (!sensor_script.empty()) start_sensor_feed(sensor_script);
     // The host records the location grant at a session's begin (ADR-0063 decision 2), so the runtime gates on it from
     // the start; then the fake CoreLocation host replays the script, the runtime fudging a coarse grant on its own.

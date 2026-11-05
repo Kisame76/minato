@@ -683,8 +683,8 @@ run_app() {
       mask=yes limit=120
       ;;
     # camera-characteristics-test and its twin camera-characteristics-test-granted (ADR-0073), from the same sources:
-    # the twin gets CAMERA before the start and opens each camera.
-    camera-characteristics-test | camera-characteristics-test-granted)
+    # the twin gets CAMERA before the start and opens each camera; camera-legacy-test (step e) gets CAMERA too.
+    camera-characteristics-test | camera-characteristics-test-granted | camera-legacy-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=120
       ;;
@@ -1255,7 +1255,7 @@ run_app() {
   if [[ "$app" == mic-test-granted || "$app" == audio-input-test-granted ]]; then
     run pm grant "$package" android.permission.RECORD_AUDIO
   fi
-  if [[ "$app" == camera-characteristics-test-granted ]]; then
+  if [[ "$app" == camera-characteristics-test-granted || "$app" == camera-legacy-test ]]; then
     run pm grant "$package" android.permission.CAMERA
   fi
   if [[ "$app" == permission-request-test-fine ]]; then

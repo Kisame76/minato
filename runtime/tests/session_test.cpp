@@ -654,11 +654,13 @@ TEST(a_malformed_permission_request_is_refused_before_the_host_sees_it) {
     CHECK(ask("1\t1") == 0);          // location, fine: accepted
     CHECK(ask("1\t2") == 0);          // location, coarse: accepted
     CHECK(ask("2\t0") == 0);          // microphone: accepted
+    CHECK(ask("3\t0") == 0);          // camera: accepted
     take_requests();                  // the accepted requests and their cancels reached the host; drop them
     CHECK(ask("1\t0") == -einval);    // location needs a precision
     CHECK(ask("1\t3") == -einval);    // no such detail
     CHECK(ask("2\t1") == -einval);    // microphone takes no precision
-    CHECK(ask("3\t0") == -einval);    // no such group
+    CHECK(ask("3\t1") == -einval);    // camera takes no precision
+    CHECK(ask("4\t0") == -einval);    // no such group
     CHECK(ask("1") == -einval);       // no detail field
     CHECK(ask("1\t1\t1") == -einval); // a third field
     CHECK(ask("11\t1") == -einval);   // a two-digit group

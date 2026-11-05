@@ -1,0 +1,20 @@
+I/camera-legacy-test: cameras: at least one true
+I/camera-legacy-test: every camera: facing back or front true, orientation a multiple of 90 true
+I/camera-legacy-test: camera past the last: java.lang.RuntimeException Unknown camera ID
+I/camera-legacy-test: open 0: true
+I/camera-legacy-test: parameters: required keys missing []
+I/camera-legacy-test: preview size listed true, picture size listed true
+I/camera-legacy-test: preview format NV21 true, preview formats with NV21 and YV12 true, picture formats [256], picture format JPEG true
+I/camera-legacy-test: preview fps range listed true, focus mode listed true, jpeg quality 90, thumbnail quality 90, rotation 0
+I/camera-legacy-test: zoom: ratios true, the first 100 true, zoom 0
+I/camera-legacy-test: flatten and unflatten: same true
+I/camera-legacy-test: set the smallest preview size: given back true
+I/camera-legacy-test: set a preview size of 1x1: java.lang.RuntimeException setParameters failed
+I/camera-legacy-test: after the failed set: the smallest still true
+I/camera-legacy-test: lock, unlock and reconnect: no exception
+I/camera-legacy-test: open past the last: java.lang.RuntimeException Fail to connect to camera service
+I/camera-legacy-test: open 0 again: opened
+I/camera-legacy-test: the first after the second open: java.lang.RuntimeException getParameters failed (empty parameters)
+I/camera-legacy-test: parameters after release: java.lang.RuntimeException Camera is being used after Camera.release() was called
+I/camera-legacy-test: open 0 after release: true
+I/camera-legacy-test: done

@@ -177,6 +177,14 @@ if(APK_HOST_BUILD)
   target_include_directories(cameras_test PRIVATE src)
   target_link_libraries(cameras_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.cameras COMMAND cameras_test)
+
+  # ADR-0073 step e: the legacy Camera's parameters (framework/native's camera_parameters.cpp) on the host, against
+  # Android 15's emulator's own.
+  add_executable(camera_parameters_test tests/camera_parameters_test.cpp
+    ../framework/native/android_runtime/camera_parameters.cpp)
+  target_include_directories(camera_parameters_test PRIVATE ../framework/native/android_runtime)
+  target_link_libraries(camera_parameters_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.camera_parameters COMMAND camera_parameters_test)
   add_executable(media_players_test tests/media_players_test.cpp)
   target_include_directories(media_players_test PRIVATE src)
   target_compile_definitions(media_players_test PRIVATE "APKRT_RUNTIME_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")

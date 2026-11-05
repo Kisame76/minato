@@ -455,12 +455,12 @@ enum apkrt_request_type {
                                    // trust the file to be a picture
     APKRT_REQUEST_PERMISSION,      // guest only (ADR-0063/0064): a0 the address of NUL text "<group>\t<detail>", a1 the
                                    // request's ID (not 0, not one that waits). The host gets the ID as `argument` and
-                                   // the text as `text`: group 1 location, 2 microphone (APKRT_PERMISSION_* below);
-                                   // detail 1 fine wanted, 2 coarse only (location), 0 (microphone). The runtime
-                                   // refuses -EINVAL any other text, an unknown group or bad detail, an ID of 0;
-                                   // -EEXIST an ID that waits, -EBUSY when 4 wait. One at a time to the host handler,
-                                   // as PICK and OPEN. The host shows its pre-prompt sheet then iOS's prompt and
-                                   // answers once with apkrt_permission_answer, which records the grant and posts
+                                   // the text as `text`: group 1 location, 2 microphone, 3 camera (APKRT_PERMISSION_*
+                                   // below); detail 1 fine wanted, 2 coarse only (location), 0 (microphone, camera).
+                                   // The runtime refuses -EINVAL any other text, an unknown group or bad detail, an ID
+                                   // of 0; -EEXIST an ID that waits, -EBUSY when 4 wait. One at a time to the host
+                                   // handler, as PICK and OPEN. The host shows its pre-prompt sheet then iOS's prompt
+                                   // and answers once with apkrt_permission_answer, which records the grant and posts
                                    // APKRT_EVENT_PERMISSION_RESULT, ending the request
     APKRT_REQUEST_PERMISSION_CANCEL,  // guest only: a0 the ID of a permission request that waits and the guest no
                                    // longer wants; the host gets the ID and drops its sheet, no answer. -EINVAL for ID
@@ -510,13 +510,14 @@ enum apkrt_request_type {
 // apkrt_permission_answer (apkrt.h), which records the grant in the runtime and posts APKRT_EVENT_PERMISSION_RESULT.
 #define APKRT_PERMISSION_LOCATION   1
 #define APKRT_PERMISSION_MICROPHONE 2
+#define APKRT_PERMISSION_CAMERA     3  // ADR-0073 decision 8
 // APKRT_REQUEST_PERMISSION's detail (the text's second field); for location, the precision the app asked.
 #define APKRT_PERMISSION_DETAIL_NONE   0  // microphone, and any group without a precision
 #define APKRT_PERMISSION_DETAIL_FINE   1  // location: ACCESS_FINE_LOCATION wanted
 #define APKRT_PERMISSION_DETAIL_COARSE 2  // location: only ACCESS_COARSE_LOCATION
 // APKRT_EVENT_PERMISSION_RESULT's outcome (a2), and the runtime's stored grant.
 #define APKRT_PERMISSION_DENIED         0
-#define APKRT_PERMISSION_GRANTED        1  // location: fine; microphone: granted
+#define APKRT_PERMISSION_GRANTED        1  // location: fine; microphone, camera: granted
 #define APKRT_PERMISSION_GRANTED_COARSE 2  // location only
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.
@@ -1731,12 +1732,12 @@ enum apkrt_camera_key {
 /// cameras; -EFAULT for a struct or bytes the guest cannot read or write; -EINVAL for an unknown op, a camera index
 /// past COUNT's, a reserved field not 0, a stream or control the facts do not list, more than
 /// APKRT_CAMERA_MAX_STREAMS streams, targets outside the configured streams or a token that does not wait; -ENOSPC
-/// with the facts' size out for a FACTS buffer too small, and for a JPEG buffer too small (the frame stays); -EBADF
-/// for an ID that is not there, or no more; -EBUSY for an OPEN of a camera that is open, or past
-/// APKRT_CAMERA_MAX_OPEN; -EACCES when iOS denies the camera; REQUEST -EAGAIN past APKRT_CAMERA_MAX_WAITING single
-/// captures, FRAME -EAGAIN while no frame is captured, also past APKRT_CAMERA_MAX_WAITING tokens the guest holds.
-/// RENDER, RENDER_WINDOW and DISCARD answer as video_decoder's. Else the host's answer. The number follows
-/// audio_read's.
+/// with the facts' size out for a FACTS buffer too small, and for a JPEG buffer too small (the frame stays); -EBADF for
+/// an ID that is not there, or no more; -EBUSY for an OPEN of a camera that is open, or past APKRT_CAMERA_MAX_OPEN;
+/// -EACCES for an OPEN without the guest's camera grant (apkrt_permission_answer of APKRT_PERMISSION_CAMERA, ADR-0073
+/// decision 8) or when iOS denies the camera; REQUEST -EAGAIN past APKRT_CAMERA_MAX_WAITING single captures, FRAME
+/// -EAGAIN while no frame is captured, also past APKRT_CAMERA_MAX_WAITING tokens the guest holds. RENDER, RENDER_WINDOW
+/// and DISCARD answer as video_decoder's. Else the host's answer. The number follows audio_read's.
 #define APKRT_NR_CAMERA 4137
 
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the

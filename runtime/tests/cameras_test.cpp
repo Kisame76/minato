@@ -21,7 +21,7 @@
 
 namespace {
 
-constexpr std::int64_t eagain = 11, ebadf = 9, ebusy = 16, efault = 14, eio = 5, einval = 22, enospc = 28,
+constexpr std::int64_t eacces = 13, eagain = 11, ebadf = 9, ebusy = 16, efault = 14, eio = 5, einval = 22, enospc = 28,
                        enosys = 38;
 
 std::int64_t call(std::uint64_t op, apkrt_camera &camera) {
@@ -198,6 +198,7 @@ std::uint64_t no_access_page() {
 void with_fake() {
     fake.reset();
     CHECK(apkrt_set_cameras(&table) == 0);
+    apkrt_permission_answer(0, APKRT_PERMISSION_CAMERA, APKRT_PERMISSION_GRANTED);
 }
 
 std::uint64_t open_camera(std::uint32_t index) {
@@ -297,11 +298,22 @@ TEST(a_camera_opens_once_and_at_most_two_at_once) {
     CHECK(reopened > second);  // IDs are never used again
     close_camera(second);
     close_camera(reopened);
-    fake.open_answer = -13;  // iOS denies the camera
+    fake.open_answer = -eacces;  // iOS denies the camera
     again.camera = 0;
-    CHECK(call(APKRT_CAMERA_OPEN, again) == -13);
+    CHECK(call(APKRT_CAMERA_OPEN, again) == -eacces);
     fake.open_answer = 0;
     close_camera(open_camera(0));  // the refused open left no claim
+}
+
+TEST(a_camera_opens_only_with_the_camera_grant) {
+    with_fake();
+    apkrt_permission_answer(0, APKRT_PERMISSION_CAMERA, APKRT_PERMISSION_DENIED);
+    apkrt_camera camera{};
+    CHECK(call(APKRT_CAMERA_OPEN, camera) == -eacces);
+    CHECK(fake.open.empty());  // the host never asked
+    CHECK(call(APKRT_CAMERA_COUNT, camera) == 0 && camera.count == 2);  // the list and facts are not gated
+    apkrt_permission_answer(0, APKRT_PERMISSION_CAMERA, APKRT_PERMISSION_GRANTED);
+    close_camera(open_camera(0));
 }
 
 TEST(only_listed_streams_are_configured) {

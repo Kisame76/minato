@@ -207,15 +207,14 @@ android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobSch
 android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard's Stub and Proxy, which the local clipboard never runs
 
 # The Unity test APK probe's batch C: android.webkit without a WebView provider (no webview feature) and the legacy
-# Camera without cameras.
+# The legacy Camera without the audio and app ops services it asks for.
 android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
 android.companion.virtual.VirtualDeviceManager <- android.hardware.Camera  # stays: the camera policy of a virtual device's context, which Minato has none of
-android.media.IAudioService <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
-android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutter sound of a camera that is open or described, and Minato has no camera
-com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
-com.android.internal.app.IAppOpsService$Stub <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
-com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stays: the app ops watch of a Camera's constructor, and Minato has no camera to open
+android.media.IAudioService <- android.hardware.Camera  # stays: the shutter sound's check after an OP_PLAY_AUDIO change, which the patched Camera never watches
+android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutter sound's check after an OP_PLAY_AUDIO change, which the patched Camera never watches
+com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops binder, which the patched constructor no longer asks for
+com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stays: the app ops watch's wrapper, which the patched constructor no longer makes
 
 # Batch B1 (retest 8's resolve list): Telephony's SMS and MMS helpers.
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: Sms.Intents.getMessagesFromIntent decodes the PDUs of a received SMS, and Minato has no SMS

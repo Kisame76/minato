@@ -1,8 +1,9 @@
 // The guest's cameras (cameras.h, ADR-0073), as the video decoders (video_decoders.cpp) are kept. The registry maps
 // the runtime's IDs to open cameras under one mutex, which no call into the host holds; each camera has a mutex of its
 // own, held around every call of its host's functions, so that they come one at a time and a CLOSE waits for the call
-// still running on another thread. IDs count up from 1 and are never used again. A camera's facts are read from the
-// host and checked at its OPEN (each entry within the list, its type and count as guest_interface.h has them), and
+// still running on another thread. IDs count up from 1 and are never used again. An OPEN needs the guest's camera
+// grant, which the host records (ADR-0073 decision 8); the count and the facts do not. A camera's facts are read from
+// the host and checked at its OPEN (each entry within the list, its type and count as guest_interface.h has them), and
 // kept, so that CONFIGURE takes only the streams they list and REQUEST only the controls they allow; a host whose facts
 // do not hold answers -EIO, and is never opened. The guest's structs are read once; a frame's description is checked
 // before the guest sees it (its tokens, streams and JPEG size), and a JPEG too large for the guest's buffer stays the
@@ -11,6 +12,8 @@
 // discard. Memory the runtime cannot get answers -ENOMEM: no exception leaves call(), whose caller is the syscall
 // entry's assembly.
 #include "cameras.h"
+
+#include "permissions.h"
 
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
@@ -280,6 +283,9 @@ long open(std::uint64_t argument, const apkrt_camera &asked) {
     const long found = camera_count(table);
     if (found < 0) return found;
     if (asked.camera >= static_cast<std::uint64_t>(found)) return -linux_errno::einval;
+    // ADR-0073 decision 8: the guest's camera grant, which the host records (apkrt_permission_answer), is the gate, as
+    // the microphone's for audio input: iOS's authorisation is for all of Minato.
+    if (permissions::outcome(APKRT_PERMISSION_CAMERA) != APKRT_PERMISSION_GRANTED) return -linux_errno::eacces;
     auto camera = std::shared_ptr<Camera>();
     try {
         camera = std::make_shared<Camera>();
