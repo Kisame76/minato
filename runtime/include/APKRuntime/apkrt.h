@@ -763,8 +763,9 @@ int apkrt_input_post_axes(uint64_t id, const struct apkrt_axes_event *event);
 ///    BUTTON_PRESS; one more makes a MOVE and its BUTTON_PRESS; a release makes BUTTON_RELEASE and, once none is left,
 ///    UP and a HOVER_ENTER, else a MOVE. BACK and FORWARD make a key (KEYCODE_BACK 4, KEYCODE_FORWARD 125) and a hover
 ///    move. The button's bit is the record's action button;
-///  - SCROLL (8): AXIS_VSCROLL and AXIS_HSCROLL in lines, positive up and left as a wheel turned forward and to the
-///    left, after a hover move of its own; fractions are allowed (a trackpad's two-finger scroll);
+///  - SCROLL (8): AXIS_VSCROLL and AXIS_HSCROLL in lines, positive up and right as MotionEvent counts them (a wheel
+///    turned forward, one tilted to the right), after a hover move of its own; fractions are allowed (a trackpad's
+///    two-finger scroll);
 ///  - HOVER_EXIT (10): the pointer left the window.
 /// The position is the last one given when a record has none. Returns 1 when the channel took all the records the
 /// report makes, else 0 and nothing changed: a record that is not sound as for apkrt_input_post_axes, an action other

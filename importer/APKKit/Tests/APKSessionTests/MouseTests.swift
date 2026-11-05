@@ -81,12 +81,16 @@ import Testing
                                                                    "11 b16 t3 s2002 0=1.0 1=1.0"])
     }
 
-    @Test func aScrollIsInLinesOf64PointsPositiveUpAndLeft() {
+    /// UIKit's translation moves with the content: a pan to the right shows what lies to the left, which Android's
+    /// AXIS_HSCROLL calls left (-1.0 left to 1.0 right, so HorizontalScrollView's scrollX goes down); a pan down shows
+    /// what lies above, AXIS_VSCROLL's up (-1.0 down to 1.0 up).
+    @Test func aScrollIsInLinesOf64PointsPositiveUpAndRight() {
         var mouse = Mouse(scale: 3)
         _ = mouse.moved(x: 1, y: 1, time: 1)
         #expect(reports(mouse.scrolled(dx: 0, dy: 64, time: 2)) == ["8 b0 t3 s2002 9=1.0"])
         #expect(reports(mouse.scrolled(dx: 0, dy: -128, time: 3)) == ["8 b0 t3 s2002 9=-2.0"])
-        #expect(reports(mouse.scrolled(dx: 32, dy: 0, time: 4)) == ["8 b0 t3 s2002 10=0.5"])
+        #expect(reports(mouse.scrolled(dx: 32, dy: 0, time: 4)) == ["8 b0 t3 s2002 10=-0.5"])
+        #expect(reports(mouse.scrolled(dx: -128, dy: 0, time: 5)) == ["8 b0 t3 s2002 10=2.0"])
         #expect(mouse.scrolled(dx: 0, dy: 0, time: 5).isEmpty)
     }
 

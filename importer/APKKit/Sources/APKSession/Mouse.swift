@@ -15,8 +15,9 @@ public enum PointerChange: Sendable, Equatable {
 /// button that changes is a report of its own, releases before presses, lowest first, with the buttons held after it
 /// (UIEvent.buttonMask's bits are Android's: primary 1, secondary 2, tertiary 4, back 8, forward 16), after a move to
 /// where the pointer is. A scroll is in lines of 64 points, ViewConfiguration's scroll factor, so that an app scrolls
-/// as far as UIKit would; positive up and left, as a wheel turned forward. The mouse joins the guest's devices with
-/// its first report and leaves at its disconnection, with its buttons released.
+/// as far as UIKit would; positive up and right, as Android's AXIS_VSCROLL and AXIS_HSCROLL count. UIKit's translation
+/// moves with the content, so a pan down is a scroll up and a pan to the right a scroll left. The mouse joins the
+/// guest's devices with its first report and leaves at its disconnection, with its buttons released.
 public struct Mouse: Sendable {
     /// The host's device ID: the hardware keyboard's (1000) plus one; the pads come from 1010.
     public static let deviceID: Int32 = 1001
@@ -76,7 +77,7 @@ public struct Mouse: Sendable {
     public mutating func scrolled(dx: Double, dy: Double, time: Int64) -> [PadEvent] {
         var axes: [AxesRecord.Axis] = []
         if dy != 0 { axes.append(AxesRecord.Axis(axis: 9, value: Float(dy / Self.pointsPerLine))) }
-        if dx != 0 { axes.append(AxesRecord.Axis(axis: 10, value: Float(dx / Self.pointsPerLine))) }
+        if dx != 0 { axes.append(AxesRecord.Axis(axis: 10, value: Float(-dx / Self.pointsPerLine))) }
         guard !axes.isEmpty else { return [] }
         return join() + [report(8, axes: axes, time: time)]
     }
