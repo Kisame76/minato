@@ -18,7 +18,8 @@
 // SL_RESULT_FEATURE_UNSUPPORTED and logs once.
 //
 // Audio recorders (ADR-0064): from the default audio input device into a buffer queue of PCM, on an input stream of
-// libaaudio in callback mode. CreateAudioRecorder answers SL_RESULT_PERMISSION_DENIED without the microphone grant.
+// libaaudio in callback mode. Without the microphone grant the recorder is created, as Android 15's, and its Realize
+// fails with SL_RESULT_CONTENT_UNSUPPORTED (audio-input-test).
 // The stream's thread fills the front buffer, tells the app when one is full, and loses frames that find the queue
 // empty; RECORD has the states, the position, the marker and the new-position events.
 #include <SLES/OpenSLES.h>
@@ -1606,12 +1607,6 @@ SLresult create_vibra_device(SLEngineItf, SLObjectItf* device, SLuint32, SLuint3
     return not_created(device, kVibraDevice, "CreateVibraDevice");
 }
 
-/// Whether the microphone grant is stored (the runtime's APKRT_LOCATION_PERMISSION read answers 0 for denied or not
-/// asked yet).
-bool microphone_granted() {
-    return syscall(APKRT_NR_LOCATION, uint64_t{APKRT_LOCATION_PERMISSION}, uint64_t{APKRT_PERMISSION_MICROPHONE}) > 0;
-}
-
 SLresult create_audio_recorder(SLEngineItf self, SLObjectItf* pRecorder, SLDataSource* data, SLDataSink* sink,
                                SLuint32 count, const SLInterfaceID* ids, const SLboolean* required) {
     if (pRecorder == nullptr) return SL_RESULT_PARAMETER_INVALID;
@@ -1639,7 +1634,6 @@ SLresult create_audio_recorder(SLEngineItf self, SLObjectItf* pRecorder, SLDataS
     if (format.buffers == 0 || format.buffers > 255) return SL_RESULT_PARAMETER_INVALID;
     result = check_format(sink->pFormat, &format);
     if (result != SL_RESULT_SUCCESS) return result;
-    if (!microphone_granted()) return SL_RESULT_PERMISSION_DENIED;
     auto* recorder = static_cast<Recorder*>(calloc(1, sizeof(Recorder)));
     auto* buffers = static_cast<Recorder::Slot*>(calloc(format.buffers, sizeof(Recorder::Slot)));
     if (recorder == nullptr || buffers == nullptr) {

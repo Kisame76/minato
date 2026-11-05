@@ -359,6 +359,7 @@ TEST(an_open_refuses_what_aaudio_refuses_and_input) {
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setChannelCount(b, 9); }) ==
           AAUDIO_ERROR_OUT_OF_RANGE);
     apkrt_set_audio_input_host(nullptr);  // no input host: an input open is unavailable
+    apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_GRANTED);
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setDirection(b, AAUDIO_DIRECTION_INPUT); }) ==
           AAUDIO_ERROR_UNAVAILABLE);
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setChannelMask(b, AAUDIO_CHANNEL_STEREO); }) ==
@@ -423,14 +424,14 @@ TEST(an_input_stream_reads_the_captured_frames_in_the_app_s_format) {
     CHECK(AAudioStream_close(stream) == AAUDIO_OK);
 }
 
-TEST(an_input_stream_without_the_grant_is_unavailable) {
+TEST(an_input_stream_without_the_grant_is_an_internal_error_as_android_15s) {
     use_input_host();
     apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_DENIED);
     AAudioStreamBuilder *builder = nullptr;
     AAudio_createStreamBuilder(&builder);
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
     AAudioStream *stream = nullptr;
-    CHECK(AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_ERROR_UNAVAILABLE && stream == nullptr);
+    CHECK(AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_ERROR_INTERNAL && stream == nullptr);
     AAudioStreamBuilder_delete(builder);
 }
 

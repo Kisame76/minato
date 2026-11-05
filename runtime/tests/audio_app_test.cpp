@@ -1,12 +1,13 @@
-// ADR-0036's aaudio-test and opensl-test on the Mac: a scripted host (app_host.h) that runs the app of
-// fixtures/apps through activity-host with the start of ADR-0028's test 3, and plays the host's audio side as the
-// App's AudioHost does, without sound: a fake host of 48 kHz with IO buffers of 5 ms and 10 ms of output latency,
-// whose consumer thread reads every open stream every 5 ms with apkrt_audio_read, as a render block would, the
-// frames of 5 ms at the stream's rate. It passes when the app finishes by itself, its lines are
-// fixtures/expected/<app>.logcat (tools/android-reference.sh --app <app>), the only request was FINISH,
-// activity-host ended with status 0, the consumer read, and heard only the zeros both apps play, and every stream the
-// host opened was closed once. The device lines and the consumer's counts are shown, not compared.
-//   audio_app_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> <app>
+// ADR-0036's aaudio-test and opensl-test, and ADR-0064's audio-input-test and its twin audio-input-test-granted (the
+// microphone grant is stored before the start, and the input host captures silence), on the Mac: a scripted host
+// (app_host.h) that runs the app of fixtures/apps through activity-host with the start of ADR-0028's test 3, and plays
+// the host's audio side as the App's AudioHost does, without sound: a fake host of 48 kHz with IO buffers of 5 ms and
+// 10 ms of output latency, whose consumer thread reads every open stream every 5 ms with apkrt_audio_read, as a render
+// block would, the frames of 5 ms at the stream's rate. It passes when the app finishes by itself, its lines are
+// fixtures/expected/<app>.logcat (tools/android-reference.sh --app <app>), the only request was FINISH, activity-host
+// ended with status 0, the consumer read, and heard only the zeros both apps play, and every stream the host opened was
+// closed once. The device lines and the consumer's counts are shown, not compared. audio_app_test <scratch directory>
+// <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> <app>
 #include "app_host.h"
 
 #include <mach/mach_time.h>
@@ -90,6 +91,42 @@ void consume(const std::atomic<bool> &done) {
     }
 }
 
+/// The input streams the fake input host opened: it captures silence, every period, into the runtime's ring.
+std::map<std::uint64_t, Stream> inputs;
+
+int open_input(void *, std::uint64_t stream, double sample_rate, std::int32_t channels, std::int32_t,
+               apkrt_audio_hardware *hardware) {
+    const std::lock_guard hold(host.lock);
+    inputs[stream] = {sample_rate > 0 ? sample_rate : hardware_rate, channels};
+    host.opened.push_back(stream);
+    *hardware = {hardware_rate, io_buffer};
+    return 0;
+}
+
+void close_input(void *, std::uint64_t stream) {
+    const std::lock_guard hold(host.lock);
+    inputs.erase(stream);
+    host.closed.push_back(stream);
+}
+
+/// The microphone of the open input streams, every period: the frames of 5 ms at the stream's rate, zeros.
+void capture_silence(const std::atomic<bool> &done) {
+    std::vector<float> buffer;
+    auto next = std::chrono::steady_clock::now();
+    while (!done.load()) {
+        next += period;
+        std::this_thread::sleep_until(next);
+        const std::lock_guard hold(host.lock);
+        for (auto &[id, stream] : inputs) {
+            stream.owed += stream.rate * std::chrono::duration<double>(period).count();
+            const auto frames = static_cast<std::int64_t>(stream.owed);
+            stream.owed -= static_cast<double>(frames);
+            buffer.assign(static_cast<std::size_t>(frames * stream.channels), 0.0f);
+            stream.frames += apkrt_audio_input_write(id, buffer.data(), frames, mach_absolute_time());
+        }
+    }
+}
+
 bool requested(const std::string &request) {
     return std::find(seen.requests.begin(), seen.requests.end(), request) != seen.requests.end();
 }
@@ -104,13 +141,16 @@ int main(int argc, char **argv) {
     }
     const Paths paths{argv[1], argv[2], argv[3], argv[4], argv[5]};
     const std::string name = argv[6];
-    if (name != "aaudio-test" && name != "opensl-test" && name != "sdl-audio-test") {
+    const bool microphone = name == "audio-input-test" || name == "audio-input-test-granted";
+    if (name != "aaudio-test" && name != "opensl-test" && name != "sdl-audio-test" && !microphone) {
         fail("no audio app " + name);
         return 1;
     }
-    App app{.name = name, .package = name == "aaudio-test" ? "io.github.kisame76.minato.test.aaudio"
-                                                           : "io.github.kisame76.minato.test.opensl"};
-    const char *library = name == "aaudio-test" ? "libaaudio.so" : "libOpenSLES.so";
+    App app{.name = name, .package = name == "aaudio-test"       ? "io.github.kisame76.minato.test.aaudio"
+                                     : name == "audio-input-test" ? "io.github.kisame76.minato.test.audioinput"
+                                     : microphone                 ? "io.github.kisame76.minato.test.audioinputgranted"
+                                                                  : "io.github.kisame76.minato.test.opensl"};
+    const char *library = name == "aaudio-test" || microphone ? "libaaudio.so" : "libOpenSLES.so";
     if (!std::filesystem::exists(paths.bionic / library)) {
         std::printf("skipped: %s is not built (tools/build-bionic.sh)\n", (paths.bionic / library).c_str());
         return 0;
@@ -124,8 +164,16 @@ int main(int argc, char **argv) {
     }
     const apkrt_audio_host audio{nullptr, open_stream, close_stream};
     if (apkrt_set_audio_host(&audio) != 0) fail("apkrt_set_audio_host refused the host");
+    const apkrt_audio_input_host microphone_host{nullptr, open_input, close_input};
+    if (apkrt_set_audio_input_host(&microphone_host) != 0) fail("apkrt_set_audio_input_host refused the host");
+    if (microphone) {  // the host records the grant at a session's begin
+        apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE,
+                                name == "audio-input-test-granted" ? APKRT_PERMISSION_GRANTED
+                                                                    : APKRT_PERMISSION_DENIED);
+    }
     std::atomic<bool> done{false};
     std::thread consumer(consume, std::cref(done));
+    std::thread microphone_thread(capture_silence, std::cref(done));
     begin({3.0, width, height, 1, 1, 120, "de", "DE"});
     if (!start(app, app.guest + "/base.apk", name.c_str(), "ANativeActivity_onCreate")) _exit(1);
 
@@ -144,6 +192,7 @@ int main(int argc, char **argv) {
     if (!wait_for([] { return seen.ended; }, 10s)) fail("the program did not end after onDestroy");
     done.store(true);
     consumer.join();
+    microphone_thread.join();
 
     const std::string log = capture.drain();
     {
@@ -166,7 +215,7 @@ int main(int argc, char **argv) {
         auto opened = host.opened;
         std::sort(opened.begin(), opened.end());
         if (closed != opened) fail("the streams closed are not those opened, once each");
-        if (host.frames == 0) fail("the consumer read nothing");
+        if (host.frames == 0 && !microphone) fail("the consumer read nothing");
         if (host.loud != 0) fail("the app plays zeros, but the consumer heard " + std::to_string(host.loud) + " other samples");
         ::dprintf(report, "The consumer: %zu streams, %lld reads, %lld frames, %lld xruns\n", host.opened.size(),
                   static_cast<long long>(host.reads), static_cast<long long>(host.frames),

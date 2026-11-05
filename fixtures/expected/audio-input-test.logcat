@@ -1,0 +1,14 @@
+I/audio-input-test: android_main
+I/audio-input-test: AAudio_createStreamBuilder: AAUDIO_OK
+I/audio-input-test: input openStream: AAUDIO_ERROR_INTERNAL, a stream no
+I/audio-input-test: slCreateEngine: SUCCESS
+I/audio-input-test: Realize the engine: SUCCESS
+I/audio-input-test: CreateAudioRecorder: SUCCESS
+I/audio-input-test: a recorder object: yes
+I/audio-input-test: Realize the recorder: CONTENT_UNSUPPORTED
+I/audio-input-test: GetInterface RECORD: PRECONDITIONS_VIOLATED
+I/audio-input-test: GetInterface the buffer queue: PRECONDITIONS_VIOLATED
+I/audio-input-test: the recorder destroyed
+I/audio-input-test: done
+I/audio-input-test: ANativeActivity_finish
+I/audio-input-test: android_main returns

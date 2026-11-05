@@ -368,6 +368,9 @@ add_subdirectory(apps/present-test)
 # The audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.
 add_subdirectory(apps/aaudio-test)
 add_subdirectory(apps/opensl-test)
+# The microphone's test apps (ADR-0064), without and with RECORD_AUDIO's grant.
+add_subdirectory(apps/audio-input-test)
+add_subdirectory(apps/audio-input-test-granted)
 # The SDL2 audio sequences (the audio speed of an SDL2 game).
 add_subdirectory(apps/sdl-audio-test)
 # The turn test app (ADR-0038, test 3).

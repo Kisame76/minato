@@ -919,6 +919,15 @@ if(APK_HOST_BUILD)
     set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   endforeach()
 
+  # ADR-0064's audio-input-test, without and with RECORD_AUDIO's grant (the twin audio-input-test-granted): the same
+  # host with a microphone that captures silence.
+  foreach(app IN ITEMS audio-input-test audio-input-test-granted)
+    add_test(NAME runtime.${app} COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/${app}_app_test_scratch"
+      "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+      ${app})
+    set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  endforeach()
+
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.
   add_executable(signals_test tests/signals_test.cpp tests/signals_probe.S tests/threads_probe.S)
   target_include_directories(signals_test PRIVATE src)

@@ -1,0 +1,36 @@
+I/audio-input-test-granted: android_main
+I/audio-input-test-granted: AAudio_createStreamBuilder: AAUDIO_OK
+I/audio-input-test-granted: input openStream: AAUDIO_OK, a stream yes
+I/audio-input-test-granted: direction 1, channels 1, format 1, rate 16000
+I/audio-input-test-granted: state AAUDIO_STREAM_STATE_OPEN
+I/audio-input-test-granted: write on an input stream: -890
+I/audio-input-test-granted: read before the start: 0 frames
+I/audio-input-test-granted: requestStart: AAUDIO_OK
+I/audio-input-test-granted: state after the start AAUDIO_STREAM_STATE_STARTED
+I/audio-input-test-granted: read 160 frames, 2 s: 160
+I/audio-input-test-granted: frames read so far at least 160: yes
+I/audio-input-test-granted: requestStop: AAUDIO_OK
+I/audio-input-test-granted: state after the stop AAUDIO_STREAM_STATE_STOPPED
+I/audio-input-test-granted: close: AAUDIO_OK
+I/audio-input-test-granted: slCreateEngine: SUCCESS
+I/audio-input-test-granted: Realize the engine: SUCCESS
+I/audio-input-test-granted: CreateAudioRecorder: SUCCESS
+I/audio-input-test-granted: a recorder object: yes
+I/audio-input-test-granted: Realize the recorder: SUCCESS
+I/audio-input-test-granted: GetInterface RECORD: SUCCESS
+I/audio-input-test-granted: GetInterface the buffer queue: SUCCESS
+I/audio-input-test-granted: RegisterCallback of the queue: SUCCESS
+I/audio-input-test-granted: Enqueue 0: SUCCESS
+I/audio-input-test-granted: Enqueue 1: SUCCESS
+I/audio-input-test-granted: Enqueue 2: SUCCESS
+I/audio-input-test-granted: a fourth Enqueue: BUFFER_INSUFFICIENT
+I/audio-input-test-granted: record state before: 1
+I/audio-input-test-granted: SetRecordState RECORDING: SUCCESS
+I/audio-input-test-granted: the three buffers were called back: yes
+I/audio-input-test-granted: queue count 0
+I/audio-input-test-granted: SetRecordState STOPPED: SUCCESS
+I/audio-input-test-granted: record state after: 1
+I/audio-input-test-granted: the recorder destroyed
+I/audio-input-test-granted: done
+I/audio-input-test-granted: ANativeActivity_finish
+I/audio-input-test-granted: android_main returns

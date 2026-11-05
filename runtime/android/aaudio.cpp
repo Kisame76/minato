@@ -8,7 +8,7 @@
 // back none [from memory of AOSP, not read again]. It calls the error callback once the stream is DISCONNECTED.
 // Input streams (ADR-0064) read the microphone through audio_read: AAudioStream_read converts the captured float32
 // frames to the app's format, and a stream with a data callback has a thread that fills the callback's frames and
-// calls it. Opening one needs the microphone grant (AAUDIO_ERROR_UNAVAILABLE without it, as Android's). EXCLUSIVE
+// calls it. Opening one needs the microphone grant (AAUDIO_ERROR_INTERNAL without it, as Android 15's). EXCLUSIVE
 // becomes SHARED, and MMAP is never used.
 #include <aaudio/AAudio.h>
 #include <android/log.h>
@@ -150,10 +150,11 @@ aaudio_result_t result_of(int error) {
             return AAUDIO_ERROR_NO_MEMORY;
         case EMFILE:
             return AAUDIO_ERROR_NO_FREE_HANDLES;
-        case EACCES:
         case ENODEV:
         case EIO:
             return AAUDIO_ERROR_UNAVAILABLE;
+        case EACCES:  // an input stream without RECORD_AUDIO's grant, as Android 15's open answers (audio-input-test)
+            return AAUDIO_ERROR_INTERNAL;
         case ETIMEDOUT:
             return AAUDIO_ERROR_TIMEOUT;
         default:

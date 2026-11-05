@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- audio-input-test (ADR-0064): a NativeActivity through native_app_glue on AAudio input streams and OpenSL ES
+     recorders, packed by make-apk. Its twin audio-input-test-granted has the RECORD_AUDIO grant before the start. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.audioinput"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <application android:label="Audio Input Test" android:hasCode="false"
+      android:extractNativeLibs="false">
+    <activity android:name="android.app.NativeActivity" android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="audio-input-test"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

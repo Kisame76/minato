@@ -1252,7 +1252,7 @@ run_app() {
     rotation=$(run cmd window user-rotation | tr -d '\r')
     run cmd window user-rotation lock 0 >/dev/null
   fi
-  if [[ "$app" == mic-test-granted ]]; then
+  if [[ "$app" == mic-test-granted || "$app" == audio-input-test-granted ]]; then
     run pm grant "$package" android.permission.RECORD_AUDIO
   fi
   if [[ "$app" == camera-characteristics-test-granted ]]; then

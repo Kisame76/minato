@@ -1428,12 +1428,18 @@ SLresult create_recorder(Engine &engine, Recording *recording, SLuint32 buffers 
         ->CreateAudioRecorder(engine.engine, &recording->object, &microphone, &sink, 1, ids, required);
 }
 
-TEST(a_recorder_needs_the_microphone_grant) {
+TEST(a_recorder_without_the_microphone_grant_is_created_and_fails_at_realize_as_android_15s) {
     Engine engine;
     if (!engine.ok()) return;
     use_microphone(false);
     Recording recording;
-    CHECK(create_recorder(engine, &recording) == SL_RESULT_PERMISSION_DENIED && recording.object == nullptr);
+    CHECK(create_recorder(engine, &recording) == SL_RESULT_SUCCESS && recording.object != nullptr);
+    CHECK((*recording.object)->Realize(recording.object, SL_BOOLEAN_FALSE) == SL_RESULT_CONTENT_UNSUPPORTED);
+    void *record = nullptr;
+    CHECK((*recording.object)->GetInterface(recording.object, SL_IID_RECORD, &record) ==
+          SL_RESULT_PRECONDITIONS_VIOLATED);
+    (*recording.object)->Destroy(recording.object);
+    recording = {};
     use_microphone(true);
     CHECK(create_recorder(engine, &recording) == SL_RESULT_SUCCESS && recording.object != nullptr);
     (*recording.object)->Destroy(recording.object);
