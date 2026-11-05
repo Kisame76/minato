@@ -69,6 +69,12 @@ public:
     /// of /proc/self/fd show. Set before the description goes into the table; empty for all others.
     std::string written_path;
 
+    /// An O_PATH descriptor of a directory above the app's storage mounts that no mount covers (/sdcard,
+    /// /storage/self/primary, /storage/emulated/0/Android): the host file is /dev/null, written_path is the guest path
+    /// after the links, and fstat answers as stat does for the directory (sys_files.cpp), so that bionic's realpath,
+    /// which compares the two and reads the path from /proc/self/fd, resolves the links of Android's storage.
+    bool implied_directory = false;
+
     /// The watch (watches.h) of the file this description writes: set when the guest opened a watched file for
     /// writing, and the destructor, when the last guest number is closed, tells the watch that this writer is gone.
     void set_write_watch(int id) { write_watch_.store(id, std::memory_order_relaxed); }

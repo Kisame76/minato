@@ -62,4 +62,12 @@ I/system-services-test-unpermitted: password quality 0, complexity java.lang.Sec
 I/system-services-test-unpermitted: storage encryption status 5, active password sufficient java.lang.SecurityException
 I/system-services-test-unpermitted: lock task permitted false, application hidden java.lang.SecurityException
 I/system-services-test-unpermitted: lock now java.lang.SecurityException
+I/system-services-test-unpermitted: canonical /sdcard /storage/emulated/0
+I/system-services-test-unpermitted: canonical /sdcard/Android /storage/emulated/0/Android
+I/system-services-test-unpermitted: canonical /storage/self/primary /storage/emulated/0
+I/system-services-test-unpermitted: canonical /storage/emulated/0 /storage/emulated/0
+I/system-services-test-unpermitted: canonical with .. /storage/emulated/0/Android/data
+I/system-services-test-unpermitted: canonical external files /storage/emulated/0/Android/data/<pkg>/files
+I/system-services-test-unpermitted: canonical missing below /sdcard /storage/emulated/0/no-such-folder/x
+I/system-services-test-unpermitted: canonical dangling link /data/data/<pkg>/cache/dangling
 I/system-services-test-unpermitted: done

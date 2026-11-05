@@ -27,12 +27,16 @@ import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
 import android.view.autofill.AutofillManager;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -121,6 +125,7 @@ public class ServicesActivity extends Activity {
         usageStats();
         smallServices();
         devicePolicy();
+        canonicalPaths();
         Log.i(mTag, "done");
     }
 
@@ -337,6 +342,40 @@ public class ServicesActivity extends Activity {
             manager.lockNow();
             return "ok";
         }));
+    }
+
+    /** A path's canonical form, or the exception; the package name shortened to <pkg>. */
+    private String canonical(File file) {
+        try {
+            return file.getCanonicalPath().replace(getPackageName(), "<pkg>");
+        } catch (IOException e) {
+            return e.getClass().getName();
+        }
+    }
+
+    /**
+     * File.getCanonicalPath over the storage links (/sdcard, /storage/self/primary) and a dangling link. A link the app
+     * makes to /sdcard is left out: Minato does not follow a link out of its mount (ADR-0052).
+     */
+    private void canonicalPaths() {
+        Log.i(mTag, "canonical /sdcard " + canonical(new File("/sdcard")));
+        Log.i(mTag, "canonical /sdcard/Android " + canonical(new File("/sdcard/Android")));
+        Log.i(mTag, "canonical /storage/self/primary " + canonical(new File("/storage/self/primary")));
+        Log.i(mTag, "canonical /storage/emulated/0 " + canonical(new File("/storage/emulated/0")));
+        Log.i(mTag, "canonical with .. " + canonical(new File("/sdcard/Android/../Android/data")));
+        final File files = getExternalFilesDir(null);
+        Log.i(mTag, "canonical external files " + (files == null ? "null" : canonical(files)));
+        Log.i(mTag, "canonical missing below /sdcard " + canonical(new File("/sdcard/no-such-folder/x")));
+        try {
+            final File cache = getCacheDir();
+            final File dangling = new File(cache, "dangling");
+            dangling.delete();
+            Os.symlink(new File(cache, "nothing").getPath(), dangling.getPath());
+            Log.i(mTag, "canonical dangling link " + canonical(dangling));
+            dangling.delete();
+        } catch (ErrnoException e) {
+            Log.i(mTag, "links: " + e.getMessage());
+        }
     }
 
     private void uiMode() {

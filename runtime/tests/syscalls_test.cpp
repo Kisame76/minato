@@ -2622,6 +2622,38 @@ TEST(androids_links_show_as_links_and_name_their_targets) {
     }
 }
 
+TEST(a_path_descriptor_through_androids_links_names_the_target_in_proc_self_fd) {
+    // File.getCanonicalPath is libcore's canonicalize over bionic's realpath, which opens the path with O_PATH and
+    // reads /proc/self/fd/<n>: on Android 15's emulator "/sdcard" and "/storage/self/primary" come out as
+    // /storage/emulated/0, also below them (apk-runner-35: system-services-test's canonical lines).
+    constexpr std::uint64_t o_path = 010000000;
+    const Scratch scratch;
+    CHECK(::mkdir((scratch.host + "/files").c_str(), 0700) == 0);
+    CHECK(::mkdir((scratch.host + "/app").c_str(), 0700) == 0);
+    apkrt::vfs::mount("/storage/emulated/0/Android/data/io.example", scratch.host + "/files");
+    apkrt::vfs::mount("/data/user/0/io.example", scratch.host + "/app");  // as GuestStart mounts them
+    const auto canonical = [&](const char *path) {
+        const auto fd = open_guest(at_fdcwd, path, o_path | o_cloexec);
+        if (fd < 0) return std::format("error {}", fd);
+        char text[256] = {};
+        const auto fd_path = std::format("/proc/self/fd/{}", fd);
+        const auto length = call(nr_readlinkat, {at_fdcwd, address(fd_path.c_str()), address(text), sizeof text});
+        call(nr_close, {unsigned_of(fd)});
+        return length < 0 ? std::format("readlink error {}", length)
+                          : std::string(text, static_cast<std::size_t>(length));
+    };
+    CHECK(canonical("/storage/emulated/0/Android/data/io.example") == "/storage/emulated/0/Android/data/io.example");
+    CHECK(canonical("/sdcard/Android/data/io.example") == "/storage/emulated/0/Android/data/io.example");
+    CHECK(canonical("/storage/self/primary/Android/data/io.example") ==
+          "/storage/emulated/0/Android/data/io.example");
+    CHECK(canonical("/sdcard/Android/data") == "/storage/emulated/0/Android/data");
+    CHECK(canonical("/sdcard/Android") == "/storage/emulated/0/Android");
+    CHECK(canonical("/sdcard") == "/storage/emulated/0");
+    CHECK(canonical("/storage/self/primary") == "/storage/emulated/0");
+    CHECK(canonical("/sdcard/Android/../Android/data") == "/storage/emulated/0/Android/data");
+    CHECK(canonical("/data/user/0") == "/data/data");
+}
+
 TEST(a_path_of_path_max_bytes_is_too_long) {
     // getname: PATH_MAX (4096) bytes with the NUL; one byte fewer is a path, here of folders that are not there.
     constexpr std::int64_t enametoolong = 36;

@@ -346,6 +346,19 @@ bool read_only(const Description &description) {
     return guest && read_only(*guest);
 }
 
+/// What stat answers for a directory above the app's storage mounts that no mount covers, such as /storage/emulated/0:
+/// the guest sees it as a directory, as Android does, owned as android_owner says.
+LinuxStat implied_directory_status(const std::string &guest) {
+    const Owner owner = android_owner(guest);
+    LinuxStat dir{};
+    dir.mode = S_IFDIR | 0771;  // the emulated volume's directories (owner: app_uid, ext_data_rw_gid)
+    dir.nlink = 2;
+    dir.uid = owner.uid;
+    dir.gid = owner.gid;
+    dir.blksize = 4096;
+    return dir;
+}
+
 LinuxStat to_linux_stat(const struct stat &host, Owner owner) {
     LinuxStat result{};
     result.dev = to_linux_device(host.st_dev);
@@ -386,6 +399,10 @@ long sys_fstat(int fd, std::uint64_t buffer) {
     if (!description) return -linux_errno::ebadf;
     if (description->kind() != Description::Kind::file) {
         *as_pointer<LinuxStat>(buffer) = anonymous_inode();
+        return 0;
+    }
+    if (description->implied_directory) {
+        *as_pointer<LinuxStat>(buffer) = implied_directory_status(description->written_path);
         return 0;
     }
     struct stat status;
@@ -747,6 +764,21 @@ long sys_openat(int directory, std::uint64_t path, int flags, int mode) {
         if (const auto written = proc::open(*absolute, flags)) return *written;
     }
     const auto host = resolve(directory, path);
+    // An O_PATH descriptor of a directory above the app's storage mounts, which realpath (File.getCanonicalPath) opens:
+    // a descriptor that names the guest path after the links (descriptors.h implied_directory).
+    if (host.error == -linux_errno::enoent && (flags & linux_open::path) != 0 &&
+        vfs::is_implied_directory(host.guest)) {
+        const int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        if (fd < 0) return -to_linux_errno(errno);
+        const long number = descriptors::add(fd, (flags & linux_open::cloexec) != 0, false, 0);
+        if (number >= 0) {
+            if (const auto description = descriptors::get(static_cast<int>(number))) {
+                description->written_path = host.guest;
+                description->implied_directory = true;
+            }
+        }
+        return number;
+    }
     if (host.error != 0) return host.error;
     // A file that is there needs write permission to be written or truncated (O_PATH only names it), and on a read-only
     // partition answers EROFS first, a folder EISDIR first, the host's; one that is not there needs its folder to be
@@ -839,14 +871,7 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
         // guest sees it as a directory, as Android does, so stat, lstat and canonicalization (getCanonicalFile, hence
         // StorageManager.getUuidForPath) work. Synthesize one; the owner is Android's for the path (android_owner).
         if (host.error == -linux_errno::enoent && vfs::is_implied_directory(host.guest)) {
-            const Owner owner = android_owner(host.guest);
-            LinuxStat dir{};
-            dir.mode = S_IFDIR | 0771;  // the emulated volume's directories (sys_files owner: app_uid, ext_data_rw_gid)
-            dir.nlink = 2;
-            dir.uid = owner.uid;
-            dir.gid = owner.gid;
-            dir.blksize = 4096;
-            *as_pointer<LinuxStat>(buffer) = dir;
+            *as_pointer<LinuxStat>(buffer) = implied_directory_status(host.guest);
             return 0;
         }
         return host.error;
