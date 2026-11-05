@@ -115,7 +115,8 @@ LIBRARIES = {
                     "minato_BufferQueue_detach", "minato_ANativeWindow_connect", "minato_ANativeWindow_disconnect",
                     "minato_ANativeWindow_queueWith", "minato_ANativeWindow_attachAndQueue",
                     "minato_ANativeWindow_claim", "minato_ANativeWindow_unclaim", "minato_ANativeWindow_isClaimed",
-                    "minato_ANativeWindow_connectProducer", "minato_ANativeWindow_disconnectProducer"],
+                    "minato_ANativeWindow_connectProducer", "minato_ANativeWindow_disconnectProducer",
+                    "minato_ANativeWindow_disconnectCpu"],
     },
     # zlib from the NDK's libz.a, whole (decision 12): only the version script.
     "libz": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},

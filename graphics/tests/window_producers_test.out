@@ -1,0 +1,9 @@
+a config: yes
+A: a window yes
+A: the cpu: lock 0, post 0
+A: eglCreateWindowSurface while the cpu is connected: EGL_NO_SURFACE, error 0x3003
+B: a window yes
+B: eglCreateWindowSurface first: a surface, error 0x3000
+B: the cpu while EGL is connected: lock -22, post -1
+B: eglDestroySurface 1
+B: the cpu after EGL's disconnect: lock 0, post 0

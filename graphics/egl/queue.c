@@ -59,7 +59,6 @@ static int (*is_queue)(struct ANativeWindow *);
 static int (*dequeue)(struct ANativeWindow *, struct AHardwareBuffer **, int32_t *);
 static int (*queue)(struct ANativeWindow *, int32_t, int64_t);
 static int (*cancel)(struct ANativeWindow *, int32_t);
-static int (*is_claimed)(struct ANativeWindow *);
 static int (*connect_producer)(struct ANativeWindow *);
 static void (*disconnect_producer)(struct ANativeWindow *);
 static int (*window_info)(struct ANativeWindow *, struct minato_window_info *);
@@ -73,7 +72,6 @@ static void find(void) {
             library, "minato_ANativeWindow_dequeue");
         queue = (int (*)(struct ANativeWindow *, int32_t, int64_t))dlsym(library, "minato_ANativeWindow_queue");
         cancel = (int (*)(struct ANativeWindow *, int32_t))dlsym(library, "minato_ANativeWindow_cancel");
-        is_claimed = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_isClaimed");
         connect_producer = (int (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_connectProducer");
         disconnect_producer =
             (void (*)(struct ANativeWindow *))dlsym(library, "minato_ANativeWindow_disconnectProducer");
@@ -161,17 +159,18 @@ void minato_window_disconnect(struct ANativeWindow *window) {
 
 int minato_queue_window(struct ANativeWindow *window) {
     pthread_once(&found, find);
-    return is_queue != NULL && dequeue != NULL && queue != NULL && cancel != NULL && is_claimed != NULL &&
-           window_info != NULL && is_queue(window);
+    return is_queue != NULL && dequeue != NULL && queue != NULL && cancel != NULL &&
+           connect_producer != NULL && disconnect_producer != NULL && window_info != NULL && is_queue(window);
 }
 
 EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANativeWindow *window) {
-    if (is_claimed(window)) {
-        minato_bad_native_window(display, config);  /* a decoder's: Android's connect fails, "already connected" */
+    if (minato_window_connect(window) != 0) {
+        minato_bad_alloc(display);  /* Android's connect fails, "already connected to another API" */
         return EGL_NO_SURFACE;
     }
     struct minato_window_info info;
     if (window_info(window, &info) != 0) {
+        minato_window_disconnect(window);
         minato_bad_native_window(display, config);
         return EGL_NO_SURFACE;
     }
@@ -180,6 +179,7 @@ EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANa
     const EGLint height = geometry ? info.buffer_height : info.height;
     struct queue_surface *record = calloc(1, sizeof *record);
     if (record == NULL) {
+        minato_window_disconnect(window);
         minato_bad_native_window(display, config);
         return EGL_NO_SURFACE;
     }
@@ -187,6 +187,7 @@ EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANa
     const EGLSurface surface = eglCreatePbufferSurface(display, config, size);
     if (surface == EGL_NO_SURFACE) {
         free(record);
+        minato_window_disconnect(window);
         return EGL_NO_SURFACE;
     }
     ANativeWindow_acquire(window);
@@ -207,6 +208,7 @@ static void free_surface(struct queue_surface *record) {
             AHardwareBuffer_release(record->images[index].buffer);
         }
     }
+    minato_window_disconnect(record->window);  /* when the surface goes, as Android's disconnects */
     ANativeWindow_release(record->window);
     free(record);
 }

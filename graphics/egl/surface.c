@@ -10,9 +10,9 @@
      holding none of ANGLE's locks, and a signal's handler runs meanwhile; gone, EGL_FALSE with
      EGL_BAD_NATIVE_WINDOW at once, without GPU work.
    A SurfaceTexture's queue window gets a surface of queue.c's instead (ADR-0058 c)). A window surface is its host
-   window's producer from its making to its destroy (ADR-0060 e2c3), as Android's connects: a host window a decoder
-   draws into gets none (EGL_BAD_NATIVE_WINDOW where Android answers EGL_BAD_ALLOC), and a decoder's claim of a
-   window with one is refused. */
+   window's producer from its making to its destroy (ADR-0060 e2c3), as Android's connects: a window another API is
+   connected to, the CPU since its first lock or a decoder, gets none (EGL_BAD_ALLOC, as Android's), and the CPU's lock
+   or a decoder's claim of a window with one is refused. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -68,6 +68,10 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 void minato_bad_native_window(EGLDisplay display, EGLConfig config) {
     minato_host_eglCreateWindowSurface(display, config, (EGLNativeWindowType)0, NULL);
+}
+
+void minato_bad_alloc(EGLDisplay display) {
+    eglCreateStreamKHR(display, NULL);
 }
 
 /* The app's attributes without the fixed size's, then the fixed size: for EGLint and EGLAttrib lists. */
@@ -133,15 +137,17 @@ EGLSurface eglCreateWindowSurface(EGLDisplay display, EGLConfig config, EGLNativ
     if (minato_queue_window(window)) {
         return minato_queue_surface(display, config, window);
     }
-    if (minato_window_connect(window) != 0) {
-        minato_bad_native_window(display, config);  /* a decoder's: Android's connect fails, "already connected" */
+    /* The window first, then its connect, as Android's: a pointer that is no window gets EGL_BAD_NATIVE_WINDOW. */
+    struct window_surface *record = prepared(display, config, window);
+    if (record != NULL && minato_window_connect(window) != 0) {
+        free(record);
+        minato_bad_alloc(display);  /* Android's connect fails, "already connected to another API" */
         return EGL_NO_SURFACE;
     }
-    struct window_surface *record = prepared(display, config, window);
     EGLint *ours = record != NULL ? fixed_attributes(attributes, record->width, record->height) : NULL;
     if (ours == NULL) {
+        if (record != NULL) minato_window_disconnect(window);
         free(record);
-        minato_window_disconnect(window);
         minato_bad_native_window(display, config);
         return EGL_NO_SURFACE;
     }
@@ -156,15 +162,17 @@ EGLSurface eglCreatePlatformWindowSurface(EGLDisplay display, EGLConfig config, 
     if (minato_queue_window(window)) {
         return minato_queue_surface(display, config, window);
     }
-    if (minato_window_connect(window) != 0) {
-        minato_bad_native_window(display, config);  /* a decoder's: Android's connect fails, "already connected" */
+    /* The window first, then its connect, as Android's: a pointer that is no window gets EGL_BAD_NATIVE_WINDOW. */
+    struct window_surface *record = prepared(display, config, window);
+    if (record != NULL && minato_window_connect(window) != 0) {
+        free(record);
+        minato_bad_alloc(display);  /* Android's connect fails, "already connected to another API" */
         return EGL_NO_SURFACE;
     }
-    struct window_surface *record = prepared(display, config, window);
     EGLAttrib *ours = record != NULL ? fixed_attribs(attributes, record->width, record->height) : NULL;
     if (ours == NULL) {
+        if (record != NULL) minato_window_disconnect(window);
         free(record);
-        minato_window_disconnect(window);
         minato_bad_native_window(display, config);
         return EGL_NO_SURFACE;
     }

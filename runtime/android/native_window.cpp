@@ -50,7 +50,12 @@ struct ANativeWindow {
     int32_t data_space;
     bool locked;  // from ANativeWindow_lock to the end of ANativeWindow_unlockAndPost
     bool claimed;  // a host window's decoder (minato_ANativeWindow_claim, ADR-0060 e2c3); a queue's is its queue's
-    int32_t producers;  // a host window's EGL window surfaces and Vulkan surfaces (connectProducer), under `lock`
+    int32_t producers;  // EGL window surfaces and Vulkan surfaces (connectProducer), under `lock`; host and queue
+    // The CPU producer (ANativeWindow_lock), kept connected after unlockAndPost until disconnectCpu, as Android's
+    // Surface::lock is sticky (ADR-0058 c): while it holds, connectProducer refuses (EGL_BAD_ALLOC); a producer makes
+    // lock refuse (-EINVAL). A decoder's claim and an ImageWriter connect after a CPU post are not refused yet (one
+    // connected API per BufferQueue on Android: an open gap, window-producers-test's case C).
+    bool cpu_connected;  // under `lock`
     minato_BufferQueue* queue;  // a queue window's, else nullptr
     int32_t locked_slot;        // a queue window's slot from ANativeWindow_lock to its post
     int32_t transform;          // a queue window's ANativeWindow_setBuffersTransform, for its frames
@@ -672,7 +677,7 @@ int minato_ANativeWindow_claim(ANativeWindow* window) {
     int result = 0;
     if (queue->abandoned) {
         result = -ENODEV;
-    } else if (queue->claimed || queue->connected || window->locked) {
+    } else if (queue->claimed || queue->connected || window->locked || window->producers > 0) {
         result = -EBUSY;
     } else {
         queue->claimed = true;
@@ -699,22 +704,47 @@ int minato_ANativeWindow_connectProducer(ANativeWindow* window) {
     if (!is_window(window)) return -EINVAL;
     if (window->queue == nullptr) {
         pthread_mutex_lock(&window->lock);
-        const int result = window->claimed ? -EBUSY : 0;
-        if (result == 0) window->producers++;
+        int result;
+        if (window->cpu_connected) {
+            result = -EINVAL;  // the CPU holds it (libgui's connect of a second API fails, "already connected")
+        } else if (window->claimed) {
+            result = -EBUSY;  // a decoder's
+        } else {
+            window->producers++;
+            result = 0;
+        }
         pthread_mutex_unlock(&window->lock);
         return result;
     }
-    // A queue window's producers connect as writers; here only a decoder's claim refuses one, and nothing is kept.
+    // A queue window counts its producers too (ADR-0058 c), refused while the CPU holds it or a decoder claims it.
     pthread_mutex_lock(&window->queue->lock);
     const bool claimed = window->queue->claimed;
     pthread_mutex_unlock(&window->queue->lock);
-    return claimed ? -EBUSY : 0;
+    pthread_mutex_lock(&window->lock);
+    int result;
+    if (window->cpu_connected) {
+        result = -EINVAL;
+    } else if (claimed) {
+        result = -EBUSY;
+    } else {
+        window->producers++;
+        result = 0;
+    }
+    pthread_mutex_unlock(&window->lock);
+    return result;
 }
 
 void minato_ANativeWindow_disconnectProducer(ANativeWindow* window) {
-    if (!is_window(window) || window->queue != nullptr) return;
+    if (!is_window(window)) return;
     pthread_mutex_lock(&window->lock);
     if (window->producers > 0) window->producers--;
+    pthread_mutex_unlock(&window->lock);
+}
+
+void minato_ANativeWindow_disconnectCpu(ANativeWindow* window) {
+    if (!is_window(window)) return;
+    pthread_mutex_lock(&window->lock);
+    window->cpu_connected = false;
     pthread_mutex_unlock(&window->lock);
 }
 
@@ -863,6 +893,10 @@ static int32_t queue_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffer
     // (image-ndk-test).
     if (dequeue_geometry(window).format == kImplementationDefined) return -EINVAL;
     pthread_mutex_lock(&window->lock);
+    if (window->producers > 0) {
+        pthread_mutex_unlock(&window->lock);
+        return -EINVAL;  // an EGL/Vulkan producer holds it, as a host window's lock answers
+    }
     if (window->locked) {
         pthread_mutex_unlock(&window->lock);
         return kInvalidOperation;
@@ -875,6 +909,7 @@ static int32_t queue_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffer
         return -EINVAL;  // a decoder's: libgui's connect of the CPU fails, "already connected"
     }
     window->locked = true;
+    window->cpu_connected = true;  // sticky, as a host window's lock
     pthread_mutex_unlock(&window->lock);
     AHardwareBuffer* buffer = nullptr;
     int32_t slot = -1;
@@ -931,6 +966,10 @@ int32_t ANativeWindow_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffe
     const Size now = size(window);
     apkrt_window_buffer buffer{};
     pthread_mutex_lock(&window->lock);
+    if (window->producers > 0) {
+        pthread_mutex_unlock(&window->lock);
+        return -EINVAL;  // an EGL/Vulkan producer holds it (libgui's connect of the CPU fails, "already connected")
+    }
     if (window->locked) {
         pthread_mutex_unlock(&window->lock);
         __android_log_print(ANDROID_LOG_ERROR, "Surface", "Surface::lock failed, already locked");
@@ -941,6 +980,7 @@ int32_t ANativeWindow_lock(ANativeWindow* window, ANativeWindow_Buffer* outBuffe
         return -EINVAL;  // a decoder's, as on a queue window [verified: Android 15, media-window-test, -22]
     }
     window->locked = true;
+    window->cpu_connected = true;  // sticky: the CPU stays connected after unlockAndPost until disconnectCpu
     const bool geometry = window->buffer_width != 0;
     buffer.width = geometry ? window->buffer_width : now.width;
     buffer.height = geometry ? window->buffer_height : now.height;

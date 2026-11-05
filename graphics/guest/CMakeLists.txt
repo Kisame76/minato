@@ -173,6 +173,13 @@ target_compile_options(vulkan-indexing-test PRIVATE --target=aarch64-none-linux-
 target_link_options(vulkan-indexing-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(vulkan-indexing-test PRIVATE vulkan)
 
+# ADR-0043, the black windows' candidate (c): window-producers-test, one window's two producers (a CPU's and EGL's)
+# on an AImageReader's window, against Android 15's answers (the same program as a shell program on the emulator).
+# Its libraries come through dlopen.
+add_executable(window-producers-test "${tests}/window_producers_test.c")
+target_compile_options(window-producers-test PRIVATE -Wall -Wextra)
+target_link_libraries(window-producers-test PRIVATE dl)
+
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM
 # (ADR-0041 a1), libGLESv2 and libGLESv3 are one set of objects with three export lists; each exports exactly the

@@ -1,3 +1,5 @@
 1) cpu: lock 0, post 0
+1) egl while the cpu is connected: EGL_NO_SURFACE, error 0x3003
+2) cpu while egl is connected: lock -22
 2) egl: surface made, swap EGL_TRUE, destroyed EGL_TRUE
 3) cpu: lock 0, post 0

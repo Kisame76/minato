@@ -5,8 +5,8 @@
    size; 3 to 4 images, the identity transform, alpha INHERIT; Android's formats, then B8G8R8A8 (first with
    MINATO_VULKAN_BGRA8_FIRST=1), and FIFO. A surface is its host window's producer from its making to its destroy
    (minato_ANativeWindow_connectProducer, ADR-0060 e2c3), as Android's loader connects at CreateAndroidSurfaceKHR: a
-   window a decoder draws into gets none (VK_ERROR_NATIVE_WINDOW_IN_USE_KHR, as Android 15's), and a decoder's claim of
-   a window with one is refused. */
+   window a decoder draws into, or the CPU since its first lock, gets none (VK_ERROR_NATIVE_WINDOW_IN_USE_KHR, as
+   Android 15's), and a decoder's claim or the CPU's lock of a window with one is refused. */
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <pthread.h>
@@ -52,7 +52,8 @@ VkResult vkCreateAndroidSurfaceKHR(VkInstance instance, const VkAndroidSurfaceCr
         return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;  /* as Android's answer when it cannot connect to it */
     }
     if (connect_producer != NULL && connect_producer(info->window) != 0) {
-        /* a decoder's (ADR-0060 e2c3) [verified: Android 15, media-window-test] */
+        /* a decoder's (ADR-0060 e2c3) [verified: Android 15, media-window-test], or the CPU's since its first lock, as
+           Android's swapchain.cpp answers any failed native_window_api_connect */
         return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
     }
     struct minato_surface *made = calloc(1, sizeof *made);

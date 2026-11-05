@@ -532,6 +532,10 @@ if(TARGET minato_graphics_host)
     add_guest_test(window_switch window-switch-test window_switch_test "${gles_system_libraries}"
       "MINATO_MOLTENVK=unset:" "MINATO_ANGLE=set:${angle}" "MINATO_WINDOW=set:64x48"
       "MINATO_WINDOW_WATCH=set:contents" "MINATO_METAL_HOOK=set:present:4" HOST_LINES "^metal:")
+    # ADR-0043, the black windows' candidate (c): a CPU producer and EGL on one AImageReader window, in both orders,
+    # against Android 15's answers (one producer at a time).
+    add_guest_test(window_producers window-producers-test window_producers_test
+      "${gles_system_libraries};${APK_BIONIC_DIR}/libmediandk.so" ${with_angle})
     # ADR-0065 step 4: GL_VENDOR and GL_RENDERER with and without a device profile (apk-run's --device-profile).
     add_guest_test(gles_profile gles-profile-test gles_profile_test "${gles_system_libraries}" ${with_angle}
       "MINATO_DEVICE_PROFILE=unset:")
@@ -704,7 +708,8 @@ if(TARGET minato_graphics_host)
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
     graphics.window_trim graphics.window_pace graphics.window_spare graphics.window_background graphics.window_hide
-    graphics.window_hide_opaque graphics.window_app graphics.window_switch graphics.window_buffers_drawables
+    graphics.window_hide_opaque graphics.window_app graphics.window_switch graphics.window_producers
+    graphics.window_buffers_drawables
     graphics.gles31_app graphics.gles_app_vulkan graphics.gles_live_vulkan graphics.gles_gate_vulkan
     PROPERTIES RESOURCE_LOCK gpu)
   # V3's check for the iPhone, first here: graphics/host's probe with MoltenVK for macOS. MoltenVK
@@ -726,7 +731,7 @@ else()
       vulkan_moltenvk vulkan_queue vulkan_present
       vulkan_drop probe
       gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
-      window_switch
+      window_switch window_producers
       gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class gles31_app gles_app_vulkan
       gles_live_vulkan gles_gate_vulkan)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo

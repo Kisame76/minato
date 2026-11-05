@@ -296,8 +296,8 @@ static AImage *next_image(AImageReader *reader, int wait_ms, media_status_t *sta
     return NULL;
 }
 
-// Whether EGL makes a window surface on the window; its error to the device tag (Android's EGL_BAD_ALLOC, Minato's
-// EGL_BAD_NATIVE_WINDOW, as ANGLE gives that one for a window it cannot use).
+// Whether EGL makes a window surface on the window; its error to the device tag (EGL_BAD_ALLOC on Android and Minato,
+// as the window's connect fails).
 static void window_surface(ANativeWindow *window, char *log, size_t size) {
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(display, NULL, NULL);

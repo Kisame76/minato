@@ -38,6 +38,10 @@ import java.util.zip.CRC32;
  *   which only that rectangle changed;
  * - e) WindowSurface.setBuffersGeometry: a size with one 0 refused, then 32 x 24 RGBA_8888 for the next canvas and
  *   its drawable;
+ * - h) EGL14's window surface on it after the CPU's posts, while the CPU stays connected (Android's Surface::lock
+ *   connects it until the Surface goes): none, with EGL_BAD_ALLOC, as Android 15 answers that order
+ *   (window-producers-test's case A on the emulator). Were one made, the test would clear it to green and swap, as
+ *   an app does, and its drawable would hide the CPU's buffer: the black windows' candidate (c), ADR-0043;
  * - f) its JNI library: ANativeWindow_fromSurface and ANativeWindow_toSurface;
  * - g) release, after which the reference that fromSurface took still holds the window.
  * The fills are opaque colors of channels 0 and 255, exact in every format. Each line goes to System.out with the
@@ -105,6 +109,8 @@ public class WindowSurfaceApplication extends Application {
         surface.unlockCanvasAndPost(canvas);
         print("e) the drawable must have CRC-32 " + crc(small));
 
+        eglAfterCpu(surface);
+
         print("f) ANativeWindow_fromSurface: " + nativeFromSurface(surface));
         Surface back = nativeToSurface();
         print("f) ANativeWindow_toSurface: valid " + back.isValid() + ", " + size(back));
@@ -154,6 +160,39 @@ public class WindowSurfaceApplication extends Application {
                 EGL14.EGL_NO_CONTEXT);
         print("b) released " + released + ", destroyed " + EGL14.eglDestroySurface(display, window) + " "
                 + EGL14.eglDestroyContext(display, context) + ", eglTerminate " + EGL14.eglTerminate(display));
+    }
+
+    /** h): EGL14's window surface on the Surface the CPU has posted to; a frame on it, were one made. */
+    private static void eglAfterCpu(Surface surface) throws ReflectiveOperationException {
+        EGLDisplay display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+        int[] version = new int[2];
+        EGL14.eglInitialize(display, version, 0, version, 1);
+        int[] spec = {EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
+                EGL14.EGL_NONE};
+        EGLConfig[] configs = new EGLConfig[1];
+        int[] count = new int[1];
+        EGL14.eglChooseConfig(display, spec, 0, configs, 0, 1, count, 0);
+        EGLContext context = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
+                new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE}, 0);
+        Method create = EGL14.class.getDeclaredMethod("_eglCreateWindowSurface", EGLDisplay.class, EGLConfig.class,
+                Object.class, int[].class, int.class);
+        create.setAccessible(true);
+        EGLSurface window = (EGLSurface) create.invoke(null, display, configs[0], surface,
+                new int[] {EGL14.EGL_NONE}, 0);
+        int error = EGL14.eglGetError();
+        print("h) EGL14 after the CPU's posts: a window surface " + (window != EGL14.EGL_NO_SURFACE)
+                + ", eglGetError 0x" + Integer.toHexString(error));
+        if (window != EGL14.EGL_NO_SURFACE) {
+            EGL14.eglMakeCurrent(display, window, window, context);
+            GLES20.glClearColor(0f, 1f, 0f, 1f);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+            EGL14.eglSwapBuffers(display, window);
+            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+            EGL14.eglDestroySurface(display, window);
+        }
+        EGL14.eglDestroyContext(display, context);
+        EGL14.eglTerminate(display);
     }
 
     /** The left half in one color, the right half in another, as whole pixels. */

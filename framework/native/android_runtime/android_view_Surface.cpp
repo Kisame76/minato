@@ -22,6 +22,9 @@
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
 
+#include <mutex>
+#include <unordered_map>
+
 #include <APKRuntime/guest_interface.h>
 #include <log/log.h>
 
@@ -58,6 +61,9 @@ struct {
 struct Private {
     decltype(&minato_ANativeWindow_create) create = nullptr;
     decltype(&minato_ANativeWindow_getInfo) getInfo = nullptr;
+    // Ends the window's CPU connection (ADR-0058 c), looked up by name as the NDK stub lacks it. Optional: an older
+    // libnativewindow without it leaves the connect-state fix off rather than crashing.
+    void (*disconnectCpu)(ANativeWindow *) = nullptr;
 };
 
 const Private &private_functions() {
@@ -66,6 +72,8 @@ const Private &private_functions() {
         if (void *library = dlopen("libnativewindow.so", RTLD_NOW)) {
             found.create = reinterpret_cast<decltype(found.create)>(dlsym(library, "minato_ANativeWindow_create"));
             found.getInfo = reinterpret_cast<decltype(found.getInfo)>(dlsym(library, "minato_ANativeWindow_getInfo"));
+            found.disconnectCpu = reinterpret_cast<decltype(found.disconnectCpu)>(
+                dlsym(library, "minato_ANativeWindow_disconnectCpu"));
         }
         LOG_ALWAYS_FATAL_IF(found.create == nullptr || found.getInfo == nullptr,
                             "libnativewindow.so lacks minato_ANativeWindow_create or minato_ANativeWindow_getInfo");
@@ -73,6 +81,14 @@ const Private &private_functions() {
     }();
     return functions;
 }
+
+// The lock references a window holds through lockCanvas, by window. AOSP's Surface allows one lock at a time
+// (lockCanvas refuses a second), so this is a count only across Surfaces of one window; the entry is erased at zero,
+// so a window's pointer carries no stale count once its locks are gone. Guarded by its mutex because Surfaces of
+// different windows lock and unlock on their own threads. nativeRelease reads it to tell a lock's release (after a
+// post, in Java's unlockCanvasAndPost) from the Surface's own release, which is the one that ends the CPU connection.
+std::mutex g_lock_counts_mutex;
+std::unordered_map<ANativeWindow *, int> g_lock_counts;
 
 ANativeWindow *window_of(jlong nativeObject) {
     return reinterpret_cast<ANativeWindow *>(nativeObject);
@@ -98,7 +114,30 @@ jlong nativeCreateFromSurfaceTexture(JNIEnv *env, jclass, jobject surfaceTexture
 }
 
 void nativeRelease(JNIEnv *, jclass, jlong nativeObject) {
-    ANativeWindow_release(window_of(nativeObject));
+    ANativeWindow *window = window_of(nativeObject);
+    bool surface_release = true;
+    {
+        std::lock_guard<std::mutex> guard(g_lock_counts_mutex);
+        const auto it = g_lock_counts.find(window);
+        if (it != g_lock_counts.end() && it->second > 0) {
+            // Java's unlockCanvasAndPost releases the lock's reference after every post (its finally block). That is
+            // not the Surface's own release, so the CPU producer stays connected and the sticky connect holds between
+            // posts: a static software app keeps its surface, and an EGL or Vulkan surface on it is still refused.
+            if (--it->second == 0) {
+                g_lock_counts.erase(it);
+            }
+            surface_release = false;
+        }
+    }
+    if (surface_release && window != nullptr) {
+        // The Surface's own release (no lock outstanding): the CPU connection ends with the Surface, as libgui's
+        // ~Surface disconnects, so a later producer may connect to the window (ADR-0058 c). Disconnect before the
+        // release that may free the window.
+        if (const auto disconnectCpu = private_functions().disconnectCpu) {
+            disconnectCpu(window);
+        }
+    }
+    ANativeWindow_release(window);
 }
 
 jboolean nativeIsValid(JNIEnv *, jclass, jlong nativeObject) {
@@ -160,6 +199,11 @@ jlong nativeLockCanvas(JNIEnv *env, jclass, jlong nativeObject, jobject canvasOb
     // Another reference, which Java passes to nativeUnlockCanvasAndPost in place of mNativeObject, since that could be
     // replaced while the surface is locked, and releases after the post.
     ANativeWindow_acquire(window);
+    {
+        // Count the lock, so the release of this reference after the post is told from the Surface's own release.
+        std::lock_guard<std::mutex> guard(g_lock_counts_mutex);
+        ++g_lock_counts[window];
+    }
     return nativeObject;
 }
 

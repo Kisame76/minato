@@ -9,6 +9,9 @@
 # - d) The host answers the app's dirty rectangle for a buffer of the last post's geometry and copies the rest back
 #   (ADR-0043 b2), and nativeLockCanvas clips the canvas to the rectangle the lock answered.
 # - e) ANativeWindow_setBuffersGeometry refuses a size with one 0 with -EINVAL and takes 32 x 24.
+# - h) eglCreateWindowSurface on a window the CPU has posted to fails with EGL_BAD_ALLOC (0x3003): the CPU stays
+#   connected (Surface::lock), and libEGL's native_window_api_connect fails [verified: Android 15, window-producers-test
+#   case A on the emulator], so no drawable follows and the CPU's buffer stays shown.
 # - f) ANativeWindow_getWidth answers the window's size whatever the geometry, getFormat the geometry's format,
 #   RGBA_8888 = 1 (ADR-0028 decision 7).
 # - g) release leaves the Surface invalid; fromSurface's reference holds the window until it is released.
@@ -26,6 +29,7 @@ d) lockCanvas(8, 8, 24, 24): dirty [8,8][24,24], clip [8,8][24,24]
 d) the drawable must have CRC-32 09ba138c
 e) setBuffersGeometry (0, 24, RGBA_8888) -22, (32, 24, RGBA_8888) 0; lockCanvas: 32 x 24
 e) the drawable must have CRC-32 95a7790f
+h) EGL14 after the CPU's posts: a window surface false, eglGetError 0x3003
 f) ANativeWindow_fromSurface: 64 x 48, format 1
 f) ANativeWindow_toSurface: valid true, 64 x 48
 g) release: valid false; the window of fromSurface's reference: 64 x 48

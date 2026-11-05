@@ -26,6 +26,11 @@ MINATO_HIDDEN void *minato_gles_function(const char *name);
    checked the display and the config: graphics/host hands it none for the window ID 0. */
 MINATO_HIDDEN void minato_bad_native_window(EGLDisplay display, EGLConfig config);
 
+/* Leaves EGL_BAD_ALLOC as ANGLE's error, Android's answer for a window surface whose window takes no producer (its
+   native_window_api_connect fails: another API, the CPU or a decoder, is connected), once ANGLE has checked the
+   display: ANGLE gives it for eglCreateStreamKHR, as its Vulkan and Metal displays have no streams. */
+MINATO_HIDDEN void minato_bad_alloc(EGLDisplay display);
+
 /* eglTerminate's part (surface.c): the window surfaces of `display` let their windows go. */
 MINATO_HIDDEN void minato_release_windows(EGLDisplay display);
 
@@ -34,8 +39,9 @@ MINATO_HIDDEN void minato_release_windows(EGLDisplay display);
    and eglTerminate's parts; and eglPresentationTimeANDROID's, 1 when `surface` is one of them. */
 struct ANativeWindow;
 MINATO_HIDDEN int minato_queue_window(struct ANativeWindow *window);
-/* A window surface on a host window as its producer (minato_ANativeWindow_connectProducer, ADR-0060 e2c3): 0, or
-   -EBUSY while a decoder claims it; each 0 has one disconnect, when the surface goes. */
+/* A window surface on a window, a host or a queue window, as its producer (minato_ANativeWindow_connectProducer,
+   ADR-0060 e2c3): 0, or an error while another API is connected (the CPU since its first lock, or a decoder's claim);
+   each 0 has one disconnect, when the surface goes. */
 MINATO_HIDDEN int minato_window_connect(struct ANativeWindow *window);
 MINATO_HIDDEN void minato_window_disconnect(struct ANativeWindow *window);
 MINATO_HIDDEN EGLSurface minato_queue_surface(EGLDisplay display, EGLConfig config, struct ANativeWindow *window);

@@ -133,13 +133,22 @@ int minato_ANativeWindow_attachAndQueue(struct ANativeWindow *window, struct AHa
 int minato_ANativeWindow_claim(struct ANativeWindow *window);
 void minato_ANativeWindow_unclaim(struct ANativeWindow *window);
 int minato_ANativeWindow_isClaimed(struct ANativeWindow *window);
-/* A producer of a host window (ADR-0060 e2c3, libgui's connect as NATIVE_WINDOW_API_EGL): libEGL's window surface
-   and libvulkan's surface connect when they are made and disconnect when they go, as Android's do, so that a
-   decoder's claim answers -EBUSY while one is there and a producer -EBUSY while a decoder claims it. 0, -EBUSY claimed,
-   -EINVAL for any other window; a queue window keeps nothing (its producers connect as writers) and answers -EBUSY
-   only while claimed. Each connect that answered 0 has one disconnect, which does nothing for a queue window. */
+/* A producer of a window (ADR-0060 e2c3, ADR-0058 c; libgui's connect as NATIVE_WINDOW_API_EGL): libEGL's window
+   surface and libvulkan's surface connect when they are made and disconnect when they go, as Android's do, a host
+   and a queue window alike (a queue window counts them too now, not "keeps nothing"). connectProducer: 0; -EINVAL
+   while the CPU producer holds the window (a lock not released, libgui's "already connected to another API") or for
+   any pointer that is not a window; -EBUSY while a decoder claims it. A connected producer makes a decoder's claim
+   answer -EBUSY and the CPU's lock answer -EINVAL. Each connect that answered 0 has one disconnect, host and queue
+   window alike. */
 int minato_ANativeWindow_connectProducer(struct ANativeWindow *window);
 void minato_ANativeWindow_disconnectProducer(struct ANativeWindow *window);
+/* The CPU producer (ANativeWindow_lock, ADR-0058 c): it connects at a lock and stays connected through
+   unlockAndPost, as Android's Surface::lock is sticky, so a producer made on the window before it is released refuses
+   (connectProducer -EINVAL) and a lock while a producer is connected refuses (-EINVAL). disconnectCpu releases it, as
+   Surface::release / api_disconnect does; it does nothing for a window with no CPU producer or any other pointer. A
+   decoder's claim and an ImageWriter connect after a CPU post are not refused yet (one connected API per BufferQueue
+   on Android: an open gap). */
+void minato_ANativeWindow_disconnectCpu(struct ANativeWindow *window);
 
 #ifdef __cplusplus
 }

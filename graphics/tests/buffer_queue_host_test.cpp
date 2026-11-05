@@ -696,9 +696,11 @@ void host_window_producers() {
     CHECK(minato_ANativeWindow_claim(window) == -EBUSY);  // the count never went below none
     minato_ANativeWindow_disconnectProducer(window);
     ANativeWindow_release(window);
-    // A queue window's producers connect as writers: here only a decoder's claim refuses one, and nothing is kept.
+    // A queue window counts its producers too now (ADR-0058 c): a connect is kept until its disconnect, and a
+    // decoder's claim is refused while one is there.
     Queue queue = make_queue(2);
     CHECK(minato_ANativeWindow_connectProducer(queue.window) == 0);
+    CHECK(minato_ANativeWindow_claim(queue.window) == -EBUSY);  // a producer is connected
     minato_ANativeWindow_disconnectProducer(queue.window);
     CHECK(minato_ANativeWindow_claim(queue.window) == 0);
     CHECK(minato_ANativeWindow_connectProducer(queue.window) == -EBUSY);
@@ -707,6 +709,30 @@ void host_window_producers() {
     CHECK(minato_ANativeWindow_connectProducer(nullptr) == -EINVAL);
     minato_ANativeWindow_disconnectProducer(nullptr);
     printf("host window producers: fine\n");
+}
+
+// ADR-0058 c): the CPU producer (ANativeWindow_lock) is sticky on a queue window (an AImageReader's), as
+// window-producers-test's AVD reference checks: an EGL/Vulkan producer is refused while the CPU holds it, through the
+// post, until disconnectCpu (case A), and the CPU's lock is refused while a producer is connected (case B). The host
+// window's own CPU path is window-switch-test's, where a real lock runs (here the host window's lock is a stub).
+void cpu_producer_exclusion() {
+    Queue queue = make_queue(2);
+    ANativeWindow_Buffer locked{};
+    CHECK(ANativeWindow_lock(queue.window, &locked, nullptr) == 0);          // the CPU connects
+    CHECK(minato_ANativeWindow_connectProducer(queue.window) == -EINVAL);    // A: a producer while the CPU is locked
+    CHECK(ANativeWindow_unlockAndPost(queue.window) == 0);
+    CHECK(minato_ANativeWindow_connectProducer(queue.window) == -EINVAL);    // still refused: the CPU stays connected
+    minato_ANativeWindow_disconnectCpu(queue.window);
+    CHECK(minato_ANativeWindow_connectProducer(queue.window) == 0);          // released, a producer connects
+    CHECK(ANativeWindow_lock(queue.window, &locked, nullptr) == -EINVAL);    // B: the CPU's lock while a producer is up
+    minato_ANativeWindow_disconnectProducer(queue.window);
+    CHECK(ANativeWindow_lock(queue.window, &locked, nullptr) == 0);          // the producer gone, the CPU locks again
+    CHECK(ANativeWindow_unlockAndPost(queue.window) == 0);
+    minato_ANativeWindow_disconnectCpu(queue.window);
+    minato_ANativeWindow_disconnectCpu(nullptr);  // harmless on no window
+    let_go(queue);
+    CHECK(live_buffers == 0);
+    printf("cpu producer exclusion: fine\n");
 }
 
 }  // namespace
@@ -726,6 +752,7 @@ int main() {
     reader_delete_racing_producer();
     decoder_claim();
     host_window_producers();
+    cpu_producer_exclusion();
     printf("done\n");
     return 0;
 }
