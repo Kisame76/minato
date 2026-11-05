@@ -349,6 +349,15 @@ nothing else of frameworks/av ships.
 | Project | Commit | License | Files | Use |
 |---|---|---|---|---|
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 (`NOTICE`) | `media/libaudioclient/aidl/android/media/IPlayer.aidl`, eight types of `aidl/android/media` (`InterpolatorConfig`, `InterpolatorType`, `VolumeShaperConfiguration`, `VolumeShaperConfigurationOptionFlag`, `VolumeShaperConfigurationType`, `VolumeShaperOperation`, `VolumeShaperOperationFlag`, `VolumeShaperState`) and `NOTICE` | PlayerBase's IPlayer and its parcelables for framework.jar |
+| `platform/frameworks/av` | `android-15.0.0_r1` | Apache-2.0 | `media/libeffects/lvm/wrapper/Bundle/EffectBundle.cpp` and `EffectBundle.h` (also named `AndroidEffectBundle.h`), `media/libeffects/lvm/lib/Bass` (`LVDBE_Coeffs.h`, `LVDBE_Control.cpp`, `LVDBE_Process.cpp`, the AGC gain table), `media/libeffects/lvm/lib/StereoWidening` (`LVCS_Headphone_Coeffs.h`, `LVCS_Process.cpp`, `LVCS_BypassMix.cpp`, `LVCS_Control.cpp`, `LVCS_Tables.cpp`) | numeric tables in runtime/src/audio_effects.cpp, no code compiled in |
+
+The audio effects of the runtime's mix (the Equalizer, Dynamic Bass Boost and Virtualizer;
+runtime/src/audio_effects.cpp) take numbers from Android's effect bundle, read from the public sources at
+android-15.0.0_r1: the equalizer's five band centres and its Q, the bass enhancement's 90 Hz centre, its two filters
+and its 16-entry gain table, and the headphone virtualizer's three filters and its two gains. They are tables of
+constants in Minato's own filters (biquads and a mix); no code of the bundle is compiled in or copied, and its
+response is checked against these numbers in runtime/tests/audio_effects_test.cpp. The row above names the files the
+numbers come from.
 
 SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set
 framework` on 2026-10-07 (`build/sources/sqlite`, the entry `sqlite`, digest

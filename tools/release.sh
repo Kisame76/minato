@@ -39,6 +39,10 @@ if [[ -z "$dry_run" ]]; then
   grep -q '^ *MINATO_RELEASE_LABEL:' project.yml || { echo "project.yml has no MINATO_RELEASE_LABEL" >&2; exit 1; }
 fi
 
+# The guest libraries the app packs must be those of this tree, not left over from an older build. Before the release
+# commit: a failing guard must leave nothing behind that a rerun refuses ("main is not origin/main").
+python3 tools/check-guest-fresh.py
+
 # The notes: the Unreleased section, which the release commit puts under the version's heading.
 notes=$(awk '/^## / { if (found) exit; if ($0 == "## Unreleased") found = 1; next } found' CHANGELOG.md |
   sed -e '/./,$!d')
@@ -61,9 +65,6 @@ EOF
   git commit -q -m "chore: release $tag" CHANGELOG.md project.yml
   echo "committed the release of $tag (local until the push below)"
 fi
-
-# The guest libraries the app packs must be those of this tree, not left over from an older build.
-python3 tools/check-guest-fresh.py
 
 # A Release build links the runtime's and graphics/host's Release builds (ADR-0037, decision 3).
 tools/gen.sh

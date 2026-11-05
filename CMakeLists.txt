@@ -143,4 +143,8 @@ if(APK_HOST_BUILD)
   # The source archive of the parts under the GPL-2.0 with the Classpath Exception and its SOURCE.txt (ADR-0033).
   add_test(NAME release.source_archive
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/source-archive-test.py")
+  # The release guards: the guest outputs are fresh against files the builds read, and the guard runs before the
+  # release commit (tools/check-guest-fresh.py, tools/release.sh).
+  add_test(NAME release.guest_fresh
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/guest-fresh-test.py")
 endif()

@@ -4,7 +4,7 @@ tools/release.sh never ships libraries left over from an older tree. Each output
 sources are the folders and files the build script reads. The marker's time must be at least that of the newest source
 file. In a fresh clone every source is as new as the checkout, so a clone needs the full build of docs/BUILDING.md
 before a release, which is what this asks for. A source folder that is not there is skipped; tests and docs are not
-sources. Python 3.9.
+sources, and neither are files that no build reads (.DS_Store, README and *.md, editors' backups). Python 3.9.
 
 Usage: tools/check-guest-fresh.py [<repo root>]"""
 import os
@@ -31,6 +31,16 @@ OUTPUTS = [
 ]
 
 
+# Files that no build reads: the system's and editors' leftovers, notes and docs. One of them newer than the marker
+# would fail the guard for good, since the build has nothing to redo. (A list of the suffixes the builds read would
+# silently drop a kind of source nobody thought of; a list of what is no source can only err toward a false alarm.)
+IGNORED_SUFFIXES = (".md", ".orig", ".rej", ".swp", ".tmp", ".bak", "~")
+
+
+def is_source(name):
+    return not name.startswith(".") and not name.startswith("README") and not name.endswith(IGNORED_SUFFIXES)
+
+
 def newest(root, sources):
     """(time, path) of the newest source file under `root`."""
     best = (0.0, "")
@@ -39,7 +49,8 @@ def newest(root, sources):
         if os.path.isfile(path):
             candidates = [path]
         elif os.path.isdir(path):
-            candidates = [os.path.join(folder, name) for folder, _, names in os.walk(path) for name in names]
+            candidates = [os.path.join(folder, name) for folder, _, names in os.walk(path) for name in names
+                          if is_source(name)]
         else:
             continue
         for candidate in candidates:
