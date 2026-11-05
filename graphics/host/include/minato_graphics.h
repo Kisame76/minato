@@ -169,6 +169,11 @@ struct apkrt_cameras;
 /* For tests: the functions minato_graphics_set_camera_model gives the runtime. */
 const struct apkrt_cameras *minato_graphics_camera_model(void);
 
+/* ADR-0073 decision 10: the cameras the app gives the runtime (apkrt_set_cameras): the iPhone's own through
+   AVFoundation (camera_avf.m), or where there is none (the Simulator, the Mac) the model cameras
+   (minato_graphics_set_camera_model). Returns 0, or -1 when the runtime refused them. */
+int minato_graphics_set_cameras(void);
+
 /* ADR-0054 step d): the host's network (network.m), Network.framework's path monitor, which reports each path to the
    runtime (apkrt_network_set) from now on. minato_graphics_set_providers calls it. Returns 0, or -1 when no monitor
    was made. */

@@ -1737,8 +1737,10 @@ enum apkrt_camera_key {
 /// an ID that is not there, or no more; -EBUSY for an OPEN of a camera that is open, or past APKRT_CAMERA_MAX_OPEN;
 /// -EACCES for an OPEN without the guest's camera grant (apkrt_permission_answer of APKRT_PERMISSION_CAMERA, ADR-0073
 /// decision 8) or when iOS denies the camera; REQUEST -EAGAIN past APKRT_CAMERA_MAX_WAITING single captures, FRAME
-/// -EAGAIN while no frame is captured, also past APKRT_CAMERA_MAX_WAITING tokens the guest holds. RENDER, RENDER_WINDOW
-/// and DISCARD answer as video_decoder's. Else the host's answer. The number follows audio_read's.
+/// -EAGAIN while no frame is captured, also past APKRT_CAMERA_MAX_WAITING tokens the guest holds; CONFIGURE, REQUEST
+/// and FRAME -ENODEV once the host lost the camera (decision 9: iOS interrupted it, or another open took it), until
+/// its CLOSE. RENDER, RENDER_WINDOW and DISCARD answer as video_decoder's. Else the host's answer. The number follows
+/// audio_read's.
 #define APKRT_NR_CAMERA 4137
 
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the

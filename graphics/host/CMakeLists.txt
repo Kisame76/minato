@@ -10,7 +10,7 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
     AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
   add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m angle_vulkan.m probe.m
     provoking.m drawable_probe.m layer.m window.m hardware_buffer.m image.m video_decoder.m
-    video_parameters.c media_player.m webview.m network.m camera_model.m)
+    video_parameters.c media_player.m webview.m network.m camera_model.m camera_rules.c camera_avf.m)
   # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
     "${PROJECT_SOURCE_DIR}/graphics/vulkan")
@@ -59,6 +59,11 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   # the link.
   set_source_files_properties(camera_model.m PROPERTIES COMPILE_OPTIONS
     "-fmodules;-fobjc-arc;-fobjc-arc-exceptions;${on_guest_stacks}")
+  # The iPhone's cameras (ADR-0073 decision 10), AVFoundation's, with ARC, and their rules: on the guest's thread
+  # inside its syscall. On the Mac camera_avf.m only gives the model cameras.
+  set_source_files_properties(camera_avf.m PROPERTIES COMPILE_OPTIONS
+    "-fmodules;-fobjc-arc;-fobjc-arc-exceptions;${on_guest_stacks}")
+  set_source_files_properties(camera_rules.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
   # The host's network (ADR-0054 step d)), Network.framework's path monitor, with ARC, naming Network for the link.
   set_source_files_properties(network.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc")
 endif()

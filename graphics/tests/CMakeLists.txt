@@ -260,6 +260,12 @@ if(TARGET minato_graphics_host)
   set_source_files_properties(camera_model_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
   add_test(NAME graphics.camera_model COMMAND graphics-camera-model-test)
   set_tests_properties(graphics.camera_model PROPERTIES TIMEOUT 60)
+  # ADR-0073 decision 10: the iPhone cameras' rules (camera_rules.c): their facts, formats, 3A states and controls.
+  add_executable(graphics-camera-rules-test camera_rules_test.c)
+  target_include_directories(graphics-camera-rules-test PRIVATE ../host)
+  target_link_libraries(graphics-camera-rules-test PRIVATE minato_graphics_host apkrt apk_defaults)
+  add_test(NAME graphics.camera_rules COMMAND graphics-camera-rules-test)
+  set_tests_properties(graphics.camera_rules PROPERTIES TIMEOUT 60)
   # ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m) on media-codec-test's streams, each frame against
   # Android 15's (fixtures/expected/media-codec-test.logcat).
   add_executable(graphics-video-decoder-test video_decoder_test.m)

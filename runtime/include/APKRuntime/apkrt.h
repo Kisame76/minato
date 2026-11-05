@@ -564,6 +564,8 @@ struct apkrt_camera_capture {
 /// - render, discard, render_window: as the video decoders' (above), for a camera's tokens;
 /// - flush: every waiting request and captured frame goes, the waiting tokens too;
 /// - close: last, once no call on the camera runs.
+/// Once the host lost a camera (iOS interrupted its capture, in the background or for another app, or another open
+/// took it, ADR-0073 decision 9), configure, request and peek answer -ENODEV until its close.
 /// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A camera stays with the functions that opened
 /// it, so the context must live as long as the process.
 struct apkrt_cameras {
