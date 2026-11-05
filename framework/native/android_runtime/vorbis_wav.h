@@ -11,6 +11,7 @@
 #include <sys/types.h>
 
 #include <memory>
+#include <vector>
 
 struct stb_vorbis;  // stb_vorbis.c's decoder
 
@@ -21,6 +22,11 @@ public:
     /// The Vorbis file of `length` bytes at `offset` of `fd` (the descriptor stays the caller's), or none for one
     /// whose first page holds no Vorbis identification header or that stb_vorbis does not open.
     static std::unique_ptr<VorbisWav> open(int fd, int64_t offset, int64_t length);
+    /// The Vorbis file in `bytes`, which it keeps (an app's MediaDataSource read whole), or none as for a descriptor.
+    static std::unique_ptr<VorbisWav> open(std::vector<uint8_t> bytes);
+    /// Whether the `length` bytes begin with an Ogg page whose first packet is a Vorbis identification header; the
+    /// first kSniff bytes of a file tell.
+    static bool holdsVorbis(const uint8_t *bytes, int64_t length);
     ~VorbisWav();
     VorbisWav(const VorbisWav &) = delete;
     VorbisWav &operator=(const VorbisWav &) = delete;
@@ -33,11 +39,15 @@ public:
     ssize_t read(int64_t offset, uint8_t *buffer, size_t size);
 
     static constexpr int64_t kHeader = 44;
+    static constexpr size_t kSniff = 27 + 255 + 7;  // a page's header, its longest segment table, "\x01vorbis"
 
 private:
     VorbisWav() = default;
+    /// The decoder of the file's `length` bytes at `bytes`, which stay this object's: whether it opened.
+    bool decode(const uint8_t *bytes, int64_t length);
 
-    void *mMap = nullptr;
+    void *mMap = nullptr;  // a descriptor's file, mapped
+    std::vector<uint8_t> mBytes;  // or a MediaDataSource's
     size_t mMapSize = 0;
     ::stb_vorbis *mDecoder = nullptr;
     uint32_t mFrames = 0, mRate = 0;

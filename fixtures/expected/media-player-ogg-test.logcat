@@ -36,4 +36,24 @@ I/media-player-ogg-test: long.ogg: position after 300 ms from 250 before the end
 I/media-player-ogg-test: broken.ogg: set ok
 I/media-player-ogg-test: broken.ogg: prepare java.io.IOException: Prepare failed.: status=0x1, callbacks [(none in 5000 ms)]
 I/media-player-ogg-test: broken.ogg: duration 0, callbacks [error -38 0]
+I/media-player-ogg-test: long.ogg in memory: set ok
+I/media-player-ogg-test: long.ogg in memory: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: long.ogg in memory: duration 1200, position 0
+I/media-player-ogg-test: long.ogg in memory: 1 tracks
+I/media-player-ogg-test: long.ogg in memory track 0: type 2, language und
+I/media-player-ogg-test: long.ogg in memory: start ok, playing true
+I/media-player-ogg-test: long.ogg in memory: completed, playing false
+I/media-player-ogg-test: long.ogg in memory: seek 100 ok, callbacks [seek complete], position 100
+I/media-player-ogg-test: long.ogg in memory: closed before release false
+I/media-player-ogg-test: long.ogg in memory: closed 500 ms after release true
+I/media-player-ogg-test: tone.ogg in memory of unknown size: set ok
+I/media-player-ogg-test: tone.ogg in memory of unknown size: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: tone.ogg in memory of unknown size: duration -1, position 0
+I/media-player-ogg-test: tone.ogg in memory of unknown size: 1 tracks
+I/media-player-ogg-test: tone.ogg in memory of unknown size track 0: type 2, language und
+I/media-player-ogg-test: tone.ogg in memory of unknown size: start ok, playing true
+I/media-player-ogg-test: tone.ogg in memory of unknown size: completed, playing false
+I/media-player-ogg-test: tone.ogg in memory of unknown size: seek 100 ok, callbacks [error -2147483648 0], position 0
+I/media-player-ogg-test: tone.ogg in memory of unknown size: closed before release false
+I/media-player-ogg-test: tone.ogg in memory of unknown size: closed 500 ms after release true
 I/media-player-ogg-test: done

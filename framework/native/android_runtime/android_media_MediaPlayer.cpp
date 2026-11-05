@@ -46,6 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <memory>
@@ -294,7 +295,34 @@ public:
         call.kind = APKRT_MEDIA_PLAYER_CALLBACK;
         call.length = size < 0 ? -1 : size;
         mSourceName = "Media";
+        // Ogg Vorbis, as from a descriptor: the host reads the WAV of its samples from this player (answerRead).
+        if (openVorbis(env, size)) call.length = mVorbis->size();
         return playerCall(APKRT_MEDIA_PLAYER_SOURCE, &call) == 0 ? OK : UNKNOWN_ERROR;
+    }
+
+    /// An app's MediaDataSource that holds Ogg Vorbis, read whole for stb_vorbis, which decodes from memory: whether
+    /// it does. It is read here, on the caller's thread, where GenericSource reads it at the prepare on its own; one
+    /// of an unknown size (-1) is read to its end, and has no duration, as OggExtractor finds the last page's granule
+    /// position only through the source's size [verified: media-player-ogg-test].
+    bool openVorbis(JNIEnv *env, jlong size) {
+        JavaSource java{env, mDataSource, size};
+        std::vector<uint8_t> bytes(VorbisWav::kSniff);
+        ssize_t got = javaReadAt(&java, 0, bytes.data(), bytes.size());
+        if (got <= 0 || !VorbisWav::holdsVorbis(bytes.data(), got)) return false;
+        bytes.resize(static_cast<size_t>(got));
+        constexpr size_t kMost = INT32_MAX, kChunk = 65536;  // stb_vorbis' int length, JMediaDataSource's reads
+        while (bytes.size() < kMost && (size < 0 || static_cast<jlong>(bytes.size()) < size)) {
+            const size_t have = bytes.size();
+            size_t want = std::min(kChunk, kMost - have);
+            if (size >= 0) want = std::min<size_t>(want, static_cast<size_t>(size) - have);
+            bytes.resize(have + want);
+            got = javaReadAt(&java, static_cast<off64_t>(have), bytes.data() + have, want);
+            bytes.resize(have + (got > 0 ? static_cast<size_t>(got) : 0));
+            if (got <= 0) break;
+        }
+        mVorbis = VorbisWav::open(std::move(bytes));
+        mVorbisTimed = size >= 0;
+        return mVorbis != nullptr;
     }
 
     status_t prepareAsync() {
@@ -745,7 +773,7 @@ private:
                 int64_t durationUs = event.value;
                 if (mVorbis != nullptr) {
                     tracks.push_back({MEDIA_TRACK_TYPE_AUDIO, "audio/vorbis", "und"});
-                    durationUs = mVorbis->durationUs();
+                    durationUs = mVorbisTimed ? mVorbis->durationUs() : -1;
                 } else if (!extract(env, &tracks, &durationUs)) {
                     tracks = fetchTracks();
                 }
@@ -1032,6 +1060,7 @@ private:
     int mExtractFd = -1;            // an fd source's for the extractor, the player's own
     int64_t mExtractOffset = 0, mExtractLength = 0;
     std::unique_ptr<VorbisWav> mVorbis;  // an Ogg Vorbis source's WAV, read on the player's thread
+    bool mVorbisTimed = true;  // whether it has OggExtractor's duration: not from a MediaDataSource without a size
 
     std::mutex mMutex;  // for the fields below
     bool mConnected = true;

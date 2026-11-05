@@ -31,13 +31,6 @@ namespace android {
 
 namespace {
 
-/// Whether the first Ogg page's first packet is a Vorbis identification header (type 1, "vorbis").
-bool holdsVorbis(const uint8_t *bytes, int64_t length) {
-    if (length < 27 || memcmp(bytes, "OggS", 4) != 0) return false;
-    const int64_t packet = 27 + bytes[26];  // the page's header and its segment table
-    return length >= packet + 7 && memcmp(bytes + packet, "\x01vorbis", 7) == 0;
-}
-
 void put16(uint8_t *at, uint32_t value) {
     at[0] = static_cast<uint8_t>(value);
     at[1] = static_cast<uint8_t>(value >> 8);
@@ -50,6 +43,12 @@ void put32(uint8_t *at, uint32_t value) {
 
 }  // namespace
 
+bool VorbisWav::holdsVorbis(const uint8_t *bytes, int64_t length) {
+    if (length < 27 || memcmp(bytes, "OggS", 4) != 0) return false;
+    const int64_t packet = 27 + bytes[26];  // the page's header and its segment table
+    return length >= packet + 7 && memcmp(bytes + packet, "\x01vorbis", 7) == 0;
+}
+
 std::unique_ptr<VorbisWav> VorbisWav::open(int fd, int64_t offset, int64_t length) {
     if (offset < 0 || length < 27 || length > INT32_MAX) return nullptr;  // stb_vorbis takes an int's length
     const int64_t page = sysconf(_SC_PAGESIZE);
@@ -59,21 +58,29 @@ std::unique_ptr<VorbisWav> VorbisWav::open(int fd, int64_t offset, int64_t lengt
     void *map = mmap(nullptr, wav->mMapSize, PROT_READ, MAP_PRIVATE, fd, start);
     if (map == MAP_FAILED) return nullptr;
     wav->mMap = map;
-    const uint8_t *bytes = static_cast<const uint8_t *>(map) + (offset - start);
-    if (!holdsVorbis(bytes, length)) return nullptr;
-    int error = 0;
-    wav->mDecoder = stb_vorbis_open_memory(bytes, static_cast<int>(length), &error, nullptr);
-    if (wav->mDecoder == nullptr) return nullptr;
-    const stb_vorbis_info info = stb_vorbis_get_info(wav->mDecoder);
-    wav->mRate = info.sample_rate;
-    wav->mChannels = std::min(info.channels, 2);
-    wav->mFrames = stb_vorbis_stream_length_in_samples(wav->mDecoder);
-    // A RIFF size of 32 bits: at most 4 GiB of samples.
-    if (wav->mRate == 0 || wav->mChannels < 1 || wav->mFrames == 0 ||
-        wav->size() - 8 > static_cast<int64_t>(UINT32_MAX)) {
-        return nullptr;
-    }
+    if (!wav->decode(static_cast<const uint8_t *>(map) + (offset - start), length)) return nullptr;
     return wav;
+}
+
+std::unique_ptr<VorbisWav> VorbisWav::open(std::vector<uint8_t> bytes) {
+    if (bytes.size() < 27 || bytes.size() > INT32_MAX) return nullptr;
+    std::unique_ptr<VorbisWav> wav(new VorbisWav);
+    wav->mBytes = std::move(bytes);
+    if (!wav->decode(wav->mBytes.data(), static_cast<int64_t>(wav->mBytes.size()))) return nullptr;
+    return wav;
+}
+
+bool VorbisWav::decode(const uint8_t *bytes, int64_t length) {
+    if (!holdsVorbis(bytes, length)) return false;
+    int error = 0;
+    mDecoder = stb_vorbis_open_memory(bytes, static_cast<int>(length), &error, nullptr);
+    if (mDecoder == nullptr) return false;
+    const stb_vorbis_info info = stb_vorbis_get_info(mDecoder);
+    mRate = info.sample_rate;
+    mChannels = std::min(info.channels, 2);
+    mFrames = stb_vorbis_stream_length_in_samples(mDecoder);
+    // A RIFF size of 32 bits: at most 4 GiB of samples.
+    return mRate != 0 && mChannels >= 1 && mFrames != 0 && size() - 8 <= static_cast<int64_t>(UINT32_MAX);
 }
 
 VorbisWav::~VorbisWav() {
