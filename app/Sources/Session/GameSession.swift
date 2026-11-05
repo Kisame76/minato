@@ -78,6 +78,9 @@ final class GameSession {
     /// The hardware keyboard's keys (ADR-0068 step 7c2), and where they go.
     @ObservationIgnored private var keyboard = HardwareKeyboard()
     @ObservationIgnored private let keySink = KeyChannelSink()
+    /// The game controllers (ADR-0068 decision 5), and where their records go.
+    @ObservationIgnored private lazy var controllers = ControllerHost { [weak self] in self?.post($0) }
+    @ObservationIgnored private let padSink = PadChannelSink()
     /// The guest's input method on UIKit's keyboard (ADR-0068 step 2c): its editor, the view that has the keyboard, and
     /// where the typed text goes.
     @ObservationIgnored private var softKeyboard: SoftKeyboard
@@ -172,6 +175,7 @@ final class GameSession {
         SessionEndReport.begin(entry)
         #endif
         battery.start()
+        controllers.start()
         let clock = DisplayLinkClock(sink: sink)
         frameClock = clock
         frameClockSlot.set(clock)
@@ -198,6 +202,7 @@ final class GameSession {
         if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
         backgroundObserver = nil
         battery.stop()
+        controllers.stop()
         if softKeyboard.isShown { textView?.hide() }
         frameRateTask?.cancel()
         frameRateTask = nil
@@ -762,6 +767,12 @@ final class GameSession {
         keySink.post(events)
     }
 
+    /// The game controllers' records, on the main thread.
+    private func post(_ events: [PadEvent]) {
+        padSink.channel = bridge.inputChannel ?? 0
+        padSink.post(events)
+    }
+
     private func post(_ events: [MotionEvent]) {
         guard !events.isEmpty else { return }
         motionSink.channel = bridge.inputChannel ?? 0
@@ -1000,6 +1011,11 @@ final class GameSession {
         }
         #endif
         if handled.callbacks.contains(.onCreate) { guestStarted() }
+        // The input channel comes with the first onResume: the pads connected before it join the guest's devices.
+        if handled.callbacks.contains(.onResume), let channel = bridge.inputChannel {
+            padSink.channel = channel
+            padSink.offerAll()
+        }
         frameClock?.run(framesRun)
         // A gesture that is open when the focus goes ends with a CANCEL (ADR-0036, decision 3).
         if handled.callbacks.contains(.onWindowFocusChanged(false)) {

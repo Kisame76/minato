@@ -630,6 +630,65 @@ final class KeyChannelSink: KeyPoster {
     }
 }
 
+/// The game controllers' devices, keys and axes to the guest's input channel (ADR-0068 decision 5). PadDelivery offers
+/// a pad again until a channel has taken it; its key records go as the keyboard's do (KeyChannelSink).
+final class PadChannelSink: PadPoster {
+    private lazy var delivery = PadDelivery(poster: self)
+    private let keys = KeyChannelSink()
+
+    /// The channel of the guest's input queue, 0 before it has one.
+    var channel: UInt64 {
+        get { delivery.channel }
+        set { delivery.channel = newValue }
+    }
+
+    func post(_ events: [PadEvent]) {
+        delivery.post(events)
+    }
+
+    /// The channel came: the pads that are there join the guest's devices.
+    func offerAll() {
+        delivery.offerAll()
+    }
+
+    func postDevice(channel: UInt64, _ device: GamepadDevice, added: Bool) -> Bool {
+        var record = apkrt_device_event()
+        record.op = Int32(added ? APKRT_DEVICE_ADDED : APKRT_DEVICE_REMOVED)
+        record.device_id = device.id
+        record.sources = device.sources
+        record.vendor_id = device.vendorID
+        record.product_id = device.productID
+        let name = Array(HardwareKeyboard.deviceName(device.name).utf8CString)
+        withUnsafeMutableBytes(of: &record.name) { bytes in
+            for (index, byte) in name.prefix(bytes.count).enumerated() {
+                bytes[index] = UInt8(bitPattern: byte)
+            }
+        }
+        return apkrt_input_post_device(channel, &record) == 1
+    }
+
+    func postKey(channel: UInt64, _ key: KeyRecord) -> Bool {
+        keys.postKey(channel: channel, key)
+    }
+
+    func postAxes(channel: UInt64, _ axes: AxesRecord) -> Bool {
+        var record = apkrt_axes_event()
+        record.action = axes.action
+        record.event_time = axes.eventTime
+        record.device_id = axes.deviceID
+        record.source = axes.source
+        let values = axes.axes.prefix(Int(APKRT_AXES_MAX))
+        record.axis_count = UInt32(values.count)
+        withUnsafeMutableBytes(of: &record.axes) { bytes in
+            let slots = bytes.bindMemory(to: apkrt_axis_value.self)
+            for (index, value) in values.enumerated() {
+                slots[index] = apkrt_axis_value(axis: value.axis, value: value.value)
+            }
+        }
+        return apkrt_input_post_axes(channel, &record) == 1
+    }
+}
+
 /// The soft keyboard's text records to the guest's input channel (ADR-0068 step 2c). A record the channel refuses (no
 /// channel yet, or a full one) is dropped, as a key is: the guest cannot merge edits.
 final class TextChannelSink {

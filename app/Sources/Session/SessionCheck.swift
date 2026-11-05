@@ -3,6 +3,7 @@ import APKLibrary
 import APKSession
 import Darwin
 import Foundation
+import GameController
 import Synchronization
 import UIKit
 
@@ -70,6 +71,13 @@ import UIKit
 ///            the file (step f's screenshots compare with it).
 ///   pick-allow  a save's or a folder's alert (ADR-0057 step d) chooses Save or Allow by itself 1 s after it is up,
 ///            as the user's tap does, and logs "pick allowed"; the file stays for every alert.
+///   pad      the same poll connects a hidden GCVirtualController and plays tools/gamepad-check.sh's steps on it
+///            (ADR-0068 decision 5): each button down for 60 ms, then the sticks, triggers and d-pad, each back to
+///            rest, then disconnects it; it logs "virtual pad lacks <element>" for each button a touch controller
+///            does not have (GCInputButtonHome, which its configuration refuses, and the stick clicks), "virtual pad
+///            connected" and "virtual pad done". The file goes.
+///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
+///            there before (the Simulator lists one of its own).
 ///   end      a package: the library removes that app, then the whole folder, which ends the check. On the
 ///            iPhone the script cannot delete files in the app's container itself.
 /// A request's file says "yes" when it names nothing; an empty file is none.
@@ -408,6 +416,10 @@ enum SessionCheck {
                     let files = folder.appending(path: "window-dump-files").path
                     event("window dump \(minato_graphics_window_dump(files))")
                 }
+                if requested("pad") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "pad"))
+                    await playVirtualPad()
+                }
                 if requested("menu") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "menu"))
                     session.openMenu()
@@ -417,6 +429,72 @@ enum SessionCheck {
                 }
             }
         }
+    }
+
+    /// Whether a pad request plays now: with pad-only, the controllers that connect meanwhile reach the guest.
+    @MainActor private static var padPlays = false
+
+    /// Whether game mode keeps a controller from the guest (pad-only, outside a pad request).
+    @MainActor static var ignoresController: Bool { requested("pad-only") && !padPlays }
+
+    /// The pad request: gamepad-check's steps on a hidden virtual controller, a real GCController to the app.
+    @MainActor
+    private static func playVirtualPad() async {
+        // gamepad-check's order; a touch controller has no home button (its configuration refuses it).
+        let buttons = [GCInputButtonA, GCInputButtonB, GCInputButtonX, GCInputButtonY, GCInputLeftShoulder,
+                       GCInputRightShoulder, GCInputButtonMenu, GCInputButtonOptions, GCInputButtonHome,
+                       GCInputLeftThumbstickButton, GCInputRightThumbstickButton]
+        let refused: Set = [GCInputButtonHome]
+        for element in buttons where refused.contains(element) { event("virtual pad lacks \(element)") }
+        let configuration = GCVirtualController.Configuration()
+        configuration.elements = Set(buttons).subtracting(refused).union(
+            [GCInputLeftThumbstick, GCInputRightThumbstick, GCInputLeftTrigger, GCInputRightTrigger,
+             GCInputDirectionPad])
+        configuration.isHidden = true
+        let pad = GCVirtualController(configuration: configuration)
+        padPlays = true
+        defer { padPlays = false }
+        do {
+            try await pad.connect()
+        } catch {
+            return event("virtual pad failed \(error.localizedDescription)")
+        }
+        event("virtual pad connected")
+        if let gamepad = pad.controller?.extendedGamepad {
+            for element in buttons where !refused.contains(element) && gamepad.buttons[element] == nil {
+                event("virtual pad lacks \(element)")
+            }
+        }
+        try? await Task.sleep(for: .seconds(1.5))
+        for element in buttons where !refused.contains(element) {
+            pad.setValue(1, forButtonElement: element)
+            try? await Task.sleep(for: .milliseconds(60))
+            pad.setValue(0, forButtonElement: element)
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        // Android's AXIS_X 0.5, Y -1, Z 0.25, RZ -0.5, LTRIGGER 0.5, RTRIGGER 1, HAT_X -1, HAT_Y 1, X 1 with Y -0.5,
+        // in GameController's terms (up positive).
+        let steps: [(String, CGPoint?, CGFloat)] = [
+            (GCInputLeftThumbstick, CGPoint(x: 0.5, y: 0), 0), (GCInputLeftThumbstick, CGPoint(x: 0, y: 1), 0),
+            (GCInputRightThumbstick, CGPoint(x: 0.25, y: 0), 0), (GCInputRightThumbstick, CGPoint(x: 0, y: 0.5), 0),
+            (GCInputLeftTrigger, nil, 0.5), (GCInputRightTrigger, nil, 1),
+            (GCInputDirectionPad, CGPoint(x: -1, y: 0), 0), (GCInputDirectionPad, CGPoint(x: 0, y: -1), 0),
+            (GCInputLeftThumbstick, CGPoint(x: 1, y: 0.5), 0),
+        ]
+        for (element, position, value) in steps {
+            if let position {
+                pad.setPosition(position, forDirectionPadElement: element)
+                try? await Task.sleep(for: .milliseconds(150))
+                pad.setPosition(.zero, forDirectionPadElement: element)
+            } else {
+                pad.setValue(value, forButtonElement: element)
+                try? await Task.sleep(for: .milliseconds(150))
+                pad.setValue(0, forButtonElement: element)
+            }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        pad.disconnect()
+        event("virtual pad done")
     }
 
     /// Back from the background with the menu over the app: Continue, as the user would.

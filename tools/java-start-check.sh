@@ -164,7 +164,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders"
       "webview-test io.github.kisame76.minato.test.webview"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
-      "orientation-request-test io.github.kisame76.minato.test.orientationrequest")
+      "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
+      "gamepad-test io.github.kisame76.minato.test.gamepad")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -578,6 +579,8 @@ begin_start() {
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
   # A save's or a folder's alert answers Allow by itself, as the user's tap does (ADR-0057 step d).
   [[ "$app" != documents-tree-test ]] || echo yes > "$CHECK/pick-allow"
+  # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
+  [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
   # drawables' pass, with PIXELS_CONTENTS by contents in the Simulator.
   if [[ -n "${PIXELS:-}" ]]; then
@@ -1168,6 +1171,61 @@ ours = os.path.join(work, "orientation-request-test.logcat")
 with open(ours, "w", encoding="utf-8") as handle:
     handle.write(wanted)
 compare_log("orientation-request-test", subprocess.CompletedProcess([], 0, "", log), ours, {})
+EOF
+fi
+
+# gamepad-test (ADR-0068 decision 5): once it is ready, SessionCheck's pad request connects a hidden GCVirtualController
+# and plays tools/gamepad-check.sh's steps on it, which the app gets through GameController as a real pad's. Its lines
+# must be Android 15's for the AVD's uinput Xbox pad, with the virtual pad's name, vendor and product in the device
+# line, which GameController reports for it.
+if wanted gamepad-test; then
+  if begin_start gamepad-test io.github.kisame76.minato.test.gamepad 1; then
+    if await_line guest-log "^I/gamepad-test: ready: pad$" 300; then
+      request pad
+      if await_line guest-log "^I/gamepad-test: done$" 60; then
+        ok "  done, $(seconds "$TAP" "$SEEN") s after the tap"
+        sleep 2
+      else
+        failed_line "no done after the pad" gamepad-test-1
+      fi
+    else
+      failed_line "no ready line" gamepad-test-1
+    fi
+  fi
+  end_start gamepad-test 1
+  fetch_events
+  grep -E " (virtual pad|pad (dis)?connected|pad ignored)" "$EVENTS" | sed 's/^[0-9.]* [0-9]* /note    /' || true
+  python3 - "$WORK/gamepad-test-1.log" fixtures/expected/gamepad-test.logcat "$WORK" "$EVENTS" <<'EOF' \
+    || failures=$((failures + 1))
+import os
+import re
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+path, expected, work, events = sys.argv[1:]
+log = open(path, encoding="utf-8", errors="replace").read()
+wanted = open(expected, encoding="utf-8").read()
+# A button the virtual pad lacks has no lines (a touch controller has no home button and no stick clicks).
+codes = {"Button Home": "BUTTON_MODE", "Left Thumbstick Button": "BUTTON_THUMBL",
+         "Right Thumbstick Button": "BUTTON_THUMBR"}
+for element in re.findall(r" virtual pad lacks (.+)$", open(events, encoding="utf-8").read(), re.M):
+    code = codes.get(element)
+    if code is None:
+        continue
+    print(f"note    the virtual pad has no {element}: no KEYCODE_{code} lines")
+    wanted = "".join(line for line in wanted.splitlines(True) if f" KEYCODE_{code}," not in line)
+android = 'added: name "Minato Test Pad", sources 0x1000511, vendor 0x45e, product 0x2e0,'
+ours = re.search(r'^I/gamepad-test: (added: name ".*", sources 0x1000511, vendor 0x[0-9a-f]+, product 0x[0-9a-f]+,)',
+                 log, re.M)
+if ours:
+    print(f"note    the virtual pad's device line: {ours.group(1)}")
+    wanted = wanted.replace(android, ours.group(1))
+mine = os.path.join(work, "gamepad-test.logcat")
+with open(mine, "w", encoding="utf-8") as handle:
+    handle.write(wanted)
+compare_log("gamepad-test", subprocess.CompletedProcess([], 0, "", log), mine, {})
 EOF
 fi
 
