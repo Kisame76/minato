@@ -1,0 +1,11 @@
+I/text-classifier-test: manager is not null: true
+I/text-classifier-test: text classifier is not null: true
+I/text-classifier-test: text classifier is the same object twice: false
+I/text-classifier-test: classifyText of a URL: 0 -
+I/text-classifier-test: classifyText of a phone number: 0 -
+I/text-classifier-test: generateLinks count: 0
+I/text-classifier-test: suggested selection of a word inside a URL: 8 9
+I/text-classifier-test: max length of the text for links: 100000
+I/text-classifier-test: classifier is not destroyed: true
+I/text-classifier-test: an app's own classifier comes back: true
+I/text-classifier-test: done

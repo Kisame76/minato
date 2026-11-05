@@ -108,6 +108,16 @@ class AppOpsManager {
         return mode(code, Process.myUid());
     }
 
+    /**
+     * Checks that the package belongs to the uid: the app's own does, any other raises the SecurityException of AOSP's
+     * check [verified: links-answers-test on apk-runner-35]. Minato has one app in a process, so the uid is the app's.
+     */
+    public void checkPackage(int uid, String packageName) {
+        if (uid != Process.myUid() || !packageName.equals(mContext.getPackageName())) {
+            throw new SecurityException("Package " + packageName + " does not belong to " + uid);
+        }
+    }
+
     /** @hide As AOSP's: the op's name. */
     public static String opToPublicName(int op) {
         return AppOpsTable.NAMES[op];

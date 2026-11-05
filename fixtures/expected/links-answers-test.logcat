@@ -1,0 +1,12 @@
+I/links-answers-test: web links: http://example.com/a@4-24 http://www.example.org@29-44
+I/links-answers-test: e-mail links: mailto:me@example.com@53-67
+I/links-answers-test: web and e-mail links: http://example.com/a@4-24 http://www.example.org@29-44 mailto:me@example.com@53-67
+I/links-answers-test: addLinks result with a link: true
+I/links-answers-test: addLinks result without a link: false
+I/links-answers-test: addLinks result with the mask 0: false
+I/links-answers-test: pattern links: num:123@6-9 num:45@14-16
+I/links-answers-test: text view links: true http://example.com/a@4-24 http://www.example.org@29-44 true
+I/links-answers-test: existing links are replaced: http://example.com@6-24
+I/links-answers-test: checkPackage of the app's own: returned
+I/links-answers-test: checkPackage of another package: throws java.lang.SecurityException
+I/links-answers-test: done

@@ -95,9 +95,6 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.app.AutomaticZenRule \
   --class android.service.notification.Condition \
   --class android.view.accessibility.AccessibilityNodeInfo \
-  --class android.view.textclassifier.TextClassification \
-  --class android.view.textclassifier.TextClassifier \
-  --class android.view.textclassifier.TextLinks \
   --class android.view.translation.ViewTranslationRequest \
   --placeholder android.view.SurfaceControl \
   --placeholder android.graphics.SurfaceTexture \

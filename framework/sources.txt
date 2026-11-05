@@ -2020,6 +2020,7 @@ frameworks_base/core/java/android/speech/RecognizerIntent.java
 frameworks_base/core/java/android/speech/RecognizerResultsIntent.java
 frameworks_base/core/java/android/text/AlteredCharSequence.java
 frameworks_base/core/java/android/text/LoginFilter.java
+frameworks_base/core/java/android/text/util/Linkify.java
 frameworks_base/core/java/android/text/util/Rfc822Token.java
 frameworks_base/core/java/android/util/AtomicFile.java
 frameworks_base/core/java/android/util/Config.java
@@ -2229,6 +2230,12 @@ frameworks_base/core/java/android/view/textclassifier/SystemTextClassifierMetada
 frameworks_base/core/java/android/view/textclassifier/TextClassificationSessionId.java
 frameworks_base/core/java/android/view/textclassifier/TextClassificationContext.java
 frameworks_base/core/java/android/view/textclassifier/TextClassifierEvent.java
+frameworks_base/core/java/android/view/textclassifier/TextClassification.java
+frameworks_base/core/java/android/view/textclassifier/TextClassifier.java
+frameworks_base/core/java/android/view/textclassifier/TextLinks.java
+frameworks_base/core/java/android/view/textclassifier/TextLinksParams.java
+frameworks_base/core/java/android/view/textclassifier/ExtrasUtils.java
+frameworks_base/core/java/android/view/textclassifier/Log.java
 frameworks_base/core/java/android/view/textclassifier/TextLanguage.java
 frameworks_base/core/java/android/view/textclassifier/TextSelection.java
 frameworks_base/core/java/android/webkit/DateSorter.java

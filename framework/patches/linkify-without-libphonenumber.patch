@@ -1,0 +1,61 @@
+Minato's patch to frameworks/base's core/java/android/text/util/Linkify.java at android-15.0.0_r1 (Apache-2.0),
+the compatibility plan's decision 6: no phone numbers are found.
+
+Why: Linkify finds web addresses and e-mail addresses with Patterns, which framework.jar has, and phone numbers with
+libphonenumber (com.android.i18n.phonenumbers), whose sources and data are not fetched. The patch drops the three
+imports and lets gatherTelLinks find nothing, so TextView's autoLink and Linkify.addLinks work for web addresses and
+e-mail addresses and an app that asks for phone numbers gets none, instead of a NoClassDefFoundError at the first
+call. A map address needs WebView.findAddress, which the Linkify class calls unchanged.
+
+tools/build-framework.sh applies it to a copy in build/framework/src, never to build/sources.
+
+--- a/core/java/android/text/util/Linkify.java
++++ b/core/java/android/text/util/Linkify.java
+@@ -23,8 +23,6 @@
+ import android.compat.annotation.UnsupportedAppUsage;
+ import android.content.Context;
+ import android.os.Build;
+-import android.telephony.PhoneNumberUtils;
+-import android.telephony.TelephonyManager;
+ import android.text.Spannable;
+ import android.text.SpannableString;
+ import android.text.Spanned;
+@@ -36,10 +34,6 @@
+ import android.util.Patterns;
+ import android.webkit.WebView;
+ import android.widget.TextView;
+-
+-import com.android.i18n.phonenumbers.PhoneNumberMatch;
+-import com.android.i18n.phonenumbers.PhoneNumberUtil;
+-import com.android.i18n.phonenumbers.PhoneNumberUtil.Leniency;
+ 
+ import libcore.util.EmptyArray;
+ 
+@@ -671,26 +665,7 @@
+     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+     private static void gatherTelLinks(ArrayList<LinkSpec> links, Spannable s,
+             @Nullable Context context) {
+-        PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
+-        final Context ctx = (context != null) ? context : ActivityThread.currentApplication();
+-        String regionCode = Locale.getDefault().getCountry();
+-        if (ctx != null) {
+-          String simCountryIso = ctx.getSystemService(TelephonyManager.class).getSimCountryIso();
+-          if (!TextUtils.isEmpty(simCountryIso)) {
+-            // Assign simCountryIso if it is available
+-            regionCode = simCountryIso.toUpperCase(Locale.US);
+-          }
+-        }
+-
+-        Iterable<PhoneNumberMatch> matches = phoneUtil.findNumbers(s.toString(),
+-                regionCode, Leniency.POSSIBLE, Long.MAX_VALUE);
+-        for (PhoneNumberMatch match : matches) {
+-            LinkSpec spec = new LinkSpec();
+-            spec.url = "tel:" + PhoneNumberUtils.normalizeNumber(match.rawString());
+-            spec.start = match.start();
+-            spec.end = match.end();
+-            links.add(spec);
+-        }
++        // Minato has no libphonenumber (its data is not fetched): no phone number is found.
+     }
+ 
+     private static final void gatherMapLinks(ArrayList<LinkSpec> links, Spannable s) {

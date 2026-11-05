@@ -73,6 +73,7 @@ import android.view.contentcapture.ContentCaptureManager;
 import android.view.accessibility.CaptioningManager;
 import android.view.autofill.AutofillManager;
 import android.view.inputmethod.InputMethodManager;
+import android.view.textclassifier.TextClassificationManager;
 
 import com.android.internal.app.IBatteryStats;
 import com.android.internal.policy.PhoneLayoutInflater;
@@ -154,6 +155,9 @@ final class SystemServiceRegistry {
                 ctx -> new ClipboardManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
         // Retest 12: the app's and the system's languages (Helpshift), as the tag's over the outer context.
         cached(Context.LOCALE_SERVICE, LocaleManager.class, ctx -> new LocaleManager(ctx.getOuterContext()));
+        // As the tag's: the text classification manager, whose classifier finds nothing.
+        cached(Context.TEXT_CLASSIFICATION_SERVICE, TextClassificationManager.class,
+                ctx -> new TextClassificationManager(ctx.getOuterContext()));
         // Retest 8's batch B2: as the tag's, over the local account service.
         cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
                 IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));
