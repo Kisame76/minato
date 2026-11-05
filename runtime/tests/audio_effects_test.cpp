@@ -41,11 +41,14 @@ double gain_db(const Settings &settings, double hertz, int channels = 1, bool le
         }
     }
     processor.process(samples.data(), total, channels);
-    double peak = 0;
-    for (int frame = total - total / 5; frame < total; ++frame) {
-        peak = std::max<double>(peak, std::fabs(samples[static_cast<size_t>(frame * channels + channel_measured)]));
+    // The level as RMS over the last 4800 frames, a whole number of periods of every tone here (also those with only
+    // three samples to a period, where a peak read of the samples would be 1 dB low).
+    double sum = 0;
+    for (int frame = total - 4800; frame < total; ++frame) {
+        const double value = samples[static_cast<size_t>(frame * channels + channel_measured)];
+        sum += value * value;
     }
-    return 20 * std::log10(peak / amplitude);
+    return 20 * std::log10(std::sqrt(2 * sum / 4800) / amplitude);
 }
 
 Settings equalizer(int band, int millibel) {
@@ -135,18 +138,78 @@ void the_bass_boost_follows_the_response_of_androids_dynamic_bass_enhancement() 
     CHECK(std::fabs(gain_db(settings, 3000)) < 1.0);                    // the top is untouched
 }
 
-void the_virtualizer_widens_stereo_and_leaves_mono_alone() {
+/// The gain in dB of a stereo tone whose channels are in anti-phase (a pure side signal) at the left channel.
+double side_gain_db(const Settings &settings, double hertz) {
+    Processor processor;
+    processor.set(settings, kRate);
+    const int total = static_cast<int>(kRate);
+    std::vector<float> samples(static_cast<size_t>(total) * 2, 0.0f);
+    for (int frame = 0; frame < total; ++frame) {
+        const float value = static_cast<float>(0.1 * std::sin(2 * kPi * hertz * frame / kRate));
+        samples[static_cast<size_t>(frame * 2)] = value;
+        samples[static_cast<size_t>(frame * 2 + 1)] = -value;
+    }
+    processor.process(samples.data(), total, 2);
+    double sum = 0;
+    for (int frame = total - 4800; frame < total; ++frame) {
+        const double value = samples[static_cast<size_t>(frame * 2)];
+        sum += value * value;
+    }
+    return 20 * std::log10(std::sqrt(2 * sum / 4800) / 0.1);
+}
+
+// Android's virtualizer (LVM's LVCS for headphones, android-15.0.0_r1): mid and side go through filters of their own
+// and a shared equaliser, mixed with the unprocessed signal by the strength. Its small-signal response at 48 kHz, in
+// dB: the mid path (what a mono signal hears) against the unprocessed level, and the side-to-mid ratio against it.
+const double kVirtHertz[] = {50, 100, 200, 500, 1000, 2000, 4000, 8000, 16000};
+const double kVirtMid[3][9] = {{2.19, 1.87, 1.03, 0.23, 0.06, 0.07, 0.26, 0.83, 1.62},
+                               {3.94, 3.46, 2.07, 0.49, 0.12, 0.14, 0.56, 1.66, 3.00},
+                               {6.67, 6.05, 4.01, 1.11, 0.26, 0.28, 1.20, 3.22, 5.28}};
+const double kVirtRatio[3][9] = {{-2.19, 0.38, 2.67, 3.87, 3.90, 3.48, 2.43, 0.90, -0.67},
+                                 {-2.91, 1.09, 4.36, 6.38, 6.56, 5.96, 4.30, 1.63, -1.16},
+                                 {-2.48, 2.21, 6.25, 9.55, 10.16, 9.42, 6.91, 2.66, -1.82}};
+
+void the_virtualizer_follows_the_response_of_androids_stereo_widening() {
+    const int strengths[3] = {250, 500, 1000};
+    for (int row = 0; row < 3; ++row) {
+        Settings settings;
+        settings.virtualizer = true;
+        settings.virtualizer_strength = strengths[row];
+        for (int column = 0; column < 9; ++column) {
+            const double mid = gain_db(settings, kVirtHertz[column], 2, false);
+            const double side = side_gain_db(settings, kVirtHertz[column]);
+            const bool near = std::fabs(mid - kVirtMid[row][column]) <= 0.5 &&
+                              std::fabs(side - mid - kVirtRatio[row][column]) <= 0.5;
+            if (!near) {
+                std::printf("virtualizer %d at %g Hz: mid %.2f (wanted %.2f), side/mid %.2f (wanted %.2f)\n",
+                            strengths[row], kVirtHertz[column], mid, kVirtMid[row][column], side - mid,
+                            kVirtRatio[row][column]);
+            }
+            CHECK(std::fabs(mid - kVirtMid[row][column]) <= 0.5);
+            CHECK(std::fabs(side - mid - kVirtRatio[row][column]) <= 0.5);
+        }
+    }
+}
+
+void the_virtualizer_at_strength_zero_leaves_every_signal_alone() {
+    Settings settings;
+    settings.virtualizer = true;
+    settings.virtualizer_strength = 0;
+    for (const double hertz : {50.0, 1000.0, 16000.0}) {
+        CHECK(std::fabs(gain_db(settings, hertz, 2, false)) < 0.1);
+        CHECK(std::fabs(side_gain_db(settings, hertz)) < 0.1);
+        CHECK(std::fabs(gain_db(settings, hertz, 1)) < 0.1);
+    }
+    CHECK(std::isinf(gain_db(settings, 1000, 2, true, 0.1, 1)));  // left only, the right channel is silent: no bleed
+}
+
+void a_mono_stream_hears_the_virtualizers_mid_path() {
     Settings settings;
     settings.virtualizer = true;
     settings.virtualizer_strength = 1000;
-    CHECK(std::fabs(gain_db(settings, 1000, 2, false)) < 0.2);  // both channels equal: no side signal
-    CHECK(std::fabs(gain_db(settings, 1000, 1)) < 0.2);          // a mono stream is not widened
-    const double left = gain_db(settings, 1000, 2, true, 0.1, 0);
-    const double right = gain_db(settings, 1000, 2, true, 0.1, 1);
-    CHECK(left > 3.0 && left < 4.0);    // a left-only tone is louder on the left: 1.5 times at the factor 2
-    CHECK(right > -7.0 && right < -5.0);  // and bleeds, in anti-phase, onto the right at half
-    settings.virtualizer_strength = 0;
-    CHECK(std::isinf(gain_db(settings, 1000, 2, true, 0.1, 1)));  // strength 0: the right channel stays silent
+    CHECK(std::fabs(gain_db(settings, 50, 1) - 6.67) <= 0.5);
+    CHECK(std::fabs(gain_db(settings, 1000, 1) - 0.26) <= 0.5);
+    CHECK(std::fabs(gain_db(settings, 16000, 1) - 5.28) <= 0.5);
 }
 
 void the_loudness_gain_is_linear_and_limited() {
@@ -259,7 +322,9 @@ int main() {
     the_equalizer_gains_match_the_measured_points();
     what_is_off_is_the_identity();
     the_bass_boost_follows_the_response_of_androids_dynamic_bass_enhancement();
-    the_virtualizer_widens_stereo_and_leaves_mono_alone();
+    the_virtualizer_follows_the_response_of_androids_stereo_widening();
+    the_virtualizer_at_strength_zero_leaves_every_signal_alone();
+    a_mono_stream_hears_the_virtualizers_mid_path();
     the_loudness_gain_is_linear_and_limited();
     a_change_of_settings_ramps_without_a_click();
     settings_off_again_returns_to_the_identity_through_a_ramp();

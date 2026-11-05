@@ -45,7 +45,12 @@ struct Chain {
     Biquad bass_hp, bass_bp;  // the bass enhancement's high-pass under the signal and band peak around 90 Hz
     float bass_gain = 0;      // the peak's gain G; 0 while the bass boost is off
     bool bass_on = false;
-    float width = 1;   // the side signal's factor
+    // The virtualizer (LVM's stereo widening for headphones): mid and side each through a filter of their own and a
+    // shared equaliser, mixed with the unprocessed signal by `virt`. The filters are always the same, so that a ramp to
+    // or from off only moves the mix.
+    Biquad virt_mid, virt_side, virt_equaliser;
+    float virt = 0;  // the processed share, strength / 1000; 0 while the virtualizer is off
+    bool virt_on = false;
     float gain = 1;    // the loudness enhancer's linear gain
     float limit = 0;   // the soft limiter's share after the gain: 0 off, 1 on, between while it ramps
 };
@@ -70,7 +75,8 @@ public:
     /// True when the settings change nothing, so that process() may be skipped.
     bool idle() const { return !active_ && ramp_left_ == 0; }
 
-    /// Processes `frames` interleaved frames of `channels` channels in place; a mono stream gets no widening.
+    /// Processes `frames` interleaved frames of `channels` channels in place; a mono stream gets the virtualizer's mid
+    /// path.
     void process(float *samples, std::int64_t frames, int channels);
 
 private:
@@ -89,6 +95,7 @@ private:
     Delay band_[kMaxChannels][kBands];
     Delay bass_hp_[kMaxChannels];
     Delay bass_bp_;
+    Delay virt_mid_, virt_mid_eq_, virt_side_, virt_side_eq_;
 };
 
 }  // namespace apkrt::effects

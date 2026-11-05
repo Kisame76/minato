@@ -20,7 +20,17 @@ constexpr float kBassScale = 0.9886f;
 constexpr float kBassGain[16] = {0.412538f, 0.584893f, 0.778279f, 0.995262f, 1.238721f, 1.511886f,
                                  1.818383f, 2.162278f, 2.548134f, 2.981072f, 3.466836f, 4.011872f,
                                  4.623413f, 5.309573f, 6.079458f, 6.943282f};
-constexpr float kWidthMax = 2.0f;            // an approximation: the side factor at strength 1000
+// Android's virtualizer (LVM's LVCS for headphones, android-15.0.0_r1, LVCS_Headphone_Coeffs.h at 48 kHz): the mid
+// signal (L + R) / 2 and the side signal (L - R) / 2 go through a first-order filter and a second-order filter, both
+// through the same equaliser, and are mixed with the unprocessed ones by the strength: out = (1 - t) x + t K P(x),
+// K = LVCS's processed gain over its unprocessed gain. The reverb and the stereo delay of the bundle are not modelled.
+struct Coefficients {
+    double a[3], b[2];
+};
+constexpr Coefficients kVirtMid = {{0.234445, -0.232261, 0.0}, {-0.986713, 0.0}};
+constexpr Coefficients kVirtSide = {{0.272606, -0.266952, -0.005654}, {-1.617141, 0.630405}};
+constexpr Coefficients kVirtEqualiser = {{1.641177, -2.364687, 0.759910}, {-1.166774, 0.178074}};
+constexpr float kVirtGain = 0.8477735f / 0.2087465f;
 
 Biquad peaking(float centre, float rate, float decibel, float q) {
     const double a = std::pow(10.0, decibel / 40.0);
@@ -65,6 +75,24 @@ Biquad band_pass(float centre, float rate, float q, float scale) {
     return result;
 }
 
+/// A filter given at 48 kHz, made for `rate`: through its analog equivalent (the bilinear transform without
+/// pre-warping), so that its response at the same frequencies stays close to the original at the rates near 48 kHz.
+Biquad retarget(const Coefficients &c, float rate) {
+    const double k = rate / 48000.0;  // u = s / (2 fs) at 48 kHz is k times u at `rate`
+    const double n0 = c.a[0] + c.a[1] + c.a[2], n1 = (2 * c.a[0] - 2 * c.a[2]) * k;
+    const double n2 = (c.a[0] - c.a[1] + c.a[2]) * k * k;
+    const double d0 = 1 + c.b[0] + c.b[1], d1 = (2 - 2 * c.b[1]) * k, d2 = (1 - c.b[0] + c.b[1]) * k * k;
+    const double nz0 = n0 + n1 + n2, nz1 = 2 * n0 - 2 * n2, nz2 = n0 - n1 + n2;
+    const double dz0 = d0 + d1 + d2, dz1 = 2 * d0 - 2 * d2, dz2 = d0 - d1 + d2;
+    Biquad result;
+    result.b0 = static_cast<float>(nz0 / dz0);
+    result.b1 = static_cast<float>(nz1 / dz0);
+    result.b2 = static_cast<float>(nz2 / dz0);
+    result.a1 = static_cast<float>(dz1 / dz0);
+    result.a2 = static_cast<float>(dz2 / dz0);
+    return result;
+}
+
 float soft_limit(float x) {
     const float knee = 0.8f;
     const float magnitude = std::fabs(x);
@@ -103,9 +131,12 @@ Chain make_chain(const Settings &settings, float rate) {
         chain.bass_gain = kBassGain[level];
         chain.bass_on = true;
     }
+    chain.virt_mid = retarget(kVirtMid, rate);
+    chain.virt_side = retarget(kVirtSide, rate);
+    chain.virt_equaliser = retarget(kVirtEqualiser, rate);
     if (settings.virtualizer) {
-        const float strength = static_cast<float>(std::clamp(settings.virtualizer_strength, 0, 1000)) / 1000.0f;
-        chain.width = 1.0f + strength * (kWidthMax - 1.0f);
+        chain.virt = static_cast<float>(std::clamp(settings.virtualizer_strength, 0, 1000)) / 1000.0f;
+        chain.virt_on = true;
     }
     if (settings.loudness) {
         chain.gain = static_cast<float>(std::pow(10.0, std::clamp(settings.loudness_millibel, 0, 2000) / 2000.0));
@@ -149,7 +180,11 @@ void Processor::set(const Settings &settings, float rate) {
             now.bass_bp = blend(from_.bass_bp, to_.bass_bp, t);
             now.bass_gain = from_.bass_gain + (to_.bass_gain - from_.bass_gain) * t;
             now.bass_on = from_.bass_on || to_.bass_on;
-            now.width = from_.width + (to_.width - from_.width) * t;
+            now.virt_mid = to_.virt_mid;  // the same filters either way; only the mix moves
+            now.virt_side = to_.virt_side;
+            now.virt_equaliser = to_.virt_equaliser;
+            now.virt = from_.virt + (to_.virt - from_.virt) * t;
+            now.virt_on = from_.virt_on || to_.virt_on;
             now.gain = from_.gain + (to_.gain - from_.gain) * t;
             now.limit = from_.limit + (to_.limit - from_.limit) * t;
             from_ = now;
@@ -170,11 +205,11 @@ void Processor::reset() {
     }
     for (auto &delay : bass_hp_) delay = Delay{};
     bass_bp_ = Delay{};
+    virt_mid_ = virt_mid_eq_ = virt_side_ = virt_side_eq_ = Delay{};
 }
 
 void Processor::process(float *samples, std::int64_t frames, int channels) {
     if (idle() || channels < 1 || channels > kMaxChannels) return;
-    const bool widen = channels == 2;
     for (std::int64_t frame = 0; frame < frames; ++frame) {
         float t = 1.0f;
         if (ramp_left_ > 0) {
@@ -184,14 +219,16 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
         const bool moving = t < 1.0f;
         Biquad band[kBands];
         Biquad bass_hp, bass_bp;
-        float width, gain, bass_gain, limit;
+        float virt, gain, bass_gain, limit;
         const bool bass = from_.bass_on || to_.bass_on;
+        const bool virtualizing = from_.virt_on || to_.virt_on;
+        Biquad virt_mid = to_.virt_mid, virt_side = to_.virt_side, virt_equaliser = to_.virt_equaliser;
         if (moving) {
             for (int b = 0; b < kBands; ++b) band[b] = blend(from_.band[b], to_.band[b], t);
             bass_hp = blend(from_.bass_hp, to_.bass_hp, t);
             bass_bp = blend(from_.bass_bp, to_.bass_bp, t);
             bass_gain = from_.bass_gain + (to_.bass_gain - from_.bass_gain) * t;
-            width = from_.width + (to_.width - from_.width) * t;
+            virt = from_.virt + (to_.virt - from_.virt) * t;
             gain = from_.gain + (to_.gain - from_.gain) * t;
             limit = from_.limit + (to_.limit - from_.limit) * t;
         } else {
@@ -199,7 +236,7 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
             bass_hp = to_.bass_hp;
             bass_bp = to_.bass_bp;
             bass_gain = to_.bass_gain;
-            width = to_.width;
+            virt = to_.virt;
             gain = to_.gain;
             limit = to_.limit;
         }
@@ -216,11 +253,20 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
             const float peak = bass_gain * run(bass_bp, bass_bp_, mean / static_cast<float>(channels));
             for (int channel = 0; channel < channels; ++channel) at[channel] += peak;
         }
-        if (widen && width != 1.0f) {
-            const float mid = 0.5f * (at[0] + at[1]);
-            const float side = 0.5f * (at[0] - at[1]) * width;
-            at[0] = mid + side;
-            at[1] = mid - side;
+        if (virtualizing && channels <= 2) {
+            // Mid and side through their paths, mixed with themselves by the strength; a mono stream is its mid.
+            const float mid = channels == 2 ? 0.5f * (at[0] + at[1]) : at[0];
+            const float processed_mid = run(virt_equaliser, virt_mid_eq_, run(virt_mid, virt_mid_, mid));
+            const float mid_out = (1 - virt) * mid + virt * kVirtGain * processed_mid;
+            if (channels == 2) {
+                const float side = 0.5f * (at[0] - at[1]);
+                const float processed_side = run(virt_equaliser, virt_side_eq_, run(virt_side, virt_side_, side));
+                const float side_out = (1 - virt) * side + virt * kVirtGain * processed_side;
+                at[0] = mid_out + side_out;
+                at[1] = mid_out - side_out;
+            } else {
+                at[0] = mid_out;
+            }
         }
         if (limit > 0.0f || gain != 1.0f) {
             for (int channel = 0; channel < channels; ++channel) {
