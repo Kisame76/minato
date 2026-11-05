@@ -37,4 +37,15 @@ I/system-services-test: one more than the maximum: java.lang.IllegalArgumentExce
 I/system-services-test: a shortcut without a label: java.lang.IllegalArgumentException
 I/system-services-test: shortcuts after the refusals: three/Three/2/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity four/Four/0/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity two/Second/1/dynamic/io.github.kisame76.minato.test.systemservices.ServicesActivity
 I/system-services-test: shortcuts all removed:
+I/system-services-test: game manager: android.app.GameManager, the same by class true
+I/system-services-test: game mode 0
+I/system-services-test: keyguard manager: android.app.KeyguardManager, the same by class true
+I/system-services-test: keyguard locked false, secure false, restricted input false
+I/system-services-test: device locked false, secure false
+I/system-services-test: confirm credential intent null
+I/system-services-test: usb manager: android.hardware.usb.UsbManager, the same by class true
+I/system-services-test: usb devices 0, accessories none
+I/system-services-test: download manager: android.app.DownloadManager, the same by class true
+I/system-services-test: usage stats manager: android.app.usage.UsageStatsManager, the same by class true
+I/system-services-test: usage stats 0
 I/system-services-test: done

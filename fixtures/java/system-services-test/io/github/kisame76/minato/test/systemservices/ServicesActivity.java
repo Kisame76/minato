@@ -1,7 +1,12 @@
 package io.github.kisame76.minato.test.systemservices;
 
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.app.GameManager;
+import android.app.KeyguardManager;
 import android.app.UiModeManager;
+import android.app.usage.UsageStatsManager;
+import android.hardware.usb.UsbManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
@@ -103,6 +108,11 @@ public class ServicesActivity extends Activity {
         } catch (NoClassDefFoundError e) {
             Log.i(mTag, "shortcuts: " + e.getClass().getName());
         }
+        game();
+        keyguard();
+        usb();
+        download();
+        usageStats();
         Log.i(mTag, "done");
     }
 
@@ -182,6 +192,69 @@ public class ServicesActivity extends Activity {
     }
 
     /** The UI mode manager as the libraries ask it, from the application's context. */
+    /** The game manager as an app asks it: no game, so no game mode (batch A of gap 1). */
+    private void game() {
+        final Context application = getApplicationContext();
+        final GameManager manager = (GameManager) application.getSystemService(Context.GAME_SERVICE);
+        Log.i(mTag, "game manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(GameManager.class)));
+        if (manager == null) {
+            return;
+        }
+        Log.i(mTag, "game mode " + manager.getGameMode());
+    }
+
+    /** The keyguard manager as ad SDKs and key stores ask it: no secure lock screen (batch A of gap 1). */
+    @SuppressWarnings("deprecation")
+    private void keyguard() {
+        final Context application = getApplicationContext();
+        final KeyguardManager manager = (KeyguardManager) application.getSystemService(Context.KEYGUARD_SERVICE);
+        Log.i(mTag, "keyguard manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(KeyguardManager.class)));
+        if (manager == null) {
+            return;
+        }
+        Log.i(mTag, "keyguard locked " + manager.isKeyguardLocked() + ", secure " + manager.isKeyguardSecure()
+                + ", restricted input " + manager.inKeyguardRestrictedInputMode());
+        Log.i(mTag, "device locked " + manager.isDeviceLocked() + ", secure " + manager.isDeviceSecure());
+        Log.i(mTag, "confirm credential intent " + manager.createConfirmDeviceCredentialIntent("title", "text"));
+    }
+
+    /** The USB manager as SDL and controller libraries ask it: nothing plugged in (batch A, step 2). */
+    private void usb() {
+        final Context application = getApplicationContext();
+        final UsbManager manager = (UsbManager) application.getSystemService(Context.USB_SERVICE);
+        Log.i(mTag, "usb manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(UsbManager.class)));
+        if (manager == null) {
+            return;
+        }
+        Log.i(mTag, "usb devices " + manager.getDeviceList().size() + ", accessories "
+                + (manager.getAccessoryList() == null ? "none" : "some"));
+    }
+
+    /** The download manager as a WebView's download listener asks it (batch A, step 2). */
+    private void download() {
+        final Context application = getApplicationContext();
+        final DownloadManager manager = (DownloadManager) application.getSystemService(Context.DOWNLOAD_SERVICE);
+        Log.i(mTag, "download manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(DownloadManager.class)));
+    }
+
+    /** The usage stats manager as analytics libraries ask it, without usage access (batch A, step 2). */
+    private void usageStats() {
+        final Context application = getApplicationContext();
+        final UsageStatsManager manager = (UsageStatsManager) application.getSystemService(Context.USAGE_STATS_SERVICE);
+        Log.i(mTag, "usage stats manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(UsageStatsManager.class)));
+        if (manager == null) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        Log.i(mTag, "usage stats " + manager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 86400000L, now)
+                .size());
+    }
+
     private void uiMode() {
         final Context application = getApplicationContext();
         final UiModeManager manager = (UiModeManager) application.getSystemService(Context.UI_MODE_SERVICE);

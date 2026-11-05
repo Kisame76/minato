@@ -28,7 +28,11 @@ import android.hardware.SystemSensorManager;
 import android.hardware.camera2.CameraManager;
 import android.hardware.SensorManager;
 import android.hardware.display.DisplayManager;
+import android.app.usage.IUsageStatsManager;
+import android.app.usage.UsageStatsManager;
 import android.hardware.input.InputManager;
+import android.hardware.usb.IUsbManager;
+import android.hardware.usb.UsbManager;
 import android.media.AudioManager;
 import android.media.metrics.IMediaMetricsManager;
 import android.media.metrics.MediaMetricsManager;
@@ -178,6 +182,19 @@ final class SystemServiceRegistry {
         // ADR-0063: as AOSP's, over the local location service.
         cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
                 ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));
+        // Gap 1, batch A: as the tag's, over the local game service.
+        cached(Context.GAME_SERVICE, GameManager.class,
+                ctx -> new GameManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
+        // Gap 1, batch A: ours under AOSP's name, on a device without a secure lock screen (see KeyguardManager).
+        cached(Context.KEYGUARD_SERVICE, KeyguardManager.class, ctx -> new KeyguardManager(ctx.getOuterContext()));
+        // Gap 1, batch A step 2: as the tag's, over the local USB service.
+        cached(Context.USB_SERVICE, UsbManager.class, ctx -> new UsbManager(ctx,
+                IUsbManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.USB_SERVICE))));
+        // Gap 1, batch A step 2: as the tag's.
+        cached(Context.DOWNLOAD_SERVICE, DownloadManager.class, ctx -> new DownloadManager(ctx.getOuterContext()));
+        // Gap 1, batch A step 2: as the tag's, over the local usage stats service.
+        cached(Context.USAGE_STATS_SERVICE, UsageStatsManager.class, ctx -> new UsageStatsManager(ctx.getOuterContext(),
+                IUsageStatsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.USAGE_STATS_SERVICE))));
     }
 
     private SystemServiceRegistry() {

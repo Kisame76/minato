@@ -2667,3 +2667,54 @@ frameworks_base/core/java/com/android/internal/view/FloatingActionMode.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbar.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbarPopup.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/LocalFloatingToolbarPopup.java
+# Gap 1's batch A (2026-11-05): GameManager, which games and engines ask for the game mode, over the local game
+# service (android.app.LocalGameManager), with its interfaces and the types they pass.
+frameworks_base/core/java/android/app/GameManager.java
+frameworks_base/core/java/android/app/GameModeConfiguration.java
+frameworks_base/core/java/android/app/GameModeConfiguration.aidl
+frameworks_base/core/java/android/app/GameModeInfo.java
+frameworks_base/core/java/android/app/GameModeInfo.aidl
+frameworks_base/core/java/android/app/GameState.java
+frameworks_base/core/java/android/app/GameState.aidl
+frameworks_base/core/java/android/app/IGameManagerService.aidl
+frameworks_base/core/java/android/app/IGameModeListener.aidl
+frameworks_base/core/java/android/app/IGameStateListener.aidl
+# Gap 1's batch A, step 2 (2026-11-05): UsbManager (SDL, Unity and controller libraries ask it) over the local USB
+# service (android.hardware.usb.LocalUsbManager), with the USB types; DownloadManager, which WebView and updaters ask;
+# UsageStatsManager over the local usage stats service (android.app.usage.LocalUsageStats), with its AIDL and types.
+frameworks_base/core/java/android/hardware/usb/DisplayPortAltModeInfo.aidl
+frameworks_base/core/java/android/hardware/usb/DisplayPortAltModeInfo.java
+frameworks_base/core/java/android/hardware/usb/IDisplayPortAltModeInfoListener.aidl
+frameworks_base/core/java/android/hardware/usb/IUsbManager.aidl
+frameworks_base/core/java/android/hardware/usb/IUsbOperationInternal.aidl
+frameworks_base/core/java/android/hardware/usb/IUsbSerialReader.aidl
+frameworks_base/core/java/android/hardware/usb/ParcelableUsbPort.aidl
+frameworks_base/core/java/android/hardware/usb/ParcelableUsbPort.java
+frameworks_base/core/java/android/hardware/usb/UsbAccessory.aidl
+frameworks_base/core/java/android/hardware/usb/UsbAccessory.java
+frameworks_base/core/java/android/hardware/usb/UsbConfiguration.java
+frameworks_base/core/java/android/hardware/usb/UsbConstants.java
+frameworks_base/core/java/android/hardware/usb/UsbDevice.aidl
+frameworks_base/core/java/android/hardware/usb/UsbDevice.java
+frameworks_base/core/java/android/hardware/usb/UsbDeviceConnection.java
+frameworks_base/core/java/android/hardware/usb/UsbEndpoint.aidl
+frameworks_base/core/java/android/hardware/usb/UsbEndpoint.java
+frameworks_base/core/java/android/hardware/usb/UsbInterface.aidl
+frameworks_base/core/java/android/hardware/usb/UsbInterface.java
+frameworks_base/core/java/android/hardware/usb/UsbManager.java
+frameworks_base/core/java/android/hardware/usb/UsbOperationInternal.java
+frameworks_base/core/java/android/hardware/usb/UsbPort.java
+frameworks_base/core/java/android/hardware/usb/UsbPortStatus.aidl
+frameworks_base/core/java/android/hardware/usb/UsbPortStatus.java
+frameworks_base/core/java/android/hardware/usb/UsbRequest.java
+frameworks_base/core/java/android/app/DownloadManager.java
+frameworks_base/core/java/android/app/usage/UsageStatsManager.java
+frameworks_base/core/java/android/app/usage/IUsageStatsManager.aidl
+frameworks_base/core/java/android/app/usage/BroadcastResponseStats.java
+frameworks_base/core/java/android/app/usage/BroadcastResponseStats.aidl
+frameworks_base/core/java/android/app/usage/BroadcastResponseStatsList.java
+frameworks_base/core/java/android/app/usage/BroadcastResponseStatsList.aidl
+frameworks_base/core/java/android/app/usage/AppStandbyInfo.java
+frameworks_base/core/java/android/app/usage/EventList.java
+frameworks_base/core/java/android/provider/Downloads.java
+frameworks_base/core/java/android/app/usage/AppLaunchEstimateInfo.java
