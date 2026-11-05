@@ -2,13 +2,19 @@ import APKLibrary
 import APKRuntime
 import APKSession
 import Darwin
+import Foundation
 
 /// Game mode's part of ADR-0032's decision 8: at its start it writes the last session's record, and hands
 /// the runtime the status file for the exit status, which the runtime writes also at a crash; when the app
-/// cannot start, it adds the reason. The library shows an end that went wrong at its next start.
+/// cannot start, it adds the reason. The library shows an end that went wrong at its next start; Get Info shows an app
+/// that closed itself soon after it opened (ClosedItselfStore).
 @MainActor
 enum SessionEndReport {
     private static var store: LastSessionStore?
+    private static var closed: ClosedItselfStore?
+    private static var package: String?
+    /// The session's start, on the uptime clock.
+    private static var start: TimeInterval = 0
     /// The status file's descriptor, open for the process's life; -1 without one.
     private static var descriptor: Int32 = -1
 
@@ -18,6 +24,12 @@ enum SessionEndReport {
         let store = LastSessionStore(folder: paths.applicationSupport)
         descriptor = store.begin(LastSession(package: entry.id, name: entry.displayName))
         self.store = store
+        // The app's last start's record holds until this start.
+        let closed = ClosedItselfStore(folder: paths.applicationSupport)
+        closed.forget(package: entry.id)
+        self.closed = closed
+        package = entry.id
+        start = ProcessInfo.processInfo.systemUptime
         apkrt_report_exit_status(descriptor)
     }
 
@@ -26,6 +38,20 @@ enum SessionEndReport {
     /// decision 5). Without it and without a status, iOS ended the process.
     static func ended() {
         store?.ended()
+    }
+
+    /// Game mode restarts to the library after `end`, which the user asked for with the menu's Quit (`byUser`) or
+    /// not: an end, and for the app's own soon after its start, its record for Get Info.
+    static func ended(_ end: SessionEnd, byUser: Bool) {
+        ended()
+        guard let closed, let package,
+              let seconds = ClosedItselfStore.seconds(after: end, byUser: byUser,
+                                                      seconds: ProcessInfo.processInfo.systemUptime - start)
+        else { return }
+        closed.record(package: package, seconds: seconds)
+        #if DEBUG
+        SessionCheck.event("closed itself \(seconds)")
+        #endif
     }
 
     /// START_FAILED, or `apkrt_start_program`'s error.

@@ -517,22 +517,28 @@ final class LibraryModel {
             }
             // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7).
             if !entry.id.hasPrefix("file:") { await removeWebData(of: entry) }
+            if let paths { ClosedItselfStore(folder: paths.applicationSupport).forget(package: entry.id) }
         }
         self.entries = await library.entries
         favorites = await library.favorites
         lastOpened = await library.lastOpened
     }
 
+    /// The seconds after which the app closed itself at its last start, for Get Info's footer; nil when it did not.
+    func closedItself(_ entry: LibraryEntry) -> Int? {
+        paths.flatMap { ClosedItselfStore(folder: $0.applicationSupport).seconds(of: entry.id) }
+    }
+
     /// The app's report for Report a Problem (ADR-0070): Get Info's status line and issues, how its last session
-    /// ended where the caller knows it, and the last session's kept log.
+    /// ended where the caller knows it, else that it closed itself, and the last session's kept log.
     func report(of entry: LibraryEntry, ending: AppReport.Ending? = nil) -> AppReport {
         let log = paths.flatMap { paths in
             try? String(contentsOf: SessionLog(folder: paths.sessionLogDirectory).keptFile(for: entry.id),
                         encoding: .utf8)
         }
         return AppReport(entry: entry, device: .current, status: Texts.statusLine(Texts.status(of: entry)),
-                         issues: (entry.report?.compatibility.issues ?? []).map(Texts.issue), ending: ending,
-                         log: log)
+                         issues: (entry.report?.compatibility.issues ?? []).map(Texts.issue),
+                         ending: ending ?? closedItself(entry).map { .closedItself(seconds: $0) }, log: log)
     }
 
     /// Every installed app's space for Settings › Storage, largest first (Library.storage).
@@ -552,7 +558,10 @@ final class LibraryModel {
         }
         guard !entry.id.hasPrefix("file:") else { return }
         await removeWebData(of: entry)
-        if let paths { LastSessionStore(folder: paths.applicationSupport).forget(package: entry.id) }
+        if let paths {
+            LastSessionStore(folder: paths.applicationSupport).forget(package: entry.id)
+            ClosedItselfStore(folder: paths.applicationSupport).forget(package: entry.id)
+        }
     }
 
     /// Moves the apps `ids` in the manual order to just before `before`, or to the end for nil, as a drag does (the

@@ -84,6 +84,19 @@ struct AppReportTests {
         #expect(!text.contains(sandbox.root.path) && !text.contains("/Users/") && !text.contains("/var/"))
     }
 
+    /// An app that closed itself soon after it opened, as Get Info's footer says it.
+    @Test func anAppThatClosedItselfSaysAfterHowLong() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await entry(sandbox)
+        func line(_ seconds: Int) -> String {
+            AppReport(entry: entry, device: device, status: "Ready", issues: [],
+                      ending: .closedItself(seconds: seconds), log: nil).summary
+        }
+        #expect(line(3).contains("Last session: it closed itself 3 seconds after it opened\n"))
+        #expect(line(1).contains("Last session: it closed itself 1 second after it opened\n"))
+    }
+
     @Test func withoutALogOrAnEndTheirPartsAreLeftOut() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -140,6 +153,7 @@ struct AppReportTests {
         #expect(what(.startFailed("no")) == .doesNotStart)
         #expect(what(.exitStatus(1)) == nil)
         #expect(what(.endedByIOS) == nil)
+        #expect(what(.closedItself(seconds: 3)) == nil)
         entry.state = .incompatible
         #expect(what(nil) == .incompatible)
         entry.state = .invalid("not a ZIP file")

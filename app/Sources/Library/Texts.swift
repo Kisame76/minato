@@ -129,6 +129,11 @@ enum Texts {
         }
     }
 
+    /// Get Info's footer for an app that closed itself soon after it opened (ClosedItselfStore).
+    static func closedItself(_ name: String, seconds: Int) -> String {
+        "Last time, “\(name)” closed itself \(seconds) second\(seconds == 1 ? "" : "s") after it opened."
+    }
+
     /// The signal that ended the app, or why it could not start (ADR-0032, decision 8).
     private static func lastSessionCause(_ cause: LastSessionNotice.Cause) -> String {
         switch cause {

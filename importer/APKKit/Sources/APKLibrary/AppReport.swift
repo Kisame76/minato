@@ -47,6 +47,8 @@ public struct AppReport: Sendable, Equatable, Identifiable {
         case startFailed(String)
         case endedByIOS
         case exitStatus(Int32)
+        /// The app closed itself this many seconds after it opened, as Get Info's footer says (ClosedItselfStore).
+        case closedItself(seconds: Int)
     }
 
     public var entry: LibraryEntry
@@ -79,7 +81,7 @@ public struct AppReport: Sendable, Equatable, Identifiable {
         switch ending {
         case .signal: return .crashes
         case .startFailed: return .doesNotStart
-        case .endedByIOS, .exitStatus, nil: return nil
+        case .endedByIOS, .exitStatus, .closedItself, nil: return nil
         }
     }
 
@@ -113,6 +115,7 @@ public struct AppReport: Sendable, Equatable, Identifiable {
         case .startFailed(let reason): "it could not start: \(reason)"
         case .endedByIOS: "iOS ended it, maybe because it used too much memory"
         case .exitStatus(let status): "it ended with status \(status)"
+        case .closedItself(let seconds): "it closed itself \(seconds) second\(seconds == 1 ? "" : "s") after it opened"
         case nil: nil
         }
     }

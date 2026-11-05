@@ -20,6 +20,8 @@ final class GameSession {
     private(set) var menuIsAtRoot = false
     /// The background opened the menu, which waits over the app at the return.
     @ObservationIgnored private var menuWaitsOnReturn = false
+    /// The user chose Quit in the menu: the end that follows is theirs, not the app's.
+    @ObservationIgnored private var quitAsked = false
     private(set) var showsHint: Bool
     /// The FPS label is on (ADR-0032, decision 9); off by default, since it makes Core Animation composite
     /// the layer. One setting for every app, kept across sessions.
@@ -506,8 +508,9 @@ final class GameSession {
     /// is not compiled for this Minato, through compile mode (ADR-0053, M6 c, E5): the user just left it, so nothing
     /// waits.
     private func restart(after end: SessionEnd) {
-        // The end is the user's or the app's: no notice at the library's next start (ADR-0032, decision 8).
-        SessionEndReport.ended()
+        // The end is the user's or the app's: no notice at the library's next start (ADR-0032, decision 8). Get Info
+        // names an app's own end soon after its start.
+        SessionEndReport.ended(end, byUser: quitAsked)
         SessionLogTap.end()
         if end.asksForCompile, startFailure == nil { requestCompileIfNeeded() }
         Task { [weak self, photos = runtime?.photos] in
@@ -700,6 +703,7 @@ final class GameSession {
     /// Quit in the menu: the guest ends, then Minato restarts into the library. In the menu of a back at the task's
     /// root, the app stops as Android leaves a task in the back, and ends without onDestroy (ADR-0041 decision 10).
     func quit() {
+        quitAsked = true
         let atRoot = menuIsAtRoot
         menuIsOpen = false
         menuIsAtRoot = false

@@ -10,6 +10,8 @@ struct AppDetailView: View {
     @State private var confirmsClearing = false
     @State private var profile: AppProfile?
     @State private var report: AppReport?
+    /// The seconds after which the app closed itself at its last start.
+    @State private var closedItself: Int?
 
     var body: some View {
         NavigationStack {
@@ -23,6 +25,8 @@ struct AppDetailView: View {
                             StatusView(status: Texts.status(of: entry), alignment: .leading, showsReason: true)
                         }
                     }
+                } footer: {
+                    if let closedItself { Text(Texts.closedItself(entry.displayName, seconds: closedItself)) }
                 }
 
                 if entry.state == .ready, let shown = profile {
@@ -120,7 +124,10 @@ struct AppDetailView: View {
             }
             .navigationTitle(entry.displayName)
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { profile = model.profile(of: entry) }
+            .onAppear {
+                profile = model.profile(of: entry)
+                closedItself = model.closedItself(entry)
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
