@@ -7,8 +7,8 @@
 # in each state, the sources, seeks, a playback to its end into an ImageReader, the http refusals and DRM. A session
 # (a configuration), whose frame clock lets the main Looper run the players' callbacks past the first traversal. And
 # ringtone-test (the RingtoneManager step): RingtoneManager, Ringtone and MediaPlayer with the default sounds. And
-# media-player-ogg-test (ADR-0060 e2): Ogg Vorbis assets from their descriptors, as libGDX plays its music, and
-# from MediaDataSources of their bytes, with a size and without one.
+# media-player-ogg-test (ADR-0060 e2): Ogg Vorbis and Opus assets from their descriptors, as libGDX plays its music,
+# and from MediaDataSources of their bytes, with a size and without one.
 # Needs tools/build-art.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/media-player-check.sh
 set -euo pipefail

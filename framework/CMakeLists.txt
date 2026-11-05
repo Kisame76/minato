@@ -345,7 +345,8 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_media_ImageWriter.cpp
             native/android_runtime/android_media_MediaCodec.cpp
             native/android_runtime/android_media_MediaExtractor.cpp
-            native/android_runtime/android_media_MediaPlayer.cpp native/android_runtime/vorbis_wav.cpp
+            native/android_runtime/android_media_MediaPlayer.cpp native/android_runtime/ogg_wav.cpp
+            native/android_runtime/opus_wav.cpp native/android_runtime/vorbis_wav.cpp
             native/android_runtime/android_hardware_camera2_utils_SurfaceUtils.cpp
             "${SOURCES}/frameworks_native_graphics/libs/ui/PublicFormat.cpp"
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"

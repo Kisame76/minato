@@ -9,7 +9,12 @@
 // cuts its own delay of 529 frames from the first frame, as Android's does. A FLAC codec's configuration is
 // STREAMINFO, which goes to AudioToolbox inside a dfLa box, the magic cookie of a CAF or MP4 file's FLAC; its frames
 // come out as 32-bit samples, the sample's bits at the top, so that the guest shifts them as Android does; a frame
-// gives at most 65535 frames of 8 channels, 2 MiB, more than a unit's limit, which bounds only the input. A DECODE
+// gives at most 65535 frames of 8 channels, 2 MiB, more than a unit's limit, which bounds only the input. An Opus
+// codec's configuration is OpusHead (RFC 7845), channel mapping family 0 (one or two channels) only, and its units
+// are packets, decoded at 48000 Hz as Opus always is; AudioToolbox's converter takes only packets of the length it
+// was made for, so a packet of another length gets a new converter, and a new converter keeps back the first 120
+// frames it decodes, which the codec gives as silence before them, so that each packet gives its table of contents'
+// frames and the frames stay in line with the encoder's input (its pre-skip the guest's to cut). A DECODE
 // hands the converter its one unit and copies the frames it gives into the guest's buffer, each size checked first: a
 // unit the converter cannot decode gives no frames, and the codec goes on with the next. The guest's struct is read
 // once and the unit copied into host memory before AudioToolbox sees it. AudioToolbox is opened by its path, not
@@ -25,6 +30,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -75,6 +81,12 @@ struct Codec {
     std::uint32_t channels = 0;
     std::uint32_t frames = 0;  // the most a unit gives
     std::uint32_t sample = 2;  // a sample's bytes
+    std::uint32_t type = 0;
+    // Opus: the formats for a new converter, the packets' length its converter takes, and whether that converter
+    // has yet to give a packet's frames whole.
+    AudioStreamBasicDescription source{}, pcm{};
+    std::uint32_t packet = 0;
+    bool fresh = false;
     std::mutex mutex;          // around each converter call, and for `gone`
     bool gone = false;         // destroyed: no more calls
 };
@@ -184,6 +196,38 @@ std::vector<unsigned char> flac_cookie(const std::vector<unsigned char> &info) {
     return cookie;
 }
 
+/// OpusHead (RFC 7845 section 5.1) as its format, as Android's decoder reads it (OpusHeader.cpp's ParseOpusHeader):
+/// "OpusHead", major version 0, 1 or 2 channels in mapping family 0; false for another, the other families among
+/// them, which AudioToolbox's decoder is not given here.
+bool opus_format(const std::vector<unsigned char> &head, AudioStreamBasicDescription &source) {
+    if (head.size() < 19 || std::memcmp(head.data(), "OpusHead", 8) != 0 || (head[8] & 0xf0) != 0) return false;
+    const unsigned channels = head[9], family = head[18];
+    if (family != 0 || channels < 1 || channels > 2) return false;
+    source = {};
+    source.mSampleRate = 48000;
+    source.mFormatID = kAudioFormatOpus;
+    source.mFramesPerPacket = 960;  // 20 ms, the usual; a packet of another length makes its own converter
+    source.mChannelsPerFrame = channels;
+    return true;
+}
+
+/// An Opus packet's frames at 48000 Hz by its table of contents (RFC 6716 section 3.1): its frames' length by the
+/// configuration and their count by the code; 0 for a packet that is not one (code 3 without its count, no frames or
+/// more than 120 ms).
+std::uint32_t opus_frames(const std::vector<unsigned char> &packet) {
+    if (packet.empty()) return 0;
+    static constexpr std::uint32_t lengths[32] = {480, 960, 1920, 2880, 480, 960, 1920, 2880, 480, 960, 1920,
+                                                  2880, 480, 960, 480,  960, 120, 240, 480, 960, 120, 240,
+                                                  480, 960, 120, 240, 480, 960, 120, 240, 480, 960};
+    const std::uint32_t length = lengths[packet[0] >> 3], code = packet[0] & 3u;
+    std::uint32_t count = code == 0 ? 1 : 2;
+    if (code == 3) {
+        if (packet.size() < 2) return 0;
+        count = packet[1] & 0x3fu;
+    }
+    return count == 0 || length * count > 5760 ? 0 : length * count;
+}
+
 long destroy(std::uint64_t id) {
     std::shared_ptr<Codec> codec;
     {
@@ -213,6 +257,7 @@ bool source_format(const Toolbox &calls, std::uint32_t type, const std::vector<u
                source.mSampleRate >= 1 && source.mSampleRate <= 96000 && source.mFramesPerPacket >= 1 &&
                source.mFramesPerPacket <= 4096;
     }
+    if (type == APKRT_AUDIO_CODEC_OPUS) return opus_format(config, source);
     sample = 4;
     cookie = flac_cookie(config);
     return !cookie.empty() && describe(calls, kAudioFormatFLAC, cookie, source) &&
@@ -222,7 +267,7 @@ bool source_format(const Toolbox &calls, std::uint32_t type, const std::vector<u
 }
 
 long create(std::uint64_t argument, apkrt_audio_codec &asked) {
-    if (asked.type < APKRT_AUDIO_CODEC_AAC || asked.type > APKRT_AUDIO_CODEC_FLAC || asked.size == 0 ||
+    if (asked.type < APKRT_AUDIO_CODEC_AAC || asked.type > APKRT_AUDIO_CODEC_OPUS || asked.size == 0 ||
         asked.size > APKRT_AUDIO_CODEC_MAX_CONFIG) {
         return -linux_errno::einval;
     }
@@ -250,6 +295,8 @@ long create(std::uint64_t argument, apkrt_audio_codec &asked) {
         calls.dispose(converter);
         return -linux_errno::einval;
     }
+    // An Opus packet gives up to 120 ms, whatever length its converter takes.
+    const std::uint32_t most = asked.type == APKRT_AUDIO_CODEC_OPUS ? 5760 : source.mFramesPerPacket;
     std::uint64_t id = 0;
     long answer = 0;
     {
@@ -262,8 +309,13 @@ long create(std::uint64_t argument, apkrt_audio_codec &asked) {
                 auto codec = std::make_shared<Codec>();
                 codec->converter = converter;
                 codec->channels = source.mChannelsPerFrame;
-                codec->frames = source.mFramesPerPacket;
+                codec->frames = most;
                 codec->sample = sample;
+                codec->type = asked.type;
+                codec->source = source;
+                codec->pcm = pcm;
+                codec->packet = source.mFramesPerPacket;
+                codec->fresh = true;
                 all.codecs.emplace(all.next_id, std::move(codec));
                 id = all.next_id++;
             } catch (const std::bad_alloc &) {
@@ -278,12 +330,27 @@ long create(std::uint64_t argument, apkrt_audio_codec &asked) {
     asked.id = id;
     asked.rate = static_cast<std::uint32_t>(std::lround(source.mSampleRate));
     asked.channels = source.mChannelsPerFrame;
-    asked.frames = source.mFramesPerPacket;
+    asked.frames = most;
     if (!sys::memory::copy_checked(argument, reinterpret_cast<std::uint64_t>(&asked), sizeof asked)) {
         destroy(id);  // the guest cannot learn of it
         return -linux_errno::efault;
     }
     return 0;
+}
+
+/// An Opus codec's converter for packets of `packet` frames: its own, or a new one for another length; false where
+/// AudioToolbox makes none (the old one stays).
+bool opus_converter(Codec &codec, std::uint32_t packet) {
+    if (packet == codec.packet) return true;
+    AudioStreamBasicDescription source = codec.source;
+    source.mFramesPerPacket = packet;
+    AudioConverterRef converter = nullptr;
+    if (toolbox().make(&source, &codec.pcm, &converter) != noErr) return false;
+    toolbox().dispose(codec.converter);
+    codec.converter = converter;
+    codec.packet = packet;
+    codec.fresh = true;
+    return true;
 }
 
 /// The one unit a DECODE hands the converter.
@@ -335,13 +402,33 @@ long decode(std::uint64_t argument, apkrt_audio_codec &asked) {
     {
         const std::lock_guard hold(codec->mutex);
         if (codec->gone) return -linux_errno::ebadf;
-        Feed fed{&unit, false, {}};
-        AudioBufferList list{};
-        list.mNumberBuffers = 1;
-        list.mBuffers[0].mNumberChannels = codec->channels;
-        list.mBuffers[0].mDataByteSize = static_cast<UInt32>(codec->frames * frame_bytes);
-        list.mBuffers[0].mData = pcm.data();
-        toolbox().fill(codec->converter, feed, &fed, &frames, &list, nullptr);  // frames: what came out
+        const std::uint32_t packet = codec->type == APKRT_AUDIO_CODEC_OPUS ? opus_frames(unit) : 0;
+        if (codec->type == APKRT_AUDIO_CODEC_OPUS && (packet == 0 || !opus_converter(*codec, packet))) {
+            frames = 0;
+        } else {
+            Feed fed{&unit, false, {}};
+            AudioBufferList list{};
+            list.mNumberBuffers = 1;
+            list.mBuffers[0].mNumberChannels = codec->channels;
+            list.mBuffers[0].mDataByteSize = static_cast<UInt32>(codec->frames * frame_bytes);
+            list.mBuffers[0].mData = pcm.data();
+            // frames: what came out
+            const OSStatus status = toolbox().fill(codec->converter, feed, &fed, &frames, &list, nullptr);
+            if (codec->type == APKRT_AUDIO_CODEC_OPUS) {
+                if (status != noErr && status != 1) {
+                    frames = 0;
+                } else if (frames < packet && codec->fresh) {
+                    // What a new converter keeps back, as silence before what it gave.
+                    auto *bytes = reinterpret_cast<unsigned char *>(pcm.data());
+                    const std::size_t kept = (packet - frames) * frame_bytes;
+                    std::memmove(bytes + kept, bytes, frames * frame_bytes);
+                    std::memset(bytes, 0, kept);
+                    frames = packet;
+                } else if (frames >= packet) {
+                    codec->fresh = false;
+                }
+            }
+        }
     }
     if (frames > codec->frames) frames = 0;
     if (frames > 0 && !sys::memory::copy_checked(asked.out, reinterpret_cast<std::uint64_t>(pcm.data()),

@@ -53,7 +53,56 @@ I/media-player-ogg-test: tone.ogg in memory of unknown size: 1 tracks
 I/media-player-ogg-test: tone.ogg in memory of unknown size track 0: type 2, language und
 I/media-player-ogg-test: tone.ogg in memory of unknown size: start ok, playing true
 I/media-player-ogg-test: tone.ogg in memory of unknown size: completed, playing false
-I/media-player-ogg-test: tone.ogg in memory of unknown size: seek 100 ok, callbacks [error -2147483648 0], position 0
+I/media-player-ogg-test: tone.ogg in memory of unknown size: seek 100 ok, callbacks [error -2147483648 0]
 I/media-player-ogg-test: tone.ogg in memory of unknown size: closed before release false
 I/media-player-ogg-test: tone.ogg in memory of unknown size: closed 500 ms after release true
+I/media-player-ogg-test: opus.ogg: set ok
+I/media-player-ogg-test: opus.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: opus.ogg: duration 1200, size 0x0, position 0, playing false, looping false
+I/media-player-ogg-test: opus.ogg: 1 tracks
+I/media-player-ogg-test: opus.ogg track 0: type 2, language und, format none
+I/media-player-ogg-test: opus.ogg: selected audio 0
+I/media-player-ogg-test: opus.ogg: start ok, playing true
+I/media-player-ogg-test: opus.ogg: completed, playing false
+I/media-player-ogg-test: opus.ogg: start again ok, playing true
+I/media-player-ogg-test: opus.ogg: completed again
+I/media-player-ogg-test: opus-mono.ogg: set ok
+I/media-player-ogg-test: opus-mono.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: opus-mono.ogg: duration 900, size 0x0, position 0, playing false, looping false
+I/media-player-ogg-test: opus-mono.ogg: 1 tracks
+I/media-player-ogg-test: opus-mono.ogg track 0: type 2, language und, format none
+I/media-player-ogg-test: opus-mono.ogg: selected audio 0
+I/media-player-ogg-test: opus-mono.ogg: start ok, playing true
+I/media-player-ogg-test: opus-mono.ogg: completed, playing false
+I/media-player-ogg-test: opus-mono.ogg: start again ok, playing true
+I/media-player-ogg-test: opus-mono.ogg: completed again
+I/media-player-ogg-test: opus.ogg: set ok
+I/media-player-ogg-test: opus.ogg: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: opus.ogg: seek 600 ok, callbacks [seek complete], position 600
+I/media-player-ogg-test: opus.ogg: seek 0 ok, callbacks [seek complete], position 0
+I/media-player-ogg-test: opus.ogg: seek 1100 ok, callbacks [seek complete], position 1100
+I/media-player-ogg-test: opus.ogg: seek 250 ok, callbacks [seek complete], position 250
+I/media-player-ogg-test: opus.ogg: start ok
+I/media-player-ogg-test: opus.ogg: pause ok, playing false
+I/media-player-ogg-test: opus.ogg: position after 300 ms from 250 before the end true
+I/media-player-ogg-test: opus.ogg in memory: set ok
+I/media-player-ogg-test: opus.ogg in memory: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: opus.ogg in memory: duration 1200, position 0
+I/media-player-ogg-test: opus.ogg in memory: 1 tracks
+I/media-player-ogg-test: opus.ogg in memory track 0: type 2, language und
+I/media-player-ogg-test: opus.ogg in memory: start ok, playing true
+I/media-player-ogg-test: opus.ogg in memory: completed, playing false
+I/media-player-ogg-test: opus.ogg in memory: seek 100 ok, callbacks [seek complete], position 100
+I/media-player-ogg-test: opus.ogg in memory: closed before release false
+I/media-player-ogg-test: opus.ogg in memory: closed 500 ms after release true
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: set ok
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: prepare ok, callbacks [prepared]
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: duration -1, position 0
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: 1 tracks
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size track 0: type 2, language und
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: start ok, playing true
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: completed, playing false
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: seek 100 ok, callbacks [error -2147483648 0]
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: closed before release false
+I/media-player-ogg-test: opus-mono.ogg in memory of unknown size: closed 500 ms after release true
 I/media-player-ogg-test: done

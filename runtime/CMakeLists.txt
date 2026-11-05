@@ -133,11 +133,13 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.audio_decode COMMAND audio_decode_test)
   set_tests_properties(runtime.audio_decode PROPERTIES TIMEOUT 60)
 
-  # ADR-0060 e2f: APKRT_NR_AUDIO_CODEC through the dispatcher, on soundpool-codec-test's tone.aac.
+  # ADR-0060 e2f: APKRT_NR_AUDIO_CODEC through the dispatcher, on soundpool-codec-test's tone files and
+  # media-player-ogg-test's Ogg Opus files.
   add_executable(audio_codec_test tests/audio_codec_test.cpp)
   target_include_directories(audio_codec_test PRIVATE src)
   target_compile_definitions(audio_codec_test PRIVATE
-    TONE_DIR="${PROJECT_SOURCE_DIR}/fixtures/apps/soundpool-codec-test/assets")
+    TONE_DIR="${PROJECT_SOURCE_DIR}/fixtures/apps/soundpool-codec-test/assets"
+    OGG_DIR="${PROJECT_SOURCE_DIR}/fixtures/apps/media-player-ogg-test/assets")
   target_link_libraries(audio_codec_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.audio_codec COMMAND audio_codec_test)
   set_tests_properties(runtime.audio_codec PROPERTIES TIMEOUT 60)

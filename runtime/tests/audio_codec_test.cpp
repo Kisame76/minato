@@ -6,7 +6,11 @@
 // one are read whole; and the ops, types, IDs, sizes, addresses (memory the guest cannot write among them) and the
 // codec limit are checked. e2f.2: tone.mp3's and tone-mono.mp3's frames give the sine without the decoder's delay of
 // 529 frames, cut again after a flush; tone.flac's frames (16 bits a sample) and tone-24.flac's (24) give tone.aiff's
-// samples exactly, each at the top of 32 bits; and their configurations are checked.
+// samples exactly, each at the top of 32 bits; and their configurations are checked. Opus (media-player-ogg-test's
+// opus.ogg and opus-mono.ogg, ffmpeg's libopus: packets of 20 ms in stereo and of 60 ms in mono): each packet gives
+// its frames at 48000 Hz, the first after a CREATE too, in line with the encoder's input; packets of another length
+// on the same codec give theirs; after a flush the packets give theirs again; OpusHead is checked, and a packet whose
+// table of contents is not one gives nothing.
 
 #include "syscall_frame.h"
 
@@ -28,6 +32,10 @@
 #include "check.h"
 
 namespace {
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 constexpr long ebadf = 9, efault = 14, ebusy = 16, einval = 22, enospc = 28;
 
@@ -555,6 +563,140 @@ TEST(flac_configurations_are_checked) {
     info[12] = static_cast<unsigned char>((info[12] & 0xf1) | 0x0e);  // 8 channels: taken
     CHECK(create(info.data(), info.size(), call, APKRT_AUDIO_CODEC_FLAC) == 0 && call.channels == 8);
     if (call.id != 0) CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, call.id) == 0);
+}
+
+/// An Ogg file's packets (RFC 3533), each whole across its pages: for Opus, OpusHead, OpusTags, then the audio's.
+std::vector<std::vector<unsigned char>> ogg_packets(const char *name) {
+    std::ifstream in(std::string(OGG_DIR) + "/" + name, std::ios::binary);
+    const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    std::vector<std::vector<unsigned char>> packets;
+    std::vector<unsigned char> packet;
+    for (std::size_t at = 0; at + 27 <= bytes.size() && std::memcmp(&bytes[at], "OggS", 4) == 0;) {
+        const std::size_t segments = bytes[at + 26];
+        std::size_t data = at + 27 + segments;
+        for (std::size_t i = 0; i < segments && data + bytes[at + 27 + i] <= bytes.size(); ++i) {
+            const std::size_t lacing = bytes[at + 27 + i];
+            packet.insert(packet.end(), bytes.begin() + static_cast<std::ptrdiff_t>(data),
+                          bytes.begin() + static_cast<std::ptrdiff_t>(data + lacing));
+            data += lacing;
+            if (lacing < 255) packets.push_back(std::move(packet)), packet.clear();
+        }
+        at = data;
+    }
+    return packets;
+}
+
+/// The audio packets of an Ogg Opus file, after OpusHead and OpusTags.
+std::vector<std::vector<unsigned char>> opus_audio(const std::vector<std::vector<unsigned char>> &packets) {
+    return packets.size() < 2 ? packets : std::vector<std::vector<unsigned char>>(packets.begin() + 2, packets.end());
+}
+
+/// The amplitude of opus.ogg's sine: ffmpeg's of an eighth of full scale, made stereo by ffmpeg's upmix at half the
+/// power.
+constexpr double kStereoSine = 32767.0 / 8 * 0.70710678;
+
+/// How far the first channel of `all` (of `channels`) is from the encoder's input over half a second from 0.1 s after
+/// `preskip` frames, opus.ogg's sine at `hz` from phase 0: the error's energy over the sine's.
+double off_the_sine(const std::vector<std::int16_t> &all, std::size_t channels, std::size_t preskip, double hz) {
+    double error = 0, signal = 0;
+    for (std::size_t i = 4800; i < 4800 + 24000; ++i) {
+        const double want = kStereoSine * std::sin(2 * M_PI * hz * static_cast<double>(i) / 48000.0);
+        const std::size_t at = (preskip + i) * channels;
+        const double got = at < all.size() ? all[at] : 0;
+        error += (got - want) * (got - want);
+        signal += want * want;
+    }
+    return error / signal;
+}
+
+TEST(opus_packets_give_their_frames_in_line_with_the_input) {
+    const auto packets = ogg_packets("opus.ogg");
+    CHECK(packets.size() > 50 && packets[0].size() == 19);
+    if (packets.size() <= 50) return;
+    apkrt_audio_codec made{};
+    CHECK(create(packets[0].data(), packets[0].size(), made, APKRT_AUDIO_CODEC_OPUS) == 0);
+    CHECK(made.rate == 48000 && made.channels == 2 && made.frames == 5760);  // 120 ms, an Opus packet's most
+    std::vector<std::int16_t> frames(2 * 5760), all;
+    const auto given = decode_all(made.id, opus_audio(packets), frames, all, 2);
+    CHECK(std::all_of(given.begin(), given.end(), [](std::uint64_t each) { return each == 960; }));
+    // After OpusHead's pre-skip the frames are the encoder's input, in phase: the first packet gives all of its 960
+    // frames, so none is missing before the others.
+    const std::size_t preskip = std::size_t{packets[0][10]} | std::size_t{packets[0][11]} << 8;
+    const double off = off_the_sine(all, 2, preskip, 550);
+    CHECK(off < 0.01);
+    if (off >= 0.01) std::printf("  off the sine by %.4f\n", off);
+    bool alike = true;
+    for (std::size_t i = 2 * preskip; i + 1 < all.size(); i += 2) alike = alike && std::abs(all[i] - all[i + 1]) <= 64;
+    CHECK(alike);
+    // After a flush, as after a seek, packets from the middle give their frames and the sine where they are.
+    CHECK(codec_call(APKRT_AUDIO_CODEC_FLUSH, made.id) == 0);
+    std::vector<std::int16_t> again;
+    const std::vector<std::vector<unsigned char>> middle(packets.begin() + 20, packets.begin() + 50);
+    const auto after = decode_all(made.id, middle, frames, again, 2);
+    CHECK(std::all_of(after.begin(), after.end(), [](std::uint64_t each) { return each == 960; }));
+    // Packet 20 starts at frame 18 * 960 of the output; a decoder needs some of it to settle (RFC 7845's pre-roll).
+    const std::size_t start = 18 * 960 - preskip;
+    double error = 0, signal = 0;
+    for (std::size_t i = 4800; i < 4800 + 9600 && 2 * i < again.size(); ++i) {
+        const double want = kStereoSine * std::sin(2 * M_PI * 550 * static_cast<double>(start + i) / 48000.0);
+        error += (again[2 * i] - want) * (again[2 * i] - want);
+        signal += want * want;
+    }
+    CHECK(signal > 0 && error < 0.01 * signal);
+    CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, made.id) == 0);
+}
+
+TEST(opus_packets_of_another_length_give_theirs) {
+    const auto mono = ogg_packets("opus-mono.ogg"), stereo = ogg_packets("opus.ogg");
+    CHECK(mono.size() > 10 && stereo.size() > 10);
+    if (mono.size() <= 10 || stereo.size() <= 10) return;
+    apkrt_audio_codec made{};
+    CHECK(create(mono[0].data(), mono[0].size(), made, APKRT_AUDIO_CODEC_OPUS) == 0);
+    CHECK(made.rate == 48000 && made.channels == 1 && made.frames == 5760);
+    std::vector<std::int16_t> frames(2 * 5760), all;
+    const auto given = decode_all(made.id, opus_audio(mono), frames, all, 1);
+    CHECK(std::all_of(given.begin(), given.end(), [](std::uint64_t each) { return each == 2880; }));
+    // 0.2 s from 0.2 s: the 660 Hz sine of an eighth of full scale (resampled from 44100 Hz by the encoder).
+    const auto [rms, crossings] = measure(all, 1, 9600, 9600);
+    const double expected = 32767.0 / 8 / std::sqrt(2.0);
+    CHECK(std::fabs(rms - expected) < 0.1 * expected && crossings >= 130 && crossings <= 134);
+    // Packets of 20 ms on the codec of 60 ms ones, then 60 ms again: each gives its own frames.
+    const std::vector<std::vector<unsigned char>> mixed = {stereo[5], stereo[6], stereo[7], mono[5], mono[6]};
+    std::vector<std::int16_t> more;
+    CHECK((decode_all(made.id, mixed, frames, more, 1) == std::vector<std::uint64_t>{960, 960, 960, 2880, 2880}));
+    CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, made.id) == 0);
+}
+
+TEST(opus_heads_and_packets_are_checked) {
+    const auto packets = ogg_packets("opus.ogg");
+    CHECK(packets.size() > 10);
+    if (packets.size() <= 10) return;
+    const std::vector<unsigned char> head = packets[0];
+    apkrt_audio_codec call{};
+    CHECK(create(head.data(), 18, call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    std::vector<unsigned char> bad = head;
+    bad[0] = 'o';  // not "OpusHead"
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    bad = head;
+    bad[8] = 0x10;  // version 16: another major version
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    bad = head;
+    bad[9] = 0;  // no channels
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    bad = head;
+    bad[9] = 3;  // three channels in mapping family 0, which has one or two
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    CHECK(create(head.data(), head.size(), call, APKRT_AUDIO_CODEC_OPUS + 1) == -einval);
+    CHECK(create(head.data(), head.size(), call, APKRT_AUDIO_CODEC_OPUS) == 0);
+    std::vector<std::int16_t> frames(2 * 5760);
+    apkrt_audio_codec unit{};
+    const std::vector<unsigned char> no_frames = {static_cast<unsigned char>(packets[3][0] | 3), 0};  // code 3, none
+    CHECK(decode(call.id, packets[3], frames, unit) == 0 && unit.frames == 960);
+    CHECK(decode(call.id, no_frames, frames, unit) == 0 && unit.frames == 0);
+    CHECK(decode(call.id, packets[4], frames, unit) == 0 && unit.frames == 960);
+    std::vector<std::int16_t> small(2 * 5760 - 1);
+    CHECK(decode(call.id, packets[5], small, unit) == -enospc && unit.frames == 5760);
+    CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, call.id) == 0);
 }
 
 }  // namespace

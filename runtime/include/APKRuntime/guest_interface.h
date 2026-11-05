@@ -1061,10 +1061,13 @@ struct apkrt_audio_decode {
 /// MPEG-2 or MPEG-2.5 Layer III): its configuration a frame's 4-byte header, a unit one frame, 16-bit samples; the
 /// decoder's own delay of 529 frames is cut from the first frame and again after a flush, as Android's decoder cuts
 /// it. FLAC: its configuration STREAMINFO's 34 bytes, a unit one frame, signed 32-bit samples with the sample's bits
-/// at the top (as Android's decoder shifts them to 16 bits or float).
+/// at the top (as Android's decoder shifts them to 16 bits or float). Opus: its configuration OpusHead (RFC 7845,
+/// channel mapping family 0: one or two channels), a unit one packet, which gives its table of contents' frames at
+/// 48000 Hz, the first too, 16-bit samples; frames 5760, an Opus packet's most (120 ms); the guest cuts the pre-skip.
 #define APKRT_AUDIO_CODEC_AAC  1
 #define APKRT_AUDIO_CODEC_MP3  2
 #define APKRT_AUDIO_CODEC_FLAC 3
+#define APKRT_AUDIO_CODEC_OPUS 4
 
 struct apkrt_audio_codec {
     uint64_t id;        // CREATE: out, from 1; the others: in

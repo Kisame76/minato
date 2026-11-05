@@ -28,7 +28,10 @@ import java.util.concurrent.TimeUnit;
  * - seeks while paused and the positions they give, and a short playback from one;
  * - broken.ogg's prepare;
  * - long.ogg and tone.ogg from a MediaDataSource of their bytes, as an app plays music it holds in memory (tone.ogg's
- *   with an unknown size, -1): prepared, a playback to its end, a seek, and the source closed by release.
+ *   with an unknown size, -1): prepared, a playback to its end, a seek, and the source closed by release;
+ * - Opus in Ogg: opus.ogg (stereo, packets of 20 ms, 1.2 s) and opus-mono.ogg (mono, packets of 60 ms, 0.9 s from
+ *   44100 Hz) as the Vorbis files are played, opus.ogg's seeks, and both from MediaDataSources (opus-mono.ogg's of an
+ *   unknown size).
  * Times that depend on the device's audio go to the tag with "-device" (lines that start with "device "). It ends
  * with "done".
  */
@@ -163,6 +166,11 @@ public class MediaPlayerOggApplication extends Application {
         broken(context);
         fromMemory(context, "long.ogg", true);
         fromMemory(context, "tone.ogg", false);
+        played(context, "opus.ogg");
+        played(context, "opus-mono.ogg");
+        sought(context, "opus.ogg");
+        fromMemory(context, "opus.ogg", true);
+        fromMemory(context, "opus-mono.ogg", false);
     }
 
     /** A player with the asset's descriptor, as libGDX's AndroidMusic sets it, and its prepare's callbacks. */
@@ -307,8 +315,13 @@ public class MediaPlayerOggApplication extends Application {
         add(label + ": " + (callbacks.contains("completion") ? "completed" : "did not complete: " + callbacks)
                 + ", playing " + player.isPlaying());
         String set = run(() -> player.seekTo(100));
-        add(label + ": seek 100 " + set + ", callbacks " + events.until(5000, "seek complete", "error")
-                + ", position " + player.getCurrentPosition());
+        List<String> sought = events.until(5000, "seek complete", "error");
+        int position = player.getCurrentPosition();
+        boolean done = sought.contains("seek complete");
+        add(label + ": seek 100 " + set + ", callbacks " + sought + (done ? ", position " + position : ""));
+        // A seek without a duration fails in the client; the position then is the device's (observed: 1255 and 1277
+        // for opus-mono.ogg on the emulator).
+        if (!done) add("device " + label + ": position after the failed seek " + position);
         add(label + ": closed before release " + source.closed);
         player.release();
         pause(500);

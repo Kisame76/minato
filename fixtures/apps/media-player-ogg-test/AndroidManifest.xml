@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ADR-0060 e2's test of MediaPlayer on Ogg Vorbis (media-player-ogg-test): assets/tone.ogg (soundpool-codec-test's),
-     assets/long.ogg (ffmpeg's vorbis encoder, a 660 Hz sine of 1.2 s) and assets/broken.ogg (a capture pattern and
-     zeros), stored in the APK as Android's aapt stores .ogg, so that each opens as a descriptor (openFd). The launcher
+<!-- ADR-0060 e2's test of MediaPlayer on Ogg Vorbis and Opus (media-player-ogg-test): assets/tone.ogg
+     (soundpool-codec-test's), assets/long.ogg (ffmpeg's vorbis encoder, a 660 Hz sine of 1.2 s), assets/broken.ogg (a
+     capture pattern and zeros), assets/opus.ogg (ffmpeg's libopus, 64 kbit/s, packets of 20 ms: a 550 Hz sine of
+     1.2 s at 48000 Hz made stereo) and assets/opus-mono.ogg (libopus, 32 kbit/s, packets of 60 ms: a 660 Hz sine of
+     0.9 s at 44100 Hz in mono), both made with -map_metadata -1 -fflags +bitexact, stored in the APK as Android's aapt
+     stores .ogg (not .opus, which it compresses), so that each opens as a descriptor (openFd). The launcher
      activity is the framework's own android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.mediaplayerogg" android:versionCode="1" android:versionName="1.0">
