@@ -2,6 +2,7 @@ import APKKit
 import APKLibrary
 import APKSession
 import Foundation
+import GameController
 import Observation
 import SwiftUI
 import Synchronization
@@ -81,6 +82,9 @@ final class GameSession {
     /// The hardware keyboard's keys (ADR-0068 step 7c2), and where they go.
     @ObservationIgnored private var keyboard = HardwareKeyboard()
     @ObservationIgnored private let keySink = KeyChannelSink()
+    /// The mouse or trackpad (ADR-0068 decision 5, the mouse step), whose reports go with the pads'.
+    @ObservationIgnored private var mouse = Mouse(scale: 1)
+    @ObservationIgnored private var mouseObserver: (any NSObjectProtocol)?
     /// The game controllers (ADR-0068 decision 5), and where their records go.
     @ObservationIgnored private lazy var controllers = ControllerHost { [weak self] in self?.post($0) }
     @ObservationIgnored private let padSink = PadChannelSink()
@@ -179,6 +183,15 @@ final class GameSession {
         #endif
         battery.start()
         controllers.start()
+        // The mouse goes with GameController's; it came with its first report.
+        mouseObserver = NotificationCenter.default.addObserver(forName: .GCMouseDidDisconnect, object: nil,
+                                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, GCMouse.mice().isEmpty else { return }
+                let now = HardwareKeyboard.nanoseconds(ProcessInfo.processInfo.systemUptime)
+                self.post(self.mouse.disconnect(time: now))
+            }
+        }
         let clock = DisplayLinkClock(sink: sink)
         frameClock = clock
         frameClockSlot.set(clock)
@@ -206,6 +219,8 @@ final class GameSession {
         backgroundObserver = nil
         battery.stop()
         controllers.stop()
+        if let mouseObserver { NotificationCenter.default.removeObserver(mouseObserver) }
+        mouseObserver = nil
         if softKeyboard.isShown { textView?.hide() }
         frameRateTask?.cancel()
         frameRateTask = nil
@@ -253,6 +268,24 @@ final class GameSession {
     func attach(_ view: SessionLayersView) {
         layersView = view
         view.onWindowMoved = { RuntimeSessionHost.windowsMoved() }
+        view.onPointer = { [weak self, weak view] change in
+            self?.pointed(change, scale: Double(view?.hostView.metalLayer.contentsScale ?? 1))
+        }
+    }
+
+    /// The pointer's change, on the main thread.
+    private func pointed(_ change: PointerChange, scale: Double) {
+        mouse.scale = scale
+        mouse.letterbox = bridge.letterbox
+        let events: [PadEvent] = switch change {
+        case .moved(let x, let y, let time): mouse.moved(x: x, y: y, time: HardwareKeyboard.nanoseconds(time))
+        case .buttons(let mask, let x, let y, let time):
+            mouse.buttons(mask, x: x, y: y, time: HardwareKeyboard.nanoseconds(time))
+        case .scrolled(let dx, let dy, let time):
+            mouse.scrolled(dx: dx, dy: dy, time: HardwareKeyboard.nanoseconds(time))
+        case .exited(let time): mouse.exited(time: HardwareKeyboard.nanoseconds(time))
+        }
+        post(events)
     }
 
     /// The view's layer, the host side of every window the guest gets, and its SurfaceViews' layers (ADR-0043 c4).

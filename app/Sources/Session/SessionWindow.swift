@@ -131,6 +131,11 @@ final class SessionLayersView: UIView {
     /// Runs for the presses of a hardware keyboard's keys (ADR-0068 step 7c2): down or up, or cancelled, with the
     /// keys that Android has a code for; the presses it does not know go on to UIKit.
     var onKeys: (KeyPhase, [HardwareKeyPress]) -> Void = { _, _ in }
+    /// Runs for a mouse's or trackpad's pointer (ADR-0068 decision 5, the mouse step), in the view's points.
+    var onPointer: (PointerChange) -> Void = { _ in }
+    /// The pointer's hover and its scrolls (a wheel's, a trackpad's two fingers); the scroll pan takes no touches.
+    private let hover = UIHoverGestureRecognizer()
+    private let scroll = UIPanGestureRecognizer()
     /// Runs whenever UIKit's keyboard moves, with the part of the window's view it covers in pixels, 0 once it is
     /// hidden (ADR-0068 step 2d).
     var onKeyboardCover: (Int32) -> Void = { _ in }
@@ -163,6 +168,14 @@ final class SessionLayersView: UIView {
         // Over an app's WKWebView, WebKit's recognizers start on the first finger and are exclusive by default.
         threeFingers.delegate = alongside
         addGestureRecognizer(threeFingers)
+        hover.addTarget(self, action: #selector(hovered(_:)))
+        addGestureRecognizer(hover)
+        scroll.addTarget(self, action: #selector(scrolled(_:)))
+        scroll.allowedScrollTypesMask = .all
+        scroll.allowedTouchTypes = []
+        scroll.cancelsTouchesInView = false
+        scroll.delegate = alongside
+        addGestureRecognizer(scroll)
     }
 
     /// iOS's three-finger editing gestures (undo, redo, copy, paste) are off in game mode: three fingers are the
@@ -274,7 +287,7 @@ final class SessionLayersView: UIView {
     /// Only a pan that starts at the top edge and goes down is the menu's swipe; the view spans the
     /// screen, so its top is the screen's in every orientation. A Debug build logs each pan near the top.
     override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = recognizer as? UIPanGestureRecognizer else { return true }
+        guard let pan = recognizer as? UIPanGestureRecognizer, pan !== scroll else { return true }
         if pan === threeFingers {
             let velocity = pan.velocity(in: self)
             return MenuSwipe.begins(touches: pan.numberOfTouches, velocityX: velocity.x, velocityY: velocity.y)
@@ -310,8 +323,19 @@ final class SessionLayersView: UIView {
         hand(.cancelled, touches, event)
     }
 
-    /// Each touch with its coalesced samples, oldest first; a touch is known by its object while it lasts.
-    private func hand(_ phase: TouchPhase, _ touches: Set<UITouch>, _ event: UIEvent?) {
+    /// Each touch with its coalesced samples, oldest first; a touch is known by its object while it lasts. A mouse's or
+    /// trackpad's click is the pointer's, not a finger's (UIApplicationSupportsIndirectInputEvents).
+    private func hand(_ phase: TouchPhase, _ all: Set<UITouch>, _ event: UIEvent?) {
+        let pointer = all.filter { $0.type == .indirectPointer }
+        if let touch = pointer.first {
+            let place = touch.location(in: self)
+            // A click comes with its button; an end leaves none held.
+            let mask = phase == .ended || phase == .cancelled ? 0 : Int32(event?.buttonMask.rawValue ?? 0)
+            onPointer(.buttons(phase == .began && mask == 0 ? 1 : mask, x: Double(place.x), y: Double(place.y),
+                               timestamp: touch.timestamp))
+        }
+        let touches = all.subtracting(pointer)
+        guard !touches.isEmpty else { return }
         let changes = touches.map { touch in
             let coalesced = event?.coalescedTouches(for: touch) ?? []
             return TouchChange(touch: UInt(bitPattern: ObjectIdentifier(touch)),
@@ -324,6 +348,26 @@ final class SessionLayersView: UIView {
         let place = touch.preciseLocation(in: self)
         return TouchSample(x: place.x, y: place.y, force: touch.force, maximumForce: touch.maximumPossibleForce,
                            majorRadius: touch.majorRadius, timestamp: touch.timestamp)
+    }
+
+    @objc private func hovered(_ hover: UIHoverGestureRecognizer) {
+        let time = ProcessInfo.processInfo.systemUptime
+        switch hover.state {
+        case .began, .changed:
+            let place = hover.location(in: self)
+            onPointer(.moved(x: Double(place.x), y: Double(place.y), timestamp: time))
+        case .ended, .cancelled, .failed:
+            onPointer(.exited(timestamp: time))
+        default:
+            break
+        }
+    }
+
+    @objc private func scrolled(_ pan: UIPanGestureRecognizer) {
+        guard pan.state == .began || pan.state == .changed else { return }
+        let moved = pan.translation(in: self)
+        pan.setTranslation(.zero, in: self)
+        onPointer(.scrolled(dx: Double(moved.x), dy: Double(moved.y), timestamp: ProcessInfo.processInfo.systemUptime))
     }
 
     @objc private func swiped(_ pan: UIPanGestureRecognizer) {

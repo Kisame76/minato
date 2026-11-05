@@ -61,6 +61,9 @@ public struct AxesRecord: Sendable, Equatable {
     public var deviceID: Int32
     public var source: Int32
     public var axes: [Axis]
+    /// A mouse's: AMOTION_EVENT_BUTTON_* held after the report, and the tool (MOUSE 3); a pad's are 0.
+    public var buttonState: Int32 = 0
+    public var toolType: Int32 = 0
 }
 
 public enum PadEvent: Sendable, Equatable {

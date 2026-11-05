@@ -676,12 +676,15 @@ final class PadChannelSink: PadPoster {
         keys.postKey(channel: channel, key)
     }
 
+    /// A pad's axes, or a mouse's report (its source), which the runtime turns into Android 15's records of a mouse.
     func postAxes(channel: UInt64, _ axes: AxesRecord) -> Bool {
         var record = apkrt_axes_event()
         record.action = axes.action
         record.event_time = axes.eventTime
         record.device_id = axes.deviceID
         record.source = axes.source
+        record.button_state = axes.buttonState
+        record.tool_type = axes.toolType
         let values = axes.axes.prefix(Int(APKRT_AXES_MAX))
         record.axis_count = UInt32(values.count)
         withUnsafeMutableBytes(of: &record.axes) { bytes in
@@ -690,6 +693,7 @@ final class PadChannelSink: PadPoster {
                 slots[index] = apkrt_axis_value(axis: value.axis, value: value.value)
             }
         }
+        if axes.source & 0x2002 == 0x2002 { return apkrt_input_post_mouse(channel, &record) == 1 }
         return apkrt_input_post_axes(channel, &record) == 1
     }
 }
