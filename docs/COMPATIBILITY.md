@@ -92,20 +92,22 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono builds for Android are
   32-bit only [inferred].
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
-  starts in the Simulator with its picture and sound; a run on the iPhone is not confirmed yet.
+  starts in the Simulator with its picture and sound, and Minato's Ren'Py memory test game plays 15 minutes on the
+  iPhone with at most 850 MB. Ren'Py versions built on Python 2.7 stop at the start, where ctypes asks libffi for
+  executable memory; trampolines in Minato's own signed code are in work (ADR-0072).
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
-- **libGDX:** an open-source libGDX game draws with OpenGL ES 2 on the Mac, then stops when MediaPlayer cannot prepare
-  its Ogg Vorbis music. Its Java code runs compiled after the first close, and `SoundPool` plays WAV, Ogg Vorbis, MP3,
-  AAC and FLAC.
+- **libGDX:** an open-source libGDX game draws with OpenGL ES 2 on the Mac, plays its Ogg Vorbis music through
+  MediaPlayer and keeps running, also after a trip to the background; the iPhone is not confirmed yet. Its Java code
+  runs compiled after the first close, and `SoundPool` plays WAV, Ogg Vorbis, MP3, AAC and FLAC.
 - **Cocos2d-x, axmol, Defold, GameMaker:** untested.
 - **Flutter:** an open-source Flutter app starts and keeps running on the Mac; the iPhone is not confirmed yet. Release
   builds compile Dart ahead of time and need no JIT.
-- **React Native with Hermes:** untested. **With JavaScriptCore:** an open-source app stops when JavaScriptCore asks for
-  memory it can write and run, which iOS refuses; switching its JIT off (ADR-0071) is the next step.
+- **React Native with Hermes:** untested. **With JavaScriptCore:** JavaScriptCore runs on its interpreter (ADR-0071).
+  An open-source app runs its JavaScript and builds its screen on the Mac; it then waits for the network, which the
+  Mac's test sandbox withholds. The iPhone is not confirmed yet.
 - **LuaJIT (LÖVE and others):** an app whose LuaJIT exports its API runs on LuaJIT's interpreter, as Minato switches
-  the compiler off (ADR-0071; checked with a stand-in library so far). An open-source LÖVE game starts on the Mac and
-  stops after two system calls Minato does not answer yet. A LuaJIT linked into the app without its exports keeps its
-  compiler, which iOS refuses.
+  the compiler off (ADR-0071). An open-source LÖVE game runs on the Mac with its compiler off; the iPhone is not
+  confirmed yet. A LuaJIT linked into the app without its exports keeps its compiler, which iOS refuses.
 - **Kivy (python-for-android):** imports; Get Info names it. Starting one is not checked yet.
 - **.NET, Xamarin, MAUI, MonoGame:** Get Info names the runtime. Mono's JIT can be switched to its interpreter for apps
   built with ahead-of-time code (ADR-0071, planned); CoreCLR apps are not covered.
@@ -151,8 +153,9 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 - Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's
   inset work. An app sees controllers, a mouse and a trackpad, but the iPhone side that reads them is still to come, so
   they do not reach an app yet.
-- Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer`,
-  `MediaExtractor` and `MediaCodec` for H.264, HEVC, AAC, MP3 and FLAC are in. Opus and other audio codecs are not.
+- Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg
+  Vorbis and Opus), `MediaExtractor` and `MediaCodec` for H.264, HEVC, AAC, MP3 and FLAC are in. `MediaCodec` has no
+  Vorbis or Opus yet, and Opus with more than two channels does not play.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, but it
   does not yet say "needs a JIT" for Mono, LuaJIT or emulator cores.
 - Device features and permissions: sensors and location work, with iOS's prompt. There is no microphone input and no

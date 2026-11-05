@@ -61,6 +61,16 @@ All notable changes to Minato are documented in this file. The format follows
 - Swipe left and right to move between Home, Library and Settings
 - Get Info names the engine of apps made with .NET, LuaJIT or Kivy
 - Games that bundle LuaJIT, as many LÖVE games do, run on LuaJIT's interpreter, since iOS does not allow its compiler
+- Apps made with React Native and JavaScriptCore run their JavaScript on JavaScriptCore's interpreter, since iOS does
+  not allow its compiler
+- Apps can save a file or open a folder with Android's document dialogs: Minato asks once, in Android's words,
+  whether the app may use its Documents folder, and the app's saves stay there across restarts
+- MediaPlayer plays Ogg Vorbis and Opus music, as libGDX games and many others play theirs, from files and from an
+  app's own data source
+- Get Info says when an app closed itself within 10 seconds of opening, until its next start, and Report a Problem
+  names it
+- Apps hear of a turn of the screen as on Android: one that does not handle it is restarted with its saved state,
+  one that does is told the new size, and an app that asks for landscape or portrait gets it
 
 ### Changed
 
@@ -88,6 +98,9 @@ All notable changes to Minato are documented in this file. The format follows
   the field
 - Games that draw with OpenGL ES or Vulkan use less memory: the transparent window over their picture keeps one
   full-screen buffer, 14 to 29 MB less on an iPhone 15 Pro Max
+- Apps that allocate many objects of one size, as Ren'Py games do at their start, have twice the room for them
+- When an app ends with an error, its session log names the files it could not find and its last output, which
+  Report a Problem includes
 
 ### Fixed
 
@@ -120,3 +133,7 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps made with Flutter no longer stop at their start for a missing system timer
 - Apps that ask for Android's SDK extension versions, as Capacitor apps do, no longer stop at that question
 - Kivy apps import instead of being refused for their Python bundle
+- Apps that ask for the priority range of a scheduling policy, as LÖVE does at its start, get Linux's answer
+- React Native apps that show images no longer stop at a missing Android contacts class
+- Reading a missing file in a folder an app was given access to throws Android's exception instead of a security
+  error
