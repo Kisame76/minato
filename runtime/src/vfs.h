@@ -50,6 +50,18 @@ int unmount(int id);
 /// The host path of a guest path in normal form, or nullopt when no mount covers it.
 std::optional<std::string> host_path(std::string_view guest);
 
+/// Whether some mount or guest link lies strictly below `guest` (in normal form), so the guest sees `guest` as a
+/// directory even though no mount covers it: the parent directories of the app's storage mounts and links, such as
+/// /storage/emulated/0 and /storage/self (over the link /storage/self/primary), which Android has as real
+/// directories. stat/lstat synthesise a directory for such a path (sys_files.cpp), so a path walk and canonicalization
+/// reach the storage below.
+bool is_implied_directory(std::string_view guest);
+
+/// An open folder descriptor of some directory mount strictly below `guest`, for a statfs of such a parent directory
+/// (its file system is the one the storage below it lives on); nullopt when none below it is a directory. The folder
+/// stays open as the mount table keeps it, so the descriptor is read-only and must not be closed.
+std::optional<int> a_mount_folder_below(std::string_view guest);
+
 /// Where a guest path lies for a host call (ADR-0052): below `folder`, a descriptor of its mounted folder, which the
 /// mount table keeps open; `path` is relative to it, "." for the folder itself. Host calls start at `folder` with
 /// Darwin's RESOLVE_BENEATH, so that no link and no ".." leads out of the mount. A mounted file, such as a device, has

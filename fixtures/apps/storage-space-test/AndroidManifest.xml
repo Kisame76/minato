@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Diagnostic dump of every free-space API for the folders a resource extractor checks (storage-space-test): why a
+     Unity 6 title reports "Not enough storage" though the device has ~80 GB free. The launcher activity is the
+     framework's own android.app.Activity, so `am start` starts the process on Android, as storage-test does. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.storagespace" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="storage-space-test"
+      android:name="io.github.kisame76.minato.test.storagespace.StorageSpaceApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

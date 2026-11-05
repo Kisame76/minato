@@ -467,7 +467,7 @@ HostPath resolve(int directory, std::uint64_t address, bool follow_last = true) 
         return {.guest = std::move(guest), .link = std::move(link)};
     }
     auto location = vfs::locate(guest);
-    if (!location) return {.error = -linux_errno::enoent};
+    if (!location) return {.error = -linux_errno::enoent, .guest = std::move(guest)};
     if (location->below_a_file) return {.error = -linux_errno::enotdir};
     // "file/" is not "file": Linux answers ENOTDIR for it, and so does Darwin with the slash kept.
     if (text.ends_with('/') && location->path != "." && !location->path.ends_with('/')) location->path += '/';
@@ -803,7 +803,13 @@ long sys_close(int fd) {
 
 long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     const auto host = resolve(directory, path);
-    if (host.error != 0) return host.error;
+    if (host.error != 0) {
+        // A virtual parent directory of the app's storage (e.g. /storage/emulated/0): the app owns it with rwx, as
+        // its emulated volume grants, so F_OK and read/write/execute pass. Without this exists() is false and a path
+        // walk or canonicalization (realpath) stops before reaching the storage below.
+        if (host.error == -linux_errno::enoent && vfs::is_implied_directory(host.guest)) return 0;
+        return host.error;
+    }
     int host_flags = host_at_flags(flags) | beneath(host, AT_RESOLVE_BENEATH);
     if (flags & linux_at_eaccess) host_flags |= AT_EACCESS;
     if (::faccessat(host.directory, host.path.c_str(), mode & 07, host_flags) != 0) return -to_linux_errno(errno);
@@ -828,7 +834,23 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
     const bool empty = path == 0 || *as_pointer<const char>(path) == '\0';
     if (empty && (flags & linux_at_empty_path)) return sys_fstat(directory, buffer);
     const auto host = resolve(directory, path, (flags & linux_at_symlink_nofollow) == 0);
-    if (host.error != 0) return host.error;
+    if (host.error != 0) {
+        // A parent directory of the app's storage mounts, such as /storage/emulated/0: no mount covers it, but the
+        // guest sees it as a directory, as Android does, so stat, lstat and canonicalization (getCanonicalFile, hence
+        // StorageManager.getUuidForPath) work. Synthesize one; the owner is Android's for the path (android_owner).
+        if (host.error == -linux_errno::enoent && vfs::is_implied_directory(host.guest)) {
+            const Owner owner = android_owner(host.guest);
+            LinuxStat dir{};
+            dir.mode = S_IFDIR | 0771;  // the emulated volume's directories (sys_files owner: app_uid, ext_data_rw_gid)
+            dir.nlink = 2;
+            dir.uid = owner.uid;
+            dir.gid = owner.gid;
+            dir.blksize = 4096;
+            *as_pointer<LinuxStat>(buffer) = dir;
+            return 0;
+        }
+        return host.error;
+    }
     if (host.link) {  // one of the guest's links, root's in an app's namespace on Android
         LinuxStat link{};
         link.mode = S_IFLNK | 0777;
@@ -1692,7 +1714,19 @@ LinuxStatfs to_linux_statfs(const struct statfs &host, bool partition_read_only)
 
 long sys_statfs(std::uint64_t path, std::uint64_t buffer) {
     const auto host = resolve(linux_at_fdcwd, path);
-    if (host.error != 0) return host.error;
+    if (host.error != 0) {
+        // A parent directory of the app's storage mounts (e.g. /storage/emulated/0): answer with the file system the
+        // storage below it lives on, so getUsableSpace/StatFs/statvfs there report the volume's space, as on Android.
+        if (host.error == -linux_errno::enoent) {
+            if (const auto folder = vfs::a_mount_folder_below(host.guest)) {
+                struct statfs below;
+                if (::fstatfs(*folder, &below) != 0) return -to_linux_errno(errno);
+                *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(below, read_only(host.guest));
+                return 0;
+            }
+        }
+        return host.error;
+    }
     const int descriptor =
         ::openat(host.directory, host.path.c_str(), O_EVTONLY | O_CLOEXEC | beneath(host, O_RESOLVE_BENEATH));
     if (descriptor < 0) return -to_linux_errno(errno);

@@ -289,6 +289,30 @@ std::optional<Location> locate(std::string_view guest) {
     return Location{best->folder, rest.empty() ? std::string(".") : std::string(rest)};
 }
 
+bool is_implied_directory(std::string_view guest) {
+    const std::lock_guard lock(mutex);
+    for (const auto &mount : mounts) {
+        if (mount.guest.size() > guest.size() && covers(guest, mount.guest)) return true;
+    }
+    // A link's parent directories too, so a walk through them reaches the link (e.g. /storage/self over
+    // /storage/self/primary, which leads to /storage/emulated/0).
+    for (const auto &link : links()) {
+        if (link.guest.size() > guest.size() && covers(guest, link.guest)) return true;
+    }
+    return false;
+}
+
+std::optional<int> a_mount_folder_below(std::string_view guest) {
+    const std::lock_guard lock(mutex);
+    for (auto &mount : mounts) {
+        if (mount.guest.size() > guest.size() && covers(guest, mount.guest)) {
+            open_folder(mount);
+            if (mount.folder >= 0) return mount.folder;  // a directory on the file system below `guest`, not a file
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> mount_point(std::string_view guest) {
     const std::lock_guard lock(mutex);
     const Mount *best = nullptr;

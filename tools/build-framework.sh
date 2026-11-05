@@ -170,6 +170,7 @@ python3 tools/managergen/managergen.py \
 python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/current.txt" \
   --api "$SOURCES/frameworks_base_api/core/api/current.txt" --class android.app.AppOpsManager \
   --class android.os.storage.StorageManager \
+  --class android.app.usage.StorageStatsManager \
   --class android.view.accessibility.AccessibilityManager \
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
   --class android.view.inputmethod.InputMethodManager --class android.view.textservice.TextServicesManager \

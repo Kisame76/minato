@@ -1,0 +1,16 @@
+I/storage-space-test: filesDir = /data/user/0/io.github.kisame76.minato.test.storagespace/files
+I/storage-space-test: filesDir relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: cacheDir = /data/user/0/io.github.kisame76.minato.test.storagespace/cache
+I/storage-space-test: cacheDir relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: externalFilesDir = /storage/emulated/0/Android/data/io.github.kisame76.minato.test.storagespace/files
+I/storage-space-test: externalFilesDir relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: obbDir = /storage/emulated/0/Android/obb/io.github.kisame76.minato.test.storagespace
+I/storage-space-test: obbDir relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: externalStorageDir = /storage/emulated/0
+I/storage-space-test: externalStorageDir relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: sdcard = /sdcard
+I/storage-space-test: sdcard relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: dataDir = /data
+I/storage-space-test: dataDir relations: statfs-avail=pos file-usable=pos statvfs-avail=pos allocatable=pos alloc<=usable=yes alloc>=usable-low=yes uuid=default
+I/storage-space-test: storageStats relations: free=pos total=pos total>=free=yes pkg-app=yes pkg-data=yes pkg-cache=yes
+I/storage-space-test: done

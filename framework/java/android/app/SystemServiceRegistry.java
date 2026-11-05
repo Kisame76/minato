@@ -55,6 +55,7 @@ import android.os.UserManager;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 import android.telephony.TelephonyManager;
+import android.app.usage.StorageStatsManager;
 import android.os.storage.StorageManager;
 import android.util.ArrayMap;
 import android.view.ContextThemeWrapper;
@@ -112,6 +113,9 @@ final class SystemServiceRegistry {
         cached(Context.INPUT_SERVICE, InputManager.class, ctx -> new InputManager(ctx.getOuterContext()));
         cached(Context.STORAGE_SERVICE, StorageManager.class,
                 ctx -> new StorageManager((Context) (Object) ctx, Looper.getMainLooper()));
+        // The free-space stats an engine may read instead of StorageManager.getAllocatableBytes (ADR-0045).
+        cached(Context.STORAGE_STATS_SERVICE, StorageStatsManager.class,
+                ctx -> new StorageStatsManager((Context) (Object) ctx));
         cached(Context.APP_OPS_SERVICE, AppOpsManager.class, ctx -> new AppOpsManager((Context) (Object) ctx));
         // The process's manager, without an input method (ADR-0043 step d)), as the tag's forContext.
         register(Context.INPUT_METHOD_SERVICE, InputMethodManager.class, false,
