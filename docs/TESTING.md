@@ -129,6 +129,28 @@ test apps run: never an app of a user, with the trace or without it. After a sit
 
   Measured on the iPhone: not yet.
 
+## User-reported bugs: device check, red then green, device regression pass before each user round
+
+A bug that someone found on a real device must never be found a second time. These rules apply to every fix for such
+a bug, on top of the rules above:
+
+- **Every fix has an automatic check with a fixture of its own**, a test app or program from `fixtures/` that
+  reproduces the failure without a person at the screen. The check is run on the iPhone, with the project's own test
+  apps only, and it is **red with the old code and green with the fix**. Both runs are recorded with the fix (the date,
+  the iOS version and the result of each). A Simulator run alone is not enough for behavior that depends on the
+  device: the Simulator and the Mac differ in the sandbox, the GPU, the memory limits, the keyboard and the
+  notification center.
+- **The whole class is tested, not the one case.** Before writing the fixture, name the class the bug belongs to (for
+  example "a text field loses its content when the keyboard changes", not "this field in this app") and cover its
+  other members the same way: the neighbouring APIs, the other input paths, both orientations, the first run and the
+  repeat run. A fix that passes only the reported case is not done.
+- **A device regression pass runs before each round of testing by a person.** All device checks that came from
+  reported bugs run together on the iPhone first (`tools/device-suite.sh` and the checks listed under "Checks that
+  also run on the iPhone"). A round of testing starts only when that pass is green, so that the person never meets a
+  bug that was fixed before.
+- **A check that came from a reported bug is never removed or loosened** to make a change pass. If it must change
+  because Android's behavior is shown to differ, the reference log and the reason change with it in the same commit.
+
 ## Reference logs from Android 15
 
 `tools/android-reference.sh` runs the same programs and test apps on Android 15 in the emulator and compares their
