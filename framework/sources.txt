@@ -2801,3 +2801,42 @@ frameworks_base_types/media/java/android/media/audiofx/DynamicsProcessing.java
 frameworks_base_types/media/java/android/media/audiofx/HapticGenerator.java
 frameworks_base_types/media/java/android/media/AudioDeviceAttributes.java
 frameworks_base_types/media/java/android/media/audiofx/Visualizer.java
+
+# libphonenumber (com.android.i18n.phonenumbers), android-15.0.0_r1's repackaged copy, which Linkify's phone numbers
+# need (third_party/sources.json's libphonenumber); its data files ride in framework.jar as resources
+# (tools/build-framework.sh).
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/AlternateFormatsCountryCodeSet.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/AsYouTypeFormatter.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/CountryCodeToRegionCodeMap.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/MetadataLoader.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/MissingMetadataException.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/NumberParseException.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/PhoneNumberMatch.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/PhoneNumberMatcher.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/PhoneNumberUtil.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/Phonemetadata.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/Phonenumber.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/ShortNumberInfo.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/ShortNumbersRegionCodeSet.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/internal/GeoEntityUtility.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/internal/MatcherApi.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/internal/RegexBasedMatcher.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/internal/RegexCache.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/DefaultMetadataDependenciesProvider.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/init/ClassPathResourceMetadataLoader.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/init/MetadataParser.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/BlockingMetadataBootstrappingGuard.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/CompositeMetadataContainer.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/FormattingMetadataSource.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/FormattingMetadataSourceImpl.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/MapBackedMetadataContainer.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/MetadataBootstrappingGuard.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/MetadataContainer.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/MetadataSource.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/MetadataSourceImpl.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/MultiFileModeFileNameProvider.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/NonGeographicalEntityMetadataSource.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/PhoneMetadataFileNameProvider.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/RegionMetadataSource.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/RegionMetadataSourceImpl.java
+libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/metadata/source/SingleFileModeFileNameProvider.java

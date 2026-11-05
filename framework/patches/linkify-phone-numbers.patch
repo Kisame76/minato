@@ -1,0 +1,49 @@
+Minato's patch to frameworks/base's core/java/android/text/util/Linkify.java at android-15.0.0_r1 (Apache-2.0), services
+batch B: the tel: URL of a phone number that libphonenumber found.
+
+Why: Linkify makes the URL with PhoneNumberUtils.normalizeNumber, and android.telephony.PhoneNumberUtils would need
+hidden telephony properties, TelephonyManager members and flags that no step takes (11 compile errors). The patch gives
+Linkify a private normalizeNumber with the same work for what libphonenumber matches (digits of any script, a leading
+plus, a letter as its keypad digit), so Linkify.addLinks(PHONE_NUMBERS) and TextView's autoLink make the same links as
+Android's without taking PhoneNumberUtils.
+
+tools/build-framework.sh applies it to a copy in build/framework/src, never to build/sources.
+
+--- a/core/java/android/text/util/Linkify.java
++++ b/core/java/android/text/util/Linkify.java
+@@ -686,13 +686,34 @@
+                 regionCode, Leniency.POSSIBLE, Long.MAX_VALUE);
+         for (PhoneNumberMatch match : matches) {
+             LinkSpec spec = new LinkSpec();
+-            spec.url = "tel:" + PhoneNumberUtils.normalizeNumber(match.rawString());
++            spec.url = "tel:" + normalizeNumber(match.rawString());
+             spec.start = match.start();
+             spec.end = match.end();
+             links.add(spec);
+         }
+     }
+ 
++    /**
++     * PhoneNumberUtils.normalizeNumber's work for a number libphonenumber found: its digits (any script), a leading
++     * plus, and a letter as the digit of its key on a phone's keypad. Minato does not take PhoneNumberUtils, whose
++     * telephony properties and flags no step has.
++     */
++    private static String normalizeNumber(String number) {
++        StringBuilder sb = new StringBuilder();
++        for (int i = 0; i < number.length(); i++) {
++            char c = number.charAt(i);
++            int digit = Character.digit(c, 10);
++            if (digit != -1) {
++                sb.append(digit);
++            } else if (i == 0 && c == '+') {
++                sb.append(c);
++            } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
++                sb.append("22233344455566677778889999".charAt(Character.toLowerCase(c) - 'a'));
++            }
++        }
++        return sb.toString();
++    }
++
+     private static final void gatherMapLinks(ArrayList<LinkSpec> links, Spannable s) {
+         String string = s.toString();
+         String address;

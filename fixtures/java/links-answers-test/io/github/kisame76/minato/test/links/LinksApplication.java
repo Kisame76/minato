@@ -19,8 +19,7 @@ import java.util.regex.Pattern;
 /**
  * Linkify and AppOpsManager.checkPackage (the compatibility plan's decision 6): the links Linkify finds in a text, in
  * the order of the text, and the package check of the app ops for the app's own uid and for a package that is not
- * its. Phone numbers need libphonenumber, which Minato lacks, so what Linkify finds for them is tagged "-device" and
- * only shown.
+ * its. Phone numbers are found with libphonenumber, the data of which framework.jar carries.
  */
 public class LinksApplication extends Application {
     private static final String TAG = "links-answers-test";
@@ -83,7 +82,7 @@ public class LinksApplication extends Application {
             Linkify.addLinks(spannable, Linkify.WEB_URLS);
             return spans(spannable);
         });
-        Log.i(TAG + "-device", "phone links: " + spans(linked("call +49 30 1234567 now", Linkify.PHONE_NUMBERS)));
+        Log.i(TAG, "phone links: " + spans(linked("call +49 30 1234567 now", Linkify.PHONE_NUMBERS)));
 
         final AppOpsManager appOps = getSystemService(AppOpsManager.class);
         log("checkPackage of the app's own", () -> {

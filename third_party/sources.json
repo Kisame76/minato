@@ -598,6 +598,16 @@
       "digest": "e83554cea1314b1ddb04555360c0c82b1e053e861658575f5f4cad81b7609f12"
     },
     {
+      "name": "libphonenumber",
+      "project": "platform/external/libphonenumber",
+      "commit": "5096f223825860ab38a488496efd6fb37a15c388",
+      "license": "Apache-2.0",
+      "directories": [
+        "repackaged/libphonenumber"
+      ],
+      "digest": "e740731403d391fc210249a5dfeb79f859c95f61112de3cbdb5ed10ff7b771ce"
+    },
+    {
       "name": "location_java",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

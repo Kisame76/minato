@@ -374,6 +374,14 @@ with zipfile.ZipFile(path + ".tmp", "w") as jar:
         info.external_attr = 0o644 << 16
         info.compress_type = zipfile.ZIP_STORED
         jar.writestr(info, minimized(source))
+    # libphonenumber reads its metadata as /com/android/i18n/phonenumbers/data/<name> from the boot class path
+    # (ClassPathResourceMetadataLoader), as the i18n module's jar has them (third_party/sources.json's libphonenumber).
+    data = "build/sources/libphonenumber/repackaged/libphonenumber/src/com/android/i18n/phonenumbers/data"
+    for name in sorted(os.listdir(data)):
+        info = zipfile.ZipInfo("com/android/i18n/phonenumbers/data/" + name, (2008, 1, 1, 0, 0, 0))
+        info.external_attr = 0o644 << 16
+        info.compress_type = zipfile.ZIP_DEFLATED
+        jar.writestr(info, open(os.path.join(data, name), "rb").read())
 os.replace(path + ".tmp", path)
 PY
 python3 tools/swap-dir.py "$OUT" "$FINAL"
