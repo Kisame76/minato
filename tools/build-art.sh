@@ -16,7 +16,7 @@ fi
 
 python3 tools/fetch-sources.py --set art
 # Keep the Mac's build paths out of the guest libraries (tools/check-no-build-paths.sh enforces it).
-pfx="$(tools/prefix-map-flags.sh)"
+pfx="$(tools/prefix-map-flags.sh "$NDK")"
 cmake -S runtime/art -B build/art -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=none \

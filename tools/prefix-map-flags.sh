@@ -7,6 +7,10 @@
 # like AOSP's (bionic/..., art/..., system/...); our own tree maps to a repo-relative path. The build root's
 # real path is mapped too, since a release clone may sit under a symlinked path. Run from the repo root (the
 # guest build scripts cd there first).
+#
+# An optional argument is the NDK directory: the NDK's own clang headers and libc++ sources bake their absolute
+# path into __FILE__ and debug info of every guest library built with it, and that path sits under the home
+# folder. It maps to a neutral "ndk/" (not nothing) so a header still reads as ndk/toolchains/.../include.
 set -euo pipefail
 
 emit() {
@@ -23,4 +27,6 @@ root="$PWD"
 real="$(pwd -P)"
 flags="$(emit "$root")"
 [[ "$real" != "$root" ]] && flags="$flags$(emit "$real")"
+ndk="${1:-}"
+[[ -n "$ndk" ]] && flags="$flags -ffile-prefix-map=${ndk%/}/=ndk/"
 printf '%s\n' "${flags# }"

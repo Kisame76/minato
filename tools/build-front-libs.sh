@@ -18,7 +18,7 @@ fi
 
 # API level 29, as the fixtures (tools/build-fixtures.sh).
 # Keep the Mac's build paths out of the guest libraries (tools/check-no-build-paths.sh enforces it).
-pfx="$(tools/prefix-map-flags.sh)"
+pfx="$(tools/prefix-map-flags.sh "$NDK")"
 cmake -S graphics/guest -B build/graphics/guest -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 \
