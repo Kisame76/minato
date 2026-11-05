@@ -85,10 +85,12 @@ public class ServicesBApplication extends Application {
         final Object roles = present(Context.ROLE_SERVICE, "android.app.role.RoleManager");
 
         if (sessions != null) {
-            log("MediaSessionManager.getActiveSessions(null)", () -> call(sessions, "getActiveSessions", (Object) null));
+            log("MediaSessionManager.getActiveSessions(null)",
+                    () -> call(sessions, "getActiveSessions", (Object) null));
         }
         if (router != null) {
-            log("MediaRouter.getSelectedRoute(LIVE_AUDIO) is not null", () -> call(router, "getSelectedRoute", 1) != null);
+            log("MediaRouter.getSelectedRoute(LIVE_AUDIO) is not null",
+                    () -> call(router, "getSelectedRoute", 1) != null);
             log("MediaRouter.getRouteCount() > 0", () -> (Integer) call(router, "getRouteCount") > 0);
         }
         if (bluetooth != null) {

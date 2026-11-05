@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Runs the test of the manager methods that had no answer on the Mac (framework/tests/java_app_run.py; the
-# compatibility plan's decision 6): builds apk-run and apk-convert for macOS into build/native/macos-app, and
+# Runs the test of the ten system services that apps ask at start (services batch B, the compatibility plan's gap 1) on
+# the Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into build/native/macos-app, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and services-b-test (seconds)
 # every time, so it never tests an old binary; then starts the app's own Application through app_process and compares
-# its log with Android 15's on apk-runner-35 (fixtures/expected/services-b-test.logcat, from
-# tools/android-reference.sh --app services-b-test): ActivityManager, AppOpsManager, TelephonyManager, WifiManager
-# and AudioManager, each call with Android's answer or exception.
+# its log with Android 15's on apk-runner-35-bare (fixtures/expected/services-b-test.logcat, from
+# tools/android-reference.sh --app services-b-test): the media session manager, the media router, Bluetooth, the
+# subscription, Telecom and carrier configuration managers, NFC, MIDI, media projection and roles, each with
+# Android's answer or exception.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/services-b-check.sh
 set -euo pipefail
