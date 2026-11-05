@@ -18,6 +18,10 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     private static let packageKey = "minato.package"
     private static let idKey = "minato.id"
     private static let tagKey = "minato.tag"
+    private static let intentKey = "minato.intent"
+    /// The library's start of an app for a tap while no session runs (ADR-0074 decision 4): the package and the
+    /// notification's stored content intent, which the library checks before it starts with it.
+    @MainActor static var onColdTap: ((_ package: String, _ intent: String?) -> Void)?
 
     private let known = Mutex<PermissionDesk.IOSState?>(nil)
 
@@ -68,7 +72,7 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
             content.interruptionLevel = note.passive ? .passive : .active
             content.sound = note.plays ? .default : nil
             content.userInfo = [Self.importanceKey: note.importance, Self.packageKey: package, Self.idKey: note.id,
-                                Self.tagKey: note.tag]
+                                Self.tagKey: note.tag, Self.intentKey: note.intent]
             center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
                 guard let error else { return }
                 log.error("notification \(identifier, privacy: .public) failed: \(error.localizedDescription)")
@@ -120,18 +124,23 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     }
 
     /// The app, id and tag a notification's userInfo names.
-    private static func key(_ info: [AnyHashable: Any]) -> (package: String, id: Int32, tag: String)? {
+    private static func key(_ info: [AnyHashable: Any]) -> (package: String, id: Int32, tag: String, intent: String?)? {
         guard let package = info[packageKey] as? String, let number = info[idKey] as? NSNumber else { return nil }
-        return (package, number.int32Value, info[tagKey] as? String ?? "")
+        let intent = (info[intentKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return (package, number.int32Value, info[tagKey] as? String ?? "", intent)
     }
 
-    /// The tap on the notification `key` names, on the main thread.
-    @MainActor private static func tapped(_ key: (package: String, id: Int32, tag: String)) {
-        let (package, id, tag) = key
+    /// The tap on the notification `key` names, on the main thread: the running session's app sends its content intent;
+    /// with no session the library starts the app (a cold tap); during another app's session it only brings Minato up.
+    @MainActor private static func tapped(_ key: (package: String, id: Int32, tag: String, intent: String?)) {
         #if DEBUG
-        SessionCheck.event("notification tapped \(tag)|\(id)")
+        SessionCheck.event("notification tapped \(key.tag)|\(key.id)")
         #endif
-        GameSession.current?.notificationTapped(package: package, id: id, tag: tag)
+        if let session = GameSession.current {
+            session.notificationTapped(package: key.package, id: key.id, tag: key.tag)
+        } else {
+            onColdTap?(key.package, key.intent)
+        }
     }
 
     #if DEBUG

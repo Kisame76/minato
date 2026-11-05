@@ -50,6 +50,27 @@ struct LaunchRequestTests {
         #expect(!FileManager.default.fileExists(atPath: store.file.path))
     }
 
+    @Test func keepsANotificationsStartIntent() throws {
+        let folder = try Folder()
+        defer { folder.remove() }
+        let store = LaunchRequestStore(folder: folder.url)
+        let uri = "intent:#Intent;component=org.example.game/.ChatActivity;end"
+        let request = LaunchRequest(package: "org.example.game", time: Date(timeIntervalSince1970: 1_790_000_000),
+                                    startIntent: uri)
+        try store.write(request)
+        #expect(store.take()?.startIntent == uri)
+    }
+
+    @Test func aRequestOfAnEarlierBuildHasNoStartIntent() throws {
+        let folder = try Folder()
+        defer { folder.remove() }
+        let store = LaunchRequestStore(folder: folder.url)
+        try Data(#"{"package":"org.example.game","time":1790000000000,"kind":"run"}"#.utf8)
+            .write(to: store.file)
+        let request = store.take()
+        #expect(request?.package == "org.example.game" && request?.startIntent == nil)
+    }
+
     @Test func keepsTheTimeToTheMillisecond() throws {
         // Game mode logs the time from the tap to its process, which takes about half a second.
         let folder = try Folder()

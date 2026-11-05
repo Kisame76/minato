@@ -797,7 +797,7 @@ TEST(a_malformed_ime_field_or_extract_request_is_refused_before_the_host_sees_it
 TEST(a_notification_request_needs_the_grant_and_reaches_the_handler_with_its_text) {
     take_requests();
     apkrt::permissions::reset();
-    static const char post[] = "post\t7\tchat\tmessages\t4\t1\t1800000000000\tfriends\tAnna\tGroup\tHi!\nSee you";
+    static const char post[] = "post\t7\tchat\tmessages\t4\t1\t1800000000000\tfriends\tAnna\tGroup\t\tHi!\nSee you";
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address(post), 0) == -eacces);  // not answered
     apkrt::permissions::set(APKRT_PERMISSION_NOTIFICATIONS, APKRT_PERMISSION_DENIED);
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address(post), 0) == -eacces);  // denied
@@ -828,8 +828,17 @@ TEST(a_malformed_or_oversized_notification_request_is_refused_before_the_host_se
                          const std::string &sound, const std::string &when, const std::string &title,
                          const std::string &text) {
         return "post\t" + id + "\t" + tag + "\tch\t" + importance + "\t" + sound + "\t" + when + "\tg\t" + title +
-               "\tsub\t" + text;
+               "\tsub\t\t" + text;
     };
+    const auto with_intent = [](const std::string &intent) {
+        return "post\t1\ttag\tch\t3\t0\t0\tg\tT\tsub\t" + intent + "\tx";
+    };
+    CHECK(accepted(with_intent("intent:#Intent;component=a.b/.C;S.room=7;end")));  // a content intent
+    CHECK(accepted(with_intent(std::string(2048, 'i'))));                          // its longest
+    CHECK(refused(with_intent(std::string(2049, 'i'))));
+    CHECK(refused(with_intent("intent:#Intent;S.x=a b;end")));                      // a space
+    CHECK(refused(with_intent("intent:#Intent;S.x=\xC3\xA4;end")));                // not ASCII
+    CHECK(refused(with_intent("intent:#Intent;S.x=\x7f;end")));
     CHECK(accepted(post("7", "", "3", "0", "0", "", "")));                           // every text field empty
     CHECK(accepted(post("-2147483648", "t", "0", "1", "9223372036854775807", "T", "x")));  // the ends of the numbers
     CHECK(accepted(post("2147483647", std::string(64, 't'), "5", "0", "1", std::string(256, 'T'),

@@ -12,6 +12,8 @@ public struct NotificationPost: Sendable, Equatable {
     public var group: String
     public var title: String
     public var subText: String
+    /// The content intent's Intent.toUri for a cold tap (ADR-0074 decision 4), empty for none.
+    public var intent: String = ""
     public var text: String
 
     /// How a notification shows while the app is in front, where Android shows a heads-up for HIGH and above.
@@ -57,23 +59,23 @@ public struct NotificationPost: Sendable, Equatable {
 }
 
 /// APKRT_REQUEST_NOTIFICATION's text: "post\t<id>\t<tag>\t<channel>\t<importance>\t<sound>\t<when>\t<group>\t<title>
-/// \t<subText>\t<text>" (the text last, the only field with new lines), "cancel\t<id>\t<tag>" or "cancelAll". The
-/// runtime checked it whole; nil for one the host cannot read all the same.
+/// \t<subText>\t<intent>\t<text>" (the text last, the only field with new lines), "cancel\t<id>\t<tag>" or
+/// "cancelAll". The runtime checked it whole; nil for one the host cannot read all the same.
 public enum NotificationRequest: Sendable, Equatable {
     case post(NotificationPost)
     case cancel(id: Int32, tag: String)
     case cancelAll
 
     public init?(text: String) {
-        let fields = text.split(separator: "\t", maxSplits: 10, omittingEmptySubsequences: false).map(String.init)
+        let fields = text.split(separator: "\t", maxSplits: 11, omittingEmptySubsequences: false).map(String.init)
         switch fields.first {
         case "post":
-            guard fields.count == 11, let id = Int32(fields[1]), let importance = Int(fields[4]),
+            guard fields.count == 12, let id = Int32(fields[1]), let importance = Int(fields[4]),
                   (0...5).contains(importance), fields[5] == "0" || fields[5] == "1", let when = Int64(fields[6])
             else { return nil }
             self = .post(NotificationPost(id: id, tag: fields[2], channel: fields[3], importance: importance,
                                           sound: fields[5] == "1", when: when, group: fields[7], title: fields[8],
-                                          subText: fields[9], text: fields[10]))
+                                          subText: fields[9], intent: fields[10], text: fields[11]))
         case "cancel":
             guard fields.count == 3, let id = Int32(fields[1]) else { return nil }
             self = .cancel(id: id, tag: fields[2])

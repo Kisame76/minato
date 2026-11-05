@@ -617,6 +617,7 @@ constexpr std::size_t notification_text_limit = 8192;  // the NUL included
 constexpr std::size_t notification_name_length = 64;   // bytes of a tag, a channel, a group
 constexpr std::size_t notification_line_length = 256;  // bytes of the title and the sub text
 constexpr std::size_t notification_body_length = 4096; // bytes of the text
+constexpr std::size_t notification_intent_length = 2048;  // bytes of the content intent
 
 /// Whether `field` is a decimal number from `low` to `high`: an optional '-', then digits without a leading zero.
 bool decimal_in(std::string_view field, long long low, long long high) {
@@ -646,7 +647,7 @@ bool valid_notification(std::string_view text) {
     for (std::size_t start = 0;;) {
         const std::size_t tab = text.find('\t', start);
         fields.push_back(text.substr(start, tab == std::string_view::npos ? std::string_view::npos : tab - start));
-        if (tab == std::string_view::npos || fields.size() > 11) break;
+        if (tab == std::string_view::npos || fields.size() > 12) break;
         start = tab + 1;
     }
     const auto id = [](std::string_view field) { return decimal_in(field, INT32_MIN, INT32_MAX); };
@@ -654,7 +655,14 @@ bool valid_notification(std::string_view text) {
     if (fields[0] == "cancel") {
         return fields.size() == 3 && id(fields[1]) && notification_field(fields[2], notification_name_length, false);
     }
-    if (fields[0] != "post" || fields.size() != 11) return false;
+    if (fields[0] != "post" || fields.size() != 12) return false;
+    // The content intent, Intent.toUri of an activity of the app's own, or empty: printable ASCII
+    // (ADR-0074 decision 4).
+    const std::string_view intent = fields[10];
+    if (intent.size() > notification_intent_length ||
+        !std::all_of(intent.begin(), intent.end(), [](char c) { return c >= 0x21 && c <= 0x7e; })) {
+        return false;
+    }
     return id(fields[1]) && notification_field(fields[2], notification_name_length, false) &&
            notification_field(fields[3], notification_name_length, false) && fields[4].size() == 1 &&
            fields[4][0] >= '0' && fields[4][0] <= '5' && (fields[5] == "0" || fields[5] == "1") &&
@@ -662,7 +670,7 @@ bool valid_notification(std::string_view text) {
            notification_field(fields[7], notification_name_length, false) &&
            notification_field(fields[8], notification_line_length, false) &&
            notification_field(fields[9], notification_line_length, false) &&
-           notification_field(fields[10], notification_body_length, true);
+           notification_field(fields[11], notification_body_length, true);
 }
 
 /// APKRT_REQUEST_NOTIFICATION: with the app's notifications grant, the text at `address` copied once through a

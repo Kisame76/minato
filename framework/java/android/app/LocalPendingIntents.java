@@ -250,6 +250,21 @@ final class LocalPendingIntents {
                 UserHandle.getAppId(Process.myUid())), (key.flags & PendingIntent.FLAG_IMMUTABLE) != 0, key.type);
     }
 
+    /**
+     * A copy of the intent a PendingIntent of this process was made with, or null for another sender or a canceled
+     * one: what system_server reads from its PendingIntentRecord (ADR-0074 decision 4's cold tap). Apps do not reach
+     * it, as getIntentForIntentSender needs a permission they cannot hold.
+     */
+    Intent intent(IIntentSender sender) {
+        if (!(sender instanceof Record)) {
+            return null;
+        }
+        Record record = (Record) sender;
+        synchronized (mRecords) {
+            return record.canceled || record.key.requestIntent == null ? null : new Intent(record.key.requestIntent);
+        }
+    }
+
     /** sendIntentSender: a PendingIntent of this process goes through sendInner, another sender gets the call. */
     int send(IIntentSender target, int code, Intent intent, String resolvedType, IIntentReceiver finishedReceiver,
             String requiredPermission, Bundle options) {

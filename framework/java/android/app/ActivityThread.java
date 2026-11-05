@@ -1019,17 +1019,59 @@ public final class ActivityThread {
         handleTopResumedActivityChanged(r, true);
     }
 
-    /** The manifest's launcher activity, launched up to its onCreate; null without one or when its launch failed. */
+    /**
+     * The content intent of the notification whose tap started this process (MINATO_START_INTENT, which the host
+     * checked already): an explicit intent of an activity of the app's own, without a selector; null for none or any
+     * other, and the launcher starts.
+     */
+    private Intent notificationStartIntent() {
+        final String uri = System.getenv("MINATO_START_INTENT");
+        if (uri == null || uri.isEmpty()) {
+            return null;
+        }
+        final Intent intent;
+        try {
+            intent = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
+        } catch (java.net.URISyntaxException e) {
+            // Not the URI itself: its extras may hold the user's text.
+            Log.w(TAG, "a notification's start intent that does not parse");
+            return null;
+        }
+        final ComponentName component = intent.getComponent();
+        if (intent.getSelector() != null || component == null || !mPackageName.equals(component.getPackageName())
+                || (intent.getPackage() != null && !mPackageName.equals(intent.getPackage()))) {
+            Log.w(TAG, "a notification's start intent that is not an activity of " + mPackageName);
+            return null;
+        }
+        return intent;
+    }
+
+    /**
+     * The manifest's launcher activity, launched up to its onCreate; null without one or when its launch failed. A
+     * notification's tap that started the process (MINATO_START_INTENT, ADR-0074 decision 4) starts its content intent
+     * in place of the launcher, when it names one of the app's own activities.
+     */
     private ActivityClientRecord launchLauncherActivity() {
-        ActivityInfo info = mPackage.launcherActivity(PackageManager.GET_SHARED_LIBRARY_FILES);
+        Intent intent = notificationStartIntent();
+        ActivityInfo info = intent == null ? null
+                : mPackage.activityInfo(intent.getComponent(), PackageManager.GET_SHARED_LIBRARY_FILES, false);
+        if (info == null) {
+            intent = null;
+            info = mPackage.launcherActivity(PackageManager.GET_SHARED_LIBRARY_FILES);
+        }
         if (info == null) {
             Log.w(TAG, mPackageName + " has no launcher activity, so none starts");
             return null;
         }
-        Intent intent = new Intent(Intent.ACTION_MAIN);
-        intent.addCategory(Intent.CATEGORY_LAUNCHER);
-        intent.setComponent(new ComponentName(info.packageName, info.name));
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        if (intent == null) {
+            intent = new Intent(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_LAUNCHER);
+            intent.setComponent(new ComponentName(info.packageName, info.name));
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        } else {
+            // The app's own flags stay, as Android starts a PendingIntent's activity with them and NEW_TASK.
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
         mTaskActivity = intent.getComponent();
         ActivityClientRecord r = newRecord(intent, info);
         // A cold launch, which Android times from its request, before the process starts; ours from the start.

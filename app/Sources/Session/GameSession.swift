@@ -109,6 +109,10 @@ final class GameSession {
     @ObservationIgnored private var benchmark: BenchmarkHooks?
     #endif
 
+    /// The content intent of the notification whose tap started this process (LaunchRequest.startIntent), which the
+    /// guest starts with in place of its launcher (MINATO_START_INTENT; ADR-0074 decision 4).
+    nonisolated(unsafe) static var startIntent: String?
+
     /// The session of this process, for the runtime's request handler.
     private(set) weak static var current: GameSession?
 
@@ -438,7 +442,7 @@ final class GameSession {
         #endif
         // The bars the guest's floating windows are laid out inside (ADR-0041 decision 8, finding 3).
         let bars = barInsets(scale: scale).barInsetsEnvironment
-        let guestEnvironment = environment + [bars]
+        let guestEnvironment = environment + [bars] + (Self.startIntent.map { ["MINATO_START_INTENT=\($0)"] } ?? [])
         #if DEBUG
         SessionCheck.event("guest \(bars)")
         #endif

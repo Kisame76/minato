@@ -5,7 +5,8 @@ import Testing
 /// ADR-0074 decisions 2 and 3: APKRT_REQUEST_NOTIFICATION's text as the host reads it, and a posted notification as
 /// UNNotificationContent takes it.
 @Suite struct NotificationRequestTests {
-    private let post = "post\t7\tchat\tmessages\t4\t1\t1800000000000\tfriends\tAnna\tGroup chat\tHi!\nSee you"
+    private let post = "post\t7\tchat\tmessages\t4\t1\t1800000000000\tfriends\tAnna\tGroup chat"
+        + "\tintent:#Intent;component=com.example/.Chat;end\tHi!\nSee you"
 
     @Test func aPostCarriesItsFieldsInOrder() throws {
         guard case .post(let note) = try #require(NotificationRequest(text: post)) else {
@@ -15,6 +16,7 @@ import Testing
         #expect(note.id == 7 && note.tag == "chat" && note.channel == "messages" && note.importance == 4)
         #expect(note.sound && note.when == 1_800_000_000_000 && note.group == "friends")
         #expect(note.title == "Anna" && note.subText == "Group chat" && note.text == "Hi!\nSee you")
+        #expect(note.intent == "intent:#Intent;component=com.example/.Chat;end")
     }
 
     @Test func aCancelAndACancelOfAll() {
@@ -25,8 +27,9 @@ import Testing
 
     @Test func aTextTheHostCannotReadIsNoRequest() {
         #expect(NotificationRequest(text: "post\t7") == nil)
-        #expect(NotificationRequest(text: "post\tx\t\t\t3\t0\t0\t\t\t\t") == nil)
-        #expect(NotificationRequest(text: "post\t7\t\t\t9\t0\t0\t\t\t\t") == nil)
+        #expect(NotificationRequest(text: "post\tx\t\t\t3\t0\t0\t\t\t\t\t") == nil)
+        #expect(NotificationRequest(text: "post\t7\t\t\t9\t0\t0\t\t\t\t\t") == nil)
+        #expect(NotificationRequest(text: "post\t7\t\t\t3\t0\t0\t\t\t\t") == nil)  // the intent field missing
         #expect(NotificationRequest(text: "cancel\t7") == nil)
         #expect(NotificationRequest(text: "shout") == nil)
     }

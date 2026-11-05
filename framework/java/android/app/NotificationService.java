@@ -21,6 +21,7 @@ package android.app;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.content.res.Resources;
@@ -179,7 +180,26 @@ public final class NotificationService extends INotificationManager.Default {
         host(NotificationText.post(id, tag, channel.getId(), channel.getImportance(), channel.getSound() != null,
                 notification.when, notification.getGroup(),
                 notification.extras.getCharSequence(Notification.EXTRA_TITLE),
-                notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT), text));
+                notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT), startIntent(pkg, notification),
+                text));
+    }
+
+    /**
+     * The content intent for a cold tap (ADR-0074 decision 4): Intent.toUri of a PendingIntent the app made for one of
+     * its own activities; null for any other, so that the tap only opens the app. The host and ActivityThread check it
+     * again before the start.
+     */
+    private static String startIntent(String pkg, Notification notification) {
+        final PendingIntent content = notification.contentIntent;
+        if (content == null || !content.isActivity() || !pkg.equals(content.getCreatorPackage())) {
+            return null;
+        }
+        // As system_server reads its PendingIntentRecord: PendingIntent.getIntent needs a permission apps lack.
+        final Intent intent = LocalActivityManagerService.instance().pendingIntentIntent(content.getTarget());
+        if (intent == null || intent.getComponent() == null || !pkg.equals(intent.getComponent().getPackageName())) {
+            return null;
+        }
+        return intent.toUri(Intent.URI_INTENT_SCHEME);
     }
 
     @Override

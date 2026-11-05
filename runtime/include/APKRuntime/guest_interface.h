@@ -508,9 +508,11 @@ enum apkrt_request_type {
                                    // ignores it
     APKRT_REQUEST_NOTIFICATION,    // guest only (ADR-0074 decision 2): a0 the address of NUL text, a1 0. The host gets
                                    // the text: "post\t<id>\t<tag>\t<channel>\t<importance>\t<sound>\t<when>\t<group>
-                                   // \t<title>\t<subText>\t<text>" (id a decimal int32; tag, channel and group at most
-                                   // 64 bytes each; importance NotificationManager's 0 to 5; sound 0 or 1; when ms
-                                   // since the epoch, 0 for none; title and subText at most 256 bytes each; text last,
+                                   // \t<title>\t<subText>\t<intent>\t<text>" (id a decimal int32; tag, channel and
+                                   // group at most 64 bytes each; importance NotificationManager's 0 to 5; sound 0 or
+                                   // 1; when ms since the epoch, 0 for none; title and subText at most 256 bytes each;
+                                   // intent the content intent's Intent.toUri for a cold tap (ADR-0074 decision 4),
+                                   // empty or at most 2048 bytes of printable ASCII without spaces; text last,
                                    // at most 4096 bytes and the only field with new lines), "cancel\t<id>\t<tag>" or
                                    // "cancelAll". Every field is plain UTF-8 as a pick's title (no controls, no
                                    // bidirectional or invisible characters). The runtime refuses -EACCES without the

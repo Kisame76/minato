@@ -1401,6 +1401,37 @@ if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   fi
 fi
 
+# ADR-0074 decision 4's cold tap in the Simulator: once notify-tap-test has run and its notification is delivered,
+# Minato starts in the library and session-check's notification-cold-tap taps it as didReceive would while no session
+# runs: the library checks the stored content intent (its own TapActivity) and starts the app with it, so TapActivity
+# is the first activity, before the app's own send.
+if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
+  if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap 2; then
+    await_line guest-log "^I/notify-tap-test: done$" 120 || failed_line "no done" notify-tap-test-2
+  fi
+  end_start notify-tap-test 2
+  rm -rf "$CHECK"
+  mkdir -p "$CHECK"
+  echo yes > "$CHECK/no-compile"
+  echo yes > "$CHECK/guest-log"
+  echo io.github.kisame76.minato.test.notifytap > "$CHECK/notification-cold-tap"
+  : > "$EVENTS"
+  send_requests
+  launch
+  if await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 120; then
+    first=$(grep -m1 -E "^I/notify-tap-test: (opened by the tap|sent the content intent)" "$CHECK/guest-log")
+    if [[ "$first" == "I/notify-tap-test: opened by the tap: room 7" ]]; then
+      ok "  the cold tap started TapActivity in place of the launcher"
+    else
+      fail "  the cold tap started the launcher: $first"
+    fi
+  else
+    failed_line "no TapActivity after the cold tap" notify-tap-test-3
+  fi
+  sleep 2
+  end_start notify-tap-test 3
+fi
+
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
 run_one jni-lib-test io.github.kisame76.minato.test.jnilib
 run_one jnigraphics-test io.github.kisame76.minato.test.jnigraphics

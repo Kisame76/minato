@@ -505,6 +505,19 @@ struct AndroidManifestTests {
         #expect(try !Self.parse(Self.manifest([], [])).requestsInternet)
     }
 
+    @Test func listsTheActivitiesAndTheirAliasesApartFromTheOtherComponents() throws {
+        let manifest = try Self.parse(Self.manifest([], [
+            E("application", [], [
+                E("activity", [.android("name", 0x0101_0003, .string(".MainActivity"))]),
+                E("activity-alias", [.android("name", 0x0101_0003, .string("org.example.game.Start"))]),
+                E("service", [.android("name", 0x0101_0003, .string(".SyncService"))]),
+                E("receiver", [.android("name", 0x0101_0003, .string(".BootReceiver"))]),
+            ]),
+        ]))
+        #expect(manifest.activities == ["org.example.game.MainActivity", "org.example.game.Start"])
+        #expect(manifest.components.count == 4)
+    }
+
     @Test func collectsPermissionsMetaDataLibrariesAndComponents() throws {
         let manifest = try Self.parse(Self.manifest([], [
             E("uses-permission", [.android("name", 0x0101_0003, .string("android.permission.INTERNET"))]),

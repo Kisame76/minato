@@ -473,6 +473,11 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
         return mPendingIntents.info(sender);
     }
 
+    /** The intent a PendingIntent of this process holds, for the system side only (LocalPendingIntents.intent). */
+    Intent pendingIntentIntent(IIntentSender sender) {
+        return mPendingIntents.intent(sender);
+    }
+
     @Override
     public boolean registerIntentSenderCancelListenerEx(IIntentSender sender, IResultReceiver receiver) {
         return mPendingIntents.registerCancelListener(sender, receiver);

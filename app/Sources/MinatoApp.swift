@@ -96,6 +96,8 @@ struct MinatoApp: App {
         guard let paths = try? LibraryPaths.standard() else { return .library(nil) }
         let request = LaunchRequestStore(folder: paths.applicationSupport).take()
         var mode = LaunchMode(request: request, entries: (try? Library.entries(in: paths)) ?? [])
+        // A notification's checked content intent, which the app starts with (ADR-0074 decision 4).
+        if case .gameMode = mode { GameSession.startIntent = request?.startIntent }
         // An end of game mode that went wrong shows once, at the library's next start without a request.
         if case .library(nil) = mode, let notice = LastSessionStore(folder: paths.applicationSupport).take() {
             mode = .library(.quitUnexpectedly(notice))

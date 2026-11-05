@@ -13,11 +13,15 @@ public struct LaunchRequest: Codable, Equatable, Sendable {
     public var package: String
     public var time: Date
     public var kind: Kind
+    /// A notification's checked content intent (NotificationTap.startIntent; ADR-0074 decision 4), which the app starts
+    /// with in place of its launcher; nil for a plain start.
+    public var startIntent: String?
 
-    public init(package: String, time: Date, kind: Kind = .run) {
+    public init(package: String, time: Date, kind: Kind = .run, startIntent: String? = nil) {
         self.package = package
         self.time = time
         self.kind = kind
+        self.startIntent = startIntent
     }
 
     /// A request an earlier build wrote has no kind: it runs the app.
@@ -26,6 +30,7 @@ public struct LaunchRequest: Codable, Equatable, Sendable {
         package = try container.decode(String.self, forKey: .package)
         time = try container.decode(Date.self, forKey: .time)
         kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .run
+        startIntent = try container.decodeIfPresent(String.self, forKey: .startIntent)
     }
 }
 

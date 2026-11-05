@@ -76,6 +76,9 @@ import UIKit
 ///            rest, then disconnects it; it logs "virtual pad lacks <element>" for each button a touch controller
 ///            does not have (GCInputButtonHome, which its configuration refuses, and the stick clicks), "virtual pad
 ///            connected" and "virtual pad done". The file goes.
+///   notification-cold-tap  a package: the library taps that app's newest delivered notification once its entries
+///            are loaded, as UNUserNotificationCenter's didReceive would while no session runs (ADR-0074 decision 4),
+///            and removes the file.
 ///   notification-tap  the same poll taps the app's newest delivered notification, as UNUserNotificationCenter's
 ///            didReceive would (ADR-0074 decision 4); the file goes.
 ///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
@@ -250,6 +253,13 @@ enum SessionCheck {
     /// The library taps the requested app once, as the user would.
     @MainActor
     static func tapIfRequested(in library: LibraryModel) async {
+        // A cold tap (ADR-0074 decision 4): the app's newest delivered notification, tapped while no session runs.
+        if let package = text(of: "notification-cold-tap") {
+            try? FileManager.default.removeItem(at: folder.appending(path: "notification-cold-tap"))
+            event("notification cold tap requested \(package)")
+            NotificationHost.shared.tapNewest(package: package)
+            return
+        }
         let file = folder.appending(path: "tap")
         guard let package = text(of: "tap"), let entry = library.entries.first(where: { $0.id == package }) else { return }
         try? FileManager.default.removeItem(at: file)

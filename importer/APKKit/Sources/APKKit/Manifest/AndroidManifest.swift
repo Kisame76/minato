@@ -71,6 +71,9 @@ public struct AndroidManifest: Sendable, Equatable {
     public var usesLibraries: [String]
     /// Qualified names of activities, aliases, services, receivers and providers.
     public var components: [String]
+    /// Qualified names of the activities and their aliases, which a notification's tap may start (ADR-0074 decision
+    /// 4).
+    public var activities: [String]
 
     /// A codename's level, Build.VERSION_CODES.CUR_DEVELOPMENT, as a preview build gives it.
     public static let developmentSdk = 10_000
@@ -152,6 +155,7 @@ public struct AndroidManifest: Sendable, Equatable {
         var metaData: [String: ResourceValue] = [:]
         var usesLibraries: [String] = []
         var components: [String] = []
+        var activities: [String] = []
         for child in application?.children ?? [] {
             switch child.name {
             case "meta-data":
@@ -162,7 +166,10 @@ public struct AndroidManifest: Sendable, Equatable {
             case "uses-library":
                 if let name = child.android(.name)?.string { usesLibraries.append(name) }
             case "activity", "activity-alias", "service", "receiver", "provider":
-                if let name = child.android(.name)?.string { components.append(Self.qualify(name, in: package)) }
+                if let name = child.android(.name)?.string {
+                    components.append(Self.qualify(name, in: package))
+                    if child.name.hasPrefix("activity") { activities.append(Self.qualify(name, in: package)) }
+                }
             default:
                 break
             }
@@ -170,6 +177,7 @@ public struct AndroidManifest: Sendable, Equatable {
         self.metaData = metaData
         self.usesLibraries = usesLibraries
         self.components = components
+        self.activities = activities
 
         // bundletool's marker, which Android does not read: integer types only, as Android reads the <manifest> flag.
         let splitsFlag = application?.android(.isSplitRequired)

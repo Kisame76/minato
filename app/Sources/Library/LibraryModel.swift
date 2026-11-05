@@ -164,6 +164,11 @@ final class LibraryModel {
     @ObservationIgnored private var held: Set<URL> = []
 
     init() {
+        defer {
+            NotificationHost.onColdTap = { [weak self] package, intent in
+                Task { await self?.launchFromNotification(package: package, intent: intent) }
+            }
+        }
         var openedPaths: LibraryPaths?
         var openedLibrary: Library?
         do {
@@ -385,7 +390,20 @@ final class LibraryModel {
     /// One tap on an installed app (decision 3): starts it, after signing its native code when the current
     /// signer did not sign it; nil once it starts or an error message says why not. A tap while another
     /// is handled does nothing: the app that tap starts would be left behind anyway.
-    func launch(_ tapped: LibraryEntry) async -> LaunchBlock? {
+    /// A tap on a notification of `package` while no session runs (ADR-0074 decision 4): the app starts with the
+    /// stored content intent when it names one of the installed version's own activities (NotificationTap.startIntent),
+    /// else at its launcher.
+    func launchFromNotification(package: String, intent: String?) async {
+        guard let entry = entries.first(where: { $0.id == package }), let paths else { return }
+        let activities = InstalledActivities.read(folder: paths.versionDirectory(for: entry))
+        let start = intent.flatMap { NotificationTap.startIntent($0, package: package, activities: activities) }
+        #if DEBUG
+        SessionCheck.event("notification cold tap \(package) start intent \(start == nil ? "none" : "checked")")
+        #endif
+        _ = await launch(entry, startIntent: start)
+    }
+
+    func launch(_ tapped: LibraryEntry, startIntent: String? = nil) async -> LaunchBlock? {
         guard !isLaunching, !Restart.isUnderway else { return nil }
         isLaunching = true
         defer { isLaunching = false }
@@ -407,7 +425,7 @@ final class LibraryModel {
         #endif
         switch decision {
         case .start:
-            await start(entry)
+            await start(entry, startIntent: startIntent)
         case .signFirst:
             guard let library, let fingerprint = signer.fingerprint, let converter = converter(signer) else {
                 errorMessage = "“\(entry.displayName)” could not be signed. Check the signing certificate."
@@ -432,7 +450,7 @@ final class LibraryModel {
                 entries = await library.entries
                 return nil
             }
-            await start(entry)
+            await start(entry, startIntent: startIntent)
         case .openSigning, .waitForSigner:
             return .openSigning
         case .explain(let reason):
@@ -443,10 +461,11 @@ final class LibraryModel {
 
     /// Writes the launch request, then restarts Minato into game mode for `entry` (decisions 1 and 2). The app counts
     /// as opened for Home's Recently Opened now, since the process ends right after.
-    private func start(_ entry: LibraryEntry) async {
+    private func start(_ entry: LibraryEntry, startIntent: String? = nil) async {
         guard let paths else { return }
         do {
-            try LaunchRequestStore(folder: paths.applicationSupport).write(LaunchRequest(package: entry.id, time: .now))
+            try LaunchRequestStore(folder: paths.applicationSupport)
+                .write(LaunchRequest(package: entry.id, time: .now, startIntent: startIntent))
         } catch {
             errorMessage = "“\(entry.displayName)” could not be started: \(error.localizedDescription)"
             return
