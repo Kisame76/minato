@@ -5,6 +5,11 @@ I/camera-preview-test: preview callbacks: at least 10 in 2 s true, each NV21's s
 I/camera-preview-test: callbacks with buffers: three true, in the app's buffers true
 I/camera-preview-test: one-shot callback: one true
 I/camera-preview-test: another preview size while previewing: java.lang.RuntimeException setParameters failed
+I/camera-preview-test: no preview texture while previewing: no exception
+I/camera-preview-test: preview enabled without a texture false
+I/camera-preview-test: frames into the first SurfaceTexture after it: none true
+I/camera-preview-test: preview enabled with a second texture true
+I/camera-preview-test: frames into the second SurfaceTexture: at least 10 in 2 s true
 I/camera-preview-test: preview enabled after the stop false
 I/camera-preview-test: frames after the stop: none true
 I/camera-preview-test: done

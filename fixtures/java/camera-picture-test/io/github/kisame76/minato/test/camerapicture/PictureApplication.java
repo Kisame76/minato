@@ -23,7 +23,9 @@ import java.util.concurrent.TimeUnit;
  * - autoFocus: its callback within 5 s, and cancelAutoFocus;
  * - takePicture at the smallest picture size with a shutter, a raw and a JPEG callback: their order, the raw one's
  *   data, the JPEG's decode at that size, and the preview stopped after it; startPreview again;
- * - takePicture without a preview, which fails.
+ * - takePicture without a preview, which fails;
+ * - during a capture: startPreview and a second takePicture, which fail, and the capture's JPEG still comes;
+ * - release right after takePicture: no JPEG callback after it, and the camera opens again.
  * Each wait is bounded; it logs with the tag camera-picture-test and ends with "done".
  */
 public class PictureApplication extends Application {
@@ -118,9 +120,40 @@ public class PictureApplication extends Application {
         add("preview enabled after the picture " + camera.previewEnabled());
         camera.startPreview();
         add("preview enabled after a start again " + camera.previewEnabled());
-        camera.stopPreview();
-        camera.release();
+
+        CountDownLatch captured = new CountDownLatch(1);
+        // Java's takePicture keeps its callbacks before the natives refuse, so the second one passes the same one.
+        Camera.PictureCallback capture = (data, c) -> captured.countDown();
+        camera.takePicture(null, null, capture);
+        add("startPreview during a capture: " + failure(camera::startPreview));
+        add("a second takePicture during a capture: " + failure(() -> camera.takePicture(null, null, capture)));
+        add("the capture's JPEG still comes within 10 s " + captured.await(10, TimeUnit.SECONDS));
+
+        camera.startPreview();
+        CountDownLatch late = new CountDownLatch(1);
+        camera.takePicture(null, null, (data, c) -> late.countDown());
+        add("release right after takePicture: " + failure(camera::release));
+        Thread.sleep(2000);
+        add("a JPEG callback after the release " + (late.getCount() == 0));
+        Camera[] again = new Camera[1];
+        CountDownLatch reopened = new CountDownLatch(1);
+        new Handler(callbacks.getLooper()).post(() -> {
+            again[0] = Camera.open(0);
+            reopened.countDown();
+        });
+        add("the camera opens again after it " + (reopened.await(10, TimeUnit.SECONDS) && again[0] != null));
+        if (again[0] != null) again[0].release();
         texture.release();
         callbacks.quitSafely();
+    }
+
+    /** "no exception", or the exception's class and message. */
+    private static String failure(Runnable call) {
+        try {
+            call.run();
+            return "no exception";
+        } catch (RuntimeException e) {
+            return e.getClass().getName() + " " + e.getMessage();
+        }
     }
 }

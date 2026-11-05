@@ -20,7 +20,8 @@
      video_frames.h as the decoders do.
    - Interruptions (ADR-0073 decision 9): once iOS interrupts the session (the background, another app, a runtime
      error), the camera is lost for the guest: peek, configure and request answer -ENODEV until its close, and the
-     app opens the camera again, as on Android.
+     app opens the camera again, as on Android. The first loss also stops the session and turns the torch off, so
+     that iOS does not run the camera again for a guest that cannot use it once the interruption ends.
    The runtime's calls run on the guest's thread inside its syscall and may block on the host (startRunning,
    stopRunning); the captures come on a serial queue of the camera's, under its lock. Nothing throws. */
 #import <TargetConditionals.h>
@@ -401,10 +402,42 @@ static int facts(void *context, uint32_t camera, void *data, size_t capacity, si
     return 0;
 }
 
-static void lose(MinatoAVFCamera *camera) {
+/* Whether the camera was lost just now (not before). */
+static BOOL lose(MinatoAVFCamera *camera) {
     pthread_mutex_lock(&camera->lock);
+    const BOOL first = !camera->lost;
     camera->lost = YES;
     pthread_mutex_unlock(&camera->lock);
+    return first;
+}
+
+/* The serial queue the stand-downs run on, one at a time. */
+static dispatch_queue_t stand_downs(void) {
+    static dispatch_once_t once;
+    static dispatch_queue_t queue;
+    dispatch_once(&once, ^{
+      queue = dispatch_queue_create("minato.camera.stand-down", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
+/* A lost camera's device stands down: its session stops, which keeps iOS from running it again once an interruption
+   ends, and the torch, a device setting of the camera's, goes off; on the stand-downs' queue, so that a loss's and a
+   close's never overlap. stopRunning blocks; never on the session's own queue. */
+static void stand_down_now(MinatoAVFCamera *camera) {
+    if (camera->session.running) [camera->session stopRunning];
+    AVCaptureDevice *device = devices[camera->index];
+    NSError *error = nil;
+    if (device.torchActive && [device lockForConfiguration:&error]) {
+        device.torchMode = AVCaptureTorchModeOff;
+        [device unlockForConfiguration];
+    }
+}
+
+static void stand_down(MinatoAVFCamera *camera) {
+    dispatch_sync(stand_downs(), ^{
+      stand_down_now(camera);
+    });
 }
 
 static int open_camera(void *context, uint32_t index, uint64_t *handle) {
@@ -439,14 +472,19 @@ static int open_camera(void *context, uint32_t index, uint64_t *handle) {
         // session at a time).
         for (MinatoAVFCamera *each in older) {
             lose(each);
-            if (each->session.running) [each->session stopRunning];
+            stand_down(each);
         }
         __weak MinatoAVFCamera *weak = camera;
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         void (^lost)(NSNotification *) = ^(NSNotification *note) {
           (void)note;
           MinatoAVFCamera *strong = weak;
-          if (strong != nil) lose(strong);
+          // The first loss stands the device down off the notification's thread (the session's own, maybe).
+          if (strong != nil && lose(strong)) {
+              dispatch_async(stand_downs(), ^{
+                stand_down_now(strong);
+              });
+          }
         };
         camera->observers = @[
             [center addObserverForName:AVCaptureSessionWasInterruptedNotification
@@ -779,16 +817,9 @@ static void close_camera(void *context, uint64_t handle) {
         if (camera == nil) return;
         for (id observer in camera->observers) [NSNotificationCenter.defaultCenter removeObserver:observer];
         lose(camera);  // the delegates' late frames go
-        if (camera->session.running) [camera->session stopRunning];
+        stand_down(camera);  // a device setting of the camera's (the torch) does not outlive it
         [camera->video setSampleBufferDelegate:nil queue:NULL];
         if (camera->cropped_window != 0) minato_video_frame_give_back_gravity(camera->cropped_window);
-        // A device setting of the camera's (the torch) does not outlive it.
-        AVCaptureDevice *device = devices[camera->index];
-        NSError *error = nil;
-        if (device.torchActive && [device lockForConfiguration:&error]) {
-            device.torchMode = AVCaptureTorchModeOff;
-            [device unlockForConfiguration];
-        }
         dispatch_sync(camera->queue, ^{  // a capture still running on the queue is done
         });
         pthread_mutex_lock(&state_lock);

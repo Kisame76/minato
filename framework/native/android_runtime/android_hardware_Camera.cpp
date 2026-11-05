@@ -27,8 +27,15 @@
 //   frame drawn into a buffer of the thread's own and given to Java as NV21 (CAMERA_MSG_PREVIEW_FRAME), in the app's
 //   buffers when it added them (setPreviewCallbackWithBuffer: none left, no frame). stopPreview stops the request
 //   and drops what waits; previewEnabled says whether it runs. While it runs, setParameters refuses another preview
-//   size or format, as Parameters::set does.
-// Camera's other natives (focus, pictures, zoom, faces) stay unregistered until the next parts of step e.
+//   size or format, as Parameters::set does. As Camera2Client's states: a startPreview without a window waits for one
+//   (WAITING_FOR_PREVIEW_WINDOW: no stream, previewEnabled false), and a window set while the preview runs stops its
+//   stream, takes the window and starts again, or waits for a window when it is none, so that the preview's thread
+//   never draws into a window that went.
+// - takePicture's capture (STILL_CAPTURE) runs on a thread of the Camera's until its JPEG or 10 s: meanwhile
+//   startPreview ("startPreview failed"), another takePicture ("takePicture failed") and a preview window (IOException)
+//   are refused, as Camera2Client answers INVALID_OPERATION; a release ends the capture, posts nothing after it and
+//   joins the thread before the Camera's references go.
+// autoFocus, cancelAutoFocus and takePicture are below; Camera's other natives (zoom, faces) stay unregistered.
 #include <errno.h>
 #include <jni.h>
 #include <log/log.h>
@@ -151,6 +158,11 @@ struct Context {
     int32_t width = 0, height = 0;    // the preview's size
     bool focusing = false, focus_seen = false;  // an autoFocus waits; its frames have shown FOCUSING
     uint64_t focus_number = 0;        // its request's number
+    bool waiting = false;             // a preview asked for without a window (WAITING_FOR_PREVIEW_WINDOW)
+    // takePicture's capture (STILL_CAPTURE): its thread, joined by the next takePicture or the release; `capturing`
+    // until it ends; `releasing` from the release on, after which the thread posts nothing.
+    pthread_t picture{};
+    bool picture_made = false, capturing = false, releasing = false;
 };
 
 constexpr uint64_t kFocusRequest = 2;  // the request numbers of an autoFocus' trigger
@@ -471,8 +483,13 @@ void Release(JNIEnv *env, jobject thiz) {
         env->SetLongField(thiz, gFields.context, 0);
         if (context == nullptr) return;  // released before, or never opened
         gOpen.erase(std::remove(gOpen.begin(), gOpen.end(), context), gOpen.end());
+        context->releasing = true;
+        context->waiting = false;
     }
     stop_preview(context);
+    // A capture's thread ends at its next turn once it sees `releasing`; its references go only after it.
+    if (context->picture_made) pthread_join(context->picture, nullptr);
+    context->picture_made = false;
     const std::lock_guard<std::mutex> hold(gLock);
     if (!context->evicted) close_camera(context);
     set_window(context, nullptr);
@@ -523,30 +540,8 @@ void Lock(JNIEnv *env, jobject thiz) { Keep(env, thiz, "java/lang/RuntimeExcepti
 void Unlock(JNIEnv *env, jobject thiz) { Keep(env, thiz, "java/lang/RuntimeException", "unlock failed"); }
 void Reconnect(JNIEnv *env, jobject thiz) { Keep(env, thiz, "java/io/IOException", "reconnect failed"); }
 
-void SetPreviewWindow(JNIEnv *env, jobject thiz, ANativeWindow *window, const char *what) {
-    const std::lock_guard<std::mutex> hold(gLock);
-    Context *context = live(env, thiz);
-    if (context == nullptr) {
-        if (window != nullptr) ANativeWindow_release(window);
-        return;
-    }
-    if (!set_window(context, window)) jniThrowException(env, "java/io/IOException", what);
-}
-
-void SetPreviewTexture(JNIEnv *env, jobject thiz, jobject texture) {
-    ANativeWindow *window = texture != nullptr ? minato_surface_texture_window(env, texture) : nullptr;
-    SetPreviewWindow(env, thiz, window, "setPreviewTexture failed");
-}
-
-void SetPreviewSurface(JNIEnv *env, jobject thiz, jobject surface) {
-    ANativeWindow *window = surface != nullptr ? minato_surface_window(env, surface) : nullptr;
-    SetPreviewWindow(env, thiz, window, "setPreviewDisplay failed");
-}
-
-void StartPreview(JNIEnv *env, jobject thiz) {
-    const std::lock_guard<std::mutex> hold(gLock);
-    Context *context = live(env, thiz);
-    if (context == nullptr || context->previewing) return;
+/// The preview's stream and thread from the parameters in force, gLock held; false when the camera refuses it.
+bool start_preview(Context *context) {
     int32_t width = 0, height = 0;
     std::sscanf(value_of(context->parameters, "preview-size").c_str(), "%dx%d", &width, &height);
     const apkrt_camera_stream streams[2] = {
@@ -564,13 +559,71 @@ void StartPreview(JNIEnv *env, jobject thiz) {
     request.flags = APKRT_CAMERA_REPEATING;
     if (context->evicted || camera_call(APKRT_CAMERA_CONFIGURE, &call) != 0 ||
         camera_call(APKRT_CAMERA_REQUEST, &request) != 0) {
-        jniThrowRuntimeException(env, "startPreview failed");
-        return;
+        return false;
     }
     context->width = width, context->height = height;
     context->stopping = false;
     context->previewing = true;
+    context->waiting = false;
     context->thread_made = pthread_create(&context->thread, nullptr, preview_thread, context) == 0;
+    return true;
+}
+
+/// setPreviewTexture and setPreviewDisplay, as Camera2Client's setPreviewWindowL: refused during a capture; while
+/// the preview runs its stream stops first (the thread joined, so it never draws into the window that goes), then the
+/// window is taken and the preview starts again, or waits for a window when it is none.
+void SetPreviewWindow(JNIEnv *env, jobject thiz, ANativeWindow *window, const char *what) {
+    Context *context;
+    bool restart;
+    {
+        const std::lock_guard<std::mutex> hold(gLock);
+        context = live(env, thiz);
+        if (context == nullptr || context->capturing) {
+            if (window != nullptr) ANativeWindow_release(window);
+            if (context != nullptr) jniThrowException(env, "java/io/IOException", what);
+            return;
+        }
+        restart = context->previewing;
+    }
+    if (restart) stop_preview(context);
+    const std::lock_guard<std::mutex> hold(gLock);
+    if (!set_window(context, window)) {
+        jniThrowException(env, "java/io/IOException", what);
+        return;
+    }
+    if (!restart && !context->waiting) return;
+    if (context->window == nullptr) {
+        context->waiting = true;
+    } else if (!start_preview(context)) {
+        context->waiting = false;
+        jniThrowException(env, "java/io/IOException", what);
+    }
+}
+
+void SetPreviewTexture(JNIEnv *env, jobject thiz, jobject texture) {
+    ANativeWindow *window = texture != nullptr ? minato_surface_texture_window(env, texture) : nullptr;
+    SetPreviewWindow(env, thiz, window, "setPreviewTexture failed");
+}
+
+void SetPreviewSurface(JNIEnv *env, jobject thiz, jobject surface) {
+    ANativeWindow *window = surface != nullptr ? minato_surface_window(env, surface) : nullptr;
+    SetPreviewWindow(env, thiz, window, "setPreviewDisplay failed");
+}
+
+/// startPreview: refused during a capture; without a window it waits for one, as Camera2Client's startPreviewL.
+void StartPreview(JNIEnv *env, jobject thiz) {
+    const std::lock_guard<std::mutex> hold(gLock);
+    Context *context = live(env, thiz);
+    if (context == nullptr || context->previewing) return;
+    if (context->capturing) {
+        jniThrowRuntimeException(env, "startPreview failed");
+        return;
+    }
+    if (context->window == nullptr && !context->evicted) {
+        context->waiting = true;
+        return;
+    }
+    if (!start_preview(context)) jniThrowRuntimeException(env, "startPreview failed");
 }
 
 void StopPreview(JNIEnv *env, jobject thiz) {
@@ -578,6 +631,7 @@ void StopPreview(JNIEnv *env, jobject thiz) {
     {
         const std::lock_guard<std::mutex> hold(gLock);
         context = live(env, thiz);
+        if (context != nullptr) context->waiting = false;
     }
     if (context != nullptr) stop_preview(context);
 }
@@ -632,18 +686,29 @@ void *picture_thread(void *argument) {
     Context *context = picture->context;
     JNIEnv *env = nullptr;
     JavaVMAttachArgs attach{JNI_VERSION_1_6, "CameraPicture", nullptr};
+    const auto ended = [&] {
+        const std::lock_guard<std::mutex> hold(gLock);
+        context->capturing = false;
+    };
     if (context->vm->AttachCurrentThread(&env, &attach) != JNI_OK) {
         delete picture;
+        ended();
         return nullptr;
     }
+    const auto released = [&] {
+        const std::lock_guard<std::mutex> hold(gLock);
+        return context->releasing;
+    };
+    // After a release nothing is posted, as AOSP's JNICameraContext::release drops the Camera's reference first; the
+    // release joins this thread before the reference goes, so a post that began ends with it valid.
     const auto post = [&](jint message, jobject data) {
-        if ((picture->messages & message) == 0) return;
+        if ((picture->messages & message) == 0 || released()) return;
         env->CallStaticVoidMethod(gFields.camera, gFields.post, context->weak, message, 0, 0, data);
         if (env->ExceptionCheck()) env->ExceptionClear();
     };
     post(kMessageShutter, nullptr);
     std::vector<uint8_t> jpeg;
-    for (int tries = 0; tries < 5000; tries++) {  // at most 10 s
+    for (int tries = 0; tries < 5000 && !released(); tries++) {  // at most 10 s
         apkrt_camera_frame frame{};
         frame.jpeg = reinterpret_cast<uintptr_t>(jpeg.data());
         frame.jpeg_capacity = jpeg.size();
@@ -681,22 +746,27 @@ void *picture_thread(void *argument) {
     }
     delete picture;
     context->vm->DetachCurrentThread();
+    ended();
     return nullptr;
 }
 
-/// takePicture: only while the preview runs, which stops for the picture, as Camera2Client's.
+/// takePicture: only while the preview runs, which stops for the picture, and not during another capture, as
+/// Camera2Client's.
 void TakePicture(JNIEnv *env, jobject thiz, jint messages) {
     Context *context;
     {
         const std::lock_guard<std::mutex> hold(gLock);
         context = live(env, thiz);
         if (context == nullptr) return;
-        if (!context->previewing || context->evicted) {
+        if (!context->previewing || context->evicted || context->capturing) {
             jniThrowRuntimeException(env, "takePicture failed");
             return;
         }
+        context->capturing = true;  // from here on, as Camera2Client's STILL_CAPTURE
     }
     stop_preview(context);
+    if (context->picture_made) pthread_join(context->picture, nullptr);  // the capture before, ended
+    context->picture_made = false;
     const std::lock_guard<std::mutex> hold(gLock);
     int32_t width = 0, height = 0;
     std::sscanf(value_of(context->parameters, "picture-size").c_str(), "%dx%d", &width, &height);
@@ -717,15 +787,15 @@ void TakePicture(JNIEnv *env, jobject thiz, jint messages) {
     request.data = reinterpret_cast<uintptr_t>(&controls);
     request.targets = 1;
     request.number = 3;
-    pthread_t thread;
     auto *picture = new Picture{context, messages};
     if (camera_call(APKRT_CAMERA_CONFIGURE, &call) != 0 || camera_call(APKRT_CAMERA_REQUEST, &request) != 0 ||
-        pthread_create(&thread, nullptr, picture_thread, picture) != 0) {
+        pthread_create(&context->picture, nullptr, picture_thread, picture) != 0) {
         delete picture;
+        context->capturing = false;
         jniThrowRuntimeException(env, "takePicture failed");
         return;
     }
-    pthread_detach(thread);
+    context->picture_made = true;
 }
 
 void SetHasPreviewCallback(JNIEnv *env, jobject thiz, jboolean installed, jboolean manual) {

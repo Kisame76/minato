@@ -5,4 +5,10 @@ I/camera-picture-test: takePicture: the JPEG within 10 s true, callbacks [shutte
 I/camera-picture-test: the JPEG: decodes at the picture size true
 I/camera-picture-test: preview enabled after the picture false
 I/camera-picture-test: preview enabled after a start again true
+I/camera-picture-test: startPreview during a capture: java.lang.RuntimeException startPreview failed
+I/camera-picture-test: a second takePicture during a capture: java.lang.RuntimeException takePicture failed
+I/camera-picture-test: the capture's JPEG still comes within 10 s true
+I/camera-picture-test: release right after takePicture: no exception
+I/camera-picture-test: a JPEG callback after the release false
+I/camera-picture-test: the camera opens again after it true
 I/camera-picture-test: done

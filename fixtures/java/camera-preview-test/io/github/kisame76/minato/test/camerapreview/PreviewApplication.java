@@ -15,6 +15,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -34,6 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * - setPreviewCallbackWithBuffer with three buffers: the frames come in those buffers and stop once all three are
  *   given out; setOneShotPreviewCallback: one frame;
  * - setParameters with another preview size while the preview runs, which fails;
+ * - setPreviewTexture(null) while the preview runs, as a SurfaceView's surfaceDestroyed sets no display without a
+ *   stopPreview: previewEnabled, no more frames into the first SurfaceTexture; then a second SurfaceTexture, whose
+ *   frames come;
  * - stopPreview: previewEnabled, and no more frames.
  * Each wait is bounded; it logs with the tag camera-preview-test and ends with "done".
  */
@@ -226,14 +230,34 @@ public class PreviewApplication extends Application {
             }
         }
 
+        try {
+            camera.setPreviewTexture(null);
+            add("no preview texture while previewing: no exception");
+        } catch (IOException | RuntimeException e) {
+            add("no preview texture while previewing: " + e.getClass().getName() + " " + e.getMessage());
+        }
+        add("preview enabled without a texture " + camera.previewEnabled());
+        Thread.sleep(300);
+        int detached = target.frames.get();
+        Thread.sleep(700);
+        add("frames into the first SurfaceTexture after it: none " + (target.frames.get() == detached));
+        GlTarget second = new GlTarget();
+        second.start();
+        camera.setPreviewTexture(second.texture);
+        add("preview enabled with a second texture " + camera.previewEnabled());
+        Thread.sleep(2000);
+        add("frames into the second SurfaceTexture: at least 10 in 2 s " + (second.frames.get() >= 10));
+        add("device frames into the second SurfaceTexture in 2 s: " + second.frames.get());
+
         camera.stopPreview();
         add("preview enabled after the stop " + camera.previewEnabled());
         Thread.sleep(300);
-        int stopped = target.frames.get();
+        int stopped = second.frames.get();
         Thread.sleep(700);
-        add("frames after the stop: none " + (target.frames.get() == stopped));
+        add("frames after the stop: none " + (second.frames.get() == stopped));
         camera.release();
         target.end();
+        second.end();
         callbacks.quitSafely();
     }
 }
