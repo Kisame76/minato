@@ -1,0 +1,30 @@
+I/mic-test-granted: RECORD_AUDIO granted true
+I/mic-test-granted: min buffer 16000 16 2: positive true, whole frames true
+I/mic-test-granted: min buffer 44100 16 2: positive true, whole frames true
+I/mic-test-granted: min buffer 48000 12 2: positive true, whole frames true
+I/mic-test-granted: min buffer 48000 12 4: positive true, whole frames true
+I/mic-test-granted: min buffer 8000 16 3: positive true, whole frames true
+I/mic-test-granted: min buffer, rate 1000: 640
+I/mic-test-granted: min buffer, rate 0: -2
+I/mic-test-granted: min buffer, encoding 99: -2
+I/mic-test-granted: min buffer, channels 0: -2
+I/mic-test-granted: bad rate: java.lang.IllegalArgumentException: Invalid sample rate 1000
+I/mic-test-granted: bad source: java.lang.IllegalArgumentException: Invalid audio source -1
+I/mic-test-granted: buffer below the minimum: state 1
+I/mic-test-granted: state 1, recording state 1
+I/mic-test-granted: rate 16000, channels 1, format 2, source 1
+I/mic-test-granted: buffer frames at least minimum true
+I/mic-test-granted: read before start: 0
+I/mic-test-granted: recording state 3
+I/mic-test-granted: read shorts blocking: 1600
+I/mic-test-granted: read bytes blocking: 3200
+I/mic-test-granted: read floats (16-bit recorder): -3
+I/mic-test-granted: read direct buffer: 1600
+I/mic-test-granted: read negative size: -2
+I/mic-test-granted: read past the array: -2
+I/mic-test-granted: recording state after stop 1
+I/mic-test-granted: state after release 0
+I/mic-test-granted: read after release: -3
+I/mic-test-granted: float stereo: state 1, channels 2, format 4
+I/mic-test-granted: read floats: 960
+I/mic-test-granted: done

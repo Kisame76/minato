@@ -756,6 +756,37 @@ void apkrt_audio_disconnected(uint64_t stream);
 /// property with the AudioToolbox the unit comes from, so the app need not link AudioToolbox for it.
 void apkrt_audio_set_output(void *audio_unit, int64_t output_latency);
 
+// MARK: - Audio input (ADR-0064)
+//
+// The guest's input streams (audio_open with direction 1) open on the host's input, which captures into the runtime's
+// ring with apkrt_audio_input_write; the guest drains it with audio_read. Opening needs the microphone grant, and a
+// stream is disconnected when the grant is revoked (apkrt_permission_answer with APKRT_PERMISSION_DENIED).
+
+/// The host's side of the guest's audio input (apkrt_set_audio_input_host).
+struct apkrt_audio_input_host {
+    void *context;  // passed to both functions
+    /// Opens the input `stream`: `channels` interleaved float32 channels at `sample_rate` Hz, 0 for the hardware's
+    /// rate; `performance_mode` is AAudio's (NONE 10, POWER_SAVING 11 or LOW_LATENCY 12) for the IO buffer. Fills
+    /// `hardware` as the output's open does and returns 0, or returns -1 when it cannot (no microphone, a session
+    /// that refuses recording). From then on until close returns the host captures with apkrt_audio_input_write.
+    int (*open)(void *context, uint64_t stream, double sample_rate, int32_t channels, int32_t performance_mode,
+                struct apkrt_audio_hardware *hardware);
+    /// The stream is closed or disconnected for good: once for each open that returned 0.
+    void (*close)(void *context, uint64_t stream);
+};
+
+/// For the app: the host's input side, for the streams opened from now on; NULL removes it, and the guest's opens
+/// answer -ENODEV then. Both functions run on the guest thread that opens or closes a stream, inside its syscall,
+/// where the runtime holds no lock. Returns 0, or -1 when `host` lacks open or close.
+int apkrt_set_audio_input_host(const struct apkrt_audio_input_host *host);
+
+/// For the capture thread: appends up to `frames` interleaved float32 frames to the stream's ring and returns how
+/// many it took. A stream that is not STARTING or STARTED takes none (the guest has not started it, or has stopped
+/// or paused it); the first call after a start makes it STARTED. A ring that is full drops its oldest frames and
+/// counts an xrun. It never blocks, takes no lock, allocates nothing and runs no guest code; a call for a closed
+/// stream is harmless. `host_time` is the first frame's AudioTimeStamp.mHostTime. One thread at a time writes a stream.
+int64_t apkrt_audio_input_write(uint64_t stream, const float *buffer, int64_t frames, uint64_t host_time);
+
 /// The stream's xruns so far, as AAudioStream_getXRunCount gives them, for the host's log, also inside the host's
 /// close; 0 for a closed or unknown stream.
 int32_t apkrt_audio_xruns(uint64_t stream);

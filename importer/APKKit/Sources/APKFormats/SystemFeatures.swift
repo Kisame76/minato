@@ -5,7 +5,8 @@ import Foundation
 /// copy to it.
 public enum SystemFeatures {
     public static let names: Set<String> = [
-        "android.hardware.audio.output", "android.hardware.faketouch", "android.hardware.ram.normal",
+        "android.hardware.audio.output", "android.hardware.faketouch", "android.hardware.microphone",
+        "android.hardware.ram.normal",
         "android.hardware.screen.landscape", "android.hardware.screen.portrait", "android.hardware.touchscreen",
         "android.hardware.touchscreen.multitouch", "android.hardware.touchscreen.multitouch.distinct",
         "android.hardware.touchscreen.multitouch.jazzhand", "android.hardware.vulkan.compute",

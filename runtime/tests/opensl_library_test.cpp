@@ -1389,17 +1389,122 @@ TEST(what_minato_leaves_out_answers_feature_unsupported_and_logs_once) {
     CHECK(create(engine, playback_rate, &player) == SL_RESULT_FEATURE_UNSUPPORTED);
     CHECK(create(engine, playback_rate, &player) == SL_RESULT_FEATURE_UNSUPPORTED);
     CHECK(log_lines("libOpenSLES") == before + 1);
-    SLObjectItf recorder = nullptr;
+}
+
+// MARK: - Audio recorders (ADR-0064)
+
+std::uint64_t recorder_stream = 0;
+int recorder_open(void *, std::uint64_t stream, double, std::int32_t, std::int32_t, apkrt_audio_hardware *hardware) {
+    recorder_stream = stream;
+    *hardware = {48'000, 0.005};
+    return 0;
+}
+void recorder_close(void *, std::uint64_t) {}
+
+void use_microphone(bool granted) {
+    const apkrt_audio_input_host host{nullptr, recorder_open, recorder_close};
+    CHECK(apkrt_set_audio_input_host(&host) == 0);
+    apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE,
+                            granted ? APKRT_PERMISSION_GRANTED : APKRT_PERMISSION_DENIED);
+}
+
+struct Recording {
+    SLObjectItf object = nullptr;
+    SLRecordItf record = nullptr;
+    SLAndroidSimpleBufferQueueItf queue = nullptr;
+};
+
+SLresult create_recorder(Engine &engine, Recording *recording, SLuint32 buffers = 3,
+                         const SLDataFormat_PCM &format = pcm(1, 16, 16, SL_SAMPLINGRATE_16)) {
     SLDataLocator_IODevice device{SL_DATALOCATOR_IODEVICE, SL_IODEVICE_AUDIOINPUT, SL_DEFAULTDEVICEID_AUDIOINPUT,
                                   nullptr};
     SLDataSource microphone{&device, nullptr};
-    SLDataLocator_AndroidSimpleBufferQueue queue{kQueue, 2};
-    SLDataFormat_PCM format = pcm(1, 16, 16);
-    SLDataSink sink{&queue, &format};
-    CHECK((*engine.engine)->CreateAudioRecorder(engine.engine, &recorder, &microphone, &sink, 0, nullptr, nullptr) ==
-          SL_RESULT_FEATURE_UNSUPPORTED);
-    CHECK(recorder == nullptr);
-    CHECK(log_lines("libOpenSLES") == before + 2);
+    SLDataLocator_AndroidSimpleBufferQueue locator{kQueue, buffers};
+    SLDataFormat_PCM copy = format;
+    SLDataSink sink{&locator, &copy};
+    const SLInterfaceID ids[] = {SL_IID_ANDROIDSIMPLEBUFFERQUEUE};
+    const SLboolean required[] = {SL_BOOLEAN_TRUE};
+    return (*engine.engine)
+        ->CreateAudioRecorder(engine.engine, &recording->object, &microphone, &sink, 1, ids, required);
+}
+
+TEST(a_recorder_needs_the_microphone_grant) {
+    Engine engine;
+    if (!engine.ok()) return;
+    use_microphone(false);
+    Recording recording;
+    CHECK(create_recorder(engine, &recording) == SL_RESULT_PERMISSION_DENIED && recording.object == nullptr);
+    use_microphone(true);
+    CHECK(create_recorder(engine, &recording) == SL_RESULT_SUCCESS && recording.object != nullptr);
+    (*recording.object)->Destroy(recording.object);
+}
+
+TEST(a_recorder_checks_its_locators_and_format) {
+    Engine engine;
+    if (!engine.ok()) return;
+    use_microphone(true);
+    Recording recording;
+    SLDataLocator_IODevice other{SL_DATALOCATOR_IODEVICE, SL_IODEVICE_AUDIOINPUT, 7, nullptr};
+    SLDataSource source{&other, nullptr};
+    SLDataLocator_AndroidSimpleBufferQueue locator{kQueue, 2};
+    SLDataFormat_PCM format = pcm(1, 16, 16, SL_SAMPLINGRATE_16);
+    SLDataSink sink{&locator, &format};
+    CHECK((*engine.engine)
+              ->CreateAudioRecorder(engine.engine, &recording.object, &source, &sink, 0, nullptr, nullptr) ==
+          SL_RESULT_PARAMETER_INVALID);
+    CHECK(create_recorder(engine, &recording, 0) == SL_RESULT_PARAMETER_INVALID);
+    CHECK(create_recorder(engine, &recording, 2, pcm(0, 16, 16)) == SL_RESULT_PARAMETER_INVALID);
+    CHECK(recording.object == nullptr);
+}
+
+TEST(a_recorder_fills_the_queued_buffers_in_order_and_tells_the_app) {
+    Engine engine;
+    if (!engine.ok()) return;
+    use_microphone(true);
+    Recording recording;
+    CHECK(create_recorder(engine, &recording) == SL_RESULT_SUCCESS);
+    CHECK((*recording.object)->Realize(recording.object, SL_BOOLEAN_FALSE) == SL_RESULT_SUCCESS);
+    CHECK((*recording.object)->GetInterface(recording.object, SL_IID_RECORD, &recording.record) == SL_RESULT_SUCCESS);
+    CHECK((*recording.object)->GetInterface(recording.object, SL_IID_ANDROIDSIMPLEBUFFERQUEUE, &recording.queue) ==
+          SL_RESULT_SUCCESS);
+    struct Told {
+        std::atomic<int> buffers{0};
+        std::atomic<int> positions{0};
+    } told;
+    CHECK((*recording.queue)->RegisterCallback(
+              recording.queue, [](SLAndroidSimpleBufferQueueItf, void *user) { ++static_cast<Told *>(user)->buffers; },
+              &told) == SL_RESULT_SUCCESS);
+    CHECK((*recording.record)->RegisterCallback(
+              recording.record, [](SLRecordItf, void *user, SLuint32) { ++static_cast<Told *>(user)->positions; },
+              &told) ==
+          SL_RESULT_SUCCESS);
+    CHECK((*recording.record)->SetCallbackEventsMask(recording.record, SL_RECORDEVENT_HEADATNEWPOS) ==
+          SL_RESULT_SUCCESS);
+    CHECK((*recording.record)->SetPositionUpdatePeriod(recording.record, 10) == SL_RESULT_SUCCESS);  // every 10 ms
+    int16_t first[100] = {}, second[100] = {};
+    CHECK((*recording.queue)->Enqueue(recording.queue, first, sizeof first) == SL_RESULT_SUCCESS);
+    CHECK((*recording.queue)->Enqueue(recording.queue, second, sizeof second) == SL_RESULT_SUCCESS);
+    SLuint32 state = 0;
+    CHECK((*recording.record)->GetRecordState(recording.record, &state) == SL_RESULT_SUCCESS &&
+          state == SL_RECORDSTATE_STOPPED);
+    CHECK((*recording.record)->SetRecordState(recording.record, SL_RECORDSTATE_RECORDING) == SL_RESULT_SUCCESS);
+    std::vector<float> tone(250);
+    for (size_t index = 0; index < tone.size(); ++index) tone[index] = (index % 2 == 0) ? 0.5f : -0.5f;
+    CHECK(within(kWait, [&] { return recorder_stream != 0; }));
+    // The first captures make the stream STARTED; write until both buffers are in.
+    CHECK(within(kWait, [&] {
+        apkrt_audio_input_write(recorder_stream, tone.data(), 50, 0);
+        return told.buffers.load() == 2;
+    }));
+    CHECK(first[0] == 16384 && first[1] == -16384 && first[99] == -16384 && second[0] == 16384);
+    SLAndroidSimpleBufferQueueState queue_state{};
+    CHECK((*recording.queue)->GetState(recording.queue, &queue_state) == SL_RESULT_SUCCESS);
+    CHECK(queue_state.count == 0 && queue_state.index == 2);
+    CHECK(told.positions.load() >= 1);
+    SLmillisecond position = 0;
+    CHECK((*recording.record)->GetPosition(recording.record, &position) == SL_RESULT_SUCCESS && position >= 12);
+    CHECK((*recording.record)->SetRecordState(recording.record, SL_RECORDSTATE_STOPPED) == SL_RESULT_SUCCESS);
+    (*recording.object)->Destroy(recording.object);
 }
 
 }  // namespace

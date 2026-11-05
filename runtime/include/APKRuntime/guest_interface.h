@@ -1487,6 +1487,8 @@ struct apkrt_axes_event {
 /// AudioTrack-backed streams do (AudioStreamTrack::getBufferSize is the track's frame count at the open).
 #define APKRT_AUDIO_BURSTS 8
 #define APKRT_AUDIO_FIRST_BURSTS 2
+/// An input stream's ring (ADR-0064): at least this many bursts, or the frames asked for in the open's buffer_size.
+#define APKRT_AUDIO_INPUT_BURSTS 64
 /// A stream's channels: 1 to this.
 #define APKRT_AUDIO_CHANNELS 8
 
@@ -1521,7 +1523,7 @@ struct apkrt_audio_config {
     int32_t capacity;          // out: APKRT_AUDIO_BURSTS bursts
     int32_t buffer_size;       // out: APKRT_AUDIO_FIRST_BURSTS bursts for LOW_LATENCY, else the capacity
     int32_t hardware_rate;     // out: Hz
-    int32_t reserved;
+    int32_t direction;         // in: 0 an output stream, 1 an input stream (ADR-0064); -EINVAL for any other value
 };
 
 /// What audio_status gives.
@@ -1538,10 +1540,13 @@ struct apkrt_audio_status {
 };
 
 /// audio_open, libaaudio's: x0 a struct apkrt_audio_config. Opens an output stream, and the host adds a node that
-/// plays it. Returns the stream's handle, above 0; -EFAULT for NULL; -EINVAL for a rate other than 0 or 8000 to
-/// 1600000, channels outside 1 to APKRT_AUDIO_CHANNELS or a performance mode AAudio lacks; -ENODEV when the host has
-/// no audio (apkrt_set_audio_host); -EMFILE when 64 streams are open; -ENOMEM without memory; -EIO when the host
-/// cannot open the stream.
+/// plays it; with direction 1 (ADR-0064) an input stream, which the host's input fills (apkrt_set_audio_input_host)
+/// and the guest drains with audio_read. An input stream's `capacity` frames are all its buffer (buffer_size equals
+/// it). Returns the stream's handle, above 0; -EFAULT for NULL; -EINVAL for a rate other than 0 or 8000 to 1600000,
+/// channels outside 1 to APKRT_AUDIO_CHANNELS, a performance mode AAudio lacks or a direction other than 0 and 1;
+/// -EACCES for an input stream unless the microphone grant is stored (apkrt_permission_answer); -ENODEV when the host
+/// has no audio (apkrt_set_audio_host) or no input (apkrt_set_audio_input_host); -EMFILE when 64 streams are open;
+/// -ENOMEM without memory; -EIO when the host cannot open the stream.
 #define APKRT_NR_AUDIO_OPEN 4111
 /// audio_close: x0 the handle. Ends the stream, whose waiters answer -EBADF, and the host drops its node. Returns 0;
 /// -EBADF for a handle that is no open stream.
@@ -1577,6 +1582,18 @@ struct apkrt_audio_status {
 /// leaves when it ends. Returns 0; -ENOENT when the output has no workgroup, -EBADF for a handle that is no open
 /// stream, -EINVAL for an x1 other than 0 and 1, or os_workgroup_join's error as a negated Linux errno.
 #define APKRT_NR_AUDIO_JOIN 4117
+/// audio_read (ADR-0064), an input stream's: x0 the handle, x1 a buffer for x2 frames of interleaved float32 (x2 × the
+/// channels), x3 a deadline (CLOCK_MONOTONIC, ns, as audio_write's and the status' `time`). Copies the frames the
+/// host's input has captured, oldest first, and while the stream is started waits until the deadline for the rest; a
+/// deadline that has passed, 0 included, does not wait. A stream that is not started gives what it still holds and
+/// never waits. Returns the frames read; when none were, -EPIPE once the stream is DISCONNECTED (also when the
+/// microphone grant is revoked), -EINTR for a deliverable signal; -EFAULT for NULL with frames, -EINVAL for x2 below
+/// 0, -EPERM for an output stream, -EBADF for a handle that is no open stream, also when it closes during the wait.
+/// For an input stream the status' frames_written are the frames the host captured, frames_read the frames the guest
+/// read (flushed ones included), and xruns the overruns: the captures that found the ring full and dropped its oldest
+/// frames. START, PAUSE, STOP and FLUSH work as for an output stream, except that a STOP does not play anything out,
+/// a FLUSH clears the ring and a READ takes frames only from a stream that is STARTING or STARTED.
+#define APKRT_NR_AUDIO_READ 4136
 
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the
 /// window's layer.

@@ -175,7 +175,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.ActivityManager --class android.view.autofill.AutofillManager \
   --class android.view.inputmethod.InputMethodManager --class android.view.textservice.TextServicesManager \
   --class android.view.textclassifier.TextClassificationManager --class android.media.AudioManager \
-  --class android.media.AudioTrack --class android.media.AudioDeviceInfo \
+  --class android.media.AudioTrack --class android.media.AudioRecord --class android.media.AudioDeviceInfo \
   --class android.media.MediaDrm --class android.media.MediaCrypto \
   --class android.media.MediaMetadataRetriever \
   --class android.media.tv.TvInputManager \

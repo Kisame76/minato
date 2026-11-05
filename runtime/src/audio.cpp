@@ -20,6 +20,7 @@
 
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
+#include "permissions.h"
 #include "signals.h"
 #include "syscalls.h"
 
@@ -75,7 +76,9 @@ struct Slot {
     bool disconnected_early = false;  // apkrt_audio_disconnected came for `opening`
 
     // Fixed from the open to the close.
-    apkrt_audio_host host{};  // the one that opened the stream, which closes it
+    apkrt_audio_host host{};  // the one that opened the stream, which closes it (an input host has the same shape)
+    bool input = false;       // an input stream (ADR-0064): the host writes the ring, the guest reads it
+    std::atomic<bool> host_closed{false};  // the host's close has run (a revoked grant closes it before the guest does)
     std::int32_t rate = 0;
     std::int32_t channels = 0;
     std::int32_t burst = 0;
@@ -110,6 +113,8 @@ std::mutex table_lock;  // the slots' use, generations and opens
 std::mutex host_lock;
 apkrt_audio_host current_host{};
 bool have_host = false;
+apkrt_audio_host current_input_host{};  // an apkrt_audio_input_host, which has the same shape
+bool have_input_host = false;
 
 std::atomic<std::int64_t> output_latency{0};  // ns
 std::mutex output_lock;
@@ -193,10 +198,10 @@ void copy_out(const Slot &slot, std::int64_t position, float *frames, std::int64
 }
 
 /// The render block's timestamp: `position` is heard at `host_time` (mach ticks) plus the output's latency.
-void stamp(Slot &slot, std::int64_t position, std::uint64_t host_time) {
+void stamp(Slot &slot, std::int64_t position, std::uint64_t host_time, std::int64_t latency) {
     const auto nanoseconds = host_time * timebase_numer.load(std::memory_order_relaxed) /
                              timebase_denom.load(std::memory_order_relaxed);
-    const std::int64_t time = static_cast<std::int64_t>(nanoseconds) + output_latency.load();
+    const std::int64_t time = static_cast<std::int64_t>(nanoseconds) + latency;
     const std::uint32_t sequence = slot.stamp_sequence.load(std::memory_order_relaxed);
     slot.stamp_sequence.store(sequence + 1, std::memory_order_relaxed);
     std::atomic_thread_fence(std::memory_order_release);
@@ -235,7 +240,7 @@ std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::ui
         if (taken > 0) {
             copy_out(slot, read, buffer, taken);
             slot.read.store(read + taken);
-            stamp(slot, read, host_time);
+            stamp(slot, read, host_time, output_latency.load());
             change = true;
         }
         if (state == APKRT_AUDIO_STARTED) {
@@ -252,8 +257,45 @@ std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::ui
     return taken;
 }
 
+/// The capture thread's write of `frames` frames to the input stream `slot`, whose handle it holds.
+std::int64_t take_capture(Slot &slot, const float *buffer, std::int64_t frames, std::uint64_t host_time) {
+    std::int32_t state = slot.state.load();
+    bool change = false;
+    // The first capture after a start makes the stream STARTED.
+    if (state == APKRT_AUDIO_STARTING && slot.state.compare_exchange_strong(state, APKRT_AUDIO_STARTED)) {
+        state = APKRT_AUDIO_STARTED;
+        change = true;
+    }
+    if (state != APKRT_AUDIO_STARTED) {
+        if (change) changed(slot);
+        return 0;
+    }
+    const std::int64_t capacity = slot.capacity;
+    std::int64_t skipped = 0;  // frames of the capture itself that cannot fit
+    if (frames > capacity) {
+        skipped = frames - capacity;
+        buffer += static_cast<std::size_t>(skipped) * static_cast<std::size_t>(slot.channels);
+        frames = capacity;
+    }
+    const std::int64_t written = slot.written.load();
+    bool overrun = skipped > 0;
+    std::int64_t read = slot.read.load();
+    // Room first: a full ring gives up its oldest frames, by moving `read` on, which the guest's read notices.
+    while (written + frames - read > capacity) {
+        overrun = true;
+        const std::int64_t oldest = written + frames - capacity;
+        if (slot.read.compare_exchange_weak(read, oldest)) break;
+    }
+    if (overrun) slot.xruns.fetch_add(1);
+    copy_in(slot, written, buffer, frames);
+    slot.written.store(written + frames);
+    stamp(slot, written, host_time, 0);
+    changed(slot);
+    return frames + skipped;
+}
+
 /// The state `command` gives from `state`, or `refused`.
-std::int32_t after(int command, std::int32_t state) {
+std::int32_t after(int command, std::int32_t state, bool input) {
     const bool playing = state == APKRT_AUDIO_STARTING || state == APKRT_AUDIO_STARTED;
     switch (command) {
         case APKRT_AUDIO_START:
@@ -263,6 +305,8 @@ std::int32_t after(int command, std::int32_t state) {
         case APKRT_AUDIO_FLUSH:
             return playing ? refused : APKRT_AUDIO_FLUSHED;
         case APKRT_AUDIO_STOP:
+            // An input stream stops at once; the frames it holds stay for the guest to read.
+            if (input) return APKRT_AUDIO_STOPPED;
             // As AudioTrack's stop: what a started stream holds still plays.
             if (playing) return playing_out;
             return state == playing_out ? playing_out : APKRT_AUDIO_STOPPED;
@@ -356,14 +400,18 @@ long open(std::uint64_t config_address) {
     const apkrt_audio_config asked = *config;
     if ((asked.sample_rate != 0 && (asked.sample_rate < lowest_rate || asked.sample_rate > highest_rate)) ||
         asked.channels < 1 || asked.channels > APKRT_AUDIO_CHANNELS || asked.performance_mode < mode_none ||
-        asked.performance_mode > mode_low_latency) {
+        asked.performance_mode > mode_low_latency || asked.direction < 0 || asked.direction > 1) {
         return -linux_errno::einval;
+    }
+    const bool input = asked.direction == 1;
+    if (input && permissions::outcome(APKRT_PERMISSION_MICROPHONE) != APKRT_PERMISSION_GRANTED) {
+        return -linux_errno::eacces;  // not asked yet counts as not granted
     }
     apkrt_audio_host host{};
     {
         const std::lock_guard hold(host_lock);
-        if (!have_host) return -linux_errno::enodev;
-        host = current_host;
+        if (!(input ? have_input_host : have_host)) return -linux_errno::enodev;
+        host = input ? current_input_host : current_host;
     }
     Slot *slot = nullptr;
     std::uint64_t handle = 0;
@@ -405,11 +453,18 @@ long open(std::uint64_t config_address) {
         return give_up(-linux_errno::eio);
     }
     const auto burst = static_cast<std::int32_t>(burst_frames);
-    const std::int32_t capacity = APKRT_AUDIO_BURSTS * burst;
+    std::int32_t capacity = APKRT_AUDIO_BURSTS * burst;
+    if (input) {
+        // An input ring holds what accumulates between the guest's reads: APKRT_AUDIO_INPUT_BURSTS bursts, or the
+        // frames the guest asked for in `buffer_size` (at most ten seconds), rounded up to a burst.
+        const std::int64_t wanted = std::clamp<std::int64_t>(asked.buffer_size, 0, std::int64_t{10} * rate);
+        const std::int64_t bursts = std::max<std::int64_t>(APKRT_AUDIO_INPUT_BURSTS, (wanted + burst - 1) / burst);
+        capacity = static_cast<std::int32_t>(bursts * burst);
+    }
     // As Android 15's streams start: a LOW_LATENCY one (MMAP) at two bursts, the others (AudioStreamTrack, whose
     // getBufferSize is the AudioTrack's frameCount at the open, AudioStreamTrack.cpp:211 and :500) at the capacity.
     const std::int32_t first_buffer_size =
-        asked.performance_mode == mode_low_latency ? APKRT_AUDIO_FIRST_BURSTS * burst : capacity;
+        !input && asked.performance_mode == mode_low_latency ? APKRT_AUDIO_FIRST_BURSTS * burst : capacity;
     float *ring = new (std::nothrow) float[static_cast<std::size_t>(capacity) * static_cast<std::size_t>(asked.channels)];
     if (ring == nullptr) {
         host.close(host.context, handle);
@@ -421,6 +476,8 @@ long open(std::uint64_t config_address) {
     timebase_numer.store(base.numer, std::memory_order_relaxed);
     timebase_denom.store(base.denom, std::memory_order_relaxed);
     slot->host = host;
+    slot->input = input;
+    slot->host_closed.store(false);
     slot->rate = rate;
     slot->channels = asked.channels;
     slot->burst = burst;
@@ -459,7 +516,7 @@ long close(std::uint64_t handle) {
     slot->closing.store(handle);
     changed(*slot);  // the waiting guests find the stream gone
     while (slot->guests.load() != 1 || slot->readers.load() != 0) sched_yield();
-    slot->host.close(slot->host.context, handle);
+    if (!slot->host_closed.exchange(true)) slot->host.close(slot->host.context, handle);
     delete[] slot->ring;
     slot->ring = nullptr;
     const std::lock_guard hold(table_lock);
@@ -487,7 +544,7 @@ long control(std::uint64_t handle, std::uint64_t command, std::int64_t argument)
     std::int32_t state = slot->state.load();
     while (true) {
         if (state == APKRT_AUDIO_DISCONNECTED) return -linux_errno::epipe;
-        const std::int32_t next = after(request, state);
+        const std::int32_t next = after(request, state, slot->input);
         if (next == refused) return -linux_errno::eperm;
         if (request == APKRT_AUDIO_START && next != state) slot->starts.fetch_add(1);
         if (next == playing_out && state != playing_out) slot->stop_at.store(slot->written.load());  // under guest_lock
@@ -508,6 +565,7 @@ long write(std::uint64_t handle, std::uint64_t frames_address, std::int64_t fram
     const Entry entry(handle);
     Slot *slot = entry.slot();
     if (slot == nullptr) return -linux_errno::ebadf;
+    if (slot->input) return -linux_errno::eperm;
     if (frames < 0) return -linux_errno::einval;
     if (frames == 0) return 0;
     const auto *source = sys::as_pointer<const float>(frames_address);
@@ -542,6 +600,68 @@ long write(std::uint64_t handle, std::uint64_t frames_address, std::int64_t fram
             case Woken::signal:
                 return taken > 0 ? taken : -linux_errno::eintr;
         }
+    }
+}
+
+long read(std::uint64_t handle, std::uint64_t buffer_address, std::int64_t frames, std::int64_t deadline) {
+    const Entry entry(handle);
+    Slot *slot = entry.slot();
+    if (slot == nullptr) return -linux_errno::ebadf;
+    if (!slot->input) return -linux_errno::eperm;
+    if (frames < 0) return -linux_errno::einval;
+    if (frames == 0) return 0;
+    auto *destination = sys::as_pointer<float>(buffer_address);
+    if (destination == nullptr) return -linux_errno::efault;
+    const auto channels = static_cast<std::size_t>(slot->channels);
+    std::int64_t taken = 0;
+    while (true) {
+        {
+            const std::lock_guard hold(slot->guest_lock);
+            if (slot->state.load() == APKRT_AUDIO_DISCONNECTED) return taken > 0 ? taken : -linux_errno::epipe;
+            const std::int64_t position = slot->read.load();
+            const std::int64_t count = std::min(slot->written.load() - position, frames - taken);
+            if (count > 0) {
+                copy_out(*slot, position, destination + static_cast<std::size_t>(taken) * channels, count);
+                // The host drops the oldest frames of a full ring by moving `read` on, and may have written over
+                // what was copied: the claim fails then, and the copy is made again.
+                std::int64_t expected = position;
+                if (!slot->read.compare_exchange_strong(expected, position + count)) continue;
+                taken += count;
+                changed(*slot);
+            }
+        }
+        if (taken == frames || passed(deadline)) return taken;
+        const auto plays = [&] {
+            const std::int32_t state = slot->state.load();
+            return state == APKRT_AUDIO_STARTING || state == APKRT_AUDIO_STARTED;
+        };
+        if (!plays()) return taken;  // a stream that does not capture gives what it holds and waits for nothing
+        const auto has_frames = [&] {
+            return slot->state.load() == APKRT_AUDIO_DISCONNECTED || !plays() ||
+                   slot->written.load() - slot->read.load() > 0;
+        };
+        switch (wait_on(*slot, handle, has_frames, deadline)) {
+            case Woken::done:
+                break;
+            case Woken::closed:
+                return -linux_errno::ebadf;
+            case Woken::timeout:
+                return taken;
+            case Woken::signal:
+                return taken > 0 ? taken : -linux_errno::eintr;
+        }
+    }
+}
+
+void revoke_input() {
+    for (Slot &slot : slots) {
+        const std::uint64_t handle = slot.handle.load();
+        if (handle == 0 || !slot.input) continue;
+        Entry entry(handle);  // the close cannot free the stream while the revoke is inside
+        if (entry.slot() == nullptr) continue;
+        if (slot.state.exchange(APKRT_AUDIO_DISCONNECTED) != APKRT_AUDIO_DISCONNECTED) changed(slot);
+        wait_out_reads(slot);
+        if (!slot.host_closed.exchange(true)) slot.host.close(slot.host.context, handle);
     }
 }
 
@@ -626,6 +746,26 @@ int apkrt_set_audio_host(const apkrt_audio_host *host) {
     have_host = host != nullptr;
     current_host = host != nullptr ? *host : apkrt_audio_host{};
     return 0;
+}
+
+int apkrt_set_audio_input_host(const apkrt_audio_input_host *host) {
+    if (host != nullptr && (host->open == nullptr || host->close == nullptr)) return -1;
+    const std::lock_guard hold(host_lock);
+    have_input_host = host != nullptr;
+    current_input_host = host != nullptr ? apkrt_audio_host{host->context, host->open, host->close}
+                                         : apkrt_audio_host{};
+    return 0;
+}
+
+int64_t apkrt_audio_input_write(uint64_t stream, const float *buffer, int64_t frames, uint64_t host_time) {
+    if (buffer == nullptr || frames <= 0) return 0;
+    Slot *slot = slot_of(stream);
+    if (slot == nullptr) return 0;
+    slot->readers.fetch_add(1);
+    std::int64_t taken = 0;
+    if (slot->handle.load() == stream && slot->input) taken = take_capture(*slot, buffer, frames, host_time);
+    slot->readers.fetch_sub(1);
+    return taken;
 }
 
 int64_t apkrt_audio_read(uint64_t stream, float *buffer, int64_t frames, uint64_t host_time) {

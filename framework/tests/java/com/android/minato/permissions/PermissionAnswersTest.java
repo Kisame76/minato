@@ -86,6 +86,23 @@ public final class PermissionAnswersTest {
         }
     }
 
+    public void testTheMicrophoneIsItsOwnGroup() {
+        String record = "android.permission.RECORD_AUDIO";
+        PermissionAnswers answers = new PermissionAnswers();
+        check(!answers.granted(record) && answers.mustAsk(record), "denied and askable before the first answer");
+        answers.answer(PermissionPolicy.GROUP_MICROPHONE, PermissionAnswers.DENIED, true);
+        check(answers.shouldShowRationale(record) && answers.mustAsk(record), "rationale after one denial");
+        check(!answers.shouldShowRationale(FINE) && !answers.granted(FINE), "location is untouched");
+        answers.answer(PermissionPolicy.GROUP_MICROPHONE, PermissionAnswers.DENIED, true);
+        check(!answers.mustAsk(record) && !answers.shouldShowRationale(record), "don't ask again after the second");
+        answers.answer(PermissionPolicy.GROUP_MICROPHONE, PermissionAnswers.GRANTED_FINE, false);
+        check(answers.granted(record) && !answers.granted(FINE), "a re-read grants only the microphone");
+        answers.answer(PermissionPolicy.GROUP_MICROPHONE, PermissionAnswers.GRANTED_COARSE, false);
+        check(!answers.granted(record), "the microphone has no coarse grant");
+        answers.answer(LOCATION, PermissionAnswers.GRANTED_FINE, true);
+        check(answers.granted(FINE) && !answers.granted(record), "groups do not mix");
+    }
+
     public static void main(String[] args) throws Exception {
         int failed = 0, run = 0;
         for (Method test : PermissionAnswersTest.class.getDeclaredMethods()) {

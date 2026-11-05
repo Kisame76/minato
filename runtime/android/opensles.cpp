@@ -16,6 +16,11 @@
 // is not of the output mix. Once a Destroy begins, no callback starts; an output mix that players play into, and an
 // engine whose objects live, ignore their Destroy, as Android 15's. Every other part answers
 // SL_RESULT_FEATURE_UNSUPPORTED and logs once.
+//
+// Audio recorders (ADR-0064): from the default audio input device into a buffer queue of PCM, on an input stream of
+// libaaudio in callback mode. CreateAudioRecorder answers SL_RESULT_PERMISSION_DENIED without the microphone grant.
+// The stream's thread fills the front buffer, tells the app when one is full, and loses frames that find the queue
+// empty; RECORD has the states, the position, the marker and the new-position events.
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 #include <SLES/OpenSLES_AndroidConfiguration.h>
@@ -25,6 +30,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "APKRuntime/guest_interface.h"
 
@@ -135,7 +141,7 @@ SLresult unsupported(int what, const char* name) {
 
 // MARK: - Objects and their interfaces
 
-enum class Kind : int { engine, output_mix, player };
+enum class Kind : int { engine, output_mix, player, recorder };
 
 struct Object;
 
@@ -207,6 +213,36 @@ struct Player : Object {
     float gain, gain_left, gain_right;
 };
 
+/// An audio recorder (ADR-0064): a buffer queue of PCM that the microphone fills, from a FLOAT input stream of
+/// libaaudio in callback mode. A buffer that is full goes to the app's callback, as wilhelm's does; frames that come
+/// while the queue is empty are lost.
+struct Recorder : Object {
+    Itf record_itf, queue_itf, configuration_itf;
+    Sample sample;
+    int32_t channels;
+    int32_t rate;  // Hz
+    SLuint32 frame_bytes;
+    SLuint32 preset;  // ANDROIDCONFIGURATION's recording preset, kept and not used
+    AAudioStream* stream;
+    bool destroyed;  // Destroy began (atomic)
+    SLuint32 record_state;
+    // The buffer queue: `count` buffers from `front` in a ring of `capacity`; `filled` bytes of the front one are in.
+    struct Slot {
+        uint8_t* data;
+        SLuint32 size;
+    }* buffers;
+    SLuint32 capacity, front, count, index, filled;
+    slAndroidSimpleBufferQueueCallback queue_callback;
+    void* queue_context;
+    // RECORD
+    slRecordCallback record_callback;
+    void* record_context;
+    SLuint32 event_mask;
+    SLmillisecond period, next_position, marker;
+    bool has_marker, marker_passed;
+    int64_t recorded;  // frames in buffers since the last STOPPED or Clear
+};
+
 /// Holds a mutex for its scope.
 struct Hold {
     explicit Hold(pthread_mutex_t* mutex) : held(mutex) { pthread_mutex_lock(held); }
@@ -251,6 +287,18 @@ Offer offer(Kind kind, int index) {
             return index == k_ENGINE ? Offer::always : Offer::none;
         case Kind::output_mix:
             return Offer::none;
+        case Kind::recorder:
+            switch (index) {
+                case k_RECORD:
+                    return Offer::always;
+                case k_BUFFERQUEUE:
+                case k_ANDROIDSIMPLEBUFFERQUEUE:
+                    return Offer::asked;
+                case k_ANDROIDCONFIGURATION:
+                    return Offer::asked_early;
+                default:
+                    return Offer::none;
+            }
         case Kind::player:
             switch (index) {
                 case k_PLAY:
@@ -298,6 +346,12 @@ bool asked_for(const Object* object, int index) {
 void* interface_at(Object* object, int index) {
     if (index == k_OBJECT) return &object->self;
     if (object->kind == Kind::engine) return &static_cast<Engine*>(object)->engine;
+    if (object->kind == Kind::recorder) {
+        auto* recorder = static_cast<Recorder*>(object);
+        return index == k_RECORD ? &recorder->record_itf
+               : index == k_ANDROIDCONFIGURATION ? &recorder->configuration_itf
+                                                 : &recorder->queue_itf;
+    }
     auto* player = static_cast<Player*>(object);
     switch (index) {
         case k_PLAY:
@@ -583,6 +637,140 @@ bool close_stream(Player* player) {
     return true;
 }
 
+// MARK: - Recorders: the stream and its fills
+
+bool recorder_destroyed(const Recorder* recorder) {
+    return __atomic_load_n(&recorder->destroyed, __ATOMIC_ACQUIRE);
+}
+
+/// `frames` float frames as the recorder's sample format into `to`.
+void convert_in(const Recorder* recorder, const float* from, uint8_t* to, int32_t frames) {
+    const int64_t samples = int64_t{frames} * recorder->channels;
+    for (int64_t index = 0; index < samples; ++index) {
+        const float value = from[index] < -1.0f ? -1.0f : from[index] > 1.0f ? 1.0f : from[index];
+        switch (recorder->sample) {
+            case Sample::u8:
+                *to++ = static_cast<uint8_t>(value * 127.0f + 128.0f + 0.5f);
+                break;
+            case Sample::s16: {
+                const auto sample =
+                    static_cast<int16_t>(value >= 1.0f ? 32767 : static_cast<int32_t>(value * 32768.0f));
+                memcpy(to, &sample, sizeof(sample));
+                to += sizeof(sample);
+                break;
+            }
+            case Sample::s24: {
+                const int32_t sample = value >= 1.0f ? 8388607 : static_cast<int32_t>(value * 8388608.0f);
+                *to++ = static_cast<uint8_t>(sample);
+                *to++ = static_cast<uint8_t>(sample >> 8);
+                *to++ = static_cast<uint8_t>(sample >> 16);
+                break;
+            }
+            case Sample::s32: {
+                const int32_t sample =
+                    value >= 1.0f ? INT32_MAX : static_cast<int32_t>(static_cast<double>(value) * 2147483648.0);
+                memcpy(to, &sample, sizeof(sample));
+                to += sizeof(sample);
+                break;
+            }
+            case Sample::f32:
+                memcpy(to, &value, sizeof(value));
+                to += sizeof(value);
+                break;
+        }
+    }
+}
+
+/// The stream's data callback, on its thread: the captured frames go into the queue's front buffer; a buffer that
+/// fills is told to the app after the frames are in. Frames that find the queue empty are lost.
+aaudio_data_callback_result_t capture(AAudioStream*, void* user, void* audio, int32_t frames) {
+    auto* recorder = static_cast<Recorder*>(user);
+    const auto* in = static_cast<const float*>(audio);
+    pthread_mutex_lock(&recorder->lock);
+    int32_t done = 0;
+    uint32_t completed = 0;
+    while (done < frames && recorder->record_state == SL_RECORDSTATE_RECORDING && !recorder_destroyed(recorder) &&
+           recorder->count > 0) {
+        const Recorder::Slot& buffer = recorder->buffers[recorder->front];
+        const auto room = static_cast<int32_t>((buffer.size - recorder->filled) / recorder->frame_bytes);
+        const int32_t taken = room < frames - done ? room : frames - done;
+        convert_in(recorder, in + int64_t{done} * recorder->channels, buffer.data + recorder->filled, taken);
+        recorder->filled += static_cast<SLuint32>(taken) * recorder->frame_bytes;
+        recorder->recorded += taken;
+        done += taken;
+        if (buffer.size - recorder->filled < recorder->frame_bytes) {  // full; a part of a frame is left out
+            recorder->front = (recorder->front + 1) % recorder->capacity;
+            --recorder->count;
+            ++recorder->index;
+            recorder->filled = 0;
+            ++completed;
+        }
+    }
+    const SLmillisecond now = static_cast<SLmillisecond>(recorder->recorded * 1'000 / recorder->rate);
+    int positions = 0;
+    if (recorder->record_state == SL_RECORDSTATE_RECORDING) {
+        for (; recorder->period > 0 && now >= recorder->next_position; recorder->next_position += recorder->period) {
+            ++positions;
+        }
+    }
+    const bool at_marker = recorder->has_marker && recorder->marker > 0 && !recorder->marker_passed &&
+                           now >= recorder->marker && done > 0;
+    if (at_marker) recorder->marker_passed = true;
+    const slAndroidSimpleBufferQueueCallback queue_callback = recorder->queue_callback;
+    void* queue_context = recorder->queue_context;
+    const slRecordCallback record_callback = recorder->record_callback;
+    void* record_context = recorder->record_context;
+    const SLuint32 mask = recorder->event_mask;
+    pthread_mutex_unlock(&recorder->lock);
+    for (; queue_callback != nullptr && completed > 0 && !recorder_destroyed(recorder); --completed) {
+        queue_callback(handle_of<SLAndroidSimpleBufferQueueItf>(&recorder->queue_itf), queue_context);
+    }
+    const auto record = handle_of<SLRecordItf>(&recorder->record_itf);
+    if (record_callback != nullptr) {
+        if ((mask & SL_RECORDEVENT_HEADATMARKER) != 0 && at_marker && !recorder_destroyed(recorder)) {
+            record_callback(record, record_context, SL_RECORDEVENT_HEADATMARKER);
+        }
+        for (; (mask & SL_RECORDEVENT_HEADATNEWPOS) != 0 && positions > 0 && !recorder_destroyed(recorder);
+             --positions) {
+            record_callback(record, record_context, SL_RECORDEVENT_HEADATNEWPOS);
+        }
+    }
+    return AAUDIO_CALLBACK_RESULT_CONTINUE;
+}
+
+void on_recorder_error(AAudioStream*, void*, aaudio_result_t error) {
+    if (error == AAUDIO_ERROR_DISCONNECTED && first_time(kDisconnected)) {
+        SL_LOG(WARN, "a recorder's stream is disconnected: the recorder records nothing");
+    }
+}
+
+/// Opens the recorder's stream at Realize, with the lock held. Without the microphone grant it fails as Android's does.
+SLresult open_recorder(Recorder* recorder) {
+    AAudioStreamBuilder* builder = nullptr;
+    if (AAudio_createStreamBuilder(&builder) != AAUDIO_OK) return SL_RESULT_MEMORY_FAILURE;
+    AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
+    AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
+    AAudioStreamBuilder_setChannelCount(builder, recorder->channels);
+    AAudioStreamBuilder_setSampleRate(builder, recorder->rate);
+    AAudioStreamBuilder_setInputPreset(builder, static_cast<aaudio_input_preset_t>(recorder->preset));
+    AAudioStreamBuilder_setDataCallback(builder, capture, recorder);
+    AAudioStreamBuilder_setErrorCallback(builder, on_recorder_error, recorder);
+    const aaudio_result_t opened = AAudioStreamBuilder_openStream(builder, &recorder->stream);
+    AAudioStreamBuilder_delete(builder);
+    if (opened == AAUDIO_OK) return SL_RESULT_SUCCESS;
+    SL_LOG(ERROR, "Realize: the recorder has no stream (%s)", AAudio_convertResultToText(opened));
+    recorder->stream = nullptr;
+    return SL_RESULT_CONTENT_UNSUPPORTED;
+}
+
+void close_recorder(Recorder* recorder) {
+    pthread_mutex_lock(&recorder->lock);
+    __atomic_store_n(&recorder->destroyed, true, __ATOMIC_RELEASE);
+    AAudioStream* stream = recorder->stream;
+    pthread_mutex_unlock(&recorder->lock);
+    if (stream != nullptr) AAudioStream_close(stream);  // ends its thread, after a callback under way
+}
+
 // MARK: - SLObjectItf
 
 SLresult realize(SLObjectItf self, SLboolean async) {
@@ -592,8 +780,9 @@ SLresult realize(SLObjectItf self, SLboolean async) {
         pthread_mutex_unlock(&object->lock);
         return SL_RESULT_PRECONDITIONS_VIOLATED;
     }
-    const SLresult result =
-        object->kind == Kind::player ? open_stream(static_cast<Player*>(object)) : SL_RESULT_SUCCESS;
+    const SLresult result = object->kind == Kind::player     ? open_stream(static_cast<Player*>(object))
+                            : object->kind == Kind::recorder ? open_recorder(static_cast<Recorder*>(object))
+                                                             : SL_RESULT_SUCCESS;
     if (result == SL_RESULT_SUCCESS) object->state = SL_OBJECT_STATE_REALIZED;
     const SLuint32 state = object->state;
     const slObjectCallback callback = object->callback;
@@ -666,7 +855,12 @@ void destroy(SLObjectItf self) {
                dependants, object->kind == Kind::engine ? "objects live" : "players play into it");
         return;
     }
-    if (object->kind == Kind::player) {
+    if (object->kind == Kind::recorder) {
+        auto* recorder = static_cast<Recorder*>(object);
+        close_recorder(recorder);
+        __atomic_sub_fetch(&recorder->maker->dependants, 1u, __ATOMIC_ACQ_REL);
+        free(recorder->buffers);
+    } else if (object->kind == Kind::player) {
         auto* player = static_cast<Player*>(object);
         const bool closed = close_stream(player);
         __atomic_sub_fetch(&player->mix->dependants, 1u, __ATOMIC_ACQ_REL);
@@ -875,6 +1069,197 @@ SLresult register_queue_callback(SLAndroidSimpleBufferQueueItf self, slAndroidSi
 }
 
 const SLAndroidSimpleBufferQueueItf_ kQueueVtable = {enqueue, clear, get_queue_state, register_queue_callback};
+
+// MARK: - SLRecordItf, and the recorder's queue and configuration
+
+bool is_key(const SLchar* key, const SLchar* name);
+SLresult acquire_java_proxy(SLAndroidConfigurationItf, SLuint32, jobject*);
+SLresult release_java_proxy(SLAndroidConfigurationItf, SLuint32);
+
+Recorder* recorder_of(const void* handle) {
+    return static_cast<Recorder*>(object_of(handle));
+}
+
+SLresult set_record_state(SLRecordItf self, SLuint32 state) {
+    if (state != SL_RECORDSTATE_STOPPED && state != SL_RECORDSTATE_PAUSED && state != SL_RECORDSTATE_RECORDING) {
+        return SL_RESULT_PARAMETER_INVALID;
+    }
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    if (state == recorder->record_state) return SL_RESULT_SUCCESS;
+    if (state == SL_RECORDSTATE_RECORDING) {
+        AAudioStream_requestStart(recorder->stream);
+    } else if (state == SL_RECORDSTATE_PAUSED) {
+        AAudioStream_requestPause(recorder->stream);
+    } else {
+        AAudioStream_requestStop(recorder->stream);
+        recorder->recorded = 0;
+        recorder->next_position = recorder->period;
+        recorder->marker_passed = false;
+    }
+    recorder->record_state = state;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult get_record_state(SLRecordItf self, SLuint32* state) {
+    if (state == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    *state = recorder->record_state;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult set_duration_limit(SLRecordItf, SLmillisecond) {
+    return unsupported(kRecorder, "SetDurationLimit");
+}
+
+SLresult get_record_position(SLRecordItf self, SLmillisecond* position) {
+    if (position == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    *position = static_cast<SLmillisecond>(recorder->recorded * 1'000 / recorder->rate);
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult register_record_callback(SLRecordItf self, slRecordCallback callback, void* context) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    recorder->record_callback = callback;
+    recorder->record_context = context;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult set_record_events_mask(SLRecordItf self, SLuint32 mask) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    recorder->event_mask = mask;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult get_record_events_mask(SLRecordItf self, SLuint32* mask) {
+    if (mask == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    *mask = recorder->event_mask;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult set_record_marker(SLRecordItf self, SLmillisecond marker) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    recorder->marker = marker;
+    recorder->has_marker = true;
+    recorder->marker_passed = false;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult clear_record_marker(SLRecordItf self) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    recorder->has_marker = false;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult get_record_marker(SLRecordItf self, SLmillisecond* marker) {
+    if (marker == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    if (!recorder->has_marker) return SL_RESULT_PRECONDITIONS_VIOLATED;
+    *marker = recorder->marker;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult set_record_period(SLRecordItf self, SLmillisecond period) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    recorder->period = period;
+    recorder->next_position = period;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult get_record_period(SLRecordItf self, SLmillisecond* period) {
+    if (period == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    *period = recorder->period;
+    return SL_RESULT_SUCCESS;
+}
+
+const SLRecordItf_ kRecordVtable = {set_record_state,     get_record_state,        set_duration_limit,
+                                    get_record_position,  register_record_callback, set_record_events_mask,
+                                    get_record_events_mask, set_record_marker,     clear_record_marker,
+                                    get_record_marker,    set_record_period,       get_record_period};
+
+SLresult record_enqueue(SLAndroidSimpleBufferQueueItf self, const void* buffer, SLuint32 size) {
+    if (buffer == nullptr || size == 0) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    if (recorder->count == recorder->capacity) return SL_RESULT_BUFFER_INSUFFICIENT;
+    recorder->buffers[(recorder->front + recorder->count) % recorder->capacity] = {
+        const_cast<uint8_t*>(static_cast<const uint8_t*>(buffer)), size};  // the app's buffer, which the recorder fills
+    ++recorder->count;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult record_clear(SLAndroidSimpleBufferQueueItf self) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    recorder->front = recorder->count = recorder->index = recorder->filled = 0;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult record_queue_state(SLAndroidSimpleBufferQueueItf self, SLAndroidSimpleBufferQueueState* state) {
+    if (state == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    *state = {recorder->count, recorder->index};
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult register_record_queue_callback(SLAndroidSimpleBufferQueueItf self,
+                                        slAndroidSimpleBufferQueueCallback callback, void* context) {
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    if (recorder->record_state != SL_RECORDSTATE_STOPPED) return SL_RESULT_PRECONDITIONS_VIOLATED;
+    recorder->queue_callback = callback;
+    recorder->queue_context = context;
+    return SL_RESULT_SUCCESS;
+}
+
+const SLAndroidSimpleBufferQueueItf_ kRecordQueueVtable = {record_enqueue, record_clear, record_queue_state,
+                                                           register_record_queue_callback};
+
+SLresult set_record_configuration(SLAndroidConfigurationItf self, const SLchar* key, const void* value, SLuint32 size) {
+    if (key == nullptr || value == nullptr || size == 0) return SL_RESULT_PARAMETER_INVALID;
+    if (!is_key(key, SL_ANDROID_KEY_RECORDING_PRESET)) return SL_RESULT_PARAMETER_INVALID;
+    if (size < sizeof(SLuint32)) return SL_RESULT_BUFFER_INSUFFICIENT;
+    SLuint32 given;
+    memcpy(&given, value, sizeof(given));
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    if (recorder->state != SL_OBJECT_STATE_UNREALIZED) return SL_RESULT_PRECONDITIONS_VIOLATED;
+    if (given > SL_ANDROID_RECORDING_PRESET_UNPROCESSED) return SL_RESULT_PARAMETER_INVALID;
+    recorder->preset = given;
+    return SL_RESULT_SUCCESS;
+}
+
+SLresult get_record_configuration(SLAndroidConfigurationItf self, const SLchar* key, SLuint32* size, void* value) {
+    if (key == nullptr || size == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    if (!is_key(key, SL_ANDROID_KEY_RECORDING_PRESET)) return SL_RESULT_PARAMETER_INVALID;
+    Recorder* recorder = recorder_of(self);
+    const Hold hold(&recorder->lock);
+    SLresult result = SL_RESULT_SUCCESS;
+    if (value != nullptr && *size < sizeof(SLuint32)) {
+        result = SL_RESULT_BUFFER_INSUFFICIENT;
+    } else if (value != nullptr) {
+        memcpy(value, &recorder->preset, sizeof(SLuint32));
+    }
+    *size = sizeof(SLuint32);
+    return result;
+}
+
+const SLAndroidConfigurationItf_ kRecordConfigurationVtable = {set_record_configuration, get_record_configuration,
+                                                               acquire_java_proxy, release_java_proxy};
 
 // MARK: - SLVolumeItf
 
@@ -1221,9 +1606,63 @@ SLresult create_vibra_device(SLEngineItf, SLObjectItf* device, SLuint32, SLuint3
     return not_created(device, kVibraDevice, "CreateVibraDevice");
 }
 
-SLresult create_audio_recorder(SLEngineItf, SLObjectItf* recorder, SLDataSource*, SLDataSink*, SLuint32,
-                               const SLInterfaceID*, const SLboolean*) {
-    return not_created(recorder, kRecorder, "CreateAudioRecorder");  // recording needs the microphone (M3: none)
+/// Whether the microphone grant is stored (the runtime's APKRT_LOCATION_PERMISSION read answers 0 for denied or not
+/// asked yet).
+bool microphone_granted() {
+    return syscall(APKRT_NR_LOCATION, uint64_t{APKRT_LOCATION_PERMISSION}, uint64_t{APKRT_PERMISSION_MICROPHONE}) > 0;
+}
+
+SLresult create_audio_recorder(SLEngineItf self, SLObjectItf* pRecorder, SLDataSource* data, SLDataSink* sink,
+                               SLuint32 count, const SLInterfaceID* ids, const SLboolean* required) {
+    if (pRecorder == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    *pRecorder = nullptr;
+    uint64_t asked = 0;
+    SLresult result = take_interfaces(Kind::recorder, count, ids, required, &asked);
+    if (result != SL_RESULT_SUCCESS) return result;
+    // The source: the default audio input device.
+    if (data == nullptr || data->pLocator == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    if (*static_cast<const SLuint32*>(data->pLocator) != SL_DATALOCATOR_IODEVICE) {
+        return unsupported(kDataLocator, "A recorder from another data locator than an I/O device");
+    }
+    const auto* device = static_cast<const SLDataLocator_IODevice*>(data->pLocator);
+    if (device->deviceType != SL_IODEVICE_AUDIOINPUT || device->deviceID != SL_DEFAULTDEVICEID_AUDIOINPUT) {
+        return SL_RESULT_PARAMETER_INVALID;
+    }
+    // The sink: a buffer queue of PCM.
+    if (sink == nullptr || sink->pLocator == nullptr) return SL_RESULT_PARAMETER_INVALID;
+    const SLuint32 locator = *static_cast<const SLuint32*>(sink->pLocator);
+    if (locator != SL_DATALOCATOR_BUFFERQUEUE && locator != SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE) {
+        return unsupported(kDataLocator, "A recorder to another data locator than a buffer queue");
+    }
+    Source format{};
+    format.buffers = static_cast<const SLDataLocator_BufferQueue*>(sink->pLocator)->numBuffers;
+    if (format.buffers == 0 || format.buffers > 255) return SL_RESULT_PARAMETER_INVALID;
+    result = check_format(sink->pFormat, &format);
+    if (result != SL_RESULT_SUCCESS) return result;
+    if (!microphone_granted()) return SL_RESULT_PERMISSION_DENIED;
+    auto* recorder = static_cast<Recorder*>(calloc(1, sizeof(Recorder)));
+    auto* buffers = static_cast<Recorder::Slot*>(calloc(format.buffers, sizeof(Recorder::Slot)));
+    if (recorder == nullptr || buffers == nullptr) {
+        free(recorder);
+        free(buffers);
+        return SL_RESULT_MEMORY_FAILURE;
+    }
+    init_object(recorder, Kind::recorder, asked);
+    recorder->maker = object_of(self);
+    __atomic_add_fetch(&recorder->maker->dependants, 1u, __ATOMIC_ACQ_REL);
+    recorder->record_itf = {&kRecordVtable, recorder};
+    recorder->queue_itf = {&kRecordQueueVtable, recorder};
+    recorder->configuration_itf = {&kRecordConfigurationVtable, recorder};
+    recorder->sample = format.sample;
+    recorder->channels = static_cast<int32_t>(format.channels);
+    recorder->rate = static_cast<int32_t>(format.rate);
+    recorder->frame_bytes = format.frame_bytes;
+    recorder->preset = SL_ANDROID_RECORDING_PRESET_GENERIC;
+    recorder->record_state = SL_RECORDSTATE_STOPPED;
+    recorder->buffers = buffers;
+    recorder->capacity = format.buffers;
+    *pRecorder = handle_of(recorder);
+    return SL_RESULT_SUCCESS;
 }
 
 SLresult create_midi_player(SLEngineItf, SLObjectItf* player, SLDataSource*, SLDataSource*, SLDataSink*, SLDataSink*,

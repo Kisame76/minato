@@ -123,8 +123,17 @@ public final class PermissionPolicyTest {
     public void testBackgroundLocationAndOtherGroupsStayDenied() {
         check(grant("android.permission.ACCESS_BACKGROUND_LOCATION", DANGEROUS, 35) == Grant.DENIED_FIXED,
                 "background location is not offered (ADR-0063 decision 2)");
-        check(grant("android.permission.RECORD_AUDIO", DANGEROUS, 35) == Grant.DENIED_FIXED, "RECORD_AUDIO waits for ADR-0064");
         check(grant("android.permission.CAMERA", DANGEROUS, 35) == Grant.DENIED_FIXED, "CAMERA");
+    }
+
+    public void testTheMicrophoneIsTheHostsToDecideToo() {
+        check(grant("android.permission.RECORD_AUDIO", DANGEROUS, 35) == Grant.ASK_HOST, "RECORD_AUDIO (ADR-0064)");
+        check(grant("android.permission.RECORD_AUDIO", DANGEROUS, 22) == Grant.GRANTED,
+                "below 23 is Android's old model");
+        check(PermissionPolicy.hostGroup("android.permission.RECORD_AUDIO") == PermissionPolicy.GROUP_MICROPHONE,
+                "its group");
+        check(PermissionPolicy.decide("android.permission.RECORD_AUDIO", DANGEROUS, 35, false, false).grant
+                == Grant.DENIED_FIXED, "not requested");
     }
 
     public void testASplitLocationPermissionAsksTheHostToo() {
@@ -161,7 +170,7 @@ public final class PermissionPolicyTest {
     }
 
     public void testOtherDangerousAreDenied() {
-        String[] dangerous = {"android.permission.RECORD_AUDIO", "android.permission.ACCESS_BACKGROUND_LOCATION",
+        String[] dangerous = {"android.permission.ACCESS_BACKGROUND_LOCATION",
                 "android.permission.CAMERA", "android.permission.READ_CONTACTS",
                 "android.permission.READ_MEDIA_IMAGES"};
         for (String permission : dangerous) {
@@ -246,8 +255,8 @@ public final class PermissionPolicyTest {
 
     public void testFromADeniedSourceStaysDenied() {
         PermissionPolicy.App app = app(28, List.of(P + "CAMERA"),
-                List.of(P + "RECORD_AUDIO", P + "ACCESS_BACKGROUND_LOCATION"));
-        for (String location : new String[] {"CAMERA", "RECORD_AUDIO", "ACCESS_BACKGROUND_LOCATION"}) {
+                List.of(P + "ACCESS_BACKGROUND_LOCATION"));
+        for (String location : new String[] {"CAMERA", "ACCESS_BACKGROUND_LOCATION"}) {
             Decision decision = PermissionPolicy.decide(app, P + location);
             check(decision.grant == Grant.DENIED_FIXED, location);
             check(!decision.reason.isEmpty() && decision.departure.isEmpty(), location + ": " + decision.reason);

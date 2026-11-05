@@ -761,6 +761,13 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.audio COMMAND audio_test)
   set_tests_properties(runtime.audio PROPERTIES TIMEOUT 60)
 
+  # The audio input streams (ADR-0064), with a fake input host.
+  add_executable(audio_input_test tests/audio_input_test.cpp)
+  target_include_directories(audio_input_test PRIVATE src)
+  target_link_libraries(audio_input_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.audio_input COMMAND audio_input_test)
+  set_tests_properties(runtime.audio_input PROPERTIES TIMEOUT 60)
+
   # libaaudio's and libOpenSLES's own logic on the Mac (ADR-0036, decisions 6 and 7): runtime/android/aaudio.cpp and
   # opensles.cpp against the NDK's headers and tests/aaudio_host, with their syscalls going to the runtime's dispatcher.
   set(ndk_include "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/include")

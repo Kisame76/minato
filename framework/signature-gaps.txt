@@ -112,3 +112,5 @@ android.os.connectivity.WifiActivityEnergyInfo <- com.android.internal.app.IBatt
 android.os.connectivity.WifiBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
 android.os.health.HealthStatsParceler <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
 android.telephony.ModemActivityInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
+android.media.AudioPlaybackCaptureConfiguration <- android.media.AudioRecord  # gap: AudioRecord.Builder.setAudioPlaybackCaptureConfig, capturing other apps' playback, which needs a MediaProjection that Minato does not offer (ADR-0064)
+android.media.MediaSyncEvent <- android.media.AudioRecord  # gap: startRecording(MediaSyncEvent), a deprecated API for synchronising a recording with a player's session, which Minato logs and ignores (ADR-0064)

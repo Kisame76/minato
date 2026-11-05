@@ -657,7 +657,8 @@ run_app() {
       | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
       | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | sdl-audiotrack-test | jni-fields-test \
       | soundpool-test | soundpool-codec-test \
-      | storage-test | storage-space-test | location-test | gapscan-test | webview-camera-test | keystore-test | sms-test | accounts-test \
+      | storage-test | storage-space-test | location-test | gapscan-test | webview-camera-test | keystore-test \
+      | sms-test | accounts-test \
       | pendingintent-test | alarm-test | view-fields-test | mime-test | cxx-binding-test | media-fields-test | media-format-test \
       | main-looper-test | reflect-test | sdk-types-test | ui-types-test | surface-texture-test | html-test | intent-query-test \
       | preferences-test | service-exceptions-test | network-security-test | network-security-config-test \
@@ -692,6 +693,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
       mask=yes
+      ;;
+    # mic-test and its twin mic-test-granted (ADR-0064), from the same sources: the twin gets RECORD_AUDIO before the
+    # start.
+    mic-test | mic-test-granted)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
       ;;
     # pad-test (ADR-0050 test 3): its activity asks for its two packs, each within 30 s, and ends with "done".
     pad-test)
@@ -1233,6 +1240,9 @@ run_app() {
     # "cmd window user-rotation" says "free" or "lock <rotation>", which it takes back as it is.
     rotation=$(run cmd window user-rotation | tr -d '\r')
     run cmd window user-rotation lock 0 >/dev/null
+  fi
+  if [[ "$app" == mic-test-granted ]]; then
+    run pm grant "$package" android.permission.RECORD_AUDIO
   fi
   if [[ "$app" == permission-request-test-fine ]]; then
     # ADR-0063: the twin's permissions are granted before the start, so that its requests need no dialog.

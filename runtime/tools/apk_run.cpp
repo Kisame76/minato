@@ -141,6 +141,7 @@
 #include "apk_run_layers.h"
 #include "frame_clock.h"
 #include "headless_audio.h"
+#include "headless_audio_input.h"
 #include "headless_host.h"
 #include "pick_host.h"
 #include "webview_fake.h"
@@ -1651,6 +1652,15 @@ int main(int argc, char **argv) {
         }
     }
     apkrt_set_audio_host(&headless_audio::host);
+    // The microphone hears the WAV file of MINATO_AUDIO_INPUT_FILE, or silence (ADR-0064). The host records its grant
+    // at a session's begin, as the location's; MINATO_GRANT_MICROPHONE=granted|denied stands for it where a test
+    // harness cannot pass options, and without it the runtime stays at its default (no grant).
+    apkrt_set_audio_input_host(&headless_audio_input::host);
+    if (const char *grant = std::getenv("MINATO_GRANT_MICROPHONE")) {
+        const std::string value = grant;
+        if (value == "granted") apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_GRANTED);
+        if (value == "denied") apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_DENIED);
+    }
     if (!sensor_script.empty()) start_sensor_feed(sensor_script);
     // The host records the location grant at a session's begin (ADR-0063 decision 2), so the runtime gates on it from
     // the start; then the fake CoreLocation host replays the script, the runtime fudging a coarse grant on its own.

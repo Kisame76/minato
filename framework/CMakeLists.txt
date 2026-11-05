@@ -352,6 +352,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
             native/android_runtime/android_hardware_Camera.cpp
             native/android_runtime/android_media_AudioTrack.cpp
+            native/android_runtime/android_media_AudioRecord.cpp
             native/android_runtime/android_media_SoundPool.cpp "${SOURCES}/stb_vorbis/stb_vorbis.c"
             native/android_runtime/android_graphics_HardwareRenderer.cpp
             native/android_runtime/android_graphics_SurfaceTexture.cpp

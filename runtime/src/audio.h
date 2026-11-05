@@ -15,5 +15,11 @@ long write(std::uint64_t handle, std::uint64_t frames_address, std::int64_t fram
 long status(std::uint64_t handle, std::uint64_t address);
 long wait(std::uint64_t handle, std::uint32_t sequence, std::int64_t deadline);
 long join(std::uint64_t handle, std::uint64_t join);
+/// audio_read (ADR-0064).
+long read(std::uint64_t handle, std::uint64_t buffer_address, std::int64_t frames, std::int64_t deadline);
+
+/// The microphone grant was revoked: every open input stream is DISCONNECTED (its reads answer -EPIPE) and the host's
+/// input closes, so that the capture ends with the grant. The guest's close then only frees the stream.
+void revoke_input();
 
 }  // namespace apkrt::audio

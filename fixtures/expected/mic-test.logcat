@@ -1,0 +1,12 @@
+I/mic-test: RECORD_AUDIO granted false
+I/mic-test: min buffer 16000 16 2: positive true, whole frames true
+I/mic-test: min buffer 44100 16 2: positive true, whole frames true
+I/mic-test: min buffer 48000 12 2: positive true, whole frames true
+I/mic-test: min buffer 48000 12 4: positive true, whole frames true
+I/mic-test: min buffer 8000 16 3: positive true, whole frames true
+I/mic-test: min buffer, rate 1000: 640
+I/mic-test: min buffer, rate 0: -2
+I/mic-test: min buffer, encoding 99: -2
+I/mic-test: min buffer, channels 0: -2
+I/mic-test: ctor without grant: state 0
+I/mic-test: done

@@ -3,6 +3,7 @@
 #include "channels.h"
 #include "descriptors.h"
 #include "guest_context.h"
+#include "audio.h"
 #include "permissions.h"
 #include "stall_watchdog.h"
 #include "syscalls.h"
@@ -1197,6 +1198,7 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
 
 extern "C" void apkrt_permission_answer(uint32_t request_id, int32_t group, int32_t outcome) {
     apkrt::permissions::set(group, outcome);
+    if (group == APKRT_PERMISSION_MICROPHONE && outcome != APKRT_PERMISSION_GRANTED) apkrt::audio::revoke_input();
     apkrt_session_post(APKRT_EVENT_PERMISSION_RESULT, request_id, static_cast<uint64_t>(static_cast<uint32_t>(group)),
                        static_cast<uint64_t>(static_cast<uint32_t>(outcome)));
 }

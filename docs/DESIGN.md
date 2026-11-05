@@ -451,10 +451,13 @@ data.
 
 ### ADR-0064: Microphone input on AVAudioSession
 
-Accepted; only the permission path and the audio-port classes are implemented. Recording is to come through
-`AudioRecord`, AAudio input streams and OpenSL ES recorders over one input engine on `AVAudioSession`, with
-`RECORD_AUDIO` decided by iOS's prompt as for location. Today AAudio input streams still answer
-`AAUDIO_ERROR_UNAVAILABLE`.
+Accepted; the guest side is implemented, the iPhone side (the input engine and the prompt) is the App's. Recording
+comes through `AudioRecord`, AAudio input streams and OpenSL ES recorders over one input path in the runtime
+(`audio_open` with direction 1, `audio_read`, a ring the host's capture fills with `apkrt_audio_input_write`), with
+`RECORD_AUDIO` decided by iOS's prompt as for location. An input open without the stored grant answers `-EACCES`
+(`AudioRecord` stays uninitialized, an OpenSL ES recorder is `SL_RESULT_PERMISSION_DENIED`), and a revoked grant ends
+the open streams. `MediaRecorder` is not offered. On the Mac, apk-run's microphone hears the WAV file named by
+`MINATO_AUDIO_INPUT_FILE`.
 
 ### ADR-0065: Device profiles
 

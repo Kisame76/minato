@@ -6,7 +6,10 @@
 // keeps the frames that did not fit for the next room, in the output's audio workgroup (audio_join); a call that
 // does not answer CONTINUE stops the stream, and its frames are not played, as AudioStreamLegacy's onMoreData hands
 // back none [from memory of AOSP, not read again]. It calls the error callback once the stream is DISCONNECTED.
-// Input streams answer AAUDIO_ERROR_UNAVAILABLE; EXCLUSIVE becomes SHARED, and MMAP is never used.
+// Input streams (ADR-0064) read the microphone through audio_read: AAudioStream_read converts the captured float32
+// frames to the app's format, and a stream with a data callback has a thread that fills the callback's frames and
+// calls it. Opening one needs the microphone grant (AAUDIO_ERROR_UNAVAILABLE without it, as Android's). EXCLUSIVE
+// becomes SHARED, and MMAP is never used.
 #include <aaudio/AAudio.h>
 #include <android/log.h>
 #include <errno.h>
@@ -43,10 +46,12 @@ struct AAudioStreamBuilderStruct {
     void* data_user;
     AAudioStream_errorCallback error_callback;
     void* error_user;
+    int32_t buffer_capacity;
 };
 
 struct AAudioStreamStruct {
     uint64_t handle;  // the runtime's stream
+    bool input;       // an input stream (ADR-0064): read and the data callback take frames from the microphone
     bool released;    // AAudioStream_release closed it; `last` holds its final status
     apkrt_audio_status last;
     // What the builder asked for and the open gave.
@@ -145,6 +150,7 @@ aaudio_result_t result_of(int error) {
             return AAUDIO_ERROR_NO_MEMORY;
         case EMFILE:
             return AAUDIO_ERROR_NO_FREE_HANDLES;
+        case EACCES:
         case ENODEV:
         case EIO:
             return AAUDIO_ERROR_UNAVAILABLE;
@@ -207,6 +213,111 @@ void to_float(aaudio_format_t format, const void* source, float* target, int64_t
     }
 }
 
+/// A float rounded to the nearest integer, halves away from zero.
+int32_t rounded(float value) {
+    return static_cast<int32_t>(value + (value >= 0 ? 0.5f : -0.5f));
+}
+
+/// `samples` float samples as `format`, as AAudio's own conversions scale them.
+void from_float(aaudio_format_t format, const float* source, void* target, int64_t samples) {
+    switch (format) {
+        case AAUDIO_FORMAT_PCM_I16: {
+            auto* to = static_cast<int16_t*>(target);
+            for (int64_t index = 0; index < samples; ++index) {
+                const float value = source[index] * 32768.0f;
+                to[index] = static_cast<int16_t>(value >= 32767.0f    ? 32767
+                                                 : value <= -32768.0f ? -32768
+                                                                      : rounded(value));
+            }
+            break;
+        }
+        case AAUDIO_FORMAT_PCM_I24_PACKED: {
+            auto* to = static_cast<uint8_t*>(target);
+            for (int64_t index = 0; index < samples; ++index) {
+                const float value = source[index] * 8388608.0f;
+                const int32_t clamped =
+                    value >= 8388607.0f ? 8388607 : value <= -8388608.0f ? -8388608 : rounded(value);
+                to[3 * index] = static_cast<uint8_t>(clamped);
+                to[3 * index + 1] = static_cast<uint8_t>(clamped >> 8);
+                to[3 * index + 2] = static_cast<uint8_t>(clamped >> 16);
+            }
+            break;
+        }
+        case AAUDIO_FORMAT_PCM_I32: {
+            auto* to = static_cast<int32_t*>(target);
+            for (int64_t index = 0; index < samples; ++index) {
+                const double value = static_cast<double>(source[index]) * 2147483648.0;
+                to[index] = value >= 2147483647.0    ? INT32_MAX
+                            : value <= -2147483648.0 ? INT32_MIN
+                                                     : static_cast<int32_t>(value + (value >= 0 ? 0.5 : -0.5));
+            }
+            break;
+        }
+        default:
+            memcpy(target, source, static_cast<size_t>(samples) * sizeof(float));
+            break;
+    }
+}
+
+/// Reads `count` frames of an input stream into `target` as the stream's format, waiting until `deadline`: the
+/// frames read, or -errno when none were.
+int64_t take_in(AAudioStream* stream, void* target, int64_t count, int64_t deadline) {
+    auto* bytes = static_cast<uint8_t*>(target);
+    const int64_t frame_bytes = int64_t{sample_bytes(stream->format)} * stream->channels;
+    int64_t done = 0;
+    while (done < count) {
+        const int64_t part = smaller(count - done, stream->chunk);
+        const long result = call(APKRT_NR_AUDIO_READ, stream->handle, bits(stream->floats), bits(part), bits(deadline));
+        if (result < 0) {
+            if (errno == EINTR && !passed(deadline)) continue;
+            return done > 0 ? done : -errno;
+        }
+        from_float(stream->format, stream->floats, bytes + done * frame_bytes, result * stream->channels);
+        done += result;
+        if (result < part) break;  // the deadline passed, or the stream does not capture
+    }
+    return done;
+}
+
+/// The thread of an input stream with callbacks: while the stream captures, it fills per_call frames from the
+/// microphone and hands them to the data callback; a callback that does not continue stops the stream.
+void* run_input_callbacks(AAudioStream* stream) {
+    bool reported = false;
+    int64_t filled = 0;  // frames of the next callback read so far
+    while (true) {
+        apkrt_audio_status status;
+        if (call(APKRT_NR_AUDIO_STATUS, stream->handle, bits(&status)) != 0) break;  // released
+        if (status.state == AAUDIO_STREAM_STATE_DISCONNECTED && !reported) {
+            reported = true;
+            if (stream->error_callback != nullptr) {
+                stream->error_callback(stream, stream->error_user, AAUDIO_ERROR_DISCONNECTED);
+            }
+        }
+        const bool captures = stream->data_callback != nullptr && (status.state == AAUDIO_STREAM_STATE_STARTING ||
+                                                                   status.state == AAUDIO_STREAM_STATE_STARTED);
+        if (captures) {
+            // In slices, so that a pause, a stop or the release is seen while the frames come.
+            const int64_t frame_bytes = int64_t{sample_bytes(stream->format)} * stream->channels;
+            const int64_t got = take_in(stream, static_cast<uint8_t*>(stream->callback_frames) + filled * frame_bytes,
+                                        stream->per_call - filled, deadline_after(20'000'000));
+            if (got < 0) {
+                if (errno == EBADF) break;
+                continue;  // disconnected: the state says so at the top
+            }
+            filled += got;
+            if (filled < stream->per_call) continue;  // the slice ended: look at the state again, keep what came
+            filled = 0;
+            if (stream->data_callback(stream, stream->data_user, stream->callback_frames, stream->per_call) !=
+                AAUDIO_CALLBACK_RESULT_CONTINUE) {
+                call(APKRT_NR_AUDIO_CONTROL, stream->handle, APKRT_AUDIO_STOP);
+            }
+            continue;
+        }
+        if (call(APKRT_NR_AUDIO_WAIT, stream->handle, status.sequence, bits(kForever)) != 0 && errno == EBADF) break;
+    }
+    return nullptr;
+}
+
 /// Hands `count` float frames to the runtime, waiting until `deadline`: the frames taken, or -errno when none were.
 /// With `block`, the wait has no deadline while the stream plays: AudioStreamTrack::write makes any timeout above 0 a
 /// blocking AudioTrack::write (AudioStreamTrack.cpp:458-460, android-15.0.0_r1: "TODO add timeout to AudioTrack",
@@ -246,6 +357,7 @@ void* run_callbacks(void* argument) {
     auto* stream = static_cast<AAudioStream*>(argument);
     pthread_mutex_lock(&stream->gate);  // free once openStream has given the app the stream
     pthread_mutex_unlock(&stream->gate);
+    if (stream->input) return run_input_callbacks(stream);
     bool reported = false;  // the error callback ran
     bool playing = false;
     const float* pending = nullptr;  // converted frames the buffer had no room for yet
@@ -494,7 +606,9 @@ void AAudioStreamBuilder_setDirection(AAudioStreamBuilder* builder, aaudio_direc
 }
 
 // The capacity is the runtime's, APKRT_AUDIO_BURSTS bursts.
-void AAudioStreamBuilder_setBufferCapacityInFrames(AAudioStreamBuilder*, int32_t) {}
+void AAudioStreamBuilder_setBufferCapacityInFrames(AAudioStreamBuilder* builder, int32_t numFrames) {
+    builder->buffer_capacity = numFrames;  // an input stream's ring holds at least that many frames
+}
 
 void AAudioStreamBuilder_setPerformanceMode(AAudioStreamBuilder* builder, aaudio_performance_mode_t mode) {
     builder->performance_mode = mode;
@@ -585,13 +699,14 @@ aaudio_result_t AAudioStreamBuilder_openStream(AAudioStreamBuilder* builder, AAu
     if (builder->frames_per_data_callback < 0 || builder->frames_per_data_callback > 1024 * 1024) {
         return AAUDIO_ERROR_OUT_OF_RANGE;
     }
-    if (builder->direction == AAUDIO_DIRECTION_INPUT) return AAUDIO_ERROR_UNAVAILABLE;  // no recording in M3
     if (channels > APKRT_AUDIO_CHANNELS) {
         AAUDIO_LOG(WARN, "openStream: %d channels, Minato plays at most %d", channels, APKRT_AUDIO_CHANNELS);
         return AAUDIO_ERROR_OUT_OF_RANGE;
     }
 
-    apkrt_audio_config config = {builder->sample_rate, channels, builder->performance_mode, 0, 0, 0, 0, 0};
+    const bool input = builder->direction == AAUDIO_DIRECTION_INPUT;
+    apkrt_audio_config config = {builder->sample_rate, channels, builder->performance_mode, 0, 0,
+                                 input ? builder->buffer_capacity : 0, 0, input ? 1 : 0};
     const long handle = call(APKRT_NR_AUDIO_OPEN, bits(&config));
     if (handle < 0) return result_of(errno);
     auto* stream = static_cast<AAudioStream*>(calloc(1, sizeof(AAudioStream)));
@@ -617,6 +732,7 @@ aaudio_result_t AAudioStreamBuilder_openStream(AAudioStreamBuilder* builder, AAu
         return AAUDIO_ERROR_NO_MEMORY;
     }
     stream->handle = static_cast<uint64_t>(handle);
+    stream->input = input;
     stream->sample_rate = config.sample_rate;
     stream->channels = channels;
     stream->burst = config.frames_per_burst;
@@ -721,15 +837,22 @@ aaudio_result_t AAudioStream_waitForStateChange(AAudioStream* stream, aaudio_str
     }
 }
 
-aaudio_result_t AAudioStream_read(AAudioStream* stream, void* buffer, int32_t, int64_t) {
+aaudio_result_t AAudioStream_read(AAudioStream* stream, void* buffer, int32_t numFrames, int64_t timeoutNanoseconds) {
     if (buffer == nullptr) return AAUDIO_ERROR_NULL;
     if (stream->data_callback != nullptr) return AAUDIO_ERROR_INVALID_STATE;
-    return AAUDIO_ERROR_UNIMPLEMENTED;  // an output stream, as AudioStream's own read answers
+    if (!stream->input) return AAUDIO_ERROR_UNIMPLEMENTED;  // an output stream, as AudioStream's own read answers
+    if (numFrames < 0) return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+    if (numFrames == 0) return 0;
+    if (released(stream)) return AAUDIO_ERROR_INVALID_STATE;
+    const int64_t deadline = timeoutNanoseconds > 0 ? deadline_after(timeoutNanoseconds) : 0;
+    const int64_t got = take_in(stream, buffer, numFrames, deadline);
+    return got < 0 ? result_of(static_cast<int>(-got)) : static_cast<aaudio_result_t>(got);
 }
 
 aaudio_result_t AAudioStream_write(AAudioStream* stream, const void* buffer, int32_t numFrames,
                                    int64_t timeoutNanoseconds) {
     if (buffer == nullptr) return AAUDIO_ERROR_NULL;
+    if (stream->input) return AAUDIO_ERROR_UNIMPLEMENTED;
     // AudioTrack refuses writes to a stream in callback mode, before its start too (Android 15's answer).
     if (stream->data_callback != nullptr) return AAUDIO_ERROR_INVALID_STATE;
     if (numFrames < 0) return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
@@ -830,8 +953,8 @@ aaudio_performance_mode_t AAudioStream_getPerformanceMode(AAudioStream* stream) 
     return stream->performance_mode;
 }
 
-aaudio_direction_t AAudioStream_getDirection(AAudioStream*) {
-    return AAUDIO_DIRECTION_OUTPUT;
+aaudio_direction_t AAudioStream_getDirection(AAudioStream* stream) {
+    return stream->input ? AAUDIO_DIRECTION_INPUT : AAUDIO_DIRECTION_OUTPUT;
 }
 
 int64_t AAudioStream_getFramesWritten(AAudioStream* stream) {

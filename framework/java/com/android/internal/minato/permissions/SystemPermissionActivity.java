@@ -22,8 +22,9 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * The activity that stands in for the phone's permission dialog (ADR-0063): Activity.requestPermissions starts it
  * with the names, as the permission controller is started. A request that needs no dialog ends at once with
- * PermissionPolicy's answers; one for the location the host decides goes to the host (APKRT_REQUEST_PERMISSION),
- * whose sheet and iOS's prompt are the dialog, and ends with the answer. It has no window of its own, and the
+ * PermissionPolicy's answers; one for the location or the microphone, which the host decides, goes to the host
+ * (APKRT_REQUEST_PERMISSION), whose sheet and iOS's prompt are the dialog, a group after the other, and ends with the
+ * answers. It has no window of its own, and the
  * translucent theme keeps the app's under it.
  */
 public final class SystemPermissionActivity extends Activity {
@@ -38,6 +39,8 @@ public final class SystemPermissionActivity extends Activity {
 
     private long mId;
     private String[] mNames;
+    /** The groups still to ask, {group, detail}: one dialog after the other, as Android's controller shows them. */
+    private final java.util.ArrayDeque<int[]> mGroups = new java.util.ArrayDeque<>();
 
     /** The activity of the framework class, in the app's package as an activity of the app is. */
     public static ActivityInfo activityInfo(ApplicationInfo app) {
@@ -64,21 +67,29 @@ public final class SystemPermissionActivity extends Activity {
             return;
         }
         final PermissionAnswers answers = ActivityThread.permissionAnswers();
-        final int detail = answers == null ? 0 : PermissionRequests.detailToAsk(Arrays.asList(mNames),
-                ActivityThread::permissionGrant, answers);
-        if (detail == 0) {
+        if (answers != null) {
+            mGroups.addAll(PermissionRequests.groupsToAsk(Arrays.asList(mNames), ActivityThread::permissionGrant,
+                    answers));
+        }
+        askNext();
+    }
+
+    /** Asks the host for the next group, or ends the request when none is left or the host refuses. */
+    private void askNext() {
+        final int[] next = mGroups.poll();
+        if (next == null) {
             finishWithResults();
             return;
         }
         mId = sNextId.getAndIncrement();
         sWaiting.put(mId, this);
-        final int error = ActivityThread.requestPermission(mId,
-                PermissionRequests.requestText(PermissionPolicy.GROUP_LOCATION, detail));
+        final int error = ActivityThread.requestPermission(mId, PermissionRequests.requestText(next[0], next[1]));
         if (error != 0) {
             if (error != -EOPNOTSUPP) {
                 Log.w(TAG, "The host refused the permission request: " + error);
             }
             sWaiting.remove(mId);
+            mGroups.clear();
             finishWithResults();
         }
     }
@@ -101,7 +112,7 @@ public final class SystemPermissionActivity extends Activity {
             Log.w(TAG, "An answer for permission request " + id + " that nobody waits for");
             return;
         }
-        activity.finishWithResults();
+        activity.askNext();
     }
 
     /** Ends with what the app holds now, for each name asked, as the permission controller's result has it. */

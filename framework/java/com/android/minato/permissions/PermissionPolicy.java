@@ -101,6 +101,7 @@ public final class PermissionPolicy {
 
     private static final String ACCESS_FINE_LOCATION = "android.permission.ACCESS_FINE_LOCATION";
     private static final String ACCESS_COARSE_LOCATION = "android.permission.ACCESS_COARSE_LOCATION";
+    private static final String RECORD_AUDIO = "android.permission.RECORD_AUDIO";
     private static final String ACCESS_BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION";
 
     private static final Decision GRANTED = new Decision(Grant.GRANTED, "", "");
@@ -155,6 +156,9 @@ public final class PermissionPolicy {
 
     /** The host's group (GROUP_LOCATION ...) that decides the permission, or 0 for a permission the host does not. */
     public static int hostGroup(String permission) {
+        if (RECORD_AUDIO.equals(permission)) {
+            return GROUP_MICROPHONE;
+        }
         return ACCESS_FINE_LOCATION.equals(permission) || ACCESS_COARSE_LOCATION.equals(permission)
                 ? GROUP_LOCATION : 0;
     }

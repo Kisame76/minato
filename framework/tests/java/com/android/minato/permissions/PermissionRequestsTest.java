@@ -64,6 +64,23 @@ public final class PermissionRequestsTest {
         check(PermissionRequests.detailToAsk(List.of(FINE), HOST_DECIDES, answers) == 0, "after two, final");
     }
 
+    public void testTheMicrophoneAsksAfterTheLocation() {
+        PermissionAnswers answers = new PermissionAnswers();
+        java.util.function.Function<String, PermissionPolicy.Grant> host = name -> PermissionPolicy.Grant.ASK_HOST;
+        java.util.List<int[]> groups = PermissionRequests.groupsToAsk(
+                java.util.List.of("android.permission.RECORD_AUDIO", "android.permission.ACCESS_FINE_LOCATION"), host,
+                answers);
+        check(groups.size() == 2 && groups.get(0)[0] == PermissionPolicy.GROUP_LOCATION && groups.get(0)[1] == 1
+                && groups.get(1)[0] == PermissionPolicy.GROUP_MICROPHONE && groups.get(1)[1] == 0,
+                "location, then mic");
+        answers.answer(PermissionPolicy.GROUP_MICROPHONE, PermissionAnswers.GRANTED_FINE, true);
+        groups = PermissionRequests.groupsToAsk(java.util.List.of("android.permission.RECORD_AUDIO"), host, answers);
+        check(groups.isEmpty(), "a granted microphone is not asked again");
+        groups = PermissionRequests.groupsToAsk(java.util.List.of("android.permission.RECORD_AUDIO"),
+                name -> PermissionPolicy.Grant.DENIED_FIXED, new PermissionAnswers());
+        check(groups.isEmpty(), "a denial for good is not asked");
+    }
+
     public void testTheRequestTextIsGroupAndDetail() {
         final String text = PermissionRequests.requestText(LOCATION, 2);
         check("1\t2".equals(text), "text: " + text);

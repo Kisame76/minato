@@ -22,47 +22,58 @@ public final class PermissionAnswers {
     /** Android asks again after one denial and stops asking after the second. */
     private static final int DENIALS_FINAL = 2;
 
-    private int mOutcome = DENIED;
-    private int mDenials;
+    private static final String RECORD_AUDIO = "android.permission.RECORD_AUDIO";
+    /** Per group, indexed by the group (PermissionPolicy.GROUP_LOCATION or GROUP_MICROPHONE). */
+    private final int[] mOutcome = new int[3];
+    private final int[] mDenials = new int[3];
+
+    private static boolean known(int group) {
+        return group == PermissionPolicy.GROUP_LOCATION || group == PermissionPolicy.GROUP_MICROPHONE;
+    }
 
     /**
-     * @param group     PermissionPolicy.GROUP_LOCATION; another group is ignored
+     * @param group     PermissionPolicy.GROUP_LOCATION or GROUP_MICROPHONE; another group is ignored
      * @param outcome   DENIED, GRANTED_FINE or GRANTED_COARSE; an unknown value is a denial
      * @param solicited the result of a request, not a re-read
      */
     public synchronized void answer(int group, int outcome, boolean solicited) {
-        if (group != PermissionPolicy.GROUP_LOCATION) {
+        if (!known(group)) {
             return;
         }
-        if (outcome == GRANTED_FINE || outcome == GRANTED_COARSE) {
-            mOutcome = outcome;
-            mDenials = 0;
+        // The microphone has no coarse grant: any grant is a plain one.
+        if (outcome == GRANTED_FINE || (outcome == GRANTED_COARSE && group == PermissionPolicy.GROUP_LOCATION)) {
+            mOutcome[group] = outcome;
+            mDenials[group] = 0;
             return;
         }
-        mOutcome = DENIED;
+        mOutcome[group] = DENIED;
         if (solicited && outcome == DENIED) {
-            mDenials++;
+            mDenials[group]++;
         }
     }
 
     /** Whether the host's answer grants the permission; false for a permission of no host group. */
     public synchronized boolean granted(String permission) {
-        if (PermissionPolicy.hostGroup(permission) != PermissionPolicy.GROUP_LOCATION) {
+        final int group = PermissionPolicy.hostGroup(permission);
+        if (group == PermissionPolicy.GROUP_MICROPHONE) {
+            return mOutcome[group] == GRANTED_FINE;
+        }
+        if (group != PermissionPolicy.GROUP_LOCATION) {
             return false;
         }
-        return FINE.equals(permission) ? mOutcome == GRANTED_FINE : mOutcome != DENIED;
+        return FINE.equals(permission) ? mOutcome[group] == GRANTED_FINE : mOutcome[group] != DENIED;
     }
 
     /** Whether a request for the permission goes to the host: it is not granted and was denied less than twice. */
     public synchronized boolean mustAsk(String permission) {
-        return PermissionPolicy.hostGroup(permission) == PermissionPolicy.GROUP_LOCATION && !granted(permission)
-                && mDenials < DENIALS_FINAL;
+        final int group = PermissionPolicy.hostGroup(permission);
+        return known(group) && !granted(permission) && mDenials[group] < DENIALS_FINAL;
     }
 
     /** Android's shouldShowRequestPermissionRationale: after one denial, not before the first or after the last. */
     public synchronized boolean shouldShowRationale(String permission) {
-        return PermissionPolicy.hostGroup(permission) == PermissionPolicy.GROUP_LOCATION && !granted(permission)
-                && mDenials == 1;
+        final int group = PermissionPolicy.hostGroup(permission);
+        return known(group) && !granted(permission) && mDenials[group] == 1;
     }
 
     /** APKRT_REQUEST_PERMISSION's detail for the location group: 1 when fine location is among them, 2 for coarse only, else 0. */

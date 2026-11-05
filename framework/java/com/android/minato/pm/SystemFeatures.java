@@ -30,6 +30,8 @@ public final class SystemFeatures {
         Map<String, Integer> features = new TreeMap<>();
         // AudioUnit's output (ADR-0036).
         features.put("android.hardware.audio.output", 0);
+        // The iPhone's microphone (ADR-0064), behind iOS's prompt and RECORD_AUDIO's runtime grant.
+        features.put("android.hardware.microphone", 0);
         // Implied by any touchscreen (PackageManager.FEATURE_FAKETOUCH).
         features.put("android.hardware.faketouch", 0);
         // isLowRamDevice() is false: the device's memory (ADR-0045 decision 4).
@@ -91,8 +93,6 @@ public final class SystemFeatures {
         String bluetooth = "no Bluetooth (ADR-0045 decision 4)";
         left.put("android.hardware.bluetooth", bluetooth);
         left.put("android.hardware.bluetooth_le", bluetooth);
-        left.put("android.hardware.microphone",
-                "no audio input in M4, and RECORD_AUDIO is denied (ADR-0045 decision 6)");
         String biometrics = "Face ID is not bridged to the guest";
         left.put("android.hardware.biometrics.face", biometrics);
         left.put("android.hardware.fingerprint", biometrics);

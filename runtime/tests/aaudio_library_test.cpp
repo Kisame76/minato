@@ -358,10 +358,128 @@ TEST(an_open_refuses_what_aaudio_refuses_and_input) {
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setFormat(b, 99); }) == AAUDIO_ERROR_INVALID_FORMAT);
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setChannelCount(b, 9); }) ==
           AAUDIO_ERROR_OUT_OF_RANGE);
+    apkrt_set_audio_input_host(nullptr);  // no input host: an input open is unavailable
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setDirection(b, AAUDIO_DIRECTION_INPUT); }) ==
           AAUDIO_ERROR_UNAVAILABLE);
     CHECK(open_with([](AAudioStreamBuilder *b) { AAudioStreamBuilder_setChannelMask(b, AAUDIO_CHANNEL_STEREO); }) ==
           AAUDIO_OK);
+}
+
+// MARK: - Input streams (ADR-0064)
+
+std::uint64_t input_handle = 0;
+int input_open(void *, std::uint64_t stream, double, std::int32_t, std::int32_t, apkrt_audio_hardware *hardware) {
+    input_handle = stream;
+    *hardware = {48'000, 0.005};
+    return 0;
+}
+void input_close(void *, std::uint64_t) {}
+
+void use_input_host() {
+    use_fake_host();
+    const apkrt_audio_input_host host{nullptr, input_open, input_close};
+    CHECK(apkrt_set_audio_input_host(&host) == 0);
+    apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_GRANTED);
+}
+
+AAudioStream *open_input(aaudio_format_t format, std::int32_t channels = 1, AAudioStream_dataCallback data = nullptr,
+                         void *user = nullptr, std::int32_t per_call = 0) {
+    AAudioStreamBuilder *builder = nullptr;
+    CHECK(AAudio_createStreamBuilder(&builder) == AAUDIO_OK);
+    AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
+    AAudioStreamBuilder_setFormat(builder, format);
+    AAudioStreamBuilder_setChannelCount(builder, channels);
+    AAudioStreamBuilder_setSampleRate(builder, 16'000);
+    if (data != nullptr) AAudioStreamBuilder_setDataCallback(builder, data, user);
+    if (per_call > 0) AAudioStreamBuilder_setFramesPerDataCallback(builder, per_call);
+    AAudioStream *stream = nullptr;
+    CHECK(AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_OK);
+    AAudioStreamBuilder_delete(builder);
+    return stream;
+}
+
+TEST(an_input_stream_reads_the_captured_frames_in_the_app_s_format) {
+    use_input_host();
+    AAudioStream *stream = open_input(AAUDIO_FORMAT_PCM_I16);
+    CHECK(AAudioStream_getDirection(stream) == AAUDIO_DIRECTION_INPUT);
+    CHECK(AAudioStream_getSampleRate(stream) == 16'000 && AAudioStream_getChannelCount(stream) == 1);
+    int16_t none[4] = {};
+    CHECK(AAudioStream_read(stream, none, 4, 0) == 0);  // not started: nothing
+    CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+    const float tone[4] = {0.0f, 0.5f, -0.5f, 1.0f};
+    CHECK(apkrt_audio_input_write(input_handle, tone, 4, 0) == 4);
+    int16_t out[8] = {};
+    CHECK(AAudioStream_read(stream, out, 8, 0) == 4);
+    CHECK(out[0] == 0 && out[1] == 16384 && out[2] == -16384 && out[3] == 32767);
+    std::thread host([&] {
+        std::this_thread::sleep_for(30ms);
+        apkrt_audio_input_write(input_handle, tone, 4, 0);
+    });
+    CHECK(AAudioStream_read(stream, out, 4, 2'000'000'000) == 4);  // waits for the capture
+    host.join();
+    CHECK(AAudioStream_getFramesWritten(stream) == 8 && AAudioStream_getFramesRead(stream) == 8);
+    CHECK(AAudioStream_write(stream, out, 4, 0) == AAUDIO_ERROR_UNIMPLEMENTED);
+    CHECK(AAudioStream_requestStop(stream) == AAUDIO_OK);
+    CHECK(AAudioStream_close(stream) == AAUDIO_OK);
+}
+
+TEST(an_input_stream_without_the_grant_is_unavailable) {
+    use_input_host();
+    apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_DENIED);
+    AAudioStreamBuilder *builder = nullptr;
+    AAudio_createStreamBuilder(&builder);
+    AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
+    AAudioStream *stream = nullptr;
+    CHECK(AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_ERROR_UNAVAILABLE && stream == nullptr);
+    AAudioStreamBuilder_delete(builder);
+}
+
+TEST(an_input_stream_s_data_callback_gets_whole_calls_of_captured_frames) {
+    use_input_host();
+    struct Seen {
+        std::atomic<int> calls{0};
+        std::atomic<int> wrong{0};
+        std::atomic<float> last{0};
+    } seen;
+    const auto callback = [](AAudioStream *, void *user, void *data, int32_t frames) -> aaudio_data_callback_result_t {
+        auto *seen = static_cast<Seen *>(user);
+        const auto *samples = static_cast<const float *>(data);
+        if (frames != 40) ++seen->wrong;
+        seen->last = samples[frames - 1];
+        ++seen->calls;
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    };
+    AAudioStream *stream = open_input(AAUDIO_FORMAT_PCM_FLOAT, 1, callback, &seen, 40);
+    CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+    std::vector<float> ramp(100);
+    for (int index = 0; index < 100; ++index) ramp[static_cast<size_t>(index)] = static_cast<float>(index);
+    CHECK(apkrt_audio_input_write(input_handle, ramp.data(), 100, 0) == 100);  // two whole calls, 20 frames left over
+    CHECK(within(2000ms, [&] { return seen.calls.load() == 2; }));
+    CHECK(seen.last.load() == 79.0f && seen.wrong.load() == 0);
+    CHECK(apkrt_audio_input_write(input_handle, ramp.data(), 20, 0) == 20);  // completes the third
+    CHECK(within(2000ms, [&] { return seen.calls.load() == 3; }));
+    CHECK(seen.last.load() == 19.0f);
+    CHECK(AAudioStream_close(stream) == AAUDIO_OK);
+}
+
+TEST(a_revoked_grant_reaches_an_input_stream_as_disconnected) {
+    use_input_host();
+    std::atomic<int> errors{0};
+    AAudioStreamBuilder *builder = nullptr;
+    AAudio_createStreamBuilder(&builder);
+    AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
+    AAudioStreamBuilder_setErrorCallback(
+        builder, [](AAudioStream *, void *user, aaudio_result_t) { ++*static_cast<std::atomic<int> *>(user); },
+        &errors);
+    AAudioStream *stream = nullptr;
+    CHECK(AAudioStreamBuilder_openStream(builder, &stream) == AAUDIO_OK);
+    AAudioStreamBuilder_delete(builder);
+    CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+    apkrt_permission_answer(0, APKRT_PERMISSION_MICROPHONE, APKRT_PERMISSION_DENIED);
+    CHECK(within(2000ms, [&] { return errors.load() == 1; }));
+    float out[4];
+    CHECK(AAudioStream_read(stream, out, 4, 0) == AAUDIO_ERROR_DISCONNECTED);
+    CHECK(AAudioStream_close(stream) == AAUDIO_OK);
 }
 
 }  // namespace
