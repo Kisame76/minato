@@ -568,6 +568,36 @@
       "digest": "69e5814c677e64519bdeda2985a768bcebe5f33a409ee8b74a5565960df385d3"
     },
     {
+      "name": "bluetooth_api",
+      "project": "platform/packages/modules/Bluetooth",
+      "commit": "84f57cd7ec507a5daeaf65a692435680037987c9",
+      "license": "Apache-2.0",
+      "files": [
+        "framework/api/current.txt"
+      ],
+      "digest": "93ba7de0fbaa5e95a9b2eb5dd768fba80e8c6b81927233a598cffe04771bee06"
+    },
+    {
+      "name": "nfc_api",
+      "project": "platform/frameworks/base",
+      "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",
+      "license": "Apache-2.0",
+      "files": [
+        "nfc/api/current.txt"
+      ],
+      "digest": "5a4023f069385c5a48c61dbed2e3ec2da7ea1e90698e610ff1b16a61ee437217"
+    },
+    {
+      "name": "permission_api",
+      "project": "platform/packages/modules/Permission",
+      "commit": "d7374497d3ac1a1257af7df777e7fdf5a4a46501",
+      "license": "Apache-2.0",
+      "files": [
+        "framework-s/api/current.txt"
+      ],
+      "digest": "e83554cea1314b1ddb04555360c0c82b1e053e861658575f5f4cad81b7609f12"
+    },
+    {
       "name": "location_java",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

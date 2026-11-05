@@ -74,6 +74,16 @@ import android.view.accessibility.CaptioningManager;
 import android.view.autofill.AutofillManager;
 import android.view.inputmethod.InputMethodManager;
 import android.view.textclassifier.TextClassificationManager;
+import android.app.role.RoleManager;
+import android.bluetooth.BluetoothManager;
+import android.media.MediaRouter;
+import android.media.midi.MidiManager;
+import android.media.projection.MediaProjectionManager;
+import android.media.session.MediaSessionManager;
+import android.nfc.NfcManager;
+import android.telecom.TelecomManager;
+import android.telephony.CarrierConfigManager;
+import android.telephony.SubscriptionManager;
 
 import com.android.internal.app.IBatteryStats;
 import com.android.internal.policy.PhoneLayoutInflater;
@@ -158,6 +168,22 @@ final class SystemServiceRegistry {
         // As the tag's: the text classification manager, whose classifier finds nothing.
         cached(Context.TEXT_CLASSIFICATION_SERVICE, TextClassificationManager.class,
                 ctx -> new TextClassificationManager(ctx.getOuterContext()));
+        // Services batch B (gap 1): ours under the tag's names, answering as a phone does that has none of the hardware
+        // and grants an app none of the permissions (services-b-test).
+        cached(Context.MEDIA_SESSION_SERVICE, MediaSessionManager.class,
+                ctx -> new MediaSessionManager(ctx.getOuterContext()));
+        cached(Context.MEDIA_ROUTER_SERVICE, MediaRouter.class, ctx -> new MediaRouter(ctx.getOuterContext()));
+        cached(Context.BLUETOOTH_SERVICE, BluetoothManager.class, ctx -> new BluetoothManager(ctx.getOuterContext()));
+        cached(Context.TELEPHONY_SUBSCRIPTION_SERVICE, SubscriptionManager.class,
+                ctx -> new SubscriptionManager(ctx.getOuterContext()));
+        cached(Context.TELECOM_SERVICE, TelecomManager.class, ctx -> new TelecomManager(ctx.getOuterContext()));
+        cached(Context.CARRIER_CONFIG_SERVICE, CarrierConfigManager.class,
+                ctx -> new CarrierConfigManager(ctx.getOuterContext()));
+        cached(Context.NFC_SERVICE, NfcManager.class, ctx -> new NfcManager(ctx.getOuterContext()));
+        cached(Context.MIDI_SERVICE, MidiManager.class, ctx -> new MidiManager(ctx.getOuterContext()));
+        cached(Context.MEDIA_PROJECTION_SERVICE, MediaProjectionManager.class,
+                ctx -> new MediaProjectionManager(ctx.getOuterContext()));
+        cached(Context.ROLE_SERVICE, RoleManager.class, ctx -> new RoleManager(ctx.getOuterContext()));
         // Retest 8's batch B2: as the tag's, over the local account service.
         cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
                 IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));

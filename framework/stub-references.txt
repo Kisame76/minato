@@ -33,7 +33,6 @@ com.android.internal.pm.parsing.PackageParserException <- android.content.pm.Pac
 
 # The display (ADR-0041 a), decision 6): DisplayManagerGlobal over the local display service, AIDL's Default class
 # (ADR-0045 decision 3), so IDisplayManager's Stub and Proxy never run and no DisplayInfo comes from a parcel.
-android.media.projection.MediaProjection <- android.hardware.display.DisplayManagerGlobal  # gap: virtual displays, which DisplayManager.createVirtualDisplay and MediaProjection make (gap 1 handed DisplayManager out)
 android.media.projection.IMediaProjection$Stub <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 android.os.PermissionEnforcer <- android.hardware.display.IDisplayManager  # stays: IDisplayManager's Stub and Proxy, which the local display service never runs
 com.android.internal.display.BrightnessSynchronizer <- android.view.DisplayInfo  # stays: DisplayInfo.equals, which only DisplayManagerGlobal's listener delegate calls, and no listener is registered
@@ -69,7 +68,6 @@ android.database.BulkCursorToCursorAdaptor <- android.content.ContentProviderPro
 android.content.PermissionChecker <- android.content.ContentProvider  # stays: a provider's permission checks for another app, which never calls the app's providers on Minato
 android.content.LoggingContentInterface <- android.content.ContentProvider  # stays: a provider's transport logs only when its class's tag is loggable at VERBOSE, which no property sets on Minato
 android.content.pm.IPackageManager <- android.content.IContentProvider  # stays: IContentProvider's defaults for callers by package name, which only system code uses
-android.bluetooth.BluetoothDevice <- android.content.Intent  # stays: a Bluetooth intent's device extra, which no Bluetooth service delivers on Minato
 android.view.contentcapture.ContentCaptureEvent <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
 android.view.contentcapture.ContentCaptureHelper <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # stays: content capture is off, as no Context gives a ContentCaptureManager (c2c1 decision 2)
@@ -213,7 +211,6 @@ com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stay
 
 # Batch B1 (retest 8's resolve list): Telephony's SMS and MMS helpers.
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: Sms.Intents.getMessagesFromIntent decodes the PDUs of a received SMS, and Minato has no SMS
-android.telephony.SubscriptionManager <- android.provider.Telephony  # gap: Sms.addMessage's default subscription id, with the telephony provider that Minato lacks
 
 # F4e: camera2's session data.
 android.media.CamcorderProfile <- android.hardware.camera2.params.MandatoryStreamCombination  # stays: the recording size of the mandatory stream combinations, which are built from a camera's characteristics, and cameraserver lists no camera

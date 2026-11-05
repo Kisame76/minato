@@ -238,12 +238,23 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --placeholder android.os.MemoryFile \
   --placeholder android.view.displayhash.DisplayHashResultCallback \
   --class android.hardware.camera2.CameraManager \
+  --class android.media.MediaRouter --class android.telephony.SubscriptionManager \
+  --class android.telecom.TelecomManager --class android.telephony.CarrierConfigManager \
+  --class android.media.midi.MidiManager --class android.media.projection.MediaProjectionManager \
+  --class android.telephony.SubscriptionInfo --class android.telecom.PhoneAccount \
+  --class android.media.midi.MidiDevice --class android.media.projection.MediaProjection \
   --class android.view.contentcapture.ContentCaptureSession \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
   --class android.net.NetworkRequest --class android.net.LinkProperties \
   --api "$SOURCES/connectivity_t_api/framework-t/api/current.txt" --class android.net.TrafficStats \
+  --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
+  --class android.bluetooth.BluetoothAdapter \
+  --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
+  --api "$SOURCES/nfc_api/nfc/api/current.txt" --class android.nfc.NfcManager \
+  --class android.nfc.NfcAdapter \
+  --api "$SOURCES/permission_api/framework-s/api/current.txt" --class android.app.role.RoleManager \
   --hand framework/managers --out "$GEN/managers" >/dev/null
 # The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
 # target SDK from which its change is enabled, from which ActivityThread.main gives the app its disabled changes.
@@ -274,7 +285,10 @@ python3 tools/managergen/managergen.py --stubs --hand framework/stubs/members \
   --all-of "$SOURCES/location_api/location/api/current.txt" \
   --all-of "$SOURCES/connectivity_api/framework/api/current.txt" \
   --all-of "$SOURCES/connectivity_t_api/framework-t/api/current.txt" \
-  --all-of "$SOURCES/wifi_api/framework/api/current.txt" --out "$OUT/stubs-src" >/dev/null
+  --all-of "$SOURCES/wifi_api/framework/api/current.txt" \
+  --all-of "$SOURCES/bluetooth_api/framework/api/current.txt" \
+  --all-of "$SOURCES/nfc_api/nfc/api/current.txt" \
+  --all-of "$SOURCES/permission_api/framework-s/api/current.txt" --out "$OUT/stubs-src" >/dev/null
 for annotations in modules_utils/java/android/annotation modules_utils/java/com/android/internal/annotations \
     frameworks_base_graphics/ravenwood/annotations-src/android/ravenwood/annotation; do
   target="$OUT/stubs-src/${annotations#*/java/}"

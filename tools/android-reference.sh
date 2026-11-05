@@ -50,6 +50,8 @@
 # api-breadth-test (the compatibility plan's entry 22) is one too, and so is widgets-test (gap 5), whose widgets are
 # laid out in px on the M4 plan's display.
 # breadth-test (the framework breadth's behavior test) is one too.
+# services-b-test (the compatibility plan's gap 1, services batch B) is one too, on apk-runner-35-bare: no modem, so
+# the subscription and telephony answers are those of a device without a SIM like Minato.
 # webview-camera-test (the Unity test APK probe's batch C) is one too, on apk-runner-35-bare, a device without cameras like
 # Minato; its lines of webview-camera-test-device, which the AVD's WebView answers, are only shown.
 # packs-test and its twin packs-test-own (ADR-0050 test 2) are ones too, without pack slices, as Android gives
@@ -244,7 +246,8 @@ fi
 # The package manager's tests and the system features: apk-runner-35-bare, without the hardware Minato reports as
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
-    || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test ]]; then
+    || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test \
+    || "$app" == services-b-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -669,7 +672,7 @@ run_app() {
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
-      | text-classifier-test | links-answers-test)
+      | text-classifier-test | links-answers-test | services-b-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

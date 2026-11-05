@@ -1,0 +1,27 @@
+I/services-b-test: MediaSessionManager by name: true, by class: true, same: true
+I/services-b-test: MediaRouter by name: true, by class: true, same: true
+I/services-b-test: BluetoothManager by name: true, by class: true, same: true
+I/services-b-test: SubscriptionManager by name: true, by class: true, same: true
+I/services-b-test: TelecomManager by name: true, by class: true, same: true
+I/services-b-test: CarrierConfigManager by name: true, by class: true, same: true
+I/services-b-test: NfcManager by name: true, by class: true, same: true
+I/services-b-test: MidiManager by name: true, by class: true, same: true
+I/services-b-test: MediaProjectionManager by name: true, by class: true, same: true
+I/services-b-test: RoleManager by name: true, by class: true, same: true
+I/services-b-test: MediaSessionManager.getActiveSessions(null): throws java.lang.SecurityException
+I/services-b-test: MediaRouter.getSelectedRoute(LIVE_AUDIO) is not null: true
+I/services-b-test: MediaRouter.getRouteCount() > 0: true
+I/services-b-test: BluetoothManager.getAdapter() is null: false
+I/services-b-test: BluetoothManager.getConnectedDevices(GATT): throws java.lang.SecurityException
+I/services-b-test: SubscriptionManager.getActiveSubscriptionInfoCount(): throws java.lang.SecurityException
+I/services-b-test: SubscriptionManager.getDefaultSubscriptionId(): 1
+I/services-b-test: SubscriptionManager.isValidSubscriptionId(-1): false
+I/services-b-test: TelecomManager.isInCall(): throws java.lang.SecurityException
+I/services-b-test: TelecomManager.getCallCapablePhoneAccounts(): throws java.lang.SecurityException
+I/services-b-test: CarrierConfigManager.getConfig() is null: throws java.lang.SecurityException
+I/services-b-test: NfcManager.getDefaultAdapter() is null: true
+I/services-b-test: MidiManager.getDevices().length: 0
+I/services-b-test: MediaProjectionManager.createScreenCaptureIntent() is not null: true
+I/services-b-test: RoleManager.isRoleAvailable(HOME): true
+I/services-b-test: RoleManager.isRoleHeld(HOME): false
+I/services-b-test: done

@@ -33,7 +33,10 @@ CORE=$SOURCES/frameworks_base_api/core/api/current.txt
 CONNECTIVITY=$SOURCES/connectivity_api/framework/api/current.txt
 CONNECTIVITY_T=$SOURCES/connectivity_t_api/framework-t/api/current.txt
 WIFI=$SOURCES/wifi_api/framework/api/current.txt
-for needed in "$JDK/bin/javac" "$LIBCORE" "$ICU" "$LOCATION" "$CORE" "$CONNECTIVITY" "$CONNECTIVITY_T" "$WIFI" \
+BLUETOOTH=$SOURCES/bluetooth_api/framework/api/current.txt
+NFC=$SOURCES/nfc_api/nfc/api/current.txt
+PERMISSION=$SOURCES/permission_api/framework-s/api/current.txt
+for needed in "$JDK/bin/javac" "$LIBCORE" "$ICU" "$LOCATION" "$CORE" "$CONNECTIVITY" "$CONNECTIVITY_T" "$WIFI" "$BLUETOOTH" "$NFC" "$PERMISSION" \
     build/framework/system build/framework/classes.jar build/framework/stubs.jar build/art/java/all-classes.jar; do
   if [[ ! -e "$needed" ]]; then
     echo "$needed is missing: tools/fetch-sources.py --set framework and --set art, tools/build-art.sh and" \
@@ -46,7 +49,16 @@ rm -rf "$OUT"
 mkdir -p "$OUT/classes"
 python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$ICU" \
   --api "$CORE" --api "$LOCATION" --all-of "$CONNECTIVITY" --all-of "$CONNECTIVITY_T" --all-of "$WIFI" \
+  --api "$BLUETOOTH" --api "$NFC" --api "$PERMISSION" \
   --class android.media.AudioManager --class android.telephony.TelephonyManager \
+  --class android.media.MediaRouter --class android.telephony.SubscriptionManager \
+  --class android.telecom.TelecomManager --class android.telephony.CarrierConfigManager \
+  --class android.media.midi.MidiManager --class android.media.projection.MediaProjectionManager \
+  --class android.telephony.SubscriptionInfo --class android.telecom.PhoneAccount \
+  --class android.media.midi.MidiDevice --class android.media.projection.MediaProjection \
+  --class android.bluetooth.BluetoothManager --class android.bluetooth.BluetoothAdapter \
+  --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
+  --class android.nfc.NfcManager --class android.nfc.NfcAdapter --class android.app.role.RoleManager \
   --class android.telephony.PhoneStateListener --class android.telephony.TelephonyCallback \
   --class android.media.AudioDeviceInfo --class android.os.Vibrator \
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \

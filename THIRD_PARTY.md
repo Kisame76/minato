@@ -296,6 +296,9 @@ themselves never ship.
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework/api/current.txt` | 55,123 | `26bf1910035039b2…` |
 | `platform/packages/modules/Connectivity` | `355670c19612` | Apache-2.0 | `framework-t/api/current.txt` | 20,275 | `2a4b39ab959d50a3…` |
 | `platform/packages/modules/Wifi` | `a88d7fbb026b` | Apache-2.0 | `framework/api/current.txt` | 134,668 | `c10ce9a2f78634c2…` |
+| `platform/packages/modules/Bluetooth` | `84f57cd7ec50` | Apache-2.0 | `framework/api/current.txt` | 115,798 | `304ad363f23baa83…` |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `nfc/api/current.txt` | 28,303 | `d1866c10fc888c38…` |
+| `platform/packages/modules/Permission` | `d7374497d3ac` | Apache-2.0 | `framework-s/api/current.txt` | 1,181 | `7e6928dd6c83d40a…` |
 
 The module APIs' Java sources (the framework breadth), fetched by
 `tools/fetch-sources.py --set framework` at the tag on 2026-10-08 (`build/sources/location_java`,
