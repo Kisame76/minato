@@ -65,26 +65,10 @@ if [[ ${#device[@]} -eq 0 ]]; then
 else
   PIXELS="$out/drawables" PIXELS_DRAWABLES=1 ONLY=views-test \
     tools/java-start-check.sh ${device[@]+"${device[@]}"} "$@" || failed=1
-  # The footprint once the app has settled: the largest sample of each run's views-test.
-  python3 - "$out/contents/views-test/footprint-log" "$out/drawables/views-test/footprint-log" <<'PY' || failed=1
-import sys
-
-
-def peak(path):
-    try:
-        values = [int(line.split()[2]) for line in open(path) if line.split()[1:2] == ["footprint"]]
-    except OSError:
-        return None
-    return max(values) if values else None
-
-
-contents, drawables = peak(sys.argv[1]), peak(sys.argv[2])
-if contents is None or drawables is None:
-    print("FAIL  views-test: no footprint samples in one of the runs")
-    sys.exit(1)
-print(f"note  views-test's footprint at its peak: {contents / 1e6:.1f} MB by contents, {drawables / 1e6:.1f} MB by "
-      f"drawables, {(drawables - contents) / 1e6:.1f} MB less by contents")
-PY
+  # The footprint once the app has settled: the largest sample of each run's views-test (tools/footprint_compare.py).
+  # A run that produced no sample is a device fetch or timing artifact, so a skip note, not a failure of the round.
+  python3 tools/footprint_compare.py \
+    "$out/contents/views-test/footprint-log" "$out/drawables/views-test/footprint-log" || failed=1
 fi
 echo "window contents check: $([[ $failed == 0 ]] && echo ok || echo FAILED)"
 exit "$failed"

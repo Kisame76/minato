@@ -90,6 +90,9 @@ set_tests_properties(graphics.bench_summary PROPERTIES TIMEOUT 300)
 add_test(NAME graphics.window_pixels
   COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/window_pixels_test.py")
 set_tests_properties(graphics.window_pixels PROPERTIES TIMEOUT 120)
+# Step f's footprint comparison (tools/footprint_compare.py): the peak of each run, and a skip for a run with no sample.
+add_test(NAME graphics.footprint_compare
+  COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/footprint_compare_test.py")
 
 # ADR-0037 / M6's MetalFX plan, step 0: the scene's bench.conf render scale and the target size it gives.
 if(APK_HOST_BUILD)
