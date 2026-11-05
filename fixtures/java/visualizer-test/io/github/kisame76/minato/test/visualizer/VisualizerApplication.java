@@ -135,7 +135,7 @@ public class VisualizerApplication extends Application {
                 + outcome(() -> v.setDataCaptureListener(listener, Visualizer.getMaxCaptureRate() / 2, true, true)));
         v.setEnabled(false);
         // The listener is set from a thread with a looper of its own, so that the callbacks run there and not on the
-        // main thread, which is busy starting the activity.
+        // main thread, as an app that captures on a background thread does.
         final android.os.HandlerThread callbackThread = new android.os.HandlerThread("visualizer-callbacks");
         callbackThread.start();
         final String[] disabledStatus = new String[1];

@@ -215,6 +215,11 @@ def main():
     (app, package, application, art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work,
      app_process, framework_jar, folder, apk, expected) = args[:16]
     configuration = args[16] if len(args) == 17 else None
+    if configuration is None:
+        # Said loudly, as a post from another thread that never runs looks like an app bug (see the top of this file).
+        print("java_app_run.py: note: no configuration, so no session and no frame clock: the main Looper "
+              "dispatches no post from another thread and no delayed post; pass a configuration (such as "
+              "1290x2796@3,en-US) to a check whose app uses them", file=sys.stderr)
     if os.path.isfile(hwui_lib):
         # 16 arguments were also the layout before <hwui-lib> with a configuration, which put ICU's data file here.
         raise SystemExit(f"java_app_run.py: <hwui-lib> is a file: {hwui_lib}\n{__doc__}")
