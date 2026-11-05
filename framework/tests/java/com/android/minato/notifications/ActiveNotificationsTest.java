@@ -60,13 +60,15 @@ public final class ActiveNotificationsTest {
         check("a".equals(active.find(7, ActiveNotifications.tagHash("chat"))), "chat 7");
         check("b".equals(active.find(7, ActiveNotifications.tagHash(null))), "untagged 7");
         check(active.find(7, ActiveNotifications.tagHash("other")) == null, "another tag");
+        check(ActiveNotifications.tagHash(null) == ActiveNotifications.tagHash("null"), "no tag is the text null");
+        check(ActiveNotifications.tagHash(null) != ActiveNotifications.tagHash(""), "no tag is not the empty one");
         check(active.find(9, ActiveNotifications.tagHash(null)) == null, "another id");
         check(active.find(ActiveNotifications.AUTOGROUP_ID, ActiveNotifications.tagHash("ranker_group")) == null,
                 "the system's summary is no tap's");
     }
 
     public void testTheTagHashIsFnv1a64OfTheUtf8() {
-        check(ActiveNotifications.tagHash(null) == 0xcbf29ce484222325L, "no tag is the empty tag");
+        check(ActiveNotifications.tagHash(null) == ActiveNotifications.tagHash("null"), "no tag is the tag null");
         check(ActiveNotifications.tagHash("") == 0xcbf29ce484222325L, "empty");
         check(ActiveNotifications.tagHash("a") == 0xaf63dc4c8601ec8cL, "a");
         check(ActiveNotifications.tagHash("\u00e4") != ActiveNotifications.tagHash("a"), "UTF-8 bytes");

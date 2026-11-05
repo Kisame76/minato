@@ -175,7 +175,29 @@ import Testing
     @Test func whenIOSHasDeniedMinatoAnswersNoWithoutItsAlert() {
         var desk = desk()
         #expect(desk.requested(id: 4, text: "2\t0", ios: .denied) == [.answer(id: 4, group: 2, outcome: 0)])
-        #expect(desk.records.microphone == PermissionRecord(outcome: 0, denials: 1))
+        #expect(desk.records.microphone == PermissionRecord(outcome: 0, denials: 0))
+    }
+
+    /// iOS's denial is no denial of the app's: once the user allows the group in iOS's Settings, Minato's alert comes
+    /// again, however often iOS answered no before.
+    @Test func iOSsDenialIsNotCountedSoAGrantInSettingsBringsTheAlertBack() {
+        var desk = desk()
+        #expect(desk.requested(id: 1, text: "2\t0", ios: .denied) == [.answer(id: 1, group: 2, outcome: 0)])
+        #expect(desk.requested(id: 2, text: "2\t0", ios: .denied) == [.answer(id: 2, group: 2, outcome: 0)])
+        #expect(desk.requested(id: 3, text: "2\t0", ios: .denied) == [.answer(id: 3, group: 2, outcome: 0)])
+        #expect(desk.requested(id: 4, text: "2\t0", ios: .granted) == [.ask(id: 4, group: .microphone)])
+    }
+
+    /// The app's own denials still count while iOS denies: a request after two of them is no without the alert, also
+    /// once iOS grants.
+    @Test func theAppsOwnDenialsStayFinalAcrossIOSsDenial() {
+        var desk = desk()
+        _ = desk.requested(id: 1, text: "2\t0", ios: .notDetermined)
+        _ = desk.denied(id: 1)
+        _ = desk.requested(id: 2, text: "2\t0", ios: .denied)
+        _ = desk.requested(id: 3, text: "2\t0", ios: .notDetermined)
+        _ = desk.denied(id: 3)
+        #expect(desk.requested(id: 4, text: "2\t0", ios: .granted) == [.answer(id: 4, group: 2, outcome: 0)])
     }
 
     @Test func aStoredGrantIsAnsweredAtOnceWhileIOSStillGrants() {

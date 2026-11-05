@@ -81,14 +81,12 @@ public final class ActiveNotifications<T> {
         return null;
     }
 
-    /** FNV-1a 64 of the tag's UTF-8, no tag as the empty one: the host's NotificationTap.tagHash. */
+    /** FNV-1a 64 of the tag's UTF-8, no tag as "null" as in the host's text: the host's NotificationTap.tagHash. */
     public static long tagHash(String tag) {
         long hash = 0xcbf29ce484222325L;
-        if (tag != null) {
-            for (byte b : tag.getBytes(StandardCharsets.UTF_8)) {
-                hash ^= b & 0xff;
-                hash *= 0x100000001b3L;
-            }
+        for (byte b : Objects.toString(tag).getBytes(StandardCharsets.UTF_8)) {
+            hash ^= b & 0xff;
+            hash *= 0x100000001b3L;
         }
         return hash;
     }

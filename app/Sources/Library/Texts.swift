@@ -5,13 +5,15 @@ import Foundation
 
 /// User-facing wording for everything APKKit reports.
 enum Texts {
-    /// Minato's own question before iOS's (ADR-0063 decision 2), naming the app first.
+    /// Minato's own question before iOS's (ADR-0063 decision 2), naming the app first by its label made plain
+    /// (AlertName), so that a label cannot change how the question reads; "this app" when nothing of it is left.
     static func permissionTitle(_ name: String, group: PermissionGroup) -> String {
+        let app = AlertName.plain(name).map { "“\($0)”" } ?? "this app"
         switch group {
-        case .microphone: "Allow “\(name)” to use the microphone?"
-        case .location: "Allow “\(name)” to use your location?"
-        case .camera: "Allow “\(name)” to use the camera?"
-        case .notifications: "Allow “\(name)” to send notifications?"
+        case .microphone: return "Allow \(app) to use the microphone?"
+        case .location: return "Allow \(app) to use your location?"
+        case .camera: return "Allow \(app) to use the camera?"
+        case .notifications: return "Allow \(app) to send notifications?"
         }
     }
 

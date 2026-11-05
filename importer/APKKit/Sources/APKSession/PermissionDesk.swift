@@ -109,10 +109,11 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
 /// app first, and only a yes there goes on to iOS's prompt, and only while iOS has not answered; a no never reaches
 /// iOS. The answer is kept per app and group; a grant clears the denials, and a request after the second denial in a
 /// row is answered no at once, as Android stops showing its dialog then. When iOS has denied, the answer is no without
-/// the alert. Location is fine for a request of ACCESS_FINE_LOCATION under iOS's full accuracy and coarse for a
-/// coarse-only request or under iOS's reduced accuracy (decision 3); a stored coarse grant asks again for fine. The
-/// start seeds a stored grant iOS still gives, and each return to the foreground answers a change of iOS's answer
-/// (request ID 0, not counted): a revoke as a denial, reduced accuracy as coarse.
+/// the alert and without a count, since that no is the user's in iOS's Settings, not the app's. Location is fine for a
+/// request of ACCESS_FINE_LOCATION under iOS's full accuracy and coarse for a coarse-only request or under iOS's
+/// reduced accuracy (decision 3); a stored coarse grant asks again for fine. The start seeds a stored grant iOS still
+/// gives, and each return to the foreground answers a change of iOS's answer (request ID 0, not counted): a revoke as a
+/// denial, reduced accuracy as coarse.
 public struct PermissionDesk: Sendable {
     /// iOS's answer for the group's own permission (AVAudioApplication.recordPermission for the microphone,
     /// CLLocationManager's authorization and accuracy for location, AVCaptureDevice's for video for the camera,
@@ -256,7 +257,10 @@ public struct PermissionDesk: Sendable {
             } else if record.denials >= 2 {
                 steps.append(.answer(id: first.id, group: group.rawValue, outcome: 0))
             } else if state == .denied {
-                steps.append(answer(first, 0))
+                // iOS's no is the user's in Settings, not the app's: the record keeps no grant but counts no denial,
+                // so that Minato's alert comes again once iOS allows the group.
+                records[group].outcome = 0
+                steps.append(.answer(id: first.id, group: group.rawValue, outcome: 0))
             } else {
                 shown = first
                 steps.append(.ask(id: first.id, group: group))

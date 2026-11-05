@@ -12,9 +12,21 @@ public final class NotificationTextTest {
                 text);
     }
 
-    public void testNullFieldsAreEmpty() {
+    public void testNullFieldsAreEmptyButANullTagIsNull() {
         String text = NotificationText.post(-1, null, null, 3, false, 0, null, null, null, null, null);
-        check("post\t-1\t\t\t3\t0\t0\t\t\t\t\t".equals(text), text);
+        check("post\t-1\tnull\t\t3\t0\t0\t\t\t\t\t".equals(text), text);
+    }
+
+    /**
+     * No tag is "null", as Android's notification key writes it (StatusBarNotification: "|" + tag + "|"): so the host
+     * keeps a notification without a tag apart from one with the empty tag, as NotificationManagerService and
+     * ActiveNotifications do, and one with the tag "null" is the same one, as on Android.
+     */
+    public void testNoTagAndTheEmptyTagAreTwo() {
+        check(!NotificationText.post(1, null, "", 3, false, 0, "", "", "", null, "")
+                .equals(NotificationText.post(1, "", "", 3, false, 0, "", "", "", null, "")), "post");
+        check(!NotificationText.cancel(1, null).equals(NotificationText.cancel(1, "")), "cancel");
+        check(NotificationText.cancel(1, null).equals(NotificationText.cancel(1, "null")), "the tag null");
     }
 
     public void testATabIsASpaceAndANewLineOnlyInTheText() {
@@ -59,7 +71,7 @@ public final class NotificationTextTest {
 
     public void testACancelAndACancelOfAll() {
         check("cancel\t7\tchat".equals(NotificationText.cancel(7, "chat")), "cancel");
-        check("cancel\t7\t".equals(NotificationText.cancel(7, null)), "no tag");
+        check("cancel\t7\tnull".equals(NotificationText.cancel(7, null)), "no tag");
         check("cancelAll".equals(NotificationText.cancelAll()), "all");
     }
 

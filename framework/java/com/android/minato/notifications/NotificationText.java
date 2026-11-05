@@ -22,14 +22,23 @@ public final class NotificationText {
 
     public static String post(int id, String tag, String channel, int importance, boolean sound, long when,
             String group, CharSequence title, CharSequence subText, String intent, CharSequence text) {
-        return "post\t" + id + "\t" + field(tag, NAME_BYTES, false) + "\t" + field(channel, NAME_BYTES, false) + "\t"
+        return "post\t" + id + "\t" + field(tag(tag), NAME_BYTES, false) + "\t" + field(channel, NAME_BYTES, false)
+                + "\t"
                 + Math.max(0, Math.min(5, importance)) + "\t" + (sound ? 1 : 0) + "\t" + Math.max(0, when) + "\t"
                 + field(group, NAME_BYTES, false) + "\t" + field(title, LINE_BYTES, false) + "\t"
                 + field(subText, LINE_BYTES, false) + "\t" + intent(intent) + "\t" + field(text, TEXT_BYTES, true);
     }
 
     public static String cancel(int id, String tag) {
-        return "cancel\t" + id + "\t" + field(tag, NAME_BYTES, false);
+        return "cancel\t" + id + "\t" + field(tag(tag), NAME_BYTES, false);
+    }
+
+    /**
+     * A tag as Android's notification key writes it (StatusBarNotification's "|" + tag + "|"): none is "null", so
+     * the host keeps it apart from the empty tag, as NotificationManagerService does, and the tag "null" is the same.
+     */
+    static String tag(String tag) {
+        return String.valueOf(tag);
     }
 
     public static String cancelAll() {
