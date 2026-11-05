@@ -619,6 +619,8 @@ TEST(sched_setscheduler_and_setparam_answer_like_a_thread_of_an_android_app) {
     CHECK(set(0, static_cast<std::uint64_t>(-1), 0) == -einval);
     CHECK(set(0, 6, 0) == -einval);          // SCHED_DEADLINE has sched_setattr
     CHECK(set(999'999, 0, 0) == -esrch);
+    CHECK(set(999'999, 7, 0) == -esrch);     // the thread is looked up before the arguments are judged
+    CHECK(set(999'999, 1, 0) == -esrch);
     CHECK(set(static_cast<std::uint64_t>(-1), 0, 0) == -einval);
     CHECK(call(nr_sched_setscheduler, {0, 0, 0}) == -einval);  // no sched_param
     CHECK(call(nr_sched_getscheduler, {0}) == 0);              // still SCHED_OTHER as reported
@@ -628,6 +630,9 @@ TEST(sched_setscheduler_and_setparam_answer_like_a_thread_of_an_android_app) {
     CHECK(call(nr_sched_setparam, {0, reinterpret_cast<std::uint64_t>(&param)}) == -einval);
     param = 0;
     CHECK(call(nr_sched_setparam, {999'999, reinterpret_cast<std::uint64_t>(&param)}) == -esrch);
+    param = 3;
+    CHECK(call(nr_sched_setparam, {999'999, reinterpret_cast<std::uint64_t>(&param)}) == -esrch);
+    param = 0;
     const auto bad_pid = static_cast<std::uint64_t>(-1);
     CHECK(call(nr_sched_setparam, {bad_pid, reinterpret_cast<std::uint64_t>(&param)}) == -einval);
     CHECK(call(nr_sched_setparam, {0, 0}) == -einval);

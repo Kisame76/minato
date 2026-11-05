@@ -318,7 +318,8 @@ long sys_sched_getparam(int pid, std::uint64_t parameters) {
     return 0;
 }
 
-/// sched_setscheduler and sched_setparam for a thread of an Android app, as Linux answers them (kernel/sched/core.c):
+/// sched_setscheduler and sched_setparam for a thread of an Android app, as Linux answers them (kernel/sched/core.c;
+/// a missing sched_param or a negative pid is EINVAL, then the thread is looked up, ESRCH, then the policy is judged):
 /// the other policies (SCHED_OTHER 0, SCHED_BATCH 3, SCHED_IDLE 5, with SCHED_RESET_ON_FORK) take priority 0 and are
 /// accepted; SCHED_FIFO (1) and SCHED_RR (2) take 1 to 99 and are refused with EPERM, since an app has neither
 /// CAP_SYS_NICE nor an RLIMIT_RTPRIO; SCHED_DEADLINE (6) and any other number are EINVAL. The thread stays SCHED_OTHER
@@ -326,6 +327,7 @@ long sys_sched_getparam(int pid, std::uint64_t parameters) {
 long sys_sched_setscheduler(int pid, int policy, std::uint64_t parameters) {
     constexpr int reset_on_fork = 0x40000000;
     if (parameters == 0 || pid < 0) return -linux_errno::einval;
+    if (!names_own_thread(pid)) return -linux_errno::esrch;  // the thread is looked up before the policy is judged
     const int priority = *as_pointer<int>(parameters);
     policy &= ~reset_on_fork;
     switch (policy) {
@@ -340,14 +342,13 @@ long sys_sched_setscheduler(int pid, int policy, std::uint64_t parameters) {
             break;
         default: return -linux_errno::einval;
     }
-    if (!names_own_thread(pid)) return -linux_errno::esrch;
     return policy == 1 || policy == 2 ? -linux_errno::eperm : 0;
 }
 
 long sys_sched_setparam(int pid, std::uint64_t parameters) {
     if (parameters == 0 || pid < 0) return -linux_errno::einval;
-    if (*as_pointer<int>(parameters) != 0) return -linux_errno::einval;  // the thread is SCHED_OTHER: priority 0
     if (!names_own_thread(pid)) return -linux_errno::esrch;
+    if (*as_pointer<int>(parameters) != 0) return -linux_errno::einval;  // the thread is SCHED_OTHER: priority 0
     return 0;
 }
 
