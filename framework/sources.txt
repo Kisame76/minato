@@ -537,6 +537,16 @@ frameworks_base/core/java/android/view/WindowInsetsController.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityEvent.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityEventSource.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityRecord.java
+# Services batch D: the accessibility data classes apps and libraries fill and read (node, window and service infos), taken
+# with Minato's own AccessibilityInteractionClient (no service, so no connection); the node info's patch drops the direct
+# connection (framework/patches/accessibilitynodeinfo-without-direct-connection.patch).
+frameworks_base/core/java/android/view/accessibility/AccessibilityNodeInfo.java
+frameworks_base/core/java/android/view/accessibility/AccessibilityWindowInfo.java
+frameworks_base/core/java/android/accessibilityservice/AccessibilityServiceInfo.java
+frameworks_base/core/java/android/accessibilityservice/util/AccessibilityUtils.java
+frameworks_base/core/java/android/text/style/AccessibilityClickableSpan.java
+frameworks_base/core/java/android/text/style/AccessibilityURLSpan.java
+frameworks_base/core/java/android/text/style/AccessibilityReplacementSpan.java
 frameworks_base/core/java/android/view/animation/AnimationUtils.java
 frameworks_base/core/java/android/view/animation/BaseInterpolator.java
 frameworks_base/core/java/android/view/animation/Interpolator.java

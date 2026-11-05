@@ -54,7 +54,6 @@ android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  #
 android.view.RemoteAnimationTarget <- android.window.BackMotionEvent, android.window.BackTouchTracker  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.SurfaceSession <- android.view.SurfaceControl  # gap: a placeholder's session (SurfaceControl, the graphics side's), not taken yet
 android.view.ViewFrameInfo <- android.view.ViewRootImpl  # gap: not taken: it reads InputEvent.INVALID_INPUT_EVENT_ID, which our InputEvent lacks
-android.view.accessibility.AccessibilityWindowInfo <- android.view.accessibility.AccessibilityNodeInfo  # gap: accessibility windows not taken yet; accessibility is off (ADR-0041)
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.view.displayhash.DisplayHash <- android.view.displayhash.DisplayHashResultCallback  # gap: display hashes not taken yet

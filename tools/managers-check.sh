@@ -114,7 +114,6 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.view.inputmethod.ConnectionlessHandwritingCallback \
   --class android.app.AutomaticZenRule \
   --class android.service.notification.Condition \
-  --class android.view.accessibility.AccessibilityNodeInfo \
   --class android.view.translation.ViewTranslationRequest \
   --placeholder android.view.SurfaceControl \
   --placeholder android.graphics.SurfaceTexture \

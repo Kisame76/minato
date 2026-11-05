@@ -9,9 +9,6 @@
 
 # Binder and parcels (decision 10): no parcel is written or read in an app process.
 android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, android.text.style.TypefaceSpan  # stays: the spans' parcel constructors and writeToParcel (b3.4b)
-android.text.style.AccessibilityClickableSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.AccessibilityReplacementSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
-android.text.style.AccessibilityURLSpan <- android.text.TextUtils  # stays: TextUtils.CHAR_SEQUENCE_CREATOR, from a parcel
 
 # System services (ADR-0045): ServiceManager and the AIDL interfaces behind it.
 android.os.PermissionEnforcer <- com.android.internal.compat.IPlatformCompat  # stays: IPlatformCompat's Stub and Proxy, which the local platform compat service never runs
@@ -86,7 +83,6 @@ android.view.SurfaceSession <- android.view.View  # ADR-0041 a): surfaces
 android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
 android.view.animation.ClipRectAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ExtendAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.view.accessibility.AccessibilityInteractionClient <- android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 

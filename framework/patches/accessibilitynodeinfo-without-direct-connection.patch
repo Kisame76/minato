@@ -1,0 +1,34 @@
+Minato's patch to frameworks/base's core/java/android/view/accessibility/AccessibilityNodeInfo.java at android-15.0.0_r1
+(Apache-2.0), services batch D: no direct accessibility connection.
+
+Why: setQueryFromAppProcessEnabled links a node to the view root's direct connection, and usingDirectConnection asks
+AccessibilityInteractionClient whether a connection is a DirectAccessibilityConnection, which needs the interaction
+connection's AIDL and a service that answers. Minato has no accessibility service (ADR-0041), so no connection to the
+window exists: the node stays unlinked, which is what an app's node is on Android without a service, and no connection
+is a direct one. Every query over a connection then answers as Android does for a node without one (null, false or an
+empty list), through framework/java/android/view/accessibility/AccessibilityInteractionClient.java.
+
+tools/build-framework.sh applies it to a copy in build/framework/src, never to build/sources.
+
+--- a/core/java/android/view/accessibility/AccessibilityNodeInfo.java
++++ b/core/java/android/view/accessibility/AccessibilityNodeInfo.java
+@@ -4056,7 +4056,8 @@
+             throw new IllegalStateException(
+                     "Cannot link a node to a view that is not attached to a window.");
+         }
+-        setConnectionId(viewRootImpl.getDirectAccessibilityConnectionId());
++        // Minato has no direct connection: a node stays unlinked, as an app's node is without a service.
++        setConnectionId(UNDEFINED_CONNECTION_ID);
+     }
+ 
+     /**
+@@ -4084,8 +4085,7 @@
+     }
+ 
+     private static boolean usingDirectConnection(int connectionId) {
+-        return AccessibilityInteractionClient.getConnection(
+-                connectionId) instanceof DirectAccessibilityConnection;
++        return false;
+     }
+ 
+     /**

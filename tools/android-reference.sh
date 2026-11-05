@@ -674,7 +674,7 @@ run_app() {
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
-      | text-classifier-test | links-answers-test | services-b-test | services-c-test)
+      | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

@@ -1,0 +1,63 @@
+I/accessibility-answers-test: text: Play
+I/accessibility-answers-test: contentDescription: Play the game
+I/accessibility-answers-test: className: android.widget.Button
+I/accessibility-answers-test: packageName: p.q
+I/accessibility-answers-test: viewId: p.q:id/play
+I/accessibility-answers-test: hint: hint
+I/accessibility-answers-test: boundsInScreen: Rect(1, 2 - 30, 40)
+I/accessibility-answers-test: boundsInParent: Rect(0, 0 - 29, 38)
+I/accessibility-answers-test: flags: true true true true true true true true true true false false
+I/accessibility-answers-test: actions: 17
+I/accessibility-answers-test: actionList: 3
+I/accessibility-answers-test: action ids: 16 1 16777216
+I/accessibility-answers-test: custom action label: Custom
+I/accessibility-answers-test: ACTION_CLICK id: 16
+I/accessibility-answers-test: granularities: 2
+I/accessibility-answers-test: maxTextLength: 20
+I/accessibility-answers-test: textSelection: 1 3
+I/accessibility-answers-test: inputType: 1
+I/accessibility-answers-test: liveRegion: 1
+I/accessibility-answers-test: collection: 3 2 true
+I/accessibility-answers-test: collection item: 1 0 1
+I/accessibility-answers-test: range: 0 0.0 10.0 4.0
+I/accessibility-answers-test: error: bad
+I/accessibility-answers-test: paneTitle: pane
+I/accessibility-answers-test: heading: true
+I/accessibility-answers-test: childCount: 0
+I/accessibility-answers-test: parent: throws java.lang.IllegalStateException
+I/accessibility-answers-test: window: throws java.lang.IllegalStateException
+I/accessibility-answers-test: windowId: -1
+I/accessibility-answers-test: refresh: throws java.lang.IllegalStateException
+I/accessibility-answers-test: performAction(click): throws java.lang.IllegalStateException
+I/accessibility-answers-test: describeContents: 0
+I/accessibility-answers-test: copy equals: true
+I/accessibility-answers-test: copy text: Play
+I/accessibility-answers-test: parcel round trip: Play|android.widget.Button|3|3|4.0|true|bad
+I/accessibility-answers-test: toString has class: true
+I/accessibility-answers-test: view node class: null
+I/accessibility-answers-test: view node description: null
+I/accessibility-answers-test: view node package: null
+I/accessibility-answers-test: view node clickable: false
+I/accessibility-answers-test: view node enabled: false
+I/accessibility-answers-test: view node action CLICK: false
+I/accessibility-answers-test: manager isEnabled: false
+I/accessibility-answers-test: manager isTouchExplorationEnabled: false
+I/accessibility-answers-test: manager enabled services: 0
+I/accessibility-answers-test: window obtain type: -1
+I/accessibility-answers-test: window obtain id: -1
+I/accessibility-answers-test: window obtain layer: -1
+I/accessibility-answers-test: window obtain active: false
+I/accessibility-answers-test: window obtain focused: false
+I/accessibility-answers-test: window obtain childCount: 0
+I/accessibility-answers-test: window obtain parent: null
+I/accessibility-answers-test: window obtain root: null
+I/accessibility-answers-test: window obtain title: null
+I/accessibility-answers-test: window obtain bounds: Rect(0, 0 - 0, 0)
+I/accessibility-answers-test: window TYPE_APPLICATION: 1
+I/accessibility-answers-test: service info defaults: 0 null null null
+I/accessibility-answers-test: service info fields: 32 1 100 2 a.b
+I/accessibility-answers-test: service info feedbackTypeToString: [FEEDBACK_SPOKEN]
+I/accessibility-answers-test: service info flagToString: FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+I/accessibility-answers-test: service info capabilityToString: CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT
+I/accessibility-answers-test: service info parcel round trip: 32 100
+I/accessibility-answers-test: done

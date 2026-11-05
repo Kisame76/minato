@@ -14,6 +14,9 @@ import android.os.ServiceManager;
 import android.util.Singleton;
 
 public class ActivityTaskManager {
+    /** The id of no task. */
+    public static final int INVALID_TASK_ID = -1;
+
     private ActivityTaskManager() {
     }
 
