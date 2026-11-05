@@ -40,6 +40,21 @@ public final class NotificationTextTest {
         check(text.endsWith("\tabcdefg\t\t\t"), text);
     }
 
+    public void testTheArabicLetterMarkTheGraphemeJoinerAndStrayTagsGo() {
+        String flag = "\uD83C\uDFF4" + tags(0xE0067, 0xE0062, 0xE0073, 0xE0063, 0xE0074, 0xE007F);
+        String title = "A\u061CB\u034FC" + tags(0xE0041, 0xE007F) + "D " + flag + " \uD83C\uDFF4" + tags(0xE0067);
+        String text = NotificationText.post(1, "", "", 3, false, 0, "", title, "", null, "");
+        check(text.endsWith("\tABCD " + flag + " \uD83C\uDFF4\t\t\t"), text);
+    }
+
+    private static String tags(int... points) {
+        StringBuilder out = new StringBuilder();
+        for (int point : points) {
+            out.appendCodePoint(point);
+        }
+        return out.toString();
+    }
+
     public void testFieldsAreCutToTheirBytesAtACharacterBoundary() {
         String title = "\u00E4".repeat(200);  // 400 bytes of UTF-8, cut to 256: 128 characters
         String text = NotificationText.post(1, "t".repeat(100), "", 3, false, 0, "", title, "", null, "z".repeat(5000));

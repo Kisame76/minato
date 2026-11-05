@@ -59,7 +59,14 @@ public final class NotificationText {
         return uri;
     }
 
-    /** `value` fit for a field of `bytes` bytes; `lines` keeps its new lines. */
+    /** The black flag, which tag characters and their cancel tag make a subdivision's flag (an emoji tag sequence). */
+    private static final int BLACK_FLAG = 0x1f3f4;
+    private static final int CANCEL_TAG = 0xe007f;
+
+    /**
+     * `value` fit for a field of `bytes` bytes; `lines` keeps its new lines. A subdivision's flag is one piece: it is
+     * kept or cut whole, and tag characters outside one go.
+     */
     static String field(CharSequence value, int bytes, boolean lines) {
         if (value == null) {
             return "";
@@ -68,26 +75,53 @@ public final class NotificationText {
         int used = 0;
         for (int i = 0; i < value.length(); ) {
             int c = Character.codePointAt(value, i);
-            i += Character.charCount(c);
+            int next = i + Character.charCount(c);
+            String piece;
             if (c == '\t' || (c == '\n' && !lines)) {
-                c = ' ';
+                piece = " ";
+            } else if (c == BLACK_FLAG) {
+                next = tagSequenceEnd(value, next);
+                piece = value.subSequence(i, next).toString();
             } else if (c != '\n' && dropped(c)) {
+                i = next;
                 continue;
+            } else {
+                piece = new String(Character.toChars(c));
             }
-            int size = new String(Character.toChars(c)).getBytes(StandardCharsets.UTF_8).length;
+            int size = piece.getBytes(StandardCharsets.UTF_8).length;
             if (used + size > bytes) {
                 break;
             }
-            out.appendCodePoint(c);
+            out.append(piece);
             used += size;
+            i = next;
         }
         return out.toString();
     }
 
-    /** A control, a bidirectional control or an invisible character, as the runtime's check of a title refuses. */
+    /** Where the tags from `from` end, their cancel tag included; `from` when no tag and its cancel tag follow. */
+    private static int tagSequenceEnd(CharSequence value, int from) {
+        int at = from;
+        while (at < value.length()) {
+            int c = Character.codePointAt(value, at);
+            if (c == CANCEL_TAG) {
+                return at > from ? at + Character.charCount(c) : from;
+            }
+            if (c < 0xe0020 || c > 0xe007e) {
+                return from;
+            }
+            at += Character.charCount(c);
+        }
+        return from;
+    }
+
+    /**
+     * A control, a bidirectional control (U+061C too), an invisible character (U+034F too) or a tag character, as the
+     * runtime's check of a title refuses the first three.
+     */
     private static boolean dropped(int c) {
         return c < 0x20 || (c >= 0x7f && c <= 0x9f) || (c >= 0x200b && c <= 0x200f) || (c >= 0x2028 && c <= 0x202e)
                 || (c >= 0x2060 && c <= 0x206f) || c == 0xfeff || (c >= 0xfff9 && c <= 0xfffb)
-                || (c >= 0xd800 && c <= 0xdfff);
+                || (c >= 0xd800 && c <= 0xdfff) || c == 0x061c || c == 0x034f || (c >= 0xe0000 && c <= 0xe007f);
     }
 }

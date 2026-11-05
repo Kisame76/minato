@@ -52,6 +52,26 @@ public final class ActiveNotificationsTest {
         check(keys(active).equals(List.of("null|1 a", "null|2 b")), "own group " + keys(active));
     }
 
+    /**
+     * Android's post replaces by the key, where no tag and the tag "null" are one, but its cancel matches the tag
+     * itself (NotificationManagerService.findNotificationByListLocked: TextUtils.equals), so a cancel with the other
+     * kind of tag leaves the notification. A cancel of a key the list does not have goes on to the host, whose may be
+     * left from the app's last process.
+     */
+    public void testACancelMatchesTheTagItselfAsAndroidsDoes() {
+        ActiveNotifications<String> active = new ActiveNotifications<>();
+        active.post(null, 1, "g", "a");
+        check(!active.cancel("null", 1), "the tag null leaves no tag");
+        check(keys(active).equals(List.of("null|1 a")), "still there " + keys(active));
+        check(active.cancel(null, 1), "no tag takes no tag");
+        check(keys(active).isEmpty(), "gone " + keys(active));
+        active.post("null", 2, "g", "b");
+        active.post(null, 2, "g", "c");
+        check(keys(active).equals(List.of("null|2 c")), "a post replaces by the key " + keys(active));
+        check(!active.cancel("null", 2), "the replaced one has no tag now");
+        check(active.cancel("other", 3), "a key it does not have goes on");
+    }
+
     public void testATapFindsTheNotificationByItsIdAndTagHash() {
         ActiveNotifications<String> active = new ActiveNotifications<>();
         active.post("chat", 7, null, "a");

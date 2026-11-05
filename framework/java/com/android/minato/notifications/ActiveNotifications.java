@@ -56,11 +56,23 @@ public final class ActiveNotifications<T> {
         }
     }
 
-    public synchronized void cancel(String tag, int id) {
+    /**
+     * The cancel of `tag` and `id`; whether it goes on to the host. Android's post replaces by the key, where no tag
+     * and the tag "null" are one, but its cancel matches the tag itself (NotificationManagerService's
+     * findNotificationByListLocked compares with TextUtils.equals): a cancel with the other kind of tag leaves the
+     * active one and the host's. A key the list does not have goes on, for the host's may be left from the app's last
+     * process.
+     */
+    public synchronized boolean cancel(String tag, int id) {
+        Entry<T> entry = mEntries.get(key(tag, id));
+        if (entry != null && !Objects.equals(entry.tag, tag)) {
+            return false;
+        }
         mEntries.remove(key(tag, id));
         if (ungrouped() == 0) {
             mSummary = false;
         }
+        return true;
     }
 
     public synchronized void cancelAll() {

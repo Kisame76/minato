@@ -205,8 +205,7 @@ public final class NotificationService extends INotificationManager.Default {
     @Override
     public synchronized void cancelNotificationWithTag(String pkg, String opPkg, String tag, int id, int userId) {
         checkSameApp(pkg);
-        mActive.cancel(tag, id);
-        if (hasPermission()) {
+        if (mActive.cancel(tag, id) && hasPermission()) {
             host(NotificationText.cancel(id, tag));
         }
     }

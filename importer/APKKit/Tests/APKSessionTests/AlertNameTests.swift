@@ -16,6 +16,16 @@ import Testing
         #expect(AlertName.plain("A\u{0007}B\u{0085}C\u{007F}") == "ABC")
     }
 
+    /// U+061C (a bidirectional mark), U+034F (an invisible joiner) and tag characters outside an emoji's tag
+    /// sequence go; a subdivision flag, the black flag with its tags and their cancel tag, stays.
+    @Test func theArabicLetterMarkTheGraphemeJoinerAndStrayTagsGo() {
+        #expect(AlertName.plain("A\u{061C}B\u{034F}C") == "ABC")
+        #expect(AlertName.plain("X\u{E0041}\u{E0042}Y\u{E007F}Z\u{E0001}") == "XYZ")
+        let scotland = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}"
+        #expect(AlertName.plain("Go " + scotland) == "Go " + scotland)
+        #expect(AlertName.plain("\u{1F3F4}\u{E0067}\u{E0062}") == "\u{1F3F4}")
+    }
+
     @Test func lineBreaksAndTabsAreSpaces() {
         #expect(AlertName.plain("One\nTwo\tThree\u{2028}Four") == "One Two Three Four")
         #expect(AlertName.plain("  Spaced  \n") == "Spaced")
