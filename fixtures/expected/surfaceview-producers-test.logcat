@@ -1,0 +1,16 @@
+I/surfaceview-producers-test: start: created, changed
+I/surfaceview-producers-test: a) fresh: a window surface true, eglGetError 0x3000, surface valid true
+I/surfaceview-producers-test: a) current true, swapped true, destroyed while current true
+I/surfaceview-producers-test: a) again after the destroy while current: a window surface true, eglGetError 0x3000, surface valid true
+I/surfaceview-producers-test: b) software frame: locked true
+I/surfaceview-producers-test: b) after the software frame: a window surface false, eglGetError 0x3003, surface valid true
+I/surfaceview-producers-test: c) setFormat: destroyed, created, changed
+I/surfaceview-producers-test: c) after setFormat: a window surface true, eglGetError 0x3000, surface valid true
+I/surfaceview-producers-test: d) software frame: locked true
+I/surfaceview-producers-test: d) setFixedSize: changed
+I/surfaceview-producers-test: d) after setFixedSize: a window surface false, eglGetError 0x3003, surface valid true
+I/surfaceview-producers-test: e) software frame: locked true
+I/surfaceview-producers-test: e) hidden: destroyed
+I/surfaceview-producers-test: e) shown: created, changed
+I/surfaceview-producers-test: e) after hide and show: a window surface true, eglGetError 0x3000, surface valid true
+I/surfaceview-producers-test: done

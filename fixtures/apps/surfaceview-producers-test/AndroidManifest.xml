@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A SurfaceView's producers across its surface's changes (ADR-0043, the producer parity's follow-up): which EGL
+     window surfaces Android 15 lets an app make on a SurfaceView's Surface after a software frame, a destroy while
+     current, a format change, a fixed size and a hide and show, as engines do at their start. Hardware accelerated, as
+     an engine's activity is. GLES is not required. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.surfaceviewproducers" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-feature android:glEsVersion="0x00020000" android:required="false"/>
+  <application android:label="SurfaceView Producers Test">
+    <activity android:name="io.github.kisame76.minato.test.surfaceviewproducers.ProducersActivity"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

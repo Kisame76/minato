@@ -781,6 +781,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SecondWindowsActivity
       limit=150
       ;;
+    # surfaceview-producers-test (the producer parity's follow-up): its SurfaceView's EGL surfaces across a software
+    # frame, a destroy while current, setFormat, setFixedSize and a hide and show; it ends with "done".
+    surfaceview-producers-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ProducersActivity
+      limit=90
+      ;;
     # title-test (window titles): its activity runs when the window has the focus and ends with "done".
     title-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TitleActivity
