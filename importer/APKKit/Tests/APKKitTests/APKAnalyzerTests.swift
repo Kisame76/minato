@@ -310,16 +310,54 @@ struct APKAnalyzerTests {
         let plainLua = TestAPK(files: [sdl, exporting("lua_newstate", as: "lib/arm64-v8a/liblove.so")])
         let network = TestAPK(files: [Self.library("lib/arm64-v8a/libnetwork.so")])
 
-        #expect(try engine(mono) == (".NET (Xamarin/MAUI)", .ready))
-        #expect(try engine(monoAssemblies) == (".NET (Xamarin/MAUI)", .ready))
-        #expect(try engine(monoBlob) == (".NET (Xamarin/MAUI)", .ready))
-        #expect(try engine(coreCLR) == (".NET (CoreCLR)", .ready))
-        #expect(try engine(coreCLRHost) == (".NET (CoreCLR)", .ready))
+        // Without AOT images (libaot-*.dll.so) Mono compiles at run time, and CoreCLR has its own JIT: Get Info says so
+        // (namesEnginesThatNeedAJIT); the status stays ready.
+        let needsJIT = " (needs a JIT, which iOS does not allow)"
+        #expect(try engine(mono) == (".NET (Xamarin/MAUI)" + needsJIT, .ready))
+        #expect(try engine(monoAssemblies) == (".NET (Xamarin/MAUI)" + needsJIT, .ready))
+        #expect(try engine(monoBlob) == (".NET (Xamarin/MAUI)" + needsJIT, .ready))
+        #expect(try engine(coreCLR) == (".NET (CoreCLR)" + needsJIT, .ready))
+        #expect(try engine(coreCLRHost) == (".NET (CoreCLR)" + needsJIT, .ready))
         #expect(try engine(luaJITNamed) == ("LuaJIT", .ready))
         // Before SDL: LÖVE-like apps load SDL too.
         #expect(try engine(luaJITLinkedIn) == ("LuaJIT", .ready))
         #expect(try engine(plainLua) == ("SDL", .ready))
         #expect(try engine(network) == (nil, .ready))
+    }
+
+    /// What Minato cannot switch to an interpreter is said in Get Info's engine line as a reason (ADR-0071, ADR-0072),
+    /// not as an incompatibility: Mono without AOT images, CoreCLR, a LuaJIT linked in without luaJIT_setmode, and an
+    /// emulator with a dynamic recompiler (found by its library's name; worded apart, as many have an interpreter).
+    /// What the switches cover is not marked.
+    @Test func namesEnginesThatNeedAJIT() throws {
+        func engine(_ files: [ZipBuilder.Entry]) throws -> (String?, Compatibility.Status) {
+            let report = try APKAnalyzer.analyze(TestAPK(files: files).archive(), preferredLanguages: [])
+            return (report.engine, report.compatibility.status)
+        }
+        func symbols(_ defined: [String], text: String = "", as path: String) -> ZipBuilder.Entry {
+            .init(name: path, content: SymbolELF.make(defined: defined, rawStrings: Data(text.utf8)))
+        }
+        let needsJIT = " (needs a JIT, which iOS does not allow)"
+        let sdl = Self.library("lib/arm64-v8a/libSDL2.so")
+        // Mono with its AOT images is left alone; so is a LuaJIT the switch reaches.
+        #expect(try engine([Self.library("lib/arm64-v8a/libmonosgen-2.0.so"),
+                            Self.library("lib/arm64-v8a/libaot-Game.dll.so")]) == (".NET (Xamarin/MAUI)", .ready))
+        #expect(try engine([sdl, symbols(["luaJIT_setmode"], as: "lib/arm64-v8a/liblove.so")]) == ("LuaJIT", .ready))
+        #expect(try engine([symbols(["luaJIT_setmode"], as: "lib/arm64-v8a/libluajit-5.1.so")]) == ("LuaJIT", .ready))
+        // A named LuaJIT that exports no luaJIT_setmode, and one linked into the engine's library without it (Lua's
+        // API and LuaJIT's version text, nothing to switch it by).
+        #expect(try engine([symbols(["lua_newstate"], as: "lib/arm64-v8a/libluajit-5.1.so")])
+                == ("LuaJIT" + needsJIT, .ready))
+        #expect(try engine([sdl, symbols(["luaL_openlibs", "lua_newstate"], text: "LuaJIT 2.1.0-beta3",
+                                         as: "lib/arm64-v8a/liblove.so")]) == ("LuaJIT" + needsJIT, .ready))
+        // Plain Lua has no JIT.
+        #expect(try engine([sdl, symbols(["luaL_openlibs", "lua_newstate"], text: "Lua 5.4.6",
+                                         as: "lib/arm64-v8a/liblove.so")]) == ("SDL", .ready))
+        // Emulators with a dynamic recompiler, by library name.
+        // Several have an interpreter that works without the JIT, so the line does not say they need one.
+        let emulator = " (emulator; its JIT is off on iOS, so it runs slower or not at all)"
+        #expect(try engine([Self.library("lib/arm64-v8a/libppsspp_jni.so")]) == ("PPSSPP" + emulator, .ready))
+        #expect(try engine([Self.library("lib/arm64-v8a/libdolphin-emu.so")]) == ("Dolphin" + emulator, .ready))
     }
 
     /// python-for-android (Kivy): CPython 3 and SDL as libraries and the Python bundle as libpybundle.so or assets/private.tar.

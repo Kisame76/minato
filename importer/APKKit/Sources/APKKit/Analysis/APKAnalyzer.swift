@@ -104,7 +104,7 @@ public enum APKAnalyzer {
             playDependencies: playDependencies(manifest),
             engine: engine(allLibraryNames, assetFolders: assetFolders(apks.map(\.archive)),
                            hasAssemblies: hasAssemblies(apks.map(\.archive)), hasPrivateTar: hasPrivateTar(apks.map(\.archive)),
-                           exportsLuaJIT: { exportsLuaJIT(arm64Libraries) }),
+                           luaJIT: { luaJIT(arm64Libraries) }),
             iconPath: icon?.path,
             signature: signature(of: base, targetSdk: manifest.targetSdk),
             compatibility: Compatibility(status: .ready, issues: []))
@@ -296,24 +296,49 @@ public enum APKAnalyzer {
         archives.contains { $0.entries.contains { $0.name == "assets/private.tar" } }
     }
 
-    /// Whether an arm64 library defines luaJIT_setmode, which an engine that links LuaJIT in still exports. A file
-    /// that cannot be read has no verdict and does not count.
-    private static func exportsLuaJIT(_ libraries: [(split: String?, archive: ZipArchive, entry: ZipEntry)]) -> Bool {
-        libraries.contains { library in
+    /// What the arm64 libraries show of a LuaJIT: one that defines luaJIT_setmode is one the loader can switch to its
+    /// interpreter (ADR-0071); a library named libluajit* without it, or one with Lua's API and LuaJIT's version text
+    /// but no luaJIT_setmode (linked in without the export), is a LuaJIT it cannot switch. A file that cannot be read
+    /// has no verdict and does not count.
+    enum LuaJIT { case none, switchable, notSwitchable }
+
+    private static func luaJIT(_ libraries: [(split: String?, archive: ZipArchive, entry: ZipEntry)]) -> LuaJIT {
+        var unswitchable = false
+        for library in libraries {
             guard let data = try? library.archive.data(for: library.entry),
-                  let symbols = try? ELFSymbols.read(data) else { return false }
-            return symbols.defined.contains("luaJIT_setmode")
+                  let symbols = try? ELFSymbols.read(data) else { continue }
+            if symbols.defined.contains("luaJIT_setmode") { return .switchable }
+            let file = library.entry.name.split(separator: "/").last.map(String.init) ?? ""
+            if file.hasPrefix("libluajit")
+                || (symbols.defined.contains("luaL_openlibs") && data.range(of: Data("LuaJIT 2.".utf8)) != nil) {
+                unswitchable = true
+            }
         }
+        return unswitchable ? .notSwitchable : .none
     }
 
-    /// `exportsLuaJIT` reads the libraries' symbols, so it is asked only when no engine matched before it.
+    /// Emulators with a dynamic recompiler, by the prefix of a library's name (they generate machine code at run time,
+    /// which iOS does not allow an app without the JIT entitlement; many have an interpreter, so Get Info does not say
+    /// they need the JIT), with the name Get Info shows.
+    private static let emulatorCores: [(prefix: String, name: String)] = [
+        ("libppsspp", "PPSSPP"), ("libdolphin", "Dolphin"), ("libcitra", "Citra"), ("libyuzu", "yuzu"),
+        ("libflycast", "Flycast"), ("libmupen64plus", "Mupen64Plus"), ("libpcsx_rearmed", "PCSX ReARMed"),
+        ("libaethersx2", "AetherSX2"), ("libnethersx2", "NetherSX2"),
+    ]
+
+    private static let needsJIT = " (needs a JIT, which iOS does not allow)"
+
+    /// `luaJIT` reads the libraries' symbols, so it is asked only when no engine matched before it. An engine whose
+    /// code Minato cannot run without a JIT says so after its name (ADR-0071, ADR-0072): Mono without AOT images
+    /// (libaot-*.dll.so), CoreCLR, a LuaJIT it cannot switch, an emulator with a dynamic recompiler.
     private static func engine(_ libraries: Set<String>, assetFolders: Set<String>, hasAssemblies: Bool,
-                               hasPrivateTar: Bool, exportsLuaJIT: () -> Bool) -> String? {
+                               hasPrivateTar: Bool, luaJIT: () -> LuaJIT) -> String? {
         // Ren'Py: CPython and SDL2 as libraries, its own scripts and the app's as assets (renpy/ and game/, or with
         // the packager's "x-" prefix), or a library of its own name.
         let renpy = libraries.contains { $0.hasPrefix("librenpy") }
             || libraries.contains { $0.hasPrefix("libpython") }
             && !assetFolders.isDisjoint(with: ["renpy", "x-renpy", "game", "x-game"])
+        let hasAOTImages = libraries.contains { $0.hasPrefix("libaot-") }
         let known: [(test: (Set<String>) -> Bool, name: String)] = [
             ({ $0.contains("libil2cpp.so") }, "Unity (IL2CPP)"),
             ({ $0.contains("libunity.so") }, "Unity"),
@@ -325,8 +350,8 @@ public enum APKAnalyzer {
             ({ $0.contains("libflutter.so") }, "Flutter"),
             ({ $0.contains("libreactnativejni.so") }, "React Native"),
             ({ $0.contains("libmonodroid.so") || $0.contains("libxamarin-app.so") || $0.contains("libmonosgen-2.0.so")
-                || hasAssemblies }, ".NET (Xamarin/MAUI)"),
-            ({ $0.contains("libcoreclr.so") || $0.contains { $0.hasPrefix("libnet-") } }, ".NET (CoreCLR)"),
+                || hasAssemblies }, ".NET (Xamarin/MAUI)" + (hasAOTImages ? "" : needsJIT)),
+            ({ $0.contains("libcoreclr.so") || $0.contains { $0.hasPrefix("libnet-") } }, ".NET (CoreCLR)" + needsJIT),
             ({ _ in renpy }, "Ren'Py"),
             // python-for-android: CPython 3 and SDL, with the Python bundle as a library file or as assets/private.tar.
             ({ $0.contains { $0.hasPrefix("libpython3") }
@@ -334,8 +359,16 @@ public enum APKAnalyzer {
                 && ($0.contains("libSDL2.so") || $0.contains("libSDL3.so") || $0.contains("libmain.so")) }, "Kivy"),
         ]
         if let name = known.first(where: { $0.test(libraries) })?.name { return name }
+        if let core = emulatorCores.first(where: { core in libraries.contains { $0.hasPrefix(core.prefix) } }) {
+            return core.name + " (emulator; its JIT is off on iOS, so it runs slower or not at all)"
+        }
         // LuaJIT before SDL: LÖVE-like apps load SDL too.
-        if libraries.contains(where: { $0.hasPrefix("libluajit") }) || exportsLuaJIT() { return "LuaJIT" }
+        let named = libraries.contains(where: { $0.hasPrefix("libluajit") })
+        switch luaJIT() {
+        case .switchable: return "LuaJIT"
+        case .notSwitchable: return "LuaJIT" + needsJIT
+        case .none: if named { return "LuaJIT" }
+        }
         return libraries.contains("libSDL2.so") || libraries.contains("libSDL3.so") ? "SDL" : nil
     }
 
