@@ -42,13 +42,17 @@ close, as compiled code:
 - the soft keyboard and hardware keys in text fields: the keyboard's height reaches the app as the keyboard inset, and
   the Return key does what Android's keyboard does for the field (a new line, or the field's action such as Done or
   Search);
-- game controllers, a mouse and a trackpad as far as the app is concerned: an app sees the same devices, key and motion
-  events, hover, scroll and buttons that Android 15 gives it. The iPhone side that reads a real controller, mouse or
-  trackpad is not written yet, so none of them reaches an app today;
-- sensors (CoreMotion), location (CoreLocation, after iOS's prompt);
+- game controllers (Xbox, PlayStation, MFi and Switch Pro) with their buttons, sticks, triggers and d-pad as Android 15
+  gives a standard pad, and a mouse or trackpad where iOS gives a pointer, with hover, clicks and scrolling;
+- sensors (CoreMotion), location (CoreLocation), the microphone and the camera (Android's Camera API), each after
+  Minato's own question and iOS's prompt for the app;
+- notifications in iOS's Notification Center, with banners for important ones while the app is in front and taps that
+  open the app's screen;
+- alarms and scheduled jobs while the app's process lives;
 - document and photo pickers, sharing, and links that open in a Safari view;
-- `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer`, `MediaExtractor` and video
-  `MediaCodec` (H.264 and HEVC video, AAC audio);
+- `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer`, `MediaExtractor` (also Ogg Opus) and
+  `MediaCodec` (H.264 and HEVC video; AAC, MP3, FLAC and Opus audio, Opus with up to 8 channels), audio effects and the
+  Visualizer;
 - started and bound services and broadcasts inside the app;
 - Play Asset Delivery and Play Feature Delivery packs that were imported with the app.
 
@@ -129,14 +133,14 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 - Speed of Java code: the fast interpreter is the default and an app is compiled once after its first close.
 - Missing NDK libraries: the whole API 35 set exists, some as stubs.
 - Files, pickers and shared media.
+- Widgets and menus: every widget the plan listed is in, with the action bar, the text selection menus and the
+  magnifier.
 - Intents to iOS: links, mail, messages, calls, maps and shares.
 - Play Asset Delivery at run time.
 - Time zone data for ICU.
 
 **Closed except for a limit that is named below:**
 
-- Widgets and menus: every widget the plan listed is in, with the action bar and the text selection menus. The
-  magnifier that shows the text under your finger while you drag a selection handle has no picture.
 - Google Play services absent: an app that looks for Google Play services or the Play Store gets the answers an
   Android phone without them gives, and a test compares them with Android 15. Minato never names a store as the
   installer. What an app's own libraries do with those answers is the app's behavior.
@@ -145,39 +149,44 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 
 **Partly closed:**
 
-- System services that answer null: many are in; 124 service types of Android 15 are still missing.
+- System services that answer null: many are in, this release added the game, lock screen, USB, download, usage stats,
+  storage stats, restrictions, search, biometric, device policy, wallpaper and launcher apps managers; some of Android
+  15's service types are still missing.
 - Networking: sockets, DNS, the INTERNET permission and the real network (Wi-Fi state, connectivity changes) are in;
   a sitting on the iPhone has not confirmed all of it.
-- Services, broadcasts, jobs, alarms and notifications: services and broadcasts work inside the app. Jobs and alarms
-  are kept but never run, and notifications are not shown.
-- Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's
-  inset work. An app sees controllers, a mouse and a trackpad, but the iPhone side that reads them is still to come, so
-  they do not reach an app yet.
-- Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg
-  Vorbis and Opus), `MediaExtractor` and `MediaCodec` for H.264, HEVC, AAC, MP3 and FLAC are in. `MediaCodec` has no
-  Vorbis or Opus yet, and Opus with more than two channels does not play.
-- Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, but it
-  does not yet say "needs a JIT" for Mono, LuaJIT or emulator cores.
-- Device features and permissions: sensors and location work, with iOS's prompt. There is no microphone input and no
-  camera.
-- Framework breadth: 573 public types of Android 15's API are still missing from `framework.jar` (296 pure Java, 124
-  services, 45 with native code, 81 from modules, 27 not fetched).
+- Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
+  the app suspended or after it ends; a job the app keeps across restarts comes back at its next start.
+- Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's inset
+  work. Game controllers reach apps as Android 15's standard pad; rumble, a PlayStation pad's touchpad and its extra
+  keys are not passed on. A mouse or trackpad reaches apps where iOS gives a pointer; on the iPhone iOS offers a mouse
+  only through AssistiveTouch, which turns it into taps, so apps see touches there.
+- Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg Vorbis
+  and Opus), `MediaExtractor` (also Ogg Opus) and `MediaCodec` for H.264, HEVC, AAC, MP3, FLAC and Opus (up to 8
+  channels) are in. `MediaCodec` and `MediaExtractor` have no Vorbis yet. Audio effects are accepted but do not change
+  the sound; the Visualizer shows the app's whole mix, before the stream's volume.
+- Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
+  says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
+  cannot reach, emulators' recompilers).
+- Device features and permissions: sensors, location, the microphone and the camera work. For each app Minato asks
+  first, then iOS asks once for Minato, and a no stays a no after the second time, as on Android. The camera works
+  through Android's Camera API; Camera2 and CameraX are not in yet.
+- Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added 32
+  more, and the ones still missing are rare in apps.
 
 ## What does not work yet
 
 In plain terms, as a user meets it:
 
-- No microphone input: an app that records gets an error (AAudio input answers "unavailable" and OpenSL ES has no
-  recorder).
-- No camera.
-- Jobs and alarms never run, so background work an app schedules for later does not happen.
-- Notifications are not shown.
-- Game controllers, a mouse and a trackpad do not reach an app on the iPhone yet.
+- Camera2 and CameraX: the camera works only through Android's older Camera API so far.
+- The microphone, the camera, location and notifications are new and not yet checked on the iPhone.
+- Jobs, alarms and notifications work only while the app runs: nothing runs while iOS has the app suspended.
+- A notification's tap while Minato is closed opens the app at the notification's screen, but extras other than strings,
+  numbers and booleans in its content intent are not kept.
+- On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
 - OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
   missing too.
-- The magnifier for text selection has no picture: dragging a selection handle works, but the loupe above the finger
-  stays empty.
-- Opus audio is not decoded.
+- Audio effects (Equalizer, Bass Boost, Virtualizer, Loudness Enhancer, the reverbs) are accepted but do not change the
+  sound.
 
 ## What the library tells you
 

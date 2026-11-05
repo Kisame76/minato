@@ -71,6 +71,34 @@ All notable changes to Minato are documented in this file. The format follows
   names it
 - Apps hear of a turn of the screen as on Android: one that does not handle it is restarted with its saved state,
   one that does is told the new size, and an app that asks for landscape or portrait gets it
+- Game controllers reach apps: Xbox, PlayStation, MFi and Switch Pro pads connect and disconnect as Android input
+  devices, with buttons, sticks, triggers and the d-pad as Android 15 gives a standard pad
+- A mouse or trackpad reaches apps as Android 15's mouse, with hover, clicks of all five buttons and wheel or two-finger
+  scrolling, where iOS gives a pointer
+- Apps no longer wait forever when they ask for a permission: Minato asks you first for each app, then iOS, remembers
+  your answer per app and stops asking after the second no, as Android does
+- Location works: apps get precise or approximate positions from the iPhone as Android 15 gives them, and approximate
+  apps never see your precise position
+- Apps can record with the microphone (AudioRecord, AAudio and OpenSL ES), at the rate and channels they ask for while
+  they run in the foreground
+- Apps can use the camera through Android's Camera API: preview, preview callbacks, focus and taking pictures, on the
+  iPhone's back and front cameras
+- Apps' notifications show on iOS: posts, updates and cancels reach Notification Center, with a banner for important
+  ones while the app is in front; tapping one opens what the app meant, also while Minato is closed, and apps made for
+  Android 12 and older are asked at their first notification channel, as Android 13 does
+- Alarms and scheduled jobs run while the app's process lives, at 5 seconds at the earliest as on Android, and jobs an
+  app keeps across restarts come back at its next start
+- MediaCodec decodes Opus, also surround with up to 8 channels, and MediaExtractor reads Ogg Opus files, so apps with
+  their own player, ExoPlayer among them, play Opus
+- Audio effects (Equalizer, Bass Boost, Virtualizer, Loudness Enhancer, the reverbs) and the Visualizer can be created
+  and set as on Android; the Visualizer shows what the app plays, and the effects do not change the sound yet
+- The text magnifier shows what is under your finger while you drag a selection handle
+- More of Android's system managers answer as on a phone without the hardware behind them instead of being missing: game
+  mode, lock screen, USB, downloads, usage stats, storage stats, app restrictions, search, biometrics, device policy,
+  wallpaper and launcher apps, and 32 more of Android's public classes load
+- Ren'Py games built on Python 2.7 get past ctypes' callbacks, which needed executable memory, through trampolines in
+  Minato's signed code
+- Get Info says when an app's engine needs a JIT, which iOS does not allow
 
 ### Changed
 
@@ -137,3 +165,7 @@ All notable changes to Minato are documented in this file. The format follows
 - React Native apps that show images no longer stop at a missing Android contacts class
 - Reading a missing file in a folder an app was given access to throws Android's exception instead of a security
   error
+- Unity 6 games no longer report that there is not enough storage space: free space is answered as Android does
+- Ren'Py 7.8 games that need a lot of memory of one size start where the iPhone has the address space for it
+- An app no longer crashes while it closes when the network, the battery or a sensor reports a change at that moment
+- /sdcard and Android's other storage links resolve to their real folder in an app's canonical paths, as on Android
