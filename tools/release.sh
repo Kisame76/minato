@@ -62,6 +62,9 @@ EOF
   echo "committed the release of $tag (local until the push below)"
 fi
 
+# The guest libraries the app packs must be those of this tree, not left over from an older build.
+python3 tools/check-guest-fresh.py
+
 # A Release build links the runtime's and graphics/host's Release builds (ADR-0037, decision 3).
 tools/gen.sh
 tools/build-native.sh --app --release
@@ -102,37 +105,8 @@ cp -R "$app" "$out/Payload/"
 (cd "$out" && zip -qry Minato.ipa Payload && rm -rf Payload)
 (cd "$out" && shasum -a 256 Minato.ipa > Minato.ipa.sha256)
 
-python3 - "$out" "$app" "$marketing" "$build" "https://github.com/$repo/releases/download/$tag/Minato.ipa" \
-  "$(date -u +%Y-%m-%d)" "$notes" <<'EOF'
-import json
-import os
-import plistlib
-import sys
-
-out, app, version, build, url, today, notes = sys.argv[1:]
-with open(os.path.join(app, "Info.plist"), "rb") as f:
-    info = plistlib.load(f)
-with open(os.path.join(out, "entitlements.plist"), "rb") as f:
-    entitlements = plistlib.load(f)
-ipa = os.path.join(out, "Minato.ipa")
-# One entry of the website's data/releases.json: AltStore refuses an install whose version, build number,
-# entitlements or privacy texts differ from the IPA's, so they are read from the built app.
-entry = {
-    "version": version,
-    "buildVersion": build,
-    "date": today,
-    "downloadURL": url,
-    "size": os.path.getsize(ipa),
-    "sha256": open(ipa + ".sha256").read().split()[0],
-    "minOSVersion": info["MinimumOSVersion"],
-    "entitlements": sorted(entitlements),
-    "privacy": {key: value for key, value in sorted(info.items()) if key.endswith("UsageDescription")},
-    "notes": {"en": notes},
-}
-with open(os.path.join(out, "source-entry.json"), "w") as f:
-    json.dump(entry, f, indent=2)
-    f.write("\n")
-EOF
+python3 tools/release-entry.py "$out" "$app" "$marketing" "$build" \
+  "https://github.com/$repo/releases/download/$tag/Minato.ipa" "$(date -u +%Y-%m-%d)" "$notes"
 echo "built $out/Minato.ipa ($marketing, build $build${label:+, $label}) and $out/source-entry.json"
 [[ -z "$dry_run" ]] || exit 0
 

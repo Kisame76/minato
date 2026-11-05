@@ -73,6 +73,9 @@ python3 framework/tests/event_log_tags_test.py
 python3 framework/tests/keycode_labels_test.py
 # The axis labels of libinput's stand-in in libandroid_runtime against MotionEvent.java's constants (ADR-0045 7b1).
 python3 framework/tests/axis_labels_test.py
+# The release script's guards: the guest outputs it packs are those of the tree, and the source entry reads the app.
+python3 tools/tests/check_guest_fresh_test.py
+python3 tools/tests/release_entry_test.py
 # The local effect service of android.media.audiofx (plain C++, so the host's compiler runs it).
 c++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -o "$OUT/audio_effect_service_test" \
   framework/tests/native/audio_effect_service_test.cpp

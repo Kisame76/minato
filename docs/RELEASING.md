@@ -37,6 +37,11 @@ adds a bullet under `## Unreleased`, in the same commit, under Added, Changed or
    tools/release.sh 1.0.0-beta.2
    ```
 
+   The script first runs `tools/check-guest-fresh.py`, which refuses to go on when a guest output it packs
+   (`build/bionic`, `build/art`, `build/framework`, `build/framework-native`, `build/hwui`, `build/graphics/guest`)
+   is missing or older than the sources it is built from. A clone has fresh sources, so the full build has to be made in
+   the clone; libraries left over from another tree (a link to the main tree's `build/`) are refused.
+
    The script:
    - moves the Unreleased section under `## 1.0.0-beta.2 - <date>`;
    - sets the version, the build number and the label in `project.yml`;
@@ -53,7 +58,8 @@ adds a bullet under `## Unreleased`, in the same commit, under Added, Changed or
      the IPA, from the pinned AOSP trees and our build scripts (`tools/make-source-archive.py`), and the app's
      `Licenses/*/SOURCE.txt` name its page and SHA-256.
 5. `source-entry.json` is the new version's entry for the website's SideStore and AltStore source. Its version,
-   build number, entitlements and privacy texts are read from the built app, because AltStore refuses an install
+   build number, entitlements and privacy texts are read from the built app (`tools/release-entry.py`: every
+   `NS*UsageDescription` key of the Info.plist, none listed by hand), because AltStore refuses an install
    whose IPA does not match them. It goes at the top of the website's `data/releases.json`.
 
 `tools/release.sh VERSION --dry-run` builds the IPA, the entry and the source archive into `build/release` and changes
