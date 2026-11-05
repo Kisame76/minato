@@ -15,6 +15,10 @@
    With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps how the
    first 16 drawables presented after test_control.m's watch were presented: with presentAtTime: (ANGLE's patch 0005)
    and its time, or with present.
+   With MINATO_METAL_HOOK=fences it only prints each waitForFence:beforeStages: of a render encoder as it is
+   encoded, "metal: render encoder fence wait <n>" from 1 (a guest's exit ends the process without atexit, so no
+   total at the end): MoltenVK's barrier fences, which it encodes with Metal argument buffers only
+   (graphics.vulkan_indexing).
    With MINATO_METAL_HOOK=late-scheduled:<ms> it only makes every command buffer's scheduled handlers run <ms> later,
    as Metal runs them late on a loaded machine: MoltenVK presents its drawables in one, after the app may have
    destroyed their swapchain (graphics.vulkan_destroy). */
@@ -221,6 +225,32 @@ static void hooked_waited(id self, SEL selector, id event, uint64_t value) {
     ((void (*)(id, SEL, id, uint64_t))waited)(self, selector, event, value);
 }
 
+/* Fences mode: each render encoder's waitForFence:beforeStages:, printed as it is encoded. */
+static atomic_int fence_waits;
+static IMP render_waited_fence;
+
+static void hooked_render_wait_fence_printed(id self, SEL selector, id fence, MTLRenderStages stages) {
+    fprintf(stderr, "metal: render encoder fence wait %d\n", atomic_fetch_add(&fence_waits, 1) + 1);
+    ((void (*)(id, SEL, id, MTLRenderStages))render_waited_fence)(self, selector, fence, stages);
+}
+
+/* The render encoders' class, from a pass of the hook's own. */
+static Class render_encoder_class(id<MTLDevice> device, id<MTLCommandQueue> queue) {
+    MTLTextureDescriptor *target = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                      width:4
+                                                                                     height:4
+                                                                                  mipmapped:NO];
+    target.usage = MTLTextureUsageRenderTarget;
+    target.storageMode = MTLStorageModePrivate;
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = [device newTextureWithDescriptor:target];
+    id<MTLCommandBuffer> probe = [queue commandBuffer];
+    id<MTLRenderCommandEncoder> render = [probe renderCommandEncoderWithDescriptor:pass];
+    const Class renders = [render class];
+    [render endEncoding];
+    return renders;
+}
+
 static IMP hook(Class class, SEL selector, IMP replacement) {
     Method method = class_getInstanceMethod(class, selector);
     if (method == NULL) {
@@ -240,12 +270,17 @@ __attribute__((constructor)) static void hook_metal(void) {
     const int present_mode = strcmp(mode, "present") == 0 || sscanf(mode, "present:%d", &drawables_read) == 1,
               count_mode = strcmp(mode, "count") == 0,
               late_mode = sscanf(mode, "late-scheduled:%d", &late_ms) == 1 && late_ms > 0;
-    noting = !present_mode && !count_mode && !late_mode;
+    noting = !present_mode && !count_mode && !late_mode && strcmp(mode, "fences") != 0;
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
         Class queues = [queue class], buffers = [buffer class];
+        if (strcmp(mode, "fences") == 0) {
+            render_waited_fence = hook(render_encoder_class(device, queue), @selector(waitForFence:beforeStages:),
+                                       (IMP)hooked_render_wait_fence_printed);
+            return;
+        }
         if (late_mode) {
             late_scheduled = (useconds_t)late_ms * 1000;
             scheduled_added = hook(buffers, @selector(addScheduledHandler:), (IMP)hooked_add_scheduled);

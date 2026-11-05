@@ -478,8 +478,18 @@ if(TARGET minato_graphics_host)
     # buffers, with Android 15's answers.
     add_guest_test(vk_ahb vk-ahb-test vk_ahb_test "${vulkan_system_libraries}" "MINATO_MOLTENVK=set:${moltenvk}"
       "MINATO_ANGLE=unset:")
+    # The ES 3.1 path's speed: descriptor indexing (a runtime array, non-uniform, variable count, update after bind)
+    # and a plain fixed array on MoltenVK, with MoltenVK's Metal argument buffers (its default) and without them:
+    # the same pixels; the render encoders' fence waits, which only argument buffers bring.
+    add_guest_test(vulkan_indexing vulkan-indexing-test vulkan_indexing_test "${vulkan_system_libraries}"
+      "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:fences"
+      "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=unset:" HOST_LINES "^metal:")
+    add_guest_test(vulkan_indexing_plain_buffers vulkan-indexing-test vulkan_indexing_plain_buffers_test
+      "${vulkan_system_libraries}" "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:"
+      "MINATO_METAL_HOOK=set:fences" "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=set:0" HOST_LINES "^metal:")
   else()
-    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop vulkan_destroy vk_ahb)
+    foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop vulkan_destroy vk_ahb
+        vulkan_indexing vulkan_indexing_plain_buffers)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

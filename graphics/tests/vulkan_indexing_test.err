@@ -1,0 +1,18 @@
+--- submit
+--- done
+metal: render encoder fence wait 1
+metal: render encoder fence wait 2
+metal: render encoder fence wait 3
+metal: render encoder fence wait 4
+metal: render encoder fence wait 5
+metal: render encoder fence wait 6
+metal: render encoder fence wait 7
+metal: render encoder fence wait 8
+metal: render encoder fence wait 9
+metal: render encoder fence wait 10
+metal: render encoder fence wait 11
+metal: render encoder fence wait 12
+metal: render encoder fence wait 13
+metal: render encoder fence wait 14
+metal: render encoder fence wait 15
+metal: render encoder fence wait 16

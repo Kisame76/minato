@@ -153,6 +153,26 @@ target_compile_options(vk-ahb-test PRIVATE --target=aarch64-none-linux-android35
 target_link_options(vk-ahb-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(vk-ahb-test PRIVATE vulkan nativewindow)
 
+# The ES 3.1 path's speed: vulkan-indexing-test, descriptor indexing on MoltenVK with and without Metal argument
+# buffers; the NDK's glslc compiles its three shaders into C initializers that it includes.
+set(indexing_shaders "")
+foreach(shader IN ITEMS vulkan_indexing_test.vert vulkan_indexing_test.frag vulkan_indexing_plain.frag)
+  set(output "${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader}.inc")
+  add_custom_command(OUTPUT "${output}"
+    COMMAND "${ANDROID_NDK}/shader-tools/${ANDROID_HOST_TAG}/glslc" -mfmt=c -o "${output}" "${tests}/${shader}"
+    DEPENDS "${tests}/${shader}"
+    COMMENT "glslc: vulkan-indexing-test's ${shader}")
+  list(APPEND indexing_shaders "${output}")
+endforeach()
+add_executable(vulkan-indexing-test "${tests}/vulkan_indexing_test.c" ${indexing_shaders})
+target_include_directories(vulkan-indexing-test PRIVATE "${APK_MOLTENVK_DIR}/include"
+  "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+# Its Vulkan structs are written positionally and short, the rest zero.
+target_compile_options(vulkan-indexing-test PRIVATE --target=aarch64-none-linux-android35 -Wall -Wextra
+  -Wno-missing-field-initializers)
+target_link_options(vulkan-indexing-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(vulkan-indexing-test PRIVATE vulkan)
+
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM
 # (ADR-0041 a1), libGLESv2 and libGLESv3 are one set of objects with three export lists; each exports exactly the
