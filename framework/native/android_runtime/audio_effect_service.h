@@ -178,6 +178,22 @@ public:
         return raw->has_control ? kSuccess : kAlreadyExists;
     }
 
+    /// What create would answer, without making an instance: kSuccess when an instance of that priority would have
+    /// control (none of that session and effect has a higher one), kAlreadyExists when it would not, kBadValue for an
+    /// effect the list lacks. No instance moves and no listener is told.
+    int probe(const std::string &type, const std::string &uuid, int priority, int session, const Entry **entry) const {
+        const Entry *found = find(type, uuid);
+        if (found == nullptr) return kBadValue;
+        *entry = found;
+        for (const auto &[id, instance] : instances_) {
+            if (instance->session == session && uuid_of(*instance) == found->descriptor.uuid &&
+                instance->priority > priority) {
+                return kAlreadyExists;
+            }
+        }
+        return kSuccess;
+    }
+
     void release(int id) {
         auto found = instances_.find(id);
         if (found == instances_.end()) return;
@@ -249,6 +265,8 @@ public:
     }
 
 private:
+    static std::string uuid_of(const Instance &instance) { return instance.entry->descriptor.uuid; }
+
     struct Listener {
         ControlListener function = nullptr;
         void *context = nullptr;

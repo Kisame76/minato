@@ -373,6 +373,7 @@ bool value_holds(std::uint32_t key, std::uint64_t value) {
         case APKRT_MEDIA_PLAYER_VOLUME: return float_within(low, 0, 1) && float_within(high, 0, 1);
         case APKRT_MEDIA_PLAYER_LOOPING: return value <= 1;
         case APKRT_MEDIA_PLAYER_SPEED: return high == 0 && float_within(low, 0.125f, 8);
+        case APKRT_MEDIA_PLAYER_SESSION: return high == 0 && low <= 0x7fffffffu;
         default: return false;
     }
 }

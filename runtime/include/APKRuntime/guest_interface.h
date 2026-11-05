@@ -986,6 +986,8 @@ enum apkrt_media_player_key {
     APKRT_MEDIA_PLAYER_VOLUME = 1,   // value: the left and right volumes as two floats (low and high 32 bits), 0 to 1
     APKRT_MEDIA_PLAYER_LOOPING = 2,  // value: 0 or 1
     APKRT_MEDIA_PLAYER_SPEED = 3,    // value: the speed as a float (low 32 bits), 1/8 to 8
+    APKRT_MEDIA_PLAYER_SESSION = 4,  // value: the app's audio session of the player (0 to 2^31-1), before PREPARE; the
+                                     // host plays its sound through that session's audio effects
 };
 
 /// STATUS's flags.
@@ -1649,6 +1651,8 @@ enum apkrt_audio_effect_kind {
 };
 /// How many sessions can have effects at once (session 0 included).
 #define APKRT_AUDIO_EFFECT_SESSIONS 16
+/// How many host audio sources (apkrt_audio_source_open in apkrt.h) play at once.
+#define APKRT_AUDIO_SOURCES 8
 
 /// What audio_effect takes.
 struct apkrt_audio_effect {

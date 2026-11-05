@@ -326,6 +326,11 @@ public:
         return mOgg != nullptr;
     }
 
+    void setSession(int session) {
+        std::lock_guard hold(mMutex);
+        mSession = session;
+    }
+
     status_t prepareAsync() {
         std::lock_guard hold(mMutex);
         if (mState == State::stopped) {  // NuPlayerDriver's STATE_STOPPED_AND_PREPARING: a seek to 0, then prepared
@@ -340,6 +345,8 @@ public:
             post(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN, UNKNOWN_ERROR);
             return OK;
         }
+        // The host plays the sound through the audio effects of the player's session (audio_effect).
+        set(APKRT_MEDIA_PLAYER_SESSION, static_cast<uint64_t>(mSession));
         apkrt_media_player call{};
         call.id = mId;
         return playerCall(APKRT_MEDIA_PLAYER_PREPARE, &call) == 0 ? OK : UNKNOWN_ERROR;
@@ -1061,6 +1068,7 @@ private:
     int mExtractFd = -1;            // an fd source's for the extractor, the player's own
     int64_t mExtractOffset = 0, mExtractLength = 0;
     std::unique_ptr<OggWav> mOgg;  // an Ogg Vorbis or Opus source's WAV, read on the player's thread
+    int mSession = 0;  // the app's audio session of the player, told to the host before the prepare
     bool mOggTimed = true;  // whether it has OggExtractor's duration: not from a MediaDataSource without a size
 
     std::mutex mMutex;  // for the fields below
@@ -1584,6 +1592,7 @@ private:
     status_t prepareAsync_l() {
         if (mPlayer != nullptr && (mCurrentState & (MEDIA_PLAYER_INITIALIZED | MEDIA_PLAYER_STOPPED))) {
             mCurrentState = MEDIA_PLAYER_PREPARING;
+            mPlayer->setSession(mAudioSessionId);
             return mPlayer->prepareAsync();
         }
         ALOGE("prepareAsync called in state %d, mPlayer(%p)", mCurrentState, mPlayer.get());

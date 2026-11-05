@@ -152,6 +152,22 @@ jint setup(JNIEnv *env, jobject thiz, jobject weakThis, jstring type, jstring uu
     gEnv = env;
     int made = 0;
     const Entry *entry = nullptr;
+    if (probe) {
+        // A probe only asks whether the effect could be attached: it makes no instance, so no instance in control
+        // loses it and gets it back.
+        const int answer = gService.probe(str(env, type), str(env, uuid), priority, session, &entry);
+        if (answer != minato::audiofx::kSuccess && answer != minato::audiofx::kAlreadyExists) {
+            gEnv = nullptr;
+            return answer;
+        }
+        jint ids[1] = {0};
+        env->SetIntArrayRegion(id, 0, 1, ids);
+        jobject descriptor = descriptorOf(env, *entry);
+        env->SetObjectArrayElement(desc, 0, descriptor);
+        env->DeleteLocalRef(descriptor);
+        gEnv = nullptr;
+        return answer;
+    }
     const int status = gService.create(str(env, type), str(env, uuid), priority, session, &made, &entry,
                                        controlChanged, nullptr);
     if (status != minato::audiofx::kSuccess && status != minato::audiofx::kAlreadyExists) {
@@ -165,13 +181,6 @@ jint setup(JNIEnv *env, jobject thiz, jobject weakThis, jstring type, jstring uu
     jobject descriptor = descriptorOf(env, *entry);
     env->SetObjectArrayElement(desc, 0, descriptor);
     env->DeleteLocalRef(descriptor);
-    if (probe) {
-        // A probe only asks whether the effect could be attached: no instance stays.
-        env->DeleteGlobalRef(gObjects[made]);
-        gObjects.erase(made);
-        gService.release(made);
-        env->SetLongField(thiz, gFields.nativeInstance, 0);
-    }
     publish(session);  // a new instance may take control from one that sounds
     gEnv = nullptr;
     return status;

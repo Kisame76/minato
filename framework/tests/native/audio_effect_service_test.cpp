@@ -261,6 +261,33 @@ void the_applied_settings_of_a_session_are_those_of_the_enabled_instances_in_con
     CHECK(service.set_enabled(boost, false) == kSuccess && !service.applied(5).bass_boost);
 }
 
+void a_probe_answers_as_a_create_would_without_making_an_instance() {
+    Service service;
+    Events low_events;
+    int low = 0;
+    CHECK(create(service, kEqualizer, 5, 0, &low_events, &low) == kSuccess);
+    const Entry *entry = nullptr;
+    // A probe of higher or equal priority would take control: success; a lower one would not: already exists.
+    CHECK(service.probe(kEqualizer, kNull, 0, 5, &entry) == kSuccess && entry != nullptr);
+    CHECK(service.probe(kEqualizer, kNull, 10, 5, &entry) == kSuccess);
+    int high = 0;
+    Events high_events;
+    CHECK(create(service, kEqualizer, 5, 10, &high_events, &high) == kSuccess);
+    low_events.seen.clear();
+    high_events.seen.clear();
+    CHECK(service.probe(kEqualizer, kNull, 0, 5, &entry) == kAlreadyExists);
+    CHECK(service.probe(kEqualizer, kNull, 10, 5, &entry) == kSuccess);
+    CHECK(service.probe(kEqualizer, kNull, 0, 6, &entry) == kSuccess);  // another session: nothing there
+    CHECK(low_events.seen.empty() && high_events.seen.empty());           // no control moved, no callback
+    CHECK(!service.get(low)->has_control && service.get(high)->has_control);
+    CHECK(service.probe("58b4b260-8e06-11e0-aa8e-0002a5d5c51b", kNull, 0, 5, &entry) == kBadValue);
+    service.release(high);
+    CHECK(service.get(low)->has_control);
+    // Only the two real instances ever existed: the next id is 3.
+    int next = 0;
+    CHECK(create(service, kLoudness, 5, 0, nullptr, &next) == kSuccess && next == 3);
+}
+
 }  // namespace
 
 int main() {
@@ -271,6 +298,7 @@ int main() {
     the_equalizer_stores_levels_and_presets();
     the_other_effects_store_and_clamp();
     the_applied_settings_of_a_session_are_those_of_the_enabled_instances_in_control();
+    a_probe_answers_as_a_create_would_without_making_an_instance();
     std::printf("audio_effect_service_test: %s\n", failures == 0 ? "all fine" : "failed");
     return failures == 0 ? 0 : 1;
 }

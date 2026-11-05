@@ -811,6 +811,10 @@ if(APK_HOST_BUILD)
   target_include_directories(audio_effects_test PRIVATE src)
   target_link_libraries(audio_effects_test PRIVATE apkrt apk_defaults)
   add_test(NAME runtime.audio_effects COMMAND audio_effects_test)
+  add_executable(seq_words_test tests/seq_words_test.cpp)
+  target_include_directories(seq_words_test PRIVATE src)
+  target_link_libraries(seq_words_test PRIVATE apk_defaults)
+  add_test(NAME runtime.seq_words COMMAND seq_words_test)
 
   # libaaudio's and libOpenSLES's own logic on the Mac (ADR-0036, decisions 6 and 7): runtime/android/aaudio.cpp and
   # opensles.cpp against the NDK's headers and tests/aaudio_host, with their syscalls going to the runtime's dispatcher.

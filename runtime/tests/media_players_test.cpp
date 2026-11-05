@@ -595,7 +595,8 @@ TEST(seeks_settings_status_and_tracks_are_checked_both_ways) {
         {APKRT_MEDIA_PLAYER_VOLUME, bits(NAN, 0.5f)},  {APKRT_MEDIA_PLAYER_LOOPING, 2},
         {APKRT_MEDIA_PLAYER_SPEED, bits(0.1f, 0)},     {APKRT_MEDIA_PLAYER_SPEED, bits(8.5f, 0)},
         {APKRT_MEDIA_PLAYER_SPEED, bits(2.0f, 1.0f)},  {APKRT_MEDIA_PLAYER_SPEED, bits(NAN, 0)},
-        {0, 0},                                        {4, 0}};
+        {APKRT_MEDIA_PLAYER_SESSION, std::uint64_t{1} << 32}, {APKRT_MEDIA_PLAYER_SESSION, 0x80000000u},
+        {0, 0},                                        {5, 0}};
     for (const auto &[key, value] : refused) {
         player.kind = key, player.value = value;
         CHECK(call(APKRT_MEDIA_PLAYER_SET, player) == -einval);
@@ -606,11 +607,14 @@ TEST(seeks_settings_status_and_tracks_are_checked_both_ways) {
     CHECK(call(APKRT_MEDIA_PLAYER_SET, player) == 0);
     player.kind = APKRT_MEDIA_PLAYER_SPEED, player.value = bits(0.125f, 0);
     CHECK(call(APKRT_MEDIA_PLAYER_SET, player) == 0);
+    player.kind = APKRT_MEDIA_PLAYER_SESSION, player.value = 41;  // the app's audio session of the player
+    CHECK(call(APKRT_MEDIA_PLAYER_SET, player) == 0);
     {
         const std::lock_guard hold(fake.mutex);
         const Fake::Player &host = fake.players.rbegin()->second;
         CHECK((host.seeks == std::vector<std::pair<std::int64_t, std::uint32_t>>{{433000, 3}}));
-        CHECK(host.sets.size() == 3 && host.sets[0].second == bits(0.25f, 1.0f) && host.sets[1].second == 1);
+        CHECK(host.sets.size() == 4 && host.sets[0].second == bits(0.25f, 1.0f) && host.sets[1].second == 1);
+        CHECK(host.sets[3].first == APKRT_MEDIA_PLAYER_SESSION && host.sets[3].second == 41);
         fake.state = {500000, 1068000, 320, 180, APKRT_MEDIA_PLAYER_PLAYING};
         apkrt_media_player_track video{1, "und", "video/avc"}, audio{2, "eng", "audio/mp4a-latm"};
         fake.tracks = {video, audio};

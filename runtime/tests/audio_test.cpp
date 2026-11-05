@@ -1287,6 +1287,134 @@ TEST(the_effect_call_refuses_bad_arguments_and_a_full_table) {
     CHECK(set_effect(999, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
 }
 
+// MARK: - Host audio sources (the media players' sound through the effects)
+
+/// `frames` stereo frames of `value` played in place through a source; the last frame's left sample.
+float source_level(std::uint64_t source, float value, std::int64_t frames = 1200, int channels = 2,
+                   double rate = 44'100) {
+    std::vector<float> samples(static_cast<std::size_t>(frames * channels), value);
+    for (std::int64_t first = 0; first < frames; first += 240) {  // as the host's tap hands them, in pieces
+        const std::int64_t piece = std::min<std::int64_t>(240, frames - first);
+        apkrt_audio_source_process(source, samples.data() + first * channels, piece, channels, rate);
+    }
+    return samples[samples.size() - static_cast<std::size_t>(channels)];
+}
+
+TEST(a_source_plays_through_the_effects_of_its_session_only) {
+    use_fake_host();
+    const std::uint64_t five = apkrt_audio_source_open(5), six = apkrt_audio_source_open(6);
+    const std::uint64_t whole = apkrt_audio_source_open(0);
+    CHECK(five != 0 && six != 0 && whole != 0);
+    CHECK(set_effect(5, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);  // +6 dB for session 5
+    CHECK(std::fabs(source_level(five, 0.1f) - 0.2f) < 0.002f);
+    CHECK(std::fabs(source_level(six, 0.1f) - 0.1f) < 1e-6f);
+    CHECK(std::fabs(source_level(whole, 0.1f) - 0.1f) < 1e-6f);
+    CHECK(set_effect(0, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);  // the whole mix: every source, one more time
+    CHECK(std::fabs(source_level(six, 0.1f) - 0.2f) < 0.002f);
+    CHECK(std::fabs(source_level(five, 0.05f) - 0.2f) < 0.004f);
+    CHECK(set_effect(5, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    CHECK(set_effect(0, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    CHECK(std::fabs(source_level(five, 0.1f) - 0.1f) < 1e-6f);
+    apkrt_audio_source_close(five);
+    apkrt_audio_source_close(six);
+    apkrt_audio_source_close(whole);
+}
+
+TEST(a_closed_source_and_channels_the_effects_do_not_handle_stay_as_they_are) {
+    use_fake_host();
+    CHECK(set_effect(0, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);
+    std::vector<float> samples(64, 0.1f);
+    apkrt_audio_source_process(0, samples.data(), 32, 2, 44'100);  // no source
+    CHECK(samples[63] == 0.1f);
+    const std::uint64_t source = apkrt_audio_source_open(0);
+    apkrt_audio_source_process(source, samples.data(), 32, 2, 44'100);
+    CHECK(samples[63] != 0.1f);
+    apkrt_audio_source_close(source);
+    std::vector<float> after(64, 0.1f);
+    apkrt_audio_source_process(source, after.data(), 32, 2, 44'100);  // closed: untouched
+    CHECK(after[63] == 0.1f);
+    const std::uint64_t again = apkrt_audio_source_open(0);
+    CHECK(again != 0 && again != source);  // the old handle does not reach the new source
+    apkrt_audio_source_process(source, after.data(), 32, 2, 44'100);
+    CHECK(after[63] == 0.1f);
+    std::vector<float> many(10 * 40, 0.1f);
+    apkrt_audio_source_process(again, many.data(), 40, 10, 44'100);  // more channels than the effects take
+    CHECK(many[399] == 0.1f);
+    apkrt_audio_source_close(again);
+    CHECK(set_effect(0, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+}
+
+TEST(a_source_volume_comes_before_the_effects_and_the_tap) {
+    use_fake_host();
+    const std::uint64_t source = apkrt_audio_source_open(7);
+    CHECK(set_effect(7, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);
+    apkrt_audio_source_set_volume(source, 0.5f, 0.5f);
+    source_level(source, 0.1f, 2400, 2, 48'000);                          // the ramp to the volume is over
+    CHECK(std::fabs(source_level(source, 0.1f, 2400, 2, 48'000) - 0.1f) < 0.003f);  // 0.1 * 0.5 * 2 (+6 dB)
+    const Tapped tapped = tap(100);
+    CHECK(std::fabs(tapped.samples[99] - 0.1f) < 0.003f);                  // the tap sees it as played
+    apkrt_audio_source_set_volume(source, 7.0f, 7.0f);                     // out of range: 0 to 1
+    CHECK(std::fabs(source_level(source, 0.1f, 2400, 2, 48'000) - 0.2f) < 0.003f);
+    apkrt_audio_source_set_volume(0, 0.5f, 0.5f);                          // no source: nothing
+    CHECK(set_effect(7, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    apkrt_audio_source_close(source);
+}
+
+TEST(a_source_volume_has_a_gain_for_each_of_the_left_and_right_channels) {
+    use_fake_host();
+    const std::uint64_t source = apkrt_audio_source_open(0);
+    apkrt_audio_source_set_volume(source, 1.0f, 0.25f);
+    std::vector<float> samples(2 * 2400, 0.4f);
+    apkrt_audio_source_process(source, samples.data(), 2400, 2, 48'000);
+    CHECK(std::fabs(samples[2 * 2399] - 0.4f) < 1e-6f && std::fabs(samples[2 * 2399 + 1] - 0.1f) < 1e-6f);
+    std::vector<float> mono(2400, 0.4f);
+    apkrt_audio_source_process(source, mono.data(), 2400, 1, 48'000);  // one channel: the mean of the two gains
+    CHECK(std::fabs(mono[2399] - 0.4f * 0.625f) < 1e-6f);
+    std::vector<float> three(3 * 2400, 0.4f);
+    apkrt_audio_source_process(source, three.data(), 2400, 3, 48'000);  // beyond the pair: the mean
+    CHECK(std::fabs(three[3 * 2399] - 0.4f) < 1e-6f && std::fabs(three[3 * 2399 + 1] - 0.1f) < 1e-6f &&
+          std::fabs(three[3 * 2399 + 2] - 0.4f * 0.625f) < 1e-6f);
+    apkrt_audio_source_close(source);
+}
+
+TEST(a_started_stream_that_runs_dry_gives_the_tap_silence) {
+    use_fake_host();
+    const auto stream = opened();
+    CHECK(control(stream, APKRT_AUDIO_START) == 0);
+    play_constant(stream, 0.3f, 300);
+    CHECK(all_of(tap(100), 0, 100, 0.3f));
+    CHECK(host_read(stream, 240).count == 0);  // the app stopped writing without a pause: the stream stays STARTED
+    CHECK(status_of(stream).state == APKRT_AUDIO_STARTED);
+    CHECK(all_of(tap(100), 0, 100, 0.0f));
+    CHECK(close_stream(stream) == 0);
+}
+
+TEST(only_so_many_sources_are_open_at_once) {
+    use_fake_host();
+    std::vector<std::uint64_t> sources;
+    for (int index = 0; index < APKRT_AUDIO_SOURCES; ++index) sources.push_back(apkrt_audio_source_open(0));
+    for (const std::uint64_t source : sources) CHECK(source != 0);
+    CHECK(apkrt_audio_source_open(0) == 0);
+    apkrt_audio_source_close(sources[3]);
+    CHECK(apkrt_audio_source_open(0) != 0);
+    for (const std::uint64_t source : sources) apkrt_audio_source_close(source);
+    apkrt_audio_source_close(sources[3]);  // a second close of a gone handle is harmless
+}
+
+TEST(the_tap_sees_a_source_while_it_plays_and_not_after) {
+    use_fake_host();
+    const std::uint64_t source = apkrt_audio_source_open(9);
+    CHECK(set_effect(9, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);
+    source_level(source, 0.1f, 2400, 2, 48'000);
+    const Tapped playing = tap(100);
+    CHECK(playing.result == 100 && std::fabs(playing.samples[99] - 0.2f) < 0.003f);  // after the effect, mono
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    const Tapped later = tap(100);
+    CHECK(all_of(later, 0, 100, 0.0f));  // nothing arrived for a while: not playing
+    CHECK(set_effect(9, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    apkrt_audio_source_close(source);
+}
+
 }  // namespace
 
 int main() {

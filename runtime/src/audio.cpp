@@ -21,6 +21,7 @@
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
 #include "audio_effects.h"
+#include "seq_words.h"
 #include "permissions.h"
 #include "signals.h"
 #include "syscalls.h"
@@ -63,6 +64,14 @@ constexpr std::int32_t playing_out = -APKRT_AUDIO_STOPPED;
 /// after()'s answer for a command the state does not allow.
 constexpr std::int32_t refused = 0;
 
+/// What the render block (or the host's audio thread) alone keeps to play sound through the effects of a session: the
+/// settings it last took from the table, for the session and for the whole mix, with the filters that play them.
+struct Filters {
+    std::int32_t session = 0;
+    effects::Settings session_settings, global_settings;
+    effects::Processor session_filter, global_filter;
+};
+
 struct Slot {
     // The open stream's handle; 0 while the slot is free or its stream closes. The render block and the guest's
     // syscalls count themselves in (readers, guests) before they compare it, so the close, which clears it first,
@@ -87,11 +96,7 @@ struct Slot {
     std::int32_t burst = 0;
     std::int32_t capacity = 0;
     float *ring = nullptr;
-    // The audio effects (audio_effect): the stream's session, and for the render block alone the settings it last took
-    // from the table, for the session and for the whole mix, with the filters that play them.
-    std::int32_t session = 0;
-    effects::Settings session_settings, global_settings;
-    effects::Processor session_filter, global_filter;
+    Filters filters;  // the stream's session (audio_effect) and what plays it
 
     std::atomic<std::int32_t> state{0};
     std::atomic<std::uint32_t> sequence{0};
@@ -243,12 +248,11 @@ constexpr int effect_words = 9;
 constexpr std::int32_t effect_flag_equalizer = 1, effect_flag_bass_boost = 2, effect_flag_virtualizer = 4,
                        effect_flag_loudness = 8;
 
-/// One session's effects as a sequence-locked snapshot of plain words: the writer, one guest syscall at a time under
-/// effect_lock, makes `sequence` odd while it writes; the render block reads without a lock, a wait or an allocation.
+/// One session's effects as a sequence-locked snapshot of plain words (seq_words.h): the writer, one guest syscall at a
+/// time under effect_lock, writes them as one; the render block reads without a lock, a wait or an allocation.
 struct EffectEntry {
     std::atomic<std::int32_t> session{-1};  // -1 while free
-    std::atomic<std::uint32_t> sequence{0};
-    std::atomic<std::int32_t> words[effect_words];  // flags, five bands, bass boost, virtualizer, loudness
+    SeqWords<effect_words> words;           // flags, five bands, bass boost, virtualizer, loudness
 };
 
 EffectEntry effect_table[APKRT_AUDIO_EFFECT_SESSIONS];
@@ -273,36 +277,65 @@ enum class Looked { found, missing, busy };
 Looked look_up(std::int32_t session, effects::Settings &settings) {
     for (EffectEntry &entry : effect_table) {
         if (entry.session.load(std::memory_order_acquire) != session) continue;
-        for (int attempt = 0; attempt < 4; ++attempt) {
-            const std::uint32_t before = entry.sequence.load(std::memory_order_acquire);
-            if ((before & 1) != 0) continue;
-            std::int32_t words[effect_words];
-            for (int index = 0; index < effect_words; ++index) {
-                words[index] = entry.words[index].load(std::memory_order_relaxed);
-            }
-            std::atomic_thread_fence(std::memory_order_acquire);
-            if (entry.sequence.load(std::memory_order_relaxed) != before) continue;
-            if (entry.session.load(std::memory_order_relaxed) != session) break;  // given to another meanwhile
-            settings = settings_of(words);
-            return Looked::found;
-        }
-        return Looked::busy;
+        std::int32_t words[effect_words];
+        if (!entry.words.read(words)) return Looked::busy;
+        if (entry.session.load(std::memory_order_acquire) != session) return Looked::busy;  // given to another
+        settings = settings_of(words);
+        return Looked::found;
     }
     settings = effects::Settings{};
     return Looked::missing;
 }
 
-/// Plays `frames` interleaved frames of `slot` through the effects of its session and then those of the whole mix.
-void apply_effects(Slot &slot, float *buffer, std::int64_t frames) {
-    const float rate = static_cast<float>(slot.rate);
-    if (slot.session != 0) {
-        look_up(slot.session, slot.session_settings);
-        slot.session_filter.set(slot.session_settings, rate);
-        if (!slot.session_filter.idle()) slot.session_filter.process(buffer, frames, slot.channels);
+/// Plays `frames` interleaved frames through the effects of the session of `filters` and then those of the whole mix.
+void apply_effects(Filters &filters, float *buffer, std::int64_t frames, std::int32_t channels, float rate) {
+    if (filters.session != 0) {
+        look_up(filters.session, filters.session_settings);
+        filters.session_filter.set(filters.session_settings, rate);
+        if (!filters.session_filter.idle()) filters.session_filter.process(buffer, frames, channels);
     }
-    look_up(0, slot.global_settings);
-    slot.global_filter.set(slot.global_settings, rate);
-    if (!slot.global_filter.idle()) slot.global_filter.process(buffer, frames, slot.channels);
+    look_up(0, filters.global_settings);
+    filters.global_filter.set(filters.global_settings, rate);
+    if (!filters.global_filter.idle()) filters.global_filter.process(buffer, frames, channels);
+}
+
+// MARK: - Host audio sources
+
+/// Sound the host plays itself (apkrt_audio_source_open): it passes through the effects of its session and gives the
+/// Visualizer's tap its mono mix, as a stream does. `handle` is the generation and place; `busy` counts the process
+/// calls under way, which a close waits out.
+struct Source {
+    std::atomic<std::uint64_t> handle{0};
+    std::atomic<std::uint32_t> busy{0};
+    bool used = false;  // under table_lock
+    std::uint32_t generation = 0;
+    Filters filters;  // the process calls', one at a time per source
+    float tap_ring[tap_frames];
+    std::atomic<std::uint64_t> tap_head{0};
+    std::atomic<std::uint64_t> last_push{0};  // CLOCK_UPTIME_RAW ns of the last frames; 0 for none
+    std::atomic<double> rate{48'000};
+    std::atomic<float> volume_left{1.0f}, volume_right{1.0f};  // the host's set_volume
+    float applied_left = 1.0f, applied_right = 1.0f;           // the process calls': where the last block ended
+};
+
+// Immortal as the slots are: the host's audio thread can be inside apkrt_audio_source_process while exit() runs the
+// static destructors.
+[[clang::no_destroy]] Source sources[APKRT_AUDIO_SOURCES];
+/// The tap counts a source as playing while its last frames are younger than this.
+constexpr std::uint64_t source_idle_ns = 200 * 1'000'000ull;
+
+/// Appends the mono mix of `frames` frames of `channels` interleaved float32 to `source`'s tap ring.
+void push_source_tap(Source &source, const float *buffer, std::int64_t frames, std::int32_t channels) {
+    std::uint64_t head = source.tap_head.load(std::memory_order_relaxed);
+    for (std::int64_t frame = 0; frame < frames; ++frame, ++head) {
+        float sum = 0;
+        for (std::int32_t channel = 0; channel < channels; ++channel) {
+            sum += buffer[static_cast<std::size_t>(frame) * static_cast<std::size_t>(channels) +
+                          static_cast<std::size_t>(channel)];
+        }
+        source.tap_ring[head & (tap_frames - 1)] = sum / static_cast<float>(channels);
+    }
+    source.tap_head.store(head, std::memory_order_release);
 }
 
 /// Appends the mono mix (the channels' average) of `frames` frames of interleaved float32 to the tap's ring.
@@ -316,6 +349,13 @@ void push_tap(Slot &slot, const float *buffer, std::int64_t frames) {
         }
         slot.tap_ring[head & (tap_frames - 1)] = sum / static_cast<float>(channels);
     }
+    slot.tap_head.store(head, std::memory_order_release);
+}
+
+/// Appends `frames` frames of silence to the tap's ring: the render block asked for more than the stream had.
+void push_tap_silence(Slot &slot, std::int64_t frames) {
+    std::uint64_t head = slot.tap_head.load(std::memory_order_relaxed);
+    for (std::int64_t frame = 0; frame < frames; ++frame, ++head) slot.tap_ring[head & (tap_frames - 1)] = 0.0f;
     slot.tap_head.store(head, std::memory_order_release);
 }
 
@@ -337,13 +377,15 @@ std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::ui
         taken = std::max<std::int64_t>(0, std::min(end - read, frames));
         if (taken > 0) {
             copy_out(slot, read, buffer, taken);
-            apply_effects(slot, buffer, taken);
+            apply_effects(slot.filters, buffer, taken, slot.channels, static_cast<float>(slot.rate));
             push_tap(slot, buffer, taken);
             slot.read.store(read + taken);
             stamp(slot, read, host_time, output_latency.load());
             change = true;
         }
         if (state == APKRT_AUDIO_STARTED) {
+            // A stream that runs dry stays STARTED: the tap hears silence for the frames it lacked, not its last ones.
+            if (taken < frames) push_tap_silence(slot, frames - taken);
             // An xrun: fewer frames than asked, once the stream has played since its start.
             const std::uint32_t start = slot.starts.load();
             if (taken < frames && slot.played_in == start) slot.xruns.fetch_add(1);
@@ -583,11 +625,8 @@ long open(std::uint64_t config_address) {
     slot->burst = burst;
     slot->capacity = capacity;
     slot->ring = ring;
-    slot->session = asked.session;
-    slot->session_settings = effects::Settings{};
-    slot->global_settings = effects::Settings{};
-    slot->session_filter = effects::Processor{};
-    slot->global_filter = effects::Processor{};
+    slot->filters = Filters{};
+    slot->filters.session = asked.session;
     slot->state.store(APKRT_AUDIO_OPEN);
     slot->written.store(0);
     slot->read.store(0);
@@ -779,12 +818,11 @@ long effect(std::uint64_t address) {
         if (asked.enabled == 0) return 0;  // nothing to switch off
         if (free_entry == nullptr) return -linux_errno::enospc;
         entry = free_entry;
-        for (auto &word : entry->words) word.store(0, std::memory_order_relaxed);
+        const std::int32_t zeros[effect_words] = {};
+        entry->words.write(zeros);
     }
     std::int32_t words[effect_words];
-    for (int index = 0; index < effect_words; ++index) {
-        words[index] = entry->words[index].load(std::memory_order_relaxed);
-    }
+    entry->words.peek(words);
     const std::int32_t flag = asked.kind == APKRT_AUDIO_EFFECT_EQUALIZER     ? effect_flag_equalizer
                               : asked.kind == APKRT_AUDIO_EFFECT_BASS_BOOST  ? effect_flag_bass_boost
                               : asked.kind == APKRT_AUDIO_EFFECT_VIRTUALIZER ? effect_flag_virtualizer
@@ -804,12 +842,8 @@ long effect(std::uint64_t address) {
     } else {
         words[0] &= ~flag;
     }
-    entry->sequence.fetch_add(1, std::memory_order_acq_rel);  // odd: the render block waits out the write
-    for (int index = 0; index < effect_words; ++index) {
-        entry->words[index].store(words[index], std::memory_order_relaxed);
-    }
+    entry->words.write(words);
     entry->session.store(words[0] == 0 ? -1 : asked.session, std::memory_order_release);
-    entry->sequence.fetch_add(1, std::memory_order_release);
     return 0;
 }
 
@@ -818,6 +852,17 @@ long tap(std::uint64_t buffer_address, std::int64_t frames) {
     auto *out = sys::as_pointer<float>(buffer_address);
     if (out == nullptr) return -linux_errno::efault;
     std::fill(out, out + frames, 0.0f);
+    // The newest `frames` frames of one source's ring at the tap's rate, added to the output.
+    const auto add_ring = [&](const float *ring, std::int64_t head, double rate) {
+        const double step = rate / tap_rate;  // source frames per output frame
+        for (std::int64_t index = 0; index < frames; ++index) {
+            // The output is at 48 kHz, oldest first: the source frame that is `back` output frames before the newest.
+            const auto back = static_cast<std::int64_t>(std::llround(static_cast<double>(frames - 1 - index) * step));
+            const std::int64_t position = head - 1 - back;
+            if (position < 0 || head - position > tap_frames) continue;
+            out[index] += ring[position & (tap_frames - 1)];
+        }
+    };
     for (Slot &slot : slots) {
         const std::uint64_t handle = slot.handle.load();
         if (handle == 0) continue;
@@ -825,15 +870,16 @@ long tap(std::uint64_t buffer_address, std::int64_t frames) {
         if (entry.slot() == nullptr || slot.input) continue;
         const std::int32_t state = slot.state.load();
         if (state != APKRT_AUDIO_STARTED && state != playing_out) continue;
-        const std::int64_t head = static_cast<std::int64_t>(slot.tap_head.load(std::memory_order_acquire));
-        const double step = static_cast<double>(slot.rate) / tap_rate;  // source frames per output frame
-        for (std::int64_t index = 0; index < frames; ++index) {
-            // The output is at 48 kHz, oldest first: the source frame that is `back` output frames before the newest.
-            const auto back = static_cast<std::int64_t>(std::llround(static_cast<double>(frames - 1 - index) * step));
-            const std::int64_t position = head - 1 - back;
-            if (position < 0 || head - position > tap_frames) continue;
-            out[index] += slot.tap_ring[position & (tap_frames - 1)];
-        }
+        add_ring(slot.tap_ring, static_cast<std::int64_t>(slot.tap_head.load(std::memory_order_acquire)),
+                 static_cast<double>(slot.rate));
+    }
+    const std::uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    for (Source &source : sources) {  // the host's sound that played in the last moments
+        if (source.handle.load() == 0) continue;
+        const std::uint64_t last = source.last_push.load(std::memory_order_acquire);
+        if (last == 0 || now - last > source_idle_ns) continue;
+        add_ring(source.tap_ring, static_cast<std::int64_t>(source.tap_head.load(std::memory_order_acquire)),
+                 source.rate.load(std::memory_order_relaxed));
     }
     for (std::int64_t index = 0; index < frames; ++index) out[index] = std::clamp(out[index], -1.0f, 1.0f);
     return frames;
@@ -993,6 +1039,88 @@ void apkrt_audio_set_output(void *audio_unit, int64_t latency) {
     const std::lock_guard hold(output_lock);
     if (output_workgroup != nullptr) os_release(output_workgroup);
     output_workgroup = group;
+}
+
+uint64_t apkrt_audio_source_open(int32_t session) {
+    using namespace apkrt::audio;
+    if (session < 0) return 0;
+    const std::lock_guard hold(table_lock);
+    for (int index = 0; index < APKRT_AUDIO_SOURCES; ++index) {
+        Source &source = sources[index];
+        if (source.used) continue;
+        source.used = true;
+        if (++source.generation == 0) source.generation = 1;
+        source.filters = Filters{};
+        source.filters.session = session;
+        source.tap_head.store(0);
+        source.last_push.store(0);
+        source.volume_left.store(1.0f);
+        source.volume_right.store(1.0f);
+        source.applied_left = source.applied_right = 1.0f;
+        const std::uint64_t handle = (std::uint64_t{source.generation} << 8) | static_cast<std::uint64_t>(index);
+        source.handle.store(handle);
+        return handle;
+    }
+    return 0;
+}
+
+void apkrt_audio_source_process(uint64_t handle, float *frames, int64_t count, int32_t channels, double rate) {
+    using namespace apkrt::audio;
+    const std::uint64_t index = handle & 0xff;
+    if ((handle >> 8) == 0 || index >= APKRT_AUDIO_SOURCES) return;
+    Source &source = sources[index];
+    source.busy.fetch_add(1);
+    if (source.handle.load() == handle && frames != nullptr && count > 0 && channels >= 1 &&
+        channels <= apkrt::effects::kMaxChannels && rate >= 8'000 && rate <= 1'600'000) {
+        // The volumes first, as Android's mixer applies a track's before the session's effects; they move over the
+        // block.
+        const float left = source.volume_left.load(std::memory_order_relaxed);
+        const float right = source.volume_right.load(std::memory_order_relaxed);
+        if (left != 1.0f || right != 1.0f || source.applied_left != 1.0f || source.applied_right != 1.0f) {
+            const float start[2] = {source.applied_left, source.applied_right};
+            const float end[2] = {left, right};
+            for (int64_t frame = 0; frame < count; ++frame) {
+                const float t = static_cast<float>(frame + 1) / static_cast<float>(count);
+                const float pair[2] = {start[0] + (end[0] - start[0]) * t, start[1] + (end[1] - start[1]) * t};
+                const float mean = 0.5f * (pair[0] + pair[1]);
+                for (int32_t channel = 0; channel < channels; ++channel) {
+                    frames[frame * channels + channel] *= channels > 1 && channel < 2 ? pair[channel] : mean;
+                }
+            }
+            source.applied_left = left;
+            source.applied_right = right;
+        }
+        apply_effects(source.filters, frames, count, channels, static_cast<float>(rate));
+        push_source_tap(source, frames, count, channels);
+        source.rate.store(rate, std::memory_order_relaxed);
+        source.last_push.store(clock_gettime_nsec_np(CLOCK_UPTIME_RAW), std::memory_order_release);
+    }
+    source.busy.fetch_sub(1);
+}
+
+void apkrt_audio_source_set_volume(uint64_t handle, float left, float right) {
+    using namespace apkrt::audio;
+    const std::uint64_t index = handle & 0xff;
+    if ((handle >> 8) == 0 || index >= APKRT_AUDIO_SOURCES) return;
+    Source &source = sources[index];
+    if (source.handle.load() != handle) return;
+    const auto clamped = [](float volume) {
+        return volume >= 0.0f && volume <= 1.0f ? volume : volume > 1.0f ? 1.0f : 0.0f;
+    };
+    source.volume_left.store(clamped(left), std::memory_order_relaxed);
+    source.volume_right.store(clamped(right), std::memory_order_relaxed);
+}
+
+void apkrt_audio_source_close(uint64_t handle) {
+    using namespace apkrt::audio;
+    const std::uint64_t index = handle & 0xff;
+    if ((handle >> 8) == 0 || index >= APKRT_AUDIO_SOURCES) return;
+    Source &source = sources[index];
+    const std::lock_guard hold(table_lock);
+    if (source.handle.load() != handle) return;
+    source.handle.store(0);
+    while (source.busy.load() != 0) sched_yield();  // a process under way ends; later ones find no handle
+    source.used = false;
 }
 
 int32_t apkrt_audio_xruns(uint64_t stream) {

@@ -27,6 +27,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
+#import <MediaToolbox/MediaToolbox.h>
 #import <QuartzCore/QuartzCore.h>
 
 #include <pthread.h>
@@ -66,7 +67,10 @@ static NSString *const own_scheme = @"minato-media";
     id end_observer;
     BOOL observing;  // the item's status
     BOOL sourced, prepared, gone, looping;
-    float speed, volume;
+    float speed, volume, volume_left, volume_right;  // volume: their mean
+    int32_t session;       // the app's audio session of the player (SET), for its audio effects
+    uint64_t audio_source;  // the runtime's apkrt_audio_source for the tap, 0 for none
+    BOOL tap_active;        // the tap takes the player's audio (its format is one it handles): it applies the volume
     BOOL playing;
     int64_t duration_us;
     uint32_t width, height;
@@ -88,6 +92,7 @@ static void item_status(MinatoMediaPlayer *self);
 
 @implementation MinatoMediaPlayer
 - (void)dealloc {
+    apkrt_audio_source_close(audio_source);
     if (transfer != NULL) {
         VTPixelTransferSessionInvalidate(transfer);
         CFRelease(transfer);
@@ -362,6 +367,162 @@ static void asset_loaded(MinatoMediaPlayer *self) {
     });
 }
 
+/* The player's volume: with the tap on a format it handles the tap applies it, in front of the session's effects as
+   Android's mixer does, with a gain for each of the left and the right channel; else AVPlayer does, by the mean. On
+   the player's queue. */
+static void apply_volume(MinatoMediaPlayer *player) {
+    if (player->player == nil) return;
+    if (player->audio_source != 0 && player->tap_active) {
+        player->player.volume = 1;
+        apkrt_audio_source_set_volume(player->audio_source, player->volume_left, player->volume_right);
+    } else {
+        player->player.volume = player->volume;
+        apkrt_audio_source_set_volume(player->audio_source, 1, 1);
+    }
+}
+
+/* What the tap's callbacks, on AVFoundation's threads, hold of their player: a weak reference. */
+@interface MinatoTapOwner : NSObject {
+@public
+    __weak MinatoMediaPlayer *player;
+}
+@end
+@implementation MinatoTapOwner
+@end
+
+/* The audio tap: the player's audio track, before the player's speed and volume, passes through the runtime's audio
+   effects of the player's session (apkrt_audio_source_process) and into the Visualizer's tap. A format the tap cannot
+   take (not 32-bit float, more channels than the effects have) is left as it is. */
+typedef struct {
+    uint64_t source;
+    CFTypeRef owner;  // a MinatoTapOwner (retained), through which the player hears whether the tap takes its audio
+    BOOL usable, interleaved;
+    UInt32 channels, capacity;  // the channels per frame; the frames `scratch` holds
+    double rate;
+    float *scratch;  // a planar format's frames, interleaved for the effects
+} MinatoAudioTap;
+
+/* Tells the player whether the tap takes its audio now, on the player's queue. */
+static void audio_tap_report(MinatoAudioTap *state, BOOL active) {
+    MinatoTapOwner *owner = (__bridge MinatoTapOwner *)state->owner;
+    MinatoMediaPlayer *player = owner->player;
+    if (player == nil) return;
+    dispatch_async(player->queue, ^{
+        if (player->gone) return;
+        player->tap_active = active;
+        apply_volume(player);
+    });
+}
+
+static void audio_tap_init(MTAudioProcessingTapRef tap, void *client, void **storage) {
+    (void)tap;
+    *storage = client;
+}
+
+static void audio_tap_finalize(MTAudioProcessingTapRef tap) {
+    MinatoAudioTap *state = MTAudioProcessingTapGetStorage(tap);
+    free(state->scratch);
+    if (state->owner != NULL) CFRelease(state->owner);
+    free(state);
+}
+
+static void audio_tap_prepare(MTAudioProcessingTapRef tap, CMItemCount max_frames,
+                              const AudioStreamBasicDescription *format) {
+    MinatoAudioTap *state = MTAudioProcessingTapGetStorage(tap);
+    state->usable = format->mFormatID == kAudioFormatLinearPCM &&
+                    (format->mFormatFlags & kAudioFormatFlagIsFloat) != 0 && format->mBitsPerChannel == 32 &&
+                    format->mChannelsPerFrame >= 1 && format->mChannelsPerFrame <= 8;
+    state->interleaved = (format->mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0;
+    state->channels = format->mChannelsPerFrame;
+    state->rate = format->mSampleRate;
+    if (state->usable && !state->interleaved && max_frames > 0 && max_frames <= 1 << 16) {
+        state->capacity = (UInt32)max_frames;
+        state->scratch = malloc((size_t)state->capacity * state->channels * sizeof(float));
+    }
+    if (!state->interleaved && state->scratch == NULL) state->usable = NO;
+    audio_tap_report(state, state->usable);
+}
+
+static void audio_tap_unprepare(MTAudioProcessingTapRef tap) {
+    MinatoAudioTap *state = MTAudioProcessingTapGetStorage(tap);
+    state->usable = NO;
+    audio_tap_report(state, NO);
+    free(state->scratch);
+    state->scratch = NULL;
+    state->capacity = 0;
+}
+
+static void audio_tap_process(MTAudioProcessingTapRef tap, CMItemCount frames, MTAudioProcessingTapFlags flags,
+                              AudioBufferList *buffers, CMItemCount *frames_out,
+                              MTAudioProcessingTapFlags *flags_out) {
+    (void)frames;
+    (void)flags;
+    if (MTAudioProcessingTapGetSourceAudio(tap, frames, buffers, flags_out, NULL, frames_out) != noErr) return;
+    MinatoAudioTap *state = MTAudioProcessingTapGetStorage(tap);
+    const UInt32 count = (UInt32)*frames_out;
+    if (!state->usable || count == 0) return;
+    if (state->interleaved) {
+        if (buffers->mNumberBuffers != 1) return;
+        apkrt_audio_source_process(state->source, buffers->mBuffers[0].mData, count, (int32_t)state->channels,
+                                   state->rate);
+        return;
+    }
+    if (buffers->mNumberBuffers != state->channels || count > state->capacity) return;
+    for (UInt32 channel = 0; channel < state->channels; ++channel) {
+        const float *plane = buffers->mBuffers[channel].mData;
+        for (UInt32 frame = 0; frame < count; ++frame) state->scratch[frame * state->channels + channel] = plane[frame];
+    }
+    apkrt_audio_source_process(state->source, state->scratch, count, (int32_t)state->channels, state->rate);
+    for (UInt32 channel = 0; channel < state->channels; ++channel) {
+        float *plane = buffers->mBuffers[channel].mData;
+        for (UInt32 frame = 0; frame < count; ++frame) plane[frame] = state->scratch[frame * state->channels + channel];
+    }
+}
+
+/* Puts the tap on `item`'s first audio track, with a source of the runtime for the player's session; nothing changes
+   for an asset without an audio track or when the tap cannot be made. */
+static void attach_audio_tap(MinatoMediaPlayer *self, AVPlayerItem *item, NSArray<AVAssetTrack *> *tracks) {
+    AVAssetTrack *audio = nil;
+    for (AVAssetTrack *track in tracks) {
+        if ([track.mediaType isEqualToString:AVMediaTypeAudio]) {
+            audio = track;
+            break;
+        }
+    }
+    if (audio == nil) return;
+    const uint64_t source = apkrt_audio_source_open(self->session);
+    if (source == 0) return;
+    MinatoAudioTap *state = calloc(1, sizeof *state);
+    if (state == NULL) {
+        apkrt_audio_source_close(source);
+        return;
+    }
+    state->source = source;
+    MinatoTapOwner *owner = [[MinatoTapOwner alloc] init];
+    owner->player = self;
+    state->owner = (__bridge_retained CFTypeRef)owner;
+    MTAudioProcessingTapCallbacks callbacks = {kMTAudioProcessingTapCallbacksVersion_0, state, audio_tap_init,
+                                               audio_tap_finalize, audio_tap_prepare, audio_tap_unprepare,
+                                               audio_tap_process};
+    MTAudioProcessingTapRef tap = NULL;
+    const OSStatus made =
+        MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PreEffects, &tap);
+    if (made != noErr) {
+        CFRelease(state->owner);
+        free(state);
+        apkrt_audio_source_close(source);
+        return;
+    }
+    AVMutableAudioMixInputParameters *parameters =
+        [AVMutableAudioMixInputParameters audioMixInputParametersWithTrack:audio];
+    parameters.audioTapProcessor = tap;
+    CFRelease(tap);
+    AVMutableAudioMix *mix = [AVMutableAudioMix audioMix];
+    mix.inputParameters = @[ parameters ];
+    item.audioMix = mix;
+    self->audio_source = source;
+}
+
 /* The tracks' values loaded, on the player's queue: the item. */
 static void tracks_loaded(MinatoMediaPlayer *self) {
     if (self->gone) return;
@@ -391,6 +552,7 @@ static void tracks_loaded(MinatoMediaPlayer *self) {
     }
     AVPlayerItem *item = [AVPlayerItem playerItemWithAsset:asset];
     item.audioTimePitchAlgorithm = AVAudioTimePitchAlgorithmSpectral;
+    attach_audio_tap(self, item, asset.tracks);
     if (video != nil) {
         NSDictionary *attributes = @{
             (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
@@ -403,7 +565,7 @@ static void tracks_loaded(MinatoMediaPlayer *self) {
     self->item = item;
     self->player = [AVPlayer playerWithPlayerItem:item];
     self->player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
-    self->player.volume = self->volume;
+    apply_volume(self);  // the tap's prepare tells later whether it takes the audio
     if (self->source.kind != APKRT_MEDIA_PLAYER_URL) self->player.automaticallyWaitsToMinimizeStalling = NO;
     __weak MinatoMediaPlayer *weak = self;
     self->end_observer = [[NSNotificationCenter defaultCenter]
@@ -458,7 +620,7 @@ static int create(void *context, uint64_t key, uint64_t *handle) {
         player->queue = dispatch_queue_create("minato.media-player", DISPATCH_QUEUE_SERIAL);
         player->loading = dispatch_queue_create("minato.media-player.loading", DISPATCH_QUEUE_SERIAL);
         player->speed = 1;
-        player->volume = 1;
+        player->volume = player->volume_left = player->volume_right = 1;
         player->duration_us = -1;
         player->waiting = [NSMutableDictionary dictionary];
         player->source.fd = -1;
@@ -615,10 +777,13 @@ static int set(void *context, uint64_t handle, uint32_t key, uint64_t value) {
         dispatch_sync(player->queue, ^{
             switch (key) {
                 case APKRT_MEDIA_PLAYER_VOLUME:
+                    player->volume_left = low;
+                    player->volume_right = high;
                     player->volume = (low + high) / 2;
-                    player->player.volume = player->volume;
+                    apply_volume(player);
                     break;
                 case APKRT_MEDIA_PLAYER_LOOPING: player->looping = value != 0; break;
+                case APKRT_MEDIA_PLAYER_SESSION: player->session = (int32_t)(uint32_t)value; break;
                 case APKRT_MEDIA_PLAYER_SPEED:
                     player->speed = low;
                     if (player->playing && player->player.rate != 0) player->player.rate = low;
@@ -741,6 +906,8 @@ static void destroy(void *context, uint64_t handle) {
             [player->asset cancelLoading];
             [player->waiting removeAllObjects];
             if (player->cropped_window != 0) minato_video_frame_give_back_gravity(player->cropped_window);
+            apkrt_audio_source_close(player->audio_source);  // the tap, if it still runs, finds no source
+            player->audio_source = 0;
         });
         // The loader's reads of the source end before the runtime closes its descriptor.
         dispatch_sync(player->loading, ^{});

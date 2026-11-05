@@ -874,6 +874,23 @@ int64_t apkrt_audio_input_write(uint64_t stream, const float *buffer, int64_t fr
 /// close; 0 for a closed or unknown stream.
 int32_t apkrt_audio_xruns(uint64_t stream);
 
+/// A host audio source: sound the host plays itself (the media players' AVPlayer) that passes through the runtime's
+/// audio effects (audio_effect) and into the Visualizer's tap, as an output stream of the same session does.
+/// open: a source for `session` (the app's audio session of the player, 0 for none), or 0 when all APKRT_AUDIO_SOURCES
+/// are in use. process: plays `frames` interleaved float32 frames of `channels` (1 to APKRT_AUDIO_CHANNELS) channels at
+/// `rate` Hz in place through the effects of the source's session and then those of the whole mix, and gives the result
+/// to the tap; for a handle that is not open, or channels the effects do not handle, it leaves them as they are. It
+/// takes no lock and makes no allocation, so it can run on the host's audio thread, and it may run while the source
+/// closes. close: the source is gone; it waits for a process under way.
+uint64_t apkrt_audio_source_open(int32_t session);
+void apkrt_audio_source_process(uint64_t source, float *frames, int64_t count, int32_t channels, double rate);
+void apkrt_audio_source_close(uint64_t source);
+/// The source's volumes of the left and the right channel, 0 to 1 each (anything else is clamped), which `process`
+/// applies before the effects, as Android's mixer applies a track's volume before the session's effects; they move over
+/// one `process` call. Of two or more channels the first gets `left` and the second `right`, any other and a mono
+/// source the mean. 1 at the open.
+void apkrt_audio_source_set_volume(uint64_t source, float left, float right);
+
 // MARK: - Host code on guest threads (ADR-0030)
 
 /// 1 when the calling thread is a guest thread, else 0.
