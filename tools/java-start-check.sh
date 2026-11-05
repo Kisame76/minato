@@ -167,6 +167,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "media-extractor-ogg-test io.github.kisame76.minato.test.mediaextractorogg"
       "webview-test io.github.kisame76.minato.test.webview"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
+      "storage-space-test io.github.kisame76.minato.test.storagespace"
       "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
       "gamepad-test io.github.kisame76.minato.test.gamepad"
       "permission-request-test-fine io.github.kisame76.minato.test.permreqfine"
