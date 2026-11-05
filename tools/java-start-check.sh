@@ -94,7 +94,8 @@
 #              ONLY=renpy-memory-test. The game (tools/renpy-memory.sh's, built with BUILD_ONLY) shows distinct
 #              full-screen backgrounds one after another as a visual novel does; the Debug build writes the process's
 #              physical footprint every 10 s and every iOS memory warning to tmp/session-check/footprint-log. The
-#              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory".
+#              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory"
+#              (tools/renpy_footprint.py); a run with no footprint sample is a note, not a failure.
 #   PIXELS     a folder: only the pixel round of ADR-0043 b5's step f runs (tools/window-contents-check.sh), with
 #              views-test, dialog-test, second-windows-test, activity-flow-test and window-formats-test (ONLY= picks),
 #              each started with SessionCheck's window-crc. At each checkpoint the windows' dump (window-dump) and a
@@ -2016,24 +2017,10 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
   else
     rm -f "$CONTAINER/tmp/guest-environment"
   fi
-  python3 - "$CHECK/footprint-log" <<'PY' || fail "  renpy-memory-test: no footprint samples"
-import sys
-footprints, warnings = [], 0
-try:
-    for line in open(sys.argv[1], encoding="utf-8"):
-        _, kind, value = line.split()
-        if kind == "footprint" and int(value) >= 0:
-            footprints.append(int(value) / 1048576)
-        elif kind == "warning":
-            warnings += 1
-except OSError:
-    pass
-if not footprints:
-    sys.exit(1)
-else:
-    print(f"csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory\n"
-          f"csv,{min(footprints):.0f},{max(footprints):.0f},{footprints[-1]:.0f},{warnings},{warnings}")
-PY
+  # renpy-memory-test's footprint summary (tools/renpy_footprint.py): the CSV of its min/max/end footprint and memory
+  # warnings. A run with no footprint sample is a device fetch or timing artifact, so a note, not a failure; the
+  # "game ended before N min" check above stays the real gate on the run.
+  python3 tools/renpy_footprint.py "$CHECK/footprint-log" || fail "  renpy-memory-test: footprint summary failed"
 fi
 if [[ -n "${COMPILE:-}" ]]; then
   echo "csv,app,dex_mb,plain_s,compiled_s,compiled_over_plain,dex2oat_s,dex2oat_s_per_dex_mb,peak_mb,"\

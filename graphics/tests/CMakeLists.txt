@@ -93,6 +93,9 @@ set_tests_properties(graphics.window_pixels PROPERTIES TIMEOUT 120)
 # Step f's footprint comparison (tools/footprint_compare.py): the peak of each run, and a skip for a run with no sample.
 add_test(NAME graphics.footprint_compare
   COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/footprint_compare_test.py")
+# renpy-memory-test's footprint summary (tools/renpy_footprint.py): the CSV, and a note for a run with no sample.
+add_test(NAME graphics.renpy_footprint
+  COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/renpy_footprint_test.py")
 
 # ADR-0037 / M6's MetalFX plan, step 0: the scene's bench.conf render scale and the target size it gives.
 if(APK_HOST_BUILD)
