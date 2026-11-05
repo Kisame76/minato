@@ -496,6 +496,12 @@ enum apkrt_request_type {
     APKRT_REQUEST_BACK_AT_ROOT,    // guest only (ADR-0041 decision 10): a0, a1 0. A root launcher activity's back,
                                    // which Android answers by moving its task to the back: the host opens its menu
                                    // instead; no answer comes
+    APKRT_REQUEST_ORIENTATION,     // guest only: a0 the ActivityInfo.SCREEN_ORIENTATION_* value that the top activity
+                                   // asked for with setRequestedOrientation (-1 to 14, sign-extended), a1 0. The host
+                                   // turns its window for a value that forces landscape or portrait and leaves it
+                                   // for any other; the turn then reaches the guest as APKRT_EVENT_CONFIGURATION_
+                                   // CHANGED and the window's resize. No answer comes; a host without a handler
+                                   // ignores it
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)

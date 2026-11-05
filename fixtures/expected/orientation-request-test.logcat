@@ -1,0 +1,48 @@
+I/orientation-request-test: plain 1 onCreate, saved none, orientation 1, 430 x 932 dp, requested -1
+I/orientation-request-test: plain 1 onStart
+I/orientation-request-test: plain 1 onResume
+I/orientation-request-test: plain 1 onWindowFocusChanged true
+I/orientation-request-test: plain 1 ready
+I/orientation-request-test: plain 1 requests landscape
+I/orientation-request-test: plain 1 onPause
+I/orientation-request-test: plain 1 onStop
+I/orientation-request-test: plain 1 onSaveInstanceState
+I/orientation-request-test: plain 1 onDestroy, changing configurations true
+I/orientation-request-test: plain 2 onCreate, saved plain 1, orientation 2, 932 x 430 dp, requested 0
+I/orientation-request-test: plain 2 onStart
+I/orientation-request-test: plain 2 onRestoreInstanceState
+I/orientation-request-test: plain 2 onResume
+I/orientation-request-test: plain 2 onWindowFocusChanged true
+I/orientation-request-test: plain 2 in landscape: decor 2796 x 1290, display 2796 x 1290, orientation 2, 932 x 430 dp, requested 0
+I/orientation-request-test: plain 2 requests portrait
+I/orientation-request-test: plain 2 onPause
+I/orientation-request-test: plain 2 onStop
+I/orientation-request-test: plain 2 onSaveInstanceState
+I/orientation-request-test: plain 2 onDestroy, changing configurations true
+I/orientation-request-test: plain 3 onCreate, saved plain 2, orientation 1, 430 x 932 dp, requested 1
+I/orientation-request-test: plain 3 onStart
+I/orientation-request-test: plain 3 onRestoreInstanceState
+I/orientation-request-test: plain 3 onResume
+I/orientation-request-test: plain 3 onWindowFocusChanged true
+I/orientation-request-test: plain 3 in portrait: decor 1290 x 2796, display 1290 x 2796, orientation 1, 430 x 932 dp, requested 1
+I/orientation-request-test: plain 3 starts the next activity
+I/orientation-request-test: plain 3 onPause
+I/orientation-request-test: config 4 onCreate, saved none, orientation 1, 430 x 932 dp, requested -1
+I/orientation-request-test: config 4 onStart
+I/orientation-request-test: config 4 onResume
+I/orientation-request-test: plain 3 onWindowFocusChanged false
+I/orientation-request-test: config 4 onWindowFocusChanged true
+I/orientation-request-test: config 4 ready
+I/orientation-request-test: plain 3 onStop
+I/orientation-request-test: plain 3 onDestroy, changing configurations false
+I/orientation-request-test: config 4 requests landscape
+I/orientation-request-test: config 4 onConfigurationChanged orientation 2, 932 x 430 dp, resources orientation 2, 932 x 430 dp
+I/orientation-request-test: config 4 onWindowFocusChanged false
+I/orientation-request-test: config 4 onWindowFocusChanged true
+I/orientation-request-test: config 4 in landscape: decor 2796 x 1290, display 2796 x 1290, orientation 2, 932 x 430 dp, requested 0
+I/orientation-request-test: config 4 requests portrait
+I/orientation-request-test: config 4 onConfigurationChanged orientation 1, 430 x 932 dp, resources orientation 1, 430 x 932 dp
+I/orientation-request-test: config 4 onWindowFocusChanged false
+I/orientation-request-test: config 4 onWindowFocusChanged true
+I/orientation-request-test: config 4 in portrait: decor 1290 x 2796, display 1290 x 2796, orientation 1, 430 x 932 dp, requested 1
+I/orientation-request-test: config 4 done

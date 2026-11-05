@@ -139,6 +139,11 @@ final class LocalActivityClientController extends IActivityClientController.Defa
         ActivityThread.ActivityClientRecord r = mThread.mActivities.get(token);
         if (r != null) {
             r.requestedOrientation = requestedOrientation;
+            // The window manager asks the display for the top activity's orientation; the turn comes back as the
+            // session's configuration change (ActivityThread.handleTurn).
+            if (r == mThread.topRecordForOrientation()) {
+                mThread.requestOrientation(requestedOrientation);
+            }
         }
     }
 

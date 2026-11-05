@@ -1159,6 +1159,10 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             // forwards a plain notification (argument 0, no text); the host opens its overlay menu, no answer.
             report(APKRT_REQUEST_BACK_AT_ROOT, 0, nullptr);
             return 0;
+        case APKRT_REQUEST_ORIENTATION:
+            // Guest only: fire-and-forget; a0, the SCREEN_ORIENTATION value, is the notification's argument.
+            report(APKRT_REQUEST_ORIENTATION, a0, nullptr);
+            return 0;
         default:
             return -linux_errno::einval;
     }

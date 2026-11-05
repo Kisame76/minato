@@ -1211,6 +1211,7 @@ public final class ActivityThread {
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
+    private static final int REQUEST_ORIENTATION = 20;
     private static final int SURFACE_MAKE = 1;
     private static final int SURFACE_PLACE = 2;
     private static final int SURFACE_REMOVE = 3;
@@ -2322,6 +2323,11 @@ public final class ActivityThread {
         return parent instanceof ViewRootImpl ? (ViewRootImpl) parent : null;
     }
 
+    /** The activity whose orientation the display follows: the task's top. */
+    ActivityClientRecord topRecordForOrientation() {
+        return topRecord();
+    }
+
     private ActivityClientRecord topRecord() {
         return mTask.isEmpty() ? null : mTask.get(mTask.size() - 1);
     }
@@ -2708,6 +2714,21 @@ public final class ActivityThread {
             return -EOPNOTSUPP;
         }
         return nativeSessionRequestExportMedia((kind + "\t" + path).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * setRequestedOrientation's request to the session (APKRT_REQUEST_ORIENTATION), as the window manager turns the
+     * display for an activity's request: the host turns its window or ignores the value, and the turn arrives as the
+     * session's configuration change.
+     */
+    void requestOrientation(int requestedOrientation) {
+        if (mSessionEvents == null) {
+            return;
+        }
+        int error = nativeSessionRequest(REQUEST_ORIENTATION, requestedOrientation, 0);
+        if (error != 0) {
+            Log.e(TAG, "The session refused ORIENTATION: " + error);
+        }
     }
 
     public static void requestWindowFormat(int format) {

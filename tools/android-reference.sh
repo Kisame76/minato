@@ -234,6 +234,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
   "$app" == action-mode-standalone-test || "$app" == trim-memory-test || "$app" == selection-mode-test ||
   "$app" == insertion-mode-test || "$app" == menu-pause-test || "$app" == turn-test ||
+  "$app" == orientation-request-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -839,6 +840,14 @@ run_app() {
     # configChanges and hears onConfigurationChanged and a relayout instead; each logs its callbacks, the
     # configuration and the decor's size. Ends with "done".
     turn-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PlainActivity
+      limit=120
+      ;;
+    # orientation-request-test (setRequestedOrientation): PlainActivity, without android:configChanges, asks for
+    # landscape and then for portrait and is relaunched at each; it starts ConfigActivity, which has the configChanges
+    # and hears onConfigurationChanged instead; each logs its callbacks, the configuration, the orientation it asked
+    # for and the decor's size. Ends with "done"; the script turns nothing.
+    orientation-request-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PlainActivity
       limit=120
       ;;

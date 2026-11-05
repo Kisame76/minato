@@ -702,7 +702,14 @@ void print_shared_files(std::uint64_t id, const std::string &text) {
 /// The serial of the last IME "start" request (ADR-0068 part 1), which the text steps address; 0 before the first.
 std::atomic<std::uint64_t> ime_serial{0};
 
+std::uint32_t request_orientation(int screen_orientation);
+
 void on_request(void *, int type, std::uint64_t argument, const char *text) {
+    if (type == APKRT_REQUEST_ORIENTATION) {
+        std::fprintf(stderr, "apk-run: orientation request %d\n", static_cast<int>(argument));
+        request_orientation(static_cast<int>(argument));
+        return;
+    }
     if (type == APKRT_REQUEST_IME) {
         const std::string request = text != nullptr ? text : "";
         std::fprintf(stderr, "apk-run: ime %llu: %s\n", static_cast<unsigned long long>(argument),
@@ -879,6 +886,67 @@ bool answered(std::uint32_t serial, const char *what) {
     if (serial != 0 && apkrt_session_wait(serial, 120) == 1) return true;
     std::fprintf(stderr, "apk-run: no answer for %s; no more lifecycle steps\n", what);
     return false;
+}
+
+/// The window of the start or the return and its size in px, which a turn changes: the turn step's and a guest's
+/// request for another orientation (APKRT_REQUEST_ORIENTATION), which comes from the app's thread at any time.
+struct Screen {
+    std::mutex lock;
+    std::uint64_t window = 0;
+    int width = 0, height = 0;
+};
+Screen screen;
+
+/// The lifecycle's window and its size, or no window (0) once it is taken away.
+void set_screen(std::uint64_t window, int width, int height) {
+    const std::lock_guard<std::mutex> hold(screen.lock);
+    screen.window = window;
+    screen.width = width;
+    screen.height = height;
+}
+
+/// A turn as the App plays it (rotation_test.cpp): the configuration changes, the same window takes its new size,
+/// then the window's events. Returns the serial of the last event, 0 without a window.
+std::uint32_t turn_screen(int width, int height) {
+    const std::lock_guard<std::mutex> hold(screen.lock);
+    if (screen.window == 0) return 0;
+    screen.width = width;
+    screen.height = height;
+    post(APKRT_EVENT_CONFIGURATION_CHANGED);
+    if (apkrt_window_set_size(screen.window, width, height) != 0) {
+        std::fprintf(stderr, "apk-run: a turn was refused\n");
+    }
+    post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, screen.window, static_cast<std::uint64_t>(width),
+         static_cast<std::uint64_t>(height));
+    post(APKRT_EVENT_CONTENT_RECT_CHANGED, headless::pair(0, 0), headless::pair(width, height));
+    return post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, screen.window);
+}
+
+/// ActivityInfo.SCREEN_ORIENTATION_*: 1 for the values that force landscape, 2 for those that force portrait, 0 for
+/// those that leave the orientation to the sensor, the user or the activity below.
+int forced_orientation(int screen_orientation) {
+    switch (screen_orientation) {
+        case 0: case 6: case 8: case 11: return 1;   // LANDSCAPE, SENSOR_, REVERSE_, USER_LANDSCAPE
+        case 1: case 7: case 9: case 12: return 2;   // PORTRAIT, SENSOR_, REVERSE_, USER_PORTRAIT
+        default: return 0;
+    }
+}
+
+/// A guest's request for an orientation: the window turns when a forcing value asks for the other one, as the App
+/// turns the iPhone's window; any other value leaves it. Returns the serial of the turn's last event, 0 for none.
+std::uint32_t request_orientation(int screen_orientation) {
+    const int forced = forced_orientation(screen_orientation);
+    int width = 0, height = 0;
+    {
+        const std::lock_guard<std::mutex> hold(screen.lock);
+        width = screen.width;
+        height = screen.height;
+    }
+    if (forced == 0 || width <= 0 || height <= 0) return 0;
+    const int wide = std::max(width, height), narrow = std::min(width, height);
+    const int new_width = forced == 1 ? wide : narrow, new_height = forced == 1 ? narrow : wide;
+    if (new_width == width && new_height == height) return 0;
+    return turn_screen(new_width, new_height);
 }
 
 /// The host's hardware keyboard (ADR-0068 step 7c2): its device ID, above Android's own and the touchscreen's.
@@ -1085,6 +1153,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
     // after the focus, before the window's and STOP, as Android 15 calls surfaceDestroyed from the stopped window
     // before onStop (apkrt.h's surface and window handlers).
     const auto hide = [&]() -> std::uint32_t {
+        set_screen(0, width, height);
         apkrt_window_remove(window);
         surfaces.take_away();
         windows.take_away();
@@ -1112,8 +1181,17 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
     for (std::size_t index = 0; index < steps.size(); ++index) {
         if (index > 0) std::this_thread::sleep_for(std::chrono::seconds(1));
         report();
+        {
+            // An app's request for another orientation may have turned the window since the last step.
+            const std::lock_guard<std::mutex> hold(screen.lock);
+            if (screen.window != 0) {
+                width = screen.width;
+                height = screen.height;
+            }
+        }
         if (steps[index] == "start") {
             window = add_window();
+            set_screen(window, width, height);
             post(APKRT_EVENT_CREATE);
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
@@ -1139,14 +1217,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             // new size, then the window's events; the later steps and a return use the new size.
             width = wide;
             height = high;
-            post(APKRT_EVENT_CONFIGURATION_CHANGED);
-            if (apkrt_window_set_size(window, width, height) != 0) {
-                std::fprintf(stderr, "apk-run: a turn was refused\n");
-            }
-            post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, static_cast<std::uint64_t>(width),
-                 static_cast<std::uint64_t>(height));
-            post(APKRT_EVENT_CONTENT_RECT_CHANGED, headless::pair(0, 0), headless::pair(width, height));
-            if (!answered(post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window), "a turn")) return;
+            if (!answered(turn_screen(width, height), "a turn")) return;
         } else if (int top = 0, bottom = 0; parse_bar_insets(steps[index], top, bottom)) {
             post(APKRT_EVENT_BAR_INSETS, static_cast<std::uint64_t>(top), static_cast<std::uint64_t>(bottom), 0);
         } else if (int trim = 0; parse_trim_memory(steps[index], trim)) {
@@ -1180,6 +1251,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             surfaces.set_background(false);
             windows.set_background(false);
             window = add_window();
+            set_screen(window, width, height);
             post(APKRT_EVENT_START);
             post(APKRT_EVENT_RESUME);
             const std::uint32_t shown = show(false);
