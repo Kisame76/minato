@@ -67,7 +67,6 @@ android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: no
 android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider, com.android.internal.minato.webkit.WebViewFactoryProviderImpl  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.window.OnBackInvokedCallbackInfo <- android.view.IWindowSession  # gap: a placeholder's back callback info (IWindowSession, the graphics side's), not taken yet
-android.window.SplashScreenView <- android.window.SplashScreen  # gap: SplashScreenView, the system splash screen's view, not taken yet; Minato shows none
 android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)

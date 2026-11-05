@@ -264,4 +264,5 @@ I/api-breadth-test: android.security.ConfirmationCallback: loads
 I/api-breadth-test: android.security.ConfirmationNotAvailableException: loads
 I/api-breadth-test: android.app.people.ConversationStatus: loads
 I/api-breadth-test: android.app.blob.BlobHandle: loads
+I/api-breadth-test: android.window.SplashScreenView: loads
 I/api-breadth-test: done

@@ -275,3 +275,5 @@ android.security.ConfirmationCallback
 android.security.ConfirmationNotAvailableException
 android.app.people.ConversationStatus
 android.app.blob.BlobHandle
+# Batch C3: classes of our own under AOSP's names: the splash screen's view.
+android.window.SplashScreenView
