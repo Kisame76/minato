@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
@@ -17,16 +18,23 @@ import android.view.inputmethod.InputMethodManager;
  * ADR-0068's text bar for engines: one view as SDL2's DummyEdit, which Ren'Py and other SDL apps show the keyboard
  * for. Its connection, as SDLInputConnection, is a BaseInputConnection with an editable of its own: getExtractedText
  * gives null, and the view never calls updateExtractedText or updateSelection. It logs the editable after each edit of
- * the host's text steps, and ends with "done" after the last one.
+ * the host's text steps, and ends with "done" after the last one. Its twin ime-surrounding-test-return hides the
+ * keyboard at Enter as SDL2 does with SDL_HINT_RETURN_KEY_HIDES_IME (SDLInputConnection's ENTER, SDL_StopTextInput,
+ * hideSoftInputFromWindow), as Ren'Py's name field does at Return, and ends with "done" 2 s later.
  */
 public class SurroundingActivity extends Activity {
-    private static final String TAG = "ime-surrounding-test";
+    static final String RETURN_PACKAGE = "io.github.kisame76.minato.test.imesurroundingreturn";
+    static final String RETURN_TAG = "ime-surrounding-test-return";
     private static final int EDITS = 3;
     private static final long TIMEOUT_MS = 12000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private DummyEdit mEdit;
     private boolean mStarted;
     private boolean mDone;
+    /** The twin that hides the keyboard at Enter, and its tag. */
+    private boolean mReturns;
+    private boolean mReturned;
+    private String mTag = "ime-surrounding-test";
     private int mEdits;
 
     /** As SDL2's DummyEdit: focusable, a text editor, and its own connection. */
@@ -67,8 +75,24 @@ public class SurroundingActivity extends Activity {
                     super.deleteSurroundingText(beforeLength, afterLength));
         }
 
+        /** SDL2's ENTER with SDL_HINT_RETURN_KEY_HIDES_IME: the twin hides the keyboard, as SDL_StopTextInput does. */
+        @Override
+        public boolean sendKeyEvent(KeyEvent event) {
+            if (!mReturns || event.getKeyCode() != KeyEvent.KEYCODE_ENTER) {
+                return super.sendKeyEvent(event);
+            }
+            if (event.getAction() == KeyEvent.ACTION_DOWN && !mReturned) {
+                mReturned = true;
+                boolean hidden = getSystemService(InputMethodManager.class)
+                        .hideSoftInputFromWindow(mEdit.getWindowToken(), 0);
+                Log.i(mTag, "return: text \"" + getEditable() + "\", hideSoftInputFromWindow " + hidden);
+                mHandler.postDelayed(SurroundingActivity.this::finishRun, 2000);
+            }
+            return true;
+        }
+
         private boolean edited(String call, boolean result) {
-            Log.i(TAG, "call " + call + " -> " + result + ", text \"" + getEditable() + "\"");
+            Log.i(mTag, "call " + call + " -> " + result + ", text \"" + getEditable() + "\"");
             if (++mEdits == EDITS) {
                 mHandler.postDelayed(SurroundingActivity.this::finishRun, 500);
             }
@@ -79,6 +103,10 @@ public class SurroundingActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mReturns = RETURN_PACKAGE.equals(getPackageName());
+        if (mReturns) {
+            mTag = RETURN_TAG;
+        }
         mEdit = new DummyEdit(this);
         setContentView(mEdit);
     }
@@ -91,7 +119,7 @@ public class SurroundingActivity extends Activity {
         }
         mStarted = true;
         mEdit.requestFocus();
-        Log.i(TAG, "showSoftInput " + getSystemService(InputMethodManager.class).showSoftInput(mEdit, 0));
+        Log.i(mTag, "showSoftInput " + getSystemService(InputMethodManager.class).showSoftInput(mEdit, 0));
         mHandler.postDelayed(this::finishRun, TIMEOUT_MS);
     }
 
@@ -100,6 +128,6 @@ public class SurroundingActivity extends Activity {
             return;
         }
         mDone = true;
-        Log.i(TAG, mEdits == EDITS ? "done" : "timeout");
+        Log.i(mTag, mEdits == EDITS || mReturned ? "done" : "timeout");
     }
 }

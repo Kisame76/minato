@@ -558,6 +558,8 @@ ime_test_off() {
   run ime disable io.github.kisame76.minato.test.nativejniime/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.enter/.FixtureInputMethod >/dev/null 2>&1 || true
   run ime disable io.github.kisame76.minato.test.imeextract/.FixtureInputMethod >/dev/null 2>&1 || true
+  local surrounding=io.github.kisame76.minato.test.imesurrounding
+  run ime disable "${surrounding}return/$surrounding.FixtureInputMethod" >/dev/null 2>&1 || true
   # enter-test-15's input method once stayed the default after a run that failed: the app goes, and its method with it.
   device uninstall io.github.kisame76.minato.test.enter >/dev/null 2>&1 || true
 }
@@ -1155,6 +1157,12 @@ run_app() {
     ime-hide-test | ime-hide-test-cb)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.HideActivity
       ;;
+    # ime-surrounding-test-return (an SDL field's Enter, as Ren'Py's name field): its fixture input method types "hi"
+    # and presses Enter, at which the field hides the keyboard as SDL2 does; ends with "done" 2 s later.
+    ime-surrounding-test-return)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity
+      ;;
     toolbar-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToolbarActivity
       ;;
@@ -1272,13 +1280,17 @@ run_app() {
   run logcat -G 16M >/dev/null 2>&1 || true
   run logcat -c
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
-    "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
+    "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == ime-surrounding-test-return ||
     "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
     "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ]]; then
     # The fixture input method of the app just installed is the one that serves its field; the image's own comes back
     # with the exit trap.
-    run ime enable "$package/.FixtureInputMethod" >/dev/null
-    run ime set "$package/.FixtureInputMethod" >/dev/null
+    # ime-surrounding-test-return's is ime-surrounding-test's class, in that app's Java package.
+    local fixture_ime=.FixtureInputMethod
+    [[ "$app" != ime-surrounding-test-return ]] ||
+      fixture_ime=io.github.kisame76.minato.test.imesurrounding.FixtureInputMethod
+    run ime enable "$package/$fixture_ime" >/dev/null
+    run ime set "$package/$fixture_ime" >/dev/null
   fi
   if [[ "$AVD" == apk-runner-35-iphone-gesture* ]]; then
     # Gesture navigation's overlay, and the screen on past the keyguard, so that the window takes focus.
@@ -1995,7 +2007,7 @@ if [[ -n "$app" ]]; then
   # installs one too: the image's input methods and its default are put back at every exit, as for text-test, and the
   # fixture's own is switched off.
   if [[ "$app" == ime-test || "$app" == ime-insets-test || "$app" == ime-insets-test-34 ||
-    "$app" == ime-hide-test || "$app" == ime-hide-test-cb ||
+    "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == ime-surrounding-test-return ||
     "$app" == ime-fallback-test || "$app" == native-ime-test || "$app" == native-jni-ime-test ||
     "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ]]; then
     trap 'ime_test_off; input_methods_back; [[ -z "$started" ]] || emulator_stop' EXIT

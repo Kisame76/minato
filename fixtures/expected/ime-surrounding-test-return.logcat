@@ -1,0 +1,5 @@
+I/ime-surrounding-test-return: showSoftInput true
+I/ime-surrounding-test-return: call commitText "hi" -> true, text "hi"
+I/ime-surrounding-test-return: return: text "hi", hideSoftInputFromWindow true
+I/ime-surrounding-test-return: input method: window hidden
+I/ime-surrounding-test-return: done
