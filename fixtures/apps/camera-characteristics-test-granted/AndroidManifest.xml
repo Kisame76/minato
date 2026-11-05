@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0073's characteristics dump with CAMERA (camera-characteristics-test-granted), which the harness grants before
+     the start: the twin of camera-characteristics-test, from its sources, which also opens each camera, camera2's
+     and the legacy Camera's, and dumps the legacy parameters. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.cameracharacteristicsgranted" android:versionCode="1"
+    android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <application android:label="Camera Characteristics Test"
+      android:name="io.github.kisame76.minato.test.cameracharacteristics.CameraApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

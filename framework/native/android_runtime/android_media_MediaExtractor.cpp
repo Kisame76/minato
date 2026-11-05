@@ -16,8 +16,8 @@
 // - Nothing is cached (getCachedDuration -1, hasCacheReachedEndOfStream true), no sample is encrypted, no track has
 //   audio presentations or a CAS (setMediaCas is an IllegalArgumentException).
 // - getMetrics is the extractor's metrics item as a PersistableBundle: _key "extractor", the extractor's name
-//   (MPEG4Extractor), the file's mime, the track count and the entry point "sdk", with the app's uid, as Android 15's
-//   [observed: media-extractor-test]; null before a source opens.
+//   (MPEG4Extractor, OggExtractor for Ogg), the file's mime, the track count and the entry point "sdk", with the app's
+//   uid, as Android 15's [observed: media-extractor-test, media-extractor-ogg-test]; null before a source opens.
 // - Every call on a released extractor is an IllegalStateException.
 #define LOG_TAG "MediaExtractor_JNI"
 
@@ -431,7 +431,9 @@ jobject MediaExtractor_getMetrics(JNIEnv *env, jobject thiz) {
         put_string(env, bundle, "_key", "extractor");
         put_int(env, bundle, "_uid", static_cast<jint>(getuid()));
         put_string(env, bundle, "android.media.mediaextractor.entry", "sdk");
-        put_string(env, bundle, "android.media.mediaextractor.fmt", "MPEG4Extractor");
+        // The extractor's name: OggExtractor for an Ogg file, else MPEG4Extractor.
+        const bool ogg = strcmp(mime, "audio/ogg") == 0;
+        put_string(env, bundle, "android.media.mediaextractor.fmt", ogg ? "OggExtractor" : "MPEG4Extractor");
         put_string(env, bundle, "android.media.mediaextractor.mime", mime);
         put_int(env, bundle, "android.media.mediaextractor.ntrk",
                 static_cast<jint>(AMediaExtractor_getTrackCount(extractor)));

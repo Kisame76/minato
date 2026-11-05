@@ -23,8 +23,8 @@
 //   and Main 10 to level 5.1, up to 4096 x 4096, with adaptive playback; hardware-accelerated and vendor. The audio
 //   decoders (e2f) and their aliases are listed as Android 15 lists c2.android.aac.decoder [verified:
 //   media-codec-audio-test] and c2.android.mp3.decoder, c2.android.flac.decoder and c2.android.raw.decoder
-//   [verified: media-codec-decoders-test]: software only, their canonical names, AAC's profiles, and the limits of
-//   Android's media_codecs_sw.xml, 32 instances each.
+//   [verified: media-codec-decoders-test] and c2.android.opus.decoder [verified: media-codec-opus-test]: software
+//   only, their canonical names, AAC's profiles, and the limits of Android's media_codecs_sw.xml, 32 instances each.
 // Left out, their natives not registered: secure input, the block model, input surfaces, tunneling, vendor parameters
 // and audio presentations (UnsatisfiedLinkError, as no codec of ours has them).
 #define LOG_TAG "MediaCodec_JNI"
@@ -812,6 +812,7 @@ jobject audio_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
             {"audio/mpeg", "8000-320000", "2", "8000,11025,12000,16000,22050,24000,32000,44100,48000"},
             {"audio/flac", "1-21000000", "8", "1-655350"},
             {"audio/raw", "1-10000000", "12", "8000-192000"},
+            {"audio/opus", "6000-510000", "8", "8000,12000,16000,24000,48000"},
     };
     const Limits *limit = &limits[0];
     for (const Limits &each : limits) {

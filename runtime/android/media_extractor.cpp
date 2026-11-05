@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "mp4_extractor.h"
+#include "ogg_extractor.h"
 
 struct AMediaDataSource {
     void *userdata;
@@ -70,7 +71,10 @@ struct AMediaExtractor {
     AMediaDataSource custom;
     bool has_custom;
     mp4::Source source;
+    bool sized;          // the source's length is its size, not unknown
     mp4::Tracks tracks;
+    minato::ogg::Reader *ogg;  // an Ogg Opus source's one track, else NULL
+    bool ogg_file;       // an Ogg source, with a track or without
     Selected selected[mp4::kMaxTracks];
     size_t selected_count;
 };
@@ -193,9 +197,21 @@ bool legacy_sniff(const mp4::Source &source) {
     return false;
 }
 
-// The source taken: the sniff, then the parse (initMediaExtractor and the extractor's readMetaData).
+// The source taken: the sniff, then the parse (initMediaExtractor and the extractor's readMetaData). MPEG4Extractor's
+// sniffers first, then OggExtractor's ("OggS" at the start): Ogg Opus has its track, another Ogg none; Ogg Vorbis is
+// refused as a source no sniff takes (named limit: Vorbis waits for its decoder).
 media_status_t open_source(AMediaExtractor *extractor) {
-    if (!better_sniff(extractor->source) && !legacy_sniff(extractor->source)) return AMEDIA_ERROR_UNKNOWN;
+    if (!better_sniff(extractor->source) && !legacy_sniff(extractor->source)) {
+        minato::ogg::Kind kind = minato::ogg::Kind::kNotOgg;
+        if (minato::ogg::open(extractor->source, extractor->sized, &kind, &extractor->ogg) != 0) {
+            return AMEDIA_ERROR_UNKNOWN;
+        }
+        if (kind == minato::ogg::Kind::kNotOgg || kind == minato::ogg::Kind::kVorbis) return AMEDIA_ERROR_UNKNOWN;
+        extractor->opened = true;
+        extractor->ogg_file = true;
+        extractor->parsed = extractor->ogg != nullptr;
+        return AMEDIA_OK;
+    }
     extractor->opened = true;
     extractor->parsed = mp4::parse(extractor->source, &extractor->tracks) == 0;
     if (!extractor->parsed) extractor->tracks.clear();
@@ -401,6 +417,27 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
     }
 }
 
+// MyOpusExtractor's meta through convertMetaDataToMessage: OpusHead as csd-0, the pre-skip and seek pre-roll in
+// nanoseconds as csd-1 and csd-2, its channels, their mask (audio_channel_out_mask_from_count's) and the duration
+// with the source's size.
+void ogg_format(AMediaFormat *format, const minato::ogg::Reader *reader) {
+    const minato::ogg::Format &ogg = minato::ogg::format(reader);
+    AMediaFormat_setString(format, "mime", "audio/opus");
+    AMediaFormat_setInt32(format, "track-id", 1);  // the extractor service's numbering
+    if (ogg.duration_us >= 0) AMediaFormat_setInt64(format, "durationUs", ogg.duration_us);
+    AMediaFormat_setInt32(format, "channel-count", static_cast<int32_t>(ogg.channels));
+    static const int32_t masks[] = {0, 0x1, 0x3, 0x7, 0x33, 0x37, 0x3f, 0x13f, 0x63f};
+    AMediaFormat_setInt32(format, "channel-mask", ogg.channels <= 8 ? masks[ogg.channels] : 0);
+    AMediaFormat_setInt32(format, "sample-rate", 48000);
+    AMediaFormat_setBuffer(format, "csd-0", ogg.head, ogg.head_size);
+    AMediaFormat_setBuffer(format, "csd-1", &ogg.delay_ns, sizeof ogg.delay_ns);
+    AMediaFormat_setBuffer(format, "csd-2", &ogg.pre_roll_ns, sizeof ogg.pre_roll_ns);
+}
+
+size_t track_count(const AMediaExtractor *extractor) {
+    return extractor->ogg != nullptr ? 1 : extractor->ogg_file ? 0 : extractor->tracks.size();
+}
+
 // avc_utils's getNextNALUnit with a start code following the data: the next unit after a start code, or false.
 bool next_nal(const uint8_t **data, size_t *size, const uint8_t **start, size_t *length) {
     const uint8_t *bytes = *data;
@@ -454,6 +491,30 @@ int32_t layer_of(const mp4::Track &track, const uint8_t *data, size_t size) {
 // The selected track's next sample read, as MPEG4Source::read gives it, unless it holds one or has ended.
 void fetch(AMediaExtractor *extractor, Selected &selected) {
     if (selected.held || selected.final != 0) return;
+    if (extractor->ogg != nullptr) {
+        minato::ogg::Packet packet{};
+        const int read = minato::ogg::next(extractor->ogg, &packet);
+        if (read != 0) {
+            selected.final = read;
+            return;
+        }
+        if (selected.capacity < packet.size + 1) {
+            auto *grown = static_cast<uint8_t *>(realloc(selected.data, packet.size + 1));
+            if (grown == nullptr) {
+                selected.final = mp4::kNoMemory;
+                return;
+            }
+            selected.data = grown;
+            selected.capacity = packet.size + 1;
+        }
+        memcpy(selected.data, packet.data, packet.size);
+        selected.size = packet.size;
+        selected.time_us = packet.time_us;
+        selected.sync = true;  // OggSource marks every packet a sync frame
+        selected.held = true;
+        selected.next++;
+        return;
+    }
     const mp4::Track &track = extractor->tracks[selected.track];
     if (selected.next >= track.samples.count()) {
         selected.final = mp4::kEndOfStream;
@@ -525,6 +586,7 @@ media_status_t AMediaExtractor_delete(AMediaExtractor *extractor) {
     if (extractor->opened && extractor->has_custom) AMediaDataSource_close(&extractor->custom);
     for (size_t index = 0; index < extractor->selected_count; index++) free(extractor->selected[index].data);
     extractor->tracks.clear();
+    minato::ogg::close(extractor->ogg);
     if (extractor->fd >= 0) close(extractor->fd);
     pthread_mutex_destroy(&extractor->mutex);
     free(extractor);
@@ -546,6 +608,7 @@ media_status_t AMediaExtractor_setDataSourceFd(AMediaExtractor *extractor, int f
     extractor->fd = copy;
     extractor->start = static_cast<uint64_t>(offset);
     extractor->source = mp4::Source{extractor, read_fd, static_cast<uint64_t>(length)};
+    extractor->sized = true;
     const media_status_t answer = open_source(extractor);
     if (answer != AMEDIA_OK) {
         // As NuMediaExtractor drops the FileSource of a source no sniff takes.
@@ -569,6 +632,7 @@ media_status_t AMediaExtractor_setDataSourceCustom(AMediaExtractor *extractor, A
     ssize_t size = source->get_size != nullptr ? source->get_size(source->userdata) : -1;
     extractor->source = mp4::Source{extractor, read_custom, size < 0 ? static_cast<uint64_t>(INT64_MAX)
                                                                      : static_cast<uint64_t>(size)};
+    extractor->sized = size >= 0;
     const media_status_t answer = open_source(extractor);
     // Only a source the extractor took is closed when it goes; Android never closes one a sniff refused.
     extractor->has_custom = answer == AMEDIA_OK;
@@ -579,6 +643,10 @@ AMediaFormat *AMediaExtractor_getFileFormat(AMediaExtractor *extractor) {
     Lock lock(&extractor->mutex);
     AMediaFormat *format = AMediaFormat_new();
     if (!extractor->parsed || format == nullptr) return format;
+    if (extractor->ogg != nullptr) {
+        AMediaFormat_setString(format, "mime", "audio/ogg");  // MEDIA_MIMETYPE_CONTAINER_OGG, the file meta's
+        return format;
+    }
     bool video = false, audio = false;
     for (const mp4::Track &track : extractor->tracks) {
         video |= is_video(track);
@@ -590,12 +658,16 @@ AMediaFormat *AMediaExtractor_getFileFormat(AMediaExtractor *extractor) {
 
 size_t AMediaExtractor_getTrackCount(AMediaExtractor *extractor) {
     Lock lock(&extractor->mutex);
-    return extractor->tracks.size();
+    return track_count(extractor);
 }
 
 AMediaFormat *AMediaExtractor_getTrackFormat(AMediaExtractor *extractor, size_t index) {
     Lock lock(&extractor->mutex);
     AMediaFormat *format = AMediaFormat_new();
+    if (extractor->ogg != nullptr) {
+        if (format != nullptr && index == 0) ogg_format(format, extractor->ogg);
+        return format;
+    }
     // A track whose format Utils' conversion refuses: Android's NDK gives a format of no message, whose getters
     // dereference it; Minato's has no keys (and the JNI's getTrackFormat throws, as Android's).
     if (format != nullptr && index < extractor->tracks.size() && !extractor->tracks[index].format_refused) {
@@ -606,9 +678,14 @@ AMediaFormat *AMediaExtractor_getTrackFormat(AMediaExtractor *extractor, size_t 
 
 media_status_t AMediaExtractor_selectTrack(AMediaExtractor *extractor, size_t index) {
     Lock lock(&extractor->mutex);
-    if (!extractor->opened || index >= extractor->tracks.size()) return AMEDIA_ERROR_UNKNOWN;  // -EINVAL, -ERANGE
+    if (!extractor->opened || index >= track_count(extractor)) return AMEDIA_ERROR_UNKNOWN;  // -EINVAL, -ERANGE
     for (size_t at = 0; at < extractor->selected_count; at++) {
         if (extractor->selected[at].track == index) return AMEDIA_OK;
+    }
+    if (extractor->ogg != nullptr) {
+        Selected &selected = extractor->selected[extractor->selected_count++];
+        memset(&selected, 0, sizeof selected);
+        return AMEDIA_OK;
     }
     // getTrack fails for a track whose empty edit does not convert or whose avcC or hvcC it refuses, and
     // MPEG4Source::start for one whose max-input-size passes 64 MiB: all are malformed.
@@ -624,7 +701,7 @@ media_status_t AMediaExtractor_selectTrack(AMediaExtractor *extractor, size_t in
 
 media_status_t AMediaExtractor_unselectTrack(AMediaExtractor *extractor, size_t index) {
     Lock lock(&extractor->mutex);
-    if (!extractor->opened || index >= extractor->tracks.size()) return AMEDIA_ERROR_UNKNOWN;
+    if (!extractor->opened || index >= track_count(extractor)) return AMEDIA_ERROR_UNKNOWN;
     for (size_t at = 0; at < extractor->selected_count; at++) {
         if (extractor->selected[at].track != index) continue;
         free(extractor->selected[at].data);
@@ -692,7 +769,10 @@ media_status_t AMediaExtractor_seekTo(AMediaExtractor *extractor, int64_t time_u
             selected.held = false;
             selected.final = 0;
             size_t sample = 0;
-            const int answer = mp4::seek(extractor->tracks[selected.track], time_us, seek_mode, &sample);
+            // OggSource's seek, in any mode: a failure is UNKNOWN_ERROR.
+            const int answer = extractor->ogg != nullptr
+                                       ? minato::ogg::seek(extractor->ogg, time_us)
+                                       : mp4::seek(extractor->tracks[selected.track], time_us, seek_mode, &sample);
             if (answer != 0) {
                 selected.final = answer;
             } else {
@@ -728,8 +808,14 @@ media_status_t AMediaExtractor_getSampleFormat(AMediaExtractor *extractor, AMedi
     const int found = earliest(extractor);
     if (found < 0) return translate(found);
     const Selected &selected = extractor->selected[found];
-    const mp4::Track &track = extractor->tracks[selected.track];
     AMediaFormat_clear(format);
+    if (extractor->ogg != nullptr) {
+        // The track and its mime (unverified on Android, whose OggSource packets carry their time and sync flag).
+        AMediaFormat_setInt32(format, "track-index", 0);
+        AMediaFormat_setString(format, "mime", "audio/opus");
+        return AMEDIA_OK;
+    }
+    const mp4::Track &track = extractor->tracks[selected.track];
     if (is_avc(track) || is_hevc(track)) {
         const int32_t layer = layer_of(track, selected.data, selected.size);
         if (layer >= 0) AMediaFormat_setInt32(format, "temporal-layer-id", layer);

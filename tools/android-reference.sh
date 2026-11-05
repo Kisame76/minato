@@ -677,6 +677,17 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes limit=120
       ;;
+    # media-codec-opus-test and media-extractor-ogg-test (ADR-0060 e2): about twenty Opus decodes each.
+    media-codec-opus-test | media-extractor-ogg-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      mask=yes limit=120
+      ;;
+    # camera-characteristics-test and its twin camera-characteristics-test-granted (ADR-0073), from the same sources:
+    # the twin gets CAMERA before the start and opens each camera.
+    camera-characteristics-test | camera-characteristics-test-granted)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=120
+      ;;
     # media-player-test (ADR-0060 e2e) and its twin without the INTERNET permission, from the same sources: a playback
     # and the http sources' waits take up to three minutes.
     media-player-test | media-player-test-offline | media-player-ogg-test)
@@ -1243,6 +1254,9 @@ run_app() {
   fi
   if [[ "$app" == mic-test-granted ]]; then
     run pm grant "$package" android.permission.RECORD_AUDIO
+  fi
+  if [[ "$app" == camera-characteristics-test-granted ]]; then
+    run pm grant "$package" android.permission.CAMERA
   fi
   if [[ "$app" == permission-request-test-fine ]]; then
     # ADR-0063: the twin's permissions are granted before the start, so that its requests need no dialog.

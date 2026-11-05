@@ -179,6 +179,16 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.mp4_extractor_sweep COMMAND mp4_extractor_test --sweep 20)
   set_tests_properties(runtime.mp4_extractor_sweep PROPERTIES TIMEOUT 120)
 
+  # ADR-0060 e2: libmediandk's Ogg Opus reader on the host, with ASan, on media-player-ogg-test's Ogg Opus files and
+  # files of pages it builds, and every changed and cut mono file.
+  add_executable(ogg_extractor_test tests/ogg_extractor_test.cpp android/ogg_extractor.cpp)
+  target_include_directories(ogg_extractor_test PRIVATE android)
+  target_compile_definitions(ogg_extractor_test PRIVATE
+    OGG_DIR="${PROJECT_SOURCE_DIR}/fixtures/apps/media-player-ogg-test/assets")
+  target_link_libraries(ogg_extractor_test PRIVATE apk_defaults apk_testing)
+  add_test(NAME runtime.ogg_extractor COMMAND ogg_extractor_test)
+  set_tests_properties(runtime.ogg_extractor PROPERTIES TIMEOUT 120)
+
   # The guest's network interfaces and its NETLINK_ROUTE sockets (ADR-0054 step c): the names, the kernel's bytes.
   add_executable(netlink_test tests/netlink_test.cpp)
   target_include_directories(netlink_test PRIVATE src)

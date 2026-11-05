@@ -1,0 +1,111 @@
+I/camera-characteristics-test-granted: feature android.hardware.camera: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.any: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.front: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.autofocus: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.flash: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.level.full: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.capability.manual_sensor: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.capability.manual_post_processing: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.capability.raw: true
+I/camera-characteristics-test-granted: feature android.hardware.camera.external: false
+I/camera-characteristics-test-granted: feature android.hardware.camera.concurrent: true
+I/camera-characteristics-test-granted: permission CAMERA granted: true
+I/camera-characteristics-test-granted: camera2: 1 cameras [1]
+I/camera-characteristics-test-granted: camera2: concurrent [[1]]
+I/camera-characteristics-test-granted: camera2 1: facing 1, orientation 90, hardware level 3
+I/camera-characteristics-test-granted: camera2 1: capabilities [0, 1, 2, 5, 6, 4, 7, 3, 18, 19, 20]
+I/camera-characteristics-test-granted: camera2 1 key android.colorCorrection.availableAberrationModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.aeAvailableAntibandingModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.aeAvailableModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.aeAvailableTargetFpsRanges: Range[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.aeCompensationRange: Range
+I/camera-characteristics-test-granted: camera2 1 key android.control.aeCompensationStep: Rational
+I/camera-characteristics-test-granted: camera2 1 key android.control.aeLockAvailable: Boolean
+I/camera-characteristics-test-granted: camera2 1 key android.control.afAvailableModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.autoframingAvailable: Boolean
+I/camera-characteristics-test-granted: camera2 1 key android.control.availableEffects: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.availableExtendedSceneModeCapabilities: Capability[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.availableModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.availableSceneModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.availableSettingsOverrides: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.availableVideoStabilizationModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.awbAvailableModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.control.awbLockAvailable: Boolean
+I/camera-characteristics-test-granted: camera2 1 key android.control.maxRegionsAe: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.control.maxRegionsAf: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.control.maxRegionsAwb: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.control.postRawSensitivityBoostRange: Range
+I/camera-characteristics-test-granted: camera2 1 key android.control.zoomRatioRange: Range
+I/camera-characteristics-test-granted: camera2 1 key android.edge.availableEdgeModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.flash.info.available: Boolean
+I/camera-characteristics-test-granted: camera2 1 key android.hotPixel.availableHotPixelModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.info.supportedHardwareLevel: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.jpeg.availableThumbnailSizes: Size[]
+I/camera-characteristics-test-granted: camera2 1 key android.lens.facing: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.availableApertures: float[]
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.availableFilterDensities: float[]
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.availableFocalLengths: float[]
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.availableOpticalStabilization: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.focusDistanceCalibration: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.hyperfocalDistance: Float
+I/camera-characteristics-test-granted: camera2 1 key android.lens.info.minimumFocusDistance: Float
+I/camera-characteristics-test-granted: camera2 1 key android.noiseReduction.availableNoiseReductionModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.reprocess.maxCaptureStall: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.request.availableCapabilities: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.request.availableColorSpaceProfiles: ColorSpaceProfiles
+I/camera-characteristics-test-granted: camera2 1 key android.request.availableDynamicRangeProfiles: DynamicRangeProfiles
+I/camera-characteristics-test-granted: camera2 1 key android.request.maxNumInputStreams: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.request.maxNumOutputProc: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.request.maxNumOutputProcStalling: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.request.maxNumOutputRaw: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.request.partialResultCount: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.request.pipelineMaxDepth: Byte
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.availableMaxDigitalZoom: Float
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.availableRotateAndCropModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.croppingType: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.mandatoryConcurrentStreamCombinations: MandatoryStreamCombination[]
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.mandatoryPreviewStabilizationOutputStreamCombinations: MandatoryStreamCombination[]
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.mandatoryStreamCombinations: MandatoryStreamCombination[]
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.mandatoryTenBitOutputStreamCombinations: MandatoryStreamCombination[]
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.mandatoryUseCaseStreamCombinations: MandatoryStreamCombination[]
+I/camera-characteristics-test-granted: camera2 1 key android.scaler.streamConfigurationMap: StreamConfigurationMap
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.availableTestPatternModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.blackLevelPattern: BlackLevelPattern
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.calibrationTransform1: ColorSpaceTransform
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.colorTransform1: ColorSpaceTransform
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.forwardMatrix1: ColorSpaceTransform
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.activeArraySize: Rect
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.colorFilterArrangement: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.exposureTimeRange: Range
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.maxFrameDuration: Long
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.physicalSize: SizeF
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.pixelArraySize: Size
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.preCorrectionActiveArraySize: Rect
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.sensitivityRange: Range
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.timestampSource: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.info.whiteLevel: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.maxAnalogSensitivity: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.orientation: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.sensor.referenceIlluminant1: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.shading.availableModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.statistics.info.availableFaceDetectModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.statistics.info.availableHotPixelMapModes: boolean[]
+I/camera-characteristics-test-granted: camera2 1 key android.statistics.info.availableLensShadingMapModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.statistics.info.maxFaceCount: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.sync.maxLatency: Integer
+I/camera-characteristics-test-granted: camera2 1 key android.tonemap.availableToneMapModes: int[]
+I/camera-characteristics-test-granted: camera2 1 key android.tonemap.maxCurvePoints: Integer
+I/camera-characteristics-test-granted: camera2 1 key com.google.internal.hdrplus.PayloadFrames: int[]
+I/camera-characteristics-test-granted: camera2 1: keys needing the permission 0 []
+I/camera-characteristics-test-granted: camera2 1: request keys 61 [android.blackLevel.lock, android.colorCorrection.aberrationMode, android.colorCorrection.gains, android.colorCorrection.mode, android.colorCorrection.transform, android.control.aeAntibandingMode, android.control.aeExposureCompensation, android.control.aeLock, android.control.aeMode, android.control.aePrecaptureTrigger, android.control.aeRegions, android.control.aeTargetFpsRange, android.control.afMode, android.control.afRegions, android.control.afTrigger, android.control.awbLock, android.control.awbMode, android.control.captureIntent, android.control.effectMode, android.control.extendedSceneMode, android.control.mode, android.control.postRawSensitivityBoost, android.control.sceneMode, android.control.settingsOverride, android.control.videoStabilizationMode, android.control.zoomRatio, android.edge.mode, android.extension.strength, android.flash.mode, android.ho
+I/camera-characteristics-test-granted: ... tPixel.mode, android.jpeg.gpsLocation, android.jpeg.orientation, android.jpeg.quality, android.jpeg.thumbnailQuality, android.jpeg.thumbnailSize, android.lens.aperture, android.lens.filterDensity, android.lens.focalLength, android.lens.focusDistance, android.lens.opticalStabilizationMode, android.noiseReduction.mode, android.scaler.cropRegion, android.scaler.rotateAndCrop, android.sensor.exposureTime, android.sensor.frameDuration, android.sensor.sensitivity, android.sensor.testPatternMode, android.shading.mode, android.statistics.faceDetectMode, android.statistics.hotPixelMapMode, android.statistics.lensShadingMapMode, android.tonemap.curve, android.tonemap.mode, com.google.internal.OutputIntent, com.google.internal.ProcessingMode, com.google.internal.Video60to30FPSThermalThrottle, com.google.internal.VideoFpsThrottle, com.google.internal.thermal_throttling, com.google.pixel.experimental
+I/camera-characteristics-test-granted: ... 2016.3a.hybrid_ae_enable, com.google.pixel.experimental2017.request.disable_hdrplus, com.google.pixel.experimental2019.SensorModeFullFov]
+I/camera-characteristics-test-granted: camera2 1: result keys 72 [android.blackLevel.lock, android.colorCorrection.aberrationMode, android.colorCorrection.gains, android.colorCorrection.mode, android.colorCorrection.transform, android.control.aeAntibandingMode, android.control.aeExposureCompensation, android.control.aeLock, android.control.aeMode, android.control.aePrecaptureTrigger, android.control.aeRegions, android.control.aeState, android.control.aeTargetFpsRange, android.control.afMode, android.control.afRegions, android.control.afState, android.control.afTrigger, android.control.awbLock, android.control.awbMode, android.control.awbState, android.control.captureIntent, android.control.effectMode, android.control.extendedSceneMode, android.control.mode, android.control.postRawSensitivityBoost, android.control.sceneMode, android.control.settingsOverride, android.control.videoStabilizationMode, android.control.zoomRatio, an
+I/camera-characteristics-test-granted: ... droid.edge.mode, android.flash.mode, android.flash.state, android.hotPixel.mode, android.jpeg.gpsLocation, android.jpeg.orientation, android.jpeg.quality, android.jpeg.thumbnailQuality, android.jpeg.thumbnailSize, android.lens.aperture, android.lens.filterDensity, android.lens.focalLength, android.lens.focusDistance, android.lens.focusRange, android.lens.opticalStabilizationMode, android.lens.state, android.logicalMultiCamera.activePhysicalSensorCropRegion, android.noiseReduction.mode, android.request.pipelineDepth, android.scaler.cropRegion, android.scaler.rotateAndCrop, android.sensor.exposureTime, android.sensor.frameDuration, android.sensor.greenSplit, android.sensor.neutralColorPoint, android.sensor.noiseProfile, android.sensor.rollingShutterSkew, android.sensor.sensitivity, android.sensor.testPatternMode, android.sensor.timestamp, android.shading.mode, android.statistics.faceDetect
+I/camera-characteristics-test-granted: ... Mode, android.statistics.faces, android.statistics.hotPixelMapMode, android.statistics.lensIntrinsicsSamples, android.statistics.lensShadingMapMode, android.statistics.oisSamples, android.statistics.sceneFlicker, android.tonemap.curve, android.tonemap.mode, com.google.pixel.experimental2016.3a.hybrid_ae_enable, com.google.pixel.experimental2017.request.disable_hdrplus, com.google.pixel.experimental2019.SensorModeFullFov]
+I/camera-characteristics-test-granted: camera2 1: open opened 1, closed true
+I/camera-characteristics-test-granted: legacy: 1 cameras
+I/camera-characteristics-test-granted: legacy 0: facing 0, orientation 90, can disable the shutter sound true
+I/camera-characteristics-test-granted: legacy 0: parameters 61 [antibanding-values, antibanding, auto-exposure-lock-supported, auto-exposure-lock, auto-whitebalance-lock-supported, auto-whitebalance-lock, effect-values, effect, exposure-compensation-step, exposure-compensation, flash-mode-values, flash-mode, focal-length, focus-areas, focus-distances, focus-mode-values, focus-mode, horizontal-view-angle, jpeg-quality, jpeg-thumbnail-height, jpeg-thumbnail-quality, jpeg-thumbnail-size-values, jpeg-thumbnail-width, max-exposure-compensation, max-num-detected-faces-hw, max-num-detected-faces-sw, max-num-focus-areas, max-num-metering-areas, max-zoom, metering-areas, min-exposure-compensation, picture-format-values, picture-format, picture-size-values, picture-size, preferred-preview-size-for-video, preview-format-values, preview-format, preview-fps-range-values, preview-fps-range, preview-frame-rate-values, preview-frame-rate, pr
+I/camera-characteristics-test-granted: ... eview-size-values, preview-size, recording-hint, rotation, scene-mode-values, scene-mode, smooth-zoom-supported, vertical-view-angle, video-frame-format, video-size-values, video-size, video-snapshot-supported, video-stabilization-supported, video-stabilization, whitebalance-values, whitebalance, zoom-ratios, zoom-supported, zoom]
+I/camera-characteristics-test-granted: done

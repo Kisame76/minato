@@ -1,9 +1,10 @@
 // libmediandk.so's AMediaCodec (ADR-0060 e2b3): the codec core, which the framework's MediaCodec natives run on too.
 // Minato's codecs are video decoders on the host's (video_decoder in guest_interface.h): c2.apple.avc.decoder and
 // c2.apple.hevc.decoder; and the audio decoders (e2f) under Android's names with their OMX.google aliases, as Android
-// 15 lists them: c2.android.aac.decoder, c2.android.mp3.decoder and c2.android.flac.decoder on the host's
-// (audio_codec), and c2.android.raw.decoder in the guest. Encoders and crypto are not here yet: their calls answer
-// AMEDIA_ERROR_UNSUPPORTED, and an encoder or another type cannot be made (NULL), as on a device without it.
+// 15 lists them: c2.android.aac.decoder, c2.android.mp3.decoder, c2.android.flac.decoder and c2.android.opus.decoder
+// on the host's (audio_codec), and c2.android.raw.decoder in the guest. Encoders and crypto are not here yet: their
+// calls answer AMEDIA_ERROR_UNSUPPORTED, and an encoder or another type cannot be made (NULL), as on a device without
+// it.
 // - States as Android's: made, configured (configure), started (start: the host's decoder), and back to made at
 //   stop; flush keeps it started. A call in the wrong state answers AMEDIA_ERROR_INVALID_OPERATION.
 // - Input: four buffers of max-input-size bytes (the format's, else width x height x 3 / 2, at least 1 MiB); a queued
@@ -67,6 +68,17 @@
 //   (configure's, then the last such change's) trims anew, as CCodecBuffers' updateSkipCutBuffer: the frames held back
 //   are dropped, and configure's delay is skipped and its padding held again, each times the new rate over the
 //   trimming's, as it scales them.
+// - Opus (ADR-0060 e2), as Android 15's C2SoftOpusDec [verified: media-codec-opus-test, media-extractor-ogg-test]:
+//   its first three units, from csd-0, csd-1 and csd-2 or queued, flagged as codec config or not, are its
+//   configuration: OpusHead (or Android's unified csd-0 with its AOPUSHDR, AOPUSDLY and AOPUSPRL parts), then the
+//   codec delay and the seek pre-roll in nanoseconds; a flagged unit after them is ignored. OpusHead goes to the
+//   host's decoder (mapping family 0, one or two channels: a named limit, Android decodes up to 8), its output gain
+//   is applied here. The codec delay's frames are discarded at time 0 and the seek pre-roll's after a flush; a packet
+//   whose frames are all discarded gives no output buffer, as C2SoftOpusDec's empty work. A packet libopus refuses
+//   (no frames, more than 120 ms) and a configuration it refuses are the codec's error. Input buffers of 5760 bytes;
+//   the output format is the decoder's 48000 Hz and OpusHead's channels, with configure's channel mask.
+// - After an error has reached the app, stop and flush answer AMEDIA_ERROR_INVALID_OPERATION (Android's error state)
+//   [verified: media-codec-opus-test]; the delete still ends the codec.
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
 #include <android/hardware_buffer.h>
 #include <android/log.h>
@@ -85,6 +97,9 @@
 #include "APKRuntime/buffer_queue.h"
 #include "APKRuntime/guest_interface.h"
 #include "APKRuntime/media_codec.h"
+
+// libm's (its math.h clashes with the NDK's float.h here).
+extern "C" double pow(double, double);
 
 namespace {
 
@@ -149,6 +164,7 @@ constexpr char kAacType[] = "audio/mp4a-latm", kAacDecoder[] = "c2.android.aac.d
 constexpr char kMp3Type[] = "audio/mpeg", kMp3Decoder[] = "c2.android.mp3.decoder";
 constexpr char kFlacType[] = "audio/flac", kFlacDecoder[] = "c2.android.flac.decoder";
 constexpr char kRawType[] = "audio/raw", kRawDecoder[] = "c2.android.raw.decoder";
+constexpr char kOpusType[] = "audio/opus", kOpusDecoder[] = "c2.android.opus.decoder";
 
 const minato_media_codec_info kCodecs[] = {
     {"c2.apple.avc.decoder", "video/avc", 0, 1, "c2.apple.avc.decoder", 1},
@@ -161,6 +177,8 @@ const minato_media_codec_info kCodecs[] = {
     {"OMX.google.flac.decoder", kFlacType, 0, 0, kFlacDecoder, 0},
     {kRawDecoder, kRawType, 0, 0, kRawDecoder, 0},
     {"OMX.google.raw.decoder", kRawType, 0, 0, kRawDecoder, 0},
+    {kOpusDecoder, kOpusType, 0, 0, kOpusDecoder, 0},
+    {"OMX.google.opus.decoder", kOpusType, 0, 0, kOpusDecoder, 0},
 };
 
 /// Raw's type of ours, beside the host's audio codec types: its samples are copied in the guest.
@@ -186,6 +204,7 @@ uint32_t audio_type(const char *type) {
     if (strcasecmp(type, kAacType) == 0) return APKRT_AUDIO_CODEC_AAC;
     if (strcasecmp(type, kMp3Type) == 0) return APKRT_AUDIO_CODEC_MP3;
     if (strcasecmp(type, kFlacType) == 0) return APKRT_AUDIO_CODEC_FLAC;
+    if (strcasecmp(type, kOpusType) == 0) return APKRT_AUDIO_CODEC_OPUS;
     return strcasecmp(type, kRawType) == 0 ? kRawCodec : 0;
 }
 
@@ -242,6 +261,66 @@ const uint8_t *flac_info(const uint8_t *data, size_t size) {
         at += 4 + length;
     }
     return nullptr;
+}
+
+/// The frames at 48000 Hz of a time in nanoseconds, as C2SoftOpusDec's ns_to_samples.
+uint64_t opus_samples(uint64_t ns) {
+    return static_cast<uint64_t>(static_cast<double>(ns) * 48000 / 1000000000);
+}
+
+/// An Opus decoder's first configuration as OpusHeader.cpp's GetOpusHeaderBuffers finds its parts: OpusHead whole
+/// ("OpusHead", 19 to 276 bytes), or Android's unified one, OpusHead, the codec delay and the seek pre-roll after
+/// their AOPUSHDR, AOPUSDLY and AOPUSPRL markers, each with its length; false for another.
+struct OpusParts {
+    const uint8_t *head, *delay, *pre_roll;  // the delay and pre-roll as 8 bytes of nanoseconds, NULL for none
+    size_t head_size;
+};
+
+bool opus_parts(const uint8_t *data, size_t size, OpusParts *parts) {
+    constexpr size_t kHeadLeast = 19, kHeadMost = 19 + 2 + 255, kPart = 8 + 8;
+    *parts = OpusParts{};
+    if (size < 8) return false;
+    if (memcmp(data, "OpusHead", 8) == 0) {
+        if (size < kHeadLeast || size > kHeadMost) return false;
+        parts->head = data, parts->head_size = size;
+        return true;
+    }
+    if (memcmp(data, "AOPUS", 5) != 0 || size < 3 * kPart + kHeadLeast + 16 || size > 3 * kPart + kHeadMost + 16) {
+        return false;
+    }
+    bool found = false;
+    for (size_t at = 0; at <= size - kPart;) {
+        uint64_t length;
+        memcpy(&length, data + at + 8, sizeof length);
+        const bool head = memcmp(data + at, "AOPUSHDR", 8) == 0, delay = memcmp(data + at, "AOPUSDLY", 8) == 0;
+        if (!head && !delay && memcmp(data + at, "AOPUSPRL", 8) != 0) {
+            at++;
+            continue;
+        }
+        if (head ? length < kHeadLeast || length > kHeadMost : length != 8) return false;
+        const uint8_t *part = data + at + kPart;
+        at += kPart + length;
+        if (at > size) return false;
+        if (head) parts->head = part, parts->head_size = length, found = true;
+        else if (delay) parts->delay = part;
+        else parts->pre_roll = part;
+    }
+    return found;
+}
+
+/// Whether OpusHeader.cpp's ParseOpusHeader takes OpusHead: 1 to 8 channels, at most 2 in mapping family 0, else a
+/// stream map that fits them.
+bool opus_head(const uint8_t *head, size_t size) {
+    if (size < 19 || head[9] < 1 || head[9] > 8) return false;
+    const unsigned channels = head[9];
+    if (head[18] == 0) return channels <= 2;
+    if (size < 21 + channels) return false;
+    const unsigned streams = head[19], coupled = head[20];
+    if (coupled > streams || streams + coupled != channels) return false;
+    for (unsigned i = 0; i < channels; i++) {
+        if (head[21 + i] != 255 && head[21 + i] >= channels) return false;
+    }
+    return true;
 }
 
 long host_call(long number, uint64_t op, uintptr_t argument) {
@@ -357,12 +436,14 @@ struct AMediaCodec {
     uint32_t frame_width, frame_height, frame_stride, frame_slice;
     bool ended;  // the end of the stream came out
     media_status_t error;
+    bool failed;  // an error reached the app: stop and flush answer AMEDIA_ERROR_INVALID_OPERATION from then on
     // An audio codec's.
     AudioShape configured, decoded, attached;  // configure's format; the host's; the last one a buffer came with
     bool told_decoded;                // the app was given a decoder's format since configure
     bool input_ended;                 // the end of the stream queued: no more input until a flush
     int32_t delay, padding;           // encoder-delay and encoder-padding frames, -1 for none in the format
     int32_t encoding;                 // the output's PCM encoding
+    int32_t configured_mask;          // configure's channel mask, -1 for none
     uint32_t channels, unit_frames;   // the host's, from its configuration (raw's: configure's channels)
     uint32_t skip;                    // frames still to skip
     uint32_t cut;                     // the frames held back: the padding's, scaled after a change of rate
@@ -370,8 +451,12 @@ struct AMediaCodec {
     Bytes pcm, held;                  // one buffer's frames; the frames held back, the padding's
     bool first, gapless;              // MP3: no frames since the start or a flush; frames since the end's silence
     bool stuck;                       // FLAC: a frame the host could not decode since the start or a flush
-    bool announce;                    // FLAC: its configuration's format due with the next buffer, frames or not
+    bool announce;                    // FLAC, Opus: the configuration's format due with the next buffer, frames or not
     int64_t anchor_us;                // MP3: the time of the first unit since the start or a flush
+    Bytes later_csd[2];               // Opus: configure's csd-1 and csd-2, queued after csd-0 at the start
+    uint32_t opus_configs;            // Opus: the configuration units taken since the start, up to 3
+    int64_t opus_delay, opus_pre_roll, opus_discard;  // Opus: the frames to discard at time 0, after a flush, now
+    int16_t opus_gain;                // Opus: OpusHead's output gain, in 1/256 dB
     uint64_t processed;               // MP3: the frames given since then
     // Asynchronous mode.
     AMediaCodecOnAsyncNotifyCallback callbacks;
@@ -482,6 +567,10 @@ AMediaFormat *audio_format(const AMediaCodec *codec, const AudioShape &shape) {
     if (shape.channels > 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, shape.channels);
     const bool aac = codec->type == APKRT_AUDIO_CODEC_AAC;
     if (aac) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_MASK, shape.mask);
+    // Configure's mask for the others [verified for Opus: media-extractor-ogg-test].
+    if (!aac && codec->configured_mask >= 0) {
+        AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_CHANNEL_MASK, codec->configured_mask);
+    }
     if (codec->delay >= 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_ENCODER_DELAY, codec->delay);
     if (codec->padding >= 0) AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_ENCODER_PADDING, codec->padding);
     if (codec->type == APKRT_AUDIO_CODEC_FLAC || codec->type == kRawCodec) {
@@ -528,6 +617,44 @@ bool make_audio(AMediaCodec *codec, const uint8_t *config, size_t size) {
     codec->unit_frames = static_cast<uint32_t>(call.frames);
     codec->decoded = AudioShape{static_cast<int32_t>(call.rate), static_cast<int32_t>(call.channels),
                                 codec->type == APKRT_AUDIO_CODEC_AAC ? channel_mask(call.channels) : 0};
+    return true;
+}
+
+/// An Opus configuration unit, taken as C2SoftOpusDec takes the first three units it is given, with the codec's lock
+/// held: first OpusHead or the unified configuration, which makes the host's decoder (with the codec delay and seek
+/// pre-roll the unified one holds), then the codec delay, then the seek pre-roll, each as 8 bytes of nanoseconds;
+/// false for one it refuses.
+bool opus_config(AMediaCodec *codec, const uint8_t *data, size_t size) {
+    if (codec->opus_configs == 0) {
+        OpusParts parts;
+        if (!opus_parts(data, size, &parts) || !opus_head(parts.head, parts.head_size) ||
+            !make_audio(codec, parts.head, parts.head_size)) {
+            return false;
+        }
+        codec->opus_gain = static_cast<int16_t>(parts.head[16] | parts.head[17] << 8);
+        uint64_t ns;
+        if (parts.delay != nullptr) {
+            memcpy(&ns, parts.delay, sizeof ns);
+            codec->opus_delay = codec->opus_discard = static_cast<int64_t>(opus_samples(ns));
+            codec->opus_configs++;
+        }
+        if (parts.pre_roll != nullptr) {
+            memcpy(&ns, parts.pre_roll, sizeof ns);
+            codec->opus_pre_roll = static_cast<int64_t>(opus_samples(ns));
+            codec->opus_configs++;
+        }
+    } else {
+        if (size < 8) return false;
+        int64_t ns;
+        memcpy(&ns, data, sizeof ns);
+        const auto samples = static_cast<int64_t>(opus_samples(static_cast<uint64_t>(ns)));
+        if (codec->opus_configs == 1) codec->opus_delay = codec->opus_discard = samples;
+        else codec->opus_pre_roll = samples;
+    }
+    codec->opus_configs++;
+    // The third is C2SoftOpusDec's configuration update, which the next buffer brings, frames or not (the end's too)
+    // [verified: media-codec-opus-test].
+    if (codec->opus_configs == 3) codec->announce = true;
     return true;
 }
 
@@ -631,6 +758,44 @@ bool trim(AMediaCodec *codec, size_t frames, Output &output) {
     return true;
 }
 
+/// An Opus packet's frames into the codec's pcm, as C2SoftOpusDec gives them, with the codec's lock held: decoded at
+/// 48000 Hz, OpusHead's output gain applied as libopus applies it (10^(gain / 5120), saturated), and the frames still
+/// to discard dropped from the front, the codec delay's at time 0 (a seek to the start) and the seek pre-roll's after
+/// a flush; -1 for a packet the host refuses, as libopus refuses it.
+long opus_unit(AMediaCodec *codec, const Unit &unit) {
+    if (unit.time_us == 0) codec->opus_discard = codec->opus_delay;
+    // libopus refuses a packet without frames or of more than 120 ms (OPUS_INVALID_PACKET): C2SoftOpusDec's error.
+    static const uint32_t lengths[4] = {480, 960, 1920, 2880};
+    const uint8_t toc = unit.bytes.data[0], config = toc >> 3, code = toc & 3;
+    const uint32_t length = config < 12   ? lengths[config & 3]
+                            : config < 16 ? 480u << (config & 1)
+                                          : 120u << (config & 3);
+    const uint32_t packed = code == 0 ? 1 : code < 3 ? 2 : unit.bytes.size < 2 ? 0 : unit.bytes.data[1] & 0x3fu;
+    if (packed == 0 || length * packed > 5760) return -1;
+    const long frames = decode_unit(codec, unit.bytes.data, unit.bytes.size, 0);
+    if (frames < 0) return -1;
+    auto *samples = reinterpret_cast<int16_t *>(codec->pcm.data);
+    const size_t count = static_cast<size_t>(frames) * codec->channels;
+    if (codec->opus_gain != 0) {
+        const double gain = pow(10.0, codec->opus_gain / 5120.0);
+        for (size_t i = 0; i < count; i++) {
+            const double value = samples[i] * gain;
+            samples[i] = static_cast<int16_t>(value >= 32767 ? 32767 : value <= -32768 ? -32768
+                                              : value >= 0 ? value + 0.5 : value - 0.5);
+        }
+    }
+    if (codec->opus_discard <= 0) return frames;
+    if (codec->opus_discard > frames) {
+        codec->opus_discard -= frames;
+        return 0;
+    }
+    const size_t dropped = static_cast<size_t>(codec->opus_discard), frame_bytes = size_t{codec->channels} * 2;
+    codec->opus_discard = 0;
+    memmove(codec->pcm.data, codec->pcm.data + dropped * frame_bytes, (static_cast<size_t>(frames) - dropped) *
+                                                                          frame_bytes);
+    return frames - static_cast<long>(dropped);
+}
+
 /// A unit's frames into the codec's pcm, as its decoder gives them, with the codec's lock held: the frames, or -1 for
 /// an error. Sets `time_us` to the output's time.
 long unit_frames(AMediaCodec *codec, const Unit &unit, int64_t *time_us) {
@@ -668,6 +833,7 @@ long unit_frames(AMediaCodec *codec, const Unit &unit, int64_t *time_us) {
         return static_cast<long>(frames);
     }
     if (unit.bytes.size == 0) return 0;
+    if (codec->type == APKRT_AUDIO_CODEC_OPUS) return opus_unit(codec, unit);
     if (codec->type == APKRT_AUDIO_CODEC_FLAC && codec->stuck) return 0;
     const long frames = decode_unit(codec, unit.bytes.data, unit.bytes.size, 0);
     if (codec->type != APKRT_AUDIO_CODEC_FLAC) return frames;
@@ -701,6 +867,23 @@ void retrim(AMediaCodec *codec) {
 void push_audio(AMediaCodec *codec) {
     while (codec->waiting_count > 0 && codec->error == AMEDIA_OK && !codec->ended) {
         Unit &unit = codec->waiting[codec->waiting_head];
+        if (codec->type == APKRT_AUDIO_CODEC_OPUS && unit.bytes.size > 0 &&
+            (codec->opus_configs < 3 || (unit.flags & kUnitConfig) != 0)) {
+            // C2SoftOpusDec takes its first three units as its configuration, flagged or not, and ignores a flagged
+            // one after them.
+            if (codec->opus_configs < 3 && !opus_config(codec, unit.bytes.data, unit.bytes.size)) {
+                codec->error = AMEDIA_ERROR_UNKNOWN;
+                return;
+            }
+            if ((unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) != 0) {
+                unit.bytes.size = 0;  // the end on its own after it
+                unit.flags &= ~kUnitConfig;
+                continue;
+            }
+            codec->waiting_head = (codec->waiting_head + 1) % kInputs;
+            codec->waiting_count--;
+            continue;
+        }
         // AAC and FLAC take a configuration; FLAC's first unit is one, flagged or not, as C2SoftFlacDec forces it.
         // MP3's and raw's decoders take a flagged unit as any other.
         const bool takes = codec->type == APKRT_AUDIO_CODEC_AAC || codec->type == APKRT_AUDIO_CODEC_FLAC;
@@ -732,6 +915,18 @@ void push_audio(AMediaCodec *codec) {
             if (split) unit.flags &= ~uint32_t{APKRT_VIDEO_DECODER_END_OF_STREAM};
             int64_t time_us = 0;
             const long frames = unit_frames(codec, unit, &time_us);
+            // An Opus packet whose frames were all discarded gives no buffer, as C2SoftOpusDec's empty work.
+            if (codec->type == APKRT_AUDIO_CODEC_OPUS && frames == 0 &&
+                (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) == 0) {
+                if (split) {
+                    unit.bytes.size = 0;
+                    unit.flags = flags_then;
+                    continue;  // the end, as the next unit
+                }
+                codec->waiting_head = (codec->waiting_head + 1) % kInputs;
+                codec->waiting_count--;
+                continue;
+            }
             const bool changed = (frames > 0 || codec->announce) && !(codec->decoded == codec->attached);
             if (changed) retrim(codec);
             if (frames < 0 || !trim(codec, static_cast<size_t>(frames), output)) {
@@ -989,6 +1184,7 @@ void *run_callbacks(void *argument) {
         if (codec->error != AMEDIA_OK) {
             const media_status_t error = codec->error;
             codec->error = AMEDIA_OK;
+            codec->failed = true;
             pthread_mutex_unlock(&codec->mutex);
             if (codec->callbacks.onAsyncError != nullptr) {
                 codec->callbacks.onAsyncError(codec, codec->userdata, error, 0, "decoding failed");
@@ -1056,9 +1252,26 @@ media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
         if (size > most || !resize(&codec->codec_data, size)) return AMEDIA_ERROR_INVALID_PARAMETER;
         memcpy(codec->codec_data.data, data, size);
     }
-    // The decoders' input buffers: C2SoftAacDec's and C2SoftMp3Dec's 8192 bytes, C2SoftFlacDec's 32768 and
-    // C2SoftRawDec's 65536, or the format's max-input-size where larger.
-    const size_t least = codec->type == APKRT_AUDIO_CODEC_FLAC ? 32768 : codec->type == kRawCodec ? 65536 : 8192;
+    // Opus's csd-1 and csd-2 go to the decoder after csd-0 as MediaCodec queues them: each while the one before is
+    // there.
+    for (int n = 0; n < 2; n++) {
+        Bytes &later = codec->later_csd[n];
+        later.size = 0;
+        const bool before = n == 0 ? codec->codec_data.size > 0 : codec->later_csd[0].size > 0;
+        if (codec->type != APKRT_AUDIO_CODEC_OPUS || !before ||
+            !AMediaFormat_getBuffer(asked, n == 0 ? AMEDIAFORMAT_KEY_CSD_1 : AMEDIAFORMAT_KEY_CSD_2, &data, &size) ||
+            size == 0) {
+            continue;
+        }
+        if (size > most || !resize(&later, size)) return AMEDIA_ERROR_INVALID_PARAMETER;
+        memcpy(later.data, data, size);
+    }
+    // The decoders' input buffers: C2SoftAacDec's and C2SoftMp3Dec's 8192 bytes, C2SoftFlacDec's 32768,
+    // C2SoftRawDec's 65536 and C2SoftOpusDec's 5760, or the format's max-input-size where larger.
+    const size_t least = codec->type == APKRT_AUDIO_CODEC_FLAC   ? 32768
+                         : codec->type == kRawCodec              ? 65536
+                         : codec->type == APKRT_AUDIO_CODEC_OPUS ? 5760  // C2SoftOpusDec's 960 x 6
+                                                                 : 8192;
     int32_t max_input = 0;
     size_t capacity = AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_MAX_INPUT_SIZE, &max_input) &&
                                       static_cast<size_t>(max_input) > least
@@ -1093,6 +1306,10 @@ media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
                               ? encoding
                               : kPcm16;
     codec->configured = AudioShape{rate, channels, 0};
+    // Configure's channel mask, which CCodec carries into the output format of a decoder without its own.
+    if (!AMediaFormat_getInt32(asked, AMEDIAFORMAT_KEY_CHANNEL_MASK, &codec->configured_mask)) {
+        codec->configured_mask = -1;
+    }
     AMediaFormat_delete(codec->output_format);
     codec->output_format = audio_format(codec, codec->configured);
     codec->told_decoded = false;
@@ -1111,6 +1328,22 @@ media_status_t start_audio(AMediaCodec *codec) {
     if (codec->type == kRawCodec) {
         codec->channels = static_cast<uint32_t>(codec->configured.channels);
         codec->decoded = codec->configured;
+    }
+    if (codec->type == APKRT_AUDIO_CODEC_OPUS) {
+        codec->opus_configs = 0;
+        codec->opus_delay = codec->opus_pre_roll = codec->opus_discard = 0;
+        codec->opus_gain = 0;
+        codec->announce = false;
+        // The format's csd buffers are the decoder's first units; one it refuses is an error of the started codec,
+        // as Android's decoder fails on its first work.
+        const Bytes *configs[] = {&codec->codec_data, &codec->later_csd[0], &codec->later_csd[1]};
+        for (const Bytes *config : configs) {
+            if (config->data == nullptr || config->size == 0) break;
+            if (!opus_config(codec, config->data, config->size)) {
+                codec->error = AMEDIA_ERROR_UNKNOWN;
+                break;
+            }
+        }
     }
     codec->skip = codec->delay > 0 ? static_cast<uint32_t>(codec->delay) : 0;
     codec->cut = codec->padding > 0 ? static_cast<uint32_t>(codec->padding) : 0;
@@ -1135,6 +1368,8 @@ media_status_t flush_audio(AMediaCodec *codec) {
     codec->first = true;
     codec->stuck = false;
     codec->processed = 0;
+    // C2SoftOpusDec's onFlush_sm: the seek pre-roll's frames are discarded after a flush.
+    if (codec->type == APKRT_AUDIO_CODEC_OPUS && codec->decoder != 0) codec->opus_discard = codec->opus_pre_roll;
     if (!codec->told_decoded) {
         Output &output = codec->outputs[0];
         output.format = audio_format(codec, codec->configured);
@@ -1217,6 +1452,7 @@ media_status_t AMediaCodec_delete(AMediaCodec *codec) {
     AMediaFormat_delete(codec->input_format);
     AMediaFormat_delete(codec->output_format);
     free(codec->codec_data.data);
+    for (auto &later : codec->later_csd) free(later.data);
     free(codec->pcm.data);
     free(codec->held.data);
     for (auto &input : codec->inputs) free(input.data);
@@ -1332,6 +1568,12 @@ media_status_t AMediaCodec_stop(AMediaCodec *codec) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
     if (codec->state == AMediaCodec::kReleased) return AMEDIA_ERROR_INVALID_OPERATION;
+    // A codec in Android's error state refuses stop and flush (IllegalStateException), release still ends it
+    // [verified: media-codec-opus-test].
+    if (codec->state == AMediaCodec::kStarted && (codec->failed || codec->error != AMEDIA_OK)) {
+        codec->failed = true;
+        return AMEDIA_ERROR_INVALID_OPERATION;
+    }
     stop_thread(codec);
     end_decoder(codec);
     end_window(codec);  // a surface is configure's, as Android's
@@ -1342,7 +1584,9 @@ media_status_t AMediaCodec_stop(AMediaCodec *codec) {
 media_status_t AMediaCodec_flush(AMediaCodec *codec) {
     if (codec == nullptr) return AMEDIA_ERROR_INVALID_PARAMETER;
     Lock hold(&codec->mutex);
-    if (codec->state != AMediaCodec::kStarted) return AMEDIA_ERROR_INVALID_OPERATION;
+    if (codec->state != AMediaCodec::kStarted || codec->failed || codec->error != AMEDIA_OK) {
+        return AMEDIA_ERROR_INVALID_OPERATION;
+    }
     if (codec->audio) return flush_audio(codec);
     if (video_call(APKRT_VIDEO_DECODER_FLUSH, codec->decoder) != 0) return AMEDIA_ERROR_UNKNOWN;
     drop_buffers(codec);

@@ -51,7 +51,8 @@
 # media-extractor-test (ADR-0060 e2d parts 2a and 2b) is one too: the NDK's AMediaExtractor and
 # android.media.MediaExtractor on Minato's own mp4 files.
 # media-codec-audio-test (ADR-0060 e2f) is one too: MediaCodec's AAC decoder on the host's AudioToolbox; and
-# media-codec-decoders-test (e2f.2): its MP3, FLAC and raw decoders.
+# media-codec-decoders-test (e2f.2): its MP3, FLAC and raw decoders; media-codec-opus-test (e2): its Opus decoder;
+# and media-extractor-ogg-test (e2): MediaExtractor on Ogg Opus.
 # webview-test (ADR-0056 c2) is one too: its WebView's pages on graphics/host's WKWebView, in the session's view below
 # the window's layer, which then is not opaque.
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
@@ -162,6 +163,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "media-extractor-test io.github.kisame76.minato.test.mediaextractor"
       "media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio"
       "media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders"
+      "media-codec-opus-test io.github.kisame76.minato.test.mediacodecopus"
+      "media-extractor-ogg-test io.github.kisame76.minato.test.mediaextractorogg"
       "webview-test io.github.kisame76.minato.test.webview"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
@@ -1328,6 +1331,8 @@ run_one media-absent-test io.github.kisame76.minato.test.mediaabsent
 run_one media-extractor-test io.github.kisame76.minato.test.mediaextractor
 run_one media-codec-audio-test io.github.kisame76.minato.test.mediacodecaudio
 run_one media-codec-decoders-test io.github.kisame76.minato.test.mediacodecdecoders
+run_one media-codec-opus-test io.github.kisame76.minato.test.mediacodecopus
+run_one media-extractor-ogg-test io.github.kisame76.minato.test.mediaextractorogg
 # ADR-0056 c2: the WebView's page on graphics/host's WKWebView, which goes into the session's view below the window's
 # layer, and the layer lets it through.
 if wanted webview-test; then

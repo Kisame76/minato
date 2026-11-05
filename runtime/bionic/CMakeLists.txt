@@ -270,8 +270,9 @@ add_custom_command(OUTPUT "${mediandk_map}" "${mediandk_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libmediandk.so" VERBATIM)
 apk_bionic_unit(apk_mediandk SOURCES "${android_sources}/image_reader.cpp" "${android_sources}/media_keys.cpp"
   "${android_sources}/media_format.cpp" "${android_sources}/media_codec.cpp" "${android_sources}/mp4_extractor.cpp"
-  "${android_sources}/media_extractor.cpp" "${mediandk_stubs}" INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
-apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libnativewindow
+  "${android_sources}/media_extractor.cpp" "${android_sources}/ogg_extractor.cpp" "${mediandk_stubs}"
+  INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libm libnativewindow
   VERSION_SCRIPTS "${mediandk_map}")
 
 # libsync.so, libamidi.so, libbinder_ndk.so, libneuralnetworks.so and libOpenMAXAL.so (the compatibility plan's gap 14):

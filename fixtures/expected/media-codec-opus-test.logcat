@@ -1,0 +1,91 @@
+I/media-codec-opus-test: decoder c2.android.opus.decoder: canonical c2.android.opus.decoder, alias false, software true, hardware false, vendor false
+I/media-codec-opus-test: c2.android.opus.decoder audio: bitrates [6000, 510000], channels 8, rates 8000-8000 12000-12000 16000-16000 24000-24000 48000-48000, max instances 32
+I/media-codec-opus-test: c2.android.opus.decoder default format: mime="audio/opus"
+I/media-codec-opus-test: decoder OMX.google.opus.decoder: canonical c2.android.opus.decoder, alias true, software true, hardware false, vendor false
+I/media-codec-opus-test: opus track: channel-count=2, csd-0=buffer 19, csd-1=buffer 8, csd-2=buffer 8, mime="audio/opus", sample-rate=48000, 61 units
+I/media-codec-opus-test: opus: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus: input capacity 5760
+I/media-codec-opus-test: opus: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus mono track: channel-count=1, csd-0=buffer 19, csd-1=buffer 8, csd-2=buffer 8, mime="audio/opus", sample-rate=48000, 16 units
+I/media-codec-opus-test: opus mono: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus mono: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus mono: input capacity 5760
+I/media-codec-opus-test: opus mono: 16 output buffers and 0 empty ones, times 0 to 900000, the first 2568 frames, the last 2880
+I/media-codec-opus-test: opus mono: 45768 frames, rms 9 %, 594 rising zero crossings, the first at 72
+I/media-codec-opus-test: opus seek: flushed after 2 units, on at 400000
+I/media-codec-opus-test: opus seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus seek: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus seek: input capacity 5760
+I/media-codec-opus-test: opus seek: 37 output buffers and 0 empty ones, times 480000 to 1200000, the first 960 frames, the last 960
+I/media-codec-opus-test: opus seek: 35520 frames, rms 6 %, 400 rising zero crossings, the first at 51
+I/media-codec-opus-test: opus seek to the start: flushed after 2 units, on at 0
+I/media-codec-opus-test: opus seek to the start: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus seek to the start: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus seek to the start: input capacity 5760
+I/media-codec-opus-test: opus seek to the start: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus seek to the start: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus mono seek: flushed after 2 units, on at 300000
+I/media-codec-opus-test: opus mono seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus mono seek: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus mono seek: input capacity 5760
+I/media-codec-opus-test: opus mono seek: 10 output buffers and 0 empty ones, times 360000 to 900000, the first 1920 frames, the last 2880
+I/media-codec-opus-test: opus mono seek: 27840 frames, rms 8 %, 348 rising zero crossings, the first at 36
+I/media-codec-opus-test: opus end with the last: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus end with the last: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus end with the last: input capacity 5760
+I/media-codec-opus-test: opus end with the last: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus end with the last: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus config units: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus config units: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus config units: input capacity 5760
+I/media-codec-opus-test: opus config units: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus config units: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus config units unflagged: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus config units unflagged: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus config units unflagged: input capacity 5760
+I/media-codec-opus-test: opus config units unflagged: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus config units unflagged: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus csd-0 alone: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus csd-0 alone: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus csd-0 alone: input capacity 5760
+I/media-codec-opus-test: opus csd-0 alone: 0 output buffers and 0 empty ones, times 0 to 0, the first -1 frames, the last 0
+I/media-codec-opus-test: opus csd-0 alone: 0 frames, rms 0 %, 0 rising zero crossings, the first at -1
+I/media-codec-opus-test: opus unified csd-0: flushed after 2 units, on at 400000
+I/media-codec-opus-test: opus unified csd-0: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus unified csd-0: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus unified csd-0: input capacity 5760
+I/media-codec-opus-test: opus unified csd-0: 37 output buffers and 0 empty ones, times 480000 to 1200000, the first 960 frames, the last 960
+I/media-codec-opus-test: opus unified csd-0: 35520 frames, rms 6 %, 400 rising zero crossings, the first at 51
+I/media-codec-opus-test: opus configured as mono at 44100: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus configured as mono at 44100: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus configured as mono at 44100: input capacity 5760
+I/media-codec-opus-test: opus configured as mono at 44100: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus configured as mono at 44100: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus output gain: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus output gain: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus output gain: input capacity 5760
+I/media-codec-opus-test: opus output gain: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus output gain: 58248 frames, rms 12 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus csd-0 not OpusHead: java.lang.IllegalStateException
+I/media-codec-opus-test: opus csd-0 not OpusHead: stop java.lang.IllegalStateException
+I/media-codec-opus-test: opus three channels in family 0: java.lang.IllegalStateException
+I/media-codec-opus-test: opus three channels in family 0: stop java.lang.IllegalStateException
+I/media-codec-opus-test: opus refused packet: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus refused packet: java.lang.IllegalStateException
+I/media-codec-opus-test: opus refused packet: stop java.lang.IllegalStateException
+I/media-codec-opus-test: opus async: ended: true
+I/media-codec-opus-test: opus async: 1 format changes, the last: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus async: 61 output buffers, 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus by name: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus by name: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus by name: input capacity 5760
+I/media-codec-opus-test: opus by name: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus by name: 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus by alias: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus by alias: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus by alias: input capacity 5760
+I/media-codec-opus-test: opus by alias: 16 output buffers and 0 empty ones, times 0 to 900000, the first 2568 frames, the last 2880
+I/media-codec-opus-test: opus by alias: 45768 frames, rms 9 %, 594 rising zero crossings, the first at 72
+I/media-codec-opus-test: done
