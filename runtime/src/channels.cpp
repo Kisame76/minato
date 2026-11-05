@@ -211,6 +211,7 @@ struct InputQueue {
     bool refusing = false;            // the rest of the last gesture the channel could not take
     std::int64_t refused = 0;         // that gesture's down time
     MouseState mouse;                 // what apkrt_input_post_mouse has made of the host's mouse so far
+    double scale = 1;                 // what apkrt_input_set_scale set: the guest's window over the host's
 };
 
 std::map<std::uint64_t, InputQueue> inputs;  // by ID, under `lock`; never erased
@@ -423,6 +424,18 @@ int post_record(std::uint64_t id, apkrt_motion_event &event) {
         const auto found = inputs.find(id);
         if (found == inputs.end() || found->second.ended) return 0;
         InputQueue &queue = found->second;
+        if (event.kind == APKRT_INPUT_MOTION && queue.scale != 1) {
+            // The host's pixels are the visible window's, the guest's window is `scale` times as big: positions and
+            // sizes in pixels follow, the pressure is no length.
+            const auto factor = static_cast<float>(queue.scale);
+            for (auto &sample : event.coords) {
+                for (apkrt_pointer_coords &pointer : sample) {
+                    pointer.x *= factor;
+                    pointer.y *= factor;
+                    pointer.touch_major *= factor;
+                }
+            }
+        }
         if (event.kind == APKRT_INPUT_AXES && queue.events.size() >= most_events) {
             if (replaces_newest_axes(queue, event)) return 1;
             // A press, a release or a scroll cannot merge: it takes the slack the ends of a touch gesture have. A
@@ -977,6 +990,15 @@ extern "C" int apkrt_input_post(uint64_t id, int32_t action, int64_t down_time, 
     return post_record(id, event);
 }
 
+extern "C" int apkrt_input_set_scale(uint64_t id, double scale) {
+    if (!(scale >= 0.25 && scale <= 1.0)) return 0;  // also NaN
+    const std::lock_guard hold(lock);
+    const auto found = inputs.find(id);
+    if (found == inputs.end() || found->second.ended) return 0;
+    found->second.scale = scale;
+    return 1;
+}
+
 extern "C" int apkrt_input_post_key(uint64_t id, const struct apkrt_key_event *key) {
     if (key == nullptr || (key->action != 0 && key->action != 1) || key->key_code < 0) return 0;
     apkrt_key_event record = *key;
@@ -1146,7 +1168,16 @@ extern "C" int apkrt_input_post_mouse(uint64_t id, const struct apkrt_axes_event
         if (found == inputs.end() || found->second.ended) return 0;
         InputQueue &queue = found->second;
         MouseState state = queue.mouse;
-        MouseReport report(*mouse, state);
+        // The position in the guest's pixels, so that the state keeps those and nothing is scaled twice; the relative
+        // axes and the wheel are no places.
+        apkrt_axes_event scaled = *mouse;
+        if (queue.scale != 1) {
+            const auto factor = static_cast<float>(queue.scale);
+            for (std::uint32_t at = 0; at < scaled.axis_count; ++at) {
+                if (scaled.axes[at].axis == axis_x || scaled.axes[at].axis == axis_y) scaled.axes[at].value *= factor;
+            }
+        }
+        MouseReport report(scaled, state);
         switch (mouse->action) {
             case action_hover_move: report.move(); break;
             case action_scroll: report.scroll(); break;

@@ -892,6 +892,12 @@ if(APK_HOST_BUILD)
     "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
     "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt")
   set_tests_properties(runtime.input PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # ADR-0067 step 2: the same run with the window's and the channel's render scale 0.5, as the App sets them for an
+  # upscaled app: the app sees its half-size window and the same gestures at the same fractions of it.
+  add_test(NAME runtime.input_scaled COMMAND input_test "${CMAKE_CURRENT_BINARY_DIR}/input_scaled_scratch"
+    "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
+    "${PROJECT_SOURCE_DIR}/fixtures/apps/input-test/gestures.txt" 0.5)
+  set_tests_properties(runtime.input_scaled PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   # ADR-0068 step 2e's native-ime-test: the same host posts a text, which a NativeActivity's view does not take, and the
   # hardware keyboard's keys, and compares the log with Android 15's (fixtures/expected/native-ime-test.logcat).
   add_executable(native_ime_test tests/native_ime_test.cpp)

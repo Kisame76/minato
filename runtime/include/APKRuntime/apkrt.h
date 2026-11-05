@@ -332,6 +332,17 @@ void *apkrt_window_layer(uint64_t id);
 /// it (never the drawable size). Returns 0, or -1 for a window that is removed or unknown.
 int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height);
 
+/// For the host (ADR-0067 step 2): the window renders at `scale` of its full size, 0.25 to 1 (1, the default, is no
+/// change). The guest's window_size (ANativeWindow_getWidth and getHeight) and apkrt_window_render_size then answer
+/// round(full * scale), at least 1 an axis, while apkrt_window_size keeps the full size; a turn (apkrt_window_set_size)
+/// keeps the scale. Set it once after apkrt_window_add for a window with a native surface. Returns 0, or -1 for a
+/// window that is removed or unknown or a scale outside 0.25 to 1 (NaN included), which leaves the scale unchanged.
+int apkrt_window_set_render_scale(uint64_t id, double scale);
+
+/// For graphics/host: the window's render size, round(full * scale) at least 1 an axis -- the low size of the layer
+/// pair that the host upscales to the full size. Returns 0, or -1 for a window that is removed or unknown.
+int apkrt_window_render_size(uint64_t id, int32_t *width, int32_t *height);
+
 /// For graphics/host: after a present that succeeded, counted for apkrt_window_presents.
 void apkrt_window_presented(uint64_t id);
 
@@ -710,6 +721,13 @@ int apkrt_vsync_grid(int64_t *time_ns, int64_t *period_ns);
 /// A new input channel, whose ID the host sends with APKRT_EVENT_INPUT_QUEUE_CREATED. Returns the ID, from 1,
 /// never reused; 0 without memory. The events posted before the guest's queue connects wait in it.
 uint64_t apkrt_input_add(void);
+
+/// For the host (ADR-0067 step 2): the channel `id` divides the posted pointer coordinates (x, y and touch_major, in
+/// pixels) by 1/`scale` -- it multiplies them by `scale`, 0.25 to 1 (1, the default, is no change) -- so the host
+/// posts in the visible window's pixels and the guest's queue sees the render window's pixels; other axes (pressure,
+/// scroll, relative, joystick) are untouched. Pair it with the window's apkrt_window_set_render_scale, the same
+/// scale. Returns 1 on success, 0 for an unknown channel or a scale outside 0.25 to 1 (NaN included).
+int apkrt_input_set_scale(uint64_t id, double scale);
 
 /// Posts a motion event (struct apkrt_motion_event) to the input channel `id`, after those before it.
 /// `pointer_ids` holds `pointer_count` IDs, 1 to APKRT_MOTION_POINTERS of them, rising, each 0 to 31;

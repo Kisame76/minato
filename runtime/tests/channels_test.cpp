@@ -28,6 +28,7 @@
 #include <sys/ioctl.h>
 
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -1476,6 +1477,135 @@ TEST(a_mouse_that_goes_while_it_hovers_leaves_the_window_first) {
     CHECK(apkrt_input_post_device(input.id, &gone) == 1);
     CHECK(take(input.fd).event.kind == APKRT_INPUT_DEVICE);
     CHECK(take(input.fd).result == -eagain);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+// Render scale of an input channel (ADR-0067 step 2): the host posts the visible window's pixels, the guest's window
+// is `scale` times as big, so a position and a size in pixels are multiplied by the scale on its way in. Needs
+// <cmath>. Insert before
+// a_mouse_record_that_is_not_one_is_refused.
+
+/// A touch at (x, y), posted to `id` and read back from `fd`; the position the guest sees.
+apkrt_pointer_coords touch_at(std::uint64_t id, std::int64_t fd, float x, float y) {
+    const std::int32_t ids[1] = {0};
+    const std::int64_t times[1] = {2};
+    const apkrt_pointer_coords where[1] = {{x, y, 0.5f, 3.0f}};
+    CHECK(apkrt_input_post(id, move, 1, 1, ids, 1, times, where) == 1);
+    const auto taken = take(fd);
+    CHECK(taken.result == 0);
+    return taken.event.coords[0][0];
+}
+
+TEST(a_render_scale_multiplies_a_touchs_position_and_size_but_not_its_pressure) {
+    const auto input = open_input();
+    // Scale 1 is the default and changes nothing, bit for bit.
+    const auto plain = touch_at(input.id, input.fd, 123.25f, 456.5f);
+    CHECK(plain.x == 123.25f && plain.y == 456.5f);
+    CHECK(apkrt_input_set_scale(input.id, 0.5) == 1);
+    const auto half = touch_at(input.id, input.fd, 500.0f, 1000.0f);
+    CHECK(half.x == 250.0f && half.y == 500.0f);
+    // The touch size is in pixels too and follows; the pressure is not a length.
+    CHECK(half.pressure == 0.5f && half.touch_major == 1.5f);
+    CHECK(apkrt_input_set_scale(input.id, 0.25) == 1);
+    const auto quarter = touch_at(input.id, input.fd, 400.0f, 80.0f);
+    CHECK(quarter.x == 100.0f && quarter.y == 20.0f);
+    CHECK(apkrt_input_set_scale(input.id, 1.0) == 1);
+    const auto back = touch_at(input.id, input.fd, 123.25f, 456.5f);
+    CHECK(back.x == 123.25f && back.y == 456.5f);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_render_scale_is_taken_at_the_post_not_at_the_read) {
+    const auto input = open_input();
+    CHECK(apkrt_input_set_scale(input.id, 0.5) == 1);
+    const std::int32_t ids[1] = {0};
+    const std::int64_t times[1] = {2};
+    const apkrt_pointer_coords where[1] = {{600.0f, 800.0f, 0.5f, 0.0f}};
+    CHECK(apkrt_input_post(input.id, move, 1, 1, ids, 1, times, where) == 1);
+    CHECK(apkrt_input_set_scale(input.id, 1.0) == 1);  // changes the next post only
+    const auto taken = take(input.fd);
+    CHECK(taken.event.coords[0][0].x == 300.0f && taken.event.coords[0][0].y == 400.0f);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_render_scale_only_takes_a_known_id_and_a_scale_from_a_quarter_to_one) {
+    const auto input = open_input();
+    CHECK(apkrt_input_set_scale(0, 0.5) == 0);
+    CHECK(apkrt_input_set_scale(1'000'000, 0.5) == 0);
+    for (const double bad : {0.0, 0.2499, 1.0001, 2.0, -0.5, std::nan(""), HUGE_VAL, -HUGE_VAL}) {
+        CHECK(apkrt_input_set_scale(input.id, bad) == 0);
+    }
+    // A refused scale leaves the one set before.
+    CHECK(apkrt_input_set_scale(input.id, 0.5) == 1);
+    CHECK(apkrt_input_set_scale(input.id, 3.0) == 0);
+    const auto still = touch_at(input.id, input.fd, 100.0f, 100.0f);
+    CHECK(still.x == 50.0f && still.y == 50.0f);
+    call(nr_close, {unsigned_of(input.fd)});
+    // After the channel ended, as for the posts.
+    CHECK(apkrt_input_set_scale(input.id, 0.5) == 0);
+}
+
+TEST(a_render_scale_belongs_to_one_channel) {
+    const auto scaled = open_input();
+    const auto other = open_input();
+    CHECK(apkrt_input_set_scale(scaled.id, 0.5) == 1);
+    const auto a = touch_at(other.id, other.fd, 100.0f, 200.0f);
+    CHECK(a.x == 100.0f && a.y == 200.0f);
+    const auto b = touch_at(scaled.id, scaled.fd, 100.0f, 200.0f);
+    CHECK(b.x == 50.0f && b.y == 100.0f);
+    call(nr_close, {unsigned_of(scaled.fd)});
+    call(nr_close, {unsigned_of(other.fd)});
+}
+
+TEST(a_render_scale_multiplies_a_mouses_position_and_keeps_its_scroll_and_relative_axes) {
+    const auto input = open_input();
+    CHECK(apkrt_input_set_scale(input.id, 0.5) == 1);
+    std::vector<apkrt_axes_event> got;
+    apkrt_axes_event hover = mouse_of(7, 0, 600, 400);
+    hover.axis_count = 4;
+    hover.axes[2] = {27, 30.0f};  // AXIS_RELATIVE_X
+    hover.axes[3] = {28, 20.0f};
+    CHECK(apkrt_input_post_mouse(input.id, &hover) == 1);
+    CHECK(mouse_trace(input.fd, &got) == "HE/0");
+    CHECK(axis_value(got[0], 0) == 300.0f && axis_value(got[0], 1) == 200.0f);
+    CHECK(axis_value(got[0], 27) == 30.0f && axis_value(got[0], 28) == 20.0f);
+    // The position a record has none of is the last one, already in the guest's pixels, not scaled twice.
+    apkrt_axes_event press = mouse_of(11, 1);
+    press.axis_count = 0;
+    CHECK(apkrt_input_post_mouse(input.id, &press) == 1);
+    CHECK(mouse_trace(input.fd, &got) == "HX/1 DOWN/1 PRESS/1/1");
+    CHECK(axis_value(got[1], 0) == 300.0f && axis_value(got[1], 1) == 200.0f);
+    apkrt_axes_event release = mouse_of(12, 0);
+    release.axis_count = 0;
+    CHECK(apkrt_input_post_mouse(input.id, &release) == 1);
+    mouse_trace(input.fd);
+    // A scroll: the hover move before it is at the scaled position, the wheel is in lines.
+    apkrt_axes_event scroll = mouse_of(8, 0, 800, 100);
+    scroll.axis_count = 3;
+    scroll.axes[2] = {9, -2.0f};  // AXIS_VSCROLL
+    CHECK(apkrt_input_post_mouse(input.id, &scroll) == 1);
+    CHECK(mouse_trace(input.fd, &got).find("SCR/0") != std::string::npos);
+    CHECK(axis_value(got.back(), 0) == 400.0f && axis_value(got.back(), 1) == 50.0f);
+    CHECK(axis_value(got.back(), 9) == -2.0f);
+    call(nr_close, {unsigned_of(input.fd)});
+}
+
+TEST(a_render_scale_leaves_keys_texts_and_a_pads_axes_alone) {
+    const auto input = open_input();
+    CHECK(apkrt_input_set_scale(input.id, 0.5) == 1);
+    apkrt_axes_event pad = axes_of(2, 1001, 0x01000010);  // a joystick: AXIS_X and AXIS_Y are the stick, not a place
+    pad.axis_count = 2;
+    pad.axes[0] = {0, 0.5f};
+    pad.axes[1] = {1, -1.0f};
+    CHECK(apkrt_input_post_axes(input.id, &pad) == 1);
+    const auto read = as<apkrt_axes_event>(take(input.fd));
+    CHECK(read.axes[0].value == 0.5f && read.axes[1].value == -1.0f);
+    apkrt_key_event key{};
+    key.action = 0;
+    key.key_code = 29;
+    CHECK(apkrt_input_post_key(input.id, &key) == 1);
+    const auto taken = take(input.fd);
+    CHECK(taken.result == 0 && taken.event.kind == APKRT_INPUT_KEY);
     call(nr_close, {unsigned_of(input.fd)});
 }
 

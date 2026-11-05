@@ -9,6 +9,11 @@
 // (tools/android-reference.sh --app input-test), its device lines are those below, the requests were
 // KEEP_SCREEN_ON and FINISH, activity-host ended with status 0, and the channel was closed with the queue.
 //   input_test <scratch directory> <fixtures bin> <bionic lib> <guest /system> <fixtures/expected> <gestures.txt>
+//               [<render scale>]
+// With a render scale (ADR-0067 step 2) the window and the channel have it as the App sets it for an upscaled app: the
+// host's places stay the visible window's pixels, and the app, whose window is the scale times as big, must see the
+// same gestures at the same fractions of its window, so its own lines are the same; the device lines have the places
+// and touch sizes (not the pressures) times the scale. The scale 0.5 has those below.
 #include "app_host.h"
 
 #include <time.h>
@@ -52,6 +57,30 @@ constexpr const char *device_lines =
     "I/input-test-device: two fingers: DOWN at 387.0, 1118.4\n"
     "I/input-test-device: two fingers: 7 events, 3 MOVEs, 0 with history, 0 historical samples\n"
     "I/input-test-device: lowest free ID: DOWN at 258.0, 1957.2\n"
+    "I/input-test-device: lowest free ID: 6 events, 0 MOVEs, 0 with history, 0 historical samples\n";
+
+// The same with the render scale 0.5: the app's window is 645 by 1398, its places and touch sizes half of those above.
+constexpr const char *device_lines_half =
+    "I/input-test-device: a frame by the CPU: ANativeWindow_lock -38\n"
+    "I/input-test-device: device 1, source 0x1002, flags 0x0, meta 0x0, buttons 0x0, edge 0x0, classification 0, "
+    "action button 0x0\n"
+    "I/input-test-device: precision 1.0, 1.0, offset 0.0, 0.0\n"
+    "I/input-test-device: pressure 1.000, size 0.000, touch 60.0, 60.0, tool 60.0, 60.0, orientation 0.000\n"
+    "I/input-test-device: tap: DOWN at 161.2, 349.5\n"
+    "I/input-test-device: tap: 2 events, 0 MOVEs, 0 with history, 0 historical samples\n"
+    "I/input-test-device: swipe: DOWN at 129.0, 699.0\n"
+    "I/input-test-device: swipe: the first MOVE with history, sample 0: x 258.0, 2.0 ms before the event, touch major "
+    "50.0, pressure 0.80\n"
+    "I/input-test-device: swipe: the first MOVE with history, sample 1: x 290.2, 1.0 ms before the event, touch major "
+    "55.0, pressure 0.90\n"
+    "I/input-test-device: swipe: the first MOVE with history, sample 2: x 322.5, 0.0 ms before the event, touch major "
+    "60.0, pressure 1.00\n"
+    "I/input-test-device: swipe: the first MOVE with history: raw places as the places, axis values as the values, "
+    "touch minor and tool sizes as the touch major, size and orientation 0: yes\n"
+    "I/input-test-device: swipe: 6 events, 4 MOVEs, 2 with history, 4 historical samples\n"
+    "I/input-test-device: two fingers: DOWN at 193.5, 559.2\n"
+    "I/input-test-device: two fingers: 7 events, 3 MOVEs, 0 with history, 0 historical samples\n"
+    "I/input-test-device: lowest free ID: DOWN at 129.0, 978.6\n"
     "I/input-test-device: lowest free ID: 6 events, 0 MOVEs, 0 with history, 0 historical samples\n";
 
 /// A line of gestures.txt: one motion event.
@@ -157,11 +186,13 @@ bool requested(const std::string &request) {
 }  // namespace
 
 int main(int argc, char **argv) {
-    if (argc != 7) {
+    if (argc != 7 && argc != 8) {
         std::fprintf(stderr, "usage: input_test <scratch> <fixtures bin> <bionic lib> <guest system> <expected> "
-                             "<gestures.txt>\n");
+                             "<gestures.txt> [1 | 0.5]\n");
         return 2;
     }
+    const double scale = argc == 8 ? std::atof(argv[7]) : 1.0;
+    if (scale != 1.0 && scale != 0.5) return 2;
     const Paths paths{argv[1], argv[2], argv[3], argv[4], argv[5]};
     const auto steps = read_gestures(argv[6]);
     if (steps.empty()) {
@@ -187,6 +218,10 @@ int main(int argc, char **argv) {
     post(APKRT_EVENT_RESUME);
     const std::uint64_t channel = apkrt_input_add();
     if (channel == 0) fail("apkrt_input_add gave no channel");
+    if (scale != 1.0 &&
+        (apkrt_window_set_render_scale(window, scale) != 0 || apkrt_input_set_scale(channel, scale) != 1)) {
+        fail("the render scale was refused");
+    }
     post(APKRT_EVENT_INPUT_QUEUE_CREATED, channel);
     answered(show_window(window, true), "the start");
     apkrt_window_set_gate(window, 1);
@@ -220,7 +255,7 @@ int main(int argc, char **argv) {
         fail("the app's lines differ from Android 15's:\n" + app_lines);
     }
     const std::string device = lines_with(log, "I/input-test-device: ");
-    if (device != device_lines) fail("the device lines differ:\n" + device);
+    if (device != (scale == 1.0 ? device_lines : device_lines_half)) fail("the device lines differ:\n" + device);
     ::dprintf(report, failures == 0 ? "PASS: input-test\n" : "%d failures\n", failures);
     _exit(failures == 0 ? 0 : 1);
 }

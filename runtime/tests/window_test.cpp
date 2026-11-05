@@ -253,6 +253,108 @@ TEST(a_size_not_above_0_and_a_removed_window_are_refused) {
     CHECK(size[0] == 7 && size[1] == 7);
 }
 
+// ADR-0067 step 2: a window's render scale. The host keeps the visible window's size (apkrt_window_size) and gives the
+// layer pair the low size (apkrt_window_render_size); the guest's window_size, which backs ANativeWindow_getWidth and
+// _getHeight, answers the low size. Insert before the test of the turns read by several threads.
+
+struct Sizes {
+    std::int32_t full[2], render[2], guest[2];
+    int status[3];
+};
+
+Sizes sizes_of(std::uint64_t id) {
+    Sizes sizes{{-1, -1}, {-1, -1}, {-1, -1}, {0, 0, 0}};
+    sizes.status[0] = apkrt_window_size(id, &sizes.full[0], &sizes.full[1]);
+    sizes.status[1] = apkrt_window_render_size(id, &sizes.render[0], &sizes.render[1]);
+    sizes.status[2] = static_cast<int>(call(APKRT_NR_WINDOW_SIZE, id, address(sizes.guest)));
+    return sizes;
+}
+
+TEST(without_a_render_scale_the_render_and_the_guest_size_are_the_full_size) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    const Sizes sizes = sizes_of(id);
+    CHECK(sizes.status[0] == 0 && sizes.status[1] == 0 && sizes.status[2] == 0);
+    CHECK(sizes.full[0] == 1290 && sizes.full[1] == 2796);
+    CHECK(sizes.render[0] == 1290 && sizes.render[1] == 2796);
+    CHECK(sizes.guest[0] == 1290 && sizes.guest[1] == 2796);
+    CHECK(apkrt_window_set_render_scale(id, 1.0) == 0);  // the same as none
+    const Sizes again = sizes_of(id);
+    CHECK(again.render[0] == 1290 && again.guest[1] == 2796);
+    apkrt_window_remove(id);
+}
+
+TEST(a_render_scale_gives_render_and_guest_the_scaled_size_and_the_host_the_full_one) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    CHECK(apkrt_window_set_render_scale(id, 0.5) == 0);
+    Sizes sizes = sizes_of(id);
+    CHECK(sizes.full[0] == 1290 && sizes.full[1] == 2796);
+    CHECK(sizes.render[0] == 645 && sizes.render[1] == 1398);
+    CHECK(sizes.guest[0] == 645 && sizes.guest[1] == 1398);
+    // Rounded to the nearest: 1290 * 0.67 = 864.3, 2796 * 0.67 = 1873.32.
+    CHECK(apkrt_window_set_render_scale(id, 0.67) == 0);
+    sizes = sizes_of(id);
+    CHECK(sizes.render[0] == 864 && sizes.render[1] == 1873);
+    CHECK(sizes.guest[0] == 864 && sizes.guest[1] == 1873);
+    CHECK(sizes.full[0] == 1290 && sizes.full[1] == 2796);
+    // Back to 1: the full size again.
+    CHECK(apkrt_window_set_render_scale(id, 1.0) == 0);
+    sizes = sizes_of(id);
+    CHECK(sizes.render[0] == 1290 && sizes.guest[1] == 2796);
+    apkrt_window_remove(id);
+}
+
+TEST(a_render_size_is_at_least_one_pixel_an_axis) {
+    const auto id = apkrt_window_add(nullptr, 3, 1);
+    CHECK(apkrt_window_set_render_scale(id, 0.25) == 0);
+    const Sizes sizes = sizes_of(id);
+    CHECK(sizes.render[0] == 1 && sizes.render[1] == 1);  // 0.75 and 0.25
+    CHECK(sizes.guest[0] == 1 && sizes.guest[1] == 1);
+    apkrt_window_remove(id);
+}
+
+TEST(a_turn_keeps_the_render_scale_and_the_scaled_size_follows) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    CHECK(apkrt_window_set_render_scale(id, 0.5) == 0);
+    CHECK(apkrt_window_set_size(id, 2796, 1290) == 0);
+    const Sizes sizes = sizes_of(id);
+    CHECK(sizes.full[0] == 2796 && sizes.full[1] == 1290);
+    CHECK(sizes.render[0] == 1398 && sizes.render[1] == 645);
+    CHECK(sizes.guest[0] == 1398 && sizes.guest[1] == 645);
+    apkrt_window_remove(id);
+}
+
+TEST(a_scale_out_of_range_or_for_no_window_is_refused_and_changes_nothing) {
+    const auto id = apkrt_window_add(nullptr, 1290, 2796);
+    CHECK(apkrt_window_set_render_scale(id, 0.5) == 0);
+    for (const double bad : {0.0, 0.1, 0.2499, 1.0001, 1.5, -0.5, std::nan(""), HUGE_VAL, -HUGE_VAL}) {
+        CHECK(apkrt_window_set_render_scale(id, bad) == -1);
+    }
+    const Sizes sizes = sizes_of(id);
+    CHECK(sizes.render[0] == 645 && sizes.guest[1] == 1398);  // the 0.5 stays
+    CHECK(apkrt_window_set_render_scale(0, 0.5) == -1);
+    CHECK(apkrt_window_set_render_scale(id + 1000, 0.5) == -1);
+    apkrt_window_remove(id);
+    CHECK(apkrt_window_set_render_scale(id, 0.5) == -1);
+    std::int32_t width = 7, height = 7;
+    CHECK(apkrt_window_render_size(id, &width, &height) == -1);
+    CHECK(apkrt_window_render_size(0, &width, &height) == -1);
+    CHECK(width == 7 && height == 7);
+}
+
+TEST(a_render_scale_belongs_to_one_window_and_a_new_window_has_none) {
+    const auto scaled = apkrt_window_add(nullptr, 1000, 2000);
+    const auto other = apkrt_window_add(nullptr, 1000, 2000);
+    CHECK(apkrt_window_set_render_scale(scaled, 0.25) == 0);
+    const Sizes a = sizes_of(scaled), b = sizes_of(other);
+    CHECK(a.render[0] == 250 && a.guest[1] == 500);
+    CHECK(b.render[0] == 1000 && b.guest[1] == 2000);
+    apkrt_window_remove(scaled);
+    apkrt_window_remove(other);
+    const auto fresh = apkrt_window_add(nullptr, 1000, 2000);
+    CHECK(sizes_of(fresh).render[0] == 1000);
+    apkrt_window_remove(fresh);
+}
+
 // The host turns its window on its main thread while render threads read its size: every read is one size whole.
 // Four readers, so that one gets in between two writes of a turn that took the lock twice.
 TEST(a_size_read_during_turns_is_always_one_of_them_whole) {

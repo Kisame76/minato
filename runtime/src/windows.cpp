@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <mutex>
 #include <new>
@@ -35,7 +36,13 @@ struct Window {
     bool open;  // the gate; a removed window is not here
     std::uint64_t presents;
     std::uint32_t frame_rate;  // a float's bits, 0 for no preference (ANativeWindow_setFrameRate)
+    double scale = 1;          // the render scale (ADR-0067 step 2): the guest and the low layer render at this fraction
 };
+
+/// The render size of a full dimension at a scale, at least one pixel (ADR-0067 step 2).
+std::int32_t scaled(std::int32_t full, double scale) {
+    return std::max<std::int32_t>(1, static_cast<std::int32_t>(std::lround(full * scale)));
+}
 
 struct Provider {
     apkrt_scheduled_provider function;
@@ -112,8 +119,8 @@ long size(std::uint64_t id, std::uint64_t address) {
         const std::lock_guard<std::mutex> hold(lock);
         const Window *window = find(id);
         if (window == nullptr) return -linux_errno::einval;
-        width = window->width;
-        height = window->height;
+        width = scaled(window->width, window->scale);
+        height = scaled(window->height, window->scale);
     }
     auto *const size = reinterpret_cast<std::int32_t *>(address);
     size[0] = width;
@@ -301,6 +308,24 @@ int apkrt_window_size(uint64_t id, int32_t *width, int32_t *height) {
     if (window == nullptr) return -1;
     if (width != nullptr) *width = window->width;
     if (height != nullptr) *height = window->height;
+    return 0;
+}
+
+int apkrt_window_render_size(uint64_t id, int32_t *width, int32_t *height) {
+    const std::lock_guard<std::mutex> hold(lock);
+    const Window *window = find(id);
+    if (window == nullptr) return -1;
+    if (width != nullptr) *width = scaled(window->width, window->scale);
+    if (height != nullptr) *height = scaled(window->height, window->scale);
+    return 0;
+}
+
+int apkrt_window_set_render_scale(uint64_t id, double scale) {
+    if (!(scale >= 0.25 && scale <= 1.0)) return -1;  // refuses NaN too (every comparison with it is false)
+    const std::lock_guard<std::mutex> hold(lock);
+    Window *window = find(id);
+    if (window == nullptr) return -1;
+    window->scale = scale;
     return 0;
 }
 
