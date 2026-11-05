@@ -116,14 +116,16 @@ class AudioTrack {
         if (mDataLoadMode == MODE_STREAM) {
             frames = Math.max(frames, minFrameCount(mSampleRate));
         }
+        // The session comes first: the native stream plays through that session's audio effects.
+        final int session = sessionId != AudioManager.AUDIO_SESSION_ID_GENERATE ? sessionId
+                : (sNextSession.getAndIncrement() << 3) | 1;
         mNative = nativeCreate(mSampleRate, mChannelCount, mAudioFormat, frames, mDataLoadMode == MODE_STATIC,
-                performanceMode == PERFORMANCE_MODE_LOW_LATENCY);
+                performanceMode == PERFORMANCE_MODE_LOW_LATENCY, session);
         if (mNative == 0) {
             Log.e(TAG, "Error code -20 when initializing AudioTrack.");
             return;
         }
-        mSessionId = sessionId != AudioManager.AUDIO_SESSION_ID_GENERATE ? sessionId
-                : (sNextSession.getAndIncrement() << 3) | 1;
+        mSessionId = session;
         mState = mDataLoadMode == MODE_STATIC ? STATE_NO_STATIC_DATA : STATE_INITIALIZED;
     }
 
@@ -717,7 +719,7 @@ class AudioTrack {
     }
 
     private static native long nativeCreate(int sampleRate, int channelCount, int encoding, int frames,
-            boolean isStatic, boolean lowLatency);
+            boolean isStatic, boolean lowLatency, int session);
     private static native void nativeRelease(long track);
     private static native void nativeStart(long track);
     private static native void nativeStop(long track);

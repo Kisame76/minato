@@ -126,6 +126,19 @@ inline void write_int(std::vector<uint8_t> &out, int32_t value) {
     out.insert(out.end(), reinterpret_cast<uint8_t *>(&value), reinterpret_cast<uint8_t *>(&value) + 4);
 }
 
+/// What a session's instances ask the runtime's mix to play: of each of the four sounding effects the instance in
+/// control that is enabled, with its parameters (the runtime's audio_effect takes these).
+struct Applied {
+    bool equalizer = false;
+    int32_t bands[kBands] = {0, 0, 0, 0, 0};
+    bool bass_boost = false;
+    int32_t bass_strength = 0;
+    bool virtualizer = false;
+    int32_t virtualizer_strength = 0;
+    bool loudness = false;
+    int32_t loudness_millibel = 0;
+};
+
 /// The instances, with the control passing of AudioEffect: of the instances of one implementation on a session, the
 /// one with the highest priority has control, the newest among equals; the others do not, and get it back in that order
 /// when it is released. `on_control` tells an instance that gained or lost it.
@@ -186,6 +199,34 @@ public:
         if (!instance->has_control) return kInvalidOperation;
         instance->enabled = enabled;
         return kSuccess;
+    }
+
+    /// The effects of `session` that sound now.
+    Applied applied(int session) const {
+        Applied result;
+        for (const auto &[id, instance] : instances_) {
+            if (instance->session != session || !instance->has_control || !instance->enabled) continue;
+            switch (instance->kind) {
+                case Kind::equalizer:
+                    result.equalizer = true;
+                    for (int band = 0; band < kBands; ++band) result.bands[band] = instance->levels[band];
+                    break;
+                case Kind::bass_boost:
+                    result.bass_boost = true;
+                    result.bass_strength = instance->strength;
+                    break;
+                case Kind::virtualizer:
+                    result.virtualizer = true;
+                    result.virtualizer_strength = instance->strength;
+                    break;
+                case Kind::loudness:
+                    result.loudness = true;
+                    result.loudness_millibel = instance->target_gain;
+                    break;
+                default: break;
+            }
+        }
+        return result;
     }
 
     /// The parameter `param` (psize bytes) read into `value` (vsize bytes): the bytes written, or a negative status.

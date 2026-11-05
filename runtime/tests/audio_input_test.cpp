@@ -105,7 +105,7 @@ struct Open {
 };
 
 Open open_stream(std::int32_t direction = 1, std::int32_t channels = 1, std::int32_t rate = 0) {
-    Open open{0, {rate, channels, low_latency, -1, -1, -1, -1, direction}};
+    Open open{0, {rate, channels, low_latency, -1, -1, -1, -1, direction, 0}};
     open.result = call(APKRT_NR_AUDIO_OPEN, {address(&open.config)});
     return open;
 }
@@ -214,12 +214,12 @@ TEST(an_input_open_gives_the_hardware_s_values_and_the_asked_shape_to_the_host) 
 
 TEST(an_input_ring_holds_the_frames_the_guest_asked_for_rounded_up_to_a_burst) {
     use_fake_input();
-    apkrt_audio_config config{16'000, 1, low_latency, -1, -1, 16'000 * 2, -1, 1};  // two seconds
+    apkrt_audio_config config{16'000, 1, low_latency, -1, -1, 16'000 * 2, -1, 1, 0};  // two seconds
     const auto result = call(APKRT_NR_AUDIO_OPEN, {address(&config)});
     CHECK(result > 0);
     CHECK(config.capacity == 32'000 && config.buffer_size == 32'000);  // 400 bursts of 80
     CHECK(call(APKRT_NR_AUDIO_CLOSE, {unsigned_of(result)}) == 0);
-    config = {16'000, 1, low_latency, -1, -1, 1'000'000, -1, 1};  // more than ten seconds: ten
+    config = {16'000, 1, low_latency, -1, -1, 1'000'000, -1, 1, 0};  // more than ten seconds: ten
     const auto big = call(APKRT_NR_AUDIO_OPEN, {address(&config)});
     CHECK(big > 0 && config.capacity == 160'000);
     CHECK(call(APKRT_NR_AUDIO_CLOSE, {unsigned_of(big)}) == 0);

@@ -706,8 +706,13 @@ aaudio_result_t AAudioStreamBuilder_openStream(AAudioStreamBuilder* builder, AAu
     }
 
     const bool input = builder->direction == AAUDIO_DIRECTION_INPUT;
+    // The stream's session: an asked-for one, or one allocated here; the runtime plays an output stream through the
+    // effects of that session (audio_effect). A negative one (NONE) is no session.
+    const aaudio_session_id_t session = builder->session_id == AAUDIO_SESSION_ID_ALLOCATE
+                                            ? __atomic_add_fetch(&last_session_id, 1, __ATOMIC_RELAXED)
+                                            : builder->session_id;
     apkrt_audio_config config = {builder->sample_rate, channels, builder->performance_mode, 0, 0,
-                                 input ? builder->buffer_capacity : 0, 0, input ? 1 : 0};
+                                 input ? builder->buffer_capacity : 0, 0, input ? 1 : 0, session > 0 ? session : 0};
     const long handle = call(APKRT_NR_AUDIO_OPEN, bits(&config));
     if (handle < 0) return result_of(errno);
     auto* stream = static_cast<AAudioStream*>(calloc(1, sizeof(AAudioStream)));
@@ -746,9 +751,7 @@ aaudio_result_t AAudioStreamBuilder_openStream(AAudioStreamBuilder* builder, AAu
     stream->content_type = builder->content_type;
     stream->input_preset = builder->input_preset;
     stream->capture_policy = builder->capture_policy;
-    stream->session_id = builder->session_id == AAUDIO_SESSION_ID_ALLOCATE
-                             ? __atomic_add_fetch(&last_session_id, 1, __ATOMIC_RELAXED)
-                             : builder->session_id;
+    stream->session_id = session;
     stream->spatialization_behavior = builder->spatialization_behavior;
     stream->content_spatialized = builder->content_spatialized;
     stream->privacy_sensitive = builder->privacy_sensitive;

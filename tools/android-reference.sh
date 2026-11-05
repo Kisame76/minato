@@ -710,6 +710,11 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
       mask=yes
       ;;
+    # audiofx-response-test (the real audio effects): sine tones through the effects, read at the Visualizer.
+    audiofx-response-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=180
+      ;;
     # notify-prompt-test (N1b): an app that targets 32 creates a notification channel in front.
     notify-prompt-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
@@ -1286,7 +1291,7 @@ run_app() {
     run cmd window user-rotation lock 0 >/dev/null
   fi
   if [[ "$app" == mic-test-granted || "$app" == audio-input-test-granted ||
-        "$app" == visualizer-test-granted ]]; then
+        "$app" == visualizer-test-granted || "$app" == audiofx-response-test ]]; then
     run pm grant "$package" android.permission.RECORD_AUDIO
   fi
   if [[ "$app" == camera-characteristics-test-granted || "$app" == camera-legacy-test ||
@@ -1933,7 +1938,11 @@ print("  screen center (RGBA): " + data[offset:offset + 4].hex())' "$RESULTS/$ap
     echo "DIFFERS  $app's rows: $RESULTS/$app.rows"
     return 1
   fi
-  if cmp -s "$(expected_at_display "$app" logcat)" "$RESULTS/$app.logcat"; then
+  if [[ "$app" == audiofx-response-test ]]; then
+    # Measures only: the emulator's image gives these effects no response (its Visualizer shows 0 mB for every band), so
+    # there is nothing to compare; the device lines below are what a calibration reads.
+    echo "measured $app"
+  elif cmp -s "$(expected_at_display "$app" logcat)" "$RESULTS/$app.logcat"; then
     echo "same     $app"
   else
     echo "DIFFERS  $app"

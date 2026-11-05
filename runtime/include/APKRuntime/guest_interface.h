@@ -1562,6 +1562,7 @@ struct apkrt_audio_config {
     int32_t buffer_size;       // out: APKRT_AUDIO_FIRST_BURSTS bursts for LOW_LATENCY, else the capacity
     int32_t hardware_rate;     // out: Hz
     int32_t direction;         // in: 0 an output stream, 1 an input stream (ADR-0064); -EINVAL for any other value
+    int32_t session;           // in: the audio session whose effects (audio_effect) the stream plays through, 0 none
 };
 
 /// What audio_status gives.
@@ -1638,6 +1639,33 @@ struct apkrt_audio_status {
 /// (paused, stopped, flushed, closed), give zeros. Returns x1; -EFAULT for NULL, -EINVAL for x1 outside 1 to 2048. Not
 /// gated: it is the app's own output.
 #define APKRT_NR_AUDIO_TAP 4139
+
+/// The kinds of audio_effect, as the audio effect service sets them (Android's effect bundle, approximated).
+enum apkrt_audio_effect_kind {
+    APKRT_AUDIO_EFFECT_EQUALIZER = 1,  // params[0..4]: the bands' levels in millibel at 60, 230, 910, 3600, 14000 Hz
+    APKRT_AUDIO_EFFECT_BASS_BOOST,     // params[0]: the strength, 0 to 1000
+    APKRT_AUDIO_EFFECT_VIRTUALIZER,    // params[0]: the strength, 0 to 1000
+    APKRT_AUDIO_EFFECT_LOUDNESS,       // params[0]: the target gain in millibel, 0 to 2000
+};
+/// How many sessions can have effects at once (session 0 included).
+#define APKRT_AUDIO_EFFECT_SESSIONS 16
+
+/// What audio_effect takes.
+struct apkrt_audio_effect {
+    int32_t session;   // the audio session, 0 for the whole mix
+    int32_t kind;      // enum apkrt_audio_effect_kind
+    int32_t enabled;   // 0 or 1; the parameters count only while it is 1
+    int32_t reserved;  // 0
+    int32_t params[8];
+};
+/// audio_effect: x0 a struct apkrt_audio_effect. Sets one kind of effect of one session, which every output stream
+/// opened with that session (apkrt_audio_config.session) plays through in the runtime's mix, after the guest's samples
+/// and before the tap, the session's effects first and then session 0's. A change moves over 10 ms, with no click.
+/// Returns 0; -EFAULT for NULL, -EINVAL for a session below 0, a kind outside 1 to 4, `enabled` outside 0 and 1 or a
+/// `reserved` that is not 0, -ENOSPC when switching on needs a place for a session beyond APKRT_AUDIO_EFFECT_SESSIONS.
+/// Not gated: it is the app's own output. Parameters out of range are clamped (a band to ±1500, strengths to 0 to
+/// 1000, the gain to 0 to 2000).
+#define APKRT_NR_AUDIO_EFFECT 4140
 
 // MARK: - Cameras (ADR-0073)
 //

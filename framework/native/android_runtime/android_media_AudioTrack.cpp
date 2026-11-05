@@ -149,7 +149,7 @@ Track *track_of(jlong handle) {
 }
 
 jlong create(JNIEnv *, jclass, jint sample_rate, jint channels, jint encoding, jint frames, jboolean is_static,
-             jboolean low_latency) {
+             jboolean low_latency, jint session) {
     const int width = bytes_per_sample(encoding);
     if (width == 0 || channels < 1 || frames < 1) return 0;
     auto *track = new Track;
@@ -170,6 +170,8 @@ jlong create(JNIEnv *, jclass, jint sample_rate, jint channels, jint encoding, j
     AAudioStreamBuilder_setPerformanceMode(builder, low_latency ? AAUDIO_PERFORMANCE_MODE_LOW_LATENCY
                                                                 : AAUDIO_PERFORMANCE_MODE_NONE);
     AAudioStreamBuilder_setDataCallback(builder, pull, track);
+    // The track's audio session: the runtime plays the stream through that session's effects (audio_effect).
+    AAudioStreamBuilder_setSessionId(builder, session);
     const aaudio_result_t opened = AAudioStreamBuilder_openStream(builder, &track->stream);
     AAudioStreamBuilder_delete(builder);
     if (opened != AAUDIO_OK) {
@@ -352,7 +354,7 @@ void set_volume(JNIEnv *, jclass, jlong handle, jfloat left, jfloat right) {
 }
 
 const JNINativeMethod kMethods[] = {
-    {"nativeCreate", "(IIIIZZ)J", reinterpret_cast<void *>(create)},
+    {"nativeCreate", "(IIIIZZI)J", reinterpret_cast<void *>(create)},
     {"nativeRelease", "(J)V", reinterpret_cast<void *>(release)},
     {"nativeStart", "(J)V", reinterpret_cast<void *>(start)},
     {"nativeStop", "(J)V", reinterpret_cast<void *>(stop)},

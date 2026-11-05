@@ -6,6 +6,7 @@ enable_language(ASM)
 set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp src/sys_memory.cpp src/sys_signals.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
+  src/audio_effects.cpp
   src/proc.cpp src/sys_cpu.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp
   src/netlink.cpp src/cameras.cpp
   src/video_decoders.cpp src/media_players.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp
@@ -806,6 +807,10 @@ if(APK_HOST_BUILD)
   target_link_libraries(audio_input_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.audio_input COMMAND audio_input_test)
   set_tests_properties(runtime.audio_input PROPERTIES TIMEOUT 60)
+  add_executable(audio_effects_test tests/audio_effects_test.cpp)
+  target_include_directories(audio_effects_test PRIVATE src)
+  target_link_libraries(audio_effects_test PRIVATE apkrt apk_defaults)
+  add_test(NAME runtime.audio_effects COMMAND audio_effects_test)
 
   # libaaudio's and libOpenSLES's own logic on the Mac (ADR-0036, decisions 6 and 7): runtime/android/aaudio.cpp and
   # opensles.cpp against the NDK's headers and tests/aaudio_host, with their syscalls going to the runtime's dispatcher.

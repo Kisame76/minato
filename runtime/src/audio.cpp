@@ -20,6 +20,7 @@
 
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
+#include "audio_effects.h"
 #include "permissions.h"
 #include "signals.h"
 #include "syscalls.h"
@@ -86,6 +87,11 @@ struct Slot {
     std::int32_t burst = 0;
     std::int32_t capacity = 0;
     float *ring = nullptr;
+    // The audio effects (audio_effect): the stream's session, and for the render block alone the settings it last took
+    // from the table, for the session and for the whole mix, with the filters that play them.
+    std::int32_t session = 0;
+    effects::Settings session_settings, global_settings;
+    effects::Processor session_filter, global_filter;
 
     std::atomic<std::int32_t> state{0};
     std::atomic<std::uint32_t> sequence{0};
@@ -229,6 +235,74 @@ void read_stamp(const Slot &slot, std::int64_t &position, std::int64_t &time) {
     }
 }
 
+// MARK: - The audio effects
+
+constexpr int effect_words = 9;
+constexpr std::int32_t effect_flag_equalizer = 1, effect_flag_bass_boost = 2, effect_flag_virtualizer = 4,
+                       effect_flag_loudness = 8;
+
+/// One session's effects as a sequence-locked snapshot of plain words: the writer, one guest syscall at a time under
+/// effect_lock, makes `sequence` odd while it writes; the render block reads without a lock, a wait or an allocation.
+struct EffectEntry {
+    std::atomic<std::int32_t> session{-1};  // -1 while free
+    std::atomic<std::uint32_t> sequence{0};
+    std::atomic<std::int32_t> words[effect_words];  // flags, five bands, bass boost, virtualizer, loudness
+};
+
+EffectEntry effect_table[APKRT_AUDIO_EFFECT_SESSIONS];
+[[clang::no_destroy]] constinit std::mutex effect_lock;
+
+effects::Settings settings_of(const std::int32_t (&words)[effect_words]) {
+    effects::Settings settings;
+    settings.equalizer = (words[0] & effect_flag_equalizer) != 0;
+    for (int band = 0; band < effects::kBands; ++band) settings.band_millibel[band] = words[1 + band];
+    settings.bass_boost = (words[0] & effect_flag_bass_boost) != 0;
+    settings.bass_strength = words[6];
+    settings.virtualizer = (words[0] & effect_flag_virtualizer) != 0;
+    settings.virtualizer_strength = words[7];
+    settings.loudness = (words[0] & effect_flag_loudness) != 0;
+    settings.loudness_millibel = words[8];
+    return settings;
+}
+
+enum class Looked { found, missing, busy };
+
+/// The render block's read of `session`'s effects: `settings` is set only for found (and for missing, to none).
+Looked look_up(std::int32_t session, effects::Settings &settings) {
+    for (EffectEntry &entry : effect_table) {
+        if (entry.session.load(std::memory_order_acquire) != session) continue;
+        for (int attempt = 0; attempt < 4; ++attempt) {
+            const std::uint32_t before = entry.sequence.load(std::memory_order_acquire);
+            if ((before & 1) != 0) continue;
+            std::int32_t words[effect_words];
+            for (int index = 0; index < effect_words; ++index) {
+                words[index] = entry.words[index].load(std::memory_order_relaxed);
+            }
+            std::atomic_thread_fence(std::memory_order_acquire);
+            if (entry.sequence.load(std::memory_order_relaxed) != before) continue;
+            if (entry.session.load(std::memory_order_relaxed) != session) break;  // given to another meanwhile
+            settings = settings_of(words);
+            return Looked::found;
+        }
+        return Looked::busy;
+    }
+    settings = effects::Settings{};
+    return Looked::missing;
+}
+
+/// Plays `frames` interleaved frames of `slot` through the effects of its session and then those of the whole mix.
+void apply_effects(Slot &slot, float *buffer, std::int64_t frames) {
+    const float rate = static_cast<float>(slot.rate);
+    if (slot.session != 0) {
+        look_up(slot.session, slot.session_settings);
+        slot.session_filter.set(slot.session_settings, rate);
+        if (!slot.session_filter.idle()) slot.session_filter.process(buffer, frames, slot.channels);
+    }
+    look_up(0, slot.global_settings);
+    slot.global_filter.set(slot.global_settings, rate);
+    if (!slot.global_filter.idle()) slot.global_filter.process(buffer, frames, slot.channels);
+}
+
 /// Appends the mono mix (the channels' average) of `frames` frames of interleaved float32 to the tap's ring.
 void push_tap(Slot &slot, const float *buffer, std::int64_t frames) {
     const auto channels = static_cast<std::size_t>(slot.channels);
@@ -261,6 +335,7 @@ std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::ui
         taken = std::max<std::int64_t>(0, std::min(end - read, frames));
         if (taken > 0) {
             copy_out(slot, read, buffer, taken);
+            apply_effects(slot, buffer, taken);
             push_tap(slot, buffer, taken);
             slot.read.store(read + taken);
             stamp(slot, read, host_time, output_latency.load());
@@ -423,7 +498,7 @@ long open(std::uint64_t config_address) {
     const apkrt_audio_config asked = *config;
     if ((asked.sample_rate != 0 && (asked.sample_rate < lowest_rate || asked.sample_rate > highest_rate)) ||
         asked.channels < 1 || asked.channels > APKRT_AUDIO_CHANNELS || asked.performance_mode < mode_none ||
-        asked.performance_mode > mode_low_latency || asked.direction < 0 || asked.direction > 1) {
+        asked.performance_mode > mode_low_latency || asked.direction < 0 || asked.direction > 1 || asked.session < 0) {
         return -linux_errno::einval;
     }
     const bool input = asked.direction == 1;
@@ -506,6 +581,11 @@ long open(std::uint64_t config_address) {
     slot->burst = burst;
     slot->capacity = capacity;
     slot->ring = ring;
+    slot->session = asked.session;
+    slot->session_settings = effects::Settings{};
+    slot->global_settings = effects::Settings{};
+    slot->session_filter = effects::Processor{};
+    slot->global_filter = effects::Processor{};
     slot->state.store(APKRT_AUDIO_OPEN);
     slot->written.store(0);
     slot->read.store(0);
@@ -675,6 +755,60 @@ long read(std::uint64_t handle, std::uint64_t buffer_address, std::int64_t frame
                 return taken > 0 ? taken : -linux_errno::eintr;
         }
     }
+}
+
+long effect(std::uint64_t address) {
+    const auto *given = sys::as_pointer<const apkrt_audio_effect>(address);
+    if (given == nullptr) return -linux_errno::efault;
+    const apkrt_audio_effect asked = *given;
+    if (asked.session < 0 || asked.kind < APKRT_AUDIO_EFFECT_EQUALIZER || asked.kind > APKRT_AUDIO_EFFECT_LOUDNESS ||
+        (asked.enabled != 0 && asked.enabled != 1) || asked.reserved != 0) {
+        return -linux_errno::einval;
+    }
+    const std::lock_guard hold(effect_lock);
+    EffectEntry *entry = nullptr;
+    EffectEntry *free_entry = nullptr;
+    for (EffectEntry &candidate : effect_table) {
+        const std::int32_t session = candidate.session.load(std::memory_order_relaxed);
+        if (session == asked.session) entry = &candidate;
+        if (session == -1 && free_entry == nullptr) free_entry = &candidate;
+    }
+    if (entry == nullptr) {
+        if (asked.enabled == 0) return 0;  // nothing to switch off
+        if (free_entry == nullptr) return -linux_errno::enospc;
+        entry = free_entry;
+        for (auto &word : entry->words) word.store(0, std::memory_order_relaxed);
+    }
+    std::int32_t words[effect_words];
+    for (int index = 0; index < effect_words; ++index) {
+        words[index] = entry->words[index].load(std::memory_order_relaxed);
+    }
+    const std::int32_t flag = asked.kind == APKRT_AUDIO_EFFECT_EQUALIZER     ? effect_flag_equalizer
+                              : asked.kind == APKRT_AUDIO_EFFECT_BASS_BOOST  ? effect_flag_bass_boost
+                              : asked.kind == APKRT_AUDIO_EFFECT_VIRTUALIZER ? effect_flag_virtualizer
+                                                                             : effect_flag_loudness;
+    if (asked.enabled == 1) {
+        words[0] |= flag;
+        switch (asked.kind) {
+            case APKRT_AUDIO_EFFECT_EQUALIZER:
+                for (int band = 0; band < effects::kBands; ++band) {
+                    words[1 + band] = std::clamp(asked.params[band], -1500, 1500);
+                }
+                break;
+            case APKRT_AUDIO_EFFECT_BASS_BOOST: words[6] = std::clamp(asked.params[0], 0, 1000); break;
+            case APKRT_AUDIO_EFFECT_VIRTUALIZER: words[7] = std::clamp(asked.params[0], 0, 1000); break;
+            default: words[8] = std::clamp(asked.params[0], 0, 2000); break;
+        }
+    } else {
+        words[0] &= ~flag;
+    }
+    entry->sequence.fetch_add(1, std::memory_order_acq_rel);  // odd: the render block waits out the write
+    for (int index = 0; index < effect_words; ++index) {
+        entry->words[index].store(words[index], std::memory_order_relaxed);
+    }
+    entry->session.store(words[0] == 0 ? -1 : asked.session, std::memory_order_release);
+    entry->sequence.fetch_add(1, std::memory_order_release);
+    return 0;
 }
 
 long tap(std::uint64_t buffer_address, std::int64_t frames) {

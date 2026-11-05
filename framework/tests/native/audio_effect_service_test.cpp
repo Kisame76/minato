@@ -229,6 +229,38 @@ void the_other_effects_store_and_clamp() {
     CHECK(get(service, env, param(77), out) == kBadValue);
 }
 
+void the_applied_settings_of_a_session_are_those_of_the_enabled_instances_in_control() {
+    Service service;
+    int eq = 0, eq_loser = 0, loud = 0, boost = 0, other = 0;
+    CHECK(create(service, kEqualizer, 5, 0, nullptr, &eq) == kSuccess);
+    CHECK(create(service, kLoudness, 5, 0, nullptr, &loud) == kSuccess);
+    CHECK(create(service, kBassBoost, 5, 0, nullptr, &boost) == kSuccess);
+    CHECK(create(service, kLoudness, 6, 0, nullptr, &other) == kSuccess);
+    Applied none = service.applied(5);
+    CHECK(!none.equalizer && !none.bass_boost && !none.virtualizer && !none.loudness);  // created, not enabled
+    CHECK(service.set_enabled(eq, true) == kSuccess && service.set_enabled(loud, true) == kSuccess);
+    CHECK(set_short(service, eq, param(2, 2), 1500) == kSuccess);
+    int32_t gain = 600;
+    CHECK(service.set_parameter(loud, param(0).data(), 4, reinterpret_cast<uint8_t *>(&gain), 4) == kSuccess);
+    Applied applied = service.applied(5);
+    CHECK(applied.equalizer && applied.bands[2] == 1500 && applied.bands[0] == 300 && applied.bands[4] == 300);
+    CHECK(applied.loudness && applied.loudness_millibel == 600 && !applied.bass_boost);
+    CHECK(!service.applied(6).loudness && !service.applied(0).equalizer);  // another session, the whole mix
+    // A bass boost takes its strength; the session of another instance does not leak.
+    CHECK(service.set_enabled(boost, true) == kSuccess && set_short(service, boost, param(1), 700) == kSuccess);
+    CHECK(service.applied(5).bass_boost && service.applied(5).bass_strength == 700);
+    // A second equalizer with higher priority has control; the first no longer counts, and its enabled flag with it.
+    CHECK(create(service, kEqualizer, 5, 10, nullptr, &eq_loser) == kSuccess);
+    CHECK(!service.applied(5).equalizer);  // the new one is not enabled
+    CHECK(service.set_enabled(eq_loser, true) == kSuccess);
+    CHECK(service.applied(5).equalizer && service.applied(5).bands[2] == 0);  // its own levels: the defaults
+    service.release(eq_loser);  // control returns to the first, still enabled
+    CHECK(service.applied(5).equalizer && service.applied(5).bands[2] == 1500);
+    service.release(eq);
+    CHECK(!service.applied(5).equalizer);
+    CHECK(service.set_enabled(boost, false) == kSuccess && !service.applied(5).bass_boost);
+}
+
 }  // namespace
 
 int main() {
@@ -238,6 +270,7 @@ int main() {
     the_equalizer_answers_with_the_emulators_values();
     the_equalizer_stores_levels_and_presets();
     the_other_effects_store_and_clamp();
+    the_applied_settings_of_a_session_are_those_of_the_enabled_instances_in_control();
     std::printf("audio_effect_service_test: %s\n", failures == 0 ? "all fine" : "failed");
     return failures == 0 ? 0 : 1;
 }

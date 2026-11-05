@@ -162,8 +162,11 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   only through AssistiveTouch, which turns it into taps, so apps see touches there.
 - Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg Vorbis
   and Opus), `MediaExtractor` (also Ogg Opus) and `MediaCodec` for H.264, HEVC, AAC, MP3, FLAC and Opus (up to 8
-  channels) are in. `MediaCodec` and `MediaExtractor` have no Vorbis yet. Audio effects are accepted but do not change
-  the sound; the Visualizer shows the app's whole mix, before the stream's volume.
+  channels) are in. `MediaCodec` and `MediaExtractor` have no Vorbis yet. The Equalizer, Bass Boost, Virtualizer and
+  Loudness Enhancer change the sound of the `AudioTrack` and AAudio streams of their audio session (session 0: the
+  whole mix, which `SoundPool` takes part in) as an approximation of Android's effect bundle, not bit for bit;
+  `MediaPlayer` is not played through them yet. The reverbs are accepted but do not change the sound. The Visualizer
+  shows the app's whole mix after the effects, before the stream's volume.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
   says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
   cannot reach, emulators' recompilers).
@@ -185,8 +188,8 @@ In plain terms, as a user meets it:
 - On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
 - OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
   missing too.
-- Audio effects (Equalizer, Bass Boost, Virtualizer, Loudness Enhancer, the reverbs) are accepted but do not change the
-  sound.
+- Audio effects: the reverbs are accepted but do not change the sound, `MediaPlayer` does not play through the
+  Equalizer, Bass Boost, Virtualizer and Loudness Enhancer, and their curves approximate Android's.
 
 ## What the library tells you
 

@@ -2,16 +2,21 @@
 // libaudioclient's AudioEffect and the audio server's effect engine. They are the local effect service
 // (audio_effect_service.h): the list of effects Android 15's emulator lists, instances per session with their
 // parameters and enabled state, and control passing between them, told to the Java side's control listener as
-// postEventFromNative(NATIVE_EVENT_CONTROL_STATUS) does. No sample passes through an effect.
+// postEventFromNative(NATIVE_EVENT_CONTROL_STATUS) does. No sample passes through them here: what the Equalizer,
+// Dynamic Bass Boost, Virtualizer and Loudness Enhancer of a session ask for goes to the runtime's mix (audio_effect),
+// which plays the output streams of that session through them.
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
 #include <stdint.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "APKRuntime/guest_interface.h"
 #include "audio_effect_service.h"
 #include "core_jni_helpers.h"
 
@@ -49,6 +54,36 @@ void controlChanged(void *, int id, bool hasControl) {
     env->CallStaticVoidMethod(gFields.effectClass, gFields.postEvent, found->second, NATIVE_EVENT_CONTROL_STATUS,
                               hasControl ? 1 : 0, 0, static_cast<jobject>(nullptr));
     if (env->ExceptionCheck()) env->ExceptionClear();
+}
+
+/// Tells the runtime's mix what `session`'s effects are now: the four sounding kinds, each on or off with its
+/// parameters. gLock is held. A runtime without the call (an old one) answers -ENOSYS and nothing sounds.
+void publish(int session) {
+    const minato::audiofx::Applied applied = gService.applied(session);
+    apkrt_audio_effect effect{};
+    effect.session = session;
+    effect.kind = APKRT_AUDIO_EFFECT_EQUALIZER;
+    effect.enabled = applied.equalizer ? 1 : 0;
+    for (int band = 0; band < minato::audiofx::kBands; ++band) effect.params[band] = applied.bands[band];
+    syscall(APKRT_NR_AUDIO_EFFECT, reinterpret_cast<uint64_t>(&effect));
+    effect = {};
+    effect.session = session;
+    effect.kind = APKRT_AUDIO_EFFECT_BASS_BOOST;
+    effect.enabled = applied.bass_boost ? 1 : 0;
+    effect.params[0] = applied.bass_strength;
+    syscall(APKRT_NR_AUDIO_EFFECT, reinterpret_cast<uint64_t>(&effect));
+    effect = {};
+    effect.session = session;
+    effect.kind = APKRT_AUDIO_EFFECT_VIRTUALIZER;
+    effect.enabled = applied.virtualizer ? 1 : 0;
+    effect.params[0] = applied.virtualizer_strength;
+    syscall(APKRT_NR_AUDIO_EFFECT, reinterpret_cast<uint64_t>(&effect));
+    effect = {};
+    effect.session = session;
+    effect.kind = APKRT_AUDIO_EFFECT_LOUDNESS;
+    effect.enabled = applied.loudness ? 1 : 0;
+    effect.params[0] = applied.loudness_millibel;
+    syscall(APKRT_NR_AUDIO_EFFECT, reinterpret_cast<uint64_t>(&effect));
 }
 
 std::string str(JNIEnv *env, jstring value) {
@@ -137,6 +172,7 @@ jint setup(JNIEnv *env, jobject thiz, jobject weakThis, jstring type, jstring uu
         gService.release(made);
         env->SetLongField(thiz, gFields.nativeInstance, 0);
     }
+    publish(session);  // a new instance may take control from one that sounds
     gEnv = nullptr;
     return status;
 }
@@ -151,7 +187,10 @@ void releaseInstance(JNIEnv *env, jobject thiz) {
         env->DeleteGlobalRef(found->second);
         gObjects.erase(found);
     }
+    minato::audiofx::Instance *instance = gService.get(id);
+    const int session = instance != nullptr ? instance->session : 0;
     gService.release(id);
+    if (instance != nullptr) publish(session);  // control may pass to another instance, or the effect ends
     env->SetLongField(thiz, gFields.nativeInstance, 0);
     gEnv = nullptr;
 }
@@ -166,7 +205,11 @@ void release(JNIEnv *env, jobject thiz) {
 
 jint setEnabled(JNIEnv *env, jobject thiz, jboolean enabled) {
     std::lock_guard<std::mutex> hold(gLock);
-    return gService.set_enabled(instanceOf(env, thiz), enabled);
+    const int id = instanceOf(env, thiz);
+    const int status = gService.set_enabled(id, enabled);
+    minato::audiofx::Instance *instance = gService.get(id);
+    if (status == minato::audiofx::kSuccess && instance != nullptr) publish(instance->session);
+    return status;
 }
 
 jboolean getEnabled(JNIEnv *env, jobject thiz) {
@@ -187,7 +230,11 @@ jint setParameter(JNIEnv *env, jobject thiz, jint psize, jbyteArray param, jint 
     env->GetByteArrayRegion(param, 0, psize, reinterpret_cast<jbyte *>(p.data()));
     env->GetByteArrayRegion(value, 0, vsize, reinterpret_cast<jbyte *>(v.data()));
     std::lock_guard<std::mutex> hold(gLock);
-    return gService.set_parameter(instanceOf(env, thiz), p.data(), psize, v.data(), vsize);
+    const int id = instanceOf(env, thiz);
+    const int status = gService.set_parameter(id, p.data(), psize, v.data(), vsize);
+    minato::audiofx::Instance *instance = gService.get(id);
+    if (status == minato::audiofx::kSuccess && instance != nullptr) publish(instance->session);
+    return status;
 }
 
 jint getParameter(JNIEnv *env, jobject thiz, jint psize, jbyteArray param, jint vsize, jbyteArray value) {

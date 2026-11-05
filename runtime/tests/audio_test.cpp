@@ -44,7 +44,7 @@ using namespace std::chrono_literals;
 
 // Linux: include/uapi/asm-generic/errno-base.h, errno.h.
 constexpr std::int64_t eperm = 1, enoent = 2, eintr = 4, eio = 5, ebadf = 9, efault = 14, enodev = 19, einval = 22,
-                       emfile = 24, epipe = 32, etimedout = 110;
+                       emfile = 24, enospc = 28, epipe = 32, etimedout = 110;
 constexpr std::int64_t millisecond = 1'000'000;  // ns
 constexpr std::int32_t none = 10, power_saving = 11, low_latency = 12;  // AAudio's performance modes
 
@@ -131,14 +131,15 @@ struct Open {
     apkrt_audio_config config;
 };
 
-Open open_stream(std::int32_t rate = 0, std::int32_t channels = 2, std::int32_t mode = low_latency) {
-    Open open{0, {rate, channels, mode, -1, -1, -1, -1, 0}};
+Open open_stream(std::int32_t rate = 0, std::int32_t channels = 2, std::int32_t mode = low_latency,
+                 std::int32_t session = 0) {
+    Open open{0, {rate, channels, mode, -1, -1, -1, -1, 0, session}};
     open.result = call(APKRT_NR_AUDIO_OPEN, {address(&open.config)});
     return open;
 }
 
-std::uint64_t opened(std::int32_t rate = 0, std::int32_t channels = 2) {
-    const Open open = open_stream(rate, channels);
+std::uint64_t opened(std::int32_t rate = 0, std::int32_t channels = 2, std::int32_t session = 0) {
+    const Open open = open_stream(rate, channels, low_latency, session);
     CHECK(open.result > 0);
     return unsigned_of(open.result);
 }
@@ -1153,6 +1154,137 @@ TEST(a_paused_stream_adds_nothing_to_the_tap) {
     const Tapped paused = tap(100);
     CHECK(all_of(paused, 0, 100, 0.0f));
     CHECK(close_stream(stream) == 0);
+}
+
+// MARK: - The audio effects (audio_effect, the real audio effects)
+
+/// audio_effect: `kind` of `session` switched on or off with up to eight parameters.
+std::int64_t set_effect(std::int32_t session, std::int32_t kind, bool enabled,
+                        std::initializer_list<std::int32_t> params) {
+    apkrt_audio_effect effect{};
+    effect.session = session;
+    effect.kind = kind;
+    effect.enabled = enabled ? 1 : 0;
+    std::size_t index = 0;
+    for (const std::int32_t param : params) effect.params[index++] = param;
+    return call(APKRT_NR_AUDIO_EFFECT, {address(&effect)});
+}
+
+/// Writes `samples` (interleaved stereo) to `stream` in pieces the ring holds, reads them as the host does, and gives
+/// what it read.
+std::vector<float> played(std::uint64_t stream, const std::vector<float> &samples) {
+    constexpr std::int64_t piece = 200;
+    std::vector<float> heard;
+    const auto total = static_cast<std::int64_t>(samples.size() / 2);
+    for (std::int64_t first = 0; first < total; first += piece) {
+        const std::int64_t count = std::min(piece, total - first);
+        const auto where = address(samples.data() + 2 * first);
+        CHECK(call(APKRT_NR_AUDIO_WRITE, {stream, where, unsigned_of(count), 0}) == count);
+        const Read read = host_read(stream, count);
+        CHECK(read.count == count);
+        heard.insert(heard.end(), read.samples.begin(), read.samples.begin() + 2 * count);
+    }
+    return heard;
+}
+
+/// The last frame's left sample after `frames` stereo frames of `value` played by `stream` (long enough for the ramp).
+float played_level(std::uint64_t stream, float value, std::int64_t frames = 1200) {
+    const std::vector<float> heard = played(stream, std::vector<float>(static_cast<std::size_t>(2 * frames), value));
+    return heard[heard.size() - 2];
+}
+
+TEST(an_effect_of_a_session_changes_only_the_streams_of_that_session) {
+    use_fake_host();
+    const auto five = opened(0, 2, 5);
+    const auto six = opened(0, 2, 6);
+    const auto plain = opened();
+    CHECK(control(five, APKRT_AUDIO_START) == 0 && control(six, APKRT_AUDIO_START) == 0 &&
+          control(plain, APKRT_AUDIO_START) == 0);
+    CHECK(set_effect(5, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);  // +6 dB
+    CHECK(std::fabs(played_level(five, 0.1f) - 0.2f) < 0.002f);
+    CHECK(std::fabs(played_level(six, 0.1f) - 0.1f) < 1e-6f);
+    CHECK(std::fabs(played_level(plain, 0.1f) - 0.1f) < 1e-6f);
+    CHECK(set_effect(5, APKRT_AUDIO_EFFECT_LOUDNESS, false, {600}) == 0);  // off again: the stream is as before
+    CHECK(std::fabs(played_level(five, 0.1f) - 0.1f) < 1e-6f);
+    CHECK(close_stream(five) == 0 && close_stream(six) == 0 && close_stream(plain) == 0);
+}
+
+TEST(an_effect_of_session_zero_changes_every_stream_and_both_add_up) {
+    use_fake_host();
+    const auto five = opened(0, 2, 5);
+    const auto plain = opened();
+    CHECK(control(five, APKRT_AUDIO_START) == 0 && control(plain, APKRT_AUDIO_START) == 0);
+    CHECK(set_effect(0, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);
+    CHECK(std::fabs(played_level(plain, 0.1f) - 0.2f) < 0.002f);
+    CHECK(std::fabs(played_level(five, 0.1f) - 0.2f) < 0.002f);
+    CHECK(set_effect(5, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);  // session 5 first, then the whole mix: +12 dB
+    CHECK(std::fabs(played_level(five, 0.05f) - 0.2f) < 0.004f);
+    CHECK(set_effect(5, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    CHECK(set_effect(0, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    CHECK(std::fabs(played_level(five, 0.1f) - 0.1f) < 1e-6f);
+    CHECK(close_stream(five) == 0 && close_stream(plain) == 0);
+}
+
+TEST(the_tap_sees_the_signal_after_the_effects) {
+    use_fake_host();
+    const auto stream = opened(0, 2, 7);
+    CHECK(control(stream, APKRT_AUDIO_START) == 0);
+    CHECK(set_effect(7, APKRT_AUDIO_EFFECT_LOUDNESS, true, {600}) == 0);
+    CHECK(played_level(stream, 0.1f) > 0.19f);
+    const Tapped tapped = tap(100);
+    CHECK(tapped.result == 100 && std::fabs(tapped.samples[99] - 0.2f) < 0.002f);
+    CHECK(set_effect(7, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    CHECK(close_stream(stream) == 0);
+}
+
+TEST(an_equalizer_band_boosts_its_own_tone_and_leaves_a_far_one) {
+    use_fake_host();
+    const auto stream = opened(48'000, 2, 8);
+    CHECK(control(stream, APKRT_AUDIO_START) == 0);
+    CHECK(set_effect(8, APKRT_AUDIO_EFFECT_EQUALIZER, true, {0, 0, 1500, 0, 0}) == 0);  // +15 dB at 910 Hz
+    const auto peak_of = [&](double hertz) {
+        std::vector<float> samples(2 * 9600);
+        for (std::size_t frame = 0; frame < 9600; ++frame) {
+            const double phase = 2 * M_PI * hertz * static_cast<double>(frame) / 48'000;
+            samples[2 * frame] = samples[2 * frame + 1] = 0.05f * static_cast<float>(std::sin(phase));
+        }
+        const std::vector<float> heard = played(stream, samples);
+        float peak = 0;
+        for (std::size_t frame = 4800; frame < 9600; ++frame) peak = std::max(peak, std::fabs(heard[2 * frame]));
+        return peak;
+    };
+    const float boosted = peak_of(910), far = peak_of(60);
+    CHECK(boosted > 0.05f * 4.5f && boosted < 0.05f * 6.5f);  // about +15 dB
+    CHECK(far > 0.05f * 0.9f && far < 0.05f * 1.15f);
+    CHECK(set_effect(8, APKRT_AUDIO_EFFECT_EQUALIZER, false, {0, 0, 0, 0, 0}) == 0);
+    CHECK(close_stream(stream) == 0);
+}
+
+TEST(the_effect_call_refuses_bad_arguments_and_a_full_table) {
+    use_fake_host();
+    CHECK(call(APKRT_NR_AUDIO_EFFECT, {0}) == -efault);
+    CHECK(set_effect(-1, APKRT_AUDIO_EFFECT_LOUDNESS, true, {100}) == -einval);
+    CHECK(set_effect(3, 0, true, {100}) == -einval);
+    CHECK(set_effect(3, 5, true, {100}) == -einval);
+    apkrt_audio_effect effect{};
+    effect.session = 3;
+    effect.kind = APKRT_AUDIO_EFFECT_LOUDNESS;
+    effect.enabled = 2;
+    CHECK(call(APKRT_NR_AUDIO_EFFECT, {address(&effect)}) == -einval);
+    effect.enabled = 1;
+    effect.reserved = 1;
+    CHECK(call(APKRT_NR_AUDIO_EFFECT, {address(&effect)}) == -einval);
+    for (std::int32_t session = 100; session < 100 + APKRT_AUDIO_EFFECT_SESSIONS; ++session) {
+        CHECK(set_effect(session, APKRT_AUDIO_EFFECT_LOUDNESS, true, {100}) == 0);
+    }
+    CHECK(set_effect(999, APKRT_AUDIO_EFFECT_LOUDNESS, true, {100}) == -enospc);
+    CHECK(set_effect(999, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);  // switching off needs no place
+    CHECK(set_effect(100, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);  // a place falls free
+    CHECK(set_effect(999, APKRT_AUDIO_EFFECT_LOUDNESS, true, {100}) == 0);
+    for (std::int32_t session = 101; session < 100 + APKRT_AUDIO_EFFECT_SESSIONS; ++session) {
+        CHECK(set_effect(session, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
+    }
+    CHECK(set_effect(999, APKRT_AUDIO_EFFECT_LOUDNESS, false, {0}) == 0);
 }
 
 }  // namespace
