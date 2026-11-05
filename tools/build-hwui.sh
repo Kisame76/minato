@@ -27,6 +27,6 @@ pfx="$(tools/prefix-map-flags.sh "$NDK")"
 cmake -S graphics/hwui -B "$build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-35 -DANDROID_STL=none \
-  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
+  -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" -DAPK_PREFIX_MAP="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$build" "$@"

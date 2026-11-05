@@ -62,9 +62,13 @@ endforeach()
 # time. The language standards come from the plan, after the module's cflags, where Soong puts them (ADR-0043 a2): one
 # of ours before them would win over the plan's when they are equal, since CMake drops a repeated option.
 set(hwui_target "--target=aarch64-linux-android10000")
+# The -ffile-prefix-map flags that keep the Mac's build paths out of libhwui (tools/prefix-map-flags.sh,
+# tools/check-no-build-paths.sh). They must ride on the per-unit flags below: the NDK toolchain file's
+# CMAKE_CXX_FLAGS_INIT wins over a -DCMAKE_CXX_FLAGS, so flags passed that way never reach hwui_unit's compiles.
+separate_arguments(apk_prefix_map NATIVE_COMMAND "${APK_PREFIX_MAP}")
 set(hwui_flags ${hwui_target} -nostdlibinc -fPIC -ffunction-sections -fdata-sections -fno-short-enums -funwind-tables
   -fstack-protector-strong -fno-exceptions -fno-strict-aliasing -ffp-contract=off -ftrivial-auto-var-init=zero
-  -march=armv8-a -O2 -DANDROID -DNDEBUG -D__BIONIC_NO_PAGE_SIZE_MACRO)
+  -march=armv8-a -O2 -DANDROID -DNDEBUG -D__BIONIC_NO_PAGE_SIZE_MACRO ${apk_prefix_map})
 set(hwui_cppflags -fno-rtti -fvisibility-inlines-hidden -Wsign-promo -Wno-gnu-include-next -DFMT_CONSTEVAL=
   -Wno-invalid-specialization)
 set(hwui_link_flags ${hwui_target} -nostdlib -Wl,--no-undefined -Wl,-z,max-page-size=16384 -Wl,-z,noexecstack
