@@ -227,8 +227,12 @@ constexpr std::size_t pick_live_limit = 4;      // requests that wait for their 
 /// no zero-width or bidirectional formatting characters, no byte order mark, no interlinear annotation marks.
 bool plain_code_point(std::uint32_t point) {
     if (point < 0x20 || (point >= 0x7f && point <= 0x9f)) return false;
+    if (point == 0x34f || point == 0x61c) return false;  // combining grapheme joiner, Arabic letter mark
     if ((point >= 0x200b && point <= 0x200f) || (point >= 0x2028 && point <= 0x202e)) return false;
     if (point >= 0x2060 && point <= 0x206f) return false;
+    // The stray tag characters, but not the flag tags U+E0020-E007F, which a subdivision flag (U+1F3F4 and then tags)
+    // is made of, so those stay whole; a URL or file name drops them instead (visible_code_point).
+    if (point >= 0xe0000 && point <= 0xe001f) return false;
     return point != 0xfeff && !(point >= 0xfff9 && point <= 0xfffb);
 }
 

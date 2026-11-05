@@ -859,6 +859,12 @@ TEST(a_malformed_or_oversized_notification_request_is_refused_before_the_host_se
     CHECK(refused(post("1", "", "3", "0", "0", "", "a\rb")) && refused(post("1", "", "3", "0", "0", "", "a\x07")));
     CHECK(refused(post("1", "", "3", "0", "0", "\xE2\x80\xAE", "")));                // U+202E, a bidi override
     CHECK(refused(post("1", "", "3", "0", "0", "", "\xE2\x80\x8B")));                // U+200B
+    CHECK(refused(post("1", "", "3", "0", "0", "\xD8\x9C", "")));                    // U+061C, Arabic letter mark
+    CHECK(refused(post("1", "", "3", "0", "0", "", "\xCD\x8F")));                    // U+034F, combining grapheme joiner
+    CHECK(refused(post("1", "", "3", "0", "0", "", "\xF3\xA0\x80\x80")));            // U+E0000, a stray tag character
+    CHECK(refused(post("1", "", "3", "0", "0", "", "\xF3\xA0\x80\x9F")));            // U+E001F, a stray tag character
+    // A subdivision flag (U+1F3F4 then flag tags U+E0020-E007F) stays whole; here U+1F3F4, a tag and the cancel tag.
+    CHECK(accepted(post("1", "", "3", "0", "0", "", "\xF0\x9F\x8F\xB4\xF3\xA0\x81\xA7\xF3\xA0\x81\xBF")));
     CHECK(refused(post("1", "", "3", "0", "0", "", "\xC0\xAF")));                     // overlong UTF-8
     CHECK(refused(post("1", "\xE2\x82", "3", "0", "0", "", "")));                     // cut at a field's end
     CHECK(refused(post("1", "", "3", "0", "0", "", "x\xE2")));                         // cut at the text's end
