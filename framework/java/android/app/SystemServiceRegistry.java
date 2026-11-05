@@ -31,6 +31,7 @@ import android.hardware.display.DisplayManager;
 import android.app.usage.IUsageStatsManager;
 import android.app.usage.UsageStatsManager;
 import android.app.admin.DevicePolicyManager;
+import android.content.pm.LauncherApps;
 import android.content.IRestrictionsManager;
 import android.content.RestrictionsManager;
 import android.hardware.ConsumerIrManager;
@@ -217,6 +218,11 @@ final class SystemServiceRegistry {
         // Gap 1, batch C: ours under AOSP's name, a device with no admin, owner or managed profile.
         cached(Context.DEVICE_POLICY_SERVICE, DevicePolicyManager.class,
                 ctx -> new DevicePolicyManager(ctx.getOuterContext()));
+        // Gap 1, batch D: ours under AOSP's name, generated with the written part of framework/managers
+        // (WallpaperManager answers for an app without wallpaper permissions; LauncherApps names the app's own package
+        // only).
+        cached(Context.WALLPAPER_SERVICE, WallpaperManager.class, ctx -> new WallpaperManager(ctx.getOuterContext()));
+        cached(Context.LAUNCHER_APPS_SERVICE, LauncherApps.class, ctx -> new LauncherApps(ctx.getOuterContext()));
     }
 
     private SystemServiceRegistry() {

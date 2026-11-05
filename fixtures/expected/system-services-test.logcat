@@ -70,4 +70,18 @@ I/system-services-test: canonical with .. /storage/emulated/0/Android/data
 I/system-services-test: canonical external files /storage/emulated/0/Android/data/<pkg>/files
 I/system-services-test: canonical missing below /sdcard /storage/emulated/0/no-such-folder/x
 I/system-services-test: canonical dangling link /data/data/<pkg>/cache/dangling
+I/system-services-test: wallpaper manager: android.app.WallpaperManager, the same by class true, by getInstance true
+I/system-services-test: wallpaper supported true, set allowed true, info null
+I/system-services-test: peek drawable java.lang.SecurityException, drawable java.lang.SecurityException, built-in android.graphics.drawable.BitmapDrawable
+I/system-services-test: wallpaper colors true
+I/system-services-test: wallpaper file java.lang.SecurityException
+I/system-services-test: set bitmap java.lang.SecurityException
+I/system-services-test: clear java.lang.SecurityException
+I/system-services-test: launcher apps: android.content.pm.LauncherApps, the same by class true
+I/system-services-test: shortcut host permission false, profiles 1
+I/system-services-test: own activities <pkg>/.ServicesActivity
+I/system-services-test: own application <pkg>, enabled true
+I/system-services-test: own main activity enabled true
+I/system-services-test: resolved none
+I/system-services-test: shortcuts java.lang.SecurityException
 I/system-services-test: done

@@ -6,12 +6,15 @@ import android.app.GameManager;
 import android.app.KeyguardManager;
 import android.app.SearchManager;
 import android.app.UiModeManager;
+import android.app.WallpaperManager;
 import android.app.admin.DevicePolicyManager;
 import android.app.usage.UsageStatsManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.RestrictionsManager;
+import android.content.pm.LauncherActivityInfo;
+import android.content.pm.LauncherApps;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.content.res.Configuration;
@@ -24,6 +27,8 @@ import android.media.metrics.PlaybackSession;
 import android.media.metrics.PlaybackStateEvent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Process;
+import android.os.UserHandle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
@@ -126,6 +131,8 @@ public class ServicesActivity extends Activity {
         smallServices();
         devicePolicy();
         canonicalPaths();
+        wallpaper();
+        launcherApps();
         Log.i(mTag, "done");
     }
 
@@ -376,6 +383,93 @@ public class ServicesActivity extends Activity {
         } catch (ErrnoException e) {
             Log.i(mTag, "links: " + e.getMessage());
         }
+    }
+
+    /** An answer with the package name shortened to <pkg>. */
+    private String shown(java.util.concurrent.Callable<?> call) {
+        return answer(call).replace(getPackageName(), "<pkg>");
+    }
+
+    private static String className(Object object) {
+        return object == null ? "null" : object.getClass().getName();
+    }
+
+    /** The wallpaper manager as theme and launcher libraries ask it, without the wallpaper permissions. */
+    private void wallpaper() {
+        final Context application = getApplicationContext();
+        final WallpaperManager manager = (WallpaperManager) application.getSystemService(Context.WALLPAPER_SERVICE);
+        Log.i(mTag, "wallpaper manager: " + name(manager) + ", the same by class "
+                + (manager == application.getSystemService(WallpaperManager.class)) + ", by getInstance "
+                + (manager == WallpaperManager.getInstance(application)));
+        if (manager == null) {
+            return;
+        }
+        Log.i(mTag, "wallpaper supported " + shown(() -> manager.isWallpaperSupported()) + ", set allowed "
+                + shown(() -> manager.isSetWallpaperAllowed()) + ", info " + shown(() -> manager.getWallpaperInfo()));
+        Log.i(mDevice, "desired minimum " + shown(() -> manager.getDesiredMinimumWidth()) + " x "
+                + shown(() -> manager.getDesiredMinimumHeight()));
+        Log.i(mDevice, "wallpaper ids " + shown(() -> manager.getWallpaperId(WallpaperManager.FLAG_SYSTEM)) + ", "
+                + shown(() -> manager.getWallpaperId(WallpaperManager.FLAG_LOCK)));
+        Log.i(mTag, "peek drawable " + shown(() -> className(manager.peekDrawable())) + ", drawable "
+                + shown(() -> className(manager.getDrawable())) + ", built-in "
+                + shown(() -> className(manager.getBuiltInDrawable())));
+        Log.i(mTag, "wallpaper colors "
+                + shown(() -> manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM) != null));
+        Log.i(mTag, "wallpaper file " + shown(() -> manager.getWallpaperFile(WallpaperManager.FLAG_SYSTEM) != null));
+        Log.i(mTag, "set bitmap " + shown(() -> {
+            manager.setBitmap(android.graphics.Bitmap.createBitmap(2, 2, android.graphics.Bitmap.Config.ARGB_8888));
+            return "ok";
+        }));
+        Log.i(mTag, "clear " + shown(() -> {
+            manager.clear();
+            return "ok";
+        }));
+    }
+
+    /** The launcher apps as shortcut libraries ask it: the app's own package and its profiles only. */
+    private void launcherApps() {
+        final Context application = getApplicationContext();
+        final LauncherApps launcher = (LauncherApps) application.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+        Log.i(mTag, "launcher apps: " + name(launcher) + ", the same by class "
+                + (launcher == application.getSystemService(LauncherApps.class)));
+        if (launcher == null) {
+            return;
+        }
+        final UserHandle user = Process.myUserHandle();
+        final String pkg = getPackageName();
+        Log.i(mTag, "shortcut host permission " + shown(() -> launcher.hasShortcutHostPermission()) + ", profiles "
+                + shown(() -> launcher.getProfiles().size()));
+        Log.i(mTag, "own activities " + shown(() -> {
+            final StringBuilder names = new StringBuilder();
+            for (LauncherActivityInfo info : launcher.getActivityList(pkg, user)) {
+                names.append(info.getComponentName().flattenToShortString()).append(' ');
+            }
+            return names.toString().trim();
+        }));
+        Log.i(mTag, "own application " + shown(() -> launcher.getApplicationInfo(pkg, 0, user).packageName)
+                + ", enabled " + shown(() -> launcher.isPackageEnabled(pkg, user)));
+        Log.i(mTag, "own main activity enabled " + shown(() -> launcher.isActivityEnabled(getComponentName(), user)));
+        final Intent main = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg);
+        Log.i(mTag, "resolved " + shown(() -> launcher.resolveActivity(main, user) == null ? "none" : "found"));
+        // Another app of the device. Android's service shows it to the app (measured: Settings is enabled, listed, and
+        // the full list holds other apps), Minato's never names another app (the privacy rule: a guest must not learn
+        // the user's other apps), so these lines are the device's and the rule is checked by the line after them.
+        final String other = shown(() -> launcher.isPackageEnabled("com.android.settings", user));
+        final String otherActivities = shown(() -> launcher.getActivityList("com.android.settings", user).size());
+        final String allOwn = shown(() -> {
+            for (LauncherActivityInfo info : launcher.getActivityList(null, user)) {
+                if (!info.getComponentName().getPackageName().equals(pkg)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+        Log.i(mDevice, "settings package enabled " + other + ", activities " + otherActivities
+                + ", all activities are the app's own " + allOwn);
+        Log.i(mDevice, "launcher apps name no other app "
+                + (other.equals("false") && otherActivities.equals("0") && allOwn.equals("true")));
+        Log.i(mTag, "shortcuts " + shown(() -> launcher.getShortcuts(
+                new LauncherApps.ShortcutQuery().setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC), user)));
     }
 
     private void uiMode() {

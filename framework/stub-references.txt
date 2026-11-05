@@ -249,7 +249,6 @@ android.view.translation.TranslationResponseValue <- android.view.translation.Vi
 # Activity's signature types (the Unity test APK retest 10): the types they take in reach these.
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
-android.content.pm.LauncherApps <- android.appwidget.AppWidgetHostView  # stays: a widget host view's click launches the widget's activity through the launcher apps service, and Minato hosts no widget
 android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub and Proxy, which the local vibrator manager service never runs
 android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), which the local location service never delivers
 android.location.GnssMeasurementCorrections <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs

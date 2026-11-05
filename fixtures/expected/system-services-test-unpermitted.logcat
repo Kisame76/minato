@@ -70,4 +70,18 @@ I/system-services-test-unpermitted: canonical with .. /storage/emulated/0/Androi
 I/system-services-test-unpermitted: canonical external files /storage/emulated/0/Android/data/<pkg>/files
 I/system-services-test-unpermitted: canonical missing below /sdcard /storage/emulated/0/no-such-folder/x
 I/system-services-test-unpermitted: canonical dangling link /data/data/<pkg>/cache/dangling
+I/system-services-test-unpermitted: wallpaper manager: android.app.WallpaperManager, the same by class true, by getInstance true
+I/system-services-test-unpermitted: wallpaper supported true, set allowed true, info null
+I/system-services-test-unpermitted: peek drawable java.lang.SecurityException, drawable java.lang.SecurityException, built-in android.graphics.drawable.BitmapDrawable
+I/system-services-test-unpermitted: wallpaper colors true
+I/system-services-test-unpermitted: wallpaper file java.lang.SecurityException
+I/system-services-test-unpermitted: set bitmap java.lang.SecurityException
+I/system-services-test-unpermitted: clear java.lang.SecurityException
+I/system-services-test-unpermitted: launcher apps: android.content.pm.LauncherApps, the same by class true
+I/system-services-test-unpermitted: shortcut host permission false, profiles 1
+I/system-services-test-unpermitted: own activities <pkg>/io.github.kisame76.minato.test.systemservices.ServicesActivity
+I/system-services-test-unpermitted: own application <pkg>, enabled true
+I/system-services-test-unpermitted: own main activity enabled true
+I/system-services-test-unpermitted: resolved none
+I/system-services-test-unpermitted: shortcuts java.lang.SecurityException
 I/system-services-test-unpermitted: done
