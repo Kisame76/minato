@@ -57,9 +57,11 @@ std::optional<std::string> host_path(std::string_view guest);
 /// reach the storage below.
 bool is_implied_directory(std::string_view guest);
 
-/// An open folder descriptor of some directory mount strictly below `guest`, for a statfs of such a parent directory
-/// (its file system is the one the storage below it lives on); nullopt when none below it is a directory. The folder
-/// stays open as the mount table keeps it, so the descriptor is read-only and must not be closed.
+/// A fresh descriptor (a dup, taken under the mount lock) of some directory mount strictly below `guest`, for a statfs
+/// of such a parent directory (its file system is the one the storage below it lives on); nullopt when none below it
+/// is a directory. The caller owns it and must close it: it is a dup rather than the mount's own fd so that an unmount
+/// or replace closing that fd, and a reuse of its number, cannot make the caller's fstatfs answer for another file
+/// system between this call and the read.
 std::optional<int> a_mount_folder_below(std::string_view guest);
 
 /// Where a guest path lies for a host call (ADR-0052): below `folder`, a descriptor of its mounted folder, which the

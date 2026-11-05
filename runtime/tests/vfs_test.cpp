@@ -5,6 +5,7 @@
 #include "check.h"
 
 #include <fcntl.h>
+#include <sys/mount.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -61,6 +62,29 @@ TEST(a_mount_covers_its_path_and_everything_below) {
     CHECK(!host_path("/data/local"));
     CHECK(!host_path("/"));
     CHECK(!host_path("/system/lib64/libc.so"));
+}
+
+TEST(a_mount_folder_below_hands_back_an_fd_that_outlives_the_mount) {
+    apkrt::vfs::reset();
+    const std::string dir = temp_dir();
+    CHECK(!dir.empty());
+    // A directory mount strictly below /storage/emulated/0, so a_mount_folder_below(the parent) finds it.
+    apkrt::vfs::mount("/storage/emulated/0/Android/data/test", dir);
+    const auto below = apkrt::vfs::a_mount_folder_below("/storage/emulated/0");
+    CHECK(below.has_value());
+    struct statfs expected;
+    CHECK(::fstatfs(*below, &expected) == 0);
+    // A reset() closes the mount's own folder fd (close_folder), as an unmount's replace does. The descriptor the
+    // caller holds must still name the same file system -- a dup, not a closed or reused fd (the race Formate found:
+    // a concurrent unmount closes the fd, its number is reused, and fstatfs then answers for another file system).
+    apkrt::vfs::reset();
+    const int filler = ::open("/dev/null", O_RDONLY);  // likely reuses the just-closed fd number
+    struct statfs got;
+    CHECK(::fstatfs(*below, &got) == 0);
+    CHECK(got.f_fsid.val[0] == expected.f_fsid.val[0] && got.f_fsid.val[1] == expected.f_fsid.val[1]);
+    if (filler >= 0) ::close(filler);
+    ::close(*below);  // the caller owns the dup now
+    ::rmdir(dir.c_str());
 }
 
 TEST(the_longest_mount_wins) {

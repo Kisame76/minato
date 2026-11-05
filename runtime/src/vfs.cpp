@@ -307,7 +307,14 @@ std::optional<int> a_mount_folder_below(std::string_view guest) {
     for (auto &mount : mounts) {
         if (mount.guest.size() > guest.size() && covers(guest, mount.guest)) {
             open_folder(mount);
-            if (mount.folder >= 0) return mount.folder;  // a directory on the file system below `guest`, not a file
+            // A dup of the folder, taken under the lock: a stable descriptor of the same open directory, which a
+            // concurrent unmount or replace closing mount.folder (and a reuse of its number) cannot turn into another
+            // file system. The caller owns it and closes it (the raw fd used to be handed out and read after the
+            // lock, racing such a close -- fstatfs then answered for another file system).
+            if (mount.folder >= 0) {
+                const int duplicate = ::dup(mount.folder);
+                if (duplicate >= 0) return duplicate;
+            }
         }
     }
     return std::nullopt;

@@ -1744,8 +1744,13 @@ long sys_statfs(std::uint64_t path, std::uint64_t buffer) {
         // storage below it lives on, so getUsableSpace/StatFs/statvfs there report the volume's space, as on Android.
         if (host.error == -linux_errno::enoent) {
             if (const auto folder = vfs::a_mount_folder_below(host.guest)) {
+                // a_mount_folder_below hands back a dup the caller owns; close it on every path (the fstatfs happens
+                // on a stable fd an unmount cannot turn into another file system).
                 struct statfs below;
-                if (::fstatfs(*folder, &below) != 0) return -to_linux_errno(errno);
+                const int answer = ::fstatfs(*folder, &below);
+                const int error = errno;
+                ::close(*folder);
+                if (answer != 0) return -to_linux_errno(error);
                 *as_pointer<LinuxStatfs>(buffer) = to_linux_statfs(below, read_only(host.guest));
                 return 0;
             }
