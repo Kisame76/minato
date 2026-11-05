@@ -33,13 +33,19 @@
    code, with no island-table entry), so a version-6 container still loads; the bump only forces the
    reconvert. The converter writes this current version; the loader reads back to
    APK_CONTAINER_OLDEST_VERSION, each at the size its own version had. */
-#define APK_CONTAINER_VERSION 7
+#define APK_CONTAINER_VERSION 8
 #define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
+/* 8: the entry-hook table (ADR-0072 decision 3 b): a library that exports ffi_closure_alloc, ffi_closure_free and
+   ffi_prep_closure_loc has their first instructions redirected, so that a call by direct branch, which no
+   relocation names, reaches the loader's override too. A version 7 or older __apk_info ends before the fields. */
 /* From this version a container may hold the (c) R-range table (apk_c_range): the PC ranges where a renamed
    function keeps the guest x18 in a register, so the signal path hands a handler that register's value rather
    than the stale TSD slot 11 (ADR-0020 must-have 6). A container below this version has no ranges; its
    __apk_info ends before the c_ranges fields, so the loader requires only that shorter size for it. */
 #define APK_CONTAINER_RANGES_VERSION 6
+#define APK_CONTAINER_ENTRY_HOOKS_VERSION 8
+/* At most this many entry hooks in a container: the slots the loader fills (apk_runtime_slots.hook). */
+#define APK_MAX_ENTRY_HOOKS 7
 /* From this version an EXCLUSIVE island is resumable (its `commit` is the preamble length); an older
    container's EXCLUSIVE islands are restartable (`commit` a commit point), so settle() reads them the
    old way and reenter() leaves them alone. */
@@ -94,6 +100,11 @@ struct apk_container_info {
     uint64_t c_ranges;        // from the Mach-O header to the table of R-ranges (struct apk_c_range), in __TEXT
     uint32_t c_range_count;
     uint32_t reserved2;
+    // Version 8 (ADR-0072 decision 3 b): the entry hooks, in __TEXT; 0 of them when the library has none. A container
+    // below version 8 ends before these fields.
+    uint64_t entry_hooks;  // from the Mach-O header to the table of entry hooks (struct apk_entry_hook)
+    uint32_t entry_hook_count;
+    uint32_t reserved3;
 };
 
 /// apk_run.flags
@@ -159,11 +170,24 @@ struct apk_island {
     uint8_t resume;   // words from the site to the word after the commit; for a window, its own words
 };
 
+/// One function whose first instruction the converter replaced by a branch to `hook`'s stub (ADR-0072 decision 3 b).
+/// The stub loads the address in the container's runtime slot `hook[index]` (the index of the entry in the table) and
+/// branches to it. The loader fills the slot with the stub `original`, which runs the displaced instruction and
+/// continues at entry + 4, so that the function runs unchanged, or with an override's replacement. `entry` and
+/// `original` are from the Mach-O header, like apk_island.site; the hook stub follows the original at +12.
+struct apk_entry_hook {
+    char name[32];      // the function's name, NUL-terminated
+    uint32_t entry;     // the function's first word
+    uint32_t original;  // the stub that runs the displaced word and continues at entry + 4
+    uint32_t reserved[2];
+};
+
 /// In __DATA, written by the loader before any guest code runs.
 struct apk_runtime_slots {
     /// Address of the Linux syscall entry. Every svc veneer calls through this slot.
     uint64_t syscall_entry;
-    uint64_t reserved[7];
+    /// Version 8: where the stub of entry hook i branches to; the original stub's address unless an override applies.
+    uint64_t hook[APK_MAX_ENTRY_HOOKS];
 };
 
 #endif

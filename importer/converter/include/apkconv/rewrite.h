@@ -225,6 +225,25 @@ std::size_t c_entry_stub_size(std::uint32_t first);
 std::uint32_t emit_c_entry(unsigned reg, std::uint32_t first, std::uint64_t begin_address, std::uint64_t stub_address,
                            std::span<std::byte> stub);
 
+/// Whether the entry-hook stubs can run a function's first instruction `first` (ADR-0072 decision 3 b): a plain
+/// instruction (c_entry_runs_first_instruction: not pc-relative) or a direct branch (B, B.cond, CBZ/CBNZ, TBZ/TBNZ,
+/// whose target the stub keeps), not a call, a register branch or a return; and nothing that names x16 or x17, which
+/// the hook stub clobbers before the original stub runs it.
+bool entry_hook_runs_first_instruction(std::uint32_t first);
+
+/// Bytes an entry hook needs in the stub area: the original stub (3 words: the displaced first instruction and a
+/// branch to entry + 4; for a conditional branch, the branch two words ahead, the branch to entry + 4 and a wide
+/// branch to its target) followed by the hook stub (adrp, ldr, br x16 through the hook's runtime slot, a nop).
+std::size_t entry_hook_stub_size();
+
+/// Writes the two stubs into `stub` (exactly entry_hook_stub_size bytes) at container address `stub_address`:
+/// the original at `stub_address`, the hook at `stub_address + 12`. The hook loads the 8 bytes at `slot_address`
+/// (apk_runtime_slots.hook[i]), which the loader fills, and branches to them. Throws RewriteError for a first
+/// instruction entry_hook_runs_first_instruction refuses. Returns the branch to the hook stub that replaces `first` at
+/// `entry_address`.
+std::uint32_t emit_entry_hook(std::uint32_t first, std::uint64_t entry_address, std::uint64_t stub_address,
+                              std::uint64_t slot_address, std::span<std::byte> stub);
+
 /// An exit island of a renamed function (ADR-0020 option c), for a return or an indirect tail branch. Bytes it
 /// needs in the stub area.
 std::size_t c_exit_stub_size(std::uint32_t exit);

@@ -20,7 +20,7 @@ import sys
 
 FIXTURES = ["ffi-closure-test", "libfake-ffi.so", "libfake-ffi-sym.so"]
 LIBRARY = "libminato-ffi.so"
-STATIC_HOOKED = False
+STATIC_HOOKED = True
 REFUSED = ["ffi-closure-test: closure 0: no executable memory"]
 
 
@@ -80,7 +80,9 @@ def main():
     cases = (([], False, REFUSED, 1, "import without the library"),
              ([], True, android, 0, "import with the library"),
              (["symbolic"], True, android if STATIC_HOOKED else REFUSED, 0 if STATIC_HOOKED else 1,
-              "symbolic with the library"))
+              "symbolic with the library"),
+             (["symbolic-dlsym"], True, android if STATIC_HOOKED else REFUSED, 0 if STATIC_HOOKED else 1,
+              "symbolic, names looked up with dlsym"))
     for arguments, with_library, lines, status, label in cases:
         result = run(arguments, system if with_library else without)
         if result.returncode != status or result.stdout.splitlines() != lines:

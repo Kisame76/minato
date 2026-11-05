@@ -295,12 +295,15 @@ Image load(const std::string &path) {
                                     APK_CONTAINER_SECTION));
     }
     // Each version carries its own __apk_info size: version 2 ends before the runs, versions 3 to 5 before the (c)
-    // R-ranges, version 6 the whole struct. A container must hold at least what its version promises; a newer field
+    // R-ranges, version 6 and 7 before the entry hooks, version 8 the whole struct. A container must hold at least
+    // what its version promises; a newer field
     // is read only for the versions that have it (writable_part reads the runs only for >= 3; islands::c_ranges the
     // ranges only for >= APK_CONTAINER_RANGES_VERSION).
     const std::size_t required = info->version < 3 ? version_2_size
                                  : info->version < APK_CONTAINER_RANGES_VERSION
                                        ? offsetof(apk_container_info, c_ranges)
+                                 : info->version < APK_CONTAINER_ENTRY_HOOKS_VERSION
+                                       ? offsetof(apk_container_info, entry_hooks)
                                        : sizeof(apk_container_info);
     if (info->version < APK_CONTAINER_OLDEST_VERSION || info->version > APK_CONTAINER_VERSION || size < required) {
         throw LoadError(std::format("{}: container version {}, this runtime reads versions {} to {}", resolved,
@@ -310,12 +313,37 @@ Image load(const std::string &path) {
     const auto base = reinterpret_cast<std::uint64_t>(header);
     auto *slots = reinterpret_cast<apk_runtime_slots *>(base + info->runtime_slots);
     slots->syscall_entry = reinterpret_cast<std::uint64_t>(&apkrt_syscall_entry);
+    // Entry hooks (ADR-0072 decision 3 b): until an override applies (dl.cpp apply_entry_hooks), a hooked function runs
+    // through its original stub, unchanged.
+    if (info->version >= APK_CONTAINER_ENTRY_HOOKS_VERSION && info->entry_hook_count != 0) {
+        if (info->entry_hook_count > APK_MAX_ENTRY_HOOKS) {
+            throw LoadError(std::format("{}: {} entry hooks, at most {}", resolved, info->entry_hook_count,
+                                        APK_MAX_ENTRY_HOOKS));
+        }
+        const auto *hooks = reinterpret_cast<const apk_entry_hook *>(base + info->entry_hooks);
+        for (std::uint32_t index = 0; index < info->entry_hook_count; ++index) {
+            slots->hook[index] = base + hooks[index].original;
+        }
+    }
     // Where a signal handler finds the x18 islands of the container (ADR-0020 X4).
     std::string_view name(resolved);
     name.remove_prefix(name.rfind('/') + 1);
     if (name.ends_with(".dylib")) name.remove_suffix(std::string_view(".dylib").size());
     islands::add(header, *info, name);
     return Image{.header = header, .info = info, .bias = base + info->image_offset - info->min_vaddr};
+}
+
+std::uint64_t entry_hook_original(const Image &image, std::string_view name) {
+    const auto *info = image.info;
+    if (info == nullptr || info->version < APK_CONTAINER_ENTRY_HOOKS_VERSION) return 0;
+    const auto base = reinterpret_cast<std::uint64_t>(image.header);
+    const auto *hooks = reinterpret_cast<const apk_entry_hook *>(base + info->entry_hooks);
+    for (std::uint32_t index = 0; index < info->entry_hook_count && index < APK_MAX_ENTRY_HOOKS; ++index) {
+        if (std::string_view(hooks[index].name, ::strnlen(hooks[index].name, sizeof hooks[index].name)) == name) {
+            return base + hooks[index].original;
+        }
+    }
+    return 0;
 }
 
 void relocate(const Image &image) {

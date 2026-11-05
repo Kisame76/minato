@@ -296,6 +296,10 @@ int convert(std::vector<std::string> arguments) {
                      "of stubs)\n",
                      report.thread_pointer_reads, report.thread_pointer_writes, report.syscalls,
                      report.cache_type_reads, report.stub_bytes)
+              << (report.entry_hooks == 0
+                      ? std::string()
+                      : std::format("  entry hooks: {} libffi entries redirected to the loader's override\n",
+                                    report.entry_hooks))
               << std::format("  x18: {} island{} ({} bytes of island table), of them {} only writing x18, {} saving "
                              "it in a register dump\n",
                              report.x18_islands, report.x18_islands == 1 ? "" : "s", report.island_table_bytes,

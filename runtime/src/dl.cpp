@@ -700,6 +700,29 @@ Namespace *as_namespace(State &state, const void *handle) {
     return nullptr;
 }
 
+/// Entry hooks (ADR-0072 decision 3 b): a container whose converter redirected the first instruction of a function
+/// (libffi's closure functions, called by direct branch inside their library) has a slot per hook, which the loader
+/// set to the hook's original stub. Where an override of the function's name applies to this object
+/// (linker::override_for, the same rule as for a relocation), the slot becomes the override's replacement.
+/// override_for itself gives the override the original stub as its `original`, here and wherever else it resolves the
+/// name (dlsym, a later import).
+void apply_entry_hooks(const Library &library) {
+    const auto &image = library.object.image;
+    const auto *info = image.info;
+    if (info == nullptr || info->version < APK_CONTAINER_ENTRY_HOOKS_VERSION || info->entry_hook_count == 0) return;
+    const auto base = reinterpret_cast<std::uint64_t>(image.header);
+    auto *slots = reinterpret_cast<apk_runtime_slots *>(base + info->runtime_slots);
+    const auto *hooks = reinterpret_cast<const apk_entry_hook *>(base + info->entry_hooks);
+    for (std::uint32_t index = 0; index < info->entry_hook_count && index < APK_MAX_ENTRY_HOOKS; ++index) {
+        const std::string_view name(hooks[index].name, ::strnlen(hooks[index].name, sizeof hooks[index].name));
+        const auto *found = linker::find_symbol(library.object, name);
+        if (found == nullptr) continue;
+        const auto *taken = linker::override_for(name, library.object, *found);  // also sets the original stub
+        if (taken == nullptr) continue;
+        slots->hook[index] = linker::symbol_address(*taken->wrapper, *taken->replacement);
+    }
+}
+
 /// Before the constructors of `objects` run: a library that defines JSGlobalContextCreate is JavaScriptCore, which
 /// reads its options, the JIT's among them, from the environment (in a static initializer of some builds, else at the
 /// first context), and mprotects its code pool executable, which iOS refuses (the guest's answer is EACCES, and JSC
@@ -762,6 +785,7 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         auto added = load_needed(state, *root, false, report.missed);
         const auto scope = lookup_scope(state, *root, added);
         for (auto *library : added) linker::relocate(library->object, scope);
+        for (auto *library : added) apply_entry_hooks(*library);
 
         // Dynamic TLS for the new ones that have a TLS segment (register_soinfo_tls).
         auto index = state.listed;
@@ -1283,6 +1307,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         }
         const auto scope = lookup_scope(state, program, added);
         for (auto *library : added) linker::relocate(library->object, scope);
+        for (auto *library : added) apply_entry_hooks(*library);
         for (std::size_t index = 0; index < added.size(); ++index) entry_for(state, *added[index], index);
         state.listed = added.size();
 

@@ -530,6 +530,9 @@ const Override *override_for(std::string_view name, const Object &definer, const
         if (companion == nullptr) return nullptr;
     }
     *taken->original = symbol_address(definer, found);
+    // A function whose entry the converter redirected (ADR-0072 decision 3 b) is called through its original stub: the
+    // function itself starts with the branch that leads to the wrapper.
+    if (const auto stub = loader::entry_hook_original(definer.image, name)) *taken->original = stub;
     if (companion != nullptr && taken->companion != nullptr) *taken->companion = symbol_address(definer, *companion);
     return taken;
 }

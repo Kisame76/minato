@@ -1,8 +1,9 @@
 // ffi-closure-test: an app that makes closures the way ctypes does (libffi closures without executable memory,
 // ADR-0072). Without an argument it imports the three libffi names from libfake-ffi.so and calls them itself; with
 // "symbolic" it opens libfake-ffi-sym.so with dlopen and uses its fake_ffi_make / fake_ffi_release, which call the
-// names from inside the library by direct branches. Expected output: fixtures/expected/ffi-closure-test.out, the same
-// for both.
+// names from inside the library by direct branches; with "symbolic-dlsym" it looks the three names up in that library
+// with dlsym after loading it, the other way a program reaches them. Expected output:
+// fixtures/expected/ffi-closure-test.out, the same for all three.
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,15 +16,19 @@ static void *(*fake_ffi_make)(long user);
 static void (*fake_ffi_release)(void *code);
 
 static int symbolic;
+static int looked_up;  // the three names come from dlsym
+static void *(*alloc_function)(size_t size, void **code) = ffi_closure_alloc;
+static void (*free_function)(void *closure) = ffi_closure_free;
+static int (*prep_function)(void *closure, void *cif, void *fun, void *user_data, void *codeloc) = ffi_prep_closure_loc;
 static void *writable_of[4];
 static void *code_of[4];
 
 static void *make(long user) {
     if (symbolic) return fake_ffi_make(user);
     void *code = NULL;
-    void *writable = ffi_closure_alloc(0x30, &code);
+    void *writable = alloc_function(0x30, &code);
     if (writable == NULL) return NULL;
-    if (ffi_prep_closure_loc(writable, NULL, (void *)fake_ffi_fun, (void *)user, code) != 0) return NULL;
+    if (prep_function(writable, NULL, (void *)fake_ffi_fun, (void *)user, code) != 0) return NULL;
     for (int index = 0; index < 4; index++) {
         if (code_of[index] == NULL) {
             code_of[index] = code;
@@ -41,7 +46,7 @@ static void release(void *code) {
     }
     for (int index = 0; index < 4; index++) {
         if (code_of[index] == code) {
-            ffi_closure_free(writable_of[index]);
+            free_function(writable_of[index]);
             code_of[index] = NULL;
             return;
         }
@@ -50,6 +55,19 @@ static void release(void *code) {
 
 int main(int argc, char **argv) {
     symbolic = argc > 1 && strcmp(argv[1], "symbolic") == 0;
+    looked_up = argc > 1 && strcmp(argv[1], "symbolic-dlsym") == 0;
+    if (looked_up) {
+        void *library = dlopen("libfake-ffi-sym.so", RTLD_NOW);
+        if (library != NULL) {
+            alloc_function = (void *(*)(size_t, void **))dlsym(library, "ffi_closure_alloc");
+            free_function = (void (*)(void *))dlsym(library, "ffi_closure_free");
+            prep_function = (int (*)(void *, void *, void *, void *, void *))dlsym(library, "ffi_prep_closure_loc");
+        }
+        if (alloc_function == NULL || free_function == NULL || prep_function == NULL) {
+            printf("ffi-closure-test: %s\n", dlerror());
+            return 1;
+        }
+    }
     if (symbolic) {
         void *library = dlopen("libfake-ffi-sym.so", RTLD_NOW);
         if (library != NULL) {

@@ -2121,6 +2121,56 @@ std::uint32_t emit_c_entry(unsigned reg, std::uint32_t first, std::uint64_t begi
     return b(begin_address, stub_address);
 }
 
+bool entry_hook_runs_first_instruction(std::uint32_t first) {
+    // A plain instruction, or a direct branch (B, B.cond, CBZ/CBNZ, TBZ/TBNZ): the original stub keeps its target. A
+    // call (BL), a register branch or a return would leave the stub with another return address or none, and a
+    // pc-relative instruction would run at the wrong address.
+    const bool direct_branch = branch_displacement(first).has_value() && (first & 0xfc00'0000) != 0x9400'0000;
+    if (!direct_branch && !c_entry_runs_first_instruction(first)) return false;
+    // The hook stub clobbers x16, and the original stub runs the instruction after it: one that names x16 or x17 would
+    // read the stub's value.
+    const auto use = a64::register_use(first);
+    return ((use.reads | use.writes) & ((1u << 16) | (1u << 17))) == 0;
+}
+
+std::size_t entry_hook_stub_size() {
+    return 4 * 7;  // the original: three words; the hook: adrp, ldr, br, nop
+}
+
+std::uint32_t emit_entry_hook(std::uint32_t first, std::uint64_t entry_address, std::uint64_t stub_address,
+                              std::uint64_t slot_address, std::span<std::byte> stub) {
+    if (stub.size() != entry_hook_stub_size()) throw RewriteError("the stub buffer has the wrong size");
+    if (!entry_hook_runs_first_instruction(first)) {
+        throw RewriteError("an entry hook cannot run this first instruction in its original stub");
+    }
+    if (slot_address % 8 != 0) {
+        throw RewriteError(std::format("the hook slot at {:#x} is not 8-byte aligned", slot_address));
+    }
+    StubWriter write(stub, stub_address);
+    if (const auto displacement = branch_displacement(first)) {
+        const auto target = static_cast<std::uint64_t>(static_cast<std::int64_t>(entry_address) + *displacement);
+        if ((first & 0xfc00'0000) == 0x1400'0000) {  // B: the stub goes where the function would
+            write(b(write.next_address(), target));
+            write(nop);
+            write(nop);
+        } else {  // conditional: taken, a wide branch to the target; not taken, on to the function's second word
+            write(with_any_branch_displacement(first, 2 * 4));
+            write(b(write.next_address(), entry_address + 4));
+            write(b(write.next_address(), target));
+        }
+    } else {
+        write(first);
+        write(b(write.next_address(), entry_address + 4));
+        write(nop);
+    }
+    write(adrp(x16, write.next_address(), slot_address));
+    write(ldr_unsigned(x16, x16, slot_address & 0xfff));
+    write(0xd61f'0000 | reg(x16, 5));  // br x16
+    write(nop);
+    write.finish();
+    return b(entry_address, stub_address + 12);
+}
+
 std::size_t c_exit_stub_size(std::uint32_t) {
     return 4 * 6;  // push x16, mrs, bic, str reg -> slot 11, pop x16, the exit
 }

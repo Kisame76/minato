@@ -428,7 +428,7 @@ TEST(the_island_table_describes_every_x18_island) {
     builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
     const auto singles = convert(builder);
     const auto image = read_info(singles.bytes).image_offset;
-    CHECK(read_info(singles.bytes).version == 7);
+    CHECK(read_info(singles.bytes).version == APK_CONTAINER_VERSION);
     const auto islands = island_table(singles);
     CHECK(islands.size() == 2);
     if (islands.size() == 2) {
@@ -490,7 +490,7 @@ TEST(the_container_records_a_no_save_island_at_version_7) {
     builder.put<std::uint32_t>(0x21c, 0xd503'201f);  // nop
     const auto container = convert(builder);
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 7);
+    CHECK(info.version == APK_CONTAINER_VERSION);
     CHECK(info.version >= APK_CONTAINER_RECONSTRUCT_VERSION);  // the kind needs a reconstruction-capable runtime
     const auto islands = island_table(container);
     CHECK(islands.size() == 1);
@@ -517,7 +517,7 @@ TEST(renames_x18_across_a_hard_function_instead_of_refusing_it) {
     prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: a register return reading x18 -- refused, and no island
     const auto container = convert(prog);         // before step 4 this throws Incompatible
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 7);
+    CHECK(info.version == APK_CONTAINER_VERSION);
     const auto ranges = c_range_table(container);
     CHECK(info.c_range_count == ranges.size() && !ranges.empty());
     // The body after the entry island keeps the guest x18 in the free caller-saved register x9.
@@ -554,7 +554,7 @@ TEST(takes_a_function_with_a_mix_of_islandable_and_hard_x18_uses_and_islands_non
     prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: the HARD x18 use (register return), no island
     const auto container = convert(prog);         // before A1 keep-clear drops fn for the add's island -> Incompatible
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 7);
+    CHECK(info.version == APK_CONTAINER_VERSION);
     // (c) took the function: a body range covers the islandable site, with the rename register.
     std::optional<std::uint8_t> reg;
     for (const auto &range : c_range_table(container)) {
@@ -583,7 +583,7 @@ TEST(takes_a_function_with_a_closed_exclusive_window_and_a_hard_x18_use_without_
     prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18              : the HARD x18 use (register return)
     const auto container = convert(prog);         // before A1 keep-clear drops fn for the window's island -> refused
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 7);
+    CHECK(info.version == APK_CONTAINER_VERSION);
     std::optional<std::uint8_t> reg;
     for (const auto &range : c_range_table(container)) {
         if (range.start <= info.image_offset + 0x208 && info.image_offset + 0x208 < range.end) reg = range.reg;
@@ -647,7 +647,7 @@ TEST(takes_a_c_function_with_a_co_resident_syscall) {
     prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18: the hard x18 use, so (c) takes fn
     const auto container = convert(prog);         // before A2 keep-clear drops fn for the svc island -> Incompatible
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 7);
+    CHECK(info.version == APK_CONTAINER_VERSION);
     // (c) took the function: a body range covers it with the rename register.
     std::optional<std::uint8_t> reg;
     for (const auto &range : c_range_table(container)) {
@@ -899,7 +899,7 @@ TEST(splits_an_image_into_runs_of_protection) {
     const auto container = convert(builder);
     const auto &bytes = container.bytes;
     const auto info = read_info(bytes);
-    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 7);
+    CHECK(info.version == APK_CONTAINER_VERSION);
     CHECK(info.min_vaddr == 0);
     CHECK(container.report.image_shift == 0);
     CHECK(info.image_size == 0x1c000);
@@ -1589,6 +1589,112 @@ TEST(refusals_name_every_reason_a_file_has) {
     CHECK(refusals(without_sections.bytes).front() == refusal_of(without_sections));
     // And a file convert() takes, refusals() gives nothing for.
     CHECK(refusal_of(static_program()).empty());
+}
+
+// ADR-0072 decision 3 b: a library that exports ffi_closure_alloc, ffi_closure_free and ffi_prep_closure_loc has their
+// first instructions redirected, so that the loader's override reaches calls by direct branch, which no relocation
+// names.
+// The entry becomes a branch to the hook stub, which loads its runtime slot and branches on; the original stub, 8 bytes
+// before it, runs the displaced instruction and continues at entry + 4.
+constexpr std::uint32_t ffi_first_words[] = {
+    0xa9bf'7bfd,  // stp x29, x30, [sp, #-16]!
+    0xd65f'03c0,  // ret
+    0xa9bf'7bfd,  // stp x29, x30, [sp, #-16]!
+    0xd65f'03c0,  // ret
+    0xb940'0028,  // ldr w8, [x1]
+    0xd65f'03c0,  // ret
+    0xd503'201f,  // nop
+    0xd503'201f,  // nop
+};
+
+ElfBuilder ffi_program(std::initializer_list<SymbolEntry> symbols) {
+    auto builder = static_program(0x4800, symbols);
+    std::memcpy(builder.bytes.data() + 0x200, ffi_first_words, sizeof ffi_first_words);
+    return builder;
+}
+
+std::vector<apk_entry_hook> entry_hook_table(const apk_container_info &info, const std::vector<std::byte> &bytes) {
+    std::vector<apk_entry_hook> hooks(info.entry_hook_count);
+    if (!hooks.empty()) {
+        std::memcpy(hooks.data(), bytes.data() + info.entry_hooks, hooks.size() * sizeof(apk_entry_hook));
+    }
+    return hooks;
+}
+
+TEST(hooks_the_three_libffi_entries_of_a_library_that_exports_them) {
+    const auto container = convert(ffi_program({{"ffi_closure_alloc", 0x200, 8},
+                                                {"ffi_closure_free", 0x208, 8},
+                                                {"ffi_prep_closure_loc", 0x210, 8}}));
+    const auto info = read_info(container.bytes);
+    const auto hooks = entry_hook_table(info, container.bytes);
+    CHECK(info.version >= APK_CONTAINER_ENTRY_HOOKS_VERSION);
+    CHECK(hooks.size() == 3);
+    const std::uint64_t slots = info.runtime_slots;
+    for (std::size_t index = 0; index < hooks.size(); ++index) {
+        const auto &hook = hooks[index];
+        const std::uint64_t address = index == 0 ? 0x200 : index == 1 ? 0x208 : 0x210;
+        CHECK(hook.entry == info.image_offset + address);
+        // The entry is a branch to the hook stub, 12 bytes after the original stub.
+        CHECK(branch_target(container.bytes, hook.entry) == std::optional<std::uint64_t>(hook.original + 12));
+        // The original stub: the displaced word, then a branch to entry + 4, then a nop.
+        const std::uint32_t first = ffi_first_words[(address - 0x200) / 4];
+        CHECK(word_at(container.bytes, hook.original) == first);
+        CHECK(branch_target(container.bytes, hook.original + 4) == std::optional<std::uint64_t>(hook.entry + 4));
+        CHECK(word_at(container.bytes, hook.original + 8) == 0xd503'201f);
+        // The hook stub: adrp x16 and ldr x16, [x16, #slot] of this hook's slot, then br x16.
+        const std::uint64_t slot = slots + offsetof(apk_runtime_slots, hook) + 8 * index;
+        const std::uint64_t at = hook.original + 12;
+        const auto adrp = word_at(container.bytes, at);
+        const auto ldr = word_at(container.bytes, at + 4);
+        CHECK((adrp & 0x9f00'001f) == 0x9000'0010);
+        CHECK(ldr == (0xf940'0000u | (static_cast<std::uint32_t>((slot & 0xfff) / 8) << 10) | (16u << 5) | 16u));
+        CHECK(word_at(container.bytes, at + 8) == 0xd61f'0200);  // br x16
+    }
+    if (hooks.size() == 3) {
+        CHECK(std::string(hooks[0].name) == "ffi_closure_alloc");
+        CHECK(std::string(hooks[1].name) == "ffi_closure_free");
+        CHECK(std::string(hooks[2].name) == "ffi_prep_closure_loc");
+    }
+    // The three words are the only ones changed at the entries.
+    CHECK(word_at(container.bytes, info.image_offset + 0x204) == 0xd65f'03c0);
+}
+
+TEST(runs_a_conditional_branch_as_the_first_instruction_of_a_libffi_entry_in_its_stub) {
+    // clang starts ffi_closure_alloc with `cbz x1, <return NULL>`: taken, the stub goes where the function would; not
+    // taken, on to the function's second word.
+    auto builder = ffi_program({{"ffi_closure_alloc", 0x200, 8}, {"ffi_closure_free", 0x208, 8},
+                                {"ffi_prep_closure_loc", 0x210, 8}});
+    builder.put<std::uint32_t>(0x200, 0xb400'00c1);  // cbz x1, 0x218
+    const auto container = convert(builder);
+    const auto info = read_info(container.bytes);
+    const auto hooks = entry_hook_table(info, container.bytes);
+    CHECK(hooks.size() == 3);
+    if (hooks.size() == 3) {
+        const auto original = hooks[0].original;
+        CHECK(word_at(container.bytes, original) == (0xb400'0001u | (2u << 5)));  // cbz x1, two words ahead
+        CHECK(branch_target(container.bytes, original + 4) == std::optional<std::uint64_t>(hooks[0].entry + 4));
+        CHECK(branch_target(container.bytes, original + 8) == std::optional<std::uint64_t>(info.image_offset + 0x218));
+    }
+}
+
+TEST(leaves_a_library_without_all_three_libffi_names_unhooked) {
+    const auto two = convert(ffi_program({{"ffi_closure_alloc", 0x200, 8}, {"ffi_closure_free", 0x208, 8}}));
+    CHECK(read_info(two.bytes).entry_hook_count == 0);
+    CHECK(word_at(two.bytes, read_info(two.bytes).image_offset + 0x200) == 0xa9bf'7bfd);
+    const auto none = convert(static_program());
+    CHECK(read_info(none.bytes).entry_hook_count == 0);
+}
+
+TEST(leaves_a_library_unhooked_whose_libffi_entry_cannot_run_in_a_stub) {
+    // A pc-relative first instruction would run at the wrong address in the original stub: no hooks at all, the
+    // library is converted as it is.
+    auto builder = ffi_program({{"ffi_closure_alloc", 0x200, 8}, {"ffi_closure_free", 0x208, 8},
+                                {"ffi_prep_closure_loc", 0x210, 8}});
+    builder.put<std::uint32_t>(0x208, 0x9000'0008);  // adrp x8, ...
+    const auto container = convert(builder);
+    const auto info = read_info(container.bytes);
+    CHECK(info.entry_hook_count == 0);
+    CHECK(word_at(container.bytes, info.image_offset + 0x200) == 0xa9bf'7bfd);
 }
 
 }  // namespace

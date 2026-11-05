@@ -922,6 +922,49 @@ void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite:
                                    x18_site_counts(elf_bytes, findings)));
 }
 
+/// A libffi entry the converter redirects (ADR-0072 decision 3 b).
+struct EntryHookPlan {
+    std::string name;
+    std::uint64_t address = 0;  // ELF address of the function's first word
+    std::uint32_t first = 0;    // the word
+};
+
+/// The three libffi closure functions of a library that defines all of them, when each one's first word can run in the
+/// original stub and no other rewrite touches it; else none (all or nothing: the loader's override replaces the three
+/// together). They are found by name in the symbol table, as the loader's override finds them by name.
+static std::vector<EntryHookPlan> plan_entry_hooks(const elf::File &file, std::span<const std::byte> elf_bytes,
+                                            const std::vector<elf::Section> &sections,
+                                            const rewrite::Findings &findings, const CRenamePlan &c_plan) {
+    constexpr std::string_view names[] = {"ffi_closure_alloc", "ffi_closure_free", "ffi_prep_closure_loc"};
+    const auto symbols = elf::read_symbols(elf_bytes);
+    std::vector<EntryHookPlan> plan;
+    for (const auto name : names) {
+        const auto found =
+            std::ranges::find_if(symbols, [&](const elf::Symbol &symbol) { return symbol.name == name; });
+        if (found == symbols.end() || found->value % 4 != 0) return {};
+        const bool executable = std::ranges::any_of(sections, [&](const elf::Section &section) {
+            return (section.flags & elf::section_executable) != 0 && found->value >= section.address &&
+                   found->value + 4 <= section.address + section.size;
+        });
+        if (!executable || elf::load_containing(file, found->value, 4) == nullptr) return {};
+        std::uint32_t first = 0;
+        std::memcpy(&first, file_bytes_at(file, elf_bytes, found->value, 4, "libffi entry").data(), sizeof first);
+        if (!rewrite::entry_hook_runs_first_instruction(first)) return {};
+        // Another rewrite of the same word, or a renamed function around it, would fight over it.
+        if (std::ranges::any_of(findings.sites,
+                                [&](const rewrite::Site &site) { return site.address == found->value; })) {
+            return {};
+        }
+        if (std::ranges::any_of(c_plan.functions, [&](const WholeFunctionRename &function) {
+                return found->value >= function.begin && found->value < function.end;
+            })) {
+            return {};
+        }
+        plan.push_back({std::string(name), found->value, first});
+    }
+    return plan;
+}
+
 Container convert(std::span<const std::byte> elf_bytes, const Options &options) {
     const auto file = elf::read(elf_bytes);
     require_aarch64_shared(file);
@@ -1083,8 +1126,12 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     const std::uint64_t islands_offset = align_up(info_offset + sizeof(apk_container_info), 8);
     const std::uint64_t runs_offset = align_up(islands_offset + island_count * sizeof(apk_island), 8);
     const std::uint64_t c_ranges_offset = align_up(runs_offset + runs.size() * sizeof(apk_run), 8);
-    const std::uint64_t stubs_offset = align_up(c_ranges_offset + c_range_count * sizeof(apk_c_range), 16);
-    std::uint64_t stubs_size = 0;
+    // The entry hooks (ADR-0072 decision 3 b) and their stubs: planned from the symbols and the findings, none for a
+    // library that does not define the three libffi names or whose entries cannot be redirected.
+    const auto entry_hooks = plan_entry_hooks(file, elf_bytes, sections, findings, c_plan);
+    const std::uint64_t entry_hooks_offset = align_up(c_ranges_offset + c_range_count * sizeof(apk_c_range), 8);
+    const std::uint64_t stubs_offset = align_up(entry_hooks_offset + entry_hooks.size() * sizeof(apk_entry_hook), 16);
+    std::uint64_t stubs_size = entry_hooks.size() * rewrite::entry_hook_stub_size();
     for (const auto &site : findings.sites) if (!x18_site_suppressed(site)) stubs_size += rewrite::stub_size(site);
     for (const auto &region : findings.exclusive_regions)
         if (!exclusive_window_in_c_function(region)) stubs_size += rewrite::exclusive_region_stub_size(region);
@@ -1239,6 +1286,26 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         }
         stub += stub_bytes;
     }
+    // The entry hooks: the displaced first word and the branch back, the hook stub that branches through the runtime
+    // slot of the hook, and the first word replaced by the branch to the hook stub.
+    std::vector<apk_entry_hook> hook_table;
+    for (const auto &hook : entry_hooks) {
+        const std::uint64_t entry_address = container_address(hook.address);
+        const auto size = rewrite::entry_hook_stub_size();
+        const std::uint64_t slot = runtime_slots + offsetof(apk_runtime_slots, hook) + 8 * hook_table.size();
+        const auto patch = rewrite::emit_entry_hook(hook.first, entry_address, stub, slot,
+                                                    std::span(file_at(stub, size), size));
+        std::memcpy(file_at(entry_address, sizeof patch), &patch, sizeof patch);
+        apk_entry_hook record{};
+        std::memcpy(record.name, hook.name.data(), std::min(hook.name.size(), sizeof record.name - 1));
+        record.entry = static_cast<std::uint32_t>(entry_address);
+        record.original = static_cast<std::uint32_t>(stub);
+        hook_table.push_back(record);
+        stub += size;
+        ++report.entry_hooks;
+    }
+    if (hook_table.size() > APK_MAX_ENTRY_HOOKS) throw Incompatible("internal: too many entry hooks");
+    std::memcpy(bytes.data() + entry_hooks_offset, hook_table.data(), hook_table.size() * sizeof(apk_entry_hook));
     // Internal check (ADR-0020 C7): the pre-count above sized the island table and the runs table was laid
     // out right after it, so if the add_island calls do not match island_count the runs overwrite the table
     // silently (the bug a missed kind caused). Fail the conversion rather than write a corrupt container.
@@ -1306,6 +1373,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     info.run_count = static_cast<std::uint32_t>(runs.size());
     info.c_ranges = c_ranges_offset;
     info.c_range_count = static_cast<std::uint32_t>(c_ranges.size());
+    info.entry_hooks = entry_hooks_offset;
+    info.entry_hook_count = static_cast<std::uint32_t>(hook_table.size());
     std::memcpy(bytes.data() + info_offset, &info, sizeof info);
 
     dylib.uuid = content_uuid(bytes, options.install_name);

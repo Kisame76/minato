@@ -56,7 +56,9 @@ __attribute__((noinline)) void ffi_closure_free(void *closure) {
 
 __attribute__((noinline)) int ffi_prep_closure_loc(void *closure, void *cif, void *fun, void *user_data,
                                                    void *codeloc) {
-    (void)codeloc;
+    // Used, so that a compiler does not drop the argument from a direct call inside the library (-Bsymbolic): libffi's
+    // callers pass it, and the wrapper reads it.
+    __asm__ volatile("" : : "r"(codeloc));
     uint32_t *words = closure;
     words[0] = 0x58000090;  // ldr x16, [pc, #16]
     words[1] = 0x10fffff1;  // adr x17, .-4 (the block's start)

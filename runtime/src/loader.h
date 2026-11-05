@@ -10,6 +10,7 @@
 #include <functional>
 #include <span>
 #include <stdexcept>
+#include <string_view>
 #include <string>
 #include <utility>
 #include <vector>
@@ -89,6 +90,11 @@ struct Image {
     const apk_container_info *info;   // __TEXT,__apk_info
     std::uint64_t bias;               // host address = bias + ELF address
 };
+
+/// The address of the original stub of the entry hook named `name` in `image`'s container (ADR-0072 decision 3 b): the
+/// function's displaced first instruction and the branch to its second word, which an override's wrapper calls in place
+/// of the function (whose first instruction is the branch to the hook). 0 when the container hooks no such name.
+std::uint64_t entry_hook_original(const Image &image, std::string_view name);
 
 /// Where `image`'s relocations may write: its writable runs, or a version 2 container's writable range. Throws
 /// LoadError when the table of runs does not lie in __TEXT before the image.
