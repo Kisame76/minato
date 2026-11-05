@@ -159,6 +159,16 @@ struct apkrt_media_players;
 /* For tests: the functions minato_graphics_set_media_players gives the runtime. */
 const struct apkrt_media_players *minato_graphics_media_players(void);
 
+/* ADR-0073 decision 10: graphics/host's model cameras (camera_model.m), two cameras with a test pattern for the Mac
+   and the Simulator, where there is no camera: gives them to the runtime (apkrt_set_cameras). apk-run's graphics-run
+   calls it; the app gives the iPhone's own cameras instead. Returns 0, or -1 when the runtime refused them. */
+int minato_graphics_set_camera_model(void);
+
+struct apkrt_cameras;
+
+/* For tests: the functions minato_graphics_set_camera_model gives the runtime. */
+const struct apkrt_cameras *minato_graphics_camera_model(void);
+
 /* ADR-0054 step d): the host's network (network.m), Network.framework's path monitor, which reports each path to the
    runtime (apkrt_network_set) from now on. minato_graphics_set_providers calls it. Returns 0, or -1 when no monitor
    was made. */

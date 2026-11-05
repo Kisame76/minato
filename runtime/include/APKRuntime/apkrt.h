@@ -526,6 +526,69 @@ struct apkrt_video_decoders {
 /// Returns 0, or -1 when a function is NULL.
 int apkrt_set_video_decoders(const struct apkrt_video_decoders *decoders);
 
+// MARK: - Cameras (ADR-0073)
+
+/// The runtime's limits on the host's cameras (guest_interface.h's camera): the cameras listed, those open at once,
+/// a camera's streams, its facts' bytes, the frames whose tokens the guest holds at once per camera (as many as a
+/// camera2 stream's buffers), the single captures waiting per camera, and a JPEG's bytes.
+#define APKRT_CAMERA_MAX_CAMERAS 4u
+#define APKRT_CAMERA_MAX_OPEN 2u
+#define APKRT_CAMERA_MAX_STREAMS 4u
+#define APKRT_CAMERA_MAX_FACTS (16u << 10)
+#define APKRT_CAMERA_MAX_WAITING 8u
+#define APKRT_CAMERA_MAX_JPEG (UINT64_C(32) << 20)
+
+/// A captured frame as the host holds it, valid until its pop or the camera's flush or close: the guest's frame but
+/// its JPEG fields (each PRIVATE or YUV stream's token never 0 and not one that waits, its timestamp on Darwin's
+/// CLOCK_UPTIME_RAW, which the runtime shifts onto the guest's CLOCK_BOOTTIME), and a JPEG stream's bytes.
+struct apkrt_camera_capture {
+    struct apkrt_camera_frame frame;
+    const void *jpeg;
+    uint64_t jpeg_size;
+};
+
+/// For the host: the guest's cameras (ADR-0073). The runtime has checked what reaches them (indices below count's,
+/// streams and controls against the facts the host gave, the guest's bytes copied into host memory) and keeps the
+/// IDs; the cameras see a handle of theirs, never 0. The runtime calls an open camera's functions one at a time,
+/// under a lock of that camera alone, on the calling guest thread; they may block on the host, never on the guest:
+/// - count: the cameras, at most APKRT_CAMERA_MAX_CAMERAS;
+/// - facts: camera's facts (guest_interface.h's list) into `data`, `*size` their bytes; -ENOSPC with `*size` for a
+///   capacity too small;
+/// - open: 0 with the handle; -EBUSY while the host's camera is taken, -EACCES when iOS denies it, -ENOMEM;
+/// - configure: the streams, in place of those before, ending the requests; -EINVAL for a combination it cannot run;
+/// - request: a request's controls, its number, the streams it captures into and APKRT_CAMERA_REPEATING or 0;
+///   -EAGAIN past APKRT_CAMERA_MAX_WAITING single captures;
+/// - stop_repeating: the repeating request ends after the frame in progress;
+/// - peek: 0 with the oldest captured frame, which stays; -EAGAIN while there is none;
+/// - pop: the frame peek gave goes; its tokens wait for render, render_window or discard;
+/// - render, discard, render_window: as the video decoders' (above), for a camera's tokens;
+/// - flush: every waiting request and captured frame goes, the waiting tokens too;
+/// - close: last, once no call on the camera runs.
+/// An answer other than 0 outside -4095..-1 reaches the guest as -EIO. A camera stays with the functions that opened
+/// it, so the context must live as long as the process.
+struct apkrt_cameras {
+    uint32_t (*count)(void *context);
+    int (*facts)(void *context, uint32_t camera, void *data, size_t capacity, size_t *size);
+    int (*open)(void *context, uint32_t camera, uint64_t *handle);
+    int (*configure)(void *context, uint64_t handle, const struct apkrt_camera_stream *streams, uint32_t count);
+    int (*request)(void *context, uint64_t handle, const struct apkrt_camera_controls *controls, uint64_t number,
+                   uint32_t targets, uint32_t flags);
+    void (*stop_repeating)(void *context, uint64_t handle);
+    int (*peek)(void *context, uint64_t handle, struct apkrt_camera_capture *capture);
+    void (*pop)(void *context, uint64_t handle);
+    int (*render)(void *context, uint64_t handle, uint64_t token, const struct apkrt_video_target *target);
+    void (*discard)(void *context, uint64_t handle, uint64_t token);
+    int (*render_window)(void *context, uint64_t handle, uint64_t token, uint64_t window, int64_t time_ns,
+                         uint32_t flags);
+    int (*flush)(void *context, uint64_t handle);
+    void (*close)(void *context, uint64_t handle);
+    void *context;
+};
+
+/// For the host: sets the cameras' functions, which the runtime copies, or takes them away with NULL. Returns 0, or
+/// -1 when a function is NULL.
+int apkrt_set_cameras(const struct apkrt_cameras *cameras);
+
 // MARK: - Media players (ADR-0060 e2e1)
 
 /// The runtime's limits on what reaches the host's players (guest_interface.h's media_player): the players of a

@@ -251,6 +251,15 @@ if(TARGET minato_graphics_host)
   target_link_libraries(graphics-vulkan-lock-test PRIVATE minato_graphics_host apkrt apk_defaults)
   add_test(NAME graphics.vulkan_lock COMMAND graphics-vulkan-lock-test)
   set_tests_properties(graphics.vulkan_lock PROPERTIES TIMEOUT 60)
+  # ADR-0073 decision 10: graphics/host's model cameras (camera_model.m): their facts, captures, tokens and JPEGs.
+  add_executable(graphics-camera-model-test camera_model_test.m)
+  target_include_directories(graphics-camera-model-test PRIVATE ../host)
+  target_link_libraries(graphics-camera-model-test PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework Foundation" "-framework ImageIO" "-framework CoreGraphics" "-framework CoreVideo"
+    "-framework VideoToolbox" "-framework Metal" "-framework QuartzCore")
+  set_source_files_properties(camera_model_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  add_test(NAME graphics.camera_model COMMAND graphics-camera-model-test)
+  set_tests_properties(graphics.camera_model PROPERTIES TIMEOUT 60)
   # ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m) on media-codec-test's streams, each frame against
   # Android 15's (fixtures/expected/media-codec-test.logcat).
   add_executable(graphics-video-decoder-test video_decoder_test.m)

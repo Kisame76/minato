@@ -7,7 +7,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/sys_events.cpp src/sys_futex.cpp src/sys_threads.cpp src/threads.cpp src/guest_context.cpp src/signals.cpp
   src/islands.cpp src/process_exit.cpp src/host_calls.cpp src/session.cpp src/windows.cpp src/channels.cpp src/audio.cpp
   src/proc.cpp src/sys_cpu.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp
-  src/netlink.cpp
+  src/netlink.cpp src/cameras.cpp
   src/video_decoders.cpp src/media_players.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp
   src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
@@ -163,6 +163,12 @@ if(APK_HOST_BUILD)
   target_compile_definitions(video_decoders_test PRIVATE "APKRT_RUNTIME_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
   target_link_libraries(video_decoders_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.video_decoders COMMAND video_decoders_test)
+
+  # ADR-0073: camera through the dispatcher against a fake table of host cameras.
+  add_executable(cameras_test tests/cameras_test.cpp)
+  target_include_directories(cameras_test PRIVATE src)
+  target_link_libraries(cameras_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.cameras COMMAND cameras_test)
   add_executable(media_players_test tests/media_players_test.cpp)
   target_include_directories(media_players_test PRIVATE src)
   target_compile_definitions(media_players_test PRIVATE "APKRT_RUNTIME_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")

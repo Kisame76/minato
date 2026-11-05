@@ -1595,6 +1595,150 @@ struct apkrt_audio_status {
 /// a FLUSH clears the ring and a READ takes frames only from a stream that is STARTING or STARTED.
 #define APKRT_NR_AUDIO_READ 4136
 
+// MARK: - Cameras (ADR-0073)
+//
+// camera2's local camera service, the legacy android.hardware.Camera and libcamera2ndk use the host's cameras through
+// one call (apkrt_set_cameras in apkrt.h: AVFoundation on the iPhone, a test pattern in apk-run on the Mac). The
+// runtime keeps the open cameras by IDs of its own and checks and copies everything between the guest and the host. A
+// camera describes itself by a list of facts of its own (APKRT_CAMERA_KEY_*), which the guest maps to Android's
+// characteristics and parameters. Frames stay the host's, as a surface decoder's do (video_decoder above): a frame's
+// PRIVATE or YUV stream gives the guest a token, which the host draws into one of the guest's hardware buffers or into
+// a host window, or drops; a JPEG stream's bytes are copied into the guest's buffer.
+
+/// What camera does, its x0; x1 the address of a struct apkrt_camera.
+enum apkrt_camera_op {
+    APKRT_CAMERA_COUNT = 1,       // the cameras (count) out
+    APKRT_CAMERA_FACTS,           // camera (an index) and a buffer (data, size) in; the facts' bytes (size) out
+    APKRT_CAMERA_OPEN,            // camera in; id out
+    APKRT_CAMERA_CONFIGURE,       // id and count struct apkrt_camera_streams at data in: the camera's streams
+    APKRT_CAMERA_REQUEST,         // id, a struct apkrt_camera_controls at data, number, targets and flags in
+    APKRT_CAMERA_STOP_REPEATING,  // id: the repeating request ends after the frame in progress
+    APKRT_CAMERA_FRAME,           // id and a struct apkrt_camera_frame at data in; the oldest captured frame out
+    APKRT_CAMERA_RENDER,          // id, a frame's token (data) and a hardware buffer's ID (size): the frame drawn
+    APKRT_CAMERA_RENDER_WINDOW,   // id, a token (data), a host window's ID (size), the present time (time_ns, 0 for
+                                  // at once) and the scaling (flags, APKRT_VIDEO_DECODER_CROP or 0): the frame drawn
+    APKRT_CAMERA_DISCARD,         // id and a token (data): the frame goes undrawn
+    APKRT_CAMERA_FLUSH,           // id: every waiting request and captured frame goes, their tokens end
+    APKRT_CAMERA_CLOSE,           // id: the camera goes, after the calls on it still running
+};
+
+/// One call's arguments and answers (64 bytes). An operation leaves the fields it does not name alone.
+struct apkrt_camera {
+    uint64_t id;         // the runtime's, never 0 and never reused
+    uint32_t camera;     // FACTS' and OPEN's camera, an index below COUNT's count
+    uint32_t count;      // COUNT's answer; CONFIGURE's streams
+    uint64_t data;       // the guest's bytes: FACTS' buffer, CONFIGURE's streams, REQUEST's controls, FRAME's frame;
+                         // RENDER's, RENDER_WINDOW's and DISCARD's token
+    uint64_t size;       // FACTS: the buffer's capacity in, the facts' bytes out; RENDER's hardware buffer, and
+                         // RENDER_WINDOW's window, by ID
+    uint64_t number;     // REQUEST: the guest's number of the request, which its frames carry
+    uint32_t targets;    // REQUEST: the streams (bit n for CONFIGURE's stream n) it captures into
+    uint32_t flags;      // REQUEST: APKRT_CAMERA_REPEATING; RENDER_WINDOW: the scaling
+    int64_t time_ns;     // RENDER_WINDOW's present time, the guest's CLOCK_MONOTONIC
+    uint64_t reserved;   // 0
+};
+
+/// REQUEST's flag: the request repeats, in place of the repeating one before, until STOP_REPEATING or another;
+/// without it the request is one capture, which goes before the repeating one's next frame.
+#define APKRT_CAMERA_REPEATING 1u
+
+/// A stream's formats, Android's (ImageFormat and HAL_PIXEL_FORMAT values): PRIVATE and YUV_420_888 by tokens, JPEG
+/// by bytes.
+#define APKRT_CAMERA_FORMAT_PRIVATE 0x22
+#define APKRT_CAMERA_FORMAT_YUV_420_888 0x23
+#define APKRT_CAMERA_FORMAT_JPEG 0x100
+
+/// CONFIGURE's streams (16 bytes each), at most APKRT_CAMERA_MAX_STREAMS; each a format of the facts' STREAMS at one
+/// of its sizes.
+struct apkrt_camera_stream {
+    uint32_t format, width, height, reserved;
+};
+
+/// A request's controls (128 bytes), each as camera2's control of the same name; a value the facts do not list is
+/// refused (-EINVAL). Regions are in the active array's pixels, a weight of 0 for none.
+struct apkrt_camera_controls {
+    uint8_t af_mode, af_trigger;            // camera2's CONTROL_AF_MODE_* and CONTROL_AF_TRIGGER_*
+    uint8_t ae_mode, ae_lock, ae_precapture;  // CONTROL_AE_MODE_*, 0/1, CONTROL_AE_PRECAPTURE_TRIGGER_*
+    uint8_t awb_mode, awb_lock;             // CONTROL_AWB_MODE_*, 0/1
+    uint8_t flash_mode;                     // FLASH_MODE_* (TORCH: the torch)
+    uint8_t face_detect;                    // STATISTICS_FACE_DETECT_MODE_*
+    uint8_t jpeg_quality;                   // 1 to 100
+    uint8_t reserved0[2];
+    int32_t ae_compensation;                // in the facts' AE_COMPENSATION steps
+    int32_t jpeg_orientation;               // 0, 90, 180 or 270
+    float zoom_ratio;                       // within the facts' ZOOM
+    int32_t fps_min, fps_max;               // one of the facts' FPS_RANGES
+    int32_t af_region[5], ae_region[5];     // left, top, right, bottom, weight
+    uint8_t reserved[56];
+};
+
+/// A frame's state bits, from which the guest runs camera2's 3A state machines.
+#define APKRT_CAMERA_STATE_FOCUSING 1u       // the lens is adjusting its focus
+#define APKRT_CAMERA_STATE_FOCUSED 2u        // the last focus found its subject
+#define APKRT_CAMERA_STATE_EXPOSING 4u       // the exposure is adjusting
+#define APKRT_CAMERA_STATE_BALANCING 8u      // the white balance is adjusting
+#define APKRT_CAMERA_STATE_FLASH_FIRED 16u   // the flash fired for the frame
+#define APKRT_CAMERA_STATE_FLASH_READY 32u   // the flash is charged
+
+/// FRAME's frame (256 bytes): the guest fills `jpeg` and `jpeg_capacity` for a JPEG stream's bytes.
+struct apkrt_camera_frame {
+    uint64_t number;          // the request's
+    uint64_t frame;           // the camera's frame number, from 0 at its OPEN
+    int64_t timestamp_ns;     // the exposure's start, the guest's CLOCK_BOOTTIME
+    int64_t exposure_ns, frame_duration_ns;
+    int32_t iso;
+    uint32_t streams;         // the streams the frame has (bit n for stream n); one without a buffer is failed
+    uint64_t tokens[4];       // stream n's token (PRIVATE, YUV), 0 for a JPEG stream or one the frame lacks
+    uint64_t jpeg, jpeg_capacity;  // in: the guest's buffer for a JPEG stream
+    uint64_t jpeg_size;       // out: its bytes
+    uint32_t states;          // APKRT_CAMERA_STATE_* bits
+    float zoom_ratio;
+    float focus_distance;     // in diopters
+    uint32_t faces;           // the face rectangles that follow, at most 4
+    int32_t face_rects[4][5]; // left, top, right, bottom, score (1 to 100), in the active array's pixels
+    uint8_t reserved[56];
+};
+
+/// The facts: entries of a uint32_t key (APKRT_CAMERA_KEY_*), a uint32_t type (APKRT_CAMERA_TYPE_*) and a uint32_t
+/// count, then the count's values (4 or 8 bytes each, little endian), each entry padded to 8 bytes. A key the host
+/// lacks is not there.
+#define APKRT_CAMERA_TYPE_I32 1u
+#define APKRT_CAMERA_TYPE_I64 2u
+#define APKRT_CAMERA_TYPE_F32 3u
+enum apkrt_camera_key {
+    APKRT_CAMERA_KEY_FACING = 1,         // I32: 0 front, 1 back (camera2's LENS_FACING)
+    APKRT_CAMERA_KEY_ORIENTATION,        // I32: 0, 90, 180 or 270
+    APKRT_CAMERA_KEY_PIXEL_ARRAY,        // I32 x2: width, height
+    APKRT_CAMERA_KEY_ACTIVE_ARRAY,       // I32 x4: left, top, right, bottom (exclusive)
+    APKRT_CAMERA_KEY_PHYSICAL_SIZE,      // F32 x2: millimetres
+    APKRT_CAMERA_KEY_FOCAL_LENGTHS,      // F32 xn: millimetres
+    APKRT_CAMERA_KEY_APERTURES,          // F32 xn: f-numbers
+    APKRT_CAMERA_KEY_MIN_FOCUS_DISTANCE, // F32: diopters, 0 for fixed focus
+    APKRT_CAMERA_KEY_FLASH,              // I32: 1 with a flash
+    APKRT_CAMERA_KEY_AE_COMPENSATION,    // I32 x4: min, max, the step's numerator and denominator
+    APKRT_CAMERA_KEY_ZOOM,               // F32 x2: the least and the most zoom ratio
+    APKRT_CAMERA_KEY_FPS_RANGES,         // I32 x2n: min, max
+    APKRT_CAMERA_KEY_ISO,                // I32 x2: min, max
+    APKRT_CAMERA_KEY_EXPOSURE_NS,        // I64 x2: min, max
+    APKRT_CAMERA_KEY_AF_MODES,           // I32 xn: camera2's CONTROL_AF_MODE_* the camera has
+    APKRT_CAMERA_KEY_AWB_MODES,          // I32 xn: CONTROL_AWB_MODE_*
+    APKRT_CAMERA_KEY_FACES,              // I32: the most faces a frame reports, 0 for none
+    APKRT_CAMERA_KEY_STREAMS,            // I64 x4n: format, width, height, the least frame duration in ns
+    APKRT_CAMERA_KEY_STALLS,             // I64 x4n: format, width, height, the stall in ns (JPEG's)
+};
+
+/// camera (ADR-0073): x0 an enum apkrt_camera_op, x1 its struct apkrt_camera. Returns 0; -ENOSYS without the host's
+/// cameras; -EFAULT for a struct or bytes the guest cannot read or write; -EINVAL for an unknown op, a camera index
+/// past COUNT's, a reserved field not 0, a stream or control the facts do not list, more than
+/// APKRT_CAMERA_MAX_STREAMS streams, targets outside the configured streams or a token that does not wait; -ENOSPC
+/// with the facts' size out for a FACTS buffer too small, and for a JPEG buffer too small (the frame stays); -EBADF
+/// for an ID that is not there, or no more; -EBUSY for an OPEN of a camera that is open, or past
+/// APKRT_CAMERA_MAX_OPEN; -EACCES when iOS denies the camera; REQUEST -EAGAIN past APKRT_CAMERA_MAX_WAITING single
+/// captures, FRAME -EAGAIN while no frame is captured, also past APKRT_CAMERA_MAX_WAITING tokens the guest holds.
+/// RENDER, RENDER_WINDOW and DISCARD answer as video_decoder's. Else the host's answer. The number follows
+/// audio_read's.
+#define APKRT_NR_CAMERA 4137
+
 /// What a front lib needs of an ANativeWindow (ADR-0028, decision 7); graphics/host turns the ID into the
 /// window's layer.
 struct minato_window_info {

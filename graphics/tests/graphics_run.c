@@ -31,6 +31,11 @@ __attribute__((constructor)) static void set_providers(void) {
         exit(2);
     }
     minato_test_use_fake_buffers();
+    /* The model cameras (ADR-0073 decision 10): the Mac has no camera for the guest. */
+    if (minato_graphics_set_camera_model() != 0) {
+        fprintf(stderr, "graphics-run: the runtime refused the model cameras\n");
+        exit(2);
+    }
     const char *backend = getenv("MINATO_ANGLE_BACKEND");
     if (backend != NULL && strcmp(backend, "vulkan") == 0) {
         char reason[256] = "";
