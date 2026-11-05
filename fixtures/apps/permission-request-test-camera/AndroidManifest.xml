@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0073 decision 8's test of Activity.requestPermissions for CAMERA (permission-request-test-camera), from the
+     sources of fixtures/java/permission-request-test. The harness grants CAMERA before the start. The label is the
+     tag its lines carry. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.permreqcamera" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <application android:label="permission-request-test-camera">
+    <activity android:name="io.github.kisame76.minato.test.permreq.PermissionRequestActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

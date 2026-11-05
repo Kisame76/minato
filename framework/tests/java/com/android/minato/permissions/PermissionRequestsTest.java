@@ -64,6 +64,19 @@ public final class PermissionRequestsTest {
         check(PermissionRequests.detailToAsk(List.of(FINE), HOST_DECIDES, answers) == 0, "after two, final");
     }
 
+    public void testTheCameraAsksAfterTheMicrophone() {
+        PermissionAnswers answers = new PermissionAnswers();
+        java.util.function.Function<String, PermissionPolicy.Grant> host = name -> PermissionPolicy.Grant.ASK_HOST;
+        java.util.List<int[]> groups = PermissionRequests.groupsToAsk(java.util.List.of("android.permission.CAMERA",
+                "android.permission.RECORD_AUDIO", "android.permission.ACCESS_FINE_LOCATION"), host, answers);
+        check(groups.size() == 3 && groups.get(1)[0] == PermissionPolicy.GROUP_MICROPHONE
+                && groups.get(2)[0] == PermissionPolicy.GROUP_CAMERA && groups.get(2)[1] == 0,
+                "location, mic, then camera");
+        answers.answer(PermissionPolicy.GROUP_CAMERA, PermissionAnswers.GRANTED_FINE, true);
+        groups = PermissionRequests.groupsToAsk(java.util.List.of("android.permission.CAMERA"), host, answers);
+        check(groups.isEmpty(), "a granted camera is not asked again");
+    }
+
     public void testTheMicrophoneAsksAfterTheLocation() {
         PermissionAnswers answers = new PermissionAnswers();
         java.util.function.Function<String, PermissionPolicy.Grant> host = name -> PermissionPolicy.Grant.ASK_HOST;

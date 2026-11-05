@@ -40,6 +40,8 @@ public final class PermissionPolicy {
     /** The groups the host decides; the value of APKRT_REQUEST_PERMISSION's group field (ADR-0063 decision 2). */
     public static final int GROUP_LOCATION = 1;
     public static final int GROUP_MICROPHONE = 2;
+    /** ADR-0073 decision 8: APKRT_PERMISSION_CAMERA. */
+    public static final int GROUP_CAMERA = 3;
 
     /**
      * GRANTED and DENIED_FIXED are final. ASK_HOST is a dangerous permission of a group the host decides: the answer
@@ -102,6 +104,7 @@ public final class PermissionPolicy {
     private static final String ACCESS_FINE_LOCATION = "android.permission.ACCESS_FINE_LOCATION";
     private static final String ACCESS_COARSE_LOCATION = "android.permission.ACCESS_COARSE_LOCATION";
     private static final String RECORD_AUDIO = "android.permission.RECORD_AUDIO";
+    private static final String CAMERA = "android.permission.CAMERA";
     private static final String ACCESS_BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION";
 
     private static final Decision GRANTED = new Decision(Grant.GRANTED, "", "");
@@ -158,6 +161,9 @@ public final class PermissionPolicy {
     public static int hostGroup(String permission) {
         if (RECORD_AUDIO.equals(permission)) {
             return GROUP_MICROPHONE;
+        }
+        if (CAMERA.equals(permission)) {
+            return GROUP_CAMERA;
         }
         return ACCESS_FINE_LOCATION.equals(permission) || ACCESS_COARSE_LOCATION.equals(permission)
                 ? GROUP_LOCATION : 0;

@@ -66,7 +66,8 @@ public final class PermissionAnswersTest {
     public void testOtherPermissionsAndGroupsAreNotTheStoresBusiness() {
         PermissionAnswers answers = new PermissionAnswers();
         answers.answer(2, 1, true);
-        check(!answers.granted("android.permission.CAMERA") && !answers.mustAsk("android.permission.CAMERA"),
+        check(!answers.granted("android.permission.READ_CONTACTS")
+                && !answers.mustAsk("android.permission.READ_CONTACTS"),
                 "a permission without a host group is never asked");
         check(!answers.granted(null) && !answers.mustAsk(null) && !answers.shouldShowRationale(null), "null");
         answers.answer(LOCATION, 7, true);
@@ -84,6 +85,21 @@ public final class PermissionAnswersTest {
         if (!condition) {
             throw new AssertionError(what);
         }
+    }
+
+    public void testTheCameraIsItsOwnGroup() {
+        String camera = "android.permission.CAMERA";
+        PermissionAnswers answers = new PermissionAnswers();
+        check(!answers.granted(camera) && answers.mustAsk(camera), "denied and askable before the first answer");
+        answers.answer(PermissionPolicy.GROUP_CAMERA, PermissionAnswers.DENIED, true);
+        check(answers.shouldShowRationale(camera), "rationale after one denial");
+        answers.answer(PermissionPolicy.GROUP_CAMERA, PermissionAnswers.DENIED, true);
+        check(!answers.mustAsk(camera), "don't ask again after the second");
+        answers.answer(PermissionPolicy.GROUP_CAMERA, PermissionAnswers.GRANTED_FINE, false);
+        check(answers.granted(camera) && !answers.granted("android.permission.RECORD_AUDIO") && !answers.granted(FINE),
+                "a re-read grants only the camera");
+        answers.answer(PermissionPolicy.GROUP_CAMERA, PermissionAnswers.GRANTED_COARSE, false);
+        check(!answers.granted(camera), "the camera has no coarse grant");
     }
 
     public void testTheMicrophoneIsItsOwnGroup() {

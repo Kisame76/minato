@@ -23,16 +23,17 @@ public final class PermissionAnswers {
     private static final int DENIALS_FINAL = 2;
 
     private static final String RECORD_AUDIO = "android.permission.RECORD_AUDIO";
-    /** Per group, indexed by the group (PermissionPolicy.GROUP_LOCATION or GROUP_MICROPHONE). */
-    private final int[] mOutcome = new int[3];
-    private final int[] mDenials = new int[3];
+    /** Per group, indexed by the group (PermissionPolicy.GROUP_LOCATION, GROUP_MICROPHONE or GROUP_CAMERA). */
+    private final int[] mOutcome = new int[4];
+    private final int[] mDenials = new int[4];
 
     private static boolean known(int group) {
-        return group == PermissionPolicy.GROUP_LOCATION || group == PermissionPolicy.GROUP_MICROPHONE;
+        return group == PermissionPolicy.GROUP_LOCATION || group == PermissionPolicy.GROUP_MICROPHONE
+                || group == PermissionPolicy.GROUP_CAMERA;
     }
 
     /**
-     * @param group     PermissionPolicy.GROUP_LOCATION or GROUP_MICROPHONE; another group is ignored
+     * @param group     PermissionPolicy.GROUP_LOCATION, GROUP_MICROPHONE or GROUP_CAMERA; another group is ignored
      * @param outcome   DENIED, GRANTED_FINE or GRANTED_COARSE; an unknown value is a denial
      * @param solicited the result of a request, not a re-read
      */
@@ -40,7 +41,7 @@ public final class PermissionAnswers {
         if (!known(group)) {
             return;
         }
-        // The microphone has no coarse grant: any grant is a plain one.
+        // The microphone and the camera have no coarse grant: any grant is a plain one.
         if (outcome == GRANTED_FINE || (outcome == GRANTED_COARSE && group == PermissionPolicy.GROUP_LOCATION)) {
             mOutcome[group] = outcome;
             mDenials[group] = 0;
@@ -55,7 +56,7 @@ public final class PermissionAnswers {
     /** Whether the host's answer grants the permission; false for a permission of no host group. */
     public synchronized boolean granted(String permission) {
         final int group = PermissionPolicy.hostGroup(permission);
-        if (group == PermissionPolicy.GROUP_MICROPHONE) {
+        if (group == PermissionPolicy.GROUP_MICROPHONE || group == PermissionPolicy.GROUP_CAMERA) {
             return mOutcome[group] == GRANTED_FINE;
         }
         if (group != PermissionPolicy.GROUP_LOCATION) {

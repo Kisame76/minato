@@ -12,15 +12,22 @@ import java.util.Arrays;
  * ADR-0063's test of Activity.requestPermissions: the requests that need no dialog, which Android answers at once and
  * Minato answers from its policy and the host's grant. One after the other, each logs what onRequestPermissionsResult
  * brings and what checkSelfPermission and shouldShowRequestPermissionRationale say after it. The twin (-fine) declares
- * the two location permissions, which the harness grants before the start. The tag is the label.
+ * the two location permissions, which the harness grants before the start; the twin -camera (ADR-0073 decision 8)
+ * declares CAMERA, granted the same way, and asks for it in place of the location. The tag is the label.
  */
 public class PermissionRequestActivity extends Activity {
     private static final String FINE = "android.permission.ACCESS_FINE_LOCATION";
     private static final String COARSE = "android.permission.ACCESS_COARSE_LOCATION";
     private static final String INTERNET = "android.permission.INTERNET";
-    private static final String[][] REQUESTS = {
+    private static final String CAMERA = "android.permission.CAMERA";
+    private static final String[][] LOCATION_REQUESTS = {
         {INTERNET}, {FINE}, {COARSE, FINE, INTERNET}, {"android.permission.nonsense"}, {},
     };
+    private static final String[][] CAMERA_REQUESTS = {
+        {INTERNET}, {CAMERA}, {CAMERA, INTERNET}, {"android.permission.nonsense"}, {},
+    };
+
+    private String[][] mRequests = LOCATION_REQUESTS;
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private String mTag;
@@ -33,18 +40,19 @@ public class PermissionRequestActivity extends Activity {
         if (hasFocus && !mStarted) {
             mStarted = true;
             mTag = getApplicationInfo().loadLabel(getPackageManager()).toString();
+            mRequests = getPackageName().endsWith("camera") ? CAMERA_REQUESTS : LOCATION_REQUESTS;
             Log.i(mTag, "controller: " + getPackageManager().getPermissionControllerPackageName());
             mHandler.post(this::next);
         }
     }
 
     private void next() {
-        if (mNext == REQUESTS.length) {
+        if (mNext == mRequests.length) {
             Log.i(mTag, "done");
             return;
         }
         final int index = mNext++;
-        final String[] names = REQUESTS[index];
+        final String[] names = mRequests[index];
         Log.i(mTag, "request " + index + ": " + Arrays.toString(names));
         try {
             requestPermissions(names, index);

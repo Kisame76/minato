@@ -4,12 +4,17 @@ import Foundation
 public enum PermissionGroup: Int32, Sendable, Codable, CaseIterable {
     case location = 1
     case microphone = 2
+    /// ADR-0073 decision 8.
+    case camera = 3
+
+    /// The order the start's seeds and the foreground's re-reads go in.
+    static let answered: [PermissionGroup] = [.microphone, .location, .camera]
 }
 
 /// APKRT_REQUEST_PERMISSION's text, "<group>\t<detail>".
 public struct PermissionAsk: Sendable, Equatable {
     public var group: PermissionGroup
-    /// APKRT_PERMISSION_DETAIL_*: for location 1 fine, 2 coarse only; 0 for the microphone.
+    /// APKRT_PERMISSION_DETAIL_*: for location 1 fine, 2 coarse only; 0 for the microphone and the camera.
     public var detail: Int32
 
     public init(group: PermissionGroup, detail: Int32) {
@@ -43,10 +48,13 @@ public struct PermissionRecord: Sendable, Equatable, Codable {
 public struct PermissionRecords: Sendable, Equatable, Codable {
     public var microphone = PermissionRecord()
     public var location = PermissionRecord()
+    public var camera = PermissionRecord()
 
-    public init(microphone: PermissionRecord = PermissionRecord(), location: PermissionRecord = PermissionRecord()) {
+    public init(microphone: PermissionRecord = PermissionRecord(), location: PermissionRecord = PermissionRecord(),
+                camera: PermissionRecord = PermissionRecord()) {
         self.microphone = microphone
         self.location = location
+        self.camera = camera
     }
 
     /// A file of an older Minato may lack a group.
@@ -54,11 +62,24 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         microphone = try container.decodeIfPresent(PermissionRecord.self, forKey: .microphone) ?? PermissionRecord()
         location = try container.decodeIfPresent(PermissionRecord.self, forKey: .location) ?? PermissionRecord()
+        camera = try container.decodeIfPresent(PermissionRecord.self, forKey: .camera) ?? PermissionRecord()
     }
 
     subscript(group: PermissionGroup) -> PermissionRecord {
-        get { group == .microphone ? microphone : location }
-        set { if group == .microphone { microphone = newValue } else { location = newValue } }
+        get {
+            switch group {
+            case .microphone: microphone
+            case .location: location
+            case .camera: camera
+            }
+        }
+        set {
+            switch group {
+            case .microphone: microphone = newValue
+            case .location: location = newValue
+            case .camera: camera = newValue
+            }
+        }
     }
 
     /// The records in `file`; none for a missing or unreadable one.
@@ -86,7 +107,7 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
 /// (request ID 0, not counted): a revoke as a denial, reduced accuracy as coarse.
 public struct PermissionDesk: Sendable {
     /// iOS's answer for the group's own permission (AVAudioApplication.recordPermission for the microphone,
-    /// CLLocationManager's authorization and accuracy for location).
+    /// CLLocationManager's authorization and accuracy for location, AVCaptureDevice's for video for the camera).
     public enum IOSState: Sendable {
         case notDetermined, granted, denied
         /// Location authorized with reduced accuracy (precise location off).
@@ -161,7 +182,7 @@ public struct PermissionDesk: Sendable {
 
     /// At the session's start: each stored grant iOS still gives, coarse under iOS's reduced accuracy.
     public func seeds(ios: IOSStates) -> [Step] {
-        [PermissionGroup.microphone, .location].compactMap { group in
+        PermissionGroup.answered.compactMap { group in
             let stored = records[group].outcome
             guard stored != 0, ios(group).grants else { return nil }
             return .answer(id: 0, group: group.rawValue, outcome: Self.adjusted(stored, group: group, ios(group)))
@@ -172,7 +193,7 @@ public struct PermissionDesk: Sendable {
     /// iOS's reduced accuracy coarse; neither is counted as a denial.
     public mutating func foreground(ios: IOSStates) -> [Step] {
         var steps: [Step] = []
-        for group in [PermissionGroup.microphone, .location] {
+        for group in PermissionGroup.answered {
             let stored = records[group].outcome
             guard stored != 0 else { continue }
             let now = ios(group).grants ? Self.adjusted(stored, group: group, ios(group)) : 0

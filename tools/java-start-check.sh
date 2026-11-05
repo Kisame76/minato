@@ -172,7 +172,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "gamepad-test io.github.kisame76.minato.test.gamepad"
       "permission-request-test-fine io.github.kisame76.minato.test.permreqfine"
       "location-manager-test-fine io.github.kisame76.minato.test.locmanfine"
-      "location-manager-test-coarse io.github.kisame76.minato.test.locmancoarse")
+      "location-manager-test-coarse io.github.kisame76.minato.test.locmancoarse"
+      "permission-request-test-camera io.github.kisame76.minato.test.permreqcamera")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -589,7 +590,8 @@ begin_start() {
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
-  [[ "$app" != permission-request-test-fine ]] || echo yes > "$CHECK/permission-allow"
+  [[ "$app" != permission-request-test-fine && "$app" != permission-request-test-camera ]] ||
+    echo yes > "$CHECK/permission-allow"
   # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
   # drawables' pass, with PIXELS_CONTENTS by contents in the Simulator.
   if [[ -n "${PIXELS:-}" ]]; then
@@ -1291,6 +1293,24 @@ if [[ "$ON_DEVICE" == no ]] && { wanted permission-request-test-fine || wanted l
     echo "{\"location\":{\"outcome\":${twin#*:},\"denials\":0}}" > "$SUPPORT/data/$package/permissions.json"
     run_one "$app" "$package"
   done
+fi
+
+# ADR-0073 decision 8 in the Simulator: permission-request-test-camera asks for CAMERA, Minato's alert answers Allow by
+# itself (permission-allow), and iOS's camera answer is granted beforehand (simctl privacy); its log must be Android
+# 15's, where the harness grants CAMERA before the start.
+if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-camera; then
+  xcrun simctl privacy "$SIM_UDID" grant camera "$BUNDLE_ID"
+  # A fresh app for the host: no answer stored from an earlier run.
+  rm -f "$SUPPORT/data/io.github.kisame76.minato.test.permreqcamera/permissions.json"
+  run_one permission-request-test-camera io.github.kisame76.minato.test.permreqcamera
+  fetch_events
+  # The app asks the host once: its second request finds CAMERA granted, as on Android.
+  answers=$(grep -c -E " permission [0-9]+ group 3 outcome 1$" "$EVENTS" || true)
+  if [[ "$answers" == 1 ]]; then
+    ok "  the host granted the camera request"
+  else
+    fail "  the host granted $answers camera requests, not 1"
+  fi
 fi
 
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk

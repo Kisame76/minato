@@ -1,6 +1,7 @@
 import APKRuntime
 import APKSession
 import AVFAudio
+import AVFoundation
 import Foundation
 import UIKit
 import os
@@ -29,6 +30,12 @@ final class PermissionPresenter {
     private static func ios(_ group: PermissionGroup) -> PermissionDesk.IOSState {
         switch group {
         case .location: return LocationHost.shared.state
+        case .camera:
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized: return .granted
+            case .notDetermined: return .notDetermined
+            default: return .denied
+            }
         case .microphone:
             switch AVAudioApplication.shared.recordPermission {
             case .granted: return .granted
@@ -71,6 +78,10 @@ final class PermissionPresenter {
                 SheetTurns.shared.take(self) { [weak self] in self?.show(id, group) }
             case .askIOS(let id, .microphone):
                 AVAudioApplication.requestRecordPermission { granted in
+                    Task { @MainActor [weak self] in self?.iosAnswered(id, granted ? .granted : .denied) }
+                }
+            case .askIOS(let id, .camera):
+                AVCaptureDevice.requestAccess(for: .video) { granted in
                     Task { @MainActor [weak self] in self?.iosAnswered(id, granted ? .granted : .denied) }
                 }
             case .askIOS(let id, .location):

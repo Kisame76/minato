@@ -1,0 +1,17 @@
+I/permission-request-test-camera: controller: com.android.permissioncontroller
+I/permission-request-test-camera: request 0: [android.permission.INTERNET]
+I/permission-request-test-camera: result 0: 1 [android.permission.INTERNET granted]
+I/permission-request-test-camera: after android.permission.INTERNET: check 0, rationale false
+I/permission-request-test-camera: request 1: [android.permission.CAMERA]
+I/permission-request-test-camera: result 1: 1 [android.permission.CAMERA granted]
+I/permission-request-test-camera: after android.permission.CAMERA: check 0, rationale false
+I/permission-request-test-camera: request 2: [android.permission.CAMERA, android.permission.INTERNET]
+I/permission-request-test-camera: result 2: 2 [android.permission.CAMERA granted, android.permission.INTERNET granted]
+I/permission-request-test-camera: after android.permission.CAMERA: check 0, rationale false
+I/permission-request-test-camera: after android.permission.INTERNET: check 0, rationale false
+I/permission-request-test-camera: request 3: [android.permission.nonsense]
+I/permission-request-test-camera: result 3: 1 [android.permission.nonsense denied]
+I/permission-request-test-camera: after android.permission.nonsense: check -1, rationale false
+I/permission-request-test-camera: request 4: []
+I/permission-request-test-camera: request 4 threw java.lang.IllegalArgumentException: permission cannot be null or empty
+I/permission-request-test-camera: done

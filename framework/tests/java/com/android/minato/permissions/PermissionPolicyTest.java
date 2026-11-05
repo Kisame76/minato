@@ -101,7 +101,7 @@ public final class PermissionPolicyTest {
         check(grant("android.permission.CAMERA", DANGEROUS, 22) == Grant.GRANTED, "dangerous at 22");
         check(grant("android.permission.ACCESS_FINE_LOCATION", DANGEROUS, 1) == Grant.GRANTED, "dangerous at 1");
         check(grant("android.permission.INTERNET", NORMAL, 22) == Grant.GRANTED, "normal at 22");
-        check(grant("android.permission.CAMERA", DANGEROUS, 23) == Grant.DENIED_FIXED, "dangerous at 23");
+        check(grant("android.permission.READ_CONTACTS", DANGEROUS, 23) == Grant.DENIED_FIXED, "dangerous at 23");
     }
 
     // ADR-0063 decision 2: the location group is the host's to decide (the first ASK_HOST).
@@ -123,7 +123,13 @@ public final class PermissionPolicyTest {
     public void testBackgroundLocationAndOtherGroupsStayDenied() {
         check(grant("android.permission.ACCESS_BACKGROUND_LOCATION", DANGEROUS, 35) == Grant.DENIED_FIXED,
                 "background location is not offered (ADR-0063 decision 2)");
-        check(grant("android.permission.CAMERA", DANGEROUS, 35) == Grant.DENIED_FIXED, "CAMERA");
+    }
+
+    public void testTheCameraIsTheHostsToDecideToo() {
+        check(grant("android.permission.CAMERA", DANGEROUS, 35) == Grant.ASK_HOST, "CAMERA (ADR-0073 decision 8)");
+        check(grant("android.permission.CAMERA", DANGEROUS, 22) == Grant.GRANTED, "below 23 is Android's old model");
+        check(PermissionPolicy.hostGroup("android.permission.CAMERA") == PermissionPolicy.GROUP_CAMERA, "its group");
+        check(PermissionPolicy.GROUP_CAMERA == 3, "APKRT_PERMISSION_CAMERA");
     }
 
     public void testTheMicrophoneIsTheHostsToDecideToo() {
@@ -148,7 +154,7 @@ public final class PermissionPolicyTest {
         check(PermissionPolicy.hostGroup(P + "ACCESS_FINE_LOCATION") == PermissionPolicy.GROUP_LOCATION, "fine");
         check(PermissionPolicy.hostGroup(P + "ACCESS_COARSE_LOCATION") == PermissionPolicy.GROUP_LOCATION, "coarse");
         check(PermissionPolicy.hostGroup(P + "ACCESS_BACKGROUND_LOCATION") == 0, "background");
-        check(PermissionPolicy.hostGroup(P + "CAMERA") == 0, "camera");
+        check(PermissionPolicy.hostGroup(P + "READ_CONTACTS") == 0, "contacts");
         check(PermissionPolicy.hostGroup(null) == 0, "null");
     }
 
@@ -171,7 +177,7 @@ public final class PermissionPolicyTest {
 
     public void testOtherDangerousAreDenied() {
         String[] dangerous = {"android.permission.ACCESS_BACKGROUND_LOCATION",
-                "android.permission.CAMERA", "android.permission.READ_CONTACTS",
+                "android.permission.READ_CONTACTS",
                 "android.permission.READ_MEDIA_IMAGES"};
         for (String permission : dangerous) {
             Decision decision = PermissionPolicy.decide(permission, DANGEROUS, 35, true, false);
@@ -187,7 +193,7 @@ public final class PermissionPolicyTest {
     public void testGrantsHaveNoReasonDenialsDo() {
         check(PermissionPolicy.decide("android.permission.INTERNET", NORMAL, 35, true, false).reason.isEmpty(),
                 "a grant logs nothing");
-        check(!PermissionPolicy.decide("android.permission.CAMERA", DANGEROUS, 35, true, false).reason.isEmpty(),
+        check(!PermissionPolicy.decide("android.permission.READ_CONTACTS", DANGEROUS, 35, true, false).reason.isEmpty(),
                 "a denial names its reason");
     }
 
@@ -254,9 +260,9 @@ public final class PermissionPolicyTest {
     }
 
     public void testFromADeniedSourceStaysDenied() {
-        PermissionPolicy.App app = app(28, List.of(P + "CAMERA"),
+        PermissionPolicy.App app = app(28, List.of(P + "READ_CONTACTS"),
                 List.of(P + "ACCESS_BACKGROUND_LOCATION"));
-        for (String location : new String[] {"CAMERA", "ACCESS_BACKGROUND_LOCATION"}) {
+        for (String location : new String[] {"READ_CONTACTS", "ACCESS_BACKGROUND_LOCATION"}) {
             Decision decision = PermissionPolicy.decide(app, P + location);
             check(decision.grant == Grant.DENIED_FIXED, location);
             check(!decision.reason.isEmpty() && decision.departure.isEmpty(), location + ": " + decision.reason);
