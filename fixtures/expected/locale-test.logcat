@@ -1,0 +1,10 @@
+I/locale-test: application locales at the start: true
+I/locale-test: set de-DE: returned
+I/locale-test: application locales at once: de-DE
+I/locale-test: application locales later: de-DE
+I/locale-test: resources locale later: de-DE,en-US
+I/locale-test: Application heard the change: de-DE,en-US
+I/locale-test: system locales unchanged: true
+I/locale-test: application locales after the reset: true
+I/locale-test: resources locale is the system's again: true
+I/locale-test: done

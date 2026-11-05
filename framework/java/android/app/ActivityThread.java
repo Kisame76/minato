@@ -3258,6 +3258,14 @@ public final class ActivityThread {
         if (mLoadedApk != null) {
             mLoadedApk.getResources().updateConfiguration(config, metrics);
         }
+        dispatchConfigurationChanged(config, metrics, changes);
+    }
+
+    /**
+     * A new configuration reaches the Application, the activities of the task (relaunched when their manifest's
+     * configChanges do not cover the change), the services and the providers, as handleConfigurationChanged has it.
+     */
+    private void dispatchConfigurationChanged(Configuration config, DisplayMetrics metrics, int changes) {
         mInitialApplication.onConfigurationChanged(config);
         for (ActivityClientRecord r : reversedTask()) {
             if (r.activity == null || r.activity.mFinished || r.state < ON_CREATE || r.state > ON_STOP) {
@@ -3277,6 +3285,43 @@ public final class ActivityThread {
         for (ContentProvider provider : providers) {
             provider.onConfigurationChanged(config);
         }
+    }
+
+    /**
+     * LocaleManager.setApplicationLocales: the app's languages come before the system's in its configuration, which
+     * is posted to the main thread and reaches the Application and the components as a locale change does (an
+     * activity that does not handle it is relaunched). With no language of the app the system's come back.
+     */
+    void applyAppLocales(LocaleList appLocales, LocaleList systemLocales) {
+        sMainThreadHandler.post(() -> handleAppLocales(appLocales, systemLocales));
+    }
+
+    @SuppressWarnings("deprecation") // Resources.updateConfiguration, as handleTurn.
+    private void handleAppLocales(LocaleList appLocales, LocaleList systemLocales) {
+        final Resources system = Resources.getSystem();
+        final Configuration before = new Configuration(system.getConfiguration());
+        final Configuration config = new Configuration(before);
+        config.seq = 0;
+        final java.util.ArrayList<java.util.Locale> merged = new java.util.ArrayList<>();
+        for (int i = 0; i < appLocales.size(); i++) {
+            merged.add(appLocales.get(i));
+        }
+        for (int i = 0; i < systemLocales.size(); i++) {
+            if (!merged.contains(systemLocales.get(i))) {
+                merged.add(systemLocales.get(i));
+            }
+        }
+        config.setLocales(new LocaleList(merged.toArray(new java.util.Locale[0])));
+        final int changes = before.diffPublicOnly(config);
+        if (changes == 0) {
+            return;
+        }
+        final DisplayMetrics metrics = system.getDisplayMetrics();
+        Resources.updateSystemConfiguration(config, metrics, null);
+        if (mLoadedApk != null) {
+            mLoadedApk.getResources().updateConfiguration(config, metrics);
+        }
+        dispatchConfigurationChanged(config, metrics, changes);
     }
 
     /**
