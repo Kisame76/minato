@@ -1185,6 +1185,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
             case rewrite::SiteKind::thread_pointer_read: ++report.thread_pointer_reads; break;
             case rewrite::SiteKind::thread_pointer_write: ++report.thread_pointer_writes; break;
             case rewrite::SiteKind::syscall: ++report.syscalls; break;
+            case rewrite::SiteKind::cache_type_read: ++report.cache_type_reads; break;
             case rewrite::SiteKind::x18:
             case rewrite::SiteKind::x18_nosave:
                 ++report.x18_islands;

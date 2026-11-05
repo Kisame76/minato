@@ -27,6 +27,7 @@ hello-dyn system
 libc-test system
 # One size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27); red at 26.
 scudo-region-test system
+ctr-el0-test system
 files-test system
 math-test system
 log-test system

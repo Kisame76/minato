@@ -31,6 +31,7 @@ struct Report {
     std::uint32_t thread_pointer_reads = 0;
     std::uint32_t thread_pointer_writes = 0;
     std::uint32_t syscalls = 0;
+    std::uint32_t cache_type_reads = 0;  // mrs CTR_EL0 redirected to load a constant (ADR-0072)
     std::uint32_t x18_writes = 0;    // instructions that only write x18
     std::uint32_t x18_saves = 0;     // x18 stored in a dump of all registers
     std::uint32_t x18_islands = 0;   // instructions run with a scratch register for x18 (ADR-0020)

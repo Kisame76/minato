@@ -28,9 +28,12 @@
    islands are resumable (ADR-0020 X4h), so an EXCLUSIVE island's `commit` field changed meaning; 5: the
    APK_ISLAND_SINGLE_NOSAVE kind (ADR-0020 C7), an in-sequence x18 use over a dead register with no red-zone
    save; 6: the (c)-function R-range table (ADR-0020 option c, must-have 6), where a signal finds the guest
-   x18 in a register. The converter writes this current version; the loader reads back to
+   x18 in a register; 7: the converter rewrites mrs CTR_EL0 (ADR-0072), so an app converted before the fix
+   must be converted again. The format is unchanged from 6 (the cache_type_read island is self-contained
+   code, with no island-table entry), so a version-6 container still loads; the bump only forces the
+   reconvert. The converter writes this current version; the loader reads back to
    APK_CONTAINER_OLDEST_VERSION, each at the size its own version had. */
-#define APK_CONTAINER_VERSION 6
+#define APK_CONTAINER_VERSION 7
 #define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
 /* From this version a container may hold the (c) R-range table (apk_c_range): the PC ranges where a renamed
    function keeps the guest x18 in a register, so the signal path hands a handler that register's value rather

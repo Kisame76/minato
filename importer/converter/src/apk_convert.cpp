@@ -120,12 +120,14 @@ void inspect(const std::string &path) {
     // What the rewriter finds in the executable sections (ADR-0010, ADR-0019).
     try {
         const auto scan = apk::container::scan_code(bytes);
-        std::size_t thread_pointer_reads = 0, thread_pointer_writes = 0, syscalls = 0, x18_islands = 0;
+        std::size_t thread_pointer_reads = 0, thread_pointer_writes = 0, syscalls = 0, x18_islands = 0,
+                    cache_type_reads = 0;
         for (const auto &site : scan.findings.sites) {
             switch (site.kind) {
                 case apk::rewrite::SiteKind::thread_pointer_read: ++thread_pointer_reads; break;
                 case apk::rewrite::SiteKind::thread_pointer_write: ++thread_pointer_writes; break;
                 case apk::rewrite::SiteKind::syscall: ++syscalls; break;
+                case apk::rewrite::SiteKind::cache_type_read: ++cache_type_reads; break;
                 case apk::rewrite::SiteKind::x18:
                 case apk::rewrite::SiteKind::x18_nosave: ++x18_islands; break;
             }
@@ -134,9 +136,9 @@ void inspect(const std::string &path) {
         // The same islands convert() counts: single sites, relocated LL/SC windows, jump tables.
         x18_islands += findings.exclusive_regions.size() + findings.jump_tables.size();
         std::cout << std::format(
-                         "  code: {} bytes; TPIDR_EL0: {} reads, {} writes; svc #0: {}, other svc: {}, svc #imm "
-                         "kept as data: {}\n",
-                         scan.code_bytes, thread_pointer_reads, thread_pointer_writes, syscalls,
+                         "  code: {} bytes; TPIDR_EL0: {} reads, {} writes; CTR_EL0: {} reads; svc #0: {}, other "
+                         "svc: {}, svc #imm kept as data: {}\n",
+                         scan.code_bytes, thread_pointer_reads, thread_pointer_writes, cache_type_reads, syscalls,
                          findings.other_syscalls.size(), findings.data_syscalls.size())
                   << std::format("  x18: {} reads, {} write{}, {} saved in register dumps; islands: {}, windows in "
                                  "place: {}, refused: {}",
@@ -289,9 +291,11 @@ int convert(std::vector<std::string> arguments) {
     std::cout << std::format("{} -> {} ({} bytes, {})\n", input, output, container.bytes.size(), signature)
               << std::format("  {}, {} bytes of code scanned\n", report.is_static ? "static" : "dynamic",
                              report.code_bytes)
-              << std::format("  rewritten: {} thread pointer reads, {} writes, {} syscalls ({} bytes of stubs)\n",
-                             report.thread_pointer_reads, report.thread_pointer_writes, report.syscalls,
-                             report.stub_bytes)
+              << std::format(
+                     "  rewritten: {} thread pointer reads, {} writes, {} syscalls, {} cache type reads ({} bytes "
+                     "of stubs)\n",
+                     report.thread_pointer_reads, report.thread_pointer_writes, report.syscalls,
+                     report.cache_type_reads, report.stub_bytes)
               << std::format("  x18: {} island{} ({} bytes of island table), of them {} only writing x18, {} saving "
                              "it in a register dump\n",
                              report.x18_islands, report.x18_islands == 1 ? "" : "s", report.island_table_bytes,

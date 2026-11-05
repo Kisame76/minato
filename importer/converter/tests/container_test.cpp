@@ -428,7 +428,7 @@ TEST(the_island_table_describes_every_x18_island) {
     builder.put<std::uint32_t>(0x21c, 0xaa13'03f2);  // mov x18, x19: writes x18
     const auto singles = convert(builder);
     const auto image = read_info(singles.bytes).image_offset;
-    CHECK(read_info(singles.bytes).version == 6);
+    CHECK(read_info(singles.bytes).version == 7);
     const auto islands = island_table(singles);
     CHECK(islands.size() == 2);
     if (islands.size() == 2) {
@@ -478,7 +478,7 @@ TEST(the_island_table_describes_every_x18_island) {
 // before its load-exclusive, a backward branch) that no whole-window island took becomes a no-save island
 // over a register proven dead. The container records it as APK_ISLAND_SINGLE_NOSAVE, and a container that
 // holds one needs a v5 runtime (APK_CONTAINER_RECONSTRUCT_VERSION).
-TEST(the_container_records_a_no_save_island_at_version_6) {
+TEST(the_container_records_a_no_save_island_at_version_7) {
     auto builder = static_program();
     builder.put<std::uint32_t>(0x200, 0x1400'0003);  // b 0x20c
     builder.put<std::uint32_t>(0x204, 0xc802'7c03);  // stxr w2, x3, [x0]: the store-exclusive, before its ldxr
@@ -490,7 +490,7 @@ TEST(the_container_records_a_no_save_island_at_version_6) {
     builder.put<std::uint32_t>(0x21c, 0xd503'201f);  // nop
     const auto container = convert(builder);
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 6);
+    CHECK(info.version == 7);
     CHECK(info.version >= APK_CONTAINER_RECONSTRUCT_VERSION);  // the kind needs a reconstruction-capable runtime
     const auto islands = island_table(container);
     CHECK(islands.size() == 1);
@@ -517,7 +517,7 @@ TEST(renames_x18_across_a_hard_function_instead_of_refusing_it) {
     prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: a register return reading x18 -- refused, and no island
     const auto container = convert(prog);         // before step 4 this throws Incompatible
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 6);
+    CHECK(info.version == 7);
     const auto ranges = c_range_table(container);
     CHECK(info.c_range_count == ranges.size() && !ranges.empty());
     // The body after the entry island keeps the guest x18 in the free caller-saved register x9.
@@ -554,7 +554,7 @@ TEST(takes_a_function_with_a_mix_of_islandable_and_hard_x18_uses_and_islands_non
     prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: the HARD x18 use (register return), no island
     const auto container = convert(prog);         // before A1 keep-clear drops fn for the add's island -> Incompatible
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 6);
+    CHECK(info.version == 7);
     // (c) took the function: a body range covers the islandable site, with the rename register.
     std::optional<std::uint8_t> reg;
     for (const auto &range : c_range_table(container)) {
@@ -583,7 +583,7 @@ TEST(takes_a_function_with_a_closed_exclusive_window_and_a_hard_x18_use_without_
     prog.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18              : the HARD x18 use (register return)
     const auto container = convert(prog);         // before A1 keep-clear drops fn for the window's island -> refused
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 6);
+    CHECK(info.version == 7);
     std::optional<std::uint8_t> reg;
     for (const auto &range : c_range_table(container)) {
         if (range.start <= info.image_offset + 0x208 && info.image_offset + 0x208 < range.end) reg = range.reg;
@@ -647,7 +647,7 @@ TEST(takes_a_c_function_with_a_co_resident_syscall) {
     prog.put<std::uint32_t>(0x214, 0xd65f'0240);  // ret x18: the hard x18 use, so (c) takes fn
     const auto container = convert(prog);         // before A2 keep-clear drops fn for the svc island -> Incompatible
     const auto info = read_info(container.bytes);
-    CHECK(info.version == 6);
+    CHECK(info.version == 7);
     // (c) took the function: a body range covers it with the rename register.
     std::optional<std::uint8_t> reg;
     for (const auto &range : c_range_table(container)) {
@@ -899,7 +899,7 @@ TEST(splits_an_image_into_runs_of_protection) {
     const auto container = convert(builder);
     const auto &bytes = container.bytes;
     const auto info = read_info(bytes);
-    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 6);
+    CHECK(info.version == APK_CONTAINER_VERSION && APK_CONTAINER_VERSION == 7);
     CHECK(info.min_vaddr == 0);
     CHECK(container.report.image_shift == 0);
     CHECK(info.image_size == 0x1c000);

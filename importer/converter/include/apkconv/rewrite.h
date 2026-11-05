@@ -10,6 +10,11 @@
 //                       instruction with a scratch register in place of x18, whose value lives in
 //                       Darwin TSD slot 11 (ADR-0020). Forms that need more than that are listed as
 //                       unsupported, and the converter refuses the file.
+//   mrs xN, CTR_EL0     XNU traps a read of the cache type register at EL0 (EXC_BAD_INSTRUCTION);
+//                       compiler-rt's __clear_cache reads it, so libffi and others hit it. The island
+//                       loads a synthesised value instead (ADR-0072): 128-byte lines, PIPT, IDC=DIC=1,
+//                       so __clear_cache does only dsb+isb. Honest because Minato never runs
+//                       guest-generated code, so no instruction/data cache maintenance is ever needed.
 //
 // Every other instruction stays as it is: no emulation, no trapping (ADR-0001).
 #pragma once
@@ -33,6 +38,8 @@ enum class SiteKind : std::uint8_t {
     x18,                   // an instruction that uses x18
     x18_nosave,            // an in-sequence x18 use (inside a live LL/SC), islanded over a register proven dead at
                            // the use, touching only TSD slot 11, with no red-zone save (ADR-0020 C3b, C7)
+    cache_type_read,       // mrs xN, CTR_EL0: the island loads a constant into xN (ADR-0072), since XNU traps the
+                           // read at EL0; `reg` is N (31 for xzr, which needs no island)
 };
 
 struct Site {

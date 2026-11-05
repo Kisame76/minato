@@ -17,6 +17,7 @@ constexpr std::uint32_t register_mask = 0xffff'ffe0;
 constexpr std::uint32_t mrs_tpidr_el0 = 0xd53b'd040;
 constexpr std::uint32_t msr_tpidr_el0 = 0xd51b'd040;
 constexpr std::uint32_t mrs_tpidrro_el0_pattern = 0xd53b'd060;  // MRS Xt, TPIDRRO_EL0, register field cleared
+constexpr std::uint32_t mrs_ctr_el0 = 0xd53b'0020;             // MRS Xt, CTR_EL0, register field cleared
 constexpr std::uint32_t svc_mask = 0xffe0'001f;  // keeps the 16-bit immediate out
 constexpr std::uint32_t svc = 0xd400'0001;
 
@@ -34,6 +35,14 @@ constexpr std::size_t syscall_veneer_words = 6;  // stp, adrp, ldr, blr, ldp, b
 constexpr std::size_t branch_island_words = 9;   // save, mrs, bic, ldr, branch, restore+b (twice)
 constexpr std::size_t indirect_branch_island_words = 5;  // save x16, mrs, bic, ldr, br x16 (BR x18)
 constexpr std::size_t indirect_call_island_words = 8;    // + save x30, adrp+add x30 for the return (BLR x18)
+constexpr std::size_t cache_type_read_island_words = 3;  // movz, movk, b
+
+// The CTR_EL0 the cache_type_read island loads, in place of the read XNU traps at EL0 (ADR-0072). 128-byte
+// lines (IminLine = DminLine = 5), from the host's hw.cachelinesize of 128 on Apple silicon; L1Ip = PIPT (3);
+// IDC and DIC set (bits 28, 29) so that compiler-rt's __clear_cache does only dsb+isb, skipping the dc cvau /
+// ic ivau loops that XNU also traps. Setting IDC/DIC is honest: Minato never executes guest-generated code
+// (ADR-0001, ADR-0071) and Apple's caches are coherent, so no instruction/data cache maintenance is needed.
+constexpr std::uint32_t ctr_el0_value = 0xb445'c005;
 
 /// CBZ, CBNZ (bits 30:25 = 011010) and TBZ, TBNZ (011011): a conditional branch that tests one
 /// register (Rt, bits 4:0) and has a taken and a not-taken exit. The rest of the branch group
@@ -226,6 +235,16 @@ std::uint32_t ldur(unsigned rt, unsigned rn, std::int32_t offset) {
 
 std::uint32_t mrs_tpidrro_el0(unsigned rt) {
     return mrs_tpidrro_el0_pattern | reg(rt, 0);
+}
+
+/// MOVZ Xd, #imm16, LSL #(16 * shift): sets that 16-bit field and zeros the rest of the 64-bit register.
+std::uint32_t movz(unsigned rd, std::uint16_t value, unsigned shift) {
+    return 0xd280'0000 | (shift << 21) | (static_cast<std::uint32_t>(value) << 5) | reg(rd, 0);
+}
+
+/// MOVK Xd, #imm16, LSL #(16 * shift): sets that 16-bit field and keeps the rest.
+std::uint32_t movk(unsigned rd, std::uint16_t value, unsigned shift) {
+    return 0xf280'0000 | (shift << 21) | (static_cast<std::uint32_t>(value) << 5) | reg(rd, 0);
 }
 
 /// SUB Xd, Xn, Xm.
@@ -1562,6 +1581,8 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             findings.sites.push_back({at, SiteKind::thread_pointer_read, rt});
         } else if ((instruction & register_mask) == msr_tpidr_el0) {
             findings.sites.push_back({at, SiteKind::thread_pointer_write, rt});
+        } else if ((instruction & register_mask) == mrs_ctr_el0) {
+            findings.sites.push_back({at, SiteKind::cache_type_read, rt});
         } else if ((instruction & svc_mask) == svc) {
             if (instruction == svc) {
                 findings.sites.push_back({at, SiteKind::syscall, 0});
@@ -1732,6 +1753,7 @@ bool rename_x18(std::span<std::byte> code, unsigned reg) {
 std::size_t stub_size(const Site &site) {
     switch (site.kind) {
         case SiteKind::thread_pointer_read: return site.reg == zero_register ? 0 : 4 * read_island_words;
+        case SiteKind::cache_type_read: return site.reg == zero_register ? 0 : 4 * cache_type_read_island_words;
         case SiteKind::thread_pointer_write: return 4 * write_island_words;
         case SiteKind::syscall: return 4 * syscall_veneer_words;
         case SiteKind::x18: return 4 * x18_island_words(site.instruction);
@@ -1760,6 +1782,15 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
             write(mrs_tpidrro_el0(site.reg));
             write(bic_7(site.reg, site.reg));
             write(ldr_unsigned(site.reg, site.reg, guest_thread_pointer_offset));
+            break;
+
+        case SiteKind::cache_type_read:
+            // A read into xzr has no effect at all, so it needs no island.
+            if (site.reg == zero_register) return nop;
+            // Load the synthesised CTR_EL0 value; the common branch-back follows. MOVZ clears the register's
+            // upper bits, so the high 32 read as zero as a real CTR_EL0 read gives them.
+            write(movz(site.reg, static_cast<std::uint16_t>(ctr_el0_value), 0));
+            write(movk(site.reg, static_cast<std::uint16_t>(ctr_el0_value >> 16), 1));
             break;
 
         case SiteKind::thread_pointer_write: {

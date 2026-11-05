@@ -293,6 +293,38 @@ TEST(a_thread_pointer_read_into_xzr_becomes_a_nop) {
     CHECK(patch == 0xd503'201f);
 }
 
+// mrs xN, CTR_EL0 (0xd53b'0020 | N): XNU traps the read at EL0, so the converter lists it as a cache_type_read site.
+TEST(scan_finds_a_ctr_el0_read) {
+    const std::uint32_t code[] = {0xd53b'0025};  // mrs x5, CTR_EL0
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(std::span(reinterpret_cast<const std::byte *>(code), sizeof code), 0x1000, findings);
+    const std::vector<Site> expected = {{0x1000, SiteKind::cache_type_read, 5}};
+    CHECK(findings.sites == expected);
+}
+
+// The island loads the synthesised CTR_EL0 (ADR-0072) with MOVZ then MOVK LSL #16, so xN holds 0xB445C005 with its
+// upper 32 bits zero; IDC and DIC are set so __clear_cache takes its barrier-only path.
+TEST(the_cache_type_read_island_loads_the_synthesised_register) {
+    const Site site{0, SiteKind::cache_type_read, 5};
+    CHECK(apk::rewrite::stub_size(site) == 12);
+    const auto [patch, stub] = emit_at(site, 0x4000, 0x1000);
+    CHECK(stub.size() == 12);
+    const auto movz = word(stub, 0), movk = word(stub, 1);
+    CHECK((movz >> 23) == 0x1a5u && ((movz >> 21) & 3u) == 0u && (movz & 0x1fu) == 5u);  // MOVZ x5, #..., LSL #0
+    CHECK((movk >> 23) == 0x1e5u && ((movk >> 21) & 3u) == 1u && (movk & 0x1fu) == 5u);  // MOVK x5, #..., LSL #16
+    const std::uint32_t loaded = ((movz >> 5) & 0xffffu) | (((movk >> 5) & 0xffffu) << 16);
+    CHECK(loaded == 0xb445'c005u);
+    CHECK(((loaded >> 28) & 1u) == 1u && ((loaded >> 29) & 1u) == 1u);  // IDC, DIC
+}
+
+TEST(a_ctr_el0_read_into_xzr_needs_no_island) {
+    const Site site{0, SiteKind::cache_type_read, 31};
+    CHECK(apk::rewrite::stub_size(site) == 0);
+    const auto [patch, stub] = emit_at(site, 0x4000, 0x1000);
+    CHECK(stub.empty());
+    CHECK(patch == 0xd503'201f);  // nop
+}
+
 TEST(the_thread_pointer_write_islands_match_the_assembler) {
     const struct {
         std::uint8_t reg;

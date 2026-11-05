@@ -51,6 +51,8 @@ add_executable(hello-dyn dynamic/hello-dyn.c)
 # sources fix exactly, so that Android prints the same (fixtures/expected/<name>.out).
 add_executable(libc-test suite/libc-test.c)
 add_executable(files-test suite/files-test.c)
+# ctr-el0-test: a guest read of CTR_EL0 (and compiler-rt's __clear_cache, which reads it) must not trap on XNU.
+add_executable(ctr-el0-test suite/ctr-el0-test.c)
 # Without builtins, so that clang does not fold the math calls at compile time.
 add_executable(math-test suite/math-test.c)
 # scudo-region-test: one size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27).
