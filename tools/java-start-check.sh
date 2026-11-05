@@ -271,7 +271,8 @@ if [[ -n "${PIXELS:-}" ]]; then
              "second-windows-test io.github.kisame76.minato.test.secondwindows" \
              "activity-flow-test io.github.kisame76.minato.test.activityflow" \
              "window-formats-test io.github.kisame76.minato.test.windowformats" \
-             "views-test-landscape io.github.kisame76.minato.test.viewslandscape"; do
+             "views-test-landscape io.github.kisame76.minato.test.viewslandscape" \
+             "static-window-test io.github.kisame76.minato.test.staticwindow"; do
     [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
   done
   [[ -n "${ONLY// /}" ]] ||
@@ -605,6 +606,9 @@ begin_start() {
     echo yes > "$CHECK/footprint-log"
     [[ -z "${PIXELS_DRAWABLES:-}" ]] || echo yes > "$CHECK/window-by-drawables"
     [[ -z "${PIXELS_CONTENTS:-}" ]] || echo yes > "$CHECK/window-by-contents"
+    # PIXELS_TRACE: the window trace (graphics/host, Debug), shown()'s decision and who is above the buffers' sublayer
+    # per post in the guest log, to name the second producer of the black-screen bug on the device.
+    [[ -z "${PIXELS_TRACE:-}" ]] || echo yes > "$CHECK/window-trace"
   fi
   [[ -z "${QUIT_AFTER:-}" ]] || echo "$QUIT_AFTER" > "$CHECK/quit"
   send_requests

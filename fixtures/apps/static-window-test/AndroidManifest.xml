@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A static software window (the black-screen bug): a plain activity drawn in software
+     (hardwareAccelerated="false") that fills its window with one opaque colour and posts it ONCE after the first
+     layout, then never again, as a static menu or title screen does. An opaque default theme, so the window layer is
+     opaque: the (c) path (a second producer's drawable hides the buffers' sublayer, which only the next CPU post
+     un-hides) does not need a non-opaque layer. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.staticwindow" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:hardwareAccelerated="false">
+    <activity android:name="io.github.kisame76.minato.test.staticwindow.StaticWindowActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
