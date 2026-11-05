@@ -1096,6 +1096,38 @@ std::vector<Library *> preload_luajit_switch(State &state, Library &program, boo
     return std::move(preloaded->added);
 }
 
+/// libffi closures without executable memory, libminato-ffi.so (runtime/android/ffi.c, ADR-0072), loaded the same way:
+/// ffi_closure_alloc, ffi_closure_free and ffi_prep_closure_loc of an object that defines the other two become its
+/// pool wrappers, so that a closure's code is a trampoline of the signed library instead of memory the app made
+/// executable. Where the three names are called from inside their own library by direct branches, the names are not
+/// enough (the converter's entry hook, ADR-0072 decision 3 b).
+std::vector<Library *> preload_ffi_closures(State &state, Library &program, bool &missed) {
+    constexpr std::string_view name = "libminato-ffi.so";
+    auto preloaded = preload_optional(state, program, missed, name);
+    if (!preloaded) return {};
+    const auto &object = preloaded->library->object;
+    const auto symbol = [&](const char *wanted) { return required_symbol(object, name, wanted); };
+    const auto slot = [&](const char *wanted) {
+        return reinterpret_cast<std::uint64_t *>(linker::symbol_address(object, *symbol(wanted)));
+    };
+    linker::add_overrides({{.name = "ffi_closure_alloc",
+                            .wrapper = &object,
+                            .replacement = symbol("minato_ffi_closure_alloc"),
+                            .original = slot("minato_ffi_alloc_original"),
+                            .requires_symbol = "ffi_prep_closure_loc"},
+                           {.name = "ffi_closure_free",
+                            .wrapper = &object,
+                            .replacement = symbol("minato_ffi_closure_free"),
+                            .original = slot("minato_ffi_free_original"),
+                            .requires_symbol = "ffi_prep_closure_loc"},
+                           {.name = "ffi_prep_closure_loc",
+                            .wrapper = &object,
+                            .replacement = symbol("minato_ffi_prep_closure_loc"),
+                            .original = slot("minato_ffi_prep_original"),
+                            .requires_symbol = "ffi_closure_alloc"}});
+    return std::move(preloaded->added);
+}
+
 /// The JavaScriptCore switch, libminato-jsc.so (runtime/android/jsc.c), loaded the same way: its one function, which
 /// sets the two variables that make JavaScriptCore start its interpreter (ADR-0071), is kept for the loader to call
 /// when a library that defines JSGlobalContextCreate is mapped (prepare_jit_engines).
@@ -1244,6 +1276,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         for (auto *library : preload_frame_rate(state, program, missed)) added.push_back(library);
         for (auto *library : preload_luajit_switch(state, program, missed)) added.push_back(library);
         for (auto *library : preload_jsc_switch(state, program, missed)) added.push_back(library);
+        for (auto *library : preload_ffi_closures(state, program, missed)) added.push_back(library);
         for (auto *library : added) {
             library->global = true;
             library->group_root = &program;

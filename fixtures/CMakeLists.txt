@@ -51,12 +51,12 @@ add_executable(hello-dyn dynamic/hello-dyn.c)
 # sources fix exactly, so that Android prints the same (fixtures/expected/<name>.out).
 add_executable(libc-test suite/libc-test.c)
 add_executable(files-test suite/files-test.c)
-# ctr-el0-test: a guest read of CTR_EL0 (and compiler-rt's __clear_cache, which reads it) must not trap on XNU.
-add_executable(ctr-el0-test suite/ctr-el0-test.c)
 # Without builtins, so that clang does not fold the math calls at compile time.
 add_executable(math-test suite/math-test.c)
 # scudo-region-test: one size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27).
 add_executable(scudo-region-test suite/scudo-region-test.c)
+# ctr-el0-test: a guest read of CTR_EL0 (and compiler-rt's __clear_cache, which reads it) must not trap on XNU.
+add_executable(ctr-el0-test suite/ctr-el0-test.c)
 target_compile_options(math-test PRIVATE -fno-builtin)
 target_link_libraries(math-test PRIVATE m)
 # The logger functions of liblog came with API 30.
@@ -123,6 +123,15 @@ add_library(fake-luajit SHARED suite/libfake-luajit.c)
 add_library(fake-lua SHARED suite/libfake-lua.c)
 add_executable(luajit-switch-test suite/luajit-switch-test.c)
 target_link_libraries(luajit-switch-test PRIVATE fake-luajit dl)
+# ffi-closure-test and the two libraries that stand in for a statically linked libffi by its exported names and by the
+# layout of its legacy closure path (libffi closures without executable memory, runtime/tests/ffi_closures_run.py):
+# libfake-ffi-sym.so is linked -Bsymbolic and calls the names from inside, by direct branches.
+add_library(fake-ffi SHARED suite/libfake-ffi.c)
+add_library(fake-ffi-sym SHARED suite/libfake-ffi.c)
+target_link_options(fake-ffi-sym PRIVATE -Wl,-Bsymbolic)
+add_executable(ffi-closure-test suite/ffi-closure-test.c)
+target_link_libraries(ffi-closure-test PRIVATE fake-ffi dl)
+add_dependencies(ffi-closure-test fake-ffi-sym)
 # jsc-switch-test and the library that stands in for JavaScriptCore by its exported names (the JavaScriptCore switch,
 # runtime/tests/jsc_switch_run.py): the app opens it with dlopen, before or after its own first getenv.
 add_library(fake-jsc SHARED suite/libfake-jsc.c)

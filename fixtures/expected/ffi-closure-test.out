@@ -1,0 +1,7 @@
+ffi-closure-test: closure 0: f(5) = 12
+ffi-closure-test: closure 1: f(5) = 105
+ffi-closure-test: closure 2: f(5) = 1005
+ffi-closure-test: code pointers differ: yes
+ffi-closure-test: freed closure 1, new closure: f(5) = 5005
+ffi-closure-test: closure 0 still: f(6) = 13
+ffi-closure-test: freed all

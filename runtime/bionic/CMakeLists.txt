@@ -317,6 +317,13 @@ apk_bionic_unit(apk_luajit SOURCES "${android_sources}/luajit.c" INCLUDES ${andr
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libminato-luajit UNITS apk_luajit NEEDED libc)
 
+# libminato-ffi.so (libffi closures without executable memory, ADR-0072): a pool of trampolines and the wrappers of
+# ffi_closure_alloc, ffi_prep_closure_loc and ffi_closure_free, which the loader preloads when it is among the system's
+# libraries (runtime/android/ffi.c).
+apk_bionic_unit(apk_ffi SOURCES "${android_sources}/ffi.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libminato-ffi UNITS apk_ffi NEEDED libc)
+
 # libminato-jsc.so (the JavaScriptCore switch): the function that sets JSC_useJIT=0 and JavaScriptCoreUseJIT=0, which
 # the loader calls before the constructors of a library that defines JSGlobalContextCreate (runtime/android/jsc.c).
 apk_bionic_unit(apk_jsc SOURCES "${android_sources}/jsc.c" INCLUDES ${android_includes}

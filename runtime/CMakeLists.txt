@@ -694,6 +694,11 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
       "${CMAKE_CURRENT_BINARY_DIR}/luajit_switch_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/luajit-switch-test.out")
   set_tests_properties(runtime.luajit_switch PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+  add_test(NAME runtime.ffi_closures
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/ffi_closures_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/ffi_closures_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/ffi-closure-test.out")
+  set_tests_properties(runtime.ffi_closures PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
 
   # The JavaScriptCore switch: JSC_useJIT=0 and JavaScriptCoreUseJIT=0 set before the library's constructors run.
   add_test(NAME runtime.jsc_switch
