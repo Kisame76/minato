@@ -363,6 +363,29 @@ TEST(the_output_tail_cuts_at_4_KiB_drops_the_cut_line_and_masks_control_bytes) {
     CHECK(apkrt::process::output_lines().ends_with("W/apkrt   : stderr: end\n"));
 }
 
+TEST(the_output_tail_leaves_out_the_log_lines_liblog_writes_to_descriptor_2) {
+    // Minato's liblog writes "<priority>/<tag>: <message>" lines to stderr (runtime/bionic/src/liblog.cpp); they are
+    // the runtime's, not the app's, and would push the app's own text out of the 4 KiB.
+    apkrt::process::forget_output();
+    const std::string log = "I/ActivityThread: starting\nW/apkrt   : some warning\n";
+    apkrt::process::note_output(2, log.data(), log.size());
+    apkrt::process::note_output(2, "ImportError: no os\n", 19);
+    apkrt::process::note_output(2, "E/Tag: one", 10);  // a log line in two writes
+    apkrt::process::note_output(2, " more\n", 6);
+    apkrt::process::note_output(1, "F/x y: text\nF not a log line\n", 29);
+    CHECK(apkrt::process::output_lines() ==
+          "W/apkrt   : stderr: ImportError: no os\n"
+          "W/apkrt   : stderr: F not a log line\n");
+    // A flood of them does not evict the app's line.
+    apkrt::process::forget_output();
+    apkrt::process::note_output(2, "ImportError: no os\n", 19);
+    for (int index = 0; index < 600; index++) {
+        const std::string line = "D/Flood: line " + std::to_string(index) + "\n";
+        apkrt::process::note_output(2, line.data(), line.size());
+    }
+    CHECK(apkrt::process::output_lines() == "W/apkrt   : stderr: ImportError: no os\n");
+}
+
 TEST(a_status_other_than_0_in_an_app_process_logs_the_output_after_the_failed_paths) {
     const auto ended = in_child([](int) {
         become_app_process();

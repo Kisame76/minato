@@ -25,6 +25,7 @@
 #include <cstring>
 #include <format>
 #include <mutex>
+#include <string_view>
 
 namespace apkrt::process {
 namespace {
@@ -411,15 +412,46 @@ std::size_t output_total = 0;   // how many bytes were written in all
 
 }  // namespace
 
-void note_output(int fd, const char *data, std::size_t length) {
-    if ((fd != 1 && fd != 2) || data == nullptr || length == 0) return;
+namespace {
+
+struct LineState {
+    bool at_start = true;   // the next byte begins a line
+    bool skipping = false;  // the line in progress is one of liblog's
+};
+LineState line_states[2];  // descriptors 1 and 2; guarded by output_mutex
+
+/// Whether `text` (the part of a line seen so far) is one of Minato's liblog lines, "<V|D|I|W|E|F>/<tag>: <message>"
+/// (runtime/bionic/src/liblog.cpp): the runtime's own words, which must not push the app's out of the ring.
+/// Named limit: an app's own line of that shape ("X/tag: msg") is dropped too.
+bool is_log_line(const char *text, std::size_t length) {
+    if (length < 4 || text[1] != '/' || std::strchr("VDIWEF", text[0]) == nullptr) return false;
+    return std::string_view(text, length).find(": ", 2) != std::string_view::npos;
+}
+
+void keep_output(const char *data, std::size_t length) {
     if (length > output_size) {
         data += length - output_size;
         length = output_size;
     }
-    const std::lock_guard lock(output_mutex);
     for (std::size_t index = 0; index < length; index++) output[(output_total + index) % output_size] = data[index];
     output_total += length;
+}
+
+}  // namespace
+
+void note_output(int fd, const char *data, std::size_t length) {
+    if ((fd != 1 && fd != 2) || data == nullptr || length == 0) return;
+    const std::lock_guard lock(output_mutex);
+    LineState &state = line_states[fd - 1];
+    const char *const end = data + length;
+    while (data < end) {
+        const char *newline = static_cast<const char *>(std::memchr(data, '\n', static_cast<std::size_t>(end - data)));
+        const char *stop = newline != nullptr ? newline + 1 : end;
+        if (state.at_start) state.skipping = is_log_line(data, static_cast<std::size_t>(stop - data));
+        if (!state.skipping) keep_output(data, static_cast<std::size_t>(stop - data));
+        state.at_start = newline != nullptr;
+        data = stop;
+    }
 }
 
 std::string output_lines() {
@@ -456,6 +488,7 @@ std::string output_lines() {
 void forget_output() {
     const std::lock_guard lock(output_mutex);
     output_total = 0;
+    line_states[0] = line_states[1] = LineState();
 }
 
 void forget_failed_paths() {
