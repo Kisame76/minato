@@ -42,7 +42,9 @@ struct Biquad {
 /// The coefficients of Settings at one rate: identity for what is off, so that a ramp from or to it works the same.
 struct Chain {
     Biquad band[kBands];
-    Biquad bass;
+    Biquad bass_hp, bass_bp;  // the bass enhancement's high-pass under the signal and band peak around 90 Hz
+    float bass_gain = 0;      // the peak's gain G; 0 while the bass boost is off
+    bool bass_on = false;
     float width = 1;   // the side signal's factor
     float gain = 1;    // the loudness enhancer's linear gain
     bool limit = false;  // the soft limiter after the gain
@@ -85,7 +87,8 @@ private:
     Chain from_, to_;
     int ramp_left_ = 0;
     Delay band_[kMaxChannels][kBands];
-    Delay bass_[kMaxChannels];
+    Delay bass_hp_[kMaxChannels];
+    Delay bass_bp_;
 };
 
 }  // namespace apkrt::effects

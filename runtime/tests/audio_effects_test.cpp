@@ -102,19 +102,37 @@ void what_is_off_is_the_identity() {
     for (size_t i = 0; i < samples.size(); ++i) CHECK(std::fabs(samples[i] - copy[i]) < 1e-5f);
 }
 
-void the_bass_boost_raises_the_low_end_more_than_the_high() {
+// Android's dynamic bass enhancement (LVM, android-15.0.0_r1: a second-order high-pass at 90 Hz under the whole signal
+// and a band peak around 90 Hz of gain G(level), level = 15 * strength / 1000), as its small-signal response gives it
+// in dB at 48 kHz, for strengths 0, 500 and 1000.
+struct BassPoint {
+    int strength;
+    double hertz;
+    double decibel;
+};
+const BassPoint kBassPoints[] = {
+    {0, 20, -26.16},   {0, 40, -13.89},   {0, 60, -6.53},   {0, 90, -0.13},   {0, 120, 0.65},   {0, 200, 0.23},
+    {0, 1000, -0.08},  {500, 20, -25.44}, {500, 40, -11.25}, {500, 60, -1.48}, {500, 90, 6.83},  {500, 120, 6.53},
+    {500, 200, 2.95},  {500, 300, 1.35},  {500, 500, 0.44},  {1000, 20, -22.41}, {1000, 40, -5.22}, {1000, 60, 5.96},
+    {1000, 90, 14.81}, {1000, 120, 14.24}, {1000, 200, 9.06}, {1000, 300, 5.67}, {1000, 500, 2.73}, {1000, 1000, 0.77}};
+
+void the_bass_boost_follows_the_response_of_androids_dynamic_bass_enhancement() {
+    for (const BassPoint &point : kBassPoints) {
+        Settings settings;
+        settings.bass_boost = true;
+        settings.bass_strength = point.strength;
+        const double got = gain_db(settings, point.hertz);
+        if (std::fabs(got - point.decibel) > 0.5) {
+            std::printf("bass strength %d at %g Hz: %.2f dB, wanted %.2f\n", point.strength, point.hertz, got,
+                        point.decibel);
+        }
+        CHECK(std::fabs(got - point.decibel) <= 0.5);
+    }
     Settings settings;
     settings.bass_boost = true;
     settings.bass_strength = 1000;
-    const double low = gain_db(settings, 40);
-    const double high = gain_db(settings, 3000);
-    CHECK(low > 9.0 && low < 16.0);
-    CHECK(std::fabs(high) < 1.0);
-    settings.bass_strength = 500;
-    const double half = gain_db(settings, 40);
-    CHECK(half > 2.0 && half < low - 1.0);
-    settings.bass_strength = 0;
-    CHECK(std::fabs(gain_db(settings, 40)) < 0.2);
+    CHECK(std::fabs(gain_db(settings, 90, 2, false) - 14.81) <= 0.5);  // both channels equal: as one
+    CHECK(std::fabs(gain_db(settings, 3000)) < 1.0);                    // the top is untouched
 }
 
 void the_virtualizer_widens_stereo_and_leaves_mono_alone() {
@@ -208,7 +226,7 @@ void settings_off_again_returns_to_the_identity_through_a_ramp() {
 int main() {
     the_equalizer_gains_match_the_measured_points();
     what_is_off_is_the_identity();
-    the_bass_boost_raises_the_low_end_more_than_the_high();
+    the_bass_boost_follows_the_response_of_androids_dynamic_bass_enhancement();
     the_virtualizer_widens_stereo_and_leaves_mono_alone();
     the_loudness_gain_is_linear_and_limited();
     a_change_of_settings_ramps_without_a_click();

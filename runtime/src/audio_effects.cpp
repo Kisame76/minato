@@ -7,11 +7,19 @@ namespace apkrt::effects {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
-// Android's effect bundle (frameworks/av, AndroidEffectBundle.h): five bands with Q 0.96 (EQNB_5BandPresetsQFactors),
-// bass enhancement centred on 90 Hz with up to 15 dB (BE_EffectLevel 0..15). The emulator gives no response to measure.
+// Android's effect bundle (frameworks/av, AndroidEffectBundle.h): five bands with Q 0.96 (EQNB_5BandPresetsQFactors).
+// The emulator gives no response to measure.
 constexpr float kBandQ = 0.96f;
-constexpr float kBassCorner = 90.0f;         // the bundle's bass enhancement centre
-constexpr float kBassMaxDecibel = 15.0f;     // the gain at strength 1000
+// Android's dynamic bass enhancement (LVM, android-15.0.0_r1): out = HPF(x) + G * BPF(mean of HPF), a second-order
+// high-pass at 90 Hz (Q 0.708) under the whole signal and a band peak at 90 Hz (Q 1.5) of gain G(level), level =
+// 15 * strength / 1000. The two filters are made at any rate; kBassScale is LVM's -0.1 dB in its coefficients.
+constexpr float kBassCentre = 90.0f;
+constexpr float kBassHighPassQ = 0.7079f;
+constexpr float kBassBandQ = 1.5f;
+constexpr float kBassScale = 0.9886f;
+constexpr float kBassGain[16] = {0.412538f, 0.584893f, 0.778279f, 0.995262f, 1.238721f, 1.511886f,
+                                 1.818383f, 2.162278f, 2.548134f, 2.981072f, 3.466836f, 4.011872f,
+                                 4.623413f, 5.309573f, 6.079458f, 6.943282f};
 constexpr float kWidthMax = 2.0f;            // an approximation: the side factor at strength 1000
 
 Biquad peaking(float centre, float rate, float decibel, float q) {
@@ -29,19 +37,31 @@ Biquad peaking(float centre, float rate, float decibel, float q) {
     return result;
 }
 
-Biquad low_shelf(float corner, float rate, float decibel) {
-    const double a = std::pow(10.0, decibel / 40.0);
-    const double w0 = 2 * kPi * corner / rate;
+Biquad high_pass(float centre, float rate, float q, float scale) {
+    const double w0 = 2 * kPi * centre / rate;
+    const double alpha = std::sin(w0) / (2 * q);
     const double cosine = std::cos(w0);
-    const double alpha = std::sin(w0) / 2 * std::sqrt(2.0);  // shelf slope 1
-    const double root = 2 * std::sqrt(a) * alpha;
-    const double a0 = (a + 1) + (a - 1) * cosine + root;
+    const double a0 = 1 + alpha;
     Biquad result;
-    result.b0 = static_cast<float>(a * ((a + 1) - (a - 1) * cosine + root) / a0);
-    result.b1 = static_cast<float>(2 * a * ((a - 1) - (a + 1) * cosine) / a0);
-    result.b2 = static_cast<float>(a * ((a + 1) - (a - 1) * cosine - root) / a0);
-    result.a1 = static_cast<float>(-2 * ((a - 1) + (a + 1) * cosine) / a0);
-    result.a2 = static_cast<float>(((a + 1) + (a - 1) * cosine - root) / a0);
+    result.b0 = static_cast<float>((1 + cosine) / 2 / a0 * scale);
+    result.b1 = static_cast<float>(-(1 + cosine) / a0 * scale);
+    result.b2 = result.b0;
+    result.a1 = static_cast<float>(-2 * cosine / a0);
+    result.a2 = static_cast<float>((1 - alpha) / a0);
+    return result;
+}
+
+Biquad band_pass(float centre, float rate, float q, float scale) {
+    const double w0 = 2 * kPi * centre / rate;
+    const double alpha = std::sin(w0) / (2 * q);
+    const double cosine = std::cos(w0);
+    const double a0 = 1 + alpha;
+    Biquad result;
+    result.b0 = static_cast<float>(alpha / a0 * scale);
+    result.b1 = 0;
+    result.b2 = -result.b0;
+    result.a1 = static_cast<float>(-2 * cosine / a0);
+    result.a2 = static_cast<float>((1 - alpha) / a0);
     return result;
 }
 
@@ -76,9 +96,12 @@ Chain make_chain(const Settings &settings, float rate) {
             chain.band[band] = peaking(kBandCentres[band], rate, decibel, kBandQ);
         }
     }
-    if (settings.bass_boost && kBassCorner < 0.45f * rate) {
-        const float strength = static_cast<float>(std::clamp(settings.bass_strength, 0, 1000)) / 1000.0f;
-        chain.bass = low_shelf(kBassCorner, rate, strength * kBassMaxDecibel);
+    if (settings.bass_boost && kBassCentre < 0.45f * rate) {
+        const int level = std::clamp(settings.bass_strength, 0, 1000) * 15 / 1000;
+        chain.bass_hp = high_pass(kBassCentre, rate, kBassHighPassQ, kBassScale);
+        chain.bass_bp = band_pass(kBassCentre, rate, kBassBandQ, kBassScale);
+        chain.bass_gain = kBassGain[level];
+        chain.bass_on = true;
     }
     if (settings.virtualizer) {
         const float strength = static_cast<float>(std::clamp(settings.virtualizer_strength, 0, 1000)) / 1000.0f;
@@ -122,7 +145,10 @@ void Processor::set(const Settings &settings, float rate) {
             const float t = 1.0f - static_cast<float>(ramp_left_) / kRampFrames;
             Chain now;
             for (int band = 0; band < kBands; ++band) now.band[band] = blend(from_.band[band], to_.band[band], t);
-            now.bass = blend(from_.bass, to_.bass, t);
+            now.bass_hp = blend(from_.bass_hp, to_.bass_hp, t);
+            now.bass_bp = blend(from_.bass_bp, to_.bass_bp, t);
+            now.bass_gain = from_.bass_gain + (to_.bass_gain - from_.bass_gain) * t;
+            now.bass_on = from_.bass_on || to_.bass_on;
             now.width = from_.width + (to_.width - from_.width) * t;
             now.gain = from_.gain + (to_.gain - from_.gain) * t;
             now.limit = from_.limit || to_.limit;
@@ -142,7 +168,8 @@ void Processor::reset() {
     for (auto &channel : band_) {
         for (auto &delay : channel) delay = Delay{};
     }
-    for (auto &delay : bass_) delay = Delay{};
+    for (auto &delay : bass_hp_) delay = Delay{};
+    bass_bp_ = Delay{};
 }
 
 void Processor::process(float *samples, std::int64_t frames, int channels) {
@@ -156,17 +183,22 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
         }
         const bool moving = t < 1.0f;
         Biquad band[kBands];
-        Biquad bass;
-        float width, gain;
+        Biquad bass_hp, bass_bp;
+        float width, gain, bass_gain;
         const bool limit = from_.limit || to_.limit;
+        const bool bass = from_.bass_on || to_.bass_on;
         if (moving) {
             for (int b = 0; b < kBands; ++b) band[b] = blend(from_.band[b], to_.band[b], t);
-            bass = blend(from_.bass, to_.bass, t);
+            bass_hp = blend(from_.bass_hp, to_.bass_hp, t);
+            bass_bp = blend(from_.bass_bp, to_.bass_bp, t);
+            bass_gain = from_.bass_gain + (to_.bass_gain - from_.bass_gain) * t;
             width = from_.width + (to_.width - from_.width) * t;
             gain = from_.gain + (to_.gain - from_.gain) * t;
         } else {
             for (int b = 0; b < kBands; ++b) band[b] = to_.band[b];
-            bass = to_.bass;
+            bass_hp = to_.bass_hp;
+            bass_bp = to_.bass_bp;
+            bass_gain = to_.bass_gain;
             width = to_.width;
             gain = to_.gain;
         }
@@ -174,8 +206,14 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
         for (int channel = 0; channel < channels; ++channel) {
             float x = at[channel];
             for (int b = 0; b < kBands; ++b) x = run(band[b], band_[channel][b], x);
-            x = run(bass, bass_[channel], x);
+            if (bass) x = run(bass_hp, bass_hp_[channel], x);
             at[channel] = x;
+        }
+        if (bass) {  // the peak of the mean of the high-passed channels, added to each
+            float mean = 0;
+            for (int channel = 0; channel < channels; ++channel) mean += at[channel];
+            const float peak = bass_gain * run(bass_bp, bass_bp_, mean / static_cast<float>(channels));
+            for (int channel = 0; channel < channels; ++channel) at[channel] += peak;
         }
         if (widen && width != 1.0f) {
             const float mid = 0.5f * (at[0] + at[1]);
