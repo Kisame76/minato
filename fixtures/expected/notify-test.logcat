@@ -1,0 +1,8 @@
+I/notify-test: enabled false, importance 0
+I/notify-test: posted chat 7: active []
+I/notify-test: posted chat 7 again: active []
+I/notify-test: posted 8: active []
+I/notify-test: posted 9 on no channel: active []
+I/notify-test: cancelled chat 7: active []
+I/notify-test: cancelled all: active []
+I/notify-test: done

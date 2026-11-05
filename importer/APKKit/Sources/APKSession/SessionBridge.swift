@@ -112,6 +112,9 @@ public enum SessionRequest: Sendable, Equatable {
     case permission(id: UInt64, text: String)
     /// The guest no longer wants the permission request `id`.
     case permissionCancel(id: UInt64)
+    /// A post, cancel or cancel of all of the app's notifications (ADR-0074 decision 2), its text as the runtime
+    /// checked it.
+    case notification(text: String)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {

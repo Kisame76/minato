@@ -611,6 +611,81 @@ long pick(std::uint64_t address, std::uint64_t id) {
     return 0;
 }
 
+// APKRT_REQUEST_NOTIFICATION (ADR-0074 decision 2): the app's post, cancel or cancel of all, whose fields the host
+// puts on screen, so each is checked as a pick's title is.
+constexpr std::size_t notification_text_limit = 8192;  // the NUL included
+constexpr std::size_t notification_name_length = 64;   // bytes of a tag, a channel, a group
+constexpr std::size_t notification_line_length = 256;  // bytes of the title and the sub text
+constexpr std::size_t notification_body_length = 4096; // bytes of the text
+
+/// Whether `field` is a decimal number from `low` to `high`: an optional '-', then digits without a leading zero.
+bool decimal_in(std::string_view field, long long low, long long high) {
+    const bool negative = !field.empty() && field[0] == '-';
+    const std::string_view digits = negative ? field.substr(1) : field;
+    if (digits.empty() || digits.size() > 19 || (digits.size() > 1 && digits[0] == '0')) return false;
+    unsigned long long value = 0;
+    for (const char c : digits) {
+        if (c < '0' || c > '9') return false;
+        value = value * 10 + static_cast<unsigned>(c - '0');
+    }
+    if (negative) return value <= static_cast<unsigned long long>(-(low + 1)) + 1 && value != 0;
+    return value <= static_cast<unsigned long long>(high);
+}
+
+/// Whether `field` is plain UTF-8 (plain_utf8) of at most `bytes` bytes, new lines allowed when `lines`.
+bool notification_field(std::string_view field, std::size_t bytes, bool lines) {
+    if (field.size() > bytes) return false;
+    return utf8_code_points(field, [lines](std::uint32_t point) {
+        return (lines && point == '\n') || plain_code_point(point);
+    });
+}
+
+/// Whether `text` is one of APKRT_REQUEST_NOTIFICATION's forms (guest_interface.h).
+bool valid_notification(std::string_view text) {
+    std::vector<std::string_view> fields;
+    for (std::size_t start = 0;;) {
+        const std::size_t tab = text.find('\t', start);
+        fields.push_back(text.substr(start, tab == std::string_view::npos ? std::string_view::npos : tab - start));
+        if (tab == std::string_view::npos || fields.size() > 11) break;
+        start = tab + 1;
+    }
+    const auto id = [](std::string_view field) { return decimal_in(field, INT32_MIN, INT32_MAX); };
+    if (fields[0] == "cancelAll") return fields.size() == 1;
+    if (fields[0] == "cancel") {
+        return fields.size() == 3 && id(fields[1]) && notification_field(fields[2], notification_name_length, false);
+    }
+    if (fields[0] != "post" || fields.size() != 11) return false;
+    return id(fields[1]) && notification_field(fields[2], notification_name_length, false) &&
+           notification_field(fields[3], notification_name_length, false) && fields[4].size() == 1 &&
+           fields[4][0] >= '0' && fields[4][0] <= '5' && (fields[5] == "0" || fields[5] == "1") &&
+           decimal_in(fields[6], 0, INT64_MAX) &&
+           notification_field(fields[7], notification_name_length, false) &&
+           notification_field(fields[8], notification_line_length, false) &&
+           notification_field(fields[9], notification_line_length, false) &&
+           notification_field(fields[10], notification_body_length, true);
+}
+
+/// APKRT_REQUEST_NOTIFICATION: with the app's notifications grant, the text at `address` copied once through a
+/// checked read, checked whole and handed to the host's request handler. 0, or the negative errno: -EACCES without
+/// the grant, -EFAULT without text or when it cannot be read, -EINVAL for a second argument other than 0, a text of
+/// notification_text_limit bytes or more, or one that valid_notification refuses.
+long notification(std::uint64_t address, std::uint64_t second) {
+    if (apkrt::permissions::outcome(APKRT_PERMISSION_NOTIFICATIONS) != APKRT_PERMISSION_GRANTED) {
+        return -linux_errno::eacces;
+    }
+    if (address == 0) return -linux_errno::efault;
+    if (second != 0) return -linux_errno::einval;
+    std::vector<char> text(notification_text_limit);
+    const long length = copy_guest_text(text.data(), address, notification_text_limit);
+    if (length < 0) return length;
+    if (length >= static_cast<long>(notification_text_limit)) return -linux_errno::einval;
+    if (!valid_notification(std::string_view(text.data(), static_cast<std::size_t>(length)))) {
+        return -linux_errno::einval;
+    }
+    report(APKRT_REQUEST_NOTIFICATION, 0, text.data());
+    return 0;
+}
+
 /// APKRT_REQUEST_EXPORT_MEDIA: the text at `address` copied once through a checked read and handed to the host's
 /// request handler. 0, or the negative errno: -EFAULT without text or when it cannot be read, -EINVAL for a second
 /// argument other than 0, a text of pick_text_limit bytes or more, or one that valid_export refuses.
@@ -1158,6 +1233,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return open_request_cancel(a0);
         case APKRT_REQUEST_EXPORT_MEDIA:
             return export_media(a0, a1);
+        case APKRT_REQUEST_NOTIFICATION:
+            return notification(a0, a1);
         case APKRT_REQUEST_PERMISSION:
             return permission(a0, a1);
         case APKRT_REQUEST_PERMISSION_CANCEL:

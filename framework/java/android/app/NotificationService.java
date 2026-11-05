@@ -40,6 +40,8 @@ import android.widget.ToastPresenter;
 
 import com.android.internal.util.Preconditions;
 import com.android.minato.app.ToastQueue;
+import com.android.minato.notifications.ActiveNotifications;
+import com.android.minato.notifications.NotificationText;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -58,6 +60,8 @@ public final class NotificationService extends INotificationManager.Default {
     /** The app's channels, deleted ones among them, and its groups, by ID; under the service's lock. */
     private final ArrayMap<String, NotificationChannel> mChannels = new ArrayMap<>();
     private final ArrayMap<String, NotificationChannelGroup> mGroups = new ArrayMap<>();
+    /** The app's active notifications (ADR-0074 decision 2); under the service's lock. */
+    private final ActiveNotifications<StatusBarNotification> mActive = new ActiveNotifications<>();
 
     /** NotificationManagerService's tag. */
     private static final String TAG = "NotificationService";
@@ -114,28 +118,70 @@ public final class NotificationService extends INotificationManager.Default {
         return Settings.Global.ZEN_MODE_OFF;
     }
 
-    // Posts: dropped, as NotificationManagerService suppresses each of an app without the permission.
+    // Posts (ADR-0074 decision 2): without POST_NOTIFICATIONS dropped, as NotificationManagerService suppresses each,
+    // and on a channel the app never made dropped too, as Android 15 does [measured: notify-test-granted]. Else kept
+    // as active, Android's GroupHelper summary with them (ActiveNotifications), and shown by the host on iOS.
 
     @Override
-    public void enqueueNotificationWithTag(String pkg, String opPkg, String tag, int id, Notification notification,
-            int userId) {
+    public synchronized void enqueueNotificationWithTag(String pkg, String opPkg, String tag, int id,
+            Notification notification, int userId) {
         checkSameApp(pkg);
+        if (notification == null || !hasPermission()) {
+            return;
+        }
+        final NotificationChannel channel = mChannels.get(notification.getChannelId());
+        if (channel == null || channel.isDeleted()) {
+            Log.e(TAG, "No Channel found for pkg=" + pkg + ", channelId=" + notification.getChannelId() + ", id=" + id
+                    + ", tag=" + tag);
+            return;
+        }
+        mActive.post(tag, id, notification.getGroup(), new StatusBarNotification(pkg, opPkg, id, tag,
+                Process.myUid(), Process.myPid(), notification, Process.myUserHandle(), null,
+                System.currentTimeMillis()));
+        final CharSequence big = notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        final CharSequence text = big != null ? big : notification.extras.getCharSequence(Notification.EXTRA_TEXT);
+        host(NotificationText.post(id, tag, channel.getId(), channel.getImportance(), channel.getSound() != null,
+                notification.when, notification.getGroup(),
+                notification.extras.getCharSequence(Notification.EXTRA_TITLE),
+                notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT), text));
     }
 
     @Override
-    public void cancelNotificationWithTag(String pkg, String opPkg, String tag, int id, int userId) {
+    public synchronized void cancelNotificationWithTag(String pkg, String opPkg, String tag, int id, int userId) {
         checkSameApp(pkg);
+        mActive.cancel(tag, id);
+        if (hasPermission()) {
+            host(NotificationText.cancel(id, tag));
+        }
     }
 
     @Override
-    public void cancelAllNotifications(String pkg, int userId) {
+    public synchronized void cancelAllNotifications(String pkg, int userId) {
         checkSameApp(pkg);
+        mActive.cancelAll();
+        if (hasPermission()) {
+            host(NotificationText.cancelAll());
+        }
     }
 
     @Override
-    public ParceledListSlice getAppActiveNotifications(String callingPkg, int userId) {
+    public synchronized ParceledListSlice getAppActiveNotifications(String callingPkg, int userId) {
         checkSameApp(callingPkg);
-        return new ParceledListSlice<StatusBarNotification>(new ArrayList<>());
+        final List<StatusBarNotification> active = new ArrayList<>();
+        for (ActiveNotifications.Entry<StatusBarNotification> entry : mActive.entries()) {
+            active.add(entry.value != null ? entry.value : new StatusBarNotification(callingPkg, callingPkg, entry.id,
+                    entry.tag, Process.myUid(), Process.myPid(), new Notification(), Process.myUserHandle(), null,
+                    System.currentTimeMillis()));
+        }
+        return new ParceledListSlice<StatusBarNotification>(active);
+    }
+
+    /** The host's side of a post or cancel; one the session refuses (no grant in the runtime) stays in the app. */
+    private static void host(String text) {
+        final int result = ActivityThread.requestNotification(text);
+        if (result != 0) {
+            Log.w(TAG, "the host did not take a notification request: " + result);
+        }
     }
 
     // Channels and groups, as PreferencesHelper keeps them for the package.

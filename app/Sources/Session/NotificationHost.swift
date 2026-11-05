@@ -2,12 +2,19 @@ import APKSession
 import Foundation
 import Synchronization
 import UserNotifications
+import os
 
-/// ADR-0074: the guest's notifications on UNUserNotificationCenter. Here iOS's answer for them, which is Minato's for
+private let log = Logger(subsystem: "io.github.kisame76.minato", category: "notifications")
+
+/// ADR-0074: the guest's notifications on UNUserNotificationCenter. iOS's answer for them, which is Minato's for
 /// every app: UNUserNotificationCenter gives it only through a callback, so it is kept, read again at each start and
-/// return to the foreground, and waited for at most half a second when it is needed before the first read came.
-final class NotificationHost: Sendable {
+/// return to the foreground, and waited for at most half a second when it is needed before the first read came. The
+/// app's posts and cancels (decision 3): a post replaces the delivered one of the same tag and id; while the app is in
+/// front, its importance chooses the banner, the list and the sound, as Android's heads-up comes from HIGH on.
+final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelegate {
     static let shared = NotificationHost()
+    /// The importance a request carries for willPresent.
+    private static let importanceKey = "minato.importance"
 
     private let known = Mutex<PermissionDesk.IOSState?>(nil)
 
@@ -36,6 +43,68 @@ final class NotificationHost: Sendable {
                 Task { @MainActor in done(state) }
             }
         }
+    }
+
+    /// The session's start: Minato's delegate takes the notifications that come while it is in front.
+    func start() {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    /// The guest's request, for the app `package` named `appName`, on the main thread.
+    func handle(_ request: NotificationRequest, package: String, appName: String) {
+        let center = UNUserNotificationCenter.current()
+        switch request {
+        case .post(let note):
+            let identifier = note.identifier(package: package)
+            guard note.shows else { return center.removeDeliveredNotifications(withIdentifiers: [identifier]) }
+            let content = UNMutableNotificationContent()
+            content.title = note.title
+            content.subtitle = note.subText.isEmpty ? appName : "\(appName) · \(note.subText)"
+            content.body = note.text
+            content.threadIdentifier = note.thread(package: package)
+            content.interruptionLevel = note.passive ? .passive : .active
+            content.sound = note.plays ? .default : nil
+            content.userInfo = [Self.importanceKey: note.importance]
+            center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
+                guard let error else { return }
+                log.error("notification \(identifier, privacy: .public) failed: \(error.localizedDescription)")
+            }
+            #if DEBUG
+            SessionCheck.event("notification posted \(note.tag)|\(note.id) importance \(note.importance)")
+            #endif
+        case .cancel(let id, let tag):
+            let identifier = NotificationPost.identifier(package: package, tag: tag, id: id)
+            center.removeDeliveredNotifications(withIdentifiers: [identifier])
+            #if DEBUG
+            SessionCheck.event("notification cancelled \(tag)|\(id)")
+            #endif
+        case .cancelAll:
+            removeAll(package: package)
+        }
+    }
+
+    /// Every delivered notification of the app goes: its cancelAll, or its removal from the library.
+    func removeAll(package: String) {
+        let center = UNUserNotificationCenter.current()
+        let prefix = NotificationPost.prefix(package: package)
+        center.getDeliveredNotifications { delivered in
+            let mine = delivered.map(\.request.identifier).filter { $0.hasPrefix(prefix) }
+            if !mine.isEmpty { center.removeDeliveredNotifications(withIdentifiers: mine) }
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
+        async -> UNNotificationPresentationOptions {
+        let importance = notification.request.content.userInfo[Self.importanceKey] as? Int ?? 3
+        var options: UNNotificationPresentationOptions = []
+        for shown in NotificationPost.presentation(importance: importance) {
+            switch shown {
+            case .banner: options.insert(.banner)
+            case .list: options.insert(.list)
+            case .sound: options.insert(.sound)
+            }
+        }
+        return options
     }
 
     private static func state(_ status: UNAuthorizationStatus) -> PermissionDesk.IOSState {

@@ -1,0 +1,8 @@
+I/notify-test-granted: enabled true, importance 3
+I/notify-test-granted: posted chat 7: active [chat|7 First]
+I/notify-test-granted: posted chat 7 again: active [chat|7 First again]
+I/notify-test-granted: posted 8: active [chat|7 First again, null|8 Second, ranker_group|2147483647 null]
+I/notify-test-granted: posted 9 on no channel: active [chat|7 First again, null|8 Second, ranker_group|2147483647 null]
+I/notify-test-granted: cancelled chat 7: active [null|8 Second, ranker_group|2147483647 null]
+I/notify-test-granted: cancelled all: active []
+I/notify-test-granted: done

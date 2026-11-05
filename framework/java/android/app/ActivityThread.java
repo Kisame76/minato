@@ -2717,6 +2717,18 @@ public final class ActivityThread {
     }
 
     /**
+     * @hide NotificationService's (ADR-0074 decision 2): APKRT_REQUEST_NOTIFICATION, a post, cancel or cancel of all
+     * with NotificationText's text, which the host shows on iOS; no answer. 0, or a negative errno, -EOPNOTSUPP without
+     * a session, -EACCES without the app's grant.
+     */
+    public static int requestNotification(String text) {
+        if (sessionOf() == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestNotification(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
      * setRequestedOrientation's request to the session (APKRT_REQUEST_ORIENTATION), as the window manager turns the
      * display for an activity's request: the host turns its window or ignores the value, and the turn arrives as the
      * session's configuration change.
@@ -2981,6 +2993,8 @@ public final class ActivityThread {
     private static native long nativeNetwork();
     private static native String nativeBarInsets();
     private static native int nativeSessionRequestExportMedia(byte[] text);
+
+    private static native int nativeSessionRequestNotification(byte[] text);
 
     /** APKRT_REQUEST_SURFACE with its struct apkrt_surface_request, which the native fills (ADR-0043 c4). */
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,

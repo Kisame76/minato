@@ -713,6 +713,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=60
       ;;
+    # notify-test and its twin notify-test-granted (ADR-0074 decision 2), from the same sources: the twin gets
+    # POST_NOTIFICATIONS before the start.
+    notify-test | notify-test-granted)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
+      ;;
     # mic-test and its twin mic-test-granted (ADR-0064), from the same sources: the twin gets RECORD_AUDIO before the
     # start.
     mic-test | mic-test-granted)
@@ -1267,7 +1273,7 @@ run_app() {
         "$app" == camera-preview-test || "$app" == camera-picture-test ]]; then
     run pm grant "$package" android.permission.CAMERA
   fi
-  if [[ "$app" == permission-request-test-notifications ]]; then
+  if [[ "$app" == permission-request-test-notifications || "$app" == notify-test-granted ]]; then
     # ADR-0074 decision 1: POST_NOTIFICATIONS is granted before the start, as the -camera twin's CAMERA.
     run pm grant "$package" android.permission.POST_NOTIFICATIONS
   fi

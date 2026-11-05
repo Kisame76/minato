@@ -174,7 +174,9 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "location-manager-test-fine io.github.kisame76.minato.test.locmanfine"
       "location-manager-test-coarse io.github.kisame76.minato.test.locmancoarse"
       "permission-request-test-camera io.github.kisame76.minato.test.permreqcamera"
-      "permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications")
+      "permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications"
+      "notify-test io.github.kisame76.minato.test.notify"
+      "notify-test-granted io.github.kisame76.minato.test.notifygranted")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -1331,6 +1333,33 @@ if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-notifications; the
     ok "  the host granted the notifications request"
   else
     fail "  the host granted $answers notifications requests, not 1"
+  fi
+fi
+
+# ADR-0074 decision 2 in the Simulator: notify-test has no grant, so nothing is active and the host shows nothing;
+# notify-test-granted starts with the grant, as the AVD's pm grant gives it (the host's record of the app says so, and
+# iOS's answer for Minato is granted from the -notifications round), so its posts reach UNUserNotificationCenter. Both
+# logs must be Android 15's.
+if [[ "$ON_DEVICE" == no ]] && { wanted notify-test || wanted notify-test-granted; }; then
+  if wanted notify-test; then
+    rm -f "$SUPPORT/data/io.github.kisame76.minato.test.notify/permissions.json"
+    run_one notify-test io.github.kisame76.minato.test.notify
+    fetch_events
+    if grep -q -E " notification posted " "$EVENTS"; then fail "  the host posted without the grant"; fi
+  fi
+  if wanted notify-test-granted; then
+    mkdir -p "$SUPPORT/data/io.github.kisame76.minato.test.notifygranted"
+    echo '{"notifications":{"outcome":1,"denials":0}}' \
+      > "$SUPPORT/data/io.github.kisame76.minato.test.notifygranted/permissions.json"
+    run_one notify-test-granted io.github.kisame76.minato.test.notifygranted
+    fetch_events
+    posts=$(grep -c -E " notification posted " "$EVENTS" || true)
+    cancels=$(grep -c -E " notification cancelled " "$EVENTS" || true)
+    if [[ "$posts" == 3 && "$cancels" == 1 ]]; then
+      ok "  the host posted 3 notifications and cancelled 1"
+    else
+      fail "  the host posted $posts notifications and cancelled $cancels, not 3 and 1"
+    fi
   fi
 fi
 

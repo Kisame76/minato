@@ -383,6 +383,23 @@ jint LocationFix(JNIEnv *env, jclass, jboolean last, jlong sequence, jdoubleArra
 
 // APKRT_REQUEST_EXPORT_MEDIA (ADR-0057 step e): the text of an export request (UTF-8 bytes, as the pick's) by address;
 // 0, or the negative errno.
+// APKRT_REQUEST_NOTIFICATION (ADR-0074 decision 2): a post, cancel or cancel of all of the app's notifications by the
+// address of its text; 0, or the negative errno (-EACCES without the app's grant).
+jint SessionRequestNotification(JNIEnv *env, jclass, jbyteArray text) {
+    if (text == nullptr) return -EINVAL;
+    const jsize length = env->GetArrayLength(text);
+    std::vector<char> bytes(static_cast<size_t>(length) + 1, '\0');
+    env->GetByteArrayRegion(text, 0, length, reinterpret_cast<jbyte *>(bytes.data()));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -EFAULT;
+    }
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, reinterpret_cast<uintptr_t>(bytes.data()),
+                   0) < 0
+                   ? -errno
+                   : 0;
+}
+
 jint SessionRequestExportMedia(JNIEnv *env, jclass, jbyteArray text) {
     if (text == nullptr) return -EINVAL;
     const jsize length = env->GetArrayLength(text);
@@ -440,6 +457,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeNetwork", "()J", reinterpret_cast<void *>(Network)},
         {"nativeBarInsets", "()Ljava/lang/String;", reinterpret_cast<void *>(BarInsets)},
         {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
+        {"nativeSessionRequestNotification", "([B)I", reinterpret_cast<void *>(SessionRequestNotification)},
         {"nativeSessionConnectInput", "(JLjava/lang/String;)Landroid/view/InputChannel;",
          reinterpret_cast<void *>(SessionConnectInput)},
         {"nativeExit", "(I)V", reinterpret_cast<void *>(Exit)},

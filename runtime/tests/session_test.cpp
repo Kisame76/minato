@@ -43,8 +43,8 @@ using namespace std::chrono_literals;
 // Linux: include/uapi/asm-generic/unistd.h, fcntl.h, errno.h.
 constexpr std::uint64_t nr_fcntl = 25, nr_read = 63;
 constexpr std::uint64_t f_getfd = 1, f_setfl = 4, fd_cloexec = 1, o_nonblock = 04000;
-constexpr long enoent = 2, eagain = 11, enomem = 12, efault = 14, ebusy = 16, eexist = 17, einval = 22, enospc = 28,
-               eopnotsupp = 95;
+constexpr long enoent = 2, eagain = 11, enomem = 12, eacces = 13, efault = 14, ebusy = 16, eexist = 17, einval = 22,
+               enospc = 28, eopnotsupp = 95;
 
 template <typename T>
 std::uint64_t address(T *pointer) {
@@ -790,6 +790,78 @@ TEST(a_malformed_ime_field_or_extract_request_is_refused_before_the_host_sees_it
     CHECK(ask("extract\t7\t0\t1\t2\t3\t4\t5\t\t" + std::string(4 * 4096 + 2048, 'x')) == -einval);  // too long
     CHECK(ask("start\t1\t2\t3\t4\t5\t6\t7\t1\t" + std::string(520, 'x')) == -einval);  // a start keeps its limit
     CHECK(take_requests().empty());
+}
+
+// APKRT_REQUEST_NOTIFICATION (ADR-0074 decision 2): the app's post, cancel or cancel of all, with the text the host
+// puts on screen, so the runtime refuses every text outside the limits, and every request without the app's grant.
+TEST(a_notification_request_needs_the_grant_and_reaches_the_handler_with_its_text) {
+    take_requests();
+    apkrt::permissions::reset();
+    static const char post[] = "post\t7\tchat\tmessages\t4\t1\t1800000000000\tfriends\tAnna\tGroup\tHi!\nSee you";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address(post), 0) == -eacces);  // not answered
+    apkrt::permissions::set(APKRT_PERMISSION_NOTIFICATIONS, APKRT_PERMISSION_DENIED);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address(post), 0) == -eacces);  // denied
+    CHECK(take_requests().empty());
+    apkrt::permissions::set(APKRT_PERMISSION_NOTIFICATIONS, APKRT_PERMISSION_GRANTED);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address(post), 0) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address("cancel\t7\tchat"), 0) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address("cancelAll"), 0) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 3);
+    if (seen.size() == 3) {
+        CHECK(seen[0].type == APKRT_REQUEST_NOTIFICATION && seen[0].argument == 0 && seen[0].text == post);
+        CHECK(seen[1].text == "cancel\t7\tchat" && seen[2].text == "cancelAll");
+    }
+    apkrt::permissions::reset();
+}
+
+TEST(a_malformed_or_oversized_notification_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    apkrt::permissions::reset();
+    apkrt::permissions::set(APKRT_PERMISSION_NOTIFICATIONS, APKRT_PERMISSION_GRANTED);
+    const auto ask = [](const std::string &text, std::uint64_t second = 0) {
+        return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_NOTIFICATION, address(text.c_str()), second);
+    };
+    const auto refused = [&](const std::string &text) { return ask(text) == -einval; };
+    const auto accepted = [&](const std::string &text) { return ask(text) == 0; };
+    const auto post = [](const std::string &id, const std::string &tag, const std::string &importance,
+                         const std::string &sound, const std::string &when, const std::string &title,
+                         const std::string &text) {
+        return "post\t" + id + "\t" + tag + "\tch\t" + importance + "\t" + sound + "\t" + when + "\tg\t" + title +
+               "\tsub\t" + text;
+    };
+    CHECK(accepted(post("7", "", "3", "0", "0", "", "")));                           // every text field empty
+    CHECK(accepted(post("-2147483648", "t", "0", "1", "9223372036854775807", "T", "x")));  // the ends of the numbers
+    CHECK(accepted(post("2147483647", std::string(64, 't'), "5", "0", "1", std::string(256, 'T'),
+                        std::string(4096, 'x'))));                                    // the longest fields
+    CHECK(accepted(post("1", "\xC3\xA4", "3", "0", "0", "\xE2\x82\xAC", "a\nb\n\xF0\x9F\x98\x80")));  // UTF-8
+    CHECK(refused(post("2147483648", "", "3", "0", "0", "", "")));                   // an id over int32
+    CHECK(refused(post("-2147483649", "", "3", "0", "0", "", "")));
+    CHECK(refused(post("x", "", "3", "0", "0", "", "")) && refused(post("", "", "3", "0", "0", "", "")));
+    CHECK(refused(post("+1", "", "3", "0", "0", "", "")) && refused(post("01", "", "3", "0", "0", "", "")));
+    CHECK(refused(post("1", "", "6", "0", "0", "", "")) && refused(post("1", "", "33", "0", "0", "", "")));
+    CHECK(refused(post("1", "", "3", "2", "0", "", "")) && refused(post("1", "", "3", "0", "-1", "", "")));
+    CHECK(refused(post("1", "", "3", "0", "9223372036854775808", "", "")));         // when over int64
+    CHECK(refused(post("1", std::string(65, 't'), "3", "0", "0", "", "")));          // a tag over 64 bytes
+    CHECK(refused(post("1", "", "3", "0", "0", std::string(257, 'T'), "")));         // a title over 256 bytes
+    CHECK(refused(post("1", "", "3", "0", "0", "", std::string(4097, 'x'))));        // a text over 4096 bytes
+    CHECK(refused(post("1", "a\nb", "3", "0", "0", "", "")));                        // a new line outside the text
+    CHECK(refused(post("1", "", "3", "0", "0", "a\nb", "")));
+    CHECK(refused(post("1", "", "3", "0", "0", "", "a\rb")) && refused(post("1", "", "3", "0", "0", "", "a\x07")));
+    CHECK(refused(post("1", "", "3", "0", "0", "\xE2\x80\xAE", "")));                // U+202E, a bidi override
+    CHECK(refused(post("1", "", "3", "0", "0", "", "\xE2\x80\x8B")));                // U+200B
+    CHECK(refused(post("1", "", "3", "0", "0", "", "\xC0\xAF")));                     // overlong UTF-8
+    CHECK(refused(post("1", "\xE2\x82", "3", "0", "0", "", "")));                     // cut at a field's end
+    CHECK(refused(post("1", "", "3", "0", "0", "", "x\xE2")));                         // cut at the text's end
+    CHECK(refused(post("1", "", "3", "0", "0", "", "x") + "\textra"));                // the text has no tab
+    CHECK(refused("post\t1\t\tch\t3\t0\t0\tg\tT\tsub"));                          // a field missing
+    CHECK(accepted("cancel\t7\t") && accepted("cancel\t-1\tchat"));
+    CHECK(refused("cancel\t7") && refused("cancel\tx\tchat") && refused("cancel\t7\tchat\t"));
+    CHECK(refused("cancelAll\t") && refused("cancelall") && refused("show") && refused(""));
+    CHECK(ask("cancelAll", 1) == -einval);                                           // the second argument is 0
+    CHECK(refused("post\t1\t\tch\t3\t0\t0\tg\tT\tsub\t" + std::string(8200, 'x')));  // past the copy's limit
+    take_requests();
+    apkrt::permissions::reset();
 }
 
 TEST(a_permission_answer_records_the_grant_and_frees_the_id) {

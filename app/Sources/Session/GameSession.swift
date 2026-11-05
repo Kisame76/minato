@@ -183,8 +183,10 @@ final class GameSession {
         SessionEndReport.begin(entry)
         #endif
         battery.start()
-        // iOS's answer for notifications before the start's seed needs it (ADR-0074).
+        // iOS's answer for notifications before the start's seed needs it, and the delegate for the app's posts
+        // while it is in front (ADR-0074).
         NotificationHost.shared.refresh()
+        NotificationHost.shared.start()
         controllers.start()
         // The mouse goes with GameController's; it came with its first report.
         mouseObserver = NotificationCenter.default.addObserver(forName: .GCMouseDidDisconnect, object: nil,
@@ -875,6 +877,10 @@ final class GameSession {
             permissions.requested(id: id, text: text)
         case .permissionCancel(let id):
             permissions.cancelled(id: id)
+        case .notification(let text):
+            if let request = NotificationRequest(text: text) {
+                NotificationHost.shared.handle(request, package: entry.id, appName: entry.displayName)
+            }
         }
     }
 

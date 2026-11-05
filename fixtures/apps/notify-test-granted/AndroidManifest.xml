@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0074 decision 2's test of NotificationManager.notify and cancel (notify-test-granted), from the sources of
+     fixtures/java/notify-test. POST_NOTIFICATIONS is granted before the start. The launcher activity is the
+     framework's own android.app.Activity, so that `am start` starts the process on Android. The label is the tag its
+     lines carry. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.notifygranted" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <application android:label="notify-test-granted"
+      android:name="io.github.kisame76.minato.test.notify.NotifyApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

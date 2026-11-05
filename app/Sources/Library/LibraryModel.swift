@@ -518,6 +518,8 @@ final class LibraryModel {
             // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7).
             if !entry.id.hasPrefix("file:") { await removeWebData(of: entry) }
             if let paths { ClosedItselfStore(folder: paths.applicationSupport).forget(package: entry.id) }
+            // The app's notifications go with it (ADR-0074 decision 4).
+            NotificationHost.shared.removeAll(package: entry.id)
         }
         self.entries = await library.entries
         favorites = await library.favorites
