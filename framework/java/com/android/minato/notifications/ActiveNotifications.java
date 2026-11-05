@@ -1,5 +1,6 @@
 package com.android.minato.notifications;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,6 +66,31 @@ public final class ActiveNotifications<T> {
     public synchronized void cancelAll() {
         mEntries.clear();
         mSummary = false;
+    }
+
+    /**
+     * The app's own notification of `id` whose tag's tagHash is `hash`, as the host's tap names it
+     * (APKRT_EVENT_NOTIFICATION_TAP); null for none. The system's summary is never one.
+     */
+    public synchronized T find(int id, long hash) {
+        for (Entry<T> entry : mEntries.values()) {
+            if (entry.id == id && tagHash(entry.tag) == hash) {
+                return entry.value;
+            }
+        }
+        return null;
+    }
+
+    /** FNV-1a 64 of the tag's UTF-8, no tag as the empty one: the host's NotificationTap.tagHash. */
+    public static long tagHash(String tag) {
+        long hash = 0xcbf29ce484222325L;
+        if (tag != null) {
+            for (byte b : tag.getBytes(StandardCharsets.UTF_8)) {
+                hash ^= b & 0xff;
+                hash *= 0x100000001b3L;
+            }
+        }
+        return hash;
     }
 
     /** The entries, the system's summary among them while it is active. */

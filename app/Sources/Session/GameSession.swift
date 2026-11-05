@@ -278,6 +278,13 @@ final class GameSession {
         }
     }
 
+    /// A tap on a notification of `package` (ADR-0074 decision 4): for this session's app, the guest sends its content
+    /// intent; one of another app is no tap of this session's.
+    func notificationTapped(package: String, id: Int32, tag: String) {
+        guard package == entry.id, started, !bridge.isBroken else { return }
+        RuntimeSessionHost.notificationTapped(id: id, tag: tag)
+    }
+
     /// The pointer's change, on the main thread.
     private func pointed(_ change: PointerChange, scale: Double) {
         mouse.scale = scale

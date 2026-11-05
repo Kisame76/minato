@@ -1246,6 +1246,7 @@ public final class ActivityThread {
     private static final int EVENT_BAR_INSETS = 32;
     private static final int EVENT_NETWORK = 33;
     private static final int EVENT_TRIM_MEMORY = 34;
+    private static final int EVENT_NOTIFICATION_TAP = 35;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1300,13 +1301,27 @@ public final class ActivityThread {
         FileDescriptor events = nativeSessionConnect();
         if (events == null) {
             mSessionResumed = true;
+            synchronized (sEarlyNotifications) {
+                sEarlyNotifications.clear();
+            }
             sMainThreadHandler.post(this::handleLaunchLauncherActivity);
             return;
         }
         mSessionEvents = events;
         ViewRootImpl.setHostWindows(true);
+        // The notifications the Application posted before the session was there (ADR-0074 decision 2), in order.
+        synchronized (sEarlyNotifications) {
+            for (byte[] text : sEarlyNotifications) {
+                nativeSessionRequestNotification(text);
+            }
+            sEarlyNotifications.clear();
+        }
         watchSession();
     }
+
+    /** APKRT_REQUEST_NOTIFICATION's texts of the time before the session (Application.onCreate), at most 64. */
+    private static final java.util.ArrayList<byte[]> sEarlyNotifications = new java.util.ArrayList<>();
+    private static final int EARLY_NOTIFICATIONS_LIMIT = 64;
 
     /**
      * Waits for the next event, as activity-host's looper callback does: the pipe leaves the looper while an event is
@@ -1523,6 +1538,10 @@ public final class ActivityThread {
                 // The system trims the app's memory (ComponentCallbacks2.onTrimMemory): Android 15 tells an app of
                 // UI_HIDDEN (20) when its UI is gone and of BACKGROUND (40) when it is cached.
                 handleTrimMemory((int) event[2]);
+                break;
+            case EVENT_NOTIFICATION_TAP:
+                // A tap on one of the app's notifications (ADR-0074 decision 4): its content intent goes out.
+                NotificationService.onHostTap((int) event[2], event[3]);
                 break;
             case EVENT_LOW_MEMORY:
                 handleLowMemory();
@@ -2760,6 +2779,16 @@ public final class ActivityThread {
      * a session, -EACCES without the app's grant.
      */
     public static int requestNotification(String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread != null && thread.mSessionEvents == null && !thread.mSessionResumed) {
+            // Before the session: kept for attachSession, as the Application may post in its onCreate.
+            synchronized (sEarlyNotifications) {
+                if (sEarlyNotifications.size() < EARLY_NOTIFICATIONS_LIMIT) {
+                    sEarlyNotifications.add(text.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            return 0;
+        }
         if (sessionOf() == null) {
             return -EOPNOTSUPP;
         }

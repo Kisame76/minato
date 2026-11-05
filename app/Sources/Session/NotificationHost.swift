@@ -13,8 +13,11 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "noti
 /// front, its importance chooses the banner, the list and the sound, as Android's heads-up comes from HIGH on.
 final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelegate {
     static let shared = NotificationHost()
-    /// The importance a request carries for willPresent.
+    /// The importance a request carries for willPresent, and the app, id and tag a tap names.
     private static let importanceKey = "minato.importance"
+    private static let packageKey = "minato.package"
+    private static let idKey = "minato.id"
+    private static let tagKey = "minato.tag"
 
     private let known = Mutex<PermissionDesk.IOSState?>(nil)
 
@@ -64,7 +67,8 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
             content.threadIdentifier = note.thread(package: package)
             content.interruptionLevel = note.passive ? .passive : .active
             content.sound = note.plays ? .default : nil
-            content.userInfo = [Self.importanceKey: note.importance]
+            content.userInfo = [Self.importanceKey: note.importance, Self.packageKey: package, Self.idKey: note.id,
+                                Self.tagKey: note.tag]
             center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
                 guard let error else { return }
                 log.error("notification \(identifier, privacy: .public) failed: \(error.localizedDescription)")
@@ -106,6 +110,43 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
         }
         return options
     }
+
+    /// A tap on a notification (ADR-0074 decision 4): while the app's session runs, the guest sends the notification's
+    /// content intent (APKRT_EVENT_NOTIFICATION_TAP); otherwise iOS has brought Minato to the front.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        guard let key = Self.key(response.notification.request.content.userInfo) else { return }
+        await MainActor.run { Self.tapped(key) }
+    }
+
+    /// The app, id and tag a notification's userInfo names.
+    private static func key(_ info: [AnyHashable: Any]) -> (package: String, id: Int32, tag: String)? {
+        guard let package = info[packageKey] as? String, let number = info[idKey] as? NSNumber else { return nil }
+        return (package, number.int32Value, info[tagKey] as? String ?? "")
+    }
+
+    /// The tap on the notification `key` names, on the main thread.
+    @MainActor private static func tapped(_ key: (package: String, id: Int32, tag: String)) {
+        let (package, id, tag) = key
+        #if DEBUG
+        SessionCheck.event("notification tapped \(tag)|\(id)")
+        #endif
+        GameSession.current?.notificationTapped(package: package, id: id, tag: tag)
+    }
+
+    #if DEBUG
+    /// session-check's notification-tap: a tap on the app's newest delivered notification, as didReceive takes it.
+    func tapNewest(package: String) {
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            let mine = delivered.filter { ($0.request.content.userInfo[Self.packageKey] as? String) == package }
+            guard let newest = mine.max(by: { $0.date < $1.date }) else {
+                return SessionCheck.event("notification tap: none delivered")
+            }
+            guard let key = Self.key(newest.request.content.userInfo) else { return }
+            Task { @MainActor in Self.tapped(key) }
+        }
+    }
+    #endif
 
     private static func state(_ status: UNAuthorizationStatus) -> PermissionDesk.IOSState {
         switch status {

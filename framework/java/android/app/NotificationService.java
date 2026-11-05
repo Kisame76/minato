@@ -73,8 +73,44 @@ public final class NotificationService extends INotificationManager.Default {
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private final ToastQueue mToasts = new ToastQueue(new ToastHost());
 
+    /** The process's service, for the host's taps; the last one made. */
+    private static volatile NotificationService sCurrent;
+
     private NotificationService() {
         mBinder.attachInterface(this, INotificationManager.Stub.DESCRIPTOR);
+        sCurrent = this;
+    }
+
+    /**
+     * The host's tap on the notification of `id` whose tag hashes to `tagHash` (APKRT_EVENT_NOTIFICATION_TAP, ADR-0074
+     * decision 4), on the main thread: its content PendingIntent is sent, as SystemUI sends it, and with
+     * FLAG_AUTO_CANCEL the notification goes. A notification no longer active is no tap's.
+     */
+    static void onHostTap(int id, long tagHash) {
+        final NotificationService service = sCurrent;
+        if (service == null) {
+            return;
+        }
+        final StatusBarNotification shown;
+        synchronized (service) {
+            shown = service.mActive.find(id, tagHash);
+        }
+        if (shown == null) {
+            Log.w(TAG, "a tap on a notification that is not active: id=" + id);
+            return;
+        }
+        final Notification notification = shown.getNotification();
+        if (notification.contentIntent != null) {
+            try {
+                notification.contentIntent.send();
+            } catch (PendingIntent.CanceledException e) {
+                Log.w(TAG, "the tapped notification's content intent was cancelled");
+            }
+        }
+        if ((notification.flags & Notification.FLAG_AUTO_CANCEL) != 0) {
+            service.cancelNotificationWithTag(shown.getPackageName(), shown.getOpPkg(), shown.getTag(),
+                    shown.getId(), 0);
+        }
     }
 
     /** ServiceManager's maker for "notification": the Binder that carries a new service. */

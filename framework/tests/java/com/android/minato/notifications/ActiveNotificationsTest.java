@@ -52,6 +52,26 @@ public final class ActiveNotificationsTest {
         check(keys(active).equals(List.of("null|1 a", "null|2 b")), "own group " + keys(active));
     }
 
+    public void testATapFindsTheNotificationByItsIdAndTagHash() {
+        ActiveNotifications<String> active = new ActiveNotifications<>();
+        active.post("chat", 7, null, "a");
+        active.post(null, 7, null, "b");
+        active.post(null, 8, null, "c");
+        check("a".equals(active.find(7, ActiveNotifications.tagHash("chat"))), "chat 7");
+        check("b".equals(active.find(7, ActiveNotifications.tagHash(null))), "untagged 7");
+        check(active.find(7, ActiveNotifications.tagHash("other")) == null, "another tag");
+        check(active.find(9, ActiveNotifications.tagHash(null)) == null, "another id");
+        check(active.find(ActiveNotifications.AUTOGROUP_ID, ActiveNotifications.tagHash("ranker_group")) == null,
+                "the system's summary is no tap's");
+    }
+
+    public void testTheTagHashIsFnv1a64OfTheUtf8() {
+        check(ActiveNotifications.tagHash(null) == 0xcbf29ce484222325L, "no tag is the empty tag");
+        check(ActiveNotifications.tagHash("") == 0xcbf29ce484222325L, "empty");
+        check(ActiveNotifications.tagHash("a") == 0xaf63dc4c8601ec8cL, "a");
+        check(ActiveNotifications.tagHash("\u00e4") != ActiveNotifications.tagHash("a"), "UTF-8 bytes");
+    }
+
     public void testACancelOfWhatIsNotThereChangesNothing() {
         ActiveNotifications<String> active = new ActiveNotifications<>();
         active.post("t", 1, null, "a");

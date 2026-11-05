@@ -76,6 +76,8 @@ import UIKit
 ///            rest, then disconnects it; it logs "virtual pad lacks <element>" for each button a touch controller
 ///            does not have (GCInputButtonHome, which its configuration refuses, and the stick clicks), "virtual pad
 ///            connected" and "virtual pad done". The file goes.
+///   notification-tap  the same poll taps the app's newest delivered notification, as UNUserNotificationCenter's
+///            didReceive would (ADR-0074 decision 4); the file goes.
 ///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
 ///            there before (the Simulator lists one of its own).
 ///   permission-allow  Minato's alert for a permission request (ADR-0063 decision 2) chooses Allow by itself 1 s
@@ -420,6 +422,10 @@ enum SessionCheck {
                     try? FileManager.default.removeItem(at: folder.appending(path: "window-dump"))
                     let files = folder.appending(path: "window-dump-files").path
                     event("window dump \(minato_graphics_window_dump(files))")
+                }
+                if requested("notification-tap") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "notification-tap"))
+                    NotificationHost.shared.tapNewest(package: session.entry.id)
                 }
                 if requested("pad") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "pad"))

@@ -3,8 +3,8 @@
 # (ADR-0043 c4 (d)): app/HostChecks/main.swift asks which view takes the guest's touches while graphics/host's hide
 # rule hides the window's layer, and where the SurfaceViews' layers lie. It builds the APKSession files the view uses
 # as their module, with a stand-in for LaunchRequest.swift's LaunchMode, and the view with one for graphics/host's
-# MinatoMetalLayer, in Swift 6 as the app. The view is laid out at MINATO_DISPLAY, by default the M4 plan's
-# (tools/check-display.sh).
+# MinatoMetalLayer and one for the app's NotificationHost, in Swift 6 as the app. The view is laid out at
+# MINATO_DISPLAY, by default the M4 plan's (tools/check-display.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source tools/check-display.sh
@@ -25,6 +25,6 @@ xcrun --sdk macosx swiftc "${FLAGS[@]}" -parse-as-library -emit-library -emit-mo
   "$SESSION/WindowOrder.swift" "$SESSION/WindowTree.swift" app/HostChecks/LaunchMode.swift
 xcrun --sdk macosx swiftc "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lAPKSession -Xlinker -rpath -Xlinker "$PWD/$OUT" \
   -o "$OUT/session-window-check" app/Sources/Session/SessionWindow.swift app/Sources/Session/KeyboardBarView.swift \
-  app/HostChecks/MinatoMetalLayer.swift \
+  app/HostChecks/MinatoMetalLayer.swift app/HostChecks/NotificationHost.swift \
   app/HostChecks/main.swift
 MINATO_DISPLAY="$CHECK_DISPLAY" "$OUT/session-window-check"

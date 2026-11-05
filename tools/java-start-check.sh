@@ -176,7 +176,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "permission-request-test-camera io.github.kisame76.minato.test.permreqcamera"
       "permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications"
       "notify-test io.github.kisame76.minato.test.notify"
-      "notify-test-granted io.github.kisame76.minato.test.notifygranted")
+      "notify-test-granted io.github.kisame76.minato.test.notifygranted"
+      "notify-tap-test io.github.kisame76.minato.test.notifytap")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -1360,6 +1361,43 @@ if [[ "$ON_DEVICE" == no ]] && { wanted notify-test || wanted notify-test-grante
     else
       fail "  the host posted $posts notifications and cancelled $cancels, not 3 and 1"
     fi
+  fi
+fi
+
+# ADR-0074 decision 4 in the Simulator: notify-tap-test starts with the grant (the host's record of the app) and sends
+# its notification's content intent itself, which is what SystemUI does on a tap; its first lines must be Android 15's.
+# Its post comes in the Application's onCreate, before the session, and the host must get it all the same. Then
+# session-check's notification-tap taps the delivered notification as UNUserNotificationCenter's didReceive does: the
+# guest sends the content intent again (APKRT_EVENT_NOTIFICATION_TAP), TapActivity opens a second time, and the
+# notification, auto-cancelled, is gone.
+if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
+  mkdir -p "$SUPPORT/data/io.github.kisame76.minato.test.notifytap"
+  echo '{"notifications":{"outcome":1,"denials":0}}' \
+    > "$SUPPORT/data/io.github.kisame76.minato.test.notifytap/permissions.json"
+  if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap 1; then
+    if await_line guest-log "^I/notify-tap-test: done$" 120; then
+      request notification-tap
+      if await_line guest-log "^I/notify-tap-test: active after the tap: 0$" 30; then
+        ok "  the host's tap opened TapActivity again and cancelled the notification"
+        sleep 1
+      else
+        failed_line "no second opening after the host's tap" notify-tap-test-1
+      fi
+    else
+      failed_line "no done" notify-tap-test-1
+    fi
+  fi
+  end_start notify-tap-test 1
+  fetch_events
+  posts=$(grep -c -E " notification posted tap\|3 " "$EVENTS" || true)
+  if [[ "$posts" == 1 ]]; then ok "  the host got the post of the Application's onCreate"; else
+    fail "  the host got $posts posts of the Application's onCreate, not 1"; fi
+  grep -E "^I/notify-tap-test: " "$WORK/notify-tap-test-1.log" | head -n 5 > "$WORK/notify-tap-test-head.log"
+  if cmp -s "$WORK/notify-tap-test-head.log" fixtures/expected/notify-tap-test.logcat; then
+    ok "  notify-tap-test's first 5 lines are Android 15's"
+  else
+    fail "  notify-tap-test's first lines differ from Android 15's"
+    diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /'
   fi
 fi
 

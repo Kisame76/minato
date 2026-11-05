@@ -16,6 +16,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         Self.orientations
     }
 
+    /// The notifications' delegate from the launch on, so that a tap that launched Minato reaches it (ADR-0074
+    /// decision 4).
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        NotificationHost.shared.start()
+        return true
+    }
+
     /// Fixes the window to `orientation` and says which one that is, landscape or portrait: the
     /// orientation at start is the one the scene has now. `refused` runs when iOS does not turn the window.
     static func hold(_ orientation: SessionOrientation, in scene: UIWindowScene,

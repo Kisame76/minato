@@ -168,6 +168,13 @@ final class RuntimeSessionHost: SessionHost {
         minato_webview_windows_changed()
     }
 
+    /// A tap on the app's notification `id` with `tag` (APKRT_EVENT_NOTIFICATION_TAP, ADR-0074 decision 4); a session
+    /// that has ended takes no post.
+    static func notificationTapped(id: Int32, tag: String) {
+        _ = apkrt_session_post(APKRT_EVENT_NOTIFICATION_TAP.rawValue, UInt64(bitPattern: Int64(id)),
+                               NotificationTap.tagHash(tag), 0)
+    }
+
     /// The host whose address a C function's context carries, or nil for none.
     private static func from(_ address: UInt) -> RuntimeSessionHost? {
         UnsafeRawPointer(bitPattern: address).map { Unmanaged<RuntimeSessionHost>.fromOpaque($0).takeUnretainedValue() }

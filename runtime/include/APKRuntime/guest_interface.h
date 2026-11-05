@@ -333,6 +333,10 @@ enum apkrt_event_type {
                                           // background, and its post lets the windows' buffers go
                                           // (apkrt_window_buffers' trim); a memory warning keeps posting
                                           // APKRT_EVENT_LOW_MEMORY
+    APKRT_EVENT_NOTIFICATION_TAP,         // the user tapped one of the app's notifications while its session runs
+                                          // (ADR-0074 decision 4): a0 its id, sign-extended, a1 the FNV-1a 64 of
+                                          // its tag's UTF-8 (no tag as the empty one), a2 0. The guest sends the
+                                          // notification's content PendingIntent, as SystemUI does
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and
