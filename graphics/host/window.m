@@ -40,7 +40,14 @@
      so no older frame flashes.
    - A removed window's buffers go at once, but for a locked one, which its post gives back with -ENODEV; a lock for
      it answers -ENODEV.
+   - The text selection's loupe (ADR-0043's amendment, PixelCopy): a readback copies a rectangle of the last posted
+     buffer as RGBA_8888 (RGBX_8888's alpha as 255, RGB_565 widened as Metal's conversion does) into the runtime's
+     host memory, scaled to the request's size by vImage where the sizes differ. It reads outside the lock; the buffer
+     counts its readers meanwhile, so that no lock takes it to write. -ENODATA without a posted buffer (never posted,
+     trimmed, removed, or a window that GL or Vulkan draw, which has none here), -EINVAL for a rectangle outside the
+     buffer or an empty one.
    ARC. Their state lives under one mutex, which no Metal or Core Animation call holds. */
+#import <Accelerate/Accelerate.h>
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurfaceRef.h>
 #import <Metal/Metal.h>
@@ -60,7 +67,14 @@
 #include "present_pace.h"
 
 /* Linux's errno values, which the guest gets. */
-enum { linux_enomem = 12, linux_enodev = 19, linux_einval = 22, linux_etimedout = 110 };
+enum {
+    linux_eio = 5,
+    linux_enomem = 12,
+    linux_enodev = 19,
+    linux_einval = 22,
+    linux_enodata = 61,
+    linux_etimedout = 110,
+};
 
 /* AHardwareBuffer's formats of ANativeWindow's (WINDOW_FORMAT_*). */
 enum { format_rgba_8888 = 1, format_rgbx_8888 = 2, format_rgb_565 = 4 };
@@ -95,6 +109,7 @@ static const uint64_t spare_ns = 1000000000;
     int32_t behind[4];  // around what changed since this buffer was last posted
     uint64_t posted;    // the window's post count at its last post, 0 before
     BOOL reading;       // a post's command buffer reads it
+    uint32_t readers;   // readbacks that read it (read_back)
 }
 @end
 
@@ -311,7 +326,8 @@ static void copy_outside(const uint8_t *from, uint8_t *to, size_t row, int32_t b
 static MinatoCPUBuffer *free_buffer(MinatoCPUWindow *window) {
     MinatoCPUBuffer *found = nil;
     for (MinatoCPUBuffer *buffer in window->buffers) {
-        const BOOL busy = buffer->reading || (by_contents && IOSurfaceIsInUse(buffer->surface));
+        const BOOL busy =
+            buffer->reading || buffer->readers > 0 || (by_contents && IOSurfaceIsInUse(buffer->surface));
         if (buffer != window->front && !busy && (found == nil || buffer->posted < found->posted)) {
             found = buffer;
         }
@@ -973,8 +989,83 @@ static int scheduled_provider(void *context, uint64_t deadline) {
     return minato_graphics_window_scheduled(deadline);
 }
 
+/* A row of `count` pixels of a buffer in `format` as RGBA_8888. */
+static void row_as_rgba(const uint8_t *from, int32_t format, int32_t count, uint8_t *to) {
+    if (format == format_rgb_565) {
+        widen_565(from, 0, count, 1, to);
+        return;
+    }
+    memcpy(to, from, (size_t)count * 4);
+    if (format == format_rgbx_8888) {
+        for (int32_t x = 0; x < count; x++) to[4 * x + 3] = 255;
+    }
+}
+
+/* The readback's end: the buffer may be locked again. */
+static void reader_done(MinatoCPUBuffer *buffer) {
+    pthread_mutex_lock(&state_lock);
+    buffer->readers--;
+    pthread_cond_broadcast(&freed);
+    pthread_mutex_unlock(&state_lock);
+}
+
+static int read_back(void *context, uint64_t window_id, const struct apkrt_window_readback *request) {
+    (void)context;
+    const int32_t left = request->left, top = request->top, right = request->right, bottom = request->bottom;
+    const uint32_t width = request->width, height = request->height, stride = request->stride;
+    if (right <= left || bottom <= top || width == 0 || height == 0 || stride / 4 < width || request->pixels == NULL) {
+        return -linux_einval;
+    }
+    pthread_mutex_lock(&state_lock);
+    MinatoCPUWindow *window = windows[@(window_id)];
+    MinatoCPUBuffer *const front = window != nil && ![removed_ids containsObject:@(window_id)] ? window->front : nil;
+    if (front == nil) {
+        pthread_mutex_unlock(&state_lock);
+        return -linux_enodata;
+    }
+    if (left < 0 || top < 0 || right > window->width || bottom > window->height) {
+        pthread_mutex_unlock(&state_lock);
+        return -linux_einval;
+    }
+    const int32_t format = window->format, bytes = window->bytes;
+    front->readers++;
+    pthread_mutex_unlock(&state_lock);
+
+    const int32_t columns = right - left, rows = bottom - top;
+    const BOOL same = (uint32_t)columns == width && (uint32_t)rows == height;
+    uint8_t *const source = same ? NULL : malloc((size_t)columns * (size_t)rows * 4);
+    if (!same && source == NULL) {
+        reader_done(front);
+        return -linux_eio;
+    }
+    uint8_t *const pixels = request->pixels;
+    IOSurfaceLock(front->surface, kIOSurfaceLockReadOnly, NULL);
+    const uint8_t *const bits = IOSurfaceGetBaseAddress(front->surface);
+    const size_t row = IOSurfaceGetBytesPerRow(front->surface);
+    for (int32_t y = 0; y < rows; y++) {
+        uint8_t *to = same ? pixels + (size_t)y * stride : source + (size_t)y * (size_t)columns * 4;
+        row_as_rgba(bits + (size_t)(top + y) * row + (size_t)left * (size_t)bytes, format, columns, to);
+    }
+    IOSurfaceUnlock(front->surface, kIOSurfaceLockReadOnly, NULL);
+    reader_done(front);
+    if (same) {
+        return 0;
+    }
+    // vImage takes the four channels alike, whichever their order.
+    const vImage_Buffer from = {source, (vImagePixelCount)rows, (vImagePixelCount)columns, (size_t)columns * 4};
+    const vImage_Buffer to = {pixels, height, width, stride};
+    const vImage_Error scaled = vImageScale_ARGB8888(&from, &to, NULL, kvImageNoFlags);
+    free(source);
+    return scaled == kvImageNoError ? 0 : -linux_eio;
+}
+
+static const struct apkrt_window_buffers buffers = {locked, posted, removed, NULL, trimmed, read_back};
+
+const struct apkrt_window_buffers *minato_graphics_window_buffers(void) {
+    return &buffers;
+}
+
 int minato_graphics_set_window_buffers(void) {
-    static const struct apkrt_window_buffers buffers = {locked, posted, removed, NULL, trimmed};
     pthread_mutex_lock(&state_lock);
     if (windows == nil) {
         windows = [NSMutableDictionary dictionary];

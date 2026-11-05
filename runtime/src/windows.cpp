@@ -145,6 +145,45 @@ long post_buffer(std::uint64_t id) {
     return with.post(with.context, id);
 }
 
+long readback_window(std::uint64_t id, std::uint64_t address) {
+    if (address == 0) return -linux_errno::efault;
+    apkrt_window_readback_request request;
+    if (!sys::memory::copy_checked(reinterpret_cast<std::uint64_t>(&request), address, sizeof request)) {
+        return -linux_errno::efault;
+    }
+    if (request.format != 1) return -linux_errno::einval;  // PixelFormat.RGBA_8888, the only one for now
+    if (request.width == 0 || request.height == 0) return -linux_errno::einval;
+    const std::uint64_t stride = request.stride;
+    if (stride < static_cast<std::uint64_t>(request.width) * 4) return -linux_errno::einval;
+    const std::uint64_t bytes = static_cast<std::uint64_t>(request.height) * stride;
+    if (bytes > APKRT_HARDWARE_BUFFER_MAX_BYTES) return -linux_errno::einval;
+    apkrt_window_buffers with;
+    {
+        const std::lock_guard<std::mutex> hold(lock);
+        with = buffers;
+        if (with.readback == nullptr) return -linux_errno::enodata;  // no host read path (CPU-less, e.g. GL/Vulkan)
+        // Only the guest's own windows, never another app's or iOS's screen (ADR-0043 amendment): an id that is not a
+        // live window answers as a window with no posted buffer does, so the guest cannot tell the two apart.
+        if (id == 0 || id >= next_id || find(id) == nullptr) return -linux_errno::enodata;
+    }
+    std::vector<std::uint8_t> staging;
+    try {
+        staging.resize(bytes);
+    } catch (const std::bad_alloc &) {
+        return -linux_errno::enomem;
+    }
+    // The destination the host fills is the runtime's own staging, never guest memory; the runtime copies it out below,
+    // which also vouches for the guest address. The host checks the rectangle against the window's geometry.
+    const apkrt_window_readback host{request.left,   request.top,    request.right,  request.bottom,
+                                     request.width,  request.height, request.stride, staging.data()};
+    const int answered = with.readback(with.context, id, &host);
+    if (answered != 0) return answered;
+    if (!sys::memory::copy_checked(request.pixels, reinterpret_cast<std::uint64_t>(staging.data()), bytes)) {
+        return -linux_errno::efault;
+    }
+    return 0;
+}
+
 void set_frame_rate(std::uint64_t id, std::uint32_t bits, void (*report)(std::uint32_t bits)) {
     const std::lock_guard<std::mutex> hold(lock);
     Window *window = find(id);

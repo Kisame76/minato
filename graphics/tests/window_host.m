@@ -417,7 +417,7 @@ static void fake_removed(void *context, uint64_t id) {
     fprintf(stderr, "fake buffers: window %llu removed\n", (unsigned long long)id);
 }
 
-static const struct apkrt_window_buffers fake_buffers = {fake_lock, fake_post, fake_removed, NULL, NULL};
+static const struct apkrt_window_buffers fake_buffers = {fake_lock, fake_post, fake_removed, NULL, NULL, NULL};
 
 void minato_test_use_fake_buffers(void) {
     const char *buffers = getenv("MINATO_WINDOW_BUFFERS");

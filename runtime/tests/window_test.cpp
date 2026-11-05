@@ -63,7 +63,8 @@ constexpr std::uint64_t nr_futex = 98, nr_tgkill = 131, nr_rt_sigaction = 134;
 constexpr std::uint64_t futex_wait = 0;
 constexpr std::uint64_t sigusr1 = 10, sigusr2 = 12;
 constexpr std::uint64_t sa_restart = 0x1000'0000, sa_restorer = 0x0400'0000;
-constexpr long eintr = 4, eagain = 11, efault = 14, enodev = 19, einval = 22, enosys = 38, etimedout = 110;
+constexpr long eintr = 4, eagain = 11, efault = 14, enodev = 19, einval = 22, enosys = 38, enodata = 61,
+               etimedout = 110;
 
 constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND,
                         present_try = APKRT_GATE_PRESENT_TRY;
@@ -287,7 +288,7 @@ struct FakeBuffers {
     std::mutex lock;
     std::vector<std::string> calls;
     std::vector<std::thread::id> threads;
-    int lock_answer = 0, post_answer = 0;
+    int lock_answer = 0, post_answer = 0, readback_answer = 0;
     std::uint32_t pixels[64 * 48];
 };
 FakeBuffers fake;
@@ -321,7 +322,26 @@ void fake_removed(void *, std::uint64_t id) {
     note("removed " + std::to_string(id));
 }
 
-const apkrt_window_buffers fake_buffers{fake_lock, fake_post, fake_removed, &fake, nullptr};
+/// The host's readback: notes the id and the request, and on a 0 answer fills the runtime's staging (never guest
+/// memory) with a known pixel, so the test sees the copy reach the guest. stride is a multiple of four in the tests.
+int fake_readback(void *context, std::uint64_t id, const apkrt_window_readback *request) {
+    auto *const buffers = static_cast<FakeBuffers *>(context);
+    char line[160];
+    std::snprintf(line, sizeof line, "readback %llu %d %d %d %d -> %ux%u stride %u",
+                  static_cast<unsigned long long>(id),
+                  request->left, request->top, request->right, request->bottom, request->width, request->height,
+                  request->stride);
+    note(line);
+    if (buffers->readback_answer == 0) {
+        auto *const out = static_cast<std::uint32_t *>(request->pixels);
+        for (std::size_t i = 0; i < static_cast<std::size_t>(request->height) * (request->stride / 4); ++i) {
+            out[i] = 0xDDCCBBAAu;
+        }
+    }
+    return buffers->readback_answer;
+}
+
+const apkrt_window_buffers fake_buffers{fake_lock, fake_post, fake_removed, &fake, nullptr, fake_readback};
 
 /// The calls so far, which it forgets; with `on_this_thread`, whether each came on the calling thread.
 std::vector<std::string> taken_calls(bool *on_this_thread = nullptr) {
@@ -331,7 +351,7 @@ std::vector<std::string> taken_calls(bool *on_this_thread = nullptr) {
                                       [](std::thread::id thread) { return thread == std::this_thread::get_id(); });
     }
     fake.threads.clear();
-    fake.lock_answer = fake.post_answer = 0;
+    fake.lock_answer = fake.post_answer = fake.readback_answer = 0;
     return std::exchange(fake.calls, {});
 }
 
@@ -351,9 +371,9 @@ TEST(without_buffers_lock_and_post_answer_enosys_as_the_stubs_did) {
 
 TEST(the_buffers_come_whole_or_not_at_all) {
     CHECK(apkrt_set_window_buffers(nullptr) == 0);
-    const apkrt_window_buffers without_post{fake_lock, nullptr, fake_removed, &fake, nullptr};
-    const apkrt_window_buffers without_lock{nullptr, fake_post, fake_removed, &fake, nullptr};
-    const apkrt_window_buffers without_removed{fake_lock, fake_post, nullptr, &fake, nullptr};
+    const apkrt_window_buffers without_post{fake_lock, nullptr, fake_removed, &fake, nullptr, nullptr};
+    const apkrt_window_buffers without_lock{nullptr, fake_post, fake_removed, &fake, nullptr, nullptr};
+    const apkrt_window_buffers without_removed{fake_lock, fake_post, nullptr, &fake, nullptr, nullptr};
     CHECK(apkrt_set_window_buffers(&without_post) == -1);
     CHECK(apkrt_set_window_buffers(&without_lock) == -1);
     CHECK(apkrt_set_window_buffers(&without_removed) == -1);
@@ -386,6 +406,61 @@ TEST(lock_and_post_reach_the_buffers_on_the_calling_thread_with_the_guest_s_buff
     taken_calls();
     apkrt_window_remove(id);
     CHECK(taken_calls() == std::vector<std::string>({"removed " + with_id}));
+}
+
+// window_readback (ADR-0043 amendment, the Magnifier's loupe): the runtime guards the request, refuses a window the
+// guest does not own and a rectangle the host rejects, then copies the host's pixels out to the guest.
+TEST(window_readback_copies_the_rectangle_out_and_guards_the_request) {
+    CHECK(apkrt_set_window_buffers(&fake_buffers) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    const std::string with_id = std::to_string(id);
+    std::uint32_t out[10 * 8] = {};
+    const apkrt_window_readback_request request{5, 4, 15, 12, 10, 8, 10 * 4, 1, address(out)};
+
+    // A valid request: the host's pixels reach the guest, and the host got the rectangle and the destination size.
+    CHECK(call(APKRT_NR_WINDOW_READBACK, id, address(&request)) == 0);
+    CHECK(out[0] == 0xDDCCBBAAu && out[10 * 8 - 1] == 0xDDCCBBAAu);
+    CHECK(taken_calls() == std::vector<std::string>({"readback " + with_id + " 5 4 15 12 -> 10x8 stride 40"}));
+
+    // A window the guest does not own is refused with -ENODATA, before the host is asked.
+    CHECK(call(APKRT_NR_WINDOW_READBACK, id + 1000, address(&request)) == -enodata);
+    CHECK(taken_calls().empty());
+
+    // A rectangle outside the window: the host answers -EINVAL and the runtime passes it on.
+    fake.readback_answer = -einval;
+    CHECK(call(APKRT_NR_WINDOW_READBACK, id, address(&request)) == -einval);
+    CHECK(taken_calls() == std::vector<std::string>({"readback " + with_id + " 5 4 15 12 -> 10x8 stride 40"}));
+
+    // The runtime's own guards, each before the host: format, sizes, stride, the byte cap, the addresses.
+    auto refused = [&](apkrt_window_readback_request bad) { return call(APKRT_NR_WINDOW_READBACK, id, address(&bad)); };
+    apkrt_window_readback_request bad = request;
+    bad.format = 5;
+    CHECK(refused(bad) == -einval);
+    bad = request, bad.width = 0;
+    CHECK(refused(bad) == -einval);
+    bad = request, bad.height = 0;
+    CHECK(refused(bad) == -einval);
+    bad = request, bad.stride = 10 * 4 - 1;
+    CHECK(refused(bad) == -einval);
+    // Over APKRT_HARDWARE_BUFFER_MAX_BYTES.
+    bad = request, bad.width = 0x10000, bad.height = 0x10000, bad.stride = 0x10000 * 4;
+    CHECK(refused(bad) == -einval);
+    CHECK(call(APKRT_NR_WINDOW_READBACK, id, 0) == -efault);  // no request
+    CHECK(taken_calls().empty());  // none of these reached the host
+    apkrt_window_remove(id);
+    taken_calls();
+}
+
+TEST(window_readback_without_a_host_read_path_answers_enodata) {
+    const apkrt_window_buffers no_readback{fake_lock, fake_post, fake_removed, &fake, nullptr, nullptr};
+    CHECK(apkrt_set_window_buffers(&no_readback) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    std::uint32_t out[2 * 2] = {};
+    const apkrt_window_readback_request request{0, 0, 2, 2, 2, 2, 2 * 4, 1, address(out)};
+    CHECK(call(APKRT_NR_WINDOW_READBACK, id, address(&request)) == -enodata);
+    CHECK(taken_calls().empty());
+    apkrt_window_remove(id);
+    taken_calls();
 }
 
 TEST(lock_and_post_need_a_window_the_host_gave_and_lock_a_buffer_and_a_removed_window_is_gone) {

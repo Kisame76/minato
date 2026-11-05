@@ -266,6 +266,15 @@ if(TARGET minato_graphics_host)
   target_link_libraries(graphics-camera-rules-test PRIVATE minato_graphics_host apkrt apk_defaults)
   add_test(NAME graphics.camera_rules COMMAND graphics-camera-rules-test)
   set_tests_properties(graphics.camera_rules PROPERTIES TIMEOUT 60)
+  # ADR-0043, the text selection's loupe: graphics/host's buffers (window.m) read back as RGBA_8888.
+  add_executable(graphics-window-readback-test window_readback_test.m)
+  target_include_directories(graphics-window-readback-test PRIVATE ../host)
+  target_link_libraries(graphics-window-readback-test PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework Foundation" "-framework IOSurface" "-framework Metal" "-framework QuartzCore"
+    "-framework CoreVideo" "-framework VideoToolbox" "-framework Accelerate")
+  set_source_files_properties(window_readback_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  add_test(NAME graphics.window_readback COMMAND graphics-window-readback-test)
+  set_tests_properties(graphics.window_readback PROPERTIES TIMEOUT 60)
   # ADR-0060 e2b3: graphics/host's video decoders (video_decoder.m) on media-codec-test's streams, each frame against
   # Android 15's (fixtures/expected/media-codec-test.logcat).
   add_executable(graphics-video-decoder-test video_decoder_test.m)

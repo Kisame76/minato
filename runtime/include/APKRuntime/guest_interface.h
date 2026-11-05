@@ -798,6 +798,26 @@ enum apkrt_gate_kind {
 /// for a window removed meanwhile, they only take it back and answer -ENODEV. Returns 0; -ENOSYS without the host's
 /// buffers, -EINVAL for ID 0 or an ID the host never gave; else the buffers' answer, -EINVAL without a locked buffer.
 #define APKRT_NR_WINDOW_POST 4121
+/// window_readback, HardwareRenderer.nCopySurfaceInto for android.widget.Magnifier's loupe (ADR-0043 amendment): x0
+/// the window's ID, x1 the address of a struct apkrt_window_readback_request. The host's buffers
+/// (apkrt_set_window_buffers) copy the request's rectangle of the window's last posted software buffer, scaled to its
+/// width x height, into the guest's pixels as RGBA_8888; only the guest's own windows, never another app's or iOS's
+/// screen. Returns 0; -ENODATA without the host's read path or a posted CPU buffer (a GL or Vulkan window, or after a
+/// trim), or for an ID that is not one of the guest's windows; -EINVAL for a format other than RGBA_8888, a width or
+/// height of 0, a stride below width * 4, a destination over APKRT_HARDWARE_BUFFER_MAX_BYTES, or a rectangle that is
+/// empty or outside the window; -EFAULT for an unreadable request or an unwritable destination. The number follows the
+/// camera's.
+#define APKRT_NR_WINDOW_READBACK 4138
+
+/// window_readback's x1: the source rectangle (right and bottom exclusive, in the window's pixels), the destination's
+/// size and row stride, its format and the guest address of its pixels.
+struct apkrt_window_readback_request {
+    int32_t left, top, right, bottom;
+    uint32_t width, height;  // the destination's pixels; the host scales the source rectangle to them
+    uint32_t stride;         // the destination's bytes a row, at least width * 4
+    uint32_t format;         // a PixelFormat value, only RGBA_8888 (1) for now
+    uint64_t pixels;         // the guest address of the destination, height * stride bytes, RGBA_8888
+};
 
 // MARK: - Hardware buffers (ADR-0058 a))
 //

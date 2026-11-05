@@ -375,12 +375,30 @@ int apkrt_add_scheduled_provider(apkrt_scheduled_provider provider, void *contex
 ///   or above, on the poster's thread, before the event: the buffers let go of what no lock holds, as Android's window
 ///   gives its surface's buffers back once the app's UI is hidden. A window's next lock answers a new buffer, all of
 ///   it dirty.
+/// What APKRT_NR_WINDOW_READBACK asks the host to copy out of a window's last posted software buffer (ADR-0043
+/// amendment: a read path for decision 3's buffers, for android.widget.Magnifier). left and top are inclusive, right
+/// and bottom exclusive, in the window's pixels; the host scales that source rectangle to width x height (the loupe
+/// zooms) and writes it as RGBA_8888. pixels is the runtime's own memory of height * stride bytes (stride at least
+/// width * 4), which the host fills and the runtime then copies to the guest: the host never touches guest memory.
+struct apkrt_window_readback {
+    int32_t left, top, right, bottom;
+    uint32_t width, height;
+    uint32_t stride;
+    void *pixels;
+};
+
 struct apkrt_window_buffers {
     int (*lock)(void *context, uint64_t id, struct apkrt_window_buffer *buffer);
     int (*post)(void *context, uint64_t id);
     void (*removed)(void *context, uint64_t id);
     void *context;
     void (*trim)(void *context);
+    /// Copies `request`'s rectangle of window `id`'s last posted software buffer into `request->pixels`, or NULL when
+    /// the host has no read path. Returns 0; -ENODATA when the window has no posted CPU buffer (never posted, after a
+    /// trim, or a GL/Vulkan window); -EINVAL for an empty rectangle or one outside the buffer; -EIO on a host failure.
+    /// The runtime already refused an id that is not one of the guest's windows. Runs under the same lock as lock and
+    /// post, so a new geometry or a trim cannot slip in during the read (ADR-0043 amendment).
+    int (*readback)(void *context, uint64_t id, const struct apkrt_window_readback *request);
 };
 
 /// For graphics/host: sets the windows' buffers, which the runtime copies, or takes them away with NULL. Returns 0,

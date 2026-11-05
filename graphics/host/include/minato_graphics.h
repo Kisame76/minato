@@ -89,6 +89,11 @@ int minato_graphics_vulkan_scheduled(uint64_t deadline);
    Returns 0, or -1 when the runtime refused either. */
 int minato_graphics_set_window_buffers(void);
 
+struct apkrt_window_buffers;
+
+/* For tests: the functions minato_graphics_set_window_buffers gives the runtime. */
+const struct apkrt_window_buffers *minato_graphics_window_buffers(void);
+
 /* Step f's check of the windows by contents (ADR-0043 b5; window.m), for Debug builds and the Mac's tests: from now
    on each post of a window's buffers writes one line to `path` (appended; "-" for stderr; NULL turns it off):
    "minato window <id>: post <n> <width>x<height> <format>[ on black] CRC-32 <crc>", the CRC-32 of the BGRA pixels

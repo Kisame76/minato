@@ -24,6 +24,12 @@ long lock_buffer(std::uint64_t id, std::uint64_t address);
 /// the buffers' post outside it, also for a window removed meanwhile.
 long post_buffer(std::uint64_t id);
 
+/// The private syscall window_readback (guest_interface.h, ADR-0043 amendment): reads the struct
+/// apkrt_window_readback_request at `address`, refuses a window that is not the guest's and a destination the runtime
+/// cannot vouch for, then the windows' buffers copy the rectangle into a staging buffer that the runtime copies out to
+/// the guest. The registry's checks under its lock, the buffers' readback outside it.
+long readback_window(std::uint64_t id, std::uint64_t address);
+
 /// ANativeWindow_setFrameRate (ADR-0036, decision 2): keeps `bits`, a float's, as the frame rate of the window
 /// `id`, and when they changed calls `report` with them under the registry's lock, so that no report of a
 /// window comes once apkrt_window_remove has returned. Nothing for a window that is removed or unknown.

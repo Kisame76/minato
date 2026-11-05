@@ -986,6 +986,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return apkrt::windows::lock_buffer(x[0], x[1]);  // ADR-0043, decision 3
         case APKRT_NR_WINDOW_POST:
             return apkrt::windows::post_buffer(x[0]);
+        case APKRT_NR_WINDOW_READBACK:
+            return apkrt::windows::readback_window(x[0], x[1]);  // ADR-0043 amendment (the Magnifier's loupe)
         case APKRT_NR_HARDWARE_BUFFER:
             return apkrt::hardware_buffers::call(x[0], x[1]);  // ADR-0058 a)
         case APKRT_NR_VIDEO_DECODER:
