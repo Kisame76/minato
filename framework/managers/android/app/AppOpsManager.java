@@ -80,6 +80,34 @@ class AppOpsManager {
         return OP_NONE;
     }
 
+    /**
+     * The op of a permission, by name, or null for a permission without one (INTERNET) or an unknown one [verified:
+     * manager-answers-test on apk-runner-35]; the last op in the table that names the permission, as AOSP's map.
+     */
+    public static String permissionToOp(String permission) {
+        for (int op = AppOpsTable.PERMISSIONS.length - 1; op >= 0; op--) {
+            if (permission != null && permission.equals(AppOpsTable.PERMISSIONS[op])) {
+                return AppOpsTable.NAMES[op];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Notes an op for the app's own package as the proxy of another one: the mode the op has for the app, so
+     * MODE_IGNORED for a runtime permission it lacks [verified: manager-answers-test on apk-runner-35 for the camera
+     * op]. Nothing is recorded, as nothing reads the notes.
+     */
+    public int noteProxyOp(String op, String proxiedPackageName) {
+        final int code = strOpToOp(op);
+        return unlessErrored(code, Process.myUid(), proxiedPackageName, mode(code, Process.myUid()));
+    }
+
+    public int noteProxyOpNoThrow(String op, String proxiedPackageName) {
+        final int code = strOpToOp(op);
+        return mode(code, Process.myUid());
+    }
+
     /** @hide As AOSP's: the op's name. */
     public static String opToPublicName(int op) {
         return AppOpsTable.NAMES[op];

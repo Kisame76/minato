@@ -1,0 +1,18 @@
+I/manager-answers-test: ActivityManager.getLauncherLargeIconSize in dp: 48
+I/manager-answers-test: AppOpsManager.permissionToOp(CAMERA): android:camera
+I/manager-answers-test: AppOpsManager.permissionToOp(INTERNET): null
+I/manager-answers-test: AppOpsManager.permissionToOp(unknown): null
+I/manager-answers-test: AppOpsManager.noteProxyOp: 1
+I/manager-answers-test: AppOpsManager.noteProxyOpNoThrow: 1
+I/manager-answers-test: TelephonyManager.getDeviceId(0): throws java.lang.SecurityException
+I/manager-answers-test: WifiManager.getConnectionInfo is not null: true
+I/manager-answers-test: WifiManager.getConnectionInfo ssid without location: <unknown ssid>
+I/manager-answers-test: WifiManager.getConnectionInfo bssid without location: null
+I/manager-answers-test: WifiManager.getConnectionInfo mac: 02:00:00:00:00:00
+I/manager-answers-test: WifiManager.getConnectionInfo network id < 0 or not: true
+I/manager-answers-test: WifiManager.getConnectionInfo supplicant state: UNINITIALIZED
+I/manager-answers-test: AudioManager.playSoundEffect: returned
+I/manager-answers-test: AudioManager.registerAudioDeviceCallback: returned
+I/manager-answers-test: AudioManager.registerAudioDeviceCallback heard the devices that are there: true
+I/manager-answers-test: AudioManager.unregisterAudioDeviceCallback: returned
+I/manager-answers-test: done

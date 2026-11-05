@@ -143,6 +143,20 @@ class TelephonyManager {
         return null;
     }
 
+    /**
+     * The device ID of a slot needs READ_PRIVILEGED_PHONE_STATE, which no app holds: a SecurityException
+     * [verified: manager-answers-test on apk-runner-35 for the exception's class].
+     */
+    public String getDeviceId(int slotIndex) {
+        throw new SecurityException("getDeviceId: " + (mContext == null ? "" : mContext.getOpPackageName())
+                + " does not have READ_PRIVILEGED_PHONE_STATE");
+    }
+
+    /** The subscription this manager is for: none, as Minato's phone has no SIM (a named difference). */
+    public int getSubscriptionId() {
+        return -1;
+    }
+
     public String getImei() {
         return null;
     }

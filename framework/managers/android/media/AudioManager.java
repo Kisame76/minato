@@ -78,6 +78,41 @@ class AudioManager {
         return devices(flags);
     }
 
+    /** The callbacks registered for the devices, with the handlers they are called on. */
+    private final java.util.Map<android.media.AudioDeviceCallback, Handler> deviceCallbacks =
+            new java.util.LinkedHashMap<>();
+
+    /**
+     * As AOSP's: the callback is told of the devices that are there at once, on the handler (the main thread's when
+     * it is null) [verified: manager-answers-test on apk-runner-35]. The devices never change here.
+     */
+    public void registerAudioDeviceCallback(android.media.AudioDeviceCallback callback, @Nullable Handler handler) {
+        if (callback == null) {
+            return;
+        }
+        final Handler target = handler != null ? handler : new Handler(android.os.Looper.getMainLooper());
+        synchronized (deviceCallbacks) {
+            if (deviceCallbacks.containsKey(callback)) {
+                return;
+            }
+            deviceCallbacks.put(callback, target);
+        }
+        target.post(() -> callback.onAudioDevicesAdded(devices(GET_DEVICES_ALL)));
+    }
+
+    public void unregisterAudioDeviceCallback(android.media.AudioDeviceCallback callback) {
+        synchronized (deviceCallbacks) {
+            deviceCallbacks.remove(callback);
+        }
+    }
+
+    /** Plays no sound: Minato has no sound effects of the UI (a named difference). */
+    public void playSoundEffect(int effectType) {
+    }
+
+    public void playSoundEffect(int effectType, float volume) {
+    }
+
     private static AudioDeviceInfo[] devices(int flags) {
         if ((flags & GET_DEVICES_OUTPUTS) == 0) {
             return new AudioDeviceInfo[0];

@@ -286,6 +286,14 @@ class ActivityManager {
         }
     }
 
+    /**
+     * The launcher's large icon size in pixels, 48 dp on a phone [verified: manager-answers-test on apk-runner-35],
+     * scaled to the density as getLauncherLargeIconSizeInner does.
+     */
+    public int getLauncherLargeIconSize() {
+        return getLauncherLargeIconSizeInner(mContext);
+    }
+
     /** @hide As AOSP's: the launcher's large icon size, which scales a task description's in-memory icon. */
     static int getLauncherLargeIconSizeInner(Context context) {
         final Resources res = context.getResources();
