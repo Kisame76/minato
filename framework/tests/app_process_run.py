@@ -254,6 +254,33 @@ def missing(art, bionic_system, hwui_lib, app_process, framework_jar, apk, app):
     return hwui_ready.missing(hwui_lib, bionic_system)
 
 
+def _elapsed():
+    """A monotonic clock that keeps counting while the host is asleep, for run_app's timeout. time.monotonic() is
+    mach_absolute_time() on macOS and stops during sleep, so a deadline measured on it does not fire for a hung app
+    until the Mac has been awake that long -- a NativeActivity app once outlived the 300 s cap by ~28 wall minutes
+    because the Mac idle-slept while it hung. CLOCK_MONOTONIC on Darwin counts sleep and never jumps backwards (which
+    time.time() can, on an NTP step)."""
+    try:
+        return time.clock_gettime(time.CLOCK_MONOTONIC)
+    except (AttributeError, OSError):
+        return time.monotonic()
+
+
+# How long run_app waits, in total, for the output reader threads to drain after the app ends or is killed. A
+# grandchild that inherited the app's stdout/stderr keeps the pipes open, so the readers may never reach EOF; they are
+# daemon threads, abandoned after this, so a stuck pipe cannot hang the harness unboundedly.
+READER_JOIN_TIMEOUT = 5.0
+
+
+def _reap(process):
+    """Waits briefly for a killed process so a wedged child cannot block the harness. A SIGKILL'd process normally ends
+    at once; if it does not, the reader threads are daemons and are abandoned anyway."""
+    try:
+        process.wait(READER_JOIN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run_app(command, last=None, grace=2.0, timeout=300):
     """The result of `command`, apk-run's, or None when it has not ended within `timeout` s, after which it is killed.
     An app process runs its main Looper and does not end by itself (step c2b): `last` is a pattern of the app's last
@@ -267,23 +294,23 @@ def run_app(command, last=None, grace=2.0, timeout=300):
     seen = threading.Event()
     output = {"stdout": [], "stderr": []}
 
-    started = time.monotonic()
+    started = _elapsed()
     times_path = os.environ.get("MINATO_LINE_TIMES")
 
     def read(name, stream):
         for line in stream:
             if times_path:
                 with open(times_path, "a") as times:
-                    times.write(f"{time.monotonic() - started:.4f}\t{name}\t{line}")
+                    times.write(f"{_elapsed() - started:.4f}\t{name}\t{line}")
             output[name].append(line)
             if pattern is not None and pattern.search(line.rstrip("\n")):
                 seen.set()
 
-    readers = [threading.Thread(target=read, args=(name, getattr(process, name))) for name in output]
+    readers = [threading.Thread(target=read, args=(name, getattr(process, name)), daemon=True) for name in output]
     for reader in readers:
         reader.start()
-    deadline = time.monotonic() + timeout
-    while process.poll() is None and not seen.is_set() and time.monotonic() < deadline:
+    deadline = _elapsed() + timeout
+    while process.poll() is None and not seen.is_set() and _elapsed() < deadline:
         seen.wait(0.1)
     status = process.poll()
     if status is None and seen.is_set():
@@ -291,13 +318,16 @@ def run_app(command, last=None, grace=2.0, timeout=300):
             status = process.wait(grace)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait()
+            _reap(process)
             status = 0
     elif status is None:
         process.kill()
-        process.wait()
+        _reap(process)
+    # Join the readers under one shared deadline (not per-reader), so a grandchild holding the pipes caps the wait at
+    # READER_JOIN_TIMEOUT in total; the readers are daemons, so any still blocked are abandoned at exit.
+    join_end = _elapsed() + READER_JOIN_TIMEOUT
     for reader in readers:
-        reader.join()
+        reader.join(max(0.0, join_end - _elapsed()))
     if status is None:
         return None
     return subprocess.CompletedProcess(command, status, "".join(output["stdout"]), "".join(output["stderr"]))

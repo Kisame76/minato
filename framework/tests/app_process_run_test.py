@@ -16,6 +16,7 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 
@@ -118,6 +119,45 @@ began = time.monotonic()
 result = app_process_run.run_app(program("print('app: one', flush=True)", "time.sleep(60)"), LAST, grace=0.5,
                              timeout=1)
 check(result is None and time.monotonic() - began < 10, f"no last line within the timeout: {result}")
+
+# The timeout is wall-clock, not mach_absolute_time: time.monotonic() on macOS freezes while the host sleeps, so a
+# deadline measured on it does not fire for a hung app until the Mac has been awake that long (a NativeActivity app
+# once outlived the 300 s cap by ~28 wall minutes of idle sleep). Freeze time.monotonic() to stand in for the sleeping
+# host; run_app must use a sleep-inclusive clock and still kill the hung app on wall time. Run it in a daemon thread so
+# a regression shows as a detectable hang, not a frozen suite.
+frozen_at = time.monotonic()
+run_done = threading.Event()
+run_box = {}
+
+
+def run_hung():
+    run_box["result"] = app_process_run.run_app(program("print('app: one', flush=True)", "time.sleep(12)"),
+                                                 LAST, grace=0.5, timeout=1)
+    run_done.set()
+
+
+saved_monotonic = time.monotonic
+time.monotonic = lambda: frozen_at  # the host "asleep": mach_absolute_time stands still
+try:
+    wall = time.time()
+    threading.Thread(target=run_hung, daemon=True).start()
+    finished = run_done.wait(8)
+finally:
+    time.monotonic = saved_monotonic
+check(finished and run_box.get("result") is None and time.time() - wall < 8,
+      f"a hung app is killed on wall time even when monotonic freezes: "
+      f"finished={finished} result={run_box.get('result')}")
+
+# A grandchild that inherits the app's stdout/stderr keeps the pipes open after the app is killed, so the reader
+# threads never reach EOF: run_app must not block forever joining them, and must return within a few seconds of the
+# timeout rather than waiting the grandchild out.
+began = time.monotonic()
+result = app_process_run.run_app(program("import subprocess", "subprocess.Popen(['sleep', '20'])",
+                                         "print('app: one', flush=True)", "time.sleep(60)"),
+                                 LAST, grace=0.5, timeout=1)
+took = time.monotonic() - began
+check(result is None and took < 10,
+      f"a grandchild holding the pipes does not hang the reader join: {took:.1f} s, {result}")
 
 
 def apk(path, libraries):
