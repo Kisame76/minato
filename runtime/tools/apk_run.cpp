@@ -1588,6 +1588,11 @@ int main(int argc, char **argv) {
             // The FPS unlock (ADR-0066): 60 or 120.
             if (value != "60" && value != "120") return usage();
             frame_rate = std::stoi(value);
+        } else if (option == "--scudo-regions") {
+            // Force the guest libc build (ADR-0035 item 3): 27 (128 MiB scudo regions) or 28 (256 MiB), in place of the
+            // address-space probe, so a check exercises either; the runtime reads MINATO_SCUDO_REGIONS (dl.cpp).
+            if (value != "27" && value != "28") return usage();
+            ::setenv("MINATO_SCUDO_REGIONS", value.c_str(), 1);
         } else if (option == "--pick-state") {
             pick_config.state = value;
         } else if (option == "--measures") {

@@ -7,6 +7,7 @@
 #include "signals.h"
 #include "vfs.h"
 
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -341,6 +342,48 @@ std::string joined(const std::vector<std::string> &folders) {
 
 /// The library file at the guest path `path` (in normal form), if a library directory holds it.
 /// A path to where a system link points finds the file through the link.
+// At process start the runtime runs one of two guest libc builds -- libc.so (scudo 128 MiB regions) or
+// libc-bigregions.so (256 MiB) -- chosen by the address space it can reserve (ADR-0035 item 3). 256 MiB regions are
+// taken only when the worst case fits (33 size-class regions of 256 MiB = 8.25 GiB, beside ART's 2 GiB heap window),
+// so a game that needs a size class larger than 128 MiB runs with increased-memory-limit, while the 128 MiB build
+// still fits the 7.84 GiB a SideStore free-account install has (ADR-0012, spike S2). MINATO_SCUDO_REGIONS (apk-run's
+// --scudo-regions) forces the choice for the checks.
+//
+// The choice is logged once, before libc loads, but only when MINATO_LOADER_LOG is set: the line would otherwise
+// land on the guest's stderr, which the fixture harness (tools/run-fixture.cmake) compares byte for byte, and it
+// carries a machine-dependent address-space figure and appears in every run that loads libc. A real session sets
+// MINATO_LOADER_LOG so the line reaches the session log beside liblog's other linker lines; the fixture harness
+// leaves it unset, so the linker stays silent on a clean run as it already does for everything but warnings.
+std::uint32_t scudo_region_log2() {
+    static const std::uint32_t chosen = [] {
+        const bool log_choice = ::getenv("MINATO_LOADER_LOG") != nullptr;
+        constexpr std::uint64_t gib = std::uint64_t{1} << 30;
+        constexpr std::uint64_t needed = std::uint64_t{33} * (std::uint64_t{256} << 20) + 2 * gib;  // 10.25 GiB
+        if (const char *forced = ::getenv("MINATO_SCUDO_REGIONS")) {
+            const std::uint32_t log2 = std::string_view(forced) == "28" ? 28 : 27;
+            if (log_choice) log_line('I', std::format("scudo regions {} MiB (forced)", log2 == 28 ? 256 : 128));
+            return log2;
+        }
+        // The largest contiguous reservation available now (spike S2): step down from 16 GiB. A PROT_NONE,
+        // MAP_NORESERVE mapping commits nothing, so this only probes the address space.
+        std::uint64_t largest = 0;
+        for (std::uint64_t size = std::uint64_t{16} * gib; size >= gib; size -= gib) {
+            void *region = ::mmap(nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
+            if (region != MAP_FAILED) {
+                ::munmap(region, size);
+                largest = size;
+                break;
+            }
+        }
+        const std::uint32_t log2 = largest >= needed ? 28 : 27;
+        if (log_choice)
+            log_line('I', std::format("scudo regions {} MiB, address space {} GiB", log2 == 28 ? 256 : 128,
+                                      largest / gib));
+        return log2;
+    }();
+    return chosen;
+}
+
 std::optional<Found> library_at(const State &state, std::string path) {
     std::string real = path;
     for (const auto &[link, target] : system_links) {
@@ -349,7 +392,18 @@ std::optional<Found> library_at(const State &state, std::string path) {
     }
     const auto slash = path.rfind('/');
     const auto directory = slash == 0 ? std::string("/") : path.substr(0, slash);
-    const auto file = path.substr(slash + 1) + ".dylib";
+    auto file = path.substr(slash + 1) + ".dylib";
+    // Run libc-bigregions.so's container in place of libc.so's when the address space allows 256 MiB scudo regions and
+    // its container is staged beside libc's (ADR-0035 item 3). The guest still sees the library as libc.so: `real` is
+    // unchanged, and the container's SONAME is libc.so.
+    if (file == "libc.so.dylib" && scudo_region_log2() == 28) {
+        for (const auto &entry : state.directories) {
+            if (entry.guest == directory && std::filesystem::exists(entry.host / "libc-bigregions.so.dylib")) {
+                file = "libc-bigregions.so.dylib";
+                break;
+            }
+        }
+    }
     for (const auto &entry : state.directories) {
         if (entry.guest == directory && std::filesystem::exists(entry.host / file)) return Found{real, entry.host / file};
     }

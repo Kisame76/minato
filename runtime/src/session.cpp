@@ -15,6 +15,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <TargetConditionals.h>
+#include <mach/mach.h>
+#include <mach/task_info.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>  // os_proc_available_memory is iOS-only; the macOS host build (tests) leaves it out
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -22,7 +29,9 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -1205,6 +1214,30 @@ extern "C" void apkrt_permission_answer(uint32_t request_id, int32_t group, int3
                        static_cast<uint64_t>(static_cast<uint32_t>(outcome)));
 }
 
+// The process's memory at a trim (APKRT_EVENT_TRIM_MEMORY), written to the session log so a memory warning leaves a
+// trace beside the stall watchdog's lines (ADR-0035 item 3, the Ren'Py pressure). phys_footprint is what iOS counts
+// against the app's limit (task_info TASK_VM_INFO); os_proc_available_memory is how much the app may still use before
+// iOS kills it, iOS-only, so the macOS host build logs 0 for it. Tag "apkrt" like the stall watchdog, so it goes to
+// the device's session log yet java_app_run's app-tag comparison passes over it; it fires only inside a session, never
+// in a byte-compared fixture (those post no events).
+static void log_memory_footprint(unsigned level) {
+    constexpr std::uint64_t mib = std::uint64_t{1} << 20;
+    task_vm_info_data_t info{};
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    const std::uint64_t footprint =
+            ::task_info(::mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS
+                    ? static_cast<std::uint64_t>(info.phys_footprint) / mib
+                    : 0;
+#if TARGET_OS_IPHONE
+    const std::uint64_t available = static_cast<std::uint64_t>(::os_proc_available_memory()) / mib;
+#else
+    const std::uint64_t available = 0;
+#endif
+    const std::string line =
+            std::format("I/apkrt   : trim {}: footprint {} MiB, available {} MiB\n", level, footprint, available);
+    static_cast<void>(::write(STDERR_FILENO, line.data(), line.size()));
+}
+
 extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, uint64_t a2) {
     using namespace apkrt::session;
     if (!begun.load(std::memory_order_acquire)) return 0;
@@ -1214,9 +1247,12 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
     } else if (type == APKRT_EVENT_PAUSE || type == APKRT_EVENT_STOP) {
         apkrt::stall::paused();
     }
-    // TRIM_MEMORY_UI_HIDDEN and above: the windows' buffers go first, as Android's hidden window gives its surface's
-    // back before the app hears of the trim.
-    if (type == APKRT_EVENT_TRIM_MEMORY && a0 >= 20) apkrt::windows::trim_buffers();
+    if (type == APKRT_EVENT_TRIM_MEMORY) {
+        log_memory_footprint(static_cast<unsigned>(a0));
+        // TRIM_MEMORY_UI_HIDDEN and above: the windows' buffers go first, as Android's hidden window gives its
+        // surface's back before the app hears of the trim.
+        if (a0 >= 20) apkrt::windows::trim_buffers();
+    }
     // The answer to a pick request frees its ID, also when the post fails: the request is over.
     if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
     if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);

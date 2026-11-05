@@ -127,10 +127,42 @@ include("${CMAKE_BINARY_DIR}/plan.cmake")
 # compiler's outline atomics set themselves up with getauxval and system properties from libc.so.
 target_compile_options(bionic_ld_android PRIVATE -mno-outline-atomics)
 
-# Scudo with our copy of its configuration (ADR-0035): a region of 64 MiB per size class, reserved
-# when the class is first used, instead of 8.25 GiB in one piece at the first malloc. The folder
-# comes before AOSP's config/, so that Scudo's #include "custom_scudo_config.h" finds our copy.
+# Scudo with our copy of its configuration (ADR-0035): a region of 128 MiB per size class, reserved when the class is
+# first used, instead of 8.25 GiB in one piece at the first malloc. The folder comes before AOSP's config/, so that
+# Scudo's #include "custom_scudo_config.h" finds our copy.
 target_include_directories(bionic_libscudo BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/scudo")
+
+# A second guest libc, libc-bigregions.so: identical to libc.so but with scudo's 256 MiB regions (RegionSizeLog 28 vs
+# 27, ADR-0035 item 3). The loader maps /system/lib64/libc.so to whichever the process's address space allows. Only
+# the scudo objects differ -- one -D -- so recompile just those (bionic_libscudo_big) and relink libc with them swapped
+# in, reusing guest_libc's own recipe (sources, link options and needed libraries) so the two stay in step.
+get_target_property(scudo_sources bionic_libscudo SOURCES)
+get_target_property(scudo_includes bionic_libscudo INCLUDE_DIRECTORIES)
+get_target_property(scudo_options bionic_libscudo COMPILE_OPTIONS)
+add_library(bionic_libscudo_big OBJECT ${scudo_sources})
+target_include_directories(bionic_libscudo_big PRIVATE ${scudo_includes})
+target_compile_options(bionic_libscudo_big PRIVATE ${scudo_options} -DMINATO_SCUDO_REGION_SIZE_LOG=28U)
+
+get_target_property(libc_sources guest_libc SOURCES)
+string(REPLACE "$<TARGET_OBJECTS:bionic_libscudo>" "$<TARGET_OBJECTS:bionic_libscudo_big>" libc_big_sources
+  "${libc_sources}")
+add_library(guest_libc_big SHARED ${libc_big_sources})
+# NO_SONAME stops CMake adding -soname=libc-bigregions.so from the output name; the explicit -soname below then makes
+# the SONAME libc.so, because the guest's DT_NEEDED names libc.so and the loader swaps in this file (dl.cpp) as a
+# drop-in, so its identity to the guest linker must still be libc.so.
+set_target_properties(guest_libc_big PROPERTIES OUTPUT_NAME libc-bigregions PREFIX "" SUFFIX ".so" LINKER_LANGUAGE C
+  NO_SONAME TRUE)
+target_link_options(guest_libc_big PRIVATE "-Wl,-soname,libc.so")
+get_target_property(libc_big_link_options guest_libc LINK_OPTIONS)
+if(libc_big_link_options)
+  target_link_options(guest_libc_big PRIVATE ${libc_big_link_options})
+endif()
+get_target_property(libc_big_link_libraries guest_libc LINK_LIBRARIES)
+if(libc_big_link_libraries)
+  target_link_libraries(guest_libc_big PRIVATE ${libc_big_link_libraries})
+endif()
+# Build after guest_libc so any generated version script is already there, and it shares guest_libc's dependencies.
+add_dependencies(guest_libc_big guest_libc)
 
 # liblog.so: Minato's own (runtime/bionic/src/liblog.cpp), because Android's needs the logd
 # service. The NDK's API without symbol versions, like the NDK's stub library.

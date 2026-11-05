@@ -54,7 +54,7 @@ if(APK_HOST_BUILD)
   # marks a benchmark, whose stdout is not compared.
   # tools/android-reference.sh runs the same on Android, tools/device-suite.sh on the iPhone.
   function(apk_fixture_test name)
-    cmake_parse_arguments(PARSE_ARGV 1 FIXTURE "NO_LIBRARY_PATH;MEASURES" "PROGRAM;STATUS" "LIBRARIES;SYSTEM_LIBRARIES")
+    cmake_parse_arguments(PARSE_ARGV 1 FIXTURE "NO_LIBRARY_PATH;MEASURES" "PROGRAM;STATUS;SCUDO_REGIONS" "LIBRARIES;SYSTEM_LIBRARIES")
     if(NOT FIXTURE_PROGRAM)
       set(FIXTURE_PROGRAM ${name})
     endif()
@@ -76,6 +76,7 @@ if(APK_HOST_BUILD)
         "-D SYSTEM_LIBRARIES=${FIXTURE_SYSTEM_LIBRARIES}"
         -D NO_LIBRARY_PATH=${FIXTURE_NO_LIBRARY_PATH}
         -D MEASURES=${FIXTURE_MEASURES}
+        -D SCUDO_REGIONS=${FIXTURE_SCUDO_REGIONS}
         -D WORK=${CMAKE_CURRENT_BINARY_DIR}/fixture_runs
         -D EXPECTED_OUTPUT=${expected}.out
         ${expected_error}
@@ -90,8 +91,8 @@ if(APK_HOST_BUILD)
   # and the NDK libraries Minato writes itself (ADR-0028): libandroid.so, libnativewindow.so and libz.so, and the
   # stubs libcamera2ndk.so and libmediandk.so (ADR-0042 b, gap 15) and libsync.so, libamidi.so, libbinder_ndk.so,
   # libneuralnetworks.so and libOpenMAXAL.so (gap 14).
-  set(bionic_libraries libc libm libdl ld-android liblog libnetd_client libstdc++ libandroid libnativewindow libz
-    libcamera2ndk libmediandk libsync libamidi libbinder_ndk libneuralnetworks libOpenMAXAL)
+  set(bionic_libraries libc libc-bigregions libm libdl ld-android liblog libnetd_client libstdc++ libandroid
+    libnativewindow libz libcamera2ndk libmediandk libsync libamidi libbinder_ndk libneuralnetworks libOpenMAXAL)
   list(TRANSFORM bionic_libraries REPLACE "(.+)" "${APK_BIONIC_DIR}/\\1.so")
 
   # The tests of fixtures/tests.txt, which says what each line means.
@@ -114,6 +115,8 @@ if(APK_HOST_BUILD)
         list(APPEND arguments PROGRAM ${CMAKE_MATCH_1})
       elseif(field MATCHES "^status=(.+)$")
         list(APPEND arguments STATUS ${CMAKE_MATCH_1})
+      elseif(field MATCHES "^scudo-regions=(.+)$")
+        list(APPEND arguments SCUDO_REGIONS ${CMAKE_MATCH_1})
       elseif(field MATCHES "^libraries=(.+)$")
         string(REPLACE "," ";" own "${CMAKE_MATCH_1}")
         list(TRANSFORM own PREPEND "${APK_FIXTURES_DIR}/")

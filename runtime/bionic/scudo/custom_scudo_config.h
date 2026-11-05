@@ -52,6 +52,15 @@
 
 #pragma once
 
+// The size of each scudo size-class region for AndroidNormalConfig (ADR-0035, item 3): 2^RegionSizeLog bytes. The
+// loader runs one of two guest libc builds by the address space the process has -- libc.so with 27 (128 MiB regions,
+// which fit the 7.84 GiB of a SideStore free-account install, ADR-0012) and libc-bigregions.so with 28 (256 MiB, for a
+// game that needs a single size class larger than 128 MiB when increased-memory-limit grants the VA). The two builds
+// come from the same pinned sources and differ only by this define (runtime/bionic/CMakeLists.txt).
+#ifndef MINATO_SCUDO_REGION_SIZE_LOG
+#define MINATO_SCUDO_REGION_SIZE_LOG 27U
+#endif
+
 // Use a custom config instead of the config found in allocator_config.h
 namespace scudo {
 
@@ -157,7 +166,7 @@ struct AndroidNormalConfig {
   struct Primary {
     using SizeClassMap = AndroidNormalSizeClassMap;
 #if SCUDO_CAN_USE_PRIMARY64
-    static const uptr RegionSizeLog = 27U; // Minato (ADR-0035, amended): 28U in AOSP, 26U before
+    static const uptr RegionSizeLog = MINATO_SCUDO_REGION_SIZE_LOG; // Minato (ADR-0035): 27U or 28U per libc build
     static const bool EnableContiguousRegions = false; // Minato (ADR-0035)
     typedef u32 CompactPtrT;
     static const uptr CompactPtrScale = SCUDO_MIN_ALIGNMENT_LOG;

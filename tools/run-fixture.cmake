@@ -16,10 +16,14 @@
 # which the program does not wait for (graphics-run's Metal hook, as Metal presents drawables): they
 # race with the program's lines, so the lines that match it and the others are compared apart, each
 # kind in its order.
+# SCUDO_REGIONS (27 or 28) forces the guest libc build (ADR-0035 item 3): 27 is libc.so with 128 MiB
+# scudo regions, 28 is libc-bigregions.so with 256 MiB. Without it the loader probes the address space
+# and picks one, which on the Mac is always 28. A fixture sets it to exercise the other build.
 #   cmake -D CONVERT=<apk-convert> -D RUN=<apk-run> -D FIXTURE=<elf> -D WORK=<dir>
 #         -D EXPECTED_OUTPUT=<file> [-D EXPECTED_ERROR=<file>] [-D EXPECTED_STATUS=<status>]
 #         [-D LIBRARIES=<elf>;<elf>...] [-D SYSTEM_LIBRARIES=<elf>;<elf>...] [-D SYSTEM=<dir>]
 #         [-D NO_LIBRARY_PATH=TRUE] [-D MEASURES=TRUE] [-D TEST=<name>] [-D HOST_LINES=<regex>]
+#         [-D SCUDO_REGIONS=27|28]
 #         -P tools/run-fixture.cmake
 foreach(elf IN LISTS FIXTURE LIBRARIES SYSTEM_LIBRARIES)
   if(NOT EXISTS "${elf}")
@@ -79,6 +83,9 @@ endif()
 set(certificates "${CMAKE_CURRENT_LIST_DIR}/../build/sources/ca-certificates/files")
 if(IS_DIRECTORY "${certificates}")
   list(APPEND options --mount "/apex/com.android.conscrypt/cacerts=${certificates}")
+endif()
+if(DEFINED SCUDO_REGIONS AND NOT SCUDO_REGIONS STREQUAL "")
+  list(APPEND options --scudo-regions ${SCUDO_REGIONS})
 endif()
 # apk-run logs the program's end as Android's Zygote does ("I/Zygote  : Process <pid> exited ..."), a line
 # that on Android comes from the zygote process, not the app: leave it out of the stderr we compare, the way

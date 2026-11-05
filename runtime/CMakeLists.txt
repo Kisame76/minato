@@ -132,6 +132,12 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.exit_race COMMAND exit_race_test)
   set_tests_properties(runtime.exit_race PROPERTIES TIMEOUT 60)
 
+  # A trim (APKRT_EVENT_TRIM_MEMORY) writes one "apkrt" line with the process's memory footprint to the session log
+  # (ADR-0035 item 3). This begins a session, posts a trim and checks the line's shape on stderr.
+  add_executable(trim_footprint_test tests/trim_footprint_test.cpp)
+  target_link_libraries(trim_footprint_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.trim_footprint COMMAND trim_footprint_test)
+
   # The SoundPool plan's step 3: APKRT_NR_AUDIO_DECODE through the dispatcher, on soundpool-codec-test's files.
   add_executable(audio_decode_test tests/audio_decode_test.cpp)
   target_include_directories(audio_decode_test PRIVATE src)

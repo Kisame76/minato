@@ -57,6 +57,8 @@ add_executable(math-test suite/math-test.c)
 add_executable(scudo-region-test suite/scudo-region-test.c)
 # ctr-el0-test: a guest read of CTR_EL0 (and compiler-rt's __clear_cache, which reads it) must not trap on XNU.
 add_executable(ctr-el0-test suite/ctr-el0-test.c)
+# scudo-big-region-test: one size class must hold 200 MiB, which needs a 256 MiB region (ADR-0035, two libc variants).
+add_executable(scudo-big-region-test suite/scudo-big-region-test.c)
 target_compile_options(math-test PRIVATE -fno-builtin)
 target_link_libraries(math-test PRIVATE m)
 # The logger functions of liblog came with API 30.

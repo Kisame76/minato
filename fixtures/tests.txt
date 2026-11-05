@@ -25,8 +25,14 @@ raw-dyn libraries=libraw-dyn.so
 hello-dyn system
 # The test suite (M2 step 5c).
 libc-test system
-# One size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27); red at 26.
-scudo-region-test system
+# The two libc builds (ADR-0035 item 3) are both exercised every run. scudo-region-test forces the 128 MiB build
+# (libc.so, RegionSizeLog 27): its 80 MiB class fits, so it prints "ok" clean. scudo-big-region-test takes the
+# build the loader probes (28 on the Mac, libc-bigregions.so, 256 MiB regions): its 200 MiB class fits there.
+# scudo-big-region-test-27 forces the 128 MiB build onto that 200 MiB class to show why the 256 MiB build exists:
+# scudo cannot populate the class's region and says so on stderr (the message Ren'Py hit), red first.
+scudo-region-test system scudo-regions=27
+scudo-big-region-test system
+scudo-big-region-test-27 system program=scudo-big-region-test scudo-regions=27
 ctr-el0-test system
 files-test system
 math-test system
