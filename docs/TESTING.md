@@ -91,6 +91,44 @@ fetches what each program wrote and compares it with `fixtures/expected/`, as CT
 `--without-increased-memory` signs the build without its entitlements, as SideStore installs it for a free
 account.
 
+### Checks that also run on the iPhone
+
+These checks of the notification, storage and window work have a device form. Each one is the same script as in the
+Simulator with `--device`, on a Debug build of Minato, with the iPhone paired and unlocked. Only the project's own
+test apps run: never an app of a user, with the trace or without it. After a sitting, the result goes on the line
+"Measured on the iPhone" of its check (the date, the iOS version and what the run showed); until then the line says so.
+
+- **Free space and storage** (`storage-space-test`): `StatFs`, `File.getUsableSpace`, `StorageManager` and
+  `StorageStatsManager` on the app's own folders. The relations between the numbers are compared with Android 15's; the
+  raw byte counts differ by device and are only shown (lines under `storage-space-test-device`).
+
+  ```bash
+  ONLY=storage-space-test tools/java-start-check.sh --device
+  ```
+
+  Measured on the iPhone: not yet.
+
+- **Notifications, their banners and taps** (`notify-test`, `notify-test-granted`, `notify-tap-test`): the app's posts
+  reach iOS's notification center, a tap on one starts the app at its content intent, and a notification of an app
+  whose process ended starts that app. The script runs the apps and compares their logs with Android 15's; the finger
+  is the operator's: look at the banner, at the Notification Center's list and tap a notification, once while the app
+  runs and once after it was closed.
+
+  ```bash
+  ONLY="notify-test notify-test-granted notify-tap-test" tools/java-start-check.sh --device
+  ```
+
+  Measured on the iPhone: not yet.
+
+- **The window trace** (a diagnosis, not a pass or fail check): for a test app whose window stays black on the iPhone,
+  the Debug build writes one line for each of the first posts of each window into the app's guest log, how the post
+  ended (shown, without a layer, hidden as all transparent, in the background) and what decided it. It is on with the
+  `window-trace` request of `tools/session-check.sh` (or `MINATO_WINDOW_TRACE=1` in the app's environment). A run with
+  the trace on does not compare standard error, since the trace is part of it. The pixel check of the windows is
+  `tools/window-contents-check.sh --device`.
+
+  Measured on the iPhone: not yet.
+
 ## Reference logs from Android 15
 
 `tools/android-reference.sh` runs the same programs and test apps on Android 15 in the emulator and compares their
