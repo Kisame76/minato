@@ -66,6 +66,9 @@ import UIKit
 ///            guest's start on (minato_graphics_set_window_by_drawables), for step f's footprint comparison.
 ///   window-by-contents  graphics/host shows the windows' buffers as contents in the Simulator too, the iPhone's
 ///            way, from the guest's start on (minato_graphics_set_window_by_contents).
+///   window-trace  graphics/host traces the first posts of each window to stderr, how each ended and what decided
+///            it, from the guest's start on (minato_graphics_set_window_trace), for a device run of a window that
+///            stays black; with guest-log the lines go to its file.
 ///   window-dump  the poll has graphics/host dump each window's last shown buffer into
 ///            tmp/session-check/window-dump-files/ (minato_graphics_window_dump), logs "window dump <n>" and removes
 ///            the file (step f's screenshots compare with it).
@@ -130,6 +133,9 @@ enum SessionCheck {
         }
         if requested("window-by-contents"), minato_graphics_set_window_by_contents(1) == 0 {
             event("window by contents")
+        }
+        if requested("window-trace"), minato_graphics_set_window_trace(1) == 0 {
+            event("window trace on")
         }
         guard requested("guest-log") else { return }
         for (name, descriptor) in [("guest-log", Int32(2)), ("guest-out", Int32(1))] {
