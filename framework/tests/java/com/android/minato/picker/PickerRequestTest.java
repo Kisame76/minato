@@ -116,6 +116,13 @@ public final class PickerRequestTest {
         check(PickerRequest.text(3, null, null, false, 0, "café € 😀").endsWith(
                 "\tcafé € 😀"), "UTF-8 of every length is kept");
         check(PickerRequest.text(3, null, null, false, 0, "a\nb\tc").endsWith("\tabc"), "control characters go");
+        // U+061C (a bidirectional mark), U+034F (an invisible joiner) and tag characters outside a subdivision's flag
+        // go, as in Minato's alert names and notification titles; the flag stays.
+        final String flag = "\uD83C\uDFF4" + new String(new int[] {0xE0067, 0xE0062, 0xE0077, 0xE006C, 0xE0073,
+            0xE007F}, 0, 6);
+        final String stray = new String(new int[] {0xE0041, 0xE007F}, 0, 2);
+        check(PickerRequest.text(3, null, null, false, 0, "a\u061Cb\u034Fc" + stray + "d " + flag).endsWith(
+                "\tabcd " + flag), "the letter mark, the joiner and stray tags go, a flag stays");
     }
 
     private static void hostileMaximum() {

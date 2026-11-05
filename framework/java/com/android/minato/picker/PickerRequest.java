@@ -107,7 +107,11 @@ public final class PickerRequest {
         return point != 0xfeff && !(point >= 0xfff9 && point <= 0xfffb);
     }
 
-    /** The title with the plain code points only, cut at a code point to TITLE_BYTES bytes of UTF-8. */
+    /**
+     * The title with the plain code points only, cut at a code point to TITLE_BYTES bytes of UTF-8. U+061C, U+034F and
+     * tag characters go too, as in Minato's alert names and notification titles (NotificationText), but a
+     * subdivision's flag (the black flag, its tags and their cancel tag) stays, kept or cut whole.
+     */
     static String plainTitle(String title) {
         if (title == null) {
             return "";
@@ -116,17 +120,42 @@ public final class PickerRequest {
         int bytes = 0;
         for (int at = 0; at < title.length();) {
             final int point = title.codePointAt(at);
-            at += Character.charCount(point);
-            if (!plainCodePoint(point)) {
+            int next = at + Character.charCount(point);
+            final String piece;
+            if (point == 0x1f3f4) {
+                next = tagSequenceEnd(title, next);
+                piece = title.substring(at, next);
+            } else if (!plainCodePoint(point) || point == 0x061c || point == 0x034f
+                    || (point >= 0xe0000 && point <= 0xe007f)) {
+                at = next;
                 continue;
+            } else {
+                piece = new String(Character.toChars(point));
             }
-            final int size = new String(Character.toChars(point)).getBytes(StandardCharsets.UTF_8).length;
+            final int size = piece.getBytes(StandardCharsets.UTF_8).length;
             if (bytes + size > TITLE_BYTES) {
                 break;
             }
             bytes += size;
-            plain.appendCodePoint(point);
+            plain.append(piece);
+            at = next;
         }
         return plain.toString();
+    }
+
+    /** Where the tags from `from` end, their cancel tag included; `from` when no tag and its cancel tag follow. */
+    private static int tagSequenceEnd(String text, int from) {
+        int at = from;
+        while (at < text.length()) {
+            final int point = text.codePointAt(at);
+            if (point == 0xe007f) {
+                return at > from ? at + Character.charCount(point) : from;
+            }
+            if (point < 0xe0020 || point > 0xe007e) {
+                return from;
+            }
+            at += Character.charCount(point);
+        }
+        return from;
     }
 }

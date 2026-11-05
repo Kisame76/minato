@@ -311,29 +311,54 @@ public final class DocumentClones: Sendable {
     }
 
     /// A file name the guest takes as plain (guest_interface.h, pick_host.h's plain_name): a byte that is no UTF-8, a
-    /// control, a separator, a bidirectional, zero-width or other formatting character, and "/" become "_"; at most
-    /// `limit` bytes, cut between code points with the extension (up to 16 bytes) kept; "", "." and ".." become
-    /// "Untitled".
+    /// control, a separator, a bidirectional, zero-width or other formatting character, and "/" become "_", and so do
+    /// U+061C, U+034F and tag characters outside a subdivision's flag (the black flag, its tags and their cancel tag),
+    /// which stays, as in Minato's alert names (AlertName); at most `limit` bytes, cut between code points with the
+    /// extension (up to 16 bytes) kept; "", "." and ".." become "Untitled".
     public static func plainName(_ name: [UInt8], limit: Int = 255) -> String {
-        var clean: [UInt8] = []
-        var i = 0
-        while i < name.count {
-            let lead = name[i]
+        /// The code point at `at`, its length in bytes, and whether it is well-formed UTF-8.
+        func decode(_ at: Int) -> (point: UInt32, length: Int, valid: Bool) {
+            let lead = name[at]
             let length = lead < 0x80 ? 1 : lead >> 5 == 6 ? 2 : lead >> 4 == 14 ? 3 : lead >> 3 == 30 ? 4 : 0
             var point = UInt32(lead < 0x80 ? lead : length == 2 ? lead & 0x1F : length == 3 ? lead & 0x0F : lead & 0x07)
-            var valid = length != 0 && i + length <= name.count
+            var valid = length != 0 && at + length <= name.count
             var k = 1
             while valid && k < length {
-                valid = name[i + k] & 0xC0 == 0x80
-                point = point << 6 | UInt32(name[i + k] & 0x3F)
+                valid = name[at + k] & 0xC0 == 0x80
+                point = point << 6 | UInt32(name[at + k] & 0x3F)
                 k += 1
             }
             valid = valid && (length != 2 || point >= 0x80) && (length != 3 || point >= 0x800)
                 && (length != 4 || (0x10000...0x10FFFF).contains(point)) && !(0xD800...0xDFFF).contains(point)
+            return (point, length, valid)
+        }
+        /// Where the tags from `from` end, their cancel tag included; `from` when no tag and its cancel tag follow.
+        func tagSequenceEnd(_ from: Int) -> Int {
+            var at = from
+            while at < name.count {
+                let (point, length, valid) = decode(at)
+                guard valid else { return from }
+                if point == 0xE007F { return at > from ? at + length : from }
+                guard (0xE0020...0xE007E).contains(point) else { return from }
+                at += length
+            }
+            return from
+        }
+        var clean: [UInt8] = []
+        var i = 0
+        while i < name.count {
+            let (point, length, valid) = decode(i)
+            if valid && point == 0x1F3F4 {
+                let end = tagSequenceEnd(i + length)
+                clean += name[i..<end]
+                i = end
+                continue
+            }
             let plain = valid && point >= 0x20 && point != 0x7F && !(0x80...0x9F).contains(point)
                 && point != UInt32(UInt8(ascii: "/")) && !(0x200B...0x200F).contains(point)
                 && !(0x2028...0x202E).contains(point) && !(0x2060...0x206F).contains(point) && point != 0xFEFF
-                && !(0xFFF9...0xFFFB).contains(point)
+                && !(0xFFF9...0xFFFB).contains(point) && point != 0x061C && point != 0x034F
+                && !(0xE0000...0xE007F).contains(point)
             if plain {
                 clean += name[i..<i + length]
                 i += length

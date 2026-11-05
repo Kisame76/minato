@@ -441,6 +441,11 @@ final class DocumentClonesTests {
         #expect(plain("a\u{202E}b") == "a_b")  // right-to-left override
         #expect(plain("a\u{2028}b") == "a_b")  // line separator
         #expect(plain("a\u{FEFF}b") == "a_b")  // byte order mark
+        #expect(plain("a\u{061C}b\u{034F}c") == "a_b_c")  // Arabic letter mark, combining grapheme joiner
+        #expect(plain("a\u{E0041}\u{E007F}b") == "a__b")  // tag characters outside a flag
+        let wales = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}"
+        #expect(plain("flag \(wales).txt") == "flag \(wales).txt")  // a subdivision's flag stays
+        #expect(plain("\u{1F3F4}\u{E0067}.txt") == "\u{1F3F4}_.txt")  // tags without their cancel tag
         #expect(plain("a\u{85}b") == "a_b")  // C1 control
         #expect(plain("a\u{1}b\u{7F}") == "a_b_")
         #expect(plain([0x61, 0xFF, 0x62]) == "a_b")  // not UTF-8
