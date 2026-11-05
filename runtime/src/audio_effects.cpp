@@ -109,7 +109,7 @@ Chain make_chain(const Settings &settings, float rate) {
     }
     if (settings.loudness) {
         chain.gain = static_cast<float>(std::pow(10.0, std::clamp(settings.loudness_millibel, 0, 2000) / 2000.0));
-        chain.limit = true;
+        chain.limit = 1.0f;
     }
     return chain;
 }
@@ -151,7 +151,7 @@ void Processor::set(const Settings &settings, float rate) {
             now.bass_on = from_.bass_on || to_.bass_on;
             now.width = from_.width + (to_.width - from_.width) * t;
             now.gain = from_.gain + (to_.gain - from_.gain) * t;
-            now.limit = from_.limit || to_.limit;
+            now.limit = from_.limit + (to_.limit - from_.limit) * t;
             from_ = now;
         } else {
             from_ = to_;
@@ -184,8 +184,7 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
         const bool moving = t < 1.0f;
         Biquad band[kBands];
         Biquad bass_hp, bass_bp;
-        float width, gain, bass_gain;
-        const bool limit = from_.limit || to_.limit;
+        float width, gain, bass_gain, limit;
         const bool bass = from_.bass_on || to_.bass_on;
         if (moving) {
             for (int b = 0; b < kBands; ++b) band[b] = blend(from_.band[b], to_.band[b], t);
@@ -194,6 +193,7 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
             bass_gain = from_.bass_gain + (to_.bass_gain - from_.bass_gain) * t;
             width = from_.width + (to_.width - from_.width) * t;
             gain = from_.gain + (to_.gain - from_.gain) * t;
+            limit = from_.limit + (to_.limit - from_.limit) * t;
         } else {
             for (int b = 0; b < kBands; ++b) band[b] = to_.band[b];
             bass_hp = to_.bass_hp;
@@ -201,6 +201,7 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
             bass_gain = to_.bass_gain;
             width = to_.width;
             gain = to_.gain;
+            limit = to_.limit;
         }
         float *at = samples + frame * channels;
         for (int channel = 0; channel < channels; ++channel) {
@@ -221,9 +222,10 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
             at[0] = mid + side;
             at[1] = mid - side;
         }
-        if (limit || gain != 1.0f) {
+        if (limit > 0.0f || gain != 1.0f) {
             for (int channel = 0; channel < channels; ++channel) {
-                at[channel] = limit ? soft_limit(at[channel] * gain) : at[channel] * gain;
+                const float loud = at[channel] * gain;
+                at[channel] = loud + limit * (soft_limit(loud) - loud);  // the limiter's share ramps with the gain
             }
         }
     }

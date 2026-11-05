@@ -47,7 +47,7 @@ struct Chain {
     bool bass_on = false;
     float width = 1;   // the side signal's factor
     float gain = 1;    // the loudness enhancer's linear gain
-    bool limit = false;  // the soft limiter after the gain
+    float limit = 0;   // the soft limiter's share after the gain: 0 off, 1 on, between while it ramps
 };
 
 /// The coefficients for `settings` at `rate` Hz. A band above 45% of the rate is left out.

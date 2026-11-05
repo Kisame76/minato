@@ -221,6 +221,38 @@ void settings_off_again_returns_to_the_identity_through_a_ramp() {
     CHECK(diff < 1e-3f);
 }
 
+void the_limiter_comes_in_and_goes_out_with_the_ramp_of_the_gain() {
+    // A steady 0.95 (above the limiter's knee) while the loudness effect is switched on at 0 mB and off again: the
+    // output moves from 0.95 to its limited value and back over the ramp, with no step of its own.
+    Settings on;
+    on.loudness = true;
+    on.loudness_millibel = 0;
+    Processor processor;
+    processor.set(Settings{}, kRate);
+    std::vector<float> samples(2000, 0.95f);
+    processor.process(samples.data(), 100, 1);  // settled, off: untouched
+    CHECK(std::fabs(samples[99] - 0.95f) < 1e-6f);
+    processor.set(on, kRate);
+    std::vector<float> turning_on(2000, 0.95f);
+    processor.process(turning_on.data(), 2000, 1);
+    float worst = std::fabs(turning_on[0] - 0.95f);
+    for (size_t i = 1; i < turning_on.size(); ++i) {
+        worst = std::max(worst, std::fabs(turning_on[i] - turning_on[i - 1]));
+    }
+    CHECK(worst < 0.002f);
+    const float limited = turning_on.back();
+    CHECK(limited < 0.94f && limited > 0.9f);  // in the end the limiter is on
+    processor.set(Settings{}, kRate);
+    std::vector<float> turning_off(2000, 0.95f);
+    processor.process(turning_off.data(), 2000, 1);
+    worst = std::fabs(turning_off[0] - limited);
+    for (size_t i = 1; i < turning_off.size(); ++i) {
+        worst = std::max(worst, std::fabs(turning_off[i] - turning_off[i - 1]));
+    }
+    CHECK(worst < 0.002f);
+    CHECK(std::fabs(turning_off.back() - 0.95f) < 1e-6f);
+}
+
 }  // namespace
 
 int main() {
@@ -231,6 +263,7 @@ int main() {
     the_loudness_gain_is_linear_and_limited();
     a_change_of_settings_ramps_without_a_click();
     settings_off_again_returns_to_the_identity_through_a_ramp();
+    the_limiter_comes_in_and_goes_out_with_the_ramp_of_the_gain();
     std::printf("audio_effects_test: %s\n", failures == 0 ? "all fine" : "failed");
     return failures == 0 ? 0 : 1;
 }
