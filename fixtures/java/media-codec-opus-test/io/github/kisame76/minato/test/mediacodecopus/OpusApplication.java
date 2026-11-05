@@ -40,7 +40,11 @@ import java.util.zip.CRC32;
  *   configuration as units (flagged as codec config, and not), csd-0 alone, Android's unified csd-0 (its AOPUSHDR,
  *   AOPUSDLY and AOPUSPRL markers), a configure of another rate and channels than the stream's, OpusHead's output
  *   gain, a csd-0 that is not OpusHead, three channels in mapping family 0, a packet libopus refuses, asynchronously
- *   and by name and alias.
+ *   and by name and alias;
+ * - surround in mapping family 1 (opus51.ogg, 5.1, and opus71.ogg, 7.1, a sine of its own in each channel), whose
+ *   samples are described channel by channel, in the stream map's order: whole, across a flush, in family 255, with a
+ *   channel the map leaves silent, with a stream count that does not fit the channels, configured as stereo, and with
+ *   a channel mask configured.
  * Each wait is bounded; it logs with the tag media-codec-opus-test and ends with "done".
  */
 public class OpusApplication extends Application {
@@ -266,8 +270,41 @@ public class OpusApplication extends Application {
         refused.units.set(bad, new byte[] {(byte) (refused.units.get(bad)[0] | 3), 0});  // code 3, no frames
         decode("opus refused packet", MediaCodec.createDecoderByType(OPUS), refused, -1);
         decodeAsync("opus async", MediaCodec.createDecoderByType(OPUS), opus(stereo, true));
+        surround(context);
         if (opus != null) decode("opus by name", MediaCodec.createByCodecName(opus), opus(stereo, true), -1);
         decode("opus by alias", MediaCodec.createByCodecName("OMX.google.opus.decoder"), opus(mono, true), -1);
+    }
+
+    /** Mapping family 1: OpusHead's stream count at 19, coupled count at 20 and stream map from 21. */
+    private void surround(Context context) throws Exception {
+        byte[] file51 = read(context, "opus51.ogg"), file71 = read(context, "opus71.ogg");
+        byte[] head = oggPackets(file51).get(0);
+        add("opus 5.1 track: " + keys(opus(file51, true).format) + ", " + opus(file51, true).units.size() + " units, "
+                + "family " + u8(head, 18) + ", streams " + u8(head, 19) + ", coupled " + u8(head, 20));
+        decode("opus 5.1", MediaCodec.createDecoderByType(OPUS), opus(file51, true), -1);
+        decode("opus 7.1", MediaCodec.createDecoderByType(OPUS), opus(file71, true), -1);
+        decode("opus 5.1 seek", MediaCodec.createDecoderByType(OPUS), opus(file51, true), 20);
+        Stream family = opus(file51, true);
+        byte[] other = head.clone();
+        other[18] = (byte) 255;
+        family.format.setByteBuffer("csd-0", ByteBuffer.wrap(other));
+        decode("opus 5.1 in family 255", MediaCodec.createDecoderByType(OPUS), family, -1);
+        Stream silent = opus(file51, true);
+        byte[] unmapped = head.clone();
+        unmapped[21 + 5] = (byte) 255;  // the last channel: none of the streams'
+        silent.format.setByteBuffer("csd-0", ByteBuffer.wrap(unmapped));
+        decode("opus 5.1 with a silent channel", MediaCodec.createDecoderByType(OPUS), silent, -1);
+        Stream wrong = opus(file51, true);
+        byte[] streams = head.clone();
+        streams[19] = 3;  // three streams and two coupled: five channels, not six
+        wrong.format.setByteBuffer("csd-0", ByteBuffer.wrap(streams));
+        decode("opus 5.1 with streams that do not fit", MediaCodec.createDecoderByType(OPUS), wrong, -1);
+        Stream asStereo = opus(file51, true);
+        asStereo.format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, 2);
+        decode("opus 5.1 configured as stereo", MediaCodec.createDecoderByType(OPUS), asStereo, -1);
+        Stream masked = opus(file51, true);
+        masked.format.setInteger(MediaFormat.KEY_CHANNEL_MASK, 0xfc);  // AudioFormat.CHANNEL_OUT_5POINT1
+        decode("opus 5.1 with a channel mask", MediaCodec.createDecoderByType(OPUS), masked, -1);
     }
 
     /** The list's decoders of a type; the first one's name. */
@@ -295,7 +332,8 @@ public class OpusApplication extends Application {
     }
 
     /** What the decoded samples are, of the first channel: their count, RMS in 1 % steps, rising zero crossings and
-     *  the first one's frame; and the CRC32 of all of them. */
+     *  the first one's frame; of more than two channels, each channel's RMS and crossings too; and the CRC32 of all of
+     *  them. */
     private static final class Samples {
         int channels;
         long frames;
@@ -303,6 +341,9 @@ public class OpusApplication extends Application {
         int crossings;
         long firstCrossing = -1;
         boolean below;  // below -1/32 of full scale since the last crossing
+        final double[] sums = new double[8];
+        final int[] crossingsOf = new int[8];
+        final boolean[] belowOf = new boolean[8];
         final CRC32 crc = new CRC32();
 
         void shape(MediaFormat format) {
@@ -325,6 +366,16 @@ public class OpusApplication extends Application {
             int step = frameSize();
             for (int at = 0; at + step <= size; at += step) {
                 double value = samples.getShort(at) / 32768.0;
+                for (int c = 0; c < Math.min(channels, 8); c++) {
+                    double each = samples.getShort(at + 2 * c) / 32768.0;
+                    sums[c] += each * each;
+                    if (each < -1.0 / 32) {
+                        belowOf[c] = true;
+                    } else if (belowOf[c] && each >= 0) {
+                        belowOf[c] = false;
+                        crossingsOf[c]++;
+                    }
+                }
                 frames++;
                 sum += value * value;
                 if (value < -1.0 / 32) {
@@ -339,8 +390,15 @@ public class OpusApplication extends Application {
 
         String describe() {
             long rms = frames == 0 ? 0 : Math.round(100 * Math.sqrt(sum / frames));
-            return frames + " frames, rms " + rms + " %, " + crossings + " rising zero crossings, the first at "
+            String out = frames + " frames, rms " + rms + " %, " + crossings + " rising zero crossings, the first at "
                     + firstCrossing;
+            if (channels <= 2) return out;
+            StringBuilder each = new StringBuilder();
+            for (int c = 0; c < Math.min(channels, 8); c++) {
+                long level = frames == 0 ? 0 : Math.round(100 * Math.sqrt(sums[c] / frames));
+                each.append(c == 0 ? "" : ", ").append(level).append(" % ").append(crossingsOf[c]);
+            }
+            return out + "; by channel (rms, crossings): " + each;
         }
     }
 

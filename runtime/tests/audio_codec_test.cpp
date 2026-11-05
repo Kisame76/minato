@@ -10,7 +10,10 @@
 // opus.ogg and opus-mono.ogg, ffmpeg's libopus: packets of 20 ms in stereo and of 60 ms in mono): each packet gives
 // its frames at 48000 Hz, the first after a CREATE too, in line with the encoder's input; packets of another length
 // on the same codec give theirs; after a flush the packets give theirs again; OpusHead is checked, and a packet whose
-// table of contents is not one gives nothing.
+// table of contents is not one gives nothing. Opus surround (media-codec-opus-test's opus51.ogg and opus71.ogg, mapping
+// family 1, a sine of its own in each channel): each channel gives its stream's sine in the stream map's order, as
+// libopus's multistream decoder does, also in family 255 and with a channel the map leaves silent; the stream counts
+// are checked.
 
 #include "syscall_frame.h"
 
@@ -566,8 +569,8 @@ TEST(flac_configurations_are_checked) {
 }
 
 /// An Ogg file's packets (RFC 3533), each whole across its pages: for Opus, OpusHead, OpusTags, then the audio's.
-std::vector<std::vector<unsigned char>> ogg_packets(const char *name) {
-    std::ifstream in(std::string(OGG_DIR) + "/" + name, std::ios::binary);
+std::vector<std::vector<unsigned char>> ogg_packets(const char *name, const char *dir = OGG_DIR) {
+    std::ifstream in(std::string(dir) + "/" + name, std::ios::binary);
     const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
     std::vector<std::vector<unsigned char>> packets;
     std::vector<unsigned char> packet;
@@ -665,6 +668,74 @@ TEST(opus_packets_of_another_length_give_theirs) {
     std::vector<std::int16_t> more;
     CHECK((decode_all(made.id, mixed, frames, more, 1) == std::vector<std::uint64_t>{960, 960, 960, 2880, 2880}));
     CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, made.id) == 0);
+}
+
+/// Channel `channel` of `all` (of `channels`).
+std::vector<std::int16_t> channel_of(const std::vector<std::int16_t> &all, std::size_t channels, std::size_t channel) {
+    std::vector<std::int16_t> one;
+    for (std::size_t at = channel; at < all.size(); at += channels) one.push_back(all[at]);
+    return one;
+}
+
+/// The sine of each channel of an Opus surround file decoded with `head`, in Hz over 0.4 s from 0.1 s (0 for a
+/// silent one), or nothing when the codec is not made.
+std::vector<int> surround_tones(const char *name, const std::vector<unsigned char> &head) {
+    const auto packets = ogg_packets(name, SURROUND_DIR);
+    apkrt_audio_codec made{};
+    if (packets.size() < 30 || create(head.data(), head.size(), made, APKRT_AUDIO_CODEC_OPUS) != 0) return {};
+    const std::size_t channels = made.channels;
+    std::vector<std::int16_t> frames(channels * 5760), all;
+    const auto given = decode_all(made.id, opus_audio(packets), frames, all, channels);
+    CHECK(std::all_of(given.begin(), given.end(), [](std::uint64_t each) { return each == 960; }));
+    std::vector<int> tones;
+    for (std::size_t c = 0; c < channels; ++c) {
+        const auto [rms, crossings] = measure(channel_of(all, channels, c), 1, 4800, 19200);
+        tones.push_back(rms < 100 ? 0 : static_cast<int>(std::lround(crossings * 2.5 / 10)) * 10);
+    }
+    CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, made.id) == 0);
+    return tones;
+}
+
+TEST(opus_surround_gives_each_channel_its_streams_sine) {
+    const auto head51 = ogg_packets("opus51.ogg", SURROUND_DIR).at(0);
+    const auto head71 = ogg_packets("opus71.ogg", SURROUND_DIR).at(0);
+    CHECK(head51.size() == 27 && head51[9] == 6 && head51[18] == 1 && head71.size() == 29 && head71[9] == 8);
+    // The input's channels (ffmpeg's order: FL 450, FR 600, FC 300, LFE 80, BL 900, BR 1050 Hz, SL 1200, SR 1350) in
+    // Vorbis order (FL, FC, FR, BL, BR, LFE; 7.1: FL, FC, FR, SL, SR, BL, BR, LFE), as the stream map puts them.
+    CHECK((surround_tones("opus51.ogg", head51) == std::vector<int>{450, 300, 600, 900, 1050, 80}));
+    CHECK((surround_tones("opus71.ogg", head71) == std::vector<int>{450, 300, 600, 1200, 1350, 900, 1050, 80}));
+    // Another family with the same map, as Android's decoder takes any but 0; a channel of none of the streams.
+    std::vector<unsigned char> head = head51;
+    head[18] = 255;
+    CHECK((surround_tones("opus51.ogg", head) == std::vector<int>{450, 300, 600, 900, 1050, 80}));
+    head = head51;
+    head[21 + 5] = 255;
+    CHECK((surround_tones("opus51.ogg", head) == std::vector<int>{450, 300, 600, 900, 1050, 0}));
+    head = head51;
+    head[21] = head51[21 + 3], head[21 + 3] = head51[21];  // the first and fourth channels' streams swapped
+    CHECK((surround_tones("opus51.ogg", head) == std::vector<int>{900, 300, 600, 450, 1050, 80}));
+}
+
+TEST(opus_surround_heads_are_checked) {
+    const auto head51 = ogg_packets("opus51.ogg", SURROUND_DIR).at(0);
+    apkrt_audio_codec call{};
+    CHECK(create(head51.data(), head51.size(), call, APKRT_AUDIO_CODEC_OPUS) == 0 && call.channels == 6 &&
+          call.rate == 48000 && call.frames == 5760);
+    if (call.id != 0) CHECK(codec_call(APKRT_AUDIO_CODEC_DESTROY, call.id) == 0);
+    std::vector<unsigned char> bad = head51;
+    bad[19] = 3;  // three streams and two coupled: five channels, not six
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    bad = head51;
+    bad[20] = 5;  // more coupled streams than streams
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    bad = head51;
+    bad[21 + 2] = 6;  // a map entry past the channels
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
+    CHECK(create(head51.data(), 26, call, APKRT_AUDIO_CODEC_OPUS) == -einval);  // the map cut short
+    bad = head51;
+    bad[9] = 9;  // past Android's 8
+    bad.push_back(0);
+    CHECK(create(bad.data(), bad.size(), call, APKRT_AUDIO_CODEC_OPUS) == -einval);
 }
 
 TEST(opus_heads_and_packets_are_checked) {

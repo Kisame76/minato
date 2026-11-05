@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ADR-0060 e2's test of MediaExtractor on Ogg Opus (media-extractor-ogg-test): the Ogg Opus files of
      media-player-ogg-test (assets/opus.ogg, stereo in packets of 20 ms, and assets/opus-mono.ogg, mono in packets of
-     60 ms) through their descriptors and through MediaDataSources, their track formats, samples and seeks, and their
+     60 ms) and media-codec-opus-test's assets/opus51.ogg (5.1 in mapping family 1) through their descriptors and
+     through MediaDataSources, their track formats, samples and seeks, and their
      samples decoded by MediaCodec. aapt stores .ogg (not .opus, which it compresses), so that each opens as a
      descriptor (openFd). The launcher activity is the framework's own android.app.Activity, so that `am start` starts
      the process on Android. -->

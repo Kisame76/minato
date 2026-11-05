@@ -24,14 +24,16 @@ import java.util.zip.CRC32;
 
 /**
  * ADR-0060 e2's test of MediaExtractor on Ogg Opus, as OggExtractor reads it. From a thread that
- * Application.attachBaseContext starts, for media-player-ogg-test's two Ogg Opus files:
+ * Application.attachBaseContext starts, for media-player-ogg-test's two Ogg Opus files and a 5.1 one in mapping family
+ * 1 (media-codec-opus-test's opus51.ogg):
  * - through the asset's descriptor: the track count, the track's format (every key with its value, its buffers in
  *   hex), the metrics, every sample's time, size and flags (the first and last ones logged, all of them by CRC32),
  *   and the next samples after seeks to five times in each of the three sync modes;
  * - through a MediaDataSource of its size, of an unknown size (no duration, no seeks) and of its first 6000 bytes;
  * - its samples decoded by MediaCodec with the track's format, whole and across a seek and a flush: the output
  *   formats, buffers, times and samples (their count, RMS in steps of 1 % of full scale, rising zero crossings and the
- *   first one's frame, of the first channel; their CRC32 to the device tag, as decoders differ in the last bits);
+ *   first one's frame, of the first channel, and of more than two channels each one's RMS and crossings; their
+ *   CRC32 to the device tag, as decoders differ in the last bits);
  * - and an Ogg page that is neither Vorbis nor Opus.
  * Each wait is bounded; it logs with the tag media-extractor-ogg-test and ends with "done".
  */
@@ -154,7 +156,7 @@ public class ExtractorOggApplication extends Application {
     }
 
     private void test(Context context) throws Exception {
-        for (String name : new String[] {"opus.ogg", "opus-mono.ogg"}) {
+        for (String name : new String[] {"opus.ogg", "opus-mono.ogg", "opus51.ogg"}) {
             byte[] bytes = read(context, name);
             Setter asset = extractor -> {
                 try (AssetFileDescriptor fd = context.getAssets().openFd(name)) {
@@ -272,7 +274,7 @@ public class ExtractorOggApplication extends Application {
         }
     }
 
-    /** What the decoded samples are, of the first channel. */
+    /** What the decoded samples are, of the first channel, and of more than two channels of each one. */
     private static final class Samples {
         int channels = 1;
         long frames;
@@ -280,6 +282,9 @@ public class ExtractorOggApplication extends Application {
         int crossings;
         long firstCrossing = -1;
         boolean below;
+        final double[] sums = new double[8];
+        final int[] crossingsOf = new int[8];
+        final boolean[] belowOf = new boolean[8];
         final CRC32 crc = new CRC32();
 
         void add(ByteBuffer buffer, int offset, int size) {
@@ -291,6 +296,16 @@ public class ExtractorOggApplication extends Application {
             ByteBuffer samples = bytes.slice().order(ByteOrder.LITTLE_ENDIAN);
             for (int at = 0; at + channels * 2 <= size; at += channels * 2) {
                 double value = samples.getShort(at) / 32768.0;
+                for (int c = 0; c < Math.min(channels, 8); c++) {
+                    double each = samples.getShort(at + 2 * c) / 32768.0;
+                    sums[c] += each * each;
+                    if (each < -1.0 / 32) {
+                        belowOf[c] = true;
+                    } else if (belowOf[c] && each >= 0) {
+                        belowOf[c] = false;
+                        crossingsOf[c]++;
+                    }
+                }
                 frames++;
                 sum += value * value;
                 if (value < -1.0 / 32) {
@@ -305,8 +320,15 @@ public class ExtractorOggApplication extends Application {
 
         String describe() {
             long rms = frames == 0 ? 0 : Math.round(100 * Math.sqrt(sum / frames));
-            return frames + " frames, rms " + rms + " %, " + crossings + " rising zero crossings, the first at "
+            String out = frames + " frames, rms " + rms + " %, " + crossings + " rising zero crossings, the first at "
                     + firstCrossing;
+            if (channels <= 2) return out;
+            StringBuilder each = new StringBuilder();
+            for (int c = 0; c < Math.min(channels, 8); c++) {
+                long level = frames == 0 ? 0 : Math.round(100 * Math.sqrt(sums[c] / frames));
+                each.append(c == 0 ? "" : ", ").append(level).append(" % ").append(crossingsOf[c]);
+            }
+            return out + "; by channel (rms, crossings): " + each;
         }
     }
 

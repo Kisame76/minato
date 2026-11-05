@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ADR-0060 e2's test of MediaCodec's Opus decoder (media-codec-opus-test): the Ogg Opus files of
      media-player-ogg-test (assets/opus.ogg, stereo in packets of 20 ms, and assets/opus-mono.ogg, mono in packets of
-     60 ms), split into packets by the app itself, as an app with its own extractor (ExoPlayer) queues them. The
-     launcher activity is the framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+     60 ms), and assets/opus51.ogg and assets/opus71.ogg (ffmpeg's libopus in mapping family 1, 32 kbit/s a channel,
+     packets of 20 ms: 5.1 of 1.2 s and 7.1 of 0.6 s at 48000 Hz, in ffmpeg's channel order a sine of 300 + 150 n Hz in
+     channel n, 80 Hz in the LFE, made with -map_metadata -1 -fflags +bitexact), split into packets by the app
+     itself, as an app with its own extractor (ExoPlayer) queues them. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.mediacodecopus" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>

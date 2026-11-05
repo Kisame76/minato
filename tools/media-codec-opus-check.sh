@@ -5,8 +5,9 @@
 # against Android 15's log (fixtures/expected/media-codec-opus-test.logcat, from tools/android-reference.sh --app
 # media-codec-opus-test): MediaCodecList's Opus decoders, and the Ogg Opus files' packets decoded with csd-0, csd-1
 # and csd-2 as ExoPlayer gives them, across a flush, with the configuration as units, unified or in part, with
-# OpusHead's gain, refused configurations and packets, asynchronously and by name and alias, with their output
-# formats, buffers, times and samples. Opus decodes on the runtime's AudioToolbox (APKRT_NR_AUDIO_CODEC).
+# OpusHead's gain, refused configurations and packets, asynchronously and by name and alias, and 5.1 and 7.1 in
+# mapping family 1 channel by channel, with their output formats, buffers, times and samples. Opus decodes on the
+# runtime's AudioToolbox (APKRT_NR_AUDIO_CODEC).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/media-codec-opus-check.sh
 set -euo pipefail

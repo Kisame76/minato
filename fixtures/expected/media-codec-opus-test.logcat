@@ -78,6 +78,45 @@ I/media-codec-opus-test: opus refused packet: stop java.lang.IllegalStateExcepti
 I/media-codec-opus-test: opus async: ended: true
 I/media-codec-opus-test: opus async: 1 format changes, the last: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
 I/media-codec-opus-test: opus async: 61 output buffers, 58248 frames, rms 6 %, 660 rising zero crossings, the first at 88
+I/media-codec-opus-test: opus 5.1 track: channel-count=6, csd-0=buffer 27, csd-1=buffer 8, csd-2=buffer 8, mime="audio/opus", sample-rate=48000, 61 units, family 1, streams 4, coupled 2
+I/media-codec-opus-test: opus 5.1: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 5.1: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 5.1: input capacity 5760
+I/media-codec-opus-test: opus 5.1: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus 5.1: 58248 frames, rms 9 %, 540 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 540, 9 % 360, 9 % 720, 9 % 1080, 9 % 1260, 9 % 96
+I/media-codec-opus-test: opus 7.1: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=8, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 7.1: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 7.1: input capacity 5760
+I/media-codec-opus-test: opus 7.1: 31 output buffers and 0 empty ones, times 0 to 600000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus 7.1: 29448 frames, rms 9 %, 270 rising zero crossings, the first at 108; by channel (rms, crossings): 9 % 270, 9 % 180, 9 % 360, 9 % 720, 9 % 810, 9 % 540, 9 % 630, 9 % 49
+I/media-codec-opus-test: opus 5.1 seek: flushed after 2 units, on at 400000
+I/media-codec-opus-test: opus 5.1 seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 5.1 seek: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 5.1 seek: input capacity 5760
+I/media-codec-opus-test: opus 5.1 seek: 37 output buffers and 0 empty ones, times 480000 to 1200000, the first 960 frames, the last 960
+I/media-codec-opus-test: opus 5.1 seek: 35520 frames, rms 9 %, 327 rising zero crossings, the first at 99; by channel (rms, crossings): 9 % 327, 9 % 218, 9 % 436, 9 % 654, 9 % 763, 9 % 59
+I/media-codec-opus-test: opus 5.1 in family 255: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 5.1 in family 255: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 5.1 in family 255: input capacity 5760
+I/media-codec-opus-test: opus 5.1 in family 255: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus 5.1 in family 255: 58248 frames, rms 9 %, 540 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 540, 9 % 360, 9 % 720, 9 % 1080, 9 % 1260, 9 % 96
+I/media-codec-opus-test: opus 5.1 with a silent channel: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 5.1 with a silent channel: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 5.1 with a silent channel: input capacity 5760
+I/media-codec-opus-test: opus 5.1 with a silent channel: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus 5.1 with a silent channel: 58248 frames, rms 9 %, 540 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 540, 9 % 360, 9 % 720, 9 % 1080, 9 % 1260, 0 % 0
+I/media-codec-opus-test: opus 5.1 with streams that do not fit: java.lang.IllegalStateException
+I/media-codec-opus-test: opus 5.1 with streams that do not fit: stop java.lang.IllegalStateException
+I/media-codec-opus-test: opus 5.1 configured as stereo: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 5.1 configured as stereo: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 5.1 configured as stereo: input capacity 5760
+I/media-codec-opus-test: opus 5.1 configured as stereo: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus 5.1 configured as stereo: 58248 frames, rms 9 %, 540 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 540, 9 % 360, 9 % 720, 9 % 1080, 9 % 1260, 9 % 96
+I/media-codec-opus-test: opus 5.1 with a channel mask: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, channel-mask=252, mime="audio/raw", sample-rate=48000
+I/media-codec-opus-test: opus 5.1 with a channel mask: end of stream, 0 bytes with it
+I/media-codec-opus-test: opus 5.1 with a channel mask: input capacity 5760
+I/media-codec-opus-test: opus 5.1 with a channel mask: 61 output buffers and 0 empty ones, times 0 to 1200000, the first 648 frames, the last 960
+I/media-codec-opus-test: opus 5.1 with a channel mask: 58248 frames, rms 9 %, 540 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 540, 9 % 360, 9 % 720, 9 % 1080, 9 % 1260, 9 % 96
 I/media-codec-opus-test: opus by name: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=2, mime="audio/raw", sample-rate=48000
 I/media-codec-opus-test: opus by name: end of stream, 0 bytes with it
 I/media-codec-opus-test: opus by name: input capacity 5760

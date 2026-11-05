@@ -138,5 +138,71 @@ I/media-extractor-ogg-test: opus-mono.ogg to decode across a seek track 0: chann
 I/media-extractor-ogg-test: opus-mono.ogg across a seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=1, channel-mask=1, mime="audio/raw", sample-rate=48000
 I/media-extractor-ogg-test: opus-mono.ogg across a seek: flushed after 10 samples, on at 0
 I/media-extractor-ogg-test: opus-mono.ogg across a seek: 26 samples queued, 24 output buffers, times 0 to 1242145, 68496 frames, rms 9 %, 906 rising zero crossings, the first at 72
+I/media-extractor-ogg-test: opus51.ogg: 1 tracks
+I/media-extractor-ogg-test: opus51.ogg track 0: channel-count=6, channel-mask=63, csd-0=buffer 27 4f707573486561640106380180bb00000000010402000401020305, csd-1=buffer 8 a02e630000000000, csd-2=buffer 8 00b4c40400000000, durationUs=1194666L, mime="audio/opus", sample-rate=48000, track-id=1
+I/media-extractor-ogg-test: opus51.ogg metrics _key: String extractor
+I/media-extractor-ogg-test: opus51.ogg metrics android.media.mediaextractor.entry: String sdk
+I/media-extractor-ogg-test: opus51.ogg metrics android.media.mediaextractor.fmt: String OggExtractor
+I/media-extractor-ogg-test: opus51.ogg metrics android.media.mediaextractor.mime: String audio/ogg
+I/media-extractor-ogg-test: opus51.ogg metrics android.media.mediaextractor.ntrk: Integer 1
+I/media-extractor-ogg-test: opus51.ogg: sample 0 at 0, 663 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 1 at 13500, 800 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 2 at 33500, 811 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 3 at 53500, 812 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 4 at 73500, 850 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 5 at 93500, 846 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 59 at 1173500, 770 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: sample 60 at 1193500, 925 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg: 61 samples, 47979 bytes, their CRC32 41acd32d, their times' 890c6236; then the time -1, advance false
+I/media-extractor-ogg-test: opus51.ogg: seek to 0 in mode 0: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 0 in mode 1: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 0 in mode 2: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 250000 in mode 0: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 250000 in mode 1: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 250000 in mode 2: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 600000 in mode 0: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 600000 in mode 1: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 600000 in mode 2: 0/663 13500/800 33500/811
+I/media-extractor-ogg-test: opus51.ogg: seek to 1100000 in mode 0: 993500/771 1013500/771 1033500/771
+I/media-extractor-ogg-test: opus51.ogg: seek to 1100000 in mode 1: 993500/771 1013500/771 1033500/771
+I/media-extractor-ogg-test: opus51.ogg: seek to 1100000 in mode 2: 993500/771 1013500/771 1033500/771
+I/media-extractor-ogg-test: opus51.ogg: seek to 5000000 in mode 0: 993500/771 1013500/771 1033500/771
+I/media-extractor-ogg-test: opus51.ogg: seek to 5000000 in mode 1: 993500/771 1013500/771 1033500/771
+I/media-extractor-ogg-test: opus51.ogg: seek to 5000000 in mode 2: 993500/771 1013500/771 1033500/771
+I/media-extractor-ogg-test: opus51.ogg in memory: 1 tracks
+I/media-extractor-ogg-test: opus51.ogg in memory track 0: channel-count=6, channel-mask=63, csd-0=buffer 27 4f707573486561640106380180bb00000000010402000401020305, csd-1=buffer 8 a02e630000000000, csd-2=buffer 8 00b4c40400000000, durationUs=1194666L, mime="audio/opus", sample-rate=48000, track-id=1
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 0 at 0, 663 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 1 at 13500, 800 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 2 at 33500, 811 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 3 at 53500, 812 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 4 at 73500, 850 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 5 at 93500, 846 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 59 at 1173500, 770 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: sample 60 at 1193500, 925 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory: 61 samples, 47979 bytes, their CRC32 41acd32d, their times' 890c6236; then the time -1, advance false
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: 1 tracks
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size track 0: channel-count=6, channel-mask=63, csd-0=buffer 27 4f707573486561640106380180bb00000000010402000401020305, csd-1=buffer 8 a02e630000000000, csd-2=buffer 8 00b4c40400000000, mime="audio/opus", sample-rate=48000, track-id=1
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 0 at 0, 663 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 1 at 13500, 800 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 2 at 33500, 811 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 3 at 53500, 812 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 4 at 73500, 850 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 5 at 93500, 846 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 59 at 1173500, 770 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: sample 60 at 1193500, 925 bytes, flags 1, track 0
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: 61 samples, 47979 bytes, their CRC32 41acd32d, their times' 890c6236; then the time -1, advance false
+I/media-extractor-ogg-test: opus51.ogg in memory of unknown size: after a seek to 600000 the sample at -1, size -1
+I/media-extractor-ogg-test: opus51.ogg cut after 6000 bytes: 1 tracks
+I/media-extractor-ogg-test: opus51.ogg cut after 6000 bytes track 0: channel-count=6, channel-mask=63, csd-0=buffer 27 4f707573486561640106380180bb00000000010402000401020305, csd-1=buffer 8 a02e630000000000, csd-2=buffer 8 00b4c40400000000, mime="audio/opus", sample-rate=48000, track-id=1
+I/media-extractor-ogg-test: opus51.ogg cut after 6000 bytes: 0 samples, 0 bytes, their CRC32 0, their times' 0; then the time -1, advance false
+I/media-extractor-ogg-test: opus51.ogg to decode: 1 tracks
+I/media-extractor-ogg-test: opus51.ogg to decode track 0: channel-count=6, channel-mask=63, csd-0=buffer 27 4f707573486561640106380180bb00000000010402000401020305, csd-1=buffer 8 a02e630000000000, csd-2=buffer 8 00b4c40400000000, durationUs=1194666L, mime="audio/opus", sample-rate=48000, track-id=1
+I/media-extractor-ogg-test: opus51.ogg: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, channel-mask=63, mime="audio/raw", sample-rate=48000
+I/media-extractor-ogg-test: opus51.ogg: 61 samples queued, 61 output buffers, times 0 to 1193500, 58248 frames, rms 9 %, 540 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 540, 9 % 360, 9 % 720, 9 % 1080, 9 % 1260, 9 % 96
+I/media-extractor-ogg-test: opus51.ogg to decode across a seek: 1 tracks
+I/media-extractor-ogg-test: opus51.ogg to decode across a seek track 0: channel-count=6, channel-mask=63, csd-0=buffer 27 4f707573486561640106380180bb00000000010402000401020305, csd-1=buffer 8 a02e630000000000, csd-2=buffer 8 00b4c40400000000, durationUs=1194666L, mime="audio/opus", sample-rate=48000, track-id=1
+I/media-extractor-ogg-test: opus51.ogg across a seek: output format: buffer-batch-max-output-size=0, buffer-batch-threshold-output-size=0, channel-count=6, channel-mask=63, mime="audio/raw", sample-rate=48000
+I/media-extractor-ogg-test: opus51.ogg across a seek: flushed after 10 samples, on at 0
+I/media-extractor-ogg-test: opus51.ogg across a seek: 71 samples queued, 69 output buffers, times 0 to 1193500, 65616 frames, rms 9 %, 609 rising zero crossings, the first at 107; by channel (rms, crossings): 9 % 609, 9 % 406, 9 % 812, 9 % 1218, 9 % 1421, 9 % 108
 I/media-extractor-ogg-test: a page of neither Vorbis nor Opus: 0 tracks
 I/media-extractor-ogg-test: done

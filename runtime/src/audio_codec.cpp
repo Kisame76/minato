@@ -10,7 +10,10 @@
 // STREAMINFO, which goes to AudioToolbox inside a dfLa box, the magic cookie of a CAF or MP4 file's FLAC; its frames
 // come out as 32-bit samples, the sample's bits at the top, so that the guest shifts them as Android does; a frame
 // gives at most 65535 frames of 8 channels, 2 MiB, more than a unit's limit, which bounds only the input. An Opus
-// codec's configuration is OpusHead (RFC 7845), channel mapping family 0 (one or two channels) only, and its units
+// codec's configuration is OpusHead (RFC 7845): channel mapping family 0 (one or two channels), or another family's
+// streams and stream map (one to eight channels, as Android's decoder takes them), which go to AudioToolbox as the
+// magic cookie, OpusHead in family 1, whose decoder then gives the channels in the stream map's order as libopus's
+// multistream decoder does [measured: the same samples]; its units
 // are packets, decoded at 48000 Hz as Opus always is; AudioToolbox's converter takes only packets of the length it
 // was made for, so a packet of another length gets a new converter, and a new converter keeps back the first 120
 // frames it decodes, which the codec gives as silence before them, so that each packet gives its table of contents'
@@ -85,6 +88,7 @@ struct Codec {
     // Opus: the formats for a new converter, the packets' length its converter takes, and whether that converter
     // has yet to give a packet's frames whole.
     AudioStreamBasicDescription source{}, pcm{};
+    std::vector<unsigned char> cookie;  // Opus beyond family 0: every new converter's magic cookie
     std::uint32_t packet = 0;
     bool fresh = false;
     std::mutex mutex;          // around each converter call, and for `gone`
@@ -197,12 +201,25 @@ std::vector<unsigned char> flac_cookie(const std::vector<unsigned char> &info) {
 }
 
 /// OpusHead (RFC 7845 section 5.1) as its format, as Android's decoder reads it (OpusHeader.cpp's ParseOpusHeader):
-/// "OpusHead", major version 0, 1 or 2 channels in mapping family 0; false for another, the other families among
-/// them, which AudioToolbox's decoder is not given here.
-bool opus_format(const std::vector<unsigned char> &head, AudioStreamBasicDescription &source) {
+/// "OpusHead", major version 0, 1 or 2 channels in mapping family 0; in another family 1 to 8 channels, streams with
+/// no more coupled ones than streams and as many channels as the head's, and a stream map of those channels or 255
+/// (none), with `cookie` the head in family 1, which AudioToolbox takes (not 2 or 255 [measured]) and decodes the same
+/// way; false for another.
+bool opus_format(const std::vector<unsigned char> &head, AudioStreamBasicDescription &source,
+                 std::vector<unsigned char> &cookie) {
     if (head.size() < 19 || std::memcmp(head.data(), "OpusHead", 8) != 0 || (head[8] & 0xf0) != 0) return false;
     const unsigned channels = head[9], family = head[18];
-    if (family != 0 || channels < 1 || channels > 2) return false;
+    if (channels < 1 || channels > (family == 0 ? 2u : 8u)) return false;
+    if (family != 0) {
+        if (head.size() < 21 + std::size_t{channels}) return false;
+        const unsigned streams = head[19], coupled = head[20];
+        if (coupled > streams || streams + coupled != channels) return false;
+        for (unsigned n = 0; n < channels; ++n) {
+            if (head[21 + n] != 255 && head[21 + n] >= channels) return false;
+        }
+        cookie.assign(head.begin(), head.begin() + 21 + channels);
+        cookie[18] = 1;
+    }
     source = {};
     source.mSampleRate = 48000;
     source.mFormatID = kAudioFormatOpus;
@@ -257,7 +274,7 @@ bool source_format(const Toolbox &calls, std::uint32_t type, const std::vector<u
                source.mSampleRate >= 1 && source.mSampleRate <= 96000 && source.mFramesPerPacket >= 1 &&
                source.mFramesPerPacket <= 4096;
     }
-    if (type == APKRT_AUDIO_CODEC_OPUS) return opus_format(config, source);
+    if (type == APKRT_AUDIO_CODEC_OPUS) return opus_format(config, source, cookie);
     sample = 4;
     cookie = flac_cookie(config);
     return !cookie.empty() && describe(calls, kAudioFormatFLAC, cookie, source) &&
@@ -314,6 +331,7 @@ long create(std::uint64_t argument, apkrt_audio_codec &asked) {
                 codec->type = asked.type;
                 codec->source = source;
                 codec->pcm = pcm;
+                if (asked.type == APKRT_AUDIO_CODEC_OPUS) codec->cookie = cookie;
                 codec->packet = source.mFramesPerPacket;
                 codec->fresh = true;
                 all.codecs.emplace(all.next_id, std::move(codec));
@@ -346,6 +364,12 @@ bool opus_converter(Codec &codec, std::uint32_t packet) {
     source.mFramesPerPacket = packet;
     AudioConverterRef converter = nullptr;
     if (toolbox().make(&source, &codec.pcm, &converter) != noErr) return false;
+    const auto cookie_size = static_cast<UInt32>(codec.cookie.size());
+    if (!codec.cookie.empty() &&
+        toolbox().set(converter, kAudioConverterDecompressionMagicCookie, cookie_size, codec.cookie.data()) != noErr) {
+        toolbox().dispose(converter);
+        return false;
+    }
     toolbox().dispose(codec.converter);
     codec.converter = converter;
     codec.packet = packet;
