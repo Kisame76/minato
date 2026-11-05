@@ -76,6 +76,8 @@ python3 framework/tests/axis_labels_test.py
 # The release script's guards: the guest outputs it packs are those of the tree, and the source entry reads the app.
 python3 tools/tests/check_guest_fresh_test.py
 python3 tools/tests/release_entry_test.py
+# device-suite.sh's SKIP_INSTALL=1: no build and no install, only the launch, the fetch and the comparison.
+python3 tools/tests/device_suite_skip_install_test.py
 # The local effect service of android.media.audiofx (plain C++, so the host's compiler runs it).
 c++ -std=c++20 -Wall -Wextra -Werror -fsanitize=address,undefined -o "$OUT/audio_effect_service_test" \
   framework/tests/native/audio_effect_service_test.cpp

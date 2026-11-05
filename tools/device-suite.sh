@@ -33,6 +33,11 @@
 #        tools/device-suite.sh --frame-rate 60|120 [--simulator] [--device <...>] [frame-cap-test]
 #        tools/device-suite.sh --art | --art-run-tests [--sample] [--debug] [--art-dir <dir>]
 #                              [--simulator] [--without-increased-memory] [--device <...>] [test ...]
+# SKIP_INSTALL=1 runs the tests of the app that is already installed: no build and no install, only the launch,
+# the fetch and the comparison. For a run with the iPhone offline (airplane mode), where iOS verifies a free account's
+# profile online at the first launch after an install: install and launch the app once online (this script without the
+# flag, or tools/deploy.sh), switch airplane mode on, then run it again with the flag. The tests must be those the
+# installed bundle was built with.
 # Results: build/device-suite/<test>/ (build/simulator-suite/ for the Simulator) with stdout,
 # stderr, status, traced, measures and, with --sign-on-device, signing; on the iPhone also
 # <test>.launch.json and <test>.console (devicectl's report and messages). The times include
@@ -127,11 +132,15 @@ elif [[ -z "$ART" ]]; then
   done
 fi
 
-# What goes into the app bundle: the fixtures, bionic, and apk-convert, which makes containers of them.
-tools/build-fixtures.sh
-tools/build-bionic.sh >/dev/null
-cmake --preset macos >/dev/null
-cmake --build --preset macos --target apk-convert
+# What goes into the app bundle: the fixtures, bionic, and apk-convert, which makes containers of them. Not with
+# SKIP_INSTALL=1: the installed bundle stays as it is.
+SKIP_INSTALL=${SKIP_INSTALL:-0}
+if [[ "$SKIP_INSTALL" != 1 ]]; then
+  tools/build-fixtures.sh
+  tools/build-bionic.sh >/dev/null
+  cmake --preset macos >/dev/null
+  cmake --build --preset macos --target apk-convert
+fi
 if [[ -n "$ART" ]]; then
   # The whole stage, whichever tests run, so that the bundle stays the same from mode to mode.
   python3 runtime/tests/device_art.py stage "${ART_DIR:-build/art}" build/fixtures/bin . build/device-art
@@ -147,10 +156,12 @@ for test, entry in sorted(json.load(open(sys.argv[1])).items()):
   fi
 fi
 if [[ "$SIMULATOR" == 1 ]]; then
-  BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/sim.sh --headless ${WANTED_DEVICE:+"$WANTED_DEVICE"}
+  [[ "$SKIP_INSTALL" == 1 ]] ||
+    BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/sim.sh --headless ${WANTED_DEVICE:+"$WANTED_DEVICE"}
   read -r DEVICE_ID _ < <(python3 tools/find-simulator.py "$WANTED_DEVICE") || true
 else
-  BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/deploy.sh ${WANTED_DEVICE:+"$WANTED_DEVICE"}
+  [[ "$SKIP_INSTALL" == 1 ]] ||
+    BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/deploy.sh ${WANTED_DEVICE:+"$WANTED_DEVICE"}
   read -r DEVICE_ID _ < <(python3 tools/find-device.py "$WANTED_DEVICE") || true
   # Whether the installed build has the entitlement, from its signature, as tools/spikes.sh shows it.
   entitlements=$(codesign -d --entitlements - --xml build/DerivedData/Build/Products/Debug-iphoneos/Minato.app \
