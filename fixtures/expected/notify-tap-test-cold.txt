@@ -1,0 +1,3 @@
+# tools/notification-start-check.sh's starts of notify-tap-test print nothing to System.out; what they log is checked
+# in order by the script (java_app_run.py --in-order), as no reference can start an app from a notification's intent
+# without its tap.

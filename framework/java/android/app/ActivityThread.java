@@ -1056,6 +1056,9 @@ public final class ActivityThread {
         ActivityInfo info = intent == null ? null
                 : mPackage.activityInfo(intent.getComponent(), PackageManager.GET_SHARED_LIBRARY_FILES, false);
         if (info == null) {
+            if (intent != null) {
+                Log.w(TAG, "a notification's start intent that names no activity of " + mPackageName);
+            }
             intent = null;
             info = mPackage.launcherActivity(PackageManager.GET_SHARED_LIBRARY_FILES);
         }
