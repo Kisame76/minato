@@ -936,11 +936,19 @@ if(APK_HOST_BUILD)
   # (fixtures/expected/<app>.logcat).
   add_executable(audio_app_test tests/audio_app_test.cpp)
   target_link_libraries(audio_app_test PRIVATE app_host)
+  # The guest libraries these tests load must be those of this tree: a libaaudio.so from before a field was added to
+  # apkrt_audio_config read the session from the stack and made the input tests flake. A test that needs them lists the
+  # fixture (FIXTURES_REQUIRED guest_bionic) and stops with the command that builds them again when they are stale;
+  # APK_SKIP_GUEST_FRESH=1 turns the check off.
+  add_test(NAME runtime.guest_bionic_fresh COMMAND Python3::Interpreter
+    "${PROJECT_SOURCE_DIR}/tools/check-guest-fresh.py" --only build/bionic "${PROJECT_SOURCE_DIR}")
+  set_tests_properties(runtime.guest_bionic_fresh PROPERTIES FIXTURES_SETUP guest_bionic)
   foreach(app IN ITEMS aaudio opensl sdl-audio)
     add_test(NAME runtime.${app} COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/${app}_app_test_scratch"
       "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
       ${app}-test)
-    set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+    set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:"
+      FIXTURES_REQUIRED guest_bionic)
   endforeach()
 
   # ADR-0064's audio-input-test, without and with RECORD_AUDIO's grant (the twin audio-input-test-granted): the same
@@ -949,7 +957,8 @@ if(APK_HOST_BUILD)
     add_test(NAME runtime.${app} COMMAND audio_app_test "${CMAKE_CURRENT_BINARY_DIR}/${app}_app_test_scratch"
       "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected"
       ${app})
-    set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
+    set_tests_properties(runtime.${app} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:"
+      FIXTURES_REQUIRED guest_bionic)
   endforeach()
 
   # Guest signal frames against the x18 islands (ADR-0020 X4), on clone children.

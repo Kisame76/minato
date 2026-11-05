@@ -6,7 +6,12 @@ file. In a fresh clone every source is as new as the checkout, so a clone needs 
 before a release, which is what this asks for. A source folder that is not there is skipped; tests and docs are not
 sources, and neither are files that no build reads (.DS_Store, README and *.md, editors' backups). Python 3.9.
 
-Usage: tools/check-guest-fresh.py [<repo root>]"""
+Usage: tools/check-guest-fresh.py [--only <folder>]... [<repo root>]
+  --only <folder>  checks only the outputs under that folder of the build (build/bionic, say), which a test of the guest
+                   libraries uses to stop with the command that builds them again; several may be given, and a folder
+                   that holds no output is an error (exit 2). APK_SKIP_GUEST_FRESH=1 makes the check pass, for a tree
+                   whose sources are fresh copies (their times say nothing about the outputs it links to)."""
+import argparse
 import os
 import sys
 
@@ -65,16 +70,31 @@ def newest(root, sources):
 
 def main():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    root = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else here
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--only", action="append", default=[])
+    parser.add_argument("root", nargs="?", default=here)
+    arguments = parser.parse_args()
+    root = os.path.abspath(arguments.root)
+    if os.environ.get("APK_SKIP_GUEST_FRESH") == "1":
+        print("check-guest-fresh: skipped (APK_SKIP_GUEST_FRESH=1)")
+        return
+    outputs = OUTPUTS
+    if arguments.only:
+        folders = [folder.rstrip("/") + "/" for folder in arguments.only]
+        outputs = [output for output in OUTPUTS if output[0].startswith(tuple(folders))]
+        missing = [folder for folder in folders if not any(output[0].startswith(folder) for output in OUTPUTS)]
+        if missing:
+            print("check-guest-fresh: no guest output lives in " + ", ".join(missing), file=sys.stderr)
+            sys.exit(2)
     problems = []
-    for marker, script, sources in OUTPUTS:
+    for marker, script, sources in outputs:
         path = os.path.join(root, marker)
         if not os.path.exists(path):
-            problems.append(f"{marker} is missing; {script} builds it")
+            problems.append(f"{marker} is missing; run {script}")
             continue
         time, source = newest(root, sources)
         if os.stat(path).st_mtime < time:
-            problems.append(f"{marker} is older than {source}; {script} builds it again")
+            problems.append(f"{marker} is older than {source}; run {script}")
     if problems:
         print("check-guest-fresh: the guest outputs are not those of this tree:", file=sys.stderr)
         for problem in problems:

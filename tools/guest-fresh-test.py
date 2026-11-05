@@ -4,6 +4,9 @@
   - a source file newer than its output fails, and so does a missing output;
   - a stray file that no build reads (.DS_Store, a README, an editor's backup) newer than the output does not fail the
     guard for good, since ninja would have nothing to rebuild;
+  - `--only <folder>` checks the outputs under that folder alone, so that a test of the guest libraries stops with the
+    command that rebuilds them instead of flaking on a library from an older tree (a stale libaaudio.so read a stack
+    value as the audio session); APK_SKIP_GUEST_FRESH=1 turns it off for a tree whose sources are fresh copies;
   - release.sh runs the guard before it makes the release commit, so that a failing guard leaves no commit behind that a
     rerun refuses ("main is not origin/main").
 Runs on /usr/bin/python3 (3.9)."""
@@ -32,6 +35,13 @@ def touch(path, time):
 
 def guard(tree):
     return subprocess.run([sys.executable, "-I", GUARD, tree], capture_output=True, text=True).returncode
+
+
+def guard_only(tree, *folders, env=None):
+    arguments = [argument for folder in folders for argument in ("--only", folder)]
+    run = subprocess.run([sys.executable, "-I", GUARD, *arguments, tree], capture_output=True, text=True,
+                         env=dict(os.environ, **(env or {})))
+    return run.returncode, run.stderr
 
 
 def fake_tree(base):
@@ -77,6 +87,19 @@ with tempfile.TemporaryDirectory() as base:
     check(guard(base) == 0, "fresh again")
     os.remove(os.path.join(base, "build/art/lib/libart.so"))
     check(guard(base) == 1, "a missing output fails")
+
+with tempfile.TemporaryDirectory() as base:
+    sources = fake_tree(base)
+    check(guard_only(base, "build/bionic")[0] == 0, "--only: fresh outputs pass")
+    touch(os.path.join(base, "runtime/android/source.cpp"), 2000)  # a bionic source, newer than every output
+    code, message = guard_only(base, "build/bionic")
+    check(code == 1 and "tools/build-bionic.sh" in message and "runtime/android/source.cpp" in message,
+          "--only: a stale bionic output fails and names the build script and the source")
+    check(guard_only(base, "build/art")[0] == 0, "--only: another folder's outputs are not looked at")
+    check(guard_only(base, "build/art", "build/bionic")[0] == 1, "--only: several folders are all checked")
+    check(guard_only(base, "build/bionic", env={"APK_SKIP_GUEST_FRESH": "1"})[0] == 0,
+          "APK_SKIP_GUEST_FRESH=1 skips the check")
+    check(guard_only(base, "build/nowhere")[0] == 2, "--only: a folder no output lives in is an error, not a pass")
 
 release = open(os.path.join(ROOT, "tools", "release.sh")).read()
 guard_at = release.index("check-guest-fresh.py")
