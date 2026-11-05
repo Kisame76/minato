@@ -1,3 +1,4 @@
-vkGetPhysicalDeviceProperties: "Mali-G715", vendor 0x13b5, device 0x1234, type 1, maxImageDimension2D 16384, api 1.3
-vkGetPhysicalDeviceProperties2: "Mali-G715", vendor 0x13b5, device 0x1234, type 1, maxImageDimension2D 16384, api 1.3
-driver in the chain: "MoltenVK", id 14
+vkGetPhysicalDeviceProperties: "Mali-G715", vendor 0x13b5, device 0xb8a20000, driver 0xc800000, type 1, maxImageDimension2D 16384, api 1.3
+vkGetPhysicalDeviceProperties2: "Mali-G715", vendor 0x13b5, device 0xb8a20000, driver 0xc800000, type 1, maxImageDimension2D 16384, api 1.3
+driver in the chain: "Mali-G715", id 9, info "v1.r50p0-00eac0.81b105a98eb8ea9f0949c962642acd8b"
+Vulkan 1.2's driver in the chain: "Mali-G715", id 9, info "v1.r50p0-00eac0.81b105a98eb8ea9f0949c962642acd8b"

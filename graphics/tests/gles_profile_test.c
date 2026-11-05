@@ -1,23 +1,30 @@
 /* ADR-0065 step 4, on ANGLE's macOS slice with graphics-run's window (graphics.gles_profile and
-   graphics.gles_profile_pixel): what glGetString answers for GL_VENDOR and GL_RENDERER. Without a device profile they
-   are ANGLE's own (printed as "ANGLE's", as their text depends on the Mac); under one, the properties
-   ro.minato.gpu.gl_vendor and ro.minato.gpu.gl_renderer, which the runtime writes, are what libGLESv2 answers, and
-   nothing else changes: GL_VERSION still begins with "OpenGL ES 3.0", GL_EXTENSIONS is the list libGLESv2 keeps
-   (non-empty, one name per glGetStringi index) and GL_SHADING_LANGUAGE_VERSION is ANGLE's. */
+   graphics.gles_profile_pixel and graphics.gles_profile_galaxy): what glGetString answers for GL_VENDOR, GL_RENDERER
+   and GL_VERSION. Without a device profile they are ANGLE's own (printed as "ANGLE's", as their text depends on the
+   Mac); under one (the properties ro.minato.gpu.gl_*, which the runtime writes; ADR-0065's amendment) libGLESv2
+   answers the profile's real device's strings, printed whole, and GL_VERSION the true "OpenGL ES 3.0" with that
+   device's tag after it. GL_EXTENSIONS is the list libGLESv2 keeps (non-empty, one name per glGetStringi index) and
+   GL_SHADING_LANGUAGE_VERSION is ANGLE's. */
 #include <EGL/egl.h>
 #include <GLES3/gl32.h>
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/system_properties.h>
+
+/* Whether a device profile is set: its GL_VENDOR property. */
+static int profiled;
 
 static const char *named(const GLubyte *string, const char *angle) {
     if (string == NULL) {
         return "(null)";
     }
-    return strstr((const char *)string, angle) != NULL ? "ANGLE's" : (const char *)string;
+    return !profiled && strstr((const char *)string, angle) != NULL ? "ANGLE's" : (const char *)string;
 }
 
 int main(void) {
+    char vendor[PROP_VALUE_MAX] = "";
+    profiled = __system_property_get("ro.minato.gpu.gl_vendor", vendor) > 0;
     const EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     EGLint major, minor;
     eglInitialize(display, &major, &minor);
@@ -36,6 +43,7 @@ int main(void) {
     printf("GL_VENDOR: %s\n", named(glGetString(GL_VENDOR), "Google Inc."));
     printf("GL_RENDERER: %s\n", named(glGetString(GL_RENDERER), "ANGLE ("));
     const GLubyte *gl_version = glGetString(GL_VERSION);
+    if (profiled) printf("GL_VERSION: %s\n", gl_version != NULL ? (const char *)gl_version : "(null)");
     printf("GL_VERSION begins with OpenGL ES 3.0: %s\n",
            gl_version != NULL && strncmp((const char *)gl_version, "OpenGL ES 3.0", 13) == 0 ? "yes" : "no");
     const GLubyte *language = glGetString(GL_SHADING_LANGUAGE_VERSION);

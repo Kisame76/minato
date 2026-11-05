@@ -9,8 +9,11 @@
    - An ES 1.x context's GL_VERSION names the Common profile, "OpenGL ES-CM 1.1 ...", as the ES 1.1
      specification (6.1.5) lays it out and Android's drivers answer; ANGLE says "OpenGL ES 1.1 ..." (ADR-0041
      a1).
-   - GL_VENDOR and GL_RENDERER under a device profile (ADR-0065 step 4): the properties ro.minato.gpu.gl_vendor and
-     ro.minato.gpu.gl_renderer, which the runtime writes only for an app with a profile, in place of ANGLE's strings. */
+   - GL_VENDOR, GL_RENDERER and GL_VERSION under a device profile (ADR-0065 step 4 and its amendment): the properties
+     ro.minato.gpu.gl_vendor and ro.minato.gpu.gl_renderer, which the runtime writes only for an app with a profile,
+     in place of ANGLE's strings, and GL_VERSION as ANGLE's true "OpenGL ES X.Y" with ro.minato.gpu.gl_version_tag,
+     the profile's real driver's text, after it. The values may be long read-only properties (a renderer string
+     past PROP_VALUE_MAX), so they are read with __system_property_read_callback. */
 #include <float.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -191,12 +194,64 @@ static const GLubyte *common_profile(const GLubyte *string) {
 
 /* The device profile's GL_VENDOR and GL_RENDERER (ADR-0065 step 4), read once: the property's text, or NULL for
    ANGLE's own, with the properties absent. The profile is fixed before the program starts. */
-static char profile_vendor[PROP_VALUE_MAX], profile_renderer[PROP_VALUE_MAX];
+static char profile_vendor[256], profile_renderer[256], profile_version_tag[256];
 static pthread_once_t profile_once = PTHREAD_ONCE_INIT;
 
+static void copy_value(void *cookie, const char *name, const char *value, uint32_t serial) {
+    (void)name, (void)serial;
+    strncpy((char *)cookie, value, 255);
+    ((char *)cookie)[255] = '\0';
+}
+
+static void read_property(const char *name, char *out) {
+    const prop_info *info = __system_property_find(name);
+    if (info != NULL) {
+        __system_property_read_callback(info, copy_value, out);
+    }
+}
+
 static void read_profile(void) {
-    __system_property_get("ro.minato.gpu.gl_vendor", profile_vendor);
-    __system_property_get("ro.minato.gpu.gl_renderer", profile_renderer);
+    read_property("ro.minato.gpu.gl_vendor", profile_vendor);
+    read_property("ro.minato.gpu.gl_renderer", profile_renderer);
+    read_property("ro.minato.gpu.gl_version_tag", profile_version_tag);
+}
+
+/* GL_VERSION under a profile: ANGLE's "OpenGL ES X.Y" and the profile's tag, one copy per ANGLE string kept for the
+   process's life (each context version has its own); NULL without a profile, for an ES 1.x string (the Common
+   profile's form stays) or without memory. */
+static struct version *tagged;
+
+static const GLubyte *profile_version(const GLubyte *string) {
+    pthread_once(&profile_once, read_profile);
+    const char *angle = (const char *)string;
+    static const char prefix[] = "OpenGL ES ";
+    if (profile_version_tag[0] == '\0' || strncmp(angle, prefix, strlen(prefix)) != 0 ||
+        strncmp(angle, ANGLE_ES1, strlen(ANGLE_ES1)) == 0) {
+        return NULL;
+    }
+    size_t length = strlen(prefix);
+    while (angle[length] == '.' || (angle[length] >= '0' && angle[length] <= '9')) {
+        length++;
+    }
+    pthread_mutex_lock(&lock);
+    struct version *entry = tagged;
+    while (entry != NULL && strcmp(entry->angle, angle) != 0) {
+        entry = entry->next;
+    }
+    if (entry == NULL) {
+        entry = malloc(sizeof *entry + length + strlen(profile_version_tag) + 1);
+        if (entry != NULL && (entry->angle = strdup(angle)) != NULL) {
+            memcpy(entry->text, angle, length);
+            strcpy(entry->text + length, profile_version_tag);
+            entry->next = tagged;
+            tagged = entry;
+        } else {
+            free(entry);
+            entry = NULL;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return entry != NULL ? (const GLubyte *)entry->text : NULL;
 }
 
 static const GLubyte *profile_string(GLenum name) {
@@ -215,7 +270,8 @@ const GLubyte *glGetString(GLenum name) {
         return profile != NULL ? profile : string;
     }
     if (name == GL_VERSION) {
-        return common_profile(string);
+        const GLubyte *profile = profile_version(string);
+        return profile != NULL ? profile : common_profile(string);
     }
     if (name != GL_EXTENSIONS) {
         return string;

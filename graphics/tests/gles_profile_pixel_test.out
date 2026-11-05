@@ -1,5 +1,6 @@
 GL_VENDOR: ARM
 GL_RENDERER: Mali-G715
+GL_VERSION: OpenGL ES 3.0 v1.r50p0-00eac0.81b105a98eb8ea9f0949c962642acd8b
 GL_VERSION begins with OpenGL ES 3.0: yes
 GL_SHADING_LANGUAGE_VERSION begins with OpenGL ES GLSL ES 3.00: yes
 GL_NUM_EXTENSIONS is above 0 and glGetStringi names the first: yes

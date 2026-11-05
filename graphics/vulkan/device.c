@@ -165,21 +165,49 @@ void vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator) {
     }
 }
 
-/* The device's name and vendor under a device profile (ADR-0065 step 4): the properties
-   ro.minato.gpu.vk_device_name and ro.minato.gpu.vk_vendor_id (decimal), which the runtime writes only for an app with
-   a profile, in place of MoltenVK's; nothing else of the properties changes, not the device ID and type, the limits
-   or the driver's name and ID in the chain. */
+/* The device's identity under a device profile (ADR-0065 step 4 and its amendment): the properties
+   ro.minato.gpu.vk_*, which the runtime writes only for an app with a profile, in place of MoltenVK's: the name, the
+   vendor, the device ID and the driver version (decimal), and in the chain the driver's ID, name and info, as the
+   profile's real device gives them. The device type, the limits, the API version and the features stay the driver's. */
+static void profile_text(const char *name, char *out, size_t size) {
+    char value[PROP_VALUE_MAX] = "";
+    __system_property_get(name, value);
+    strncpy(out, value, size - 1);
+    out[size - 1] = '\0';
+}
+
+static int profile_number(const char *name, uint32_t *out) {
+    char value[PROP_VALUE_MAX] = "";
+    if (__system_property_get(name, value) <= 0) {
+        return 0;
+    }
+    *out = (uint32_t)strtoul(value, NULL, 10);
+    return 1;
+}
+
+static int profiled(void) {
+    char name[PROP_VALUE_MAX] = "";
+    return __system_property_get("ro.minato.gpu.vk_device_name", name) > 0;
+}
+
 static void apply_profile(VkPhysicalDeviceProperties *properties) {
-    char name[PROP_VALUE_MAX] = "", vendor[PROP_VALUE_MAX] = "";
-    __system_property_get("ro.minato.gpu.vk_device_name", name);
-    __system_property_get("ro.minato.gpu.vk_vendor_id", vendor);
-    if (name[0] != '\0') {
-        strncpy(properties->deviceName, name, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE - 1);
-        properties->deviceName[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE - 1] = '\0';
+    if (!profiled()) {
+        return;
     }
-    if (vendor[0] != '\0') {
-        properties->vendorID = (uint32_t)strtoul(vendor, NULL, 10);
+    profile_text("ro.minato.gpu.vk_device_name", properties->deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE);
+    profile_number("ro.minato.gpu.vk_vendor_id", &properties->vendorID);
+    profile_number("ro.minato.gpu.vk_device_id", &properties->deviceID);
+    profile_number("ro.minato.gpu.vk_driver_version", &properties->driverVersion);
+}
+
+/* The driver's ID, name and info in a properties chain under a profile. */
+static void apply_profile_driver(VkDriverId *id, char *name, char *info) {
+    uint32_t number = 0;
+    if (profile_number("ro.minato.gpu.vk_driver_id", &number)) {
+        *id = (VkDriverId)number;
     }
+    profile_text("ro.minato.gpu.vk_driver_name", name, VK_MAX_DRIVER_NAME_SIZE);
+    profile_text("ro.minato.gpu.vk_driver_info", info, VK_MAX_DRIVER_INFO_SIZE);
 }
 
 void vkGetPhysicalDeviceProperties(VkPhysicalDevice physical, VkPhysicalDeviceProperties *properties) {
@@ -190,4 +218,16 @@ void vkGetPhysicalDeviceProperties(VkPhysicalDevice physical, VkPhysicalDevicePr
 void vkGetPhysicalDeviceProperties2(VkPhysicalDevice physical, VkPhysicalDeviceProperties2 *properties) {
     minato_host_vkGetPhysicalDeviceProperties2(physical, properties);
     apply_profile(&properties->properties);
+    if (!profiled()) {
+        return;
+    }
+    for (VkBaseOutStructure *next = properties->pNext; next != NULL; next = next->pNext) {
+        if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES) {
+            VkPhysicalDeviceDriverProperties *driver = (VkPhysicalDeviceDriverProperties *)next;
+            apply_profile_driver(&driver->driverID, driver->driverName, driver->driverInfo);
+        } else if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES) {
+            VkPhysicalDeviceVulkan12Properties *vulkan12 = (VkPhysicalDeviceVulkan12Properties *)next;
+            apply_profile_driver(&vulkan12->driverID, vulkan12->driverName, vulkan12->driverInfo);
+        }
+    }
 }

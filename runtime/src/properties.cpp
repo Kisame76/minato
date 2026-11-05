@@ -115,7 +115,7 @@ constexpr std::pair<std::string_view, std::string_view> properties[] = {
 /// public device listings; the default has none and keeps the host's own (area()).
 struct DeviceProfile {
     std::string_view name;
-    std::pair<std::string_view, std::string_view> values[12];
+    std::pair<std::string_view, std::string_view> values[18];
 };
 constexpr DeviceProfile device_profiles[] = {
     {"pixel",
@@ -127,12 +127,21 @@ constexpr DeviceProfile device_profiles[] = {
       {"ro.hardware", "tokay"},
       {"ro.soc.manufacturer", "Google"},
       {"ro.soc.model", "Tensor G4"},
-      // The GPU's names (step 4), which the front libs of GLES and Vulkan read to replace ANGLE's and MoltenVK's:
-      // only under a profile. Vulkan's vendorID is the PCI-style ID in decimal (0x13B5, ARM's).
+      // The GPU's identity (step 4 and the amendment), which the front libs of GLES and Vulkan read to replace
+      // ANGLE's and MoltenVK's, only under a profile: the real device's, from its public gpuinfo.org reports (Android
+      // 15, driver r50p0). Numbers in decimal: vendorID 0x13B5 (ARM's), deviceID 0xB8A20000, driverVersion
+      // VK_MAKE_VERSION(50, 0, 0) as ARM encodes rNpM; driverID 9 is VK_DRIVER_ID_ARM_PROPRIETARY. GL_VERSION keeps
+      // the true "OpenGL ES X.Y" and takes the tag after it.
       {"ro.minato.gpu.gl_vendor", "ARM"},
       {"ro.minato.gpu.gl_renderer", "Mali-G715"},
+      {"ro.minato.gpu.gl_version_tag", " v1.r50p0-00eac0.81b105a98eb8ea9f0949c962642acd8b"},
       {"ro.minato.gpu.vk_device_name", "Mali-G715"},
-      {"ro.minato.gpu.vk_vendor_id", "5045"}}},
+      {"ro.minato.gpu.vk_vendor_id", "5045"},
+      {"ro.minato.gpu.vk_device_id", "3097624576"},
+      {"ro.minato.gpu.vk_driver_version", "209715200"},
+      {"ro.minato.gpu.vk_driver_id", "9"},
+      {"ro.minato.gpu.vk_driver_name", "Mali-G715"},
+      {"ro.minato.gpu.vk_driver_info", "v1.r50p0-00eac0.81b105a98eb8ea9f0949c962642acd8b"}}},
     {"galaxy",
      {{"ro.product.manufacturer", "samsung"},
       {"ro.product.brand", "samsung"},
@@ -142,10 +151,20 @@ constexpr DeviceProfile device_profiles[] = {
       {"ro.hardware", "s5e9945"},
       {"ro.soc.manufacturer", "Samsung"},
       {"ro.soc.model", "S5E9945"},
-      {"ro.minato.gpu.gl_vendor", "Samsung Electronics Co., Ltd."},
-      {"ro.minato.gpu.gl_renderer", "Xclipse 940"},
-      {"ro.minato.gpu.vk_device_name", "Xclipse 940"},
-      {"ro.minato.gpu.vk_vendor_id", "5197"}}},  // 0x144D, Samsung's
+      // The real device's GPU identity (Android 15, driver 24.3.9): its GLES is ANGLE on Vulkan, as ours. vendorID
+      // 0x144D (Samsung's), deviceID 0x02600200, driverVersion 0x06003009; driverID 21 is
+      // VK_DRIVER_ID_SAMSUNG_PROPRIETARY. The GL_RENDERER is longer than PROP_VALUE_MAX: a long read-only value.
+      {"ro.minato.gpu.gl_vendor", "Google Inc. (Samsung Electronics Co., Ltd.)"},
+      {"ro.minato.gpu.gl_renderer", "ANGLE (Samsung Electronics Co. Ltd., Vulkan 1.3.279 (Samsung Xclipse 940 "
+                                    "(0x02600200)), Samsung Proprietary driver-24.3.9)"},
+      {"ro.minato.gpu.gl_version_tag", ".0 (ANGLE 2.1.0 git hash: unknown hash)"},
+      {"ro.minato.gpu.vk_device_name", "Samsung Xclipse 940"},
+      {"ro.minato.gpu.vk_vendor_id", "5197"},
+      {"ro.minato.gpu.vk_device_id", "39846400"},
+      {"ro.minato.gpu.vk_driver_version", "100675593"},
+      {"ro.minato.gpu.vk_driver_id", "21"},
+      {"ro.minato.gpu.vk_driver_name", "Samsung Proprietary driver"},
+      {"ro.minato.gpu.vk_driver_info", "Driver version: 24.3.9, git hash: e5014ade39 "}}},
 };
 /// apkrt_set_device_profile's, none (the host's own names) until it is called.
 std::atomic<const DeviceProfile *> device_profile{nullptr};

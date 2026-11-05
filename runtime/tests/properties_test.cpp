@@ -222,26 +222,39 @@ TEST(a_device_profile_replaces_the_names_build_reads_and_nothing_else) {
 }
 
 TEST(a_profile_names_the_gpu_in_properties_that_exist_only_under_it) {
-    // ADR-0065 step 4: the front libs of GLES and Vulkan read these four to replace the GPU's strings; without a
-    // profile none of them exists, so the host's own names (ANGLE's, MoltenVK's) stay.
+    // ADR-0065 step 4 and its amendment: the front libs of GLES and Vulkan read these to replace the GPU's identity
+    // with the profile's real device's; without a profile none of them exists, so the host's own (ANGLE's,
+    // MoltenVK's) stays.
+    static const char *const names[] = {
+        "ro.minato.gpu.gl_vendor",         "ro.minato.gpu.gl_renderer",      "ro.minato.gpu.gl_version_tag",
+        "ro.minato.gpu.vk_device_name",    "ro.minato.gpu.vk_vendor_id",     "ro.minato.gpu.vk_device_id",
+        "ro.minato.gpu.vk_driver_version", "ro.minato.gpu.vk_driver_id",     "ro.minato.gpu.vk_driver_name",
+        "ro.minato.gpu.vk_driver_info"};
     CHECK(apkrt_set_device_profile("") == 0);
     area = apkrt::properties::area();
-    for (const char *name : {"ro.minato.gpu.gl_vendor", "ro.minato.gpu.gl_renderer", "ro.minato.gpu.vk_device_name",
-                             "ro.minato.gpu.vk_vendor_id"}) {
-        CHECK(!get(name));
-    }
+    for (const char *name : names) CHECK(!get(name));
     CHECK(apkrt_set_device_profile("pixel") == 0);
     area = apkrt::properties::area();
+    for (const char *name : names) CHECK(get(name).has_value());
     CHECK(get("ro.minato.gpu.gl_vendor") == "ARM");
     CHECK(get("ro.minato.gpu.gl_renderer") == "Mali-G715");
     CHECK(get("ro.minato.gpu.vk_device_name") == "Mali-G715");
-    CHECK(get("ro.minato.gpu.vk_vendor_id") == "5045");  // 0x13B5
+    CHECK(get("ro.minato.gpu.vk_vendor_id") == "5045");              // 0x13B5
+    CHECK(get("ro.minato.gpu.vk_device_id") == "3097624576");        // 0xB8A20000
+    CHECK(get("ro.minato.gpu.vk_driver_version") == "209715200");    // r50p0
+    CHECK(get("ro.minato.gpu.vk_driver_id") == "9");                 // VK_DRIVER_ID_ARM_PROPRIETARY
     CHECK(apkrt_set_device_profile("galaxy") == 0);
     area = apkrt::properties::area();
-    CHECK(get("ro.minato.gpu.gl_vendor") == "Samsung Electronics Co., Ltd.");
-    CHECK(get("ro.minato.gpu.gl_renderer") == "Xclipse 940");
-    CHECK(get("ro.minato.gpu.vk_device_name") == "Xclipse 940");
-    CHECK(get("ro.minato.gpu.vk_vendor_id") == "5197");  // 0x144D
+    CHECK(get("ro.minato.gpu.gl_vendor") == "Google Inc. (Samsung Electronics Co., Ltd.)");
+    // Past PROP_VALUE_MAX: a long read-only value, whole.
+    CHECK(get("ro.minato.gpu.gl_renderer") ==
+          "ANGLE (Samsung Electronics Co. Ltd., Vulkan 1.3.279 (Samsung Xclipse 940 (0x02600200)), Samsung "
+          "Proprietary driver-24.3.9)");
+    CHECK(get("ro.minato.gpu.vk_device_name") == "Samsung Xclipse 940");
+    CHECK(get("ro.minato.gpu.vk_vendor_id") == "5197");              // 0x144D
+    CHECK(get("ro.minato.gpu.vk_device_id") == "39846400");          // 0x02600200
+    CHECK(get("ro.minato.gpu.vk_driver_version") == "100675593");    // 24.3.9
+    CHECK(get("ro.minato.gpu.vk_driver_id") == "21");                // VK_DRIVER_ID_SAMSUNG_PROPRIETARY
     CHECK(apkrt_set_device_profile("") == 0);
     area = apkrt::properties::area();
     CHECK(!get("ro.minato.gpu.gl_renderer"));
