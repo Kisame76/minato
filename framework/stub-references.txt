@@ -89,7 +89,6 @@ android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame i
 android.view.animation.ClipRectAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ExtendAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.accessibility.AccessibilityInteractionClient <- android.view.accessibility.AccessibilityRecord  # stays: accessibility is off on Minato (ADR-0041), so no service asks for nodes
-android.credentials.CredentialOption <- android.view.View  # gap: Credential Manager requests
 android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
 android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 

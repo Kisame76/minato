@@ -236,3 +236,42 @@ android.media.ResourceBusyException
 # Batch M3: android.media's ApplicationMediaCapabilities, with its Builder, from the Media module.
 android.media.ApplicationMediaCapabilities
 android.media.ApplicationMediaCapabilities$Builder
+# Batch C1: the secondary display, the credential manager's request
+# types, the device admin info, slices and MBMS's service info with its two subclasses.
+android.app.Presentation
+android.credentials.Credential
+android.credentials.CredentialOption
+android.credentials.CreateCredentialRequest
+android.credentials.CreateCredentialResponse
+android.credentials.CreateCredentialException
+android.credentials.ClearCredentialStateRequest
+android.credentials.ClearCredentialStateException
+android.app.admin.DeviceAdminInfo
+android.app.slice.Slice
+android.app.slice.SliceItem
+android.app.slice.SliceSpec
+android.telephony.mbms.ServiceInfo
+android.telephony.mbms.FileServiceInfo
+android.telephony.mbms.FileInfo
+android.telephony.mbms.StreamingServiceInfo
+# Batch C2: the MIDI device types, the text-to-speech service's request and callback, the chooser's types, three provider
+# contracts, the key confirmation types, a conversation status and a blob handle.
+android.media.midi.MidiDeviceInfo
+android.media.midi.MidiDeviceStatus
+android.media.midi.MidiReceiver
+android.media.midi.MidiSender
+android.speech.tts.SynthesisCallback
+android.speech.tts.SynthesisRequest
+android.service.chooser.AdditionalContentContract
+android.service.chooser.ChooserAction
+android.service.chooser.ChooserResult
+android.service.chooser.ChooserTarget
+android.provider.SettingsSlicesContract
+android.provider.SimPhonebookContract
+android.provider.Contacts
+android.security.AttestedKeyPair
+android.security.ConfirmationAlreadyPresentingException
+android.security.ConfirmationCallback
+android.security.ConfirmationNotAvailableException
+android.app.people.ConversationStatus
+android.app.blob.BlobHandle

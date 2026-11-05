@@ -2729,3 +2729,50 @@ frameworks_base/core/java/android/hardware/IConsumerIrService.aidl
 # framework/managers; the receiver and the info that an app's admin classes extend and read are AOSP's.
 frameworks_base/core/java/android/app/admin/DeviceAdminReceiver.java
 frameworks_base/core/java/android/app/admin/DeviceAdminInfo.java
+
+# Batch C1 (framework breadth, pure Java, by what libraries and old apps name): the secondary display's Presentation,
+# the credential manager's request, response and exception types (androidx.credentials names them on Android 15),
+# slices, and MBMS's ServiceInfo with its two subclasses; api-breadth-test loads each. Out for now: SplashScreenView (it
+# pulls the jank monitor), ActivityGroup and LocalActivityManager (the latter pulls the activity thread's server
+# transaction classes) and with them TabActivity, ApplicationStartInfo (it needs a generated proto class) and
+# AssistStructure (it calls ViewRootImpl members that ours lacks).
+frameworks_base/core/java/android/app/Presentation.java
+frameworks_base/core/java/android/credentials/Credential.java
+frameworks_base/core/java/android/credentials/CredentialOption.java
+frameworks_base/core/java/android/credentials/CreateCredentialRequest.java
+frameworks_base/core/java/android/credentials/CreateCredentialResponse.java
+frameworks_base/core/java/android/credentials/CreateCredentialException.java
+frameworks_base/core/java/android/credentials/ClearCredentialStateRequest.java
+frameworks_base/core/java/android/credentials/ClearCredentialStateException.java
+frameworks_base/core/java/android/app/slice/Slice.java
+frameworks_base/core/java/android/app/slice/SliceItem.java
+frameworks_base/core/java/android/app/slice/SliceSpec.java
+frameworks_base_types/telephony/java/android/telephony/mbms/ServiceInfo.java
+frameworks_base_types/telephony/java/android/telephony/mbms/FileServiceInfo.java
+frameworks_base_types/telephony/java/android/telephony/mbms/FileInfo.java
+frameworks_base_types/telephony/java/android/telephony/mbms/StreamingServiceInfo.java
+
+# Batch C2 (framework breadth, pure Java, from Android's public API): the MIDI device types, the text-to-speech
+# service's request and callback, the chooser's targets and actions, the provider contracts, the key confirmation types,
+# a conversation status and a blob handle; api-breadth-test loads each.
+frameworks_base_types/media/java/android/media/midi/MidiDeviceInfo.java
+frameworks_base_types/media/java/android/media/midi/MidiDeviceStatus.java
+frameworks_base_types/media/java/android/media/midi/MidiReceiver.java
+frameworks_base_types/media/java/android/media/midi/MidiSender.java
+frameworks_base/core/java/android/speech/tts/SynthesisCallback.java
+frameworks_base/core/java/android/speech/tts/SynthesisRequest.java
+frameworks_base/core/java/android/service/chooser/AdditionalContentContract.java
+frameworks_base/core/java/android/service/chooser/ChooserAction.java
+frameworks_base/core/java/android/service/chooser/ChooserResult.java
+frameworks_base/core/java/android/service/chooser/ChooserTarget.java
+frameworks_base/core/java/android/provider/SettingsSlicesContract.java
+frameworks_base/core/java/android/provider/SimPhonebookContract.java
+frameworks_base/core/java/android/provider/Contacts.java
+frameworks_base_types/keystore/java/android/security/AttestedKeyPair.java
+frameworks_base/core/java/android/security/ConfirmationAlreadyPresentingException.java
+frameworks_base/core/java/android/security/ConfirmationCallback.java
+frameworks_base/core/java/android/security/ConfirmationNotAvailableException.java
+frameworks_base/core/java/android/app/people/ConversationStatus.java
+frameworks_base_types/apex/blobstore/framework/java/android/app/blob/BlobHandle.java
+frameworks_base_types/apex/blobstore/framework/java/android/app/blob/XmlTags.java
+
