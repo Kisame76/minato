@@ -51,6 +51,12 @@ public class StorageSpaceApplication extends Application {
         return v == UNAVAILABLE ? "exc" : v + " (" + String.format("%.2f", v / (1024.0 * 1024 * 1024)) + " GiB)";
     }
 
+    /** Slack for the alloc>=usable-low relation: getUsableSpace and getAllocatableBytes are two separate reads of the
+     * filesystem, so a free-space change between them (a busy disk) can make allocatable fall a little below usable-low
+     * although AOSP computes the two equal from one snapshot. 256 MiB absorbs that drift without masking a real
+     * shortfall. */
+    private static final long RELATION_SLACK = 256L * 1024 * 1024;
+
     /** The low-storage reserve AOSP's getAllocatableBytes subtracts: min(5% of total, 500 MiB). */
     private static long lowReserve(long total) {
         return total <= 0 ? UNAVAILABLE : Math.min((total * 5) / 100, 500L * 1024 * 1024);
@@ -79,7 +85,7 @@ public class StorageSpaceApplication extends Application {
                 + " allocatable=" + outcome(allocatable)
                 + " alloc<=usable=" + yesNo(allocatable != UNAVAILABLE && usable != UNAVAILABLE && allocatable <= usable)
                 + " alloc>=usable-low=" + yesNo(allocatable != UNAVAILABLE && usable != UNAVAILABLE && low != UNAVAILABLE
-                        && allocatable >= usable - low)
+                        && allocatable >= usable - low - RELATION_SLACK)
                 + " uuid=" + (uuid == null ? "null" : StorageManager.UUID_DEFAULT.equals(uuid) ? "default" : "other"));
         Log.i(DEVICE, label + " raw: statfs(avail=" + show(statfsAvail) + " total=" + show(statfsTotal) + ") file(usable="
                 + show(usable) + " free=" + show(freeSpace) + " total=" + show(total) + ") allocatable=" + show(allocatable)
