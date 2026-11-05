@@ -53,10 +53,11 @@ public struct Mouse: Sendable {
         return join() + [report(7, axes: axes, time: time)]
     }
 
-    /// The buttons held now (UIEvent.buttonMask), with the pointer at `x`, `y`.
+    /// The buttons held now (UIEvent.buttonMask), with the pointer at `x`, `y`. The same buttons at another place are
+    /// a drag's move: while a button is held only touchesMoved reports the pointer.
     public mutating func buttons(_ now: Int32, x: Double, y: Double, time: Int64) -> [PadEvent] {
         let wanted = now & 0x1f
-        guard wanted != held else { return [] }
+        guard wanted != held else { return moved(x: x, y: y, time: time) }
         var events = moved(x: x, y: y, time: time)
         if events.isEmpty { events = join() }
         let position = place.map { [AxesRecord.Axis(axis: 0, value: $0.x), AxesRecord.Axis(axis: 1, value: $0.y)] }

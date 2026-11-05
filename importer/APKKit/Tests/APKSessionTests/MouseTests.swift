@@ -60,6 +60,18 @@ import Testing
                                                                        "12 b0 t3 s2002 0=660.0 1=1230.0"])
     }
 
+    /// While a button is held only touchesMoved reports the pointer, as the same mask: each is a move with the button
+    /// held, so that a drag is no click (text selection, sliders, maps, painting).
+    @Test func theSameButtonsAtAnotherPlaceAreADragsMove() {
+        var mouse = Mouse(scale: 1)
+        _ = mouse.moved(x: 10, y: 20, time: 1)
+        #expect(reports(mouse.buttons(1, x: 10, y: 20, time: 2)) == ["11 b1 t3 s2002 0=10.0 1=20.0"])
+        #expect(reports(mouse.buttons(1, x: 15, y: 20, time: 3)) == ["7 b1 t3 s2002 0=15.0 1=20.0 27=5.0"])
+        #expect(reports(mouse.buttons(1, x: 15, y: 30, time: 4)) == ["7 b1 t3 s2002 0=15.0 1=30.0 28=10.0"])
+        #expect(mouse.buttons(1, x: 15, y: 30, time: 5).isEmpty)
+        #expect(reports(mouse.buttons(0, x: 15, y: 30, time: 6)) == ["12 b0 t3 s2002 0=15.0 1=30.0"])
+    }
+
     @Test func backAndForwardAreButtons8And16() {
         var mouse = Mouse(scale: 1)
         _ = mouse.moved(x: 1, y: 1, time: 1)
