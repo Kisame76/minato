@@ -111,8 +111,14 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
         }
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification)
-        async -> UNNotificationPresentationOptions {
+    // The delegate's methods take UIKit's completion handlers and call them on the main thread. Their async variants
+    // return on Swift's cooperative pool, where UIKit asserts (the snapshot after didReceive's completion aborted
+    // Minato at every tap on the iPhone).
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
         let importance = notification.request.content.userInfo[Self.importanceKey] as? Int ?? 3
         var options: UNNotificationPresentationOptions = []
         for shown in NotificationPost.presentation(importance: importance) {
@@ -122,15 +128,38 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
             case .sound: options.insert(.sound)
             }
         }
-        return options
+        let done = Carried(value: { completionHandler(options) })
+        Self.onMain { done.value() }
     }
 
     /// A tap on a notification (ADR-0074 decision 4): while the app's session runs, the guest sends the notification's
     /// content intent (APKRT_EVENT_NOTIFICATION_TAP); otherwise iOS has brought Minato to the front.
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
-        guard let key = Self.key(response.notification.request.content.userInfo) else { return }
-        await MainActor.run { Self.tapped(key) }
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let key = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+            ? Self.key(response.notification.request.content.userInfo) : nil
+        let done = Carried(value: completionHandler)
+        Self.onMain {
+            if let key { Self.tapped(key) }
+            done.value()
+        }
+    }
+
+    /// Runs `work` on the main thread: at once when this is it, else next on the main queue.
+    private static func onMain(_ work: @escaping @MainActor @Sendable () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(work)
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    /// A value UserNotifications hands over, such as a completion handler of the delegate's, carried to the main
+    /// thread.
+    private struct Carried<Value>: @unchecked Sendable {
+        let value: Value
     }
 
     /// The app, id and tag a notification's userInfo names.
@@ -156,15 +185,30 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     }
 
     #if DEBUG
-    /// session-check's notification-tap: a tap on the app's newest delivered notification, as didReceive takes it.
+    /// session-check's notification-tap: a tap on the app's newest delivered notification. Its response goes to the
+    /// center's delegate through the Objective-C runtime, as UIKit sends a tap's, with a completion handler that logs
+    /// whether it ran on the main thread, where UIKit's must (a completion off it aborted Minato at every tap). The
+    /// response is made by UNNotificationResponse's own factory, which the SDK does not declare: Debug builds only.
     func tapNewest(package: String) {
-        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
             let mine = delivered.filter { ($0.request.content.userInfo[Self.packageKey] as? String) == package }
             guard let newest = mine.max(by: { $0.date < $1.date }) else {
                 return SessionCheck.event("notification tap: none delivered")
             }
-            guard let key = Self.key(newest.request.content.userInfo) else { return }
-            Task { @MainActor in Self.tapped(key) }
+            let make = NSSelectorFromString("responseWithNotification:actionIdentifier:")
+            let made = (UNNotificationResponse.self as AnyObject)
+                .perform(make, with: newest, with: UNNotificationDefaultActionIdentifier)?.takeUnretainedValue()
+            guard let response = made as? UNNotificationResponse else {
+                return SessionCheck.event("notification tap: no response")
+            }
+            let carried = Carried(value: response)
+            DispatchQueue.main.async {
+                let center = UNUserNotificationCenter.current()
+                center.delegate?.userNotificationCenter?(center, didReceive: carried.value) {
+                    SessionCheck.event("notification response completed on the main thread \(Thread.isMainThread)")
+                }
+            }
         }
     }
     #endif

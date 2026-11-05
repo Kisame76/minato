@@ -1371,9 +1371,10 @@ fi
 # ADR-0074 decision 4 in the Simulator: notify-tap-test starts with the grant (the host's record of the app) and sends
 # its notification's content intent itself, which is what SystemUI does on a tap; its first lines must be Android 15's.
 # Its post comes in the Application's onCreate, before the session, and the host must get it all the same. Then
-# session-check's notification-tap taps the delivered notification as UNUserNotificationCenter's didReceive does: the
-# guest sends the content intent again (APKRT_EVENT_NOTIFICATION_TAP), TapActivity opens a second time, and the
-# notification, auto-cancelled, is gone.
+# session-check's notification-tap taps the delivered notification, its response sent to Minato's delegate as UIKit
+# sends a tap's: the guest sends the content intent again (APKRT_EVENT_NOTIFICATION_TAP), TapActivity opens a second
+# time, the notification, auto-cancelled, is gone, and the delegate called its completion handler on the main thread,
+# where UIKit asserts.
 if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   mkdir -p "$SUPPORT/data/io.github.kisame76.minato.test.notifytap"
   echo '{"notifications":{"outcome":1,"denials":0}}' \
@@ -1396,6 +1397,9 @@ if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   posts=$(grep -c -E " notification posted tap\|3 " "$EVENTS" || true)
   if [[ "$posts" == 1 ]]; then ok "  the host got the post of the Application's onCreate"; else
     fail "  the host got $posts posts of the Application's onCreate, not 1"; fi
+  on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
+  if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the tap's response on the main thread"; else
+    fail "  the delegate completed the tap's response on the main thread $on_main times, not once"; fi
   grep -E "^I/notify-tap-test: " "$WORK/notify-tap-test-1.log" | head -n 5 > "$WORK/notify-tap-test-head.log"
   if cmp -s "$WORK/notify-tap-test-head.log" fixtures/expected/notify-tap-test.logcat; then
     ok "  notify-tap-test's first 5 lines are Android 15's"
@@ -1435,6 +1439,10 @@ if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   fi
   sleep 2
   end_start notify-tap-test 3
+  fetch_events
+  on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
+  if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the cold tap's response on the main thread"; else
+    fail "  the delegate completed the cold tap's response on the main thread $on_main times, not once"; fi
 fi
 
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
