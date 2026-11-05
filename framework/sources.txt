@@ -529,6 +529,7 @@ frameworks_base/core/java/android/view/ViewGroup.java
 frameworks_base/core/java/android/view/ViewManager.java
 frameworks_base/core/java/android/view/ViewOutlineProvider.java
 frameworks_base/core/java/android/view/ViewParent.java
+frameworks_base/core/java/android/view/ViewRootRectTracker.java
 frameworks_base/core/java/android/view/ViewStub.java
 frameworks_base/core/java/android/view/ViewTreeObserver.java
 frameworks_base/core/java/android/view/WindowInsets.java
@@ -709,6 +710,7 @@ frameworks_base/core/java/android/window/WindowOnBackInvokedDispatcher.java
 frameworks_base/core/java/android/window/ProxyOnBackInvokedDispatcher.java
 frameworks_base/core/java/android/window/ImeOnBackInvokedDispatcher.java
 frameworks_base/core/java/android/window/OnBackInvokedCallback.java
+frameworks_base/core/java/android/window/OnBackInvokedCallbackInfo.java
 frameworks_base/core/java/android/window/OnBackAnimationCallback.java
 frameworks_base/core/java/android/window/CompatOnBackInvokedCallback.java
 frameworks_base/core/java/android/window/BackEvent.java

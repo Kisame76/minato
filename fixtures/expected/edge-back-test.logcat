@@ -1,0 +1,102 @@
+I/edge-back-test: ready
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the right edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the right edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the right edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the right edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: back: started from the left edge
+I/edge-back-test: touch: cancel
+I/edge-back-test: back: invoked, progressed true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved true
+I/edge-back-test: touch: down
+I/edge-back-test: touch: up, moved false
+I/edge-back-test: done

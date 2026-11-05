@@ -42,6 +42,7 @@ import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
+import android.util.DisplayMetrics;
 import android.graphics.Region;
 import android.graphics.RenderNode;
 import android.os.Bundle;
@@ -60,12 +61,15 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.window.ActivityWindowInfo;
 import android.window.BackEvent;
+import android.window.BackMotionEvent;
 import android.window.ClientWindowFrames;
 import android.window.CompatOnBackInvokedCallback;
 import android.window.OnBackAnimationCallback;
 import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedCallbackInfo;
 import android.window.OnBackInvokedDispatcher;
 import android.window.WindowOnBackInvokedDispatcher;
+import com.android.minato.view.EdgeBackGesture;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.policy.DecorView;
 import java.io.PrintWriter;
@@ -89,6 +93,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private static final int MSG_CHECK_FOCUS = 5;
     private static final int MSG_DISPATCH_INPUT_EVENT = 6;
     private static final int MSG_DISPATCH_KEY_FROM_IME = 7;
+    private static final int MSG_SYSTEM_GESTURE_EXCLUSION_CHANGED = 8;
 
     /** Called with the activity's configuration; AOSP's ActivityThread gives it every window of an activity. */
     public interface ActivityConfigCallback {
@@ -172,7 +177,22 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private final Runnable mTraversalRunnable = this::doTraversal;
     private View mView;
     private ActivityConfigCallback mActivityConfigCallback;
-    private List<Rect> mRootGestureExclusionRects = Collections.emptyList();
+    /** As AOSP's: the views' system gesture exclusion rects, with the root's, in the window's coordinates. */
+    private final ViewRootRectTracker mGestureExclusionTracker =
+            new ViewRootRectTracker(v -> v.getSystemGestureExclusionRects());
+    /**
+     * The exclusion rects as AOSP reports them to the window manager (reportSystemGestureExclusionChanged): here the
+     * edge back gesture's stage reads them (ADR-0041 decision 10 step b2).
+     */
+    private List<Rect> mSystemGestureExclusionRects = Collections.emptyList();
+    /** The edge back gesture of gesture navigation, which Minato's windows recognize themselves (step b2). */
+    private EdgeBackGesture mEdgeBack;
+    /** The window's top back callback as the window manager gets it (setOnBackInvokedCallbackInfo). */
+    private final BackSession mBackSession = new BackSession();
+    /** The app's cancel that a back's start makes is on its way through the stages, past the gesture. */
+    private boolean mEdgeBackCancelling;
+    /** The edge back that started with the keyboard up, which only the keyboard takes. */
+    private boolean mEdgeBackForKeyboard;
     private boolean mAdded;
     private boolean mRemoved;
     private boolean mStopped;
@@ -435,6 +455,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                     deliverInputEvent(event, null, true);
                     break;
                 }
+                case MSG_SYSTEM_GESTURE_EXCLUSION_CHANGED:
+                    systemGestureExclusionChanged();
+                    break;
                 default:
                     break;
             }
@@ -543,6 +566,9 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAttachInfo.mTreeObserver.dispatchOnWindowAttachedChange(true);
             dispatchApplyInsets(host);
             insetsDispatched = true;
+            // As AOSP's: the dispatcher sends its top callback to the window manager, here the window's own session,
+            // which the edge back gesture calls as Android's back navigation does (ADR-0041 decision 10 step b2).
+            mOnBackInvokedDispatcher.attachToWindow(mBackSession, mWindow, null);
             if (!mOnBackInvokedDispatcher.isOnBackInvokedCallbackEnabled()) {
                 // As AOSP's: for an app that requests the legacy back, a compat callback that dispatches KEYCODE_BACK
                 // to its views.
@@ -1318,6 +1344,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 mAttachInfo.mRootView = null;
             }
             takenSurfaceDestroyed();
+            mOnBackInvokedDispatcher.detachFromWindow();
             mSurface.release();
             if (mInputQueue != null) {
                 // As AOSP's dispatchDetachedFromWindow: the queue goes after its callback heard of it.
@@ -1746,6 +1773,191 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         }
     }
 
+    /**
+     * The edge back gesture of Android 15's gesture navigation (ADR-0041 decision 10 step b2), which SystemUI and
+     * the window manager give an app on Android: EdgeBackGesture decides on each touch of the screen, in its display
+     * coordinates, with the window's exclusion rects; this window's back callback gets the back as from Android's
+     * back navigation, through its window manager wrapper (onBackStarted, the touch's moves through the dispatcher's
+     * onMotionEvent as AOSP's ViewRootImpl gives them, onBackInvoked or onBackCancelled). The app gets the touch until
+     * the back starts, then a cancel, and nothing more of it. Whether the gesture takes the event from the app.
+     */
+    private boolean edgeBackTakes(MotionEvent event) {
+        if (mEdgeBack == null) {
+            mEdgeBack = new EdgeBackGesture(mContext.getResources().getDisplayMetrics().density);
+        }
+        final float x = event.getRawX(), y = event.getRawY();
+        mEdgeBack.setTime(event.getEventTime());
+        final int step;
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                final DisplayMetrics display = mContext.getResources().getDisplayMetrics();
+                final int dx = Math.round(x - event.getX()), dy = Math.round(y - event.getY());
+                final List<Rect> rects = mSystemGestureExclusionRects;
+                final int[] exclusions = new int[rects.size() * 4];
+                for (int i = 0; i < rects.size(); i++) {
+                    final Rect rect = rects.get(i);
+                    exclusions[i * 4] = rect.left + dx;
+                    exclusions[i * 4 + 1] = rect.top + dy;
+                    exclusions[i * 4 + 2] = rect.right + dx;
+                    exclusions[i * 4 + 3] = rect.bottom + dy;
+                }
+                mEdgeBack.setWindow(display.widthPixels, display.heightPixels, exclusions);
+                // A game's hidden bars, which a swipe shows for a while (Android 15's transient bars).
+                mEdgeBack.setBarsHidden(mInsetsController.getSystemBarsBehavior()
+                        == WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        && (mInsetsController.getRequestedVisibleTypes() & WindowInsets.Type.navigationBars()) == 0);
+                step = mEdgeBack.down(x, y);
+                break;
+            }
+            case MotionEvent.ACTION_MOVE:
+                step = mEdgeBack.move(x, y);
+                break;
+            case MotionEvent.ACTION_UP:
+                step = mEdgeBack.up(x, y);
+                break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                step = mEdgeBack.pointerDown();
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                step = mEdgeBack.cancel();
+                break;
+            default:
+                step = mEdgeBack.owns() ? EdgeBackGesture.SWALLOW : EdgeBackGesture.APP;
+                break;
+        }
+        final OnBackInvokedCallbackInfo info = mBackSession.mInfo;
+        try {
+            switch (step) {
+                case EdgeBackGesture.START: {
+                    mEdgeBackForKeyboard = imeShown();
+                    if (info != null && !mEdgeBackForKeyboard) {
+                        info.getCallback().onBackStarted(new BackMotionEvent(x, y, 0f, 0f, 0f, false,
+                                mEdgeBack.fromLeft() ? BackEvent.EDGE_LEFT : BackEvent.EDGE_RIGHT, null));
+                    }
+                    // The app's cancel comes after the back's start, as on Android, where SystemUI takes the touch
+                    // once it has started the back: the wrapper posts onBackStarted to the main thread, so the
+                    // cancel is posted after it.
+                    final MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    mHandler.post(() -> {
+                        mEdgeBackCancelling = true;
+                        try {
+                            deliverInputEvent(cancel, null, false);
+                        } finally {
+                            mEdgeBackCancelling = false;
+                        }
+                    });
+                    return true;
+                }
+                case EdgeBackGesture.PROGRESS:
+                    if (!mEdgeBackForKeyboard) {
+                        mOnBackInvokedDispatcher.onMotionEvent(event);
+                    }
+                    return true;
+                case EdgeBackGesture.COMMIT:
+                    if (mEdgeBackForKeyboard) {
+                        edgeBackHidesKeyboard();
+                    } else if (info != null) {
+                        info.getCallback().setTriggerBack(true);
+                        info.getCallback().onBackInvoked();
+                    } else {
+                        dispatchSystemBack(BACK_COMMIT, 1f, mEdgeBack.fromLeft() ? 0 : 1);
+                    }
+                    return true;
+                case EdgeBackGesture.CANCEL:
+                    if (info != null && !mEdgeBackForKeyboard) {
+                        info.getCallback().onBackCancelled();
+                    }
+                    return true;
+                case EdgeBackGesture.SWALLOW:
+                    return true;
+                default:
+                    return false;
+            }
+        } catch (android.os.RemoteException e) {
+            // The callbacks are this process's own.
+            return true;
+        }
+    }
+
+    /** Whether the keyboard is up, as the window's insets say: the host's keyboard, which the guest's ime() follows. */
+    private boolean imeShown() {
+        final WindowInsets insets = mView != null ? mView.getRootWindowInsets() : null;
+        return insets != null && insets.isVisible(WindowInsets.Type.ime());
+    }
+
+    /**
+     * Android 15's edge back with the keyboard up is the BACK key's (measured: ime-hide-test and ime-hide-test-cb with
+     * an edge swipe in place of BACK on apk-runner-35 in gesture navigation, with LatinIME, log what they log with the
+     * key): the input method takes it and hides, the app's back callbacks get nothing, and a view sees BACK in
+     * onKeyPreIme unless the app opted in to OnBackInvokedCallback. Here the host's keyboard goes, then the window
+     * plays the user's hide.
+     */
+    private void edgeBackHidesKeyboard() {
+        final android.view.inputmethod.InputMethodManager keyboard =
+                mContext.getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null && mView != null) {
+            keyboard.hideSoftInputFromWindow(mView.getWindowToken(), 0);
+        }
+        dispatchImeHiddenByUser();
+    }
+
+    /**
+     * The window manager's side of the window's back callbacks in AOSP (IWindowSession.setOnBackInvokedCallbackInfo):
+     * the dispatcher's wrapper of its top callback, which the edge back gesture calls. Nothing else of a session.
+     */
+    private static final class BackSession implements IWindowSession {
+        OnBackInvokedCallbackInfo mInfo;
+
+        @Override
+        public void setOnBackInvokedCallbackInfo(IWindow window, OnBackInvokedCallbackInfo callbackInfo) {
+            mInfo = callbackInfo;
+        }
+
+        @Override
+        public void cancelDragAndDrop(android.os.IBinder dragToken, boolean skipAnimation) {
+            throw new UnsupportedOperationException("the back's session has no drag and drop");
+        }
+
+        @Override
+        public boolean dropForAccessibility(IWindow window, int x, int y) {
+            throw new UnsupportedOperationException("the back's session has no drag and drop");
+        }
+
+        @Override
+        public void finishMovingTask(IWindow window) {
+            throw new UnsupportedOperationException("the back's session moves no task");
+        }
+
+        @Override
+        public IWindowId getWindowId(android.os.IBinder window) {
+            throw new UnsupportedOperationException("the back's session has no window ids");
+        }
+
+        @Override
+        public boolean startMovingTask(IWindow window, float startX, float startY) {
+            throw new UnsupportedOperationException("the back's session moves no task");
+        }
+
+        @Override
+        public void generateDisplayHash(IWindow window, Rect boundsInWindow, String hashAlgorithm,
+                android.os.RemoteCallback callback) {
+            throw new UnsupportedOperationException("the back's session makes no display hash");
+        }
+
+        @Override
+        public android.os.IBinder performDrag(IWindow window, int flags, SurfaceControl surface, int touchSource,
+                int touchDeviceId, int touchPointerId, float touchX, float touchY, float thumbCenterX,
+                float thumbCenterY, android.content.ClipData data) {
+            throw new UnsupportedOperationException("the back's session has no drag and drop");
+        }
+
+        @Override
+        public android.os.IBinder asBinder() {
+            return null;
+        }
+    }
+
     /** APKRT_BACK_COMMIT of guest_interface.h's apkrt_back_phase. */
     private static final int BACK_COMMIT = 3;
 
@@ -1816,12 +2028,28 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return false;
     }
 
+    /** As AOSP's: the root-level exclusion rects, added to those of the view hierarchy. */
     public void setRootSystemGestureExclusionRects(List<Rect> rects) {
-        mRootGestureExclusionRects = new ArrayList<>(rects);
+        mGestureExclusionTracker.setRootRects(rects);
+        mHandler.sendEmptyMessage(MSG_SYSTEM_GESTURE_EXCLUSION_CHANGED);
     }
 
     public List<Rect> getRootSystemGestureExclusionRects() {
-        return mRootGestureExclusionRects;
+        return mGestureExclusionTracker.getRootRects();
+    }
+
+    /** The exclusion rects the window has now, in its coordinates (ADR-0041 decision 10 step b2). */
+    List<Rect> systemGestureExclusionRects() {
+        return mSystemGestureExclusionRects;
+    }
+
+    /** As AOSP's systemGestureExclusionChanged, with the rects kept here in place of the window manager's report. */
+    private void systemGestureExclusionChanged() {
+        final List<Rect> rects = mGestureExclusionTracker.computeChangedRects();
+        if (rects != null && mView != null) {
+            mSystemGestureExclusionRects = rects;
+            mAttachInfo.mTreeObserver.dispatchOnSystemGestureExclusionRectsChanged(rects);
+        }
     }
 
     /** As AOSP's: a stopped activity's window, which traverses again once its activity restarts. */
@@ -2065,6 +2293,15 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * to the receiver, or for an event handed in directly, its recycling.
      */
     private void deliverInputEvent(InputEvent event, InputEventReceiver receiver, boolean postIme) {
+        if (event instanceof MotionEvent && event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN) && !mEdgeBackCancelling
+                && edgeBackTakes((MotionEvent) event)) {
+            if (receiver != null) {
+                receiver.finishInputEvent(event, true);
+            } else {
+                event.recycleIfNeededAfterDispatch();
+            }
+            return;
+        }
         if (mInputQueue != null) {
             mQueuedDeliveries.add(() -> deliverToInputQueue(event, receiver, postIme));
             if (mQueuedDeliveries.size() == 1) {
@@ -2755,7 +2992,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public void dispatchCompatFakeFocus() {
     }
 
+    /** As AOSP's: a view's exclusion rects changed, or its place did. */
     void updateSystemGestureExclusionRectsForView(View view) {
+        mGestureExclusionTracker.updateRectsForView(view);
+        mHandler.sendEmptyMessage(MSG_SYSTEM_GESTURE_EXCLUSION_CHANGED);
     }
 
     public void updateDecorViewGestureInterception(boolean intercepted) {

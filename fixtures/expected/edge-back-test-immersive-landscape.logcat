@@ -1,0 +1,30 @@
+I/edge-back-test-immersive-landscape: ready
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: back: started from the left edge
+I/edge-back-test-immersive-landscape: touch: cancel
+I/edge-back-test-immersive-landscape: back: invoked, progressed true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: back: started from the left edge
+I/edge-back-test-immersive-landscape: touch: cancel
+I/edge-back-test-immersive-landscape: back: invoked, progressed true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: back: started from the right edge
+I/edge-back-test-immersive-landscape: touch: cancel
+I/edge-back-test-immersive-landscape: back: invoked, progressed true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved true
+I/edge-back-test-immersive-landscape: touch: down
+I/edge-back-test-immersive-landscape: touch: up, moved false
+I/edge-back-test-immersive-landscape: done

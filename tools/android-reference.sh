@@ -239,7 +239,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == orientation-request-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
-  "$app" == back-test-callback ]]; then
+  "$app" == back-test-callback || "$app" == edge-back-test* ]]; then
   AVD=apk-runner-35-iphone-gesture
   avd_display=$'hw.lcd.width=1290\nhw.lcd.height=2796\nhw.lcd.density=480\nhw.mainKeys=no\n'
 fi
@@ -1221,6 +1221,13 @@ run_app() {
     back-test | back-test-callback)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RootActivity
       ;;
+    # edge-back-test (ADR-0041 decision 10 step b2): swipes in from the edges under gesture navigation, which give
+    # the back to its callback or the touch to its pad; a tap in the middle ends it with "done". Its twins hold
+    # landscape, hide the system bars, or both.
+    edge-back-test | edge-back-test-landscape | edge-back-test-immersive | edge-back-test-immersive-landscape)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EdgeActivity
+      limit=180
+      ;;
     # native-ime-test (ADR-0068 step 2e): a NativeActivity that asks for the keyboard, which Android 15 ignores, so its
     # fixture input method never starts; after its "soft input done" the script sends B and DEL as keys from outside,
     # and the DEL's release ends it with "done".
@@ -1461,6 +1468,44 @@ run_app() {
     { wait_for "$app" "pad: ready" && sleep 1 && run input tap 645 1398 &&
       wait_for "$app" "gesture: single tap confirmed" && sleep 1 &&
       run input swipe 300 1398 1000 1398 200; } || return 1
+  fi
+  if [[ "$app" == edge-back-test* ]]; then
+    # ADR-0041 decision 10 step b2: swipes in from the edges under gesture navigation, each 1.5 s after the last, in the
+    # display's turned coordinates at 3 px per dp: from the left edge at stepped distances (the back's inset), a long
+    # way from 2 dp in stepped lengths, slowly (the commit's distance), one short and fast (a fling), the same from the
+    # right edge, one in the excluded band (40 % to 50 % of the height), one near the top, one mostly down, then a tap
+    # in the middle, which ends the run. None in the status bar's strip, which SystemUI's window takes and Minato has
+    # not, and none along the bottom: there the navigation handle's swipe switches apps, and on the iPhone that strip
+    # is iOS's home indicator. tools/edge-back-check.sh plays the same on the Mac.
+    wait_for "$app" ready || return 1
+    local size w h y
+    size=$(run dumpsys window displays | tr -d '\r' |
+      awk '!found && match($0, /cur=[0-9]+x[0-9]+/) { print substr($0, RSTART + 4, RLENGTH - 4); found = 1 }')
+    w=${size%x*} h=${size#*x} y=$((h * 7 / 10))
+    edge_swipe() { sleep 1.5 && run input swipe "$@"; }
+    local x length
+    if [[ "$app" == edge-back-test-immersive* ]]; then
+      # With the bars hidden, each pair is a swipe that shows them and, 0.7 s later, well inside SystemUI's 2250 ms,
+      # one that is a back; 4 s apart, well after the bars have gone again: from the left edge, from the right edge,
+      # from 36 dp (outside the inset, both the app's), and in the excluded band (both the app's).
+      local pair
+      for pair in "6 $y 756 $y" "6 $y 756 $y" "$((w - 6)) $y $((w - 756)) $y" "108 $y 858 $y" \
+        "6 $((h * 45 / 100)) 756 $((h * 45 / 100))"; do
+        sleep 4 && run input swipe $pair 300 && sleep 0.7 && run input swipe $pair 300 || return 1
+      done
+      sleep 1.5 && run input tap $((w / 2)) $((h / 2)) || return 1
+    else
+      for x in 2 6 10 14 18 22 26 30 36 44; do edge_swipe $((x * 3)) $y $(((x + 250) * 3)) $y 300 || return 1; done
+      for length in 10 20 30 40 50 60 80 100 140; do
+        edge_swipe 6 $y $(((2 + length) * 3)) $y 600 || return 1
+      done
+      edge_swipe 6 $y 96 $y 60 || return 1
+      for x in 2 10 18 26 36; do edge_swipe $((w - x * 3)) $y $((w - (x + 250) * 3)) $y 300 || return 1; done
+      edge_swipe 6 $((h * 45 / 100)) 750 $((h * 45 / 100)) 300 || return 1
+      edge_swipe 6 120 750 120 300 || return 1
+      edge_swipe 6 $((h / 2 + 150)) 120 $((h - 300)) 300 || return 1
+      sleep 1.5 && run input tap $((w / 2)) $((h / 2)) || return 1
+    fi
   fi
   if [[ "$app" == action-bar-menu-test ]]; then
     # The keys of tools/action-bar-menu-check.sh's lifecycle, a second and a half apart: MENU, DOWN, ENTER, then, after

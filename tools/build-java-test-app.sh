@@ -54,6 +54,8 @@ cd "$(dirname "$0")/.."
 APP=${1:?usage: tools/build-java-test-app.sh <app>}
 JAVA=fixtures/java/$APP
 [[ -d "$JAVA" ]] || JAVA=fixtures/java/${APP%-*}
+# A twin of a twin, edge-back-test-immersive-landscape say, takes the first app's sources.
+[[ -d "$JAVA" ]] || JAVA=fixtures/java/${APP%-*-*}
 JDK=$(echo build/tools/jdk-17/*/Contents/Home)
 R8=build/sources/r8/r8.jar
 BOOT_CLASSES=build/art/java/all-classes.jar

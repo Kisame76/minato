@@ -1,0 +1,30 @@
+I/edge-back-test-immersive: ready
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: back: started from the left edge
+I/edge-back-test-immersive: touch: cancel
+I/edge-back-test-immersive: back: invoked, progressed true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: back: started from the left edge
+I/edge-back-test-immersive: touch: cancel
+I/edge-back-test-immersive: back: invoked, progressed true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: back: started from the right edge
+I/edge-back-test-immersive: touch: cancel
+I/edge-back-test-immersive: back: invoked, progressed true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved true
+I/edge-back-test-immersive: touch: down
+I/edge-back-test-immersive: touch: up, moved false
+I/edge-back-test-immersive: done
