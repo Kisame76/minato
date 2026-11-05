@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of alarms and jobs that run (run-test; the compatibility plan's decision 6): AlarmManager's alarms go off
+     at their time and JobScheduler runs its jobs while the app's process lives. The receiver and the job service are
+     the app's own. The app holds ACCESS_NETWORK_STATE (a job with a network constraint needs it) and no exact alarm
+     permission. The launcher activity is the framework's own android.app.Activity, so that `am start` starts the
+     process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.run" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.run.RunApplication">
+    <receiver android:name="io.github.kisame76.minato.test.run.AlarmReceiver" android:exported="false"/>
+    <service android:name="io.github.kisame76.minato.test.run.TestJob"
+        android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

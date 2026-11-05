@@ -44,6 +44,7 @@ package android.app;
 
 import android.app.compat.CompatChanges;
 import android.content.AttributionSource;
+import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
 import android.content.Context;
 import android.content.ComponentName;
@@ -699,6 +700,43 @@ public final class ActivityThread {
     /** The running services by their tokens, and the ServiceInfo each was made from; the main thread's. */
     final ArrayMap<IBinder, Service> mServices = new ArrayMap<>();
     private final ArrayMap<IBinder, ServiceInfo> mServicesData = new ArrayMap<>();
+
+    /**
+     * As scheduleReceiver, for a broadcast to a receiver of the manifest (gap 9, alarms and jobs that run): the
+     * receiver is made on the main thread through the app's AppComponentFactory and gets the intent.
+     */
+    void scheduleReceiver(Intent intent, ActivityInfo info) {
+        sMainThreadHandler.post(() -> handleReceiver(intent, info));
+    }
+
+    /**
+     * As AOSP's handleReceiver: the receiver through the factory with its split's class loader, a result that
+     * finishes by itself (the activity manager waits for none, an unordered broadcast), onReceive, and the finish of
+     * a goAsync() result.
+     */
+    private void handleReceiver(Intent intent, ActivityInfo info) {
+        final LoadedApk packageInfo = mLoadedApk;
+        BroadcastReceiver receiver = null;
+        try {
+            final ClassLoader cl = info.splitName != null ? packageInfo.getSplitClassLoader(info.splitName)
+                    : packageInfo.getClassLoader();
+            receiver = packageInfo.getAppFactory().instantiateReceiver(cl, info.name, intent);
+            intent.setExtrasClassLoader(cl);
+            intent.prepareToEnterProcess(isProtectedComponent(info), mInitialApplication.getAttributionSource());
+            receiver.setPendingResult(new BroadcastReceiver.PendingResult(0, null, null,
+                    BroadcastReceiver.PendingResult.TYPE_UNREGISTERED, false, false, null, UserHandle.myUserId(),
+                    intent.getFlags()));
+            receiver.onReceive(mInitialApplication.getBaseContext(), intent);
+        } catch (Exception e) {
+            if (!mInstrumentation.onException(receiver, e)) {
+                throw new RuntimeException("Unable to start receiver " + info.name + ": " + e.toString(), e);
+            }
+        }
+        final BroadcastReceiver.PendingResult result = receiver != null ? receiver.getPendingResult() : null;
+        if (result != null) {
+            result.finish();
+        }
+    }
 
     /** As scheduleCreateService. */
     void scheduleCreateService(IBinder token, ServiceInfo info, Intent intent) {

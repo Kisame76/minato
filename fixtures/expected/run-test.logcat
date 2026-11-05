@@ -1,0 +1,18 @@
+I/run-test: start
+I/run-test: job 1 scheduled: 1
+I/run-test: job 2 scheduled: 1
+I/run-test: job 3 scheduled: 1
+I/run-test: job 4 scheduled: 1
+I/run-test: job 4 pending: true
+I/run-test: job 4 pending after cancel: false
+I/run-test: alarm with a PendingIntent: 1 time(s), first in time
+I/run-test: alarm on the wall clock: 1 time(s), first in time
+I/run-test: alarm with a listener: 1 time(s), first in time
+I/run-test: repeating alarm after its cancel: quiet
+I/run-test: cancelled alarm: never
+I/run-test: job 1: 1 time(s), first in time, ended 1, stopped 0, pending false
+I/run-test: job 3: 1 time(s), first in time, ended 1, stopped 0, pending false
+I/run-test: job 4: never, ended 0, stopped 0, pending false
+I/run-test: job 2 (network) ran exactly when a network was there: true
+I/run-test: job 3 deadline expired: true
+I/run-test: done

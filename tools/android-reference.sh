@@ -668,7 +668,7 @@ run_app() {
       | location-manager-test \
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
-      | device-profile-test)
+      | device-profile-test | run-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

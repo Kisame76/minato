@@ -9,33 +9,54 @@
  *   - the job is kept by namespace and ID, and the same ID replaces it; a work item joins the equal job's queue; an
  *     app may keep 151 jobs, and the next one is refused with Android's message;
  *   - the pending jobs, one, the reason, cancel by ID, in a namespace, and all are answered from what is kept.
- * The jobs live as long as the process, where Android keeps the persisted ones across boots, and none runs: the
- * service never binds the app's JobService. Running the due jobs while the app is in front is the compatibility plan's
- * decision 6. A job's reason is the tag's for the constraints it asks for, none of which a never-running scheduler
- * sees met. Not checked: the user-initiated job's permission and state, the rate limit of persisted jobs, the
- * expedited jobs' quota, and a service of another package (the package manager knows the app's own only). Every other
+ * The jobs live as long as the process, where Android keeps the persisted ones across boots (a persisted job could be
+ * put back at the app's next start, which is not done yet), and they run while it lives (the compatibility plan's
+ * decision 6): a daemon thread starts a job when its minimum latency has passed and its constraints hold, or its
+ * deadline has passed [measured: run-test on apk-runner-35: a job without a constraint starts within milliseconds, one
+ * with an unmet constraint at its deadline, with isOverrideDeadlineExpired], by binding the app's JobService and
+ * calling startJob, and ends it when the service calls jobFinished (a rescheduled one waits for its backoff, a
+ * periodic one for its next period) or when it is cancelled (stopJob). The constraints: the network from the
+ * ConnectivityManager's active network, charging and a battery that is not low from the battery's sticky broadcast,
+ * storage never low, the device never idle, content URIs never triggered. Nothing runs while iOS suspends the app or
+ * after it ends; no Doze, standby buckets or quotas. A persisted job is not put back at the app's next start (a later
+ * step). Not checked: the user-initiated job's permission and state, the rate limit of persisted jobs, the expedited
+ * jobs' quota, and a service of another package (the package manager knows the app's own only). Every other
  * call is AIDL's Default answer. Not under com.android.minato, whose classes tools/framework-host-check.sh compiles on
  * the host without android.*.
  */
 package android.app;
 
 import android.Manifest;
+import android.app.job.IJobCallback;
 import android.app.job.IJobScheduler;
+import android.app.job.IJobService;
+import android.app.job.JobParameters;
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
 import android.app.job.JobService;
 import android.app.job.JobWorkItem;
 import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ParceledListSlice;
 import android.content.pm.ServiceInfo;
 import android.os.Binder;
 import android.os.Build;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
+import android.os.BatteryManager;
 import android.os.IBinder;
 import android.os.Process;
+import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.ArrayMap;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,13 +72,29 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
         final String namespace;
         final JobInfo job;
         final List<JobWorkItem> work = new ArrayList<>();
-        final long scheduledAt = SystemClock.elapsedRealtime();
+        long scheduledAt = SystemClock.elapsedRealtime();
+        /** The earliest start: the minimum latency (or a periodic job's window) and a backoff after a failure. */
+        long notBefore;
+        int failures;
+        int lastWorkId;
+        /** Set while the service runs the job. */
+        boolean running;
+        boolean deadlineExpired;
+        JobParameters params;
+        ServiceConnection connection;
+        IBinder service;
 
         Entry(String namespace, JobInfo job) {
             this.namespace = namespace;
             this.job = job;
+            notBefore = scheduledAt + (job.isPeriodic() ? Math.max(job.getIntervalMillis() - job.getFlexMillis(), 0)
+                    : job.getMinLatencyMillis());
         }
     }
+
+    private static final String TAG = "LocalJobScheduler";
+    /** JobStatus's default backoff ceiling, five hours. */
+    private static final long MAX_BACKOFF = 5 * 60 * 60 * 1000L;
 
     private final Binder mBinder = new Binder();
     /** The app's jobs, in every namespace; under the service's lock. */
@@ -65,6 +102,266 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
 
     private LocalJobScheduler() {
         mBinder.attachInterface(this, IJobScheduler.Stub.DESCRIPTOR);
+        final Thread runner = new Thread(this::runLoop, "JobScheduler");
+        runner.setDaemon(true);
+        runner.start();
+    }
+
+    /** The runner: starts the jobs that can run, looking again every quarter second and when a job is added. */
+    private void runLoop() {
+        while (true) {
+            final List<Entry> candidates = new ArrayList<>();
+            synchronized (mEntries) {
+                final long now = SystemClock.elapsedRealtime();
+                for (Entry entry : mEntries) {
+                    if (!entry.running && now >= entry.notBefore) {
+                        candidates.add(entry);
+                    }
+                }
+                if (candidates.isEmpty()) {
+                    try {
+                        mEntries.wait(250);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    continue;
+                }
+            }
+            boolean started = false;
+            for (Entry entry : candidates) {
+                final boolean met = constraintsMet(entry.job);
+                final boolean expired = entry.job.hasLateConstraint() && SystemClock.elapsedRealtime()
+                        >= entry.scheduledAt + (entry.job.isPeriodic() ? entry.job.getIntervalMillis()
+                        : entry.job.getMaxExecutionDelayMillis());
+                if (!met && !expired) {
+                    continue;
+                }
+                synchronized (mEntries) {
+                    if (entry.running || !mEntries.contains(entry)) {
+                        continue;
+                    }
+                    entry.running = true;
+                    entry.deadlineExpired = !met;
+                }
+                start(entry);
+                started = true;
+            }
+            if (!started) {
+                synchronized (mEntries) {
+                    try {
+                        mEntries.wait(250);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /** Whether the job's constraints hold now: the network, charging, battery, storage; never idle or a content URI. */
+    private static boolean constraintsMet(JobInfo job) {
+        final Application app = ActivityThread.currentApplication();
+        if (app == null) {
+            return false;
+        }
+        if (job.isRequireDeviceIdle() || job.getTriggerContentUris() != null) {
+            return false;
+        }
+        if (job.isRequireCharging() || job.isRequireBatteryNotLow()) {
+            final Intent battery = app.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery == null) {
+                return false;
+            }
+            if (job.isRequireCharging() && battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) == 0) {
+                return false;
+            }
+            if (job.isRequireBatteryNotLow() && battery.getBooleanExtra(BatteryManager.EXTRA_BATTERY_LOW, false)) {
+                return false;
+            }
+        }
+        final NetworkRequest request = job.getRequiredNetwork();
+        if (request != null) {
+            final ConnectivityManager connectivity = app.getSystemService(ConnectivityManager.class);
+            final Network network = connectivity != null ? connectivity.getActiveNetwork() : null;
+            final NetworkCapabilities capabilities =
+                    network != null ? connectivity.getNetworkCapabilities(network) : null;
+            if (capabilities == null) {
+                return false;
+            }
+            for (int capability : new int[] {NetworkCapabilities.NET_CAPABILITY_NOT_METERED,
+                    NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING}) {
+                if (request.hasCapability(capability) && !capabilities.hasCapability(capability)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Binds the job's service and gives it the job (startJob, from onServiceConnected). */
+    private void start(Entry entry) {
+        final Application app = ActivityThread.currentApplication();
+        final JobInfo job = entry.job;
+        entry.params = new JobParameters(new Callback(entry), entry.namespace, job.getId(), job.getExtras(),
+                job.getTransientExtras(), job.getClipData(), job.getClipGrantFlags(), entry.deadlineExpired,
+                job.isExpedited(), job.isUserInitiated(), null, null, null);
+        entry.connection = new ServiceConnection() {
+            @Override
+            public void onServiceConnected(ComponentName name, IBinder binder) {
+                entry.service = binder;
+                try {
+                    IJobService.Stub.asInterface(binder).startJob(entry.params);
+                } catch (RemoteException e) {
+                    finish(entry, true);
+                }
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName name) {
+                finish(entry, true);
+            }
+        };
+        if (app == null || !app.bindService(new Intent().setComponent(job.getService()), entry.connection,
+                Context.BIND_AUTO_CREATE)) {
+            Log.w(TAG, "could not bind " + job.getService());
+            finish(entry, true);
+        }
+    }
+
+    /** The job ended: unbound; kept for its backoff or its next period, or dropped. */
+    private void finish(Entry entry, boolean reschedule) {
+        final ServiceConnection connection;
+        synchronized (mEntries) {
+            if (!entry.running) {
+                return;
+            }
+            entry.running = false;
+            connection = entry.connection;
+            entry.connection = null;
+            entry.service = null;
+            if (mEntries.contains(entry)) {
+                final long now = SystemClock.elapsedRealtime();
+                if (reschedule) {
+                    entry.failures++;
+                    final long initial = entry.job.getInitialBackoffMillis();
+                    final long delay = entry.job.getBackoffPolicy() == JobInfo.BACKOFF_POLICY_LINEAR
+                            ? initial * entry.failures : initial << Math.min(entry.failures - 1, 20);
+                    entry.notBefore = now + Math.min(delay, MAX_BACKOFF);
+                } else if (entry.job.isPeriodic()) {
+                    entry.failures = 0;
+                    entry.scheduledAt = now;
+                    entry.notBefore = now + Math.max(entry.job.getIntervalMillis() - entry.job.getFlexMillis(), 0);
+                } else {
+                    mEntries.remove(entry);
+                }
+            }
+            mEntries.notifyAll();
+        }
+        unbind(connection);
+    }
+
+    private static void unbind(ServiceConnection connection) {
+        final Application app = ActivityThread.currentApplication();
+        if (connection != null && app != null) {
+            try {
+                app.unbindService(connection);
+            } catch (IllegalArgumentException e) {
+                // already unbound
+            }
+        }
+    }
+
+    /** A job cancelled or replaced while it runs: stopJob, then unbound. */
+    private void stopRunning(Entry entry) {
+        final IBinder service;
+        final ServiceConnection connection;
+        final JobParameters params;
+        synchronized (mEntries) {
+            if (!entry.running) {
+                return;
+            }
+            entry.running = false;
+            service = entry.service;
+            connection = entry.connection;
+            params = entry.params;
+            entry.connection = null;
+            entry.service = null;
+        }
+        if (service != null) {
+            try {
+                IJobService.Stub.asInterface(service).stopJob(params);
+            } catch (RemoteException e) {
+                Log.w(TAG, "stopJob: " + e);
+            }
+        }
+        unbind(connection);
+    }
+
+    /** The job's side of the call: what JobServiceEngine reports to the scheduler. */
+    private final class Callback extends IJobCallback.Stub {
+        private final Entry mEntry;
+        private final List<Integer> mDelivered = new ArrayList<>();
+
+        Callback(Entry entry) {
+            mEntry = entry;
+        }
+
+        @Override
+        public void acknowledgeStartMessage(int jobId, boolean ongoing) {
+            if (!ongoing) {
+                finish(mEntry, false);
+            }
+        }
+
+        @Override
+        public void acknowledgeStopMessage(int jobId, boolean reschedule) {
+        }
+
+        @Override
+        public void acknowledgeGetTransferredDownloadBytesMessage(int jobId, int workId, long bytes) {
+        }
+
+        @Override
+        public void acknowledgeGetTransferredUploadBytesMessage(int jobId, int workId, long bytes) {
+        }
+
+        @Override
+        public JobWorkItem dequeueWork(int jobId) {
+            synchronized (mEntries) {
+                if (mEntry.work.isEmpty()) {
+                    return null;
+                }
+                final JobWorkItem item = mEntry.work.remove(0);
+                item.bumpDeliveryCount();
+                item.setWorkId(++mEntry.lastWorkId);
+                mDelivered.add(item.getWorkId());
+                return item;
+            }
+        }
+
+        @Override
+        public boolean completeWork(int jobId, int workId) {
+            synchronized (mEntries) {
+                return mDelivered.remove(Integer.valueOf(workId));
+            }
+        }
+
+        @Override
+        public void jobFinished(int jobId, boolean reschedule) {
+            finish(mEntry, reschedule);
+        }
+
+        @Override
+        public void updateEstimatedNetworkBytes(int jobId, JobWorkItem item, long downloadBytes, long uploadBytes) {
+        }
+
+        @Override
+        public void updateTransferredNetworkBytes(int jobId, JobWorkItem item, long downloadBytes, long uploadBytes) {
+        }
+
+        @Override
+        public void setNotification(int jobId, int notificationId, Notification notification, int policy) {
+        }
     }
 
     /** ServiceManager's maker for "jobscheduler": the Binder that carries a new service. */
@@ -116,11 +413,16 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
     @Override
     public void cancel(String namespace, int jobId) {
         namespace = validateNamespace(namespace);
+        Entry stopped = null;
         synchronized (mEntries) {
             Entry entry = find(namespace, jobId);
             if (entry != null) {
                 mEntries.remove(entry);
+                stopped = entry;
             }
+        }
+        if (stopped != null) {
+            stopRunning(stopped);
         }
     }
 
@@ -248,10 +550,12 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
 
     /** JobSchedulerService.scheduleAsPackage for the app's own job. */
     private int scheduleKept(JobInfo job, JobWorkItem work, String namespace) {
+        Entry replaced = null;
         synchronized (mEntries) {
             Entry existing = find(namespace, job.getId());
             if (work != null && existing != null && existing.job.equals(job)) {
                 existing.work.add(work);
+                mEntries.notifyAll();
                 return JobScheduler.RESULT_SUCCESS;
             }
             if (mEntries.size() > MAX_JOBS_PER_APP) {
@@ -264,10 +568,15 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             }
             if (existing != null) {
                 mEntries.remove(existing);
+                replaced = existing;
             }
             mEntries.add(entry);
-            return JobScheduler.RESULT_SUCCESS;
+            mEntries.notifyAll();
         }
+        if (replaced != null) {
+            stopRunning(replaced);
+        }
+        return JobScheduler.RESULT_SUCCESS;
     }
 
     private Entry find(String namespace, int jobId) {

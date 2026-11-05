@@ -293,8 +293,34 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
             receivers.sort(Comparator.comparingInt((BroadcastFilter filter) -> filter.mFilter.getPriority()).reversed());
             mQueue.addLast(new Broadcast(sent, receivers, serialized, resultTo, resultCode, resultData, map));
         }
+        if (!serialized) {
+            deliverToManifestReceivers(sent, resolvedType);
+        }
         dispatch();
         return ActivityManager.BROADCAST_SUCCESS;
+    }
+
+    /**
+     * A broadcast to the receivers of the app's manifest (gap 9, alarms and jobs that run), as the broadcast queue
+     * sends it to a receiver of a component: an explicit one to its component, one for the app's package to the
+     * receivers whose filters match; an implicit one with no package reaches none, as since Android 8. Delivered at
+     * once on the main thread, unordered; an ordered broadcast reaches only the registered receivers (a named limit).
+     */
+    private void deliverToManifestReceivers(Intent sent, String resolvedType) {
+        ActivityThread thread = ActivityThread.currentActivityThread();
+        ManifestPackage pkg = thread != null ? thread.getManifestPackage() : null;
+        if (pkg == null) {
+            return;
+        }
+        if (sent.getComponent() == null && !packageName().equals(sent.getPackage())) {
+            return;
+        }
+        for (ResolveInfo info : pkg.query(ManifestPackage.QUERY_RECEIVERS, sent, resolvedType, 0,
+                ApplicationPackageManager::componentState)) {
+            if (info.activityInfo != null) {
+                thread.scheduleReceiver(new Intent(sent), info.activityInfo);
+            }
+        }
     }
 
     @Override
