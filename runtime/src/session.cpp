@@ -30,6 +30,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -1303,9 +1304,13 @@ extern "C" void apkrt_permission_answer(uint32_t request_id, int32_t group, int3
 // trace beside the stall watchdog's lines (ADR-0035 item 3, the Ren'Py pressure). phys_footprint is what iOS counts
 // against the app's limit (task_info TASK_VM_INFO); os_proc_available_memory is how much the app may still use before
 // iOS kills it, iOS-only, so the macOS host build logs 0 for it. Tag "apkrt" like the stall watchdog, so it goes to
-// the device's session log yet java_app_run's app-tag comparison passes over it; it fires only inside a session, never
-// in a byte-compared fixture (those post no events).
+// the device's session log yet java_app_run's app-tag comparison passes over it. Only when MINATO_LOADER_LOG is set,
+// as the loader's scudo line is (dl.cpp): the MiB figures are machine-dependent and the line would otherwise land on
+// the guest's stderr, which the fixture harness (tools/run-fixture.cmake) compares byte for byte, and a window-trim
+// test DOES post a trim. App's RuntimeSessionHost sets the env on the device, so the trace reaches the session log
+// there beside the loader's and the watchdog's lines.
 static void log_memory_footprint(unsigned level) {
+    if (::getenv("MINATO_LOADER_LOG") == nullptr) return;
     constexpr std::uint64_t mib = std::uint64_t{1} << 20;
     task_vm_info_data_t info{};
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
