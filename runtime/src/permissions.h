@@ -21,10 +21,10 @@ inline std::mutex &store_mutex() {
     return mutex;
 }
 
-/// The stored outcome per group, indexed by group - 1 (location 1, microphone 2, camera 3). `unknown` until the host
-/// answers.
-inline std::array<int, 3> &store() {
-    static std::array<int, 3> outcomes{unknown, unknown, unknown};
+/// The stored outcome per group, indexed by group - 1 (location 1, microphone 2, camera 3, notifications 4). `unknown`
+/// until the host answers.
+inline std::array<int, 4> &store() {
+    static std::array<int, 4> outcomes{unknown, unknown, unknown, unknown};
     return outcomes;
 }
 

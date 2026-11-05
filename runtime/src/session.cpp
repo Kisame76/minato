@@ -682,13 +682,14 @@ bool permission_done(std::uint64_t id) {
 }
 
 /// Whether `text` is "<group>\t<detail>" with a known group and a detail the group allows: location (1) takes fine
-/// (1) or coarse (2), microphone (2) and camera (3) take none (0).
+/// (1) or coarse (2), microphone (2), camera (3) and notifications (4) take none (0).
 bool valid_permission(std::string_view text) {
     if (text.size() != 3 || text[1] != '\t') return false;  // one group digit, a tab, one detail digit
     switch (text[0]) {
         case '1': return text[2] == '1' || text[2] == '2';  // location: fine or coarse
         case '2': return text[2] == '0';                    // microphone: none
         case '3': return text[2] == '0';                    // camera: none (ADR-0073)
+        case '4': return text[2] == '0';                    // notifications: none (ADR-0074)
         default: return false;
     }
 }

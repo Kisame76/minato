@@ -15,8 +15,8 @@ import java.util.Set;
  * <ol>
  *   <li>a permission the app does not request, or that no package declares, is denied;</li>
  *   <li>the app's own permissions are granted;</li>
- *   <li>signature (and internal) permissions, the special ones and POST_NOTIFICATIONS are denied at every
- *       targetSdk;</li>
+ *   <li>signature (and internal) permissions and the special ones are denied at every targetSdk, and
+ *       POST_NOTIFICATIONS below targetSdk 33;</li>
  *   <li>below targetSdk 23, Android's old model grants what the app requests;</li>
  *   <li>normal permissions are granted, storage up to targetSdk 32, every other dangerous one is denied.</li>
  * </ol>
@@ -88,8 +88,9 @@ public final class PermissionPolicyTest {
         }
     }
 
-    public void testPostNotificationsIsDeniedAtEveryTargetSdk() {
-        for (int targetSdk : new int[] {22, 23, 32, 33, 35}) {
+    public void testPostNotificationsIsDeniedBelowTargetSdk33() {
+        // Android 13's own prompt for older apps, at their first channel, is a step of its own (ADR-0074 N1b).
+        for (int targetSdk : new int[] {22, 23, 32}) {
             check(grant("android.permission.POST_NOTIFICATIONS", DANGEROUS, targetSdk) == Grant.DENIED_FIXED,
                     "POST_NOTIFICATIONS at " + targetSdk);
         }
@@ -123,6 +124,14 @@ public final class PermissionPolicyTest {
     public void testBackgroundLocationAndOtherGroupsStayDenied() {
         check(grant("android.permission.ACCESS_BACKGROUND_LOCATION", DANGEROUS, 35) == Grant.DENIED_FIXED,
                 "background location is not offered (ADR-0063 decision 2)");
+    }
+
+    public void testNotificationsAreTheHostsToDecideFromAndroid13() {
+        String post = "android.permission.POST_NOTIFICATIONS";
+        check(grant(post, DANGEROUS, 35) == Grant.ASK_HOST, "POST_NOTIFICATIONS (ADR-0074 decision 1)");
+        check(grant(post, DANGEROUS, 33) == Grant.ASK_HOST, "at 33");
+        check(PermissionPolicy.hostGroup(post) == PermissionPolicy.GROUP_NOTIFICATIONS, "its group");
+        check(PermissionPolicy.GROUP_NOTIFICATIONS == 4, "APKRT_PERMISSION_NOTIFICATIONS");
     }
 
     public void testTheCameraIsTheHostsToDecideToo() {

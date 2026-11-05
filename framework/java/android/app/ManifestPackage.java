@@ -2317,7 +2317,7 @@ final class ManifestPackage {
             if (!mAnswersSeeded) {
                 mAnswersSeeded = true;
                 for (int group : new int[] {PermissionPolicy.GROUP_LOCATION, PermissionPolicy.GROUP_MICROPHONE,
-                        PermissionPolicy.GROUP_CAMERA}) {
+                        PermissionPolicy.GROUP_CAMERA, PermissionPolicy.GROUP_NOTIFICATIONS}) {
                     final int stored = ActivityThread.storedPermissionGrant(group);
                     if (stored != PermissionAnswers.DENIED) {
                         mAnswers.answer(group, stored, false);

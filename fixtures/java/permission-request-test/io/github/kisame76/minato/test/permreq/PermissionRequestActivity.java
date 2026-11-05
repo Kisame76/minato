@@ -13,18 +13,24 @@ import java.util.Arrays;
  * Minato answers from its policy and the host's grant. One after the other, each logs what onRequestPermissionsResult
  * brings and what checkSelfPermission and shouldShowRequestPermissionRationale say after it. The twin (-fine) declares
  * the two location permissions, which the harness grants before the start; the twin -camera (ADR-0073 decision 8)
- * declares CAMERA, granted the same way, and asks for it in place of the location. The tag is the label.
+ * declares CAMERA, granted the same way, and asks for it in place of the location, and the twin -notifications
+ * (ADR-0074 decision 1) POST_NOTIFICATIONS. The tag is the label.
  */
 public class PermissionRequestActivity extends Activity {
     private static final String FINE = "android.permission.ACCESS_FINE_LOCATION";
     private static final String COARSE = "android.permission.ACCESS_COARSE_LOCATION";
     private static final String INTERNET = "android.permission.INTERNET";
     private static final String CAMERA = "android.permission.CAMERA";
+    private static final String POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";
     private static final String[][] LOCATION_REQUESTS = {
         {INTERNET}, {FINE}, {COARSE, FINE, INTERNET}, {"android.permission.nonsense"}, {},
     };
     private static final String[][] CAMERA_REQUESTS = {
         {INTERNET}, {CAMERA}, {CAMERA, INTERNET}, {"android.permission.nonsense"}, {},
+    };
+
+    private static final String[][] NOTIFICATION_REQUESTS = {
+        {INTERNET}, {POST_NOTIFICATIONS}, {POST_NOTIFICATIONS, INTERNET}, {"android.permission.nonsense"}, {},
     };
 
     private String[][] mRequests = LOCATION_REQUESTS;
@@ -40,7 +46,8 @@ public class PermissionRequestActivity extends Activity {
         if (hasFocus && !mStarted) {
             mStarted = true;
             mTag = getApplicationInfo().loadLabel(getPackageManager()).toString();
-            mRequests = getPackageName().endsWith("camera") ? CAMERA_REQUESTS : LOCATION_REQUESTS;
+            mRequests = getPackageName().endsWith("camera") ? CAMERA_REQUESTS
+                    : getPackageName().endsWith("notifications") ? NOTIFICATION_REQUESTS : LOCATION_REQUESTS;
             Log.i(mTag, "controller: " + getPackageManager().getPermissionControllerPackageName());
             mHandler.post(this::next);
         }

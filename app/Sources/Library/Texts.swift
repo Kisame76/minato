@@ -11,6 +11,7 @@ enum Texts {
         case .microphone: "Allow “\(name)” to use the microphone?"
         case .location: "Allow “\(name)” to use your location?"
         case .camera: "Allow “\(name)” to use the camera?"
+        case .notifications: "Allow “\(name)” to send notifications?"
         }
     }
 

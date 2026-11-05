@@ -1,0 +1,17 @@
+I/permission-request-test-notifications: controller: com.android.permissioncontroller
+I/permission-request-test-notifications: request 0: [android.permission.INTERNET]
+I/permission-request-test-notifications: result 0: 1 [android.permission.INTERNET granted]
+I/permission-request-test-notifications: after android.permission.INTERNET: check 0, rationale false
+I/permission-request-test-notifications: request 1: [android.permission.POST_NOTIFICATIONS]
+I/permission-request-test-notifications: result 1: 1 [android.permission.POST_NOTIFICATIONS granted]
+I/permission-request-test-notifications: after android.permission.POST_NOTIFICATIONS: check 0, rationale false
+I/permission-request-test-notifications: request 2: [android.permission.POST_NOTIFICATIONS, android.permission.INTERNET]
+I/permission-request-test-notifications: result 2: 2 [android.permission.POST_NOTIFICATIONS granted, android.permission.INTERNET granted]
+I/permission-request-test-notifications: after android.permission.POST_NOTIFICATIONS: check 0, rationale false
+I/permission-request-test-notifications: after android.permission.INTERNET: check 0, rationale false
+I/permission-request-test-notifications: request 3: [android.permission.nonsense]
+I/permission-request-test-notifications: result 3: 1 [android.permission.nonsense denied]
+I/permission-request-test-notifications: after android.permission.nonsense: check -1, rationale false
+I/permission-request-test-notifications: request 4: []
+I/permission-request-test-notifications: request 4 threw java.lang.IllegalArgumentException: permission cannot be null or empty
+I/permission-request-test-notifications: done

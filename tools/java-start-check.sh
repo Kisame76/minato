@@ -173,7 +173,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "permission-request-test-fine io.github.kisame76.minato.test.permreqfine"
       "location-manager-test-fine io.github.kisame76.minato.test.locmanfine"
       "location-manager-test-coarse io.github.kisame76.minato.test.locmancoarse"
-      "permission-request-test-camera io.github.kisame76.minato.test.permreqcamera")
+      "permission-request-test-camera io.github.kisame76.minato.test.permreqcamera"
+      "permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -590,8 +591,10 @@ begin_start() {
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
-  [[ "$app" != permission-request-test-fine && "$app" != permission-request-test-camera ]] ||
-    echo yes > "$CHECK/permission-allow"
+  case "$app" in
+    permission-request-test-fine | permission-request-test-camera | permission-request-test-notifications)
+      echo yes > "$CHECK/permission-allow" ;;
+  esac
   # The pixel round (PIXELS): window.m's CRC lines in the guest log and the footprint, with PIXELS_DRAWABLES by the
   # drawables' pass, with PIXELS_CONTENTS by contents in the Simulator.
   if [[ -n "${PIXELS:-}" ]]; then
@@ -1310,6 +1313,24 @@ if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-camera; then
     ok "  the host granted the camera request"
   else
     fail "  the host granted $answers camera requests, not 1"
+  fi
+fi
+
+# ADR-0074 decision 1 in the Simulator: permission-request-test-notifications asks for POST_NOTIFICATIONS, Minato's
+# alert answers Allow by itself (permission-allow); iOS's own prompt, which simctl privacy does not cover, needs one
+# Allow by hand in a Simulator that never answered it, and later runs find the answer. Its log must be Android 15's,
+# where the harness grants POST_NOTIFICATIONS before the start.
+if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-notifications; then
+  # A fresh app for the host: no answer stored from an earlier run.
+  rm -f "$SUPPORT/data/io.github.kisame76.minato.test.permreqnotifications/permissions.json"
+  run_one permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications
+  fetch_events
+  # The app asks the host once: its second request finds POST_NOTIFICATIONS granted, as on Android.
+  answers=$(grep -c -E " permission [0-9]+ group 4 outcome 1$" "$EVENTS" || true)
+  if [[ "$answers" == 1 ]]; then
+    ok "  the host granted the notifications request"
+  else
+    fail "  the host granted $answers notifications requests, not 1"
   fi
 fi
 

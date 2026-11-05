@@ -64,6 +64,15 @@ public final class PermissionRequestsTest {
         check(PermissionRequests.detailToAsk(List.of(FINE), HOST_DECIDES, answers) == 0, "after two, final");
     }
 
+    public void testNotificationsAskLast() {
+        java.util.function.Function<String, PermissionPolicy.Grant> host = name -> PermissionPolicy.Grant.ASK_HOST;
+        java.util.List<int[]> groups = PermissionRequests.groupsToAsk(java.util.List.of(
+                "android.permission.POST_NOTIFICATIONS", "android.permission.CAMERA"), host, new PermissionAnswers());
+        check(groups.size() == 2 && groups.get(0)[0] == PermissionPolicy.GROUP_CAMERA
+                && groups.get(1)[0] == PermissionPolicy.GROUP_NOTIFICATIONS && groups.get(1)[1] == 0,
+                "camera, then notifications");
+    }
+
     public void testTheCameraAsksAfterTheMicrophone() {
         PermissionAnswers answers = new PermissionAnswers();
         java.util.function.Function<String, PermissionPolicy.Grant> host = name -> PermissionPolicy.Grant.ASK_HOST;

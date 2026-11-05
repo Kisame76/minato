@@ -87,6 +87,17 @@ public final class PermissionAnswersTest {
         }
     }
 
+    public void testNotificationsAreTheirOwnGroup() {
+        String post = "android.permission.POST_NOTIFICATIONS";
+        PermissionAnswers answers = new PermissionAnswers();
+        check(!answers.granted(post) && answers.mustAsk(post), "denied and askable before the first answer");
+        answers.answer(PermissionPolicy.GROUP_NOTIFICATIONS, PermissionAnswers.DENIED, true);
+        answers.answer(PermissionPolicy.GROUP_NOTIFICATIONS, PermissionAnswers.DENIED, true);
+        check(!answers.mustAsk(post), "don't ask again after the second");
+        answers.answer(PermissionPolicy.GROUP_NOTIFICATIONS, PermissionAnswers.GRANTED_FINE, false);
+        check(answers.granted(post) && !answers.granted("android.permission.CAMERA"), "only notifications");
+    }
+
     public void testTheCameraIsItsOwnGroup() {
         String camera = "android.permission.CAMERA";
         PermissionAnswers answers = new PermissionAnswers();

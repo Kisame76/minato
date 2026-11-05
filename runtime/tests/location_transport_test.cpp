@@ -267,7 +267,8 @@ TEST(the_grant_read_is_ungated_and_normalized) {
     CHECK(location(APKRT_LOCATION_PERMISSION, 0) == -einval);                      // unknown group
     apkrt::permissions::set(APKRT_PERMISSION_CAMERA, APKRT_PERMISSION_GRANTED);
     CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_CAMERA) == 1);  // the camera's group (ADR-0073)
-    CHECK(location(APKRT_LOCATION_PERMISSION, 4) == -einval);
+    CHECK(location(APKRT_LOCATION_PERMISSION, APKRT_PERMISSION_NOTIFICATIONS) == 0);  // ADR-0074, not answered yet
+    CHECK(location(APKRT_LOCATION_PERMISSION, 5) == -einval);
     CHECK(location(APKRT_LOCATION_PERMISSION, (std::uint64_t{1} << 32) | APKRT_PERMISSION_LOCATION) == -einval);
 }
 

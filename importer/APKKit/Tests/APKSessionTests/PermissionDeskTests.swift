@@ -16,7 +16,7 @@ import Testing
     @Test func theRequestTextNamesTheGroupAndTheDetail() {
         #expect(PermissionAsk(text: "2\t0") == PermissionAsk(group: .microphone, detail: 0))
         #expect(PermissionAsk(text: "1\t2") == PermissionAsk(group: .location, detail: 2))
-        #expect(PermissionAsk(text: "4\t0") == nil)
+        #expect(PermissionAsk(text: "5\t0") == nil)
         #expect(PermissionAsk(text: "2") == nil)
         #expect(PermissionAsk(text: "2\t0\t1") == nil)
     }
@@ -91,6 +91,18 @@ import Testing
         #expect(desk.iosAnswered(id: 9, granted: true) == [.answer(id: 9, group: 3, outcome: 1)])
         #expect(desk.records.camera == PermissionRecord(outcome: 1, denials: 0))
         #expect(desk.records.microphone == PermissionRecord() && desk.records.location == PermissionRecord())
+    }
+
+    @Test func notificationsAreAGroupOfTheirOwnWithMinatosAlertAndIOSsPrompt() {
+        var desk = desk()
+        #expect(PermissionAsk(text: "4\t0") == PermissionAsk(group: .notifications, detail: 0))
+        #expect(desk.requested(id: 9, text: "4\t0", ios: .notDetermined) == [.ask(id: 9, group: .notifications)])
+        #expect(desk.allowed(id: 9, ios: .notDetermined) == [.askIOS(id: 9, group: .notifications)])
+        #expect(desk.iosAnswered(id: 9, granted: true) == [.answer(id: 9, group: 4, outcome: 1)])
+        #expect(desk.records.notifications == PermissionRecord(outcome: 1, denials: 0))
+        #expect(desk.records.camera == PermissionRecord())
+        let seeded = desk.seeds { $0 == .notifications ? .granted : .denied }
+        #expect(seeded == [.answer(id: 0, group: 4, outcome: 1)])
     }
 
     @Test func theCameraIsSeededAndRevokedByItsOwnIOSAnswer() {

@@ -702,7 +702,8 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=60
       ;;
-    permission-request-test | permission-request-test-fine | permission-request-test-camera)
+    permission-request-test | permission-request-test-fine | permission-request-test-camera |\
+    permission-request-test-notifications)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
       mask=yes
@@ -1265,6 +1266,10 @@ run_app() {
   if [[ "$app" == camera-characteristics-test-granted || "$app" == camera-legacy-test ||
         "$app" == camera-preview-test || "$app" == camera-picture-test ]]; then
     run pm grant "$package" android.permission.CAMERA
+  fi
+  if [[ "$app" == permission-request-test-notifications ]]; then
+    # ADR-0074 decision 1: POST_NOTIFICATIONS is granted before the start, as the -camera twin's CAMERA.
+    run pm grant "$package" android.permission.POST_NOTIFICATIONS
   fi
   if [[ "$app" == permission-request-test-camera ]]; then
     # ADR-0073 decision 8: CAMERA is granted before the start, as the -fine twin's location.

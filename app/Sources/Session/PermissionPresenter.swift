@@ -30,6 +30,7 @@ final class PermissionPresenter {
     private static func ios(_ group: PermissionGroup) -> PermissionDesk.IOSState {
         switch group {
         case .location: return LocationHost.shared.state
+        case .notifications: return NotificationHost.shared.state
         case .camera:
             switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized: return .granted
@@ -50,9 +51,15 @@ final class PermissionPresenter {
         run(desk.seeds(ios: Self.ios))
     }
 
-    /// The scene is active again: a grant iOS took back in Settings becomes a denial.
+    /// The scene is active again: a grant iOS took back in Settings becomes a denial, once iOS's answer for
+    /// notifications, which comes through a callback, is read again.
     func foreground() {
-        run(desk.foreground(ios: Self.ios))
+        NotificationHost.shared.refresh {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                run(desk.foreground(ios: Self.ios))
+            }
+        }
     }
 
     func requested(id: UInt64, text: String) {
@@ -84,6 +91,8 @@ final class PermissionPresenter {
                 AVCaptureDevice.requestAccess(for: .video) { granted in
                     Task { @MainActor [weak self] in self?.iosAnswered(id, granted ? .granted : .denied) }
                 }
+            case .askIOS(let id, .notifications):
+                NotificationHost.shared.requestAuthorization { [weak self] state in self?.iosAnswered(id, state) }
             case .askIOS(let id, .location):
                 LocationHost.shared.requestAuthorization { [weak self] state in self?.iosAnswered(id, state) }
             case .dismiss(let id):

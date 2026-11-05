@@ -511,13 +511,14 @@ enum apkrt_request_type {
 #define APKRT_PERMISSION_LOCATION   1
 #define APKRT_PERMISSION_MICROPHONE 2
 #define APKRT_PERMISSION_CAMERA     3  // ADR-0073 decision 8
+#define APKRT_PERMISSION_NOTIFICATIONS 4  // ADR-0074 decision 1: POST_NOTIFICATIONS
 // APKRT_REQUEST_PERMISSION's detail (the text's second field); for location, the precision the app asked.
-#define APKRT_PERMISSION_DETAIL_NONE   0  // microphone, and any group without a precision
+#define APKRT_PERMISSION_DETAIL_NONE   0  // microphone, camera, notifications: any group without a precision
 #define APKRT_PERMISSION_DETAIL_FINE   1  // location: ACCESS_FINE_LOCATION wanted
 #define APKRT_PERMISSION_DETAIL_COARSE 2  // location: only ACCESS_COARSE_LOCATION
 // APKRT_EVENT_PERMISSION_RESULT's outcome (a2), and the runtime's stored grant.
 #define APKRT_PERMISSION_DENIED         0
-#define APKRT_PERMISSION_GRANTED        1  // location: fine; microphone, camera: granted
+#define APKRT_PERMISSION_GRANTED        1  // location: fine; microphone, camera, notifications: granted
 #define APKRT_PERMISSION_GRANTED_COARSE 2  // location only
 
 /// What a SurfaceView asks of its surface (ADR-0043 c4), APKRT_REQUEST_SURFACE's.

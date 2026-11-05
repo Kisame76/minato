@@ -50,7 +50,8 @@ final class GameSession {
             [weak self] id, picked in self?.pickAnswered(id, picked)
         }
     }()
-    /// The guest's permission requests (ADR-0063 decision 2), over game mode.
+    /// The guest's permission requests (ADR-0063 decision 2), over game mode; iOS's answer for notifications is read
+    /// ahead, as it comes only through a callback (ADR-0074).
     @ObservationIgnored private lazy var permissions = PermissionPresenter(
         file: (try? LibraryPaths.standard())?.permissionsFile(for: entry.id), appName: entry.displayName)
     /// The orientation iOS was asked to hold the window in.
@@ -182,6 +183,8 @@ final class GameSession {
         SessionEndReport.begin(entry)
         #endif
         battery.start()
+        // iOS's answer for notifications before the start's seed needs it (ADR-0074).
+        NotificationHost.shared.refresh()
         controllers.start()
         // The mouse goes with GameController's; it came with its first report.
         mouseObserver = NotificationCenter.default.addObserver(forName: .GCMouseDidDisconnect, object: nil,

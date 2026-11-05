@@ -6,15 +6,17 @@ public enum PermissionGroup: Int32, Sendable, Codable, CaseIterable {
     case microphone = 2
     /// ADR-0073 decision 8.
     case camera = 3
+    /// ADR-0074 decision 1: POST_NOTIFICATIONS.
+    case notifications = 4
 
     /// The order the start's seeds and the foreground's re-reads go in.
-    static let answered: [PermissionGroup] = [.microphone, .location, .camera]
+    static let answered: [PermissionGroup] = [.microphone, .location, .camera, .notifications]
 }
 
 /// APKRT_REQUEST_PERMISSION's text, "<group>\t<detail>".
 public struct PermissionAsk: Sendable, Equatable {
     public var group: PermissionGroup
-    /// APKRT_PERMISSION_DETAIL_*: for location 1 fine, 2 coarse only; 0 for the microphone and the camera.
+    /// APKRT_PERMISSION_DETAIL_*: for location 1 fine, 2 coarse only; 0 for the other groups.
     public var detail: Int32
 
     public init(group: PermissionGroup, detail: Int32) {
@@ -49,12 +51,14 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
     public var microphone = PermissionRecord()
     public var location = PermissionRecord()
     public var camera = PermissionRecord()
+    public var notifications = PermissionRecord()
 
     public init(microphone: PermissionRecord = PermissionRecord(), location: PermissionRecord = PermissionRecord(),
-                camera: PermissionRecord = PermissionRecord()) {
+                camera: PermissionRecord = PermissionRecord(), notifications: PermissionRecord = PermissionRecord()) {
         self.microphone = microphone
         self.location = location
         self.camera = camera
+        self.notifications = notifications
     }
 
     /// A file of an older Minato may lack a group.
@@ -63,6 +67,8 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
         microphone = try container.decodeIfPresent(PermissionRecord.self, forKey: .microphone) ?? PermissionRecord()
         location = try container.decodeIfPresent(PermissionRecord.self, forKey: .location) ?? PermissionRecord()
         camera = try container.decodeIfPresent(PermissionRecord.self, forKey: .camera) ?? PermissionRecord()
+        notifications = try container.decodeIfPresent(PermissionRecord.self, forKey: .notifications)
+            ?? PermissionRecord()
     }
 
     subscript(group: PermissionGroup) -> PermissionRecord {
@@ -71,6 +77,7 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
             case .microphone: microphone
             case .location: location
             case .camera: camera
+            case .notifications: notifications
             }
         }
         set {
@@ -78,6 +85,7 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
             case .microphone: microphone = newValue
             case .location: location = newValue
             case .camera: camera = newValue
+            case .notifications: notifications = newValue
             }
         }
     }
@@ -107,7 +115,8 @@ public struct PermissionRecords: Sendable, Equatable, Codable {
 /// (request ID 0, not counted): a revoke as a denial, reduced accuracy as coarse.
 public struct PermissionDesk: Sendable {
     /// iOS's answer for the group's own permission (AVAudioApplication.recordPermission for the microphone,
-    /// CLLocationManager's authorization and accuracy for location, AVCaptureDevice's for video for the camera).
+    /// CLLocationManager's authorization and accuracy for location, AVCaptureDevice's for video for the camera,
+    /// UNUserNotificationCenter's authorization for notifications).
     public enum IOSState: Sendable {
         case notDetermined, granted, denied
         /// Location authorized with reduced accuracy (precise location off).
