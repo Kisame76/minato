@@ -2,9 +2,9 @@
 // libaudioclient's Visualizer and the effect engine. An instance is a visualizer_state.h State: the capture size, the
 // modes, the enabled state and the periodic capture, with Android 15's answers (visualizer-test). Creating one needs
 // RECORD_AUDIO's grant, as the effect engine's does, here the runtime's stored microphone answer. The data is the
-// output mix's: silence until the session's output is tapped. The periodic capture has a thread per instance that
-// posts the waveform and the FFT to Visualizer.postEventFromNative at the rate asked for, while the instance is
-// enabled.
+// output mix's, which the runtime's audio_tap gives (every session sees the mix: the audioSession is not used). The
+// periodic capture has a thread per instance that posts the waveform and the FFT to Visualizer.postEventFromNative at
+// the rate asked for, while the instance is enabled.
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
 #include <stdint.h>
@@ -30,6 +30,16 @@ namespace {
 using minato::visualizer::State;
 
 constexpr int NATIVE_EVENT_PCM_CAPTURE = 0, NATIVE_EVENT_FFT_CAPTURE = 1;
+
+/// The last `count` frames of the app's output (the runtime's audio_tap), mono at 48 kHz; empty when the runtime gives
+/// none, which the State takes as silence.
+std::vector<float> outputSamples(int count) {
+    std::vector<float> samples(static_cast<size_t>(count), 0.0f);
+    const long got = syscall(APKRT_NR_AUDIO_TAP, reinterpret_cast<uint64_t>(samples.data()),
+                             static_cast<uint64_t>(count));
+    if (got != count) samples.clear();
+    return samples;
+}
 
 struct Instance {
     State state;
@@ -73,8 +83,9 @@ void captureLoop(int id) {
         if (!now.state.enabled || !now.state.periodic()) continue;
         std::vector<uint8_t> waveform, fft;
         const size_t size = static_cast<size_t>(now.state.capture_size);
-        now.state.get_waveform(waveform, size);
-        now.state.get_fft(fft, size);
+        const std::vector<float> samples = outputSamples(now.state.capture_size);
+        now.state.get_waveform(waveform, size, &samples);
+        now.state.get_fft(fft, size, &samples);
         const bool wantWaveform = now.state.periodic_waveform, wantFft = now.state.periodic_fft;
         jobject object = now.object;
         hold.unlock();
@@ -219,7 +230,9 @@ jint fillArray(JNIEnv *env, jobject thiz, jbyteArray array, bool fft) {
         Instance *instance = instanceOf(env, thiz);
         if (instance == nullptr) return minato::visualizer::kNoInit;
         const size_t room = static_cast<size_t>(env->GetArrayLength(array));
-        status = fft ? instance->state.get_fft(data, room) : instance->state.get_waveform(data, room);
+        const std::vector<float> samples = outputSamples(instance->state.capture_size);
+        status = fft ? instance->state.get_fft(data, room, &samples)
+                     : instance->state.get_waveform(data, room, &samples);
     }
     if (status == minato::visualizer::kSuccess) {
         env->SetByteArrayRegion(array, 0, static_cast<jsize>(data.size()),
@@ -242,7 +255,8 @@ jint getPeakRms(JNIEnv *env, jobject thiz, jobject measurement) {
         std::lock_guard<std::mutex> hold(gLock);
         Instance *instance = instanceOf(env, thiz);
         if (instance == nullptr) return minato::visualizer::kNoInit;
-        status = instance->state.get_peak_rms(&peak, &rms);
+        const std::vector<float> samples = outputSamples(instance->state.capture_size);
+        status = instance->state.get_peak_rms(&peak, &rms, &samples);
     }
     if (status == minato::visualizer::kSuccess) {
         env->SetIntField(measurement, gFields.peak, peak);

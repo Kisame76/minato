@@ -49,6 +49,8 @@ namespace linux_errno = sys::linux_errno;
 constexpr long emfile = 24;  // Linux: include/uapi/asm-generic/errno-base.h
 
 constexpr int slot_count = 64;
+constexpr double tap_rate = 48'000;  // the tap's rate, in frames per second
+constexpr int tap_frames = 2048;  // a power of two: the tap's ring per stream, and the most audio_tap gives
 constexpr int slot_bits = 6;  // a handle is the slot's generation above its index
 constexpr int waiter_places = 16;
 constexpr std::int64_t poll_round = 1'000'000;  // ns, for a waiter without a place
@@ -92,6 +94,10 @@ struct Slot {
     std::atomic<std::int32_t> buffer_size{0};
     std::atomic<std::int64_t> stop_at{0};  // `written` at the STOP: playing out ends there
     std::atomic<std::int32_t> xruns{0};
+    // The tap (audio_tap): the mono mix of the last frames the render block took, for the Visualizer. One writer, the
+    // render block; the reader is a guest syscall holding the stream (Entry). `tap_head` counts the frames pushed.
+    float tap_ring[tap_frames];
+    std::atomic<std::uint64_t> tap_head{0};
     std::atomic<std::uint32_t> starts{0};  // the STARTs so far
     std::uint32_t played_in = 0;           // the render block's: the start in whose run it last took frames
 
@@ -223,6 +229,20 @@ void read_stamp(const Slot &slot, std::int64_t &position, std::int64_t &time) {
     }
 }
 
+/// Appends the mono mix (the channels' average) of `frames` frames of interleaved float32 to the tap's ring.
+void push_tap(Slot &slot, const float *buffer, std::int64_t frames) {
+    const auto channels = static_cast<std::size_t>(slot.channels);
+    std::uint64_t head = slot.tap_head.load(std::memory_order_relaxed);
+    for (std::int64_t frame = 0; frame < frames; ++frame, ++head) {
+        float sum = 0;
+        for (std::size_t channel = 0; channel < channels; ++channel) {
+            sum += buffer[static_cast<std::size_t>(frame) * channels + channel];
+        }
+        slot.tap_ring[head & (tap_frames - 1)] = sum / static_cast<float>(channels);
+    }
+    slot.tap_head.store(head, std::memory_order_release);
+}
+
 /// The render block's read of `slot`, whose handle it holds.
 std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::uint64_t host_time) {
     std::int32_t state = slot.state.load();
@@ -241,6 +261,7 @@ std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::ui
         taken = std::max<std::int64_t>(0, std::min(end - read, frames));
         if (taken > 0) {
             copy_out(slot, read, buffer, taken);
+            push_tap(slot, buffer, taken);
             slot.read.store(read + taken);
             stamp(slot, read, host_time, output_latency.load());
             change = true;
@@ -490,6 +511,7 @@ long open(std::uint64_t config_address) {
     slot->read.store(0);
     slot->buffer_size.store(first_buffer_size);
     slot->xruns.store(0);
+    slot->tap_head.store(0);
     slot->starts.store(0);
     slot->played_in = 0;
     slot->stamp_sequence.store(0);
@@ -653,6 +675,32 @@ long read(std::uint64_t handle, std::uint64_t buffer_address, std::int64_t frame
                 return taken > 0 ? taken : -linux_errno::eintr;
         }
     }
+}
+
+long tap(std::uint64_t buffer_address, std::int64_t frames) {
+    if (frames < 1 || frames > tap_frames) return -linux_errno::einval;
+    auto *out = sys::as_pointer<float>(buffer_address);
+    if (out == nullptr) return -linux_errno::efault;
+    std::fill(out, out + frames, 0.0f);
+    for (Slot &slot : slots) {
+        const std::uint64_t handle = slot.handle.load();
+        if (handle == 0) continue;
+        const Entry entry(handle);  // the close cannot free the stream while the tap reads it
+        if (entry.slot() == nullptr || slot.input) continue;
+        const std::int32_t state = slot.state.load();
+        if (state != APKRT_AUDIO_STARTED && state != playing_out) continue;
+        const std::int64_t head = static_cast<std::int64_t>(slot.tap_head.load(std::memory_order_acquire));
+        const double step = static_cast<double>(slot.rate) / tap_rate;  // source frames per output frame
+        for (std::int64_t index = 0; index < frames; ++index) {
+            // The output is at 48 kHz, oldest first: the source frame that is `back` output frames before the newest.
+            const auto back = static_cast<std::int64_t>(std::llround(static_cast<double>(frames - 1 - index) * step));
+            const std::int64_t position = head - 1 - back;
+            if (position < 0 || head - position > tap_frames) continue;
+            out[index] += slot.tap_ring[position & (tap_frames - 1)];
+        }
+    }
+    for (std::int64_t index = 0; index < frames; ++index) out[index] = std::clamp(out[index], -1.0f, 1.0f);
+    return frames;
 }
 
 void revoke_input() {

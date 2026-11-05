@@ -61,7 +61,7 @@ public class VisualizerApplication extends Application {
                 }));
             } else {
                 try {
-                    visualizer(session);
+                    visualizer(session, track);
                 } catch (Throwable t) {
                     log("failed: " + t.getClass().getName());
                 }
@@ -71,7 +71,7 @@ public class VisualizerApplication extends Application {
         }, "visualizer-test").start();
     }
 
-    private void visualizer(int session) {
+    private void visualizer(int session, AudioTrack track) {
         int[] range = Visualizer.getCaptureSizeRange();
         log("capture size range: " + range.length + " values, min power of two " + (Integer.bitCount(range[0]) == 1)
                 + ", max power of two " + (Integer.bitCount(range[1]) == 1));
@@ -156,6 +156,7 @@ public class VisualizerApplication extends Application {
             sleep(100);
         }
         log("waveform callbacks came: " + (captures[0] > 0) + ", fft callbacks came: " + (captures[1] > 0));
+        tone(v, track);
         log("setEnabled(false): " + outcome(() -> v.setEnabled(false)));
         callbackThread.quit();
         final Visualizer second = new Visualizer(session);
@@ -169,6 +170,67 @@ public class VisualizerApplication extends Application {
             mix.release();
             return s;
         }));
+    }
+
+    /**
+     * A 1 kHz tone of half scale on the track: the Visualizer's waveform moves round 128, its FFT peaks at the bin of
+     * 1 kHz (n * 1000 / 48000), and the measured peak and RMS are above silence's -9600 mB. The emulator shows the tone
+     * at a small level (the stream volume's attenuation is in it), so the lines say only that the tone is there and
+     * where it peaks; the levels go to the tag visualizer-test-device.
+     */
+    private static void tone(Visualizer v, AudioTrack track) {
+        final boolean[] playing = {true};
+        Thread writer = new Thread(() -> {
+            short[] block = new short[8820];  // 100 ms of stereo at 44.1 kHz
+            double phase = 0;
+            while (playing[0]) {
+                for (int i = 0; i < block.length; i += 2) {
+                    short sample = (short) (16384 * Math.sin(phase));
+                    block[i] = sample;
+                    block[i + 1] = sample;
+                    phase += 2 * Math.PI * 1000 / 44100;
+                }
+                track.write(block, 0, block.length);
+            }
+        }, "visualizer-tone");
+        writer.start();
+        sleep(800);
+        int size = v.getCaptureSize();
+        byte[] wave = new byte[size];
+        byte[] fft = new byte[size];
+        log("tone getWaveForm: " + v.getWaveForm(wave) + ", getFft: " + v.getFft(fft));
+        int high = 0;
+        int low = 255;
+        for (byte b : wave) {
+            high = Math.max(high, b & 0xff);
+            low = Math.min(low, b & 0xff);
+        }
+        device("tone waveform " + low + ".." + high);
+        log("tone waveform moves round 128: " + (low < 128 && high > 128));
+        int peakBin = 0;
+        int peakMagnitude = 0;
+        for (int k = 1; k < size / 2; k++) {
+            int re = fft[2 * k];
+            int im = fft[2 * k + 1];
+            int magnitude = re * re + im * im;
+            if (magnitude > peakMagnitude) {
+                peakMagnitude = magnitude;
+                peakBin = k;
+            }
+        }
+        device("tone fft peak bin " + peakBin + " of " + size / 2 + ", magnitude " + Math.sqrt(peakMagnitude));
+        int expected = size * 1000 / 48000;
+        log("tone fft peaks at 1 kHz: " + (Math.abs(peakBin - expected) <= 1) + ", is there: " + (peakMagnitude > 0));
+        Visualizer.MeasurementPeakRms peakRms = new Visualizer.MeasurementPeakRms();
+        v.setEnabled(false);
+        v.setMeasurementMode(Visualizer.MEASUREMENT_MODE_PEAK_RMS);
+        v.setEnabled(true);
+        sleep(500);
+        log("tone measurement: " + v.getMeasurementPeakRms(peakRms));
+        device("tone peak " + peakRms.mPeak + " mB, rms " + peakRms.mRms + " mB");
+        log("tone peak above silence: " + (peakRms.mPeak > -9600) + ", rms above silence: " + (peakRms.mRms > -9600)
+                + ", rms below peak: " + (peakRms.mRms < peakRms.mPeak));
+        playing[0] = false;
     }
 
     private static void sleep(long millis) {

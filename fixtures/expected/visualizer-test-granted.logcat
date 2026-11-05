@@ -20,6 +20,11 @@ I/visualizer-test-granted: getWaveForm with a short array: java.lang.IllegalArgu
 I/visualizer-test-granted: setDataCaptureListener while enabled: -5
 I/visualizer-test-granted: setDataCaptureListener while disabled: 0
 I/visualizer-test-granted: waveform callbacks came: true, fft callbacks came: true
+I/visualizer-test-granted: tone getWaveForm: 0, getFft: 0
+I/visualizer-test-granted: tone waveform moves round 128: true
+I/visualizer-test-granted: tone fft peaks at 1 kHz: true, is there: true
+I/visualizer-test-granted: tone measurement: 0
+I/visualizer-test-granted: tone peak above silence: true, rms above silence: true, rms below peak: true
 I/visualizer-test-granted: setEnabled(false): 0
 I/visualizer-test-granted: a second Visualizer on the session: false
 I/visualizer-test-granted: after release: java.lang.IllegalStateException

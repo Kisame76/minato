@@ -15,6 +15,9 @@ long write(std::uint64_t handle, std::uint64_t frames_address, std::int64_t fram
 long status(std::uint64_t handle, std::uint64_t address);
 long wait(std::uint64_t handle, std::uint32_t sequence, std::int64_t deadline);
 long join(std::uint64_t handle, std::uint64_t join);
+/// audio_tap: the last `frames` frames (1 to 2048) of what the started output streams played, mixed to mono at 48 kHz
+/// and clipped, oldest first, for the Visualizer; the frames before a stream's first one are zeros. -EFAULT, -EINVAL.
+long tap(std::uint64_t buffer_address, std::int64_t frames);
 /// audio_read (ADR-0064).
 long read(std::uint64_t handle, std::uint64_t buffer_address, std::int64_t frames, std::int64_t deadline);
 

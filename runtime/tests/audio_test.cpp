@@ -1075,6 +1075,86 @@ TEST(a_stream_thread_joins_the_workgroup_of_the_default_output) {
     AudioComponentInstanceDispose(unit);
 }
 
+// MARK: - The tap (the Visualizer's view of the output)
+
+/// audio_tap of `frames` frames: the mono samples, or the error.
+struct Tapped {
+    std::int64_t result;
+    std::vector<float> samples;
+};
+
+Tapped tap(std::int64_t frames) {
+    Tapped tapped{0, std::vector<float>(static_cast<std::size_t>(std::max<std::int64_t>(frames, 0)), -7.0f)};
+    tapped.result = call(APKRT_NR_AUDIO_TAP, {address(tapped.samples.data()), unsigned_of(frames)});
+    return tapped;
+}
+
+/// `count` stereo frames of `value` on both channels, written to the stream and read by the host (so that they play).
+void play_constant(std::uint64_t stream, float value, std::int64_t count) {
+    std::vector<float> samples(static_cast<std::size_t>(2 * count), value);
+    CHECK(call(APKRT_NR_AUDIO_WRITE, {stream, address(samples.data()), unsigned_of(count), 0}) == count);
+    CHECK(host_read(stream, count).count == count);
+}
+
+bool all_of(const Tapped &tapped, std::int64_t first, std::int64_t last, float value) {
+    for (std::int64_t index = first; index < last; ++index) {
+        if (std::fabs(tapped.samples[static_cast<std::size_t>(index)] - value) > 1e-6f) return false;
+    }
+    return true;
+}
+
+TEST(the_tap_gives_zeros_while_nothing_plays_and_refuses_bad_arguments) {
+    use_fake_host();
+    const Tapped quiet = tap(256);
+    CHECK(quiet.result == 256 && all_of(quiet, 0, 256, 0.0f));
+    float one = 0;
+    CHECK(call(APKRT_NR_AUDIO_TAP, {0, 16}) == -efault);
+    CHECK(call(APKRT_NR_AUDIO_TAP, {address(&one), 0}) == -einval);
+    CHECK(call(APKRT_NR_AUDIO_TAP, {address(&one), 2049}) == -einval);
+}
+
+TEST(the_tap_gives_the_last_frames_of_a_started_stream_as_mono) {
+    use_fake_host();
+    const auto stream = opened();
+    CHECK(control(stream, APKRT_AUDIO_START) == 0);
+    play_constant(stream, 0.1f, 300);
+    play_constant(stream, 0.2f, 200);
+    const Tapped tapped = tap(250);
+    CHECK(tapped.result == 250);
+    CHECK(all_of(tapped, 0, 50, 0.1f) && all_of(tapped, 50, 250, 0.2f));
+    const Tapped more = tap(1000);  // more than the stream played: zeros before its first frame
+    CHECK(more.result == 1000 && all_of(more, 0, 500, 0.0f) && all_of(more, 800, 1000, 0.2f));
+    CHECK(close_stream(stream) == 0);
+    const Tapped gone = tap(100);
+    CHECK(all_of(gone, 0, 100, 0.0f));  // a closed stream plays nothing
+}
+
+TEST(the_tap_sums_the_started_streams_and_clips) {
+    use_fake_host();
+    const auto first = opened();
+    const auto second = opened();
+    CHECK(control(first, APKRT_AUDIO_START) == 0 && control(second, APKRT_AUDIO_START) == 0);
+    play_constant(first, 0.25f, 400);
+    play_constant(second, 0.5f, 400);
+    const Tapped sum = tap(100);
+    CHECK(all_of(sum, 0, 100, 0.75f));
+    play_constant(first, 0.75f, 400);
+    const Tapped clipped = tap(100);
+    CHECK(all_of(clipped, 0, 100, 1.0f));
+    CHECK(close_stream(first) == 0 && close_stream(second) == 0);
+}
+
+TEST(a_paused_stream_adds_nothing_to_the_tap) {
+    use_fake_host();
+    const auto stream = opened();
+    CHECK(control(stream, APKRT_AUDIO_START) == 0);
+    play_constant(stream, 0.3f, 300);
+    CHECK(control(stream, APKRT_AUDIO_PAUSE) == 0);
+    const Tapped paused = tap(100);
+    CHECK(all_of(paused, 0, 100, 0.0f));
+    CHECK(close_stream(stream) == 0);
+}
+
 }  // namespace
 
 int main() {

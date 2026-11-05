@@ -1036,6 +1036,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return apkrt::audio::wait(x[0], static_cast<std::uint32_t>(x[1]), static_cast<std::int64_t>(x[2]));
         case APKRT_NR_AUDIO_JOIN:
             return apkrt::audio::join(x[0], x[1]);
+        case APKRT_NR_AUDIO_TAP:
+            return apkrt::audio::tap(x[0], static_cast<std::int64_t>(x[1]));
         case APKRT_NR_AUDIO_READ:
             return apkrt::audio::read(x[0], x[1], static_cast<std::int64_t>(x[2]), static_cast<std::int64_t>(x[3]));
 

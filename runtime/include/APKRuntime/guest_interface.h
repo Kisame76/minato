@@ -1630,6 +1630,12 @@ struct apkrt_audio_status {
 /// frames. START, PAUSE, STOP and FLUSH work as for an output stream, except that a STOP does not play anything out,
 /// a FLUSH clears the ring and a READ takes frames only from a stream that is STARTING or STARTED.
 #define APKRT_NR_AUDIO_READ 4136
+/// audio_tap (the Visualizer's view of the output): x0 a float buffer for x1 frames (1 to 2048). Fills it with the last
+/// x1 frames of what the app's started output streams played, mixed to mono (the channels' average, the streams' sum,
+/// clipped to ±1) at 48 kHz, oldest first; frames from before a stream's first one, and a stream that is not started
+/// (paused, stopped, flushed, closed), give zeros. Returns x1; -EFAULT for NULL, -EINVAL for x1 outside 1 to 2048. Not
+/// gated: it is the app's own output.
+#define APKRT_NR_AUDIO_TAP 4139
 
 // MARK: - Cameras (ADR-0073)
 //
