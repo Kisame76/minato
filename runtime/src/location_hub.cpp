@@ -17,14 +17,14 @@ static_assert(sizeof(apkrt_location_fix) == 72, "apkrt_location_fix is a 72-byte
 
 namespace {
 
-std::mutex mutex;  // guards everything below
+[[clang::no_destroy]] constinit std::mutex mutex;  // constant-init + immortal (host push, network.cpp); guards below
 
 // Serializes the host's start/stop/request/cancel calls so their order matches the order the ops decided them in, and
 // keeps them off `mutex` so a future blocking host call cannot deadlock a push (the sensor hub's out-of-order finding).
 // An op takes this first, then `mutex` for the decision, drops `mutex`, and makes the host call still holding this.
 // apkrt_location_push / _push_single take only `mutex`, so a host call cannot deadlock them. Never held with `mutex`
 // taken around it except inside an op's own decision block.
-std::mutex notify_mutex;
+[[clang::no_destroy]] constinit std::mutex notify_mutex;  // constant-init + immortal (host push, network.cpp)
 
 apkrt_location_host registered{};
 bool have_host = false;

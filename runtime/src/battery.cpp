@@ -12,7 +12,8 @@ namespace {
 
 namespace linux_errno = sys::linux_errno;
 
-std::mutex mutex;
+// Constant-init + immortal: apkrt_battery_set may run from a host callback before main or during exit (network.cpp).
+[[clang::no_destroy]] constinit std::mutex mutex;
 bool have_value = false;                             // a value has been set; GET is -ENODATA until then
 std::int32_t level_percent = 0;                      // 0..100, or -1 when unknown
 std::int32_t state = APKRT_BATTERY_STATE_UNKNOWN;

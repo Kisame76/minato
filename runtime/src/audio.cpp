@@ -108,16 +108,18 @@ struct Slot {
 };
 
 Slot slots[slot_count];
-std::mutex table_lock;  // the slots' use, generations and opens
+// The slots' use, generations and opens; immortal (apkrt_audio_disconnected during exit, network.cpp).
+[[clang::no_destroy]] constinit std::mutex table_lock;
 
-std::mutex host_lock;
+[[clang::no_destroy]] constinit std::mutex host_lock;  // constant-init + immortal (host callback, network.cpp)
 apkrt_audio_host current_host{};
 bool have_host = false;
 apkrt_audio_host current_input_host{};  // an apkrt_audio_input_host, which has the same shape
 bool have_input_host = false;
 
 std::atomic<std::int64_t> output_latency{0};  // ns
-std::mutex output_lock;
+// Constant-init + immortal (apkrt_audio_set_output, network.cpp).
+[[clang::no_destroy]] constinit std::mutex output_lock;
 os_workgroup_t output_workgroup = nullptr;  // +1, from the host's output unit
 
 std::atomic<std::uint32_t> timebase_numer{1}, timebase_denom{1};  // mach_timebase_info, set at every open

@@ -12,7 +12,14 @@ namespace {
 
 namespace linux_errno = sys::linux_errno;
 
-std::mutex mutex;
+// Constant-initialized and never destroyed: the host calls apkrt_network_set from a callback (NWPathMonitor on a
+// dispatch thread) that can run both before main -- another translation unit's constructor reaches it, as graphics-run
+// does through minato_graphics_set_providers -- and while exit() runs the static destructors. constinit gives it
+// constant (static) initialization, so it is ready before any constructor runs (std::mutex's constructor is
+// constexpr); [[clang::no_destroy]] keeps it past the destructors, so a late lock never hits a destroyed mutex. A
+// dynamically initialized reference (*new std::mutex) binds to null for a pre-main caller, and a plain object is
+// destroyed at exit -- this avoids both.
+[[clang::no_destroy]] constinit std::mutex mutex;
 bool have_state = false;  // a state has been set; GET is -ENODATA until then
 std::uint32_t state = 0;
 bool posted = false;  // a state has been announced; the sentinel until the first post

@@ -124,6 +124,14 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.network_transport COMMAND network_transport_test)
   set_tests_properties(runtime.network_transport PROPERTIES TIMEOUT 60)
 
+  # A host callback (apkrt_network_set and the like) must not abort when it runs during exit's static destruction: the
+  # state's mutex is immortal. This hammers it from a detached thread and returns from main.
+  add_executable(exit_race_test tests/exit_race_test.cpp)
+  target_include_directories(exit_race_test PRIVATE src)
+  target_link_libraries(exit_race_test PRIVATE apkrt apk_defaults)
+  add_test(NAME runtime.exit_race COMMAND exit_race_test)
+  set_tests_properties(runtime.exit_race PROPERTIES TIMEOUT 60)
+
   # The SoundPool plan's step 3: APKRT_NR_AUDIO_DECODE through the dispatcher, on soundpool-codec-test's files.
   add_executable(audio_decode_test tests/audio_decode_test.cpp)
   target_include_directories(audio_decode_test PRIVATE src)

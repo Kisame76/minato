@@ -45,13 +45,13 @@ static_assert(sizeof(table) / sizeof(table[0]) <= APKRT_SENSOR_MAX, "the offered
 // on the host's CoreMotion thread; one game needs only a few (one per SensorManager queue).
 constexpr std::size_t queue_limit = 64;
 
-std::mutex mutex;  // guards everything below
+[[clang::no_destroy]] constinit std::mutex mutex;  // constant-init + immortal (host push, network.cpp); guards below
 
 // Serializes the host's start/stop calls so their order matches the order the config ops decided them in (the security
 // review's out-of-order-notification finding). A config op takes this first, then `mutex` for the decision, drops
 // `mutex`, and makes the host call still holding this; apkrt_sensor_push takes only `mutex`, so a host stop that blocks
 // on an in-flight push cannot deadlock. Never taken while `mutex` is held.
-std::mutex notify_mutex;
+[[clang::no_destroy]] constinit std::mutex notify_mutex;  // constant-init + immortal (host push, network.cpp)
 
 apkrt_sensor_host registered{};             // the host's context and start/stop
 bool have_host = false;                     // whether a host with >= 1 available sensor is set
