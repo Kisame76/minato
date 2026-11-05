@@ -210,6 +210,8 @@ constexpr std::uint64_t futex = 98;
 constexpr std::uint64_t clock_gettime = 113;
 constexpr std::uint64_t clock_getres = 114;
 constexpr std::uint64_t clock_nanosleep = 115;
+constexpr std::uint64_t sched_setparam = 118;
+constexpr std::uint64_t sched_setscheduler = 119;
 constexpr std::uint64_t sched_getscheduler = 120;
 constexpr std::uint64_t sched_getparam = 121;
 constexpr std::uint64_t sched_setaffinity = 122;
@@ -313,6 +315,39 @@ long sys_sched_getscheduler(int pid) {
 long sys_sched_getparam(int pid, std::uint64_t parameters) {
     if (!names_own_thread(pid)) return -linux_errno::esrch;
     *as_pointer<int>(parameters) = 0;  // struct sched_param { int sched_priority; }
+    return 0;
+}
+
+/// sched_setscheduler and sched_setparam for a thread of an Android app, as Linux answers them (kernel/sched/core.c):
+/// the other policies (SCHED_OTHER 0, SCHED_BATCH 3, SCHED_IDLE 5, with SCHED_RESET_ON_FORK) take priority 0 and are
+/// accepted; SCHED_FIFO (1) and SCHED_RR (2) take 1 to 99 and are refused with EPERM, since an app has neither
+/// CAP_SYS_NICE nor an RLIMIT_RTPRIO; SCHED_DEADLINE (6) and any other number are EINVAL. The thread stays SCHED_OTHER
+/// for sched_getscheduler (an accepted BATCH or IDLE is not kept).
+long sys_sched_setscheduler(int pid, int policy, std::uint64_t parameters) {
+    constexpr int reset_on_fork = 0x40000000;
+    if (parameters == 0 || pid < 0) return -linux_errno::einval;
+    const int priority = *as_pointer<int>(parameters);
+    policy &= ~reset_on_fork;
+    switch (policy) {
+        case 0:
+        case 3:
+        case 5:
+            if (priority != 0) return -linux_errno::einval;
+            break;
+        case 1:
+        case 2:
+            if (priority < 1 || priority > 99) return -linux_errno::einval;
+            break;
+        default: return -linux_errno::einval;
+    }
+    if (!names_own_thread(pid)) return -linux_errno::esrch;
+    return policy == 1 || policy == 2 ? -linux_errno::eperm : 0;
+}
+
+long sys_sched_setparam(int pid, std::uint64_t parameters) {
+    if (parameters == 0 || pid < 0) return -linux_errno::einval;
+    if (*as_pointer<int>(parameters) != 0) return -linux_errno::einval;  // the thread is SCHED_OTHER: priority 0
+    if (!names_own_thread(pid)) return -linux_errno::esrch;
     return 0;
 }
 
@@ -916,6 +951,10 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return sys_setpriority(as_int(x[0]), as_int(x[1]), as_int(x[2]));
         case nr::getpriority:
             return sys_getpriority(as_int(x[0]), as_int(x[1]));
+        case nr::sched_setscheduler:
+            return sys_sched_setscheduler(as_int(x[0]), as_int(x[1]), x[2]);
+        case nr::sched_setparam:
+            return sys_sched_setparam(as_int(x[0]), x[1]);
         case nr::sched_getscheduler:
             return sys_sched_getscheduler(as_int(x[0]));
         case nr::sched_getparam:

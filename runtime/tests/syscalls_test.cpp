@@ -61,6 +61,8 @@ constexpr std::uint64_t nr_rt_sigaction = 134;
 constexpr std::uint64_t nr_rt_sigprocmask = 135;
 constexpr std::uint64_t nr_getrandom = 278;
 constexpr std::uint64_t nr_fcntl = 25;
+constexpr std::uint64_t nr_sched_setparam = 118;
+constexpr std::uint64_t nr_sched_setscheduler = 119;
 constexpr std::uint64_t nr_sched_getscheduler = 120;
 constexpr std::uint64_t nr_sched_getparam = 121;
 constexpr std::uint64_t nr_sigaltstack = 132;
@@ -590,6 +592,45 @@ TEST(sched_queries_answer_like_an_ordinary_linux_thread) {
     int priority = -1;
     CHECK(call(nr_sched_getparam, {0, reinterpret_cast<std::uint64_t>(&priority)}) == 0);
     CHECK(priority == 0);
+}
+
+TEST(sched_setscheduler_and_setparam_answer_like_a_thread_of_an_android_app) {
+    // An app's thread may leave SCHED_OTHER only for the other policies without a real-time priority; SCHED_FIFO and
+    // SCHED_RR need CAP_SYS_NICE or RLIMIT_RTPRIO, which an app has neither of: EPERM, after the arguments check out.
+    // Engines ask at start (SDL's thread priorities, Mono and Unity's worker threads) and carry on with the refusal.
+    constexpr std::uint64_t reset_on_fork = 0x40000000;
+    int param = 0;
+    const auto set = [&](std::uint64_t pid, std::uint64_t policy, int priority) {
+        param = priority;
+        return call(nr_sched_setscheduler, {pid, policy, reinterpret_cast<std::uint64_t>(&param)});
+    };
+    CHECK(set(0, 0, 0) == 0);                // SCHED_OTHER
+    CHECK(set(0, 3, 0) == 0);                // SCHED_BATCH
+    CHECK(set(0, 5, 0) == 0);                // SCHED_IDLE
+    CHECK(set(0, 0 | reset_on_fork, 0) == 0);
+    CHECK(set(static_cast<std::uint64_t>(::getpid()), 0, 0) == 0);
+    CHECK(set(0, 1, 1) == -eperm);           // SCHED_FIFO
+    CHECK(set(0, 2, 50) == -eperm);          // SCHED_RR
+    CHECK(set(0, 1, 0) == -einval);          // a real-time priority is 1 to 99
+    CHECK(set(0, 2, 100) == -einval);
+    CHECK(set(0, 0, 5) == -einval);          // the other policies take 0
+    CHECK(set(0, 3, 1) == -einval);
+    CHECK(set(0, 7, 0) == -einval);          // no such policy
+    CHECK(set(0, static_cast<std::uint64_t>(-1), 0) == -einval);
+    CHECK(set(0, 6, 0) == -einval);          // SCHED_DEADLINE has sched_setattr
+    CHECK(set(999'999, 0, 0) == -esrch);
+    CHECK(set(static_cast<std::uint64_t>(-1), 0, 0) == -einval);
+    CHECK(call(nr_sched_setscheduler, {0, 0, 0}) == -einval);  // no sched_param
+    CHECK(call(nr_sched_getscheduler, {0}) == 0);              // still SCHED_OTHER as reported
+    param = 0;
+    CHECK(call(nr_sched_setparam, {0, reinterpret_cast<std::uint64_t>(&param)}) == 0);
+    param = 3;
+    CHECK(call(nr_sched_setparam, {0, reinterpret_cast<std::uint64_t>(&param)}) == -einval);
+    param = 0;
+    CHECK(call(nr_sched_setparam, {999'999, reinterpret_cast<std::uint64_t>(&param)}) == -esrch);
+    const auto bad_pid = static_cast<std::uint64_t>(-1);
+    CHECK(call(nr_sched_setparam, {bad_pid, reinterpret_cast<std::uint64_t>(&param)}) == -einval);
+    CHECK(call(nr_sched_setparam, {0, 0}) == -einval);
 }
 
 TEST(sched_queries_answer_for_every_thread_of_the_process) {
