@@ -112,7 +112,7 @@ android.window.OnBackInvokedCallbackInfo <- android.window.WindowOnBackInvokedDi
 # sensor runs.
 android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
 
-# GLES from Java (ADR-0041 a), Grafik): opengl/java's three packages. A window surface takes a SurfaceView's or a
+# GLES from Java (ADR-0041 a)): opengl/java's three packages. A window surface takes a SurfaceView's or a
 # Surface's window (ADR-0043 c4); a SurfaceTexture needs libgui, and a native fence EGL_ANDROID_native_fence_sync,
 # which ANGLE's Metal display lacks.
 android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's
@@ -162,7 +162,7 @@ com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.Ed
 
 # The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
 
-# The compatibility plan's gap 7, SQLite databases (Formate): android.database.sqlite.
+# The compatibility plan's gap 7, SQLite databases: android.database.sqlite.
 
 # The framework breadth's batch 2 (the compatibility plan's entry 22): what its types still name as stubs.
 
@@ -208,7 +208,7 @@ android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobSch
 # Gap 1: the clipboard over the local clipboard service.
 android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard's Stub and Proxy, which the local clipboard never runs
 
-# The Unity test APK probe's batch C (Grafik): android.webkit without a WebView provider (no webview feature) and the legacy
+# The Unity test APK probe's batch C: android.webkit without a WebView provider (no webview feature) and the legacy
 # Camera without cameras.
 android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
@@ -250,7 +250,7 @@ android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's inf
 android.print.PrintManager <- android.print.PrintJob  # stays: a print job's manager, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
 android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts
 
-# Activity's signature types (App, the Unity test APK retest 10): the types they take in reach these.
+# Activity's signature types (the Unity test APK retest 10): the types they take in reach these.
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.content.pm.LauncherApps <- android.appwidget.AppWidgetHostView  # stays: a widget host view's click launches the widget's activity through the launcher apps service, and Minato hosts no widget

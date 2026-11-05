@@ -5,8 +5,8 @@
 # retest 9: 70 classes). A line is "<type> <- <class>, <class>..." with the top-level classes by name, or "*", and its
 # why after "#": "step b3: <what takes the type>", "stays: <why no app reflects over the class>" or "gap: <what>".
 # A line goes when its type is taken (the check names it "stale"); none is added without its why.
-# Placeholders (App, placeholder; the Unity test APK retest 11): classes that ship only so that the classes naming them load for
-# reflection, each body logging once and throwing UnsupportedOperationException; Grafik owns the graphics ones, which
+# Placeholders (placeholder; the Unity test APK retest 11): classes that ship only so that the classes naming them load for
+# reflection, each body logging once and throwing UnsupportedOperationException; the graphics ones are those
 # ADR-0058 b) / category 2 replace: SurfaceControl, WindowId, InputTransferToken,
 # TrustedPresentationThresholds, DisplayHashResultCallback, BLASTBufferQueue, ThreadedRenderer, IWindowSession,
 # IWindowId, InsetsFrameProvider, FrameMetricsObserver, TaskFpsCallback, ScrollCaptureInternal and TooltipPopup; and
@@ -25,11 +25,11 @@ android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  
 android.content.pm.IPackageManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.credentials.Credential <- android.credentials.GetCredentialResponse  # gap: the credential manager's types, not taken yet; Minato has no credential manager
 android.credentials.CredentialOption <- android.credentials.GetCredentialRequest  # gap: the credential manager's types, not taken yet; Minato has no credential manager
-android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2 (Grafik)
-android.hardware.camera2.CaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession  # gap: category 3's camera2 (Grafik)
+android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.hardware.camera2.CaptureRequest <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession, android.hardware.camera2.CaptureFailure  # gap: category 3's camera2
+android.hardware.camera2.CaptureResult <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraCaptureSession, android.hardware.camera2.CameraExtensionSession  # gap: category 3's camera2
 android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.media.projection.MediaProjection <- android.hardware.display.DisplayManager, android.hardware.display.DisplayManagerGlobal  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.net.IpConfiguration <- android.net.wifi.WifiConfiguration  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
@@ -45,8 +45,8 @@ android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android
 android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: not taken: it names android.hardware.thermal's generated HAL types (TemperatureType, ThrottlingSeverity)
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
+android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: not taken: it names FieldClassificationUserData, a generated AIDL type of the autofill service
 android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
@@ -65,29 +65,29 @@ android.view.displayhash.DisplayHash <- android.view.displayhash.DisplayHashResu
 android.view.textservice.SpellCheckerInfo <- android.view.textservice.SpellCheckerSession, android.view.textservice.TextServicesManager  # gap: not taken: its constructor of SpellCheckerSubtype does not match ours; with SpellCheckerSubtype
 android.view.textservice.SpellCheckerSubtype <- android.view.textservice.TextServicesManager  # gap: not taken: it needs SubtypeLocaleUtils of the input method service; Minato has no spell checker service
 android.view.translation.TranslationRequestValue <- android.view.translation.ViewTranslationRequest  # gap: translation requests' values not taken yet
-android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider, com.android.internal.minato.webkit.WebViewFactoryProviderImpl  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
+android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider, com.android.internal.minato.webkit.WebViewFactoryProviderImpl  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.window.OnBackInvokedCallbackInfo <- android.view.IWindowSession  # gap: a placeholder's back callback info (IWindowSession, the graphics side's), not taken yet
 android.window.SplashScreenView <- android.window.SplashScreen  # gap: SplashScreenView, the system splash screen's view, not taken yet; Minato shows none
 android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
-com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
-com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, Grafik, 2026-10-09)
+com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.media.audiofx.HapticGenerator <- android.media.Ringtone  # gap: as its stub reference (mHapticGenerator), a hidden field no app reflects over
 android.media.IAudioService <- android.media.PlayerBase  # stays: a hidden class (getService and sService), which no app reflects over; MediaPlayer's own members name none of these (ADR-0060 e2e1)
 com.android.internal.app.IAppOpsCallback <- android.media.PlayerBase  # stays: as IAudioService (mAppOpsCallback)
 com.android.internal.app.IAppOpsService <- android.media.PlayerBase  # stays: as IAudioService (mAppOps)
 
-# Formate: the package installer (the Unity test APK resolve list, batch E) and android.media (the gap sort, categories 1 and 2).
+# The package installer (the Unity test APK resolve list, batch E) and android.media (the gap sort, categories 1 and 2).
 android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors, which the local installer never runs; no app reflects over a binder interface
 android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 android.content.pm.parsing.result.ParseResult <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
-android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras getCameraCharacteristics refuses every ID before one is made
-android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
-android.hardware.camera2.CameraExtensionCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2 (Grafik); without cameras no extension is described
-android.hardware.camera2.CaptureRequest$Builder <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
-android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
-android.hardware.camera2.params.SessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2 (Grafik); a CameraDevice comes only from openCamera, and without cameras none opens
+android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2; without cameras getCameraCharacteristics refuses every ID before one is made
+android.hardware.camera2.CameraCharacteristics <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2; a CameraDevice comes only from openCamera, and without cameras none opens
+android.hardware.camera2.CameraExtensionCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2; without cameras no extension is described
+android.hardware.camera2.CaptureRequest$Builder <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2; a CameraDevice comes only from openCamera, and without cameras none opens
+android.hardware.camera2.TotalCaptureResult <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2; a CameraDevice comes only from openCamera, and without cameras none opens
+android.hardware.camera2.params.SessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2; a CameraDevice comes only from openCamera, and without cameras none opens
 android.media.tv.TvContentRating <- android.media.tv.TvInputManager  # stays: the TV input manager, which a phone has no service for (getSystemService answers null)
 android.media.tv.TvInputInfo <- android.media.tv.TvInputManager  # stays: as TvContentRating
 android.os.PermissionEnforcer <- android.app.IAlarmManager  # gap: not taken yet (batch D 3: IAlarmManager's Stub, which the local alarm service never runs)

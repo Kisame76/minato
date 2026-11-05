@@ -1,6 +1,6 @@
 # The types other steps take, which tools/api-coverage.py batches never (--taken): a package, its own types only,
 # or a type, then a tab and the step (the compatibility plan's section 2, and the steps under way).
-android.database.sqlite	gap 7, SQLite (Formate)
+android.database.sqlite	gap 7, SQLite
 android.content.IntentFilter	step d1
 android.os.ConditionVariable	App's ContextImpl step
 android.os.Messenger	App's ContextImpl step
@@ -40,10 +40,10 @@ android.os.VibratorManager	gap 1 batch 2, the vibrator
 android.os.VibrationEffect	gap 1 batch 2, the vibrator
 android.os.VibrationAttributes	gap 1 batch 2, the vibrator
 android.os.CombinedVibration	gap 1 batch 2, the vibrator
-android.database.AbstractWindowedCursor	gap 7, SQLite (Formate)
-android.database.CursorWindowAllocationException	gap 7, SQLite (Formate)
-android.database.DatabaseErrorHandler	gap 7, SQLite (Formate)
-android.database.DefaultDatabaseErrorHandler	gap 7, SQLite (Formate)
+android.database.AbstractWindowedCursor	gap 7, SQLite
+android.database.CursorWindowAllocationException	gap 7, SQLite
+android.database.DatabaseErrorHandler	gap 7, SQLite
+android.database.DefaultDatabaseErrorHandler	gap 7, SQLite
 android.content.SearchRecentSuggestionsProvider	waits for gap 7's SQLiteOpenHelper, then a breadth batch
 android.content.SyncInfo	waits for android.accounts.Account, which its static initializer makes (a service type)
 # The compatibility plan's gap 5, widgets, batch 1: what waits.

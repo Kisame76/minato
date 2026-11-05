@@ -1,4 +1,4 @@
-// The written part of AccessibilityNodeInfo (App, the Unity test APK retest 11: a class apps reflect over names it, so it ships as
+// The written part of AccessibilityNodeInfo (the Unity test APK retest 11: a class apps reflect over names it, so it ships as
 // the API with default answers), which tools/managergen joins with the API's methods. The node IDs' helpers are AOSP's
 // bit arithmetic, since AccessibilityRecord and View use them without a service. Before: the hidden members of the
 // public API's compile-only stub (ADR-0039 step c2c2), which tools/managergen joins with it: View and ViewGroup fill

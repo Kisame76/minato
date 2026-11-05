@@ -3,7 +3,7 @@ package android.hardware;
 import com.android.minato.services.Unwritten;
 
 /**
- * Placeholder (App, the Unity test APK retest 11): our class under AOSP's
+ * Placeholder (the Unity test APK retest 11): our class under AOSP's
  * hidden name, which only has to load, since a class apps reflect over names it; every body logs once and throws
  * UnsupportedOperationException. Before, a compile-only stub (ADR-0045, the start's sensors): SensorManager's helper
  * for the SensorListener API, deprecated since API 3, which needs the window manager's rotation watcher.

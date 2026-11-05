@@ -1,5 +1,5 @@
-// The written part of SurfaceControl (App, the Unity test APK retest 11: a class apps reflect over names it, so it ships as a
-// placeholder: every body logs once and throws UnsupportedOperationException (Grafik owns it, replaced by ADR-0058 b) /
+// The written part of SurfaceControl (the Unity test APK retest 11: a class apps reflect over names it, so it ships as a
+// placeholder: every body logs once and throws UnsupportedOperationException (replaced by ADR-0058 b) /
 // category 2)), which tools/managergen joins with the API's methods. Before: the hidden members of the public API's
 // compile-only stub (ADR-0039 step c2c2), which tools/managergen joins with it: View's drag shadow surface;
 // RotationUtils turns a surface with a matrix. (ADR-0041 a)) DisplayInfo and Display read a display's refresh-rate

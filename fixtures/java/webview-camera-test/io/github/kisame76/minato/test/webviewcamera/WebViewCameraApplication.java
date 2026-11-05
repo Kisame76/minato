@@ -81,7 +81,7 @@ import java.util.TreeMap;
 import java.util.concurrent.Callable;
 
 /**
- * The Unity test APK probe's batch C (Grafik): android.webkit's classes, which the ad SDKs name (AppLovin's tryToCreateWebView,
+ * The Unity test APK probe's batch C: android.webkit's classes, which the ad SDKs name (AppLovin's tryToCreateWebView,
  * SafeDK's brand safety, Facebook's augmentWebView), and the legacy android.hardware.Camera, whose Camera$Area Unity's
  * Camera2Wrapper names; MimeTypeMap is mime-test's. From Application.onCreate, on the main thread, it logs a
  * WebViewClient's defaults, WebResourceResponse with the arguments it refuses, a WebResourceRequest, WebSettings'

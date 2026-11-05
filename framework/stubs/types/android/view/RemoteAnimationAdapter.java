@@ -1,7 +1,7 @@
 package android.view;
 
 /**
- * Compile-only stub (App, the Unity test APK retest 10), never in framework.jar: RemoteAnimationDefinition, the type of Activity's
+ * Compile-only stub (the Unity test APK retest 10), never in framework.jar: RemoteAnimationDefinition, the type of Activity's
  * registerRemoteAnimations, holds the system's remote animations, which no app gets without the system's permission.
  */
 public class RemoteAnimationAdapter implements android.os.Parcelable {

@@ -8,7 +8,7 @@ import android.os.Parcelable;
 import com.android.minato.services.Unwritten;
 
 /**
- * Placeholder (App, the small batch of 2026-10-12): our class under the media module's public name, which only has to
+ * Placeholder (the small batch of 2026-10-12): our class under the media module's public name, which only has to
  * load, since MediaSessionManager names it and apps reflect over the media session classes; every body logs once and
  * throws UnsupportedOperationException. A token of a media2 session or session service; the media module's sources,
  * where AOSP's class lives, are not fetched, and Minato has no media session service that would hand one out.

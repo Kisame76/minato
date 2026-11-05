@@ -552,7 +552,7 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableContain
 frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableInflater.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/GradientDrawable.java
 
-# ADR-0041 a), Grafik: Java's Choreographer and the display (decision 6), which androidx's profileinstaller asks for
+# ADR-0041 a): Java's Choreographer and the display (decision 6), which androidx's profileinstaller asks for
 # while the providers install (test 2's gap 9). Choreographer with DisplayEventReceiver, whose natives are ours on
 # libandroid's AChoreographer, and TimeUtils, which its doFrame calls with c2c2's AnimationUtils; the frame interval
 # comes from DisplayManagerGlobal's DisplayInfo for display 0, over the local IDisplayManager of ServiceManager's
@@ -628,7 +628,7 @@ frameworks_base/core/java/com/android/internal/compat/IPlatformCompat.aidl
 frameworks_base/core/java/com/android/internal/compat/OverrideAllowedState.java
 frameworks_base/core/java/com/android/internal/os/SafeZipPathValidatorCallback.java
 
-# ADR-0039 step c2c3, App: the activity and its window. AOSP's Activity and Instrumentation (which then calls the
+# ADR-0039 step c2c3: the activity and its window. AOSP's Activity and Instrumentation (which then calls the
 # Application's onCreate), with what their constructor, attach and perform methods reach: ActivityClient over our
 # local controller (AIDL's Default class, as IActivityClientController names types that framework.jar lacks),
 # ComponentCaller, the transition state with SharedElementCallback, autofill's client controller (autofill stays
@@ -743,7 +743,7 @@ frameworks_base/core/java/android/hardware/TriggerEvent.java
 frameworks_base/core/java/android/hardware/TriggerEventListener.java
 frameworks_base/core/java/android/speech/tts/UtteranceProgressListener.java
 
-# ADR-0041 a), Grafik: GLES from Java (decision 4; test 2's gap 8), opengl/java's three packages: android.opengl, the
+# ADR-0041 a): GLES from Java (decision 4; test 2's gap 8), opengl/java's three packages: android.opengl, the
 # Khronos interfaces javax.microedition.khronos.egl and .opengles, and their implementations in
 # com.google.android.gles_jni, whose natives are AOSP's core/jni files in libandroid_runtime over Minato's front libs
 # (EGL10 makes a GLImpl, whose natives are ES 1.x's, from libGLESv1_CM). ETC1 and ETC1Util came with the graphics
@@ -1148,7 +1148,7 @@ frameworks_base/core/java/android/view/InputEventReceiver.java
 frameworks_base/core/java/android/view/KeyCharacterMap.java
 frameworks_base/core/java/android/view/SoundEffectConstants.java
 
-# ADR-0039 step b3.5b2-1, App: the app's own starts. ActivityNotFoundException, which Instrumentation's
+# ADR-0039 step b3.5b2-1: the app's own starts. ActivityNotFoundException, which Instrumentation's
 # checkStartActivityResult throws for a component that the manifest lacks, was a compile-only stub.
 frameworks_base/core/java/android/content/ActivityNotFoundException.java
 
@@ -1341,7 +1341,7 @@ frameworks_base/core/java/com/android/internal/view/menu/SubMenuBuilder.java
 frameworks_base_graphics/graphics/java/android/view/PixelCopy.java
 modules_utils/java/android/annotation/IdRes.java
 
-# ADR-0045 gap 1, batch 1, App: the services that answered null. DisplayManager over DisplayManagerGlobal's local
+# ADR-0045 gap 1, batch 1: the services that answered null. DisplayManager over DisplayManagerGlobal's local
 # display service; PowerManager over the local power and thermal services (IPowerManager, IThermalService, with the
 # listeners and callbacks their signatures name), with PowerSaveState, which getLocationPowerSaveMode reads.
 frameworks_base/core/java/android/hardware/display/DisplayManager.java
@@ -1353,7 +1353,7 @@ frameworks_base/core/java/android/os/IThermalService.aidl
 frameworks_base/core/java/android/os/IThermalEventListener.aidl
 frameworks_base/core/java/android/os/IThermalStatusListener.aidl
 
-# ADR-0045 gap 1, batch 1b, App: UserManager over the local user service (IUserManager, with the listener its
+# ADR-0045 gap 1, batch 1b: UserManager over the local user service (IUserManager, with the listener its
 # signatures name), and UserInfo and UserProperties, which its answers carry.
 frameworks_base/core/java/android/os/UserManager.java
 frameworks_base/core/java/android/os/IUserManager.aidl
@@ -1361,7 +1361,7 @@ frameworks_base/core/java/android/os/IUserRestrictionsListener.aidl
 frameworks_base/core/java/android/content/pm/UserInfo.java
 frameworks_base/core/java/android/content/pm/UserProperties.java
 
-# The compatibility plan's Unity test APK probe, App: ConditionVariable, on which ad SDKs block their threads, and Messenger,
+# The compatibility plan's Unity test APK probe: ConditionVariable, on which ad SDKs block their threads, and Messenger,
 # firebase-iid's channel, over Handler's IMessenger.
 frameworks_base/core/java/android/os/ConditionVariable.java
 frameworks_base/core/java/android/os/Messenger.java
@@ -1584,7 +1584,7 @@ frameworks_base_types/media/java/android/media/AudioFormat.java
 frameworks_base_types/media/java/android/media/AudioRouting.java
 frameworks_base_types/media/java/android/media/VolumeAutomation.java
 
-# The Unity test APK probe's batch C (Grafik), webview-camera-test: android.webkit's classes that the ad SDKs and FileProvider
+# The Unity test APK probe's batch C, webview-camera-test: android.webkit's classes that the ad SDKs and FileProvider
 # name, with WebView answering as Android 15 does without the webview feature, which Minato does not report
 # (WebViewFactory.getProvider's UnsupportedOperationException); the legacy Camera, whose Camera$Area Unity's
 # Camera2Wrapper names, on a device without cameras.
@@ -1692,7 +1692,7 @@ frameworks_base_types/media/java/android/media/UnsupportedSchemeException.java
 frameworks_base_types/media/java/android/media/ResourceBusyException.java
 frameworks_base_types/media/java/android/media/MediaDrmThrowable.java
 
-# The Unity test APK probe's gap sort, category 1 (Grafik), webview-camera-test: the rest of android.webkit's public types
+# The Unity test APK probe's gap sort, category 1, webview-camera-test: the rest of android.webkit's public types
 # that the ad SDKs name, plain Java: messages, results, handlers and the abstract types a provider implements.
 frameworks_base/core/java/android/webkit/ClientCertRequest.java
 frameworks_base/core/java/android/webkit/ConsoleMessage.java
@@ -1721,7 +1721,7 @@ frameworks_base/core/java/android/webkit/WebViewRenderProcessClient.java
 frameworks_base/core/java/android/webkit/GeolocationPermissions.java
 frameworks_base/core/java/android/webkit/WebStorage.java
 
-# The Unity test APK probe's gap sort, category 1 (Grafik), package 2, webview-camera-test: camera2's plain types that Unity's
+# The Unity test APK probe's gap sort, category 1, package 2, webview-camera-test: camera2's plain types that Unity's
 # Camera2Wrapper names (the exception, a metering area, the session's callbacks and a capture failure), android.print's
 # plain types (page ranges, print attributes, a document's info, the adapter and a print job) and ShapeDrawable.
 frameworks_base/core/java/android/hardware/camera2/CameraAccessException.java
@@ -1807,7 +1807,7 @@ wifi_java/framework/java/android/net/wifi/SupplicantState.java
 connectivity_java/framework-t/src/android/net/EthernetNetworkSpecifier.java
 frameworks_base/core/java/android/webkit/WebChromeClient.java
 
-# The Unity test APK probe's gap sort, category 2 (Grafik), webview-camera-test: Movie, whose GIFs hwui's GIFMovie decodes over
+# The Unity test APK probe's gap sort, category 2, webview-camera-test: Movie, whose GIFs hwui's GIFMovie decodes over
 # giflib, and PdfDocument with PrintedPdfDocument over Skia's PDF backend (graphics/hwui's patch 0011 registers both on
 # the host flavor), in place of the Movie placeholder; and android.util.Range, which StreamConfigurationMap names.
 frameworks_base_graphics/graphics/java/android/graphics/Movie.java
@@ -1815,7 +1815,7 @@ frameworks_base_graphics/graphics/java/android/graphics/pdf/PdfDocument.java
 frameworks_base/core/java/android/print/pdf/PrintedPdfDocument.java
 frameworks_base/core/java/android/hardware/camera2/CameraDevice.java
 frameworks_base/core/java/android/util/Range.java
-# The gap sort's category 2, part 3 (Grafik), webview-camera-test: android.renderscript, without a driver
+# The gap sort's category 2, part 3, webview-camera-test: android.renderscript, without a driver
 # (framework/patches/renderscript-without-a-driver.patch: create throws RSRuntimeException, a named departure),
 # with RSTextureView on TextureView (ADR-0058 d)).
 frameworks_base_types/rs/java/android/renderscript/Allocation.java
@@ -2056,11 +2056,11 @@ frameworks_base_types/keystore/java/android/security/keystore/UserPresenceUnavai
 frameworks_base_types/keystore/java/android/security/keystore/WrappedKeyEntry.java
 frameworks_base/core/java/com/android/internal/logging/EventLogTags.logtags
 
-# The member types of the input devices' vibrator and light managers and of the media sessions (App, 2026-10-12):
+# The member types of the input devices' vibrator and light managers and of the media sessions (2026-10-12):
 # CombinedVibration, what VibratorManager.vibrate takes; LightState and LightsRequest, a light's state and a session's
 # request; PlaybackState with its CustomAction, a media session's playback state, which MediaController reports.
 frameworks_base/core/java/android/os/CombinedVibration.java
-# Gap 1's batch 3 (App, 2026-10-28 and 29): the vibrator and its manager, AOSP's SystemVibrator and
+# Gap 1's batch 3 (2026-10-28 and 29): the vibrator and its manager, AOSP's SystemVibrator and
 # SystemVibratorManager over the local vibrator manager service (android.os.VibratorManagerService), with Vibrator,
 # VibratorManager, NullVibrator, VibrationAttributes, the vibrators' info and config, and the vibrator HAL's AIDL
 # (hardware/interfaces' vibrator), whose IVibrator's constants and Braking VibratorInfo reads.
@@ -2086,7 +2086,7 @@ hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/EffectStren
 hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/IVibrator.aidl
 hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/IVibratorCallback.aidl
 hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/PrimitivePwle.aidl
-# Gap 1's batch 3 (App, 2026-10-29): UiModeManager, which AppCompat's night mode, media3's Util.isTv and Material's
+# Gap 1's batch 3 (2026-10-29): UiModeManager, which AppCompat's night mode, media3's Util.isTv and Material's
 # ColorContrast ask, over the local UI mode service (android.app.LocalUiModeManager), with its interfaces and the
 # IpcDataCache of its night mode (enable_night_mode_binder_cache).
 frameworks_base/core/java/android/app/UiModeManager.java
@@ -2094,7 +2094,7 @@ frameworks_base/core/java/android/app/IUiModeManager.aidl
 frameworks_base/core/java/android/app/IUiModeManagerCallback.aidl
 frameworks_base/core/java/android/app/IOnProjectionStateChangedListener.aidl
 frameworks_base/core/java/android/os/IpcDataCache.java
-# Gap 1's batch 3 (App, 2026-10-29): CaptioningManager, which media3's TrackSelectionParameters and SubtitleView ask
+# Gap 1's batch 3 (2026-10-29): CaptioningManager, which media3's TrackSelectionParameters and SubtitleView ask
 # and which reads the captions' secure settings itself; MediaMetricsManager, whose playback session media3's
 # MediaMetricsListener takes, over the local media metrics service (android.media.metrics.LocalMediaMetricsManager),
 # with its interface, its sessions and the events they report.
@@ -2114,7 +2114,7 @@ frameworks_base_types/media/java/android/media/metrics/NetworkEvent.java
 frameworks_base_types/media/java/android/media/metrics/TrackChangeEvent.java
 frameworks_base_types/media/java/android/media/metrics/EditingEndedEvent.java
 frameworks_base_types/media/java/android/media/metrics/MediaItemInfo.java
-# Gap 1's batch 3 (App, 2026-10-29): ShortcutManager, which androidx's ShortcutManagerCompat asks, over the local
+# Gap 1's batch 3 (2026-10-29): ShortcutManager, which androidx's ShortcutManagerCompat asks, over the local
 # shortcut service (android.content.pm.LocalShortcutService), with ShortcutInfo, the interface, and AndroidFuture,
 # whose futures carry the answers of a pin request and a result intent.
 frameworks_base/core/java/android/content/pm/ShortcutManager.java
@@ -2126,7 +2126,7 @@ frameworks_base/core/java/android/hardware/lights/LightState.java
 frameworks_base/core/java/android/hardware/lights/LightsRequest.java
 frameworks_base_types/media/java/android/media/session/PlaybackState.java
 
-# ADR-0058 c) (Grafik), surface-texture-test: AOSP's SurfaceTexture over our natives on libnativewindow's buffer queue
+# ADR-0058 c), surface-texture-test: AOSP's SurfaceTexture over our natives on libnativewindow's buffer queue
 # (android_graphics_SurfaceTexture.cpp), in place of its placeholder.
 frameworks_base_graphics/graphics/java/android/graphics/SurfaceTexture.java
 
@@ -2185,10 +2185,10 @@ frameworks_base/core/java/android/app/ForegroundServiceTypeException.java
 frameworks_base/core/java/android/app/MissingForegroundServiceTypeException.java
 frameworks_base/core/java/android/app/InvalidForegroundServiceTypeException.java
 
-# ADR-0058 d) (Grafik), texture-view-test: TextureView, which a window drawn in software draws too
+# ADR-0058 d), texture-view-test: TextureView, which a window drawn in software draws too
 # (framework/patches/textureview-software-layer.patch, its natives android_view_TextureView.cpp).
 frameworks_base/core/java/android/view/TextureView.java
-# Framework breadth F1 (Formate), ui-types-test: android.gesture, android.sax, six text spans, the text classifier's
+# Framework breadth F1, ui-types-test: android.gesture, android.sax, six text spans, the text classifier's
 # data types with SystemTextClassifierMetadata and EntityConfidence, DateSorter and the WebView statics' classes, the
 # speech result types, and three android.print ids.
 frameworks_base/core/java/android/gesture/Gesture.java
@@ -2277,10 +2277,10 @@ frameworks_base/core/java/android/security/NetworkSecurityPolicy.java
 frameworks_base/core/java/android/security/FrameworkNetworkSecurityPolicy.java
 frameworks_base/core/java/android/net/http/X509TrustManagerExtensions.java
 
-# The graphics breadth's G2 (Grafik): SyncFence, on natives of ours (android_hardware_SyncFence.cpp) without sync files.
+# The graphics breadth's G2: SyncFence, on natives of ours (android_hardware_SyncFence.cpp) without sync files.
 frameworks_base/core/java/android/hardware/SyncFence.java
 
-# The graphics breadth's G3a (Grafik, ADR-0058 e1)): ImageReader, in place of its generated placeholder, on natives of
+# The graphics breadth's G3a (ADR-0058 e1)): ImageReader, in place of its generated placeholder, on natives of
 # ours (android_media_ImageReader.cpp) over the buffer queue, with the format helpers it maps formats with and camera2's
 # MultiResolutionImageReader, which it calls.
 frameworks_base_types/media/java/android/media/ImageReader.java
@@ -2289,7 +2289,7 @@ frameworks_base_types/media/java/android/media/PublicFormatUtils.java
 frameworks_base/core/java/android/hardware/camera2/MultiResolutionImageReader.java
 frameworks_base/core/java/android/hardware/camera2/params/MultiResolutionStreamInfo.java
 
-# The graphics breadth's G3b (Grafik, ADR-0058 e1)): ImageWriter, a producer of the buffer queue on natives of ours
+# The graphics breadth's G3b (ADR-0058 e1)): ImageWriter, a producer of the buffer queue on natives of ours
 # (android_media_ImageWriter.cpp), with camera2's SurfaceUtils, which newInstance(Surface, int) asks for the surface's
 # format, data space and size.
 frameworks_base_types/media/java/android/media/ImageWriter.java
@@ -2300,7 +2300,7 @@ frameworks_base/core/java/android/app/AsyncNotedAppOp.java
 frameworks_base/core/java/android/app/SyncNotedAppOp.java
 modules_utils/java/android/annotation/CurrentTimeMillisLong.java
 
-# Framework breadth F2 (Formate), f2-types-test: DialogFragment and the other android.app types, ExifInterface,
+# Framework breadth F2, f2-types-test: DialogFragment and the other android.app types, ExifInterface,
 # WallpaperColors with the palette quantizers, AudioProfile and AudioDescriptor, Keyboard, the accessibility gesture
 # description, LiveFolders, SyncStateContract and the 7 health data classes.
 frameworks_base/core/java/android/accessibilityservice/GestureDescription.java
@@ -2529,16 +2529,16 @@ frameworks_base_types/media/java/android/media/RouteListingPreference.java
 frameworks_base_types/media/java/android/media/MediaRouter2Utils.java
 frameworks_base_types/media/java/android/media/EncoderProfiles.java
 frameworks_base_types/telephony/java/com/android/telephony/Rlog.java
-# ADR-0041 gap 4 (b), App: a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
+# ADR-0041 gap 4 (b): a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
 # client as AOSP's WindowLayout does, with the holder of its frames.
 frameworks_base/core/java/android/view/WindowLayout.java
 frameworks_base/core/java/android/window/ClientWindowFrames.java
-# ADR-0057 step b, Formate: UriGrantsManager, which ContentResolver's takePersistableUriPermission and
+# ADR-0057 step b: UriGrantsManager, which ContentResolver's takePersistableUriPermission and
 # getPersistedUriPermissions ask for the service "uri_grants" (LocalUriGrants), with the parcelable of its grants.
 frameworks_base/core/java/android/app/UriGrantsManager.java
 frameworks_base/core/java/android/app/GrantedUriPermission.java
 frameworks_base/core/java/android/app/GrantedUriPermission.aidl
-# ADR-0041 gap 4 (b4), App: Toast and ToastPresenter, which show a toast in a requested window of type TYPE_TOAST
+# ADR-0041 gap 4 (b4): Toast and ToastPresenter, which show a toast in a requested window of type TYPE_TOAST
 # (2005) with the window token the local notification service gives it; a text toast is drawn in the app's process,
 # where Android's SystemUI draws it.
 frameworks_base/core/java/android/widget/Toast.java
@@ -2646,7 +2646,7 @@ location_java/location/java/android/location/provider/ProviderRequest.java
 location_java/location/java/android/location/provider/ReverseGeocodeRequest.aidl
 location_java/location/java/android/location/provider/ReverseGeocodeRequest.java
 frameworks_base/core/java/android/location/Location.java
-# The battery (App, 2026-10-29): BatteryManager, over the local battery services (android.app.LocalBatteryService),
+# The battery (2026-10-29): BatteryManager, over the local battery services (android.app.LocalBatteryService),
 # with the properties' registrar and its BatteryProperty, and the battery stats' interface, whose isCharging and
 # times remaining BatteryManager asks.
 frameworks_base/core/java/android/os/BatteryManager.java
@@ -2667,7 +2667,7 @@ frameworks_base/core/java/com/android/internal/view/FloatingActionMode.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbar.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbarPopup.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/LocalFloatingToolbarPopup.java
-# Gap 1's batch A (2026-11-05): GameManager, which games and engines ask for the game mode, over the local game
+# Gap 1's batch A: GameManager, which games and engines ask for the game mode, over the local game
 # service (android.app.LocalGameManager), with its interfaces and the types they pass.
 frameworks_base/core/java/android/app/GameManager.java
 frameworks_base/core/java/android/app/GameModeConfiguration.java
@@ -2679,7 +2679,7 @@ frameworks_base/core/java/android/app/GameState.aidl
 frameworks_base/core/java/android/app/IGameManagerService.aidl
 frameworks_base/core/java/android/app/IGameModeListener.aidl
 frameworks_base/core/java/android/app/IGameStateListener.aidl
-# Gap 1's batch A, step 2 (2026-11-05): UsbManager (SDL, Unity and controller libraries ask it) over the local USB
+# Gap 1's batch A, step 2: UsbManager (SDL, Unity and controller libraries ask it) over the local USB
 # service (android.hardware.usb.LocalUsbManager), with the USB types; DownloadManager, which WebView and updaters ask;
 # UsageStatsManager over the local usage stats service (android.app.usage.LocalUsageStats), with its AIDL and types.
 frameworks_base/core/java/android/hardware/usb/DisplayPortAltModeInfo.aidl
