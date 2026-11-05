@@ -1439,6 +1439,29 @@ TEST(the_tap_sees_a_source_while_it_plays_and_not_after) {
     apkrt_audio_source_close(source);
 }
 
+TEST(a_source_that_plays_slowly_stays_in_the_tap_between_its_blocks_and_leaves_after_them) {
+    // AVPlayer's tap gets its frames in blocks of 4096, one per 93 ms at speed 1 and one per 373 ms at speed 0.25: at a
+    // slow speed the gap between two blocks is longer than the 200 ms a source at speed 1 stays in the tap.
+    use_fake_host();
+    const std::uint64_t source = apkrt_audio_source_open(0);
+    apkrt_audio_source_set_speed(source, 0.25f);
+    source_level(source, 0.1f, 2400, 2, 48'000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(380));
+    CHECK(tap(100).samples[99] > 0.09f);  // between two blocks of a slow player: still playing
+    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    CHECK(all_of(tap(100), 0, 100, 0.0f));  // 1.08 s after its last block: the player has stopped
+    apkrt_audio_source_set_speed(source, 1.0f);
+    source_level(source, 0.1f, 2400, 2, 48'000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK(all_of(tap(100), 0, 100, 0.0f));  // back at speed 1: the 200 ms again
+    apkrt_audio_source_set_speed(source, 0.0f);  // out of range: clamped, not a division by zero
+    apkrt_audio_source_set_speed(source, -1.0f);
+    source_level(source, 0.1f, 2400, 2, 48'000);
+    CHECK(tap(100).samples[99] > 0.09f);
+    apkrt_audio_source_close(source);
+    apkrt_audio_source_set_speed(source, 0.5f);  // a closed handle is harmless
+}
+
 }  // namespace
 
 int main() {

@@ -891,6 +891,10 @@ void apkrt_audio_source_close(uint64_t source);
 /// one `process` call. Of two or more channels the first gets `left` and the second `right`, any other and a mono
 /// source the mean. 1 at the open.
 void apkrt_audio_source_set_volume(uint64_t source, float left, float right);
+/// The speed the host plays the source at (1 at the open; anything outside 0.05 to 8 is clamped). Below 1 the host's
+/// blocks come further apart (a player's tap gets one per 93 ms at speed 1 and one per 373 ms at 0.25), so the
+/// Visualizer's tap counts the source as playing for 200 ms divided by the speed after its last block, not 200 ms.
+void apkrt_audio_source_set_speed(uint64_t source, float speed);
 
 // MARK: - Host code on guest threads (ADR-0030)
 

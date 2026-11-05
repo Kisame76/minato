@@ -324,6 +324,7 @@ struct Source {
     std::atomic<std::uint64_t> last_push{0};  // CLOCK_UPTIME_RAW ns of the last frames; 0 for none
     std::atomic<double> rate{48'000};
     std::atomic<float> volume_left{1.0f}, volume_right{1.0f};  // the host's set_volume
+    std::atomic<float> speed{1.0f};                             // the host's set_speed
     float applied_left = 1.0f, applied_right = 1.0f;           // the process calls': where the last block ended
 };
 
@@ -896,7 +897,10 @@ long tap(std::uint64_t buffer_address, std::int64_t frames) {
     for (Source &source : sources) {  // the host's sound that played in the last moments
         if (source.handle.load() == 0) continue;
         const std::uint64_t last = source.last_push.load(std::memory_order_acquire);
-        if (last == 0 || now - last > source_idle_ns) continue;
+        // a slow player's blocks come further apart: the longer the slower it plays
+        const float speed = source.speed.load(std::memory_order_relaxed);
+        const auto idle_ns = static_cast<std::uint64_t>(static_cast<double>(source_idle_ns) / std::min(speed, 1.0f));
+        if (last == 0 || now - last > idle_ns) continue;
         add_ring(source.tap_ring, static_cast<std::int64_t>(source.tap_head.load(std::memory_order_acquire)),
                  source.rate.load(std::memory_order_relaxed));
     }
@@ -1075,6 +1079,7 @@ uint64_t apkrt_audio_source_open(int32_t session) {
         source.last_push.store(0);
         source.volume_left.store(1.0f);
         source.volume_right.store(1.0f);
+        source.speed.store(1.0f);
         source.applied_left = source.applied_right = 1.0f;
         const std::uint64_t handle = (std::uint64_t{source.generation} << 8) | static_cast<std::uint64_t>(index);
         source.handle.store(handle);
@@ -1128,6 +1133,16 @@ void apkrt_audio_source_set_volume(uint64_t handle, float left, float right) {
     };
     source.volume_left.store(clamped(left), std::memory_order_relaxed);
     source.volume_right.store(clamped(right), std::memory_order_relaxed);
+}
+
+void apkrt_audio_source_set_speed(uint64_t handle, float speed) {
+    using namespace apkrt::audio;
+    const std::uint64_t index = handle & 0xff;
+    if ((handle >> 8) == 0 || index >= APKRT_AUDIO_SOURCES) return;
+    Source &source = sources[index];
+    if (source.handle.load() != handle) return;
+    source.speed.store(speed >= 0.05f && speed <= 8.0f ? speed : speed > 8.0f ? 8.0f : 0.05f,
+                       std::memory_order_relaxed);
 }
 
 void apkrt_audio_source_close(uint64_t handle) {

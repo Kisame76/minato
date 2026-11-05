@@ -786,6 +786,7 @@ static int set(void *context, uint64_t handle, uint32_t key, uint64_t value) {
                 case APKRT_MEDIA_PLAYER_SESSION: player->session = (int32_t)(uint32_t)value; break;
                 case APKRT_MEDIA_PLAYER_SPEED:
                     player->speed = low;
+                    apkrt_audio_source_set_speed(player->audio_source, low);  // its tap's blocks come further apart
                     if (player->playing && player->player.rate != 0) player->player.rate = low;
                     break;
                 default: break;

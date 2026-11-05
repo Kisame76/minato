@@ -168,8 +168,8 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   `MediaPlayer` plays through them too, when the tap can take its audio (32-bit float, up to 8 channels, an audio track
   in the file); other formats play unchanged. The Preset Reverb and Environmental Reverb add a tail (decay time,
   high-frequency decay, level) to the streams of their session, also as an approximation; the reflections are not
-  played, as in Android's bundle. The Visualizer
-  shows the app's whole mix, `MediaPlayer` included, after the effects and the player's volume.
+  played, as in Android's bundle. The Visualizer shows the app's whole mix, `MediaPlayer` included, after the effects
+  and the player's volume, also while a player plays at a speed other than 1.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
   says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
   cannot reach, emulators' recompilers).
