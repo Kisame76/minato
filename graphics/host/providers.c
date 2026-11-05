@@ -24,9 +24,13 @@
 /* MVK_CONFIG_LOG_LEVEL_WARNING (MoltenVK/mvk_private_api.h). */
 #define MOLTENVK_LOG_LEVEL "2"
 
+/* Once per name. A GLES function ANGLE lacks also says Android's line for an entry its driver lacks
+   (gl_unimplemented in opengl/libs/EGL/egl.cpp), as Android 15's libGLESv2 exports every GLES function. */
 static void report(const char *driver, const char *name, const char *answer, atomic_flag *logged) {
     if (!atomic_flag_test_and_set_explicit(logged, memory_order_relaxed)) {
-        fprintf(stderr, "minato graphics: %s lacks %s, which %s\n", driver, name, answer);
+        const int gles = strcmp(driver, "ANGLE") == 0 && strncmp(name, "gl", 2) == 0;
+        fprintf(stderr, "minato graphics: %s%s lacks %s, which %s\n",
+                gles ? "called unimplemented OpenGL ES API: " : "", driver, name, answer);
     }
 }
 

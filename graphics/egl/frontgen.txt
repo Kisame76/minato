@@ -2,6 +2,9 @@
 # "hand" are written in C in graphics/egl/; every other name in the table gets a generated stub.
 registry egl
 library libEGL.so 35
+# Android 15's libEGL.so exports more than the NDK's stub: EGL_ANDROID_get_frame_timestamps' and
+# EGL_ANDROID_native_fence_sync's functions too (gles-procs-test's measurement on the emulator).
+measured graphics/tests/gles_procs_android.txt dlsym:libEGL libEGL.so
 
 # ADR-0030, decision 3: without a driver every function fails, so eglGetError says EGL_NOT_INITIALIZED;
 # every other result answers 0 (EGL_FALSE, EGL_NO_*) then and when ANGLE lacks the function.

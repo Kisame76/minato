@@ -365,6 +365,9 @@ add_subdirectory(apps/shader-bench)
 add_subdirectory(apps/vulkan-test)
 # The vk-ahb-test, graphics/tests/vk_ahb_test.c as an app for the iPhone (ADR-0058 e1)).
 add_subdirectory(apps/vk-ahb-test)
+# gles-procs-test, graphics/tests/gles_procs_test.c as an app for the iPhone: which GLES, EGL and Vulkan functions an
+# app finds, against Android 15's measurement.
+add_subdirectory(apps/gles-procs-test)
 # The present-test for Swappy's frame pacing (ADR-0041 test 3).
 add_subdirectory(apps/present-test)
 # The audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.

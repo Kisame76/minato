@@ -1,0 +1,20 @@
+I/gles-procs-test: dlsym:libEGL: NULL: none
+I/gles-procs-test: dlsym:libGLESv1_CM: NULL: none
+I/gles-procs-test: dlsym:libGLESv2: NULL: none
+I/gles-procs-test: dlsym:libGLESv3: NULL: none
+I/gles-procs-test: egl:before: NULL: none
+I/gles-procs-test: egl:none: NULL: none
+I/gles-procs-test: egl:es1: NULL: none
+I/gles-procs-test: egl:es2: NULL: none
+I/gles-procs-test: egl:es2: listed extensions' functions NULL: 0
+I/gles-procs-test: egl:es2: glGetStringi lists GL_EXTENSIONS' names true
+I/gles-procs-test: egl:es3: NULL: none
+I/gles-procs-test: egl:es3: listed extensions' functions NULL: 0
+I/gles-procs-test: egl:es3: glGetStringi lists GL_EXTENSIONS' names true
+I/gles-procs-test: glGetVkProcAddrNV: found, called: NULL
+I/gles-procs-test: dlsym:libvulkan: NULL: none
+I/gles-procs-test: vk:global: NULL: none
+I/gles-procs-test: vk:instance: NULL: none
+I/gles-procs-test: vk:device: NULL: none
+I/gles-procs-test: done
+I/gles-procs-test: android_main returns

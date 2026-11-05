@@ -4,6 +4,8 @@
 # (decision 11: never passed through blindly).
 registry vulkan
 library libvulkan.so 35
+# Android 15's libvulkan.so exports what the NDK's stub does (gles-procs-test's measurement on the emulator).
+measured graphics/tests/gles_procs_android.txt dlsym:libvulkan libvulkan.so
 
 # Decision 3: a VkResult answers "not supported" when MoltenVK lacks the function, and the other
 # without a driver; every other result answers 0.

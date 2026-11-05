@@ -13,7 +13,12 @@
      ro.minato.gpu.gl_vendor and ro.minato.gpu.gl_renderer, which the runtime writes only for an app with a profile,
      in place of ANGLE's strings, and GL_VERSION as ANGLE's true "OpenGL ES X.Y" with ro.minato.gpu.gl_version_tag,
      the profile's real driver's text, after it. The values may be long read-only properties (a renderer string
-     past PROP_VALUE_MAX), so they are read with __system_property_read_callback. */
+     past PROP_VALUE_MAX), so they are read with __system_property_read_callback.
+   - glGetVkProcAddrNV (GL_NV_draw_vulkan_image), which Android 15's libGLESv2 exports: ANGLE has no such
+     extension, so it is never listed, and the function is Android's entry for one its driver lacks
+     (gl_unimplemented in opengl/libs/EGL/egl.cpp): "called unimplemented OpenGL ES API" to the log, at most once a
+     second, and NULL. */
+#include <android/log.h>
 #include <float.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -374,4 +379,18 @@ GLenum glClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
             return result == GL_ALREADY_SIGNALED && slices > 0 ? GL_CONDITION_SATISFIED : result;
         }
     }
+}
+
+static pthread_mutex_t unimplemented_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t unimplemented_logged_ns;
+
+GLVULKANPROCNV glGetVkProcAddrNV(const GLchar *name) {
+    (void)name;
+    const uint64_t now = now_ns();
+    pthread_mutex_lock(&unimplemented_lock);
+    const int log = unimplemented_logged_ns == 0 || now - unimplemented_logged_ns > 1000000000u;
+    if (log) unimplemented_logged_ns = now;
+    pthread_mutex_unlock(&unimplemented_lock);
+    if (log) __android_log_write(ANDROID_LOG_ERROR, "libEGL", "called unimplemented OpenGL ES API");
+    return NULL;
 }

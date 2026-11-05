@@ -1,6 +1,6 @@
 89 thunks of GLES: 63 extend small arguments, 26 repack stack arguments
-libGLESv2: 12 of them, called through its exports
-libGLESv3: 38 of them, called through its exports
+libGLESv2: 68 of them, called through its exports
+libGLESv3: 68 of them, called through its exports
 libGLESv1_CM: 8 of them, called through its exports
-eglGetProcAddress: 44 of them that no library exports
-all 204 calls arrived as Apple's ABI expects and returned fake-angle's results
+eglGetProcAddress: 17 of them that no library exports
+all 322 calls arrived as Apple's ABI expects and returned fake-angle's results

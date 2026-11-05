@@ -1,0 +1,19 @@
+dlsym:libEGL: NULL: none
+dlsym:libGLESv1_CM: NULL: none
+dlsym:libGLESv2: NULL: none
+dlsym:libGLESv3: NULL: none
+egl:before: NULL: none
+egl:none: NULL: none
+egl:es1: NULL: none
+egl:es2: NULL: none
+egl:es2: listed extensions' functions NULL: 0
+egl:es2: glGetStringi lists GL_EXTENSIONS' names true
+egl:es3: NULL: none
+egl:es3: listed extensions' functions NULL: 0
+egl:es3: glGetStringi lists GL_EXTENSIONS' names true
+glGetVkProcAddrNV: found, called: NULL
+dlsym:libvulkan: NULL: none
+vk:global: NULL: none
+vk:instance: NULL: none
+vk:device: NULL: none
+done

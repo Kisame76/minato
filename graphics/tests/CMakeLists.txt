@@ -549,6 +549,10 @@ if(TARGET minato_graphics_host)
     # against Android 15's answers (one producer at a time).
     add_guest_test(window_producers window-producers-test window_producers_test
       "${gles_system_libraries};${APK_BIONIC_DIR}/libmediandk.so" ${with_angle})
+    # Which GLES, EGL and Vulkan functions an app finds through dlsym, eglGetProcAddress and vk*ProcAddr, against
+    # Android 15's measurement (gles_procs_test.c, gles_procs_android.txt).
+    add_guest_test(gles_procs gles-procs-test gles_procs_test
+      "${gles_system_libraries};${APK_GRAPHICS_GUEST_DIR}/libvulkan.so" ${with_angle} "MINATO_MOLTENVK=set:${moltenvk}")
     # ADR-0065 step 4: GL_VENDOR and GL_RENDERER with and without a device profile (apk-run's --device-profile).
     add_guest_test(gles_profile gles-profile-test gles_profile_test "${gles_system_libraries}" ${with_angle}
       "MINATO_DEVICE_PROFILE=unset:")

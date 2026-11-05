@@ -49,7 +49,7 @@ class Description:
 
     def __init__(self, path):
         self.path, self.dialect, self.libraries, self.structures, self.answers = path, None, [], {}, {}
-        self.version = None
+        self.version, self.measured = None, []
         self.lists = {keyword: set() for keyword in self.LISTS}
         with open(path) as file:
             for number, line in enumerate(file, 1):
@@ -69,6 +69,8 @@ class Description:
                     self.structures[values[0]] = values[1]
                 elif keyword == "answer" and len(values) == 3:
                     self.answers[values[0]] = (values[1], values[2])
+                elif keyword == "measured" and len(values) == 3:
+                    self.measured.append(tuple(values))
                 else:
                     raise GeneratorError(f"{path}:{number}: cannot read {line.strip()!r}")
         if not self.dialect or not self.libraries:
@@ -92,6 +94,22 @@ def ndk_exports(ndk, libraries):
                                  "--format=just-symbols", stub], check=True, capture_output=True, text=True).stdout
         result[soname] = sorted({line.strip() for line in output.splitlines() if line.strip()})
     return result
+
+
+def measured_exports(description, exports):
+    """The NDK's exports with each "measured <file> <check> <soname>" line's names: what Android 15's library
+    exports at run time beyond its NDK stub, measured on the emulator (graphics/tests/gles_procs_android.txt,
+    "<check> <name>" lines). Each soname must be one of the description's libraries."""
+    result = {soname: set(names) for soname, names in exports.items()}
+    for file, check, soname in description.measured:
+        if soname not in result:
+            raise GeneratorError(f"{description.path}: measured for {soname}, which is not a library of it")
+        with open(os.path.join(ROOT, file)) as source:
+            for line in source:
+                words = line.split("#")[0].split()
+                if len(words) == 2 and words[0] == check:
+                    result[soname].add(words[1])
+    return {soname: sorted(names) for soname, names in result.items()}
 
 
 def ndk_revision(ndk):
@@ -391,7 +409,16 @@ def stub(front, entry, slot):
             lines += [f"    {read} {register}, [x29, #{16 + aapcs}]", f"    {written} {register}, [sp, #{apple}]"]
         lines += load + ["    blr x17", "    mov sp, x29", "    ldp x29, x30, [sp], #16", "    .cfi_def_cfa sp, 0",
                          "    .cfi_restore w30", "    .cfi_restore w29", "    ret"]
-    return lines + ["    .cfi_endproc", f"    .size {symbol}, . - {symbol}"]
+    lines += ["    .cfi_endproc", f"    .size {symbol}, . - {symbol}"]
+    # An exported alias of a function written by hand (glClientWaitSyncAPPLE of glClientWaitSync): the export
+    # branches to that function, which the lib defines in C. The reference is weak, so that the tests that link
+    # the stubs alone (bind-test, thunk-test) link.
+    if entry["kind"] == "by hand" and entry["name"] in front.exported and entry["hand"] != entry["name"]:
+        name, hand = entry["name"], entry["hand"]
+        lines += ["", f"    .weak {hand}", f"    .globl {name}", f"    .type {name}, %function", "    .p2align 2",
+                  f"{name}:",
+                  "    .cfi_startproc", f"    b {hand}", "    .cfi_endproc", f"    .size {name}, . - {name}"]
+    return lines
 
 
 def stubs(front, note):
@@ -463,20 +490,24 @@ def write(front, out, inputs):
     for soname, names in front.exports.items():
         body = "".join(f"    {name};\n" for name in names)
         if private:
-            text = (f"/* {note}\n   The names that the NDK's {soname} exports, and in version APKRT_PRIVATE the "
+            text = (f"/* {note}\n   The names that Android 15's {soname} exports, and in version APKRT_PRIVATE the "
                     f"lib's own for Minato's other front libs. */\n{soname.replace('.so', '').upper()} {{\n"
                     f"  global:\n{body}  local:\n    *;\n}};\nAPKRT_PRIVATE {{\n  global:\n"
                     + "".join(f"    {name};\n" for name in private) + "};\n")
         else:
-            text = (f"/* {note}\n   The names that the NDK's {soname} exports. */\n"
+            text = (f"/* {note}\n   The names that Android 15's {soname} exports. */\n"
                     f"{{\n  global:\n{body}  local:\n    *;\n}};\n")
         files[soname.replace(".so", ".map")] = text
     if front.registry.dialect != "vulkan":
-        procs = "".join(f"MINATO_PROC({entry['name']}, {entry['hand'] or entry['name']})\n" for entry in front.table)
+        # An exported alias of a function written by hand is handed out as its export, which branches to that
+        # function (stub()), so that eglGetProcAddress and dlsym give the same address.
+        procs = "".join(f"MINATO_PROC({entry['name']}, "
+                        f"{entry['name'] if entry['name'] in front.exported else entry['hand'] or entry['name']})\n"
+                        for entry in front.table)
         files[f"{lib}_procs.inc"] = (
             f"/* {note}\n   For eglGetProcAddress (ADR-0029, decision 14): the table's names in its order, "
-            f"MINATO_PROC(name, the function\n   handed out, which is the one written by hand or else the stub). */\n"
-            + procs)
+            f"MINATO_PROC(name, the function\n   handed out, which is the one written by hand, an exported alias's "
+            f"export, or else the stub). */\n" + procs)
         withheld = "".join(f"MINATO_WITHHELD({name})\n" for name in sorted(front.left_out))
         withheld += "".join(f"MINATO_WITHHELD_PREFIX({prefix})\n"
                             for prefix in sorted(front.description.lists["exclude-prefix"]))
@@ -535,7 +566,8 @@ def generate(lib, options):
         if not os.path.exists(needed):
             raise GeneratorError(f"{lib}: {needed} is missing; see tools/fetch-moltenvk.sh and tools/build-angle.sh")
     registry = Registry(path, description.dialect, extension_path)
-    front = FrontLib(lib, description, registry, ndk_exports(options.ndk, description.libraries))
+    exports = measured_exports(description, ndk_exports(options.ndk, description.libraries))
+    front = FrontLib(lib, description, registry, exports)
     inputs = {os.path.basename(item): digest(item) for item in filter(None, (path, extension_path))}
     inputs["ndk"] = ndk_revision(options.ndk)
     write(front, options.out, inputs)

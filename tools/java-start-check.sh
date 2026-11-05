@@ -61,8 +61,11 @@
 # tap it).
 # vk-ahb-test (ADR-0058 e1), decision 7) runs on the iPhone only, a NativeActivity app of tools/build-fixtures.sh whose
 # Vulkan needs MoltenVK, which the Simulator lacks: VK_ANDROID_external_memory_android_hardware_buffer's import and
-# export on the iPhone's IOSurfaces. media-codec-test and media-window-test (ADR-0060 e2c) run on the iPhone only too,
-# against Android 15's lines, and media-bench-test, Minato's measurement at 1080p and 4K (its lines shown, Home twice).
+# export on the iPhone's IOSurfaces. gles-procs-test runs on the iPhone only too, a NativeActivity app of
+# tools/build-fixtures.sh: which GLES, EGL and Vulkan functions an app finds by dlsym, eglGetProcAddress and
+# vk*ProcAddr, against Android 15's measurement (graphics/tests/gles_procs_android.txt). media-codec-test and
+# media-window-test (ADR-0060 e2c) run on the iPhone only too, against Android 15's lines, and media-bench-test,
+# Minato's measurement at 1080p and 4K (its lines shown, Home twice).
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -213,6 +216,7 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ -z "$GODOT_TEST" || "$ON_DEVICE" == no ]] || APPS+=("godot-bench-vulkan io.github.kisame76.minato.godotbench.vulkan")
 [[ -z "$GODOT_TEST" ]] || APPS+=("godot-bench-gles io.github.kisame76.minato.godotbench.gles")
 [[ "$ON_DEVICE" == no ]] || APPS+=("vk-ahb-test io.github.kisame76.minato.test.vkahb")
+[[ "$ON_DEVICE" == no ]] || APPS+=("gles-procs-test io.github.kisame76.minato.test.glesprocs")
 # ADR-0060 e2c's decoder apps on the iPhone only, on its hardware VideoToolbox (the Mac has checks of their own).
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-codec-test io.github.kisame76.minato.test.mediacodec")
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-bench-test io.github.kisame76.minato.test.mediabench")
@@ -302,6 +306,7 @@ last_line() {
     # Godot's run line, with its padded tag (framework/tests/godot_java_run.py's LAST).
     godot-bench-*) echo "guest-log ^I/godot *: run [^:]+: [0-9]+ frames, [0-9]+ failures$" ;;
     vk-ahb-test) echo "guest-log ^I/vk-ahb-test: android_main returns$" ;;   # a NativeActivity's end
+    gles-procs-test) echo "guest-log ^I/gles-procs-test: android_main returns$" ;;
     window-formats-test) echo "guest-log ^I/window-formats-test: android_main returns$" ;;
     orientation-request-test) echo "guest-log ^I/orientation-request-test: config [0-9]+ done$" ;;
     *) echo "guest-log ^I/$1: done$" ;;                                 # java_app_run's "<app>: done"
@@ -315,7 +320,7 @@ apk() {
     packs-test) echo "build/packs-test/packs-test.apks" ;;
     pad-test) echo "build/pad-test/pad-test.apks" ;;
     splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
-    vk-ahb-test|window-formats-test) echo "build/fixtures/apks/$1.apk" ;;
+    vk-ahb-test|window-formats-test|gles-procs-test) echo "build/fixtures/apks/$1.apk" ;;
     renpy-splash-test|renpy-stay-test) echo "build/renpy-splash-test/$1.apk" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
@@ -333,7 +338,7 @@ for app in "${APPS[@]}"; do
     packs-test) tools/build-packs-test.sh >/dev/null ;;
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
-    vk-ahb-test|window-formats-test) tools/build-fixtures.sh >/dev/null ;;
+    vk-ahb-test|window-formats-test|gles-procs-test) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test|renpy-stay-test) ;;
     renpy-memory-test) BUILD_ONLY=1 tools/renpy-memory.sh ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
@@ -1505,6 +1510,7 @@ fi
 [[ "$ON_DEVICE" == no ]] || run_one views-test io.github.kisame76.minato.test.views
 # On the iPhone only, as its APPS entry (the Simulator has no MoltenVK).
 [[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
+[[ "$ON_DEVICE" == no ]] || run_one gles-procs-test io.github.kisame76.minato.test.glesprocs
 [[ "$ON_DEVICE" == no ]] || run_one media-codec-test io.github.kisame76.minato.test.mediacodec
 [[ "$ON_DEVICE" == no ]] || ! wanted media-bench-test || run_media_bench
 [[ "$ON_DEVICE" == no ]] || run_one media-window-test io.github.kisame76.minato.test.mediawindow

@@ -46,6 +46,7 @@ add_custom_command(OUTPUT ${generated}
     --vk-xml "${APK_MOLTENVK_DIR}/vk.xml" --angle "${APK_ANGLE_DIR}" --ndk "${ANDROID_NDK}"
   DEPENDS ${frontgen} ${registries} ${stubs}
     "${graphics}/vulkan/frontgen.txt" "${graphics}/gles/frontgen.txt" "${graphics}/egl/frontgen.txt"
+    "${graphics}/tests/gles_procs_android.txt"
   COMMENT "tools/frontgen: the front libs' tables, stubs and export lists")
 
 # ADR-0030, test 2: thunk-test calls every stub, with a call list generated from the C headers.
@@ -180,6 +181,30 @@ add_executable(window-producers-test "${tests}/window_producers_test.c")
 target_compile_options(window-producers-test PRIVATE -Wall -Wextra)
 target_link_libraries(window-producers-test PRIVATE dl)
 
+# gles-procs-test: which GLES, EGL and Vulkan functions an app finds through dlsym, eglGetProcAddress and
+# vk*ProcAddr, against Android 15's measurement (graphics/tests/gles_procs_android.txt), which gles-procs-measure, the
+# same source, takes on the emulator over every function of the NDK's headers (gles_procs.py). Both link libEGL and
+# open the other libraries through dlopen.
+set(procs "${CMAKE_BINARY_DIR}/gles_procs")
+add_custom_command(OUTPUT "${procs}/gles_procs_candidates.inc"
+  COMMAND Python3::Interpreter "${tests}/gles_procs.py" --ndk "${ANDROID_NDK}" --candidates
+    --out "${procs}/gles_procs_candidates.inc"
+  DEPENDS "${tests}/gles_procs.py" ${headers}
+  COMMENT "graphics/tests/gles_procs.py: the NDK's GLES, EGL and Vulkan functions")
+add_custom_command(OUTPUT "${procs}/gles_procs_required.inc"
+  COMMAND Python3::Interpreter "${tests}/gles_procs.py" --ndk "${ANDROID_NDK}"
+    --required "${tests}/gles_procs_android.txt" --out "${procs}/gles_procs_required.inc"
+  DEPENDS "${tests}/gles_procs.py" "${tests}/gles_procs_android.txt"
+  COMMENT "graphics/tests/gles_procs.py: Android 15's measurement")
+foreach(program IN ITEMS gles-procs-test gles-procs-measure)
+  add_executable(${program} "${tests}/gles_procs_test.c" "${procs}/gles_procs_candidates.inc"
+    "${procs}/gles_procs_required.inc")
+  target_include_directories(${program} PRIVATE "${procs}")
+  target_compile_options(${program} PRIVATE -Wall -Wextra)
+  target_link_libraries(${program} PRIVATE EGL dl)
+endforeach()
+target_compile_definitions(gles-procs-measure PRIVATE GLES_PROCS_MEASURE)
+
 # ADR-0029, decisions 12 to 14: libEGL.so, libGLESv2.so and libGLESv3.so, tools/frontgen's stubs and binding
 # with the functions written by hand in graphics/egl/ and graphics/gles/, against the NDK's headers. libGLESv1_CM
 # (ADR-0041 a1), libGLESv2 and libGLESv3 are one set of objects with three export lists; each exports exactly the
@@ -207,6 +232,7 @@ target_compile_options(gles_objects PRIVATE -Wall -Wextra)
 foreach(library IN ITEMS GLESv1_CM GLESv2 GLESv3)
   add_library(${library} SHARED $<TARGET_OBJECTS:gles_objects> $<TARGET_OBJECTS:minato_bind>)
   target_link_options(${library} PRIVATE "-Wl,--version-script=${gen}/lib${library}.map" -Wl,-Bsymbolic)
+  target_link_libraries(${library} PRIVATE log)  # glGetVkProcAddrNV's line, as Android's libGLESv2 logs it
   set_target_properties(${library} PROPERTIES LINK_DEPENDS "${gen}/lib${library}.map"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 endforeach()

@@ -1,5 +1,5 @@
-minato graphics: ANGLE lacks glTextureBarrierNV, which does nothing
-minato graphics: ANGLE lacks glGetPathLengthNV, which answers 0.0
+minato graphics: called unimplemented OpenGL ES API: ANGLE lacks glTextureBarrierNV, which does nothing
+minato graphics: called unimplemented OpenGL ES API: ANGLE lacks glGetPathLengthNV, which answers 0.0
 minato graphics: vulkan's table differs from graphics/host's, so it gets no driver
 minato graphics: gles's table differs from graphics/host's, so it gets no driver
 minato graphics: egl's table differs from graphics/host's, so it gets no driver

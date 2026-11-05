@@ -18,6 +18,8 @@
   names with the function each front lib hands out, and the extensions its strings withhold: exactly those
   the description leaves out by name and those with a command outside the table. libGLESv1_CM, libGLESv2 and
   libGLESv3 export minato_gles_proc, for libEGL, in version APKRT_PRIVATE beside the NDK's names.
+  Each map exports the NDK's names and those Android 15's library exports beyond them, as gles_procs_test.c
+  measured them on the emulator (gles_procs_android.txt).
 - The names outside every registry (ADR-0041 a1): exactly Android's 7 *Bounds functions of libGLESv1_CM, which
   the NDK exports and declares in no header. They are written by hand, exported, and kept out of the table. A
   description whose list "outside" names a command of the registry, or a name no library exports, is refused.
@@ -69,6 +71,9 @@ OUTSIDE = {
     "gles": {"glColorPointerBounds", "glNormalPointerBounds", "glTexCoordPointerBounds", "glVertexPointerBounds",
              "glPointSizePointerOESBounds", "glMatrixIndexPointerOESBounds", "glWeightPointerOESBounds"},
 }
+# The names Android 15's libraries export beyond their NDK stubs, which the maps export too: each library's
+# "dlsym:<library>" lines of gles_procs_test.c's measurement on the emulator (gles_procs_android.txt).
+MEASUREMENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gles_procs_android.txt")
 API = {"gles": "gles2", "egl": "egl"}
 VULKAN_HEADER_COUNTS = {"same": 706, "extend": 3, "repack": 1}
 FUNCTION_POINTER_STRUCTURES = {
@@ -242,16 +247,18 @@ def check_lib(lib, report, headers, exports, registry):
         check(not wrong, f"vulkan: exactly the exports that take an allocator and are not written by hand go "
                          f"without it ({wrong[:8]})")
 
-    # The export lists: the NDK's names, hiding everything else, and the private ones in APKRT_PRIVATE. A
-    # version script with a named node names every node, so the public one is then the library's.
+    # The export lists: the NDK's names and the more that Android 15's library exports (measured), hiding
+    # everything else, and the private ones in APKRT_PRIVATE. A version script with a named node names every
+    # node, so the public one is then the library's.
     private = PRIVATE.get(lib, set())
     for library, names in exports.items():
         with open(os.path.join(report["out"], library.replace(".so", ".map"))) as file:
             nodes = map_nodes(file.read())
+        more = measured(library) - set(names)
         public = library.replace(".so", "").upper() if private else ""
-        expected = {public: (names, True)} | ({"APKRT_PRIVATE": (private, False)} if private else {})
+        expected = {public: (set(names) | more, True)} | ({"APKRT_PRIVATE": (private, False)} if private else {})
         check(nodes == expected, f"{lib}: {library.replace('.so', '.map')} lists exactly the {len(names)} names of "
-                                 f"the NDK's {library} and hides the rest"
+                                 f"the NDK's {library} and the {len(more)} more of Android 15's, and hides the rest"
                                  + (f", and {', '.join(sorted(private))} in version APKRT_PRIVATE" if private else ""))
 
     # Aliases of functions written by hand.
@@ -285,6 +292,14 @@ def xml_defines(root, name):
     return any(proto.findtext("name") == name for proto in root.iter("proto"))
 
 
+def measured(library):
+    """The names Android 15's library exports, as measured: its "dlsym:<library>" lines."""
+    check_name = "dlsym:" + library.replace(".so", "")
+    with open(MEASUREMENT) as file:
+        return {words[1] for words in (line.split("#")[0].split() for line in file)
+                if len(words) == 2 and words[0] == check_name}
+
+
 def map_nodes(text):
     """A version script's nodes: its name ("" for the anonymous one) with the names its global part lists
     and whether its local part hides everything else."""
@@ -310,9 +325,12 @@ def check_gl_lists(lib, report, root):
             return re.findall(pattern, file.read(), re.M)
 
     listed = read(f"{lib}_procs.inc", r"^MINATO_PROC\((\w+), (\w+)\)$")
-    expected = [(entry["name"], entry["hand"] or entry["name"]) for entry in table]
+    exported = set().union(*map(set, report["exports"].values()))
+    expected = [(entry["name"], entry["name"] if entry["name"] in exported else entry["hand"] or entry["name"])
+                for entry in table]
     check(listed == expected, f"{lib}: {lib}_procs.inc lists the table's {len(expected)} names in its order, each "
-                              f"with the function written by hand or else its stub ({len(listed)} listed)")
+                              f"with the function written by hand, an exported alias's export (the same address "
+                              f"as dlsym's) or else its stub ({len(listed)} listed)")
 
     names = {entry["name"] for entry in table}
     withheld, reasons = set(), {}

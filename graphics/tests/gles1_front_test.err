@@ -1,1 +1,1 @@
-minato graphics: ANGLE lacks glAlphaFuncxOES, which does nothing
+minato graphics: called unimplemented OpenGL ES API: ANGLE lacks glAlphaFuncxOES, which does nothing
