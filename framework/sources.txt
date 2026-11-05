@@ -2776,3 +2776,20 @@ frameworks_base/core/java/android/app/people/ConversationStatus.java
 frameworks_base_types/apex/blobstore/framework/java/android/app/blob/BlobHandle.java
 frameworks_base_types/apex/blobstore/framework/java/android/app/blob/XmlTags.java
 
+# Batch AF (the audio effects plan): AOSP's android.media.audiofx over our local effect service (the natives of
+# framework/native/android_runtime/android_media_AudioEffect.cpp): the effect base class and the effects that players
+# create at their start, the three pre-processings, DynamicsProcessing and HapticGenerator (their stubs extend the base
+# class). Visualizer stays out.
+frameworks_base_types/media/java/android/media/audiofx/AudioEffect.java
+frameworks_base_types/media/java/android/media/audiofx/Equalizer.java
+frameworks_base_types/media/java/android/media/audiofx/BassBoost.java
+frameworks_base_types/media/java/android/media/audiofx/Virtualizer.java
+frameworks_base_types/media/java/android/media/audiofx/LoudnessEnhancer.java
+frameworks_base_types/media/java/android/media/audiofx/PresetReverb.java
+frameworks_base_types/media/java/android/media/audiofx/EnvironmentalReverb.java
+frameworks_base_types/media/java/android/media/audiofx/AcousticEchoCanceler.java
+frameworks_base_types/media/java/android/media/audiofx/AutomaticGainControl.java
+frameworks_base_types/media/java/android/media/audiofx/NoiseSuppressor.java
+frameworks_base_types/media/java/android/media/audiofx/DynamicsProcessing.java
+frameworks_base_types/media/java/android/media/audiofx/HapticGenerator.java
+frameworks_base_types/media/java/android/media/AudioDeviceAttributes.java

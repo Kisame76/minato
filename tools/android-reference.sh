@@ -707,6 +707,11 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.permreq.PermissionRequestActivity
       mask=yes
       ;;
+    # audiofx-test (the audio effects plan): the effects and their parameters on a track's session.
+    audiofx-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
+      ;;
     # mic-test and its twin mic-test-granted (ADR-0064), from the same sources: the twin gets RECORD_AUDIO before the
     # start.
     mic-test | mic-test-granted)

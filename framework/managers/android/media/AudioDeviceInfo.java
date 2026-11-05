@@ -11,6 +11,36 @@ import java.util.ArrayList;
 import java.util.List;
 
 class AudioDeviceInfo {
+    /** @hide AudioDeviceAttributes' annotation of a device type. */
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
+    public @interface AudioDeviceType {}
+
+    /**
+     * @hide The system-API effects' device (AudioEffect for a device) is not offered: the type goes on as it is,
+     * where AOSP maps it to the audio HAL's device bit.
+     */
+    public static int convertDeviceTypeToInternalDevice(int deviceType) {
+        return deviceType;
+    }
+
+    /** @hide As convertDeviceTypeToInternalDevice, for an input and its address. */
+    public static int convertDeviceTypeToInternalInputDevice(int deviceType, String address) {
+        return deviceType;
+    }
+
+    /** @hide AudioDeviceAttributes' checks of a device type; every type the API names is taken as valid. */
+    public static void enforceValidAudioDeviceTypeOut(int deviceType) {
+    }
+
+    /** @hide */
+    public static void enforceValidAudioDeviceTypeIn(int deviceType) {
+    }
+
+    /** @hide The type as the audio HAL names it: ours is the API's. */
+    public int getInternalType() {
+        return mType;
+    }
+
     private int mId;
     private int mType;
     private boolean mSink;

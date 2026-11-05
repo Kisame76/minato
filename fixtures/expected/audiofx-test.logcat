@@ -1,0 +1,47 @@
+I/audiofx-test: queryEffects: true, some
+I/audiofx-test: type EQUALIZER listed: true
+I/audiofx-test: type BASS_BOOST listed: true
+I/audiofx-test: type VIRTUALIZER listed: true
+I/audiofx-test: type PRESET_REVERB listed: true
+I/audiofx-test: type ENV_REVERB listed: true
+I/audiofx-test: type AEC listed: false
+I/audiofx-test: type AGC listed: false
+I/audiofx-test: type NS listed: false
+I/audiofx-test: AEC available: false, AGC false, NS false
+I/audiofx-test: Equalizer built, hasControl true, enabled false
+I/audiofx-test: bands 5, level range -1500 1500, presets 10
+I/audiofx-test: current preset 0
+I/audiofx-test: getBand(0 Hz) -22, getBand(1000000 mHz) 2
+I/audiofx-test: band 0 after setting the maximum: true
+I/audiofx-test: current preset after a band change: -1
+I/audiofx-test: band 1 after -700: -700
+I/audiofx-test: band level beyond the range: no exception, level 1600
+I/audiofx-test: setEnabled(true): 0, enabled true
+I/audiofx-test: properties: 5 bands
+I/audiofx-test: band out of range: java.lang.IllegalArgumentException
+I/audiofx-test: a preset out of range: java.lang.IllegalArgumentException
+I/audiofx-test: preset 0 used, current 0, band 0 300, band 1 0, band 4 300
+I/audiofx-test: preset 2 (Dance) bands 600 0 200 400 100
+I/audiofx-test: preset 9 (Rock) bands 500 300 -100 300 500
+I/audiofx-test: a second Equalizer on the session: hasControl true, the first false
+I/audiofx-test: after release: java.lang.IllegalStateException
+I/audiofx-test: BassBoost: strength supported true, strength 0
+I/audiofx-test: strength after 500: 500
+I/audiofx-test: strength after 333: 333
+I/audiofx-test: strength 2000: no exception, strength 2000
+I/audiofx-test: setEnabled(true): 0
+I/audiofx-test: Virtualizer: strength supported true, strength 0
+I/audiofx-test: strength after 500: 500
+I/audiofx-test: speaker angles: java.lang.IllegalArgumentException
+I/audiofx-test: virtualization mode: 0
+I/audiofx-test: setEnabled(true): 0
+I/audiofx-test: LoudnessEnhancer: target gain 0.0
+I/audiofx-test: target gain after 500: 500.0
+I/audiofx-test: setEnabled(true): 0
+I/audiofx-test: PresetReverb: preset 0
+I/audiofx-test: preset after LARGEHALL: 5
+I/audiofx-test: EnvironmentalReverb: room -6000, hf 0, decay 1490, ratio 420, reflections 0 / 0, reverb -6000 / 0, diffusion 1000, density 1000
+I/audiofx-test: decay time after 3000: 3000
+I/audiofx-test: Equalizer on session 0: built, control true
+I/audiofx-test: Equalizer on a session nobody uses: built, control true
+I/audiofx-test: done

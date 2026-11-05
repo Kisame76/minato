@@ -1,0 +1,36 @@
+Minato's patch to frameworks/base's media/java/android/media/audiofx/AudioEffect.java at android-15.0.0_r1 (Apache-2.0),
+the audio effects plan: the static initializer loads no libaudioeffect_jni, and the setup passes no attribution source.
+
+Why: AudioEffect's ten natives are libandroid_runtime's (framework/native/android_runtime/android_media_AudioEffect.cpp,
+the local effect service), registered when the process starts, as MediaCodec's are (mediacodec-without-media-jni.patch).
+The attribution source is a parcel of the calling app's identity for the audio server's permission check; Minato has no
+audio server, so the natives get null.
+
+--- a/media/java/android/media/audiofx/AudioEffect.java
++++ b/media/java/android/media/audiofx/AudioEffect.java
+@@ -74,7 +74,7 @@
+ 
+ public class AudioEffect {
+     static {
+-        System.loadLibrary("audioeffect_jni");
++        // Minato: the natives are libandroid_runtime's (android_media_AudioEffect.cpp), registered at the start.
+         native_init();
+     }
+ 
+@@ -522,13 +522,9 @@
+ 
+         // native initialization
+         // TODO b/182469354: Make consistent with AudioRecord
+-        int initResult;
+-        try (ScopedParcelState attributionSourceState =  AttributionSource.myAttributionSource()
+-                .asScopedParcelState()) {
+-            initResult = native_setup(new WeakReference<>(this), type.toString(), uuid.toString(),
+-                    priority, audioSession, deviceType, deviceAddress, id, desc,
+-                    attributionSourceState.getParcel(), probe);
+-        }
++        // Minato: no attribution source reaches the natives, which are the local effect service's.
++        int initResult = native_setup(new WeakReference<>(this), type.toString(), uuid.toString(),
++                priority, audioSession, deviceType, deviceAddress, id, desc, null, probe);
+         if (initResult != SUCCESS && initResult != ALREADY_EXISTS) {
+             Log.e(TAG, "Error code " + initResult
+                     + " when initializing AudioEffect.");
