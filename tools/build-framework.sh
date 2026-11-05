@@ -244,6 +244,14 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.telephony.SubscriptionInfo --class android.telecom.PhoneAccount \
   --class android.media.midi.MidiDevice --class android.media.projection.MediaProjection \
   --class android.view.contentcapture.ContentCaptureSession \
+  --class android.hardware.fingerprint.FingerprintManager --class android.app.GrammaticalInflectionManager \
+  --class android.print.PrintManager --class android.widget.ShareActionProvider \
+  --class android.service.quicksettings.TileService --class android.service.quicksettings.Tile \
+  --class android.drm.DrmManagerClient --class android.drm.DrmConvertedStatus --class android.drm.DrmErrorEvent \
+  --class android.drm.DrmEvent --class android.drm.DrmInfo --class android.drm.DrmInfoEvent \
+  --class android.drm.DrmInfoRequest --class android.drm.DrmInfoStatus --class android.drm.DrmRights \
+  --class android.drm.DrmStore --class android.drm.DrmSupportInfo --class android.drm.DrmUtils \
+  --class android.drm.ProcessedData \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \

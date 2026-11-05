@@ -1,0 +1,26 @@
+I/services-c-test: FingerprintManager by name: true, by class: true, same: true
+I/services-c-test: GrammaticalInflectionManager by name: true, by class: true, same: true
+I/services-c-test: PrintManager by name: true, by class: true, same: true
+I/services-c-test: FingerprintManager.isHardwareDetected(): throws java.lang.SecurityException
+I/services-c-test: FingerprintManager.hasEnrolledFingerprints(): throws java.lang.SecurityException
+I/services-c-test: CryptoObject(Cipher).getCipher() is the cipher: true
+I/services-c-test: CryptoObject(Cipher).getSignature() is null: true
+I/services-c-test: AuthenticationCallback is abstract: true
+I/services-c-test: AuthenticationCallback methods: [onAuthenticationError, onAuthenticationFailed, onAuthenticationHelp, onAuthenticationSucceeded]
+I/services-c-test: GrammaticalInflectionManager.getApplicationGrammaticalGender(): 0
+I/services-c-test: GrammaticalInflectionManager.getSystemGrammaticalGender(): throws java.lang.SecurityException
+I/services-c-test: GrammaticalInflectionManager.setRequestedApplicationGrammaticalGender(0): null
+I/services-c-test: PrintManager.print(null adapter): throws java.lang.IllegalStateException
+I/services-c-test: ShareActionProvider(context).hasSubMenu(): true
+I/services-c-test: ShareActionProvider(context).onCreateActionView() is not null: true
+I/services-c-test: ShareActionProvider.setShareIntent(intent): null
+I/services-c-test: TileService extends android.app.Service: android.app.Service
+I/services-c-test: TileService.ACTION_QS_TILE: android.service.quicksettings.action.QS_TILE
+I/services-c-test: TileService().getQsTile() is null: true
+I/services-c-test: TileService().isLocked(): throws java.lang.NullPointerException
+I/services-c-test: TileService().isSecure(): throws java.lang.NullPointerException
+I/services-c-test: DrmManagerClient(context).canHandle(path, mime): false
+I/services-c-test: DrmManagerClient(context).getAvailableDrmEngines().length: 0
+I/services-c-test: DrmManagerClient(context).getDrmObjectType(path, mime): -1
+I/services-c-test: DrmStore.Action.PLAY: 1
+I/services-c-test: done

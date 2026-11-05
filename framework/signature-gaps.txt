@@ -42,8 +42,7 @@ android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android
 android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: not taken: it names android.hardware.thermal's generated HAL types (TemperatureType, ThrottlingSeverity)
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.print.PrintJobInfo <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
-android.print.PrintManager <- android.print.PrintJob  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.print.PrintJobInfo <- android.print.PrintJob, android.print.PrintManager  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.service.autofill.UserData <- android.view.autofill.AutofillManager  # gap: not taken: it names FieldClassificationUserData, a generated AIDL type of the autofill service
 android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)

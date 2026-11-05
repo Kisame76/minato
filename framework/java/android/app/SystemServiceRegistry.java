@@ -36,6 +36,7 @@ import android.content.IRestrictionsManager;
 import android.content.RestrictionsManager;
 import android.hardware.ConsumerIrManager;
 import android.hardware.biometrics.BiometricManager;
+import android.hardware.fingerprint.FingerprintManager;
 import android.hardware.input.InputManager;
 import android.hardware.usb.IUsbManager;
 import android.hardware.usb.UsbManager;
@@ -81,6 +82,7 @@ import android.media.midi.MidiManager;
 import android.media.projection.MediaProjectionManager;
 import android.media.session.MediaSessionManager;
 import android.nfc.NfcManager;
+import android.print.PrintManager;
 import android.telecom.TelecomManager;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionManager;
@@ -184,6 +186,10 @@ final class SystemServiceRegistry {
         cached(Context.MEDIA_PROJECTION_SERVICE, MediaProjectionManager.class,
                 ctx -> new MediaProjectionManager(ctx.getOuterContext()));
         cached(Context.ROLE_SERVICE, RoleManager.class, ctx -> new RoleManager(ctx.getOuterContext()));
+        cachedFingerprint();
+        cached(Context.GRAMMATICAL_INFLECTION_SERVICE, GrammaticalInflectionManager.class,
+                ctx -> new GrammaticalInflectionManager(ctx.getOuterContext()));
+        cached(Context.PRINT_SERVICE, PrintManager.class, ctx -> new PrintManager(ctx.getOuterContext()));
         // Retest 8's batch B2: as the tag's, over the local account service.
         cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
                 IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));
@@ -265,6 +271,13 @@ final class SystemServiceRegistry {
                 com.android.internal.R.style.Theme_Dialog, com.android.internal.R.style.Theme_Holo_Dialog,
                 com.android.internal.R.style.Theme_DeviceDefault_Dialog,
                 com.android.internal.R.style.Theme_DeviceDefault_Light_Dialog);
+    }
+
+    /** The fingerprint manager, which the API deprecates for the biometric prompt's but still gives. */
+    @SuppressWarnings("deprecation")
+    private static void cachedFingerprint() {
+        cached(Context.FINGERPRINT_SERVICE, FingerprintManager.class,
+                ctx -> new FingerprintManager(ctx.getOuterContext()));
     }
 
     private static void cached(String name, Class<?> type, Maker maker) {

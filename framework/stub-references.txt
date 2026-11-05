@@ -135,7 +135,6 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 
 # ADR-0045's settings step (gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
-android.app.GrammaticalInflectionManager <- android.provider.Settings  # stays: System.adjustConfigurationForUser, system_server's configuration of a user
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.os.PermissionEnforcer <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.permission.PermissionManager <- android.content.AttributionSource  # stays: AttributionSource.isTrusted for a source with a token, which only another process's source carries
@@ -234,8 +233,7 @@ com.android.internal.util.function.pooled.PooledLambda <- android.content.pm.Pac
 com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.PackageInstaller  # gap: the session callbacks' delegate, which never fires until ADR-0045 step d3
 
 # android.media's take-in classes (the Unity test APK gap sort, category 1).
-android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
-android.print.PrintManager <- android.print.PrintJob  # stays: a print job's manager, and a PrintJob comes only from PrintManager.print, which no Context gives yet (category 1, package 2)
+android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which returns none here (category 1, package 2)
 android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts
 
 # Activity's signature types (the Unity test APK retest 10): the types they take in reach these.

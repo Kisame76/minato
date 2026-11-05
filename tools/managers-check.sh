@@ -59,6 +59,14 @@ python3 tools/managergen/managergen.py --library-api "$LIBCORE" --library-api "$
   --class android.bluetooth.BluetoothManager --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
   --class android.nfc.NfcManager --class android.nfc.NfcAdapter --class android.app.role.RoleManager \
+  --class android.hardware.fingerprint.FingerprintManager --class android.app.GrammaticalInflectionManager \
+  --class android.print.PrintManager --class android.widget.ShareActionProvider \
+  --class android.service.quicksettings.TileService --class android.service.quicksettings.Tile \
+  --class android.drm.DrmManagerClient --class android.drm.DrmConvertedStatus --class android.drm.DrmErrorEvent \
+  --class android.drm.DrmEvent --class android.drm.DrmInfo --class android.drm.DrmInfoEvent \
+  --class android.drm.DrmInfoRequest --class android.drm.DrmInfoStatus --class android.drm.DrmRights \
+  --class android.drm.DrmStore --class android.drm.DrmSupportInfo --class android.drm.DrmUtils \
+  --class android.drm.ProcessedData \
   --class android.telephony.PhoneStateListener --class android.telephony.TelephonyCallback \
   --class android.media.AudioDeviceInfo --class android.os.Vibrator \
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
