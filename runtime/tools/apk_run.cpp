@@ -818,6 +818,10 @@ void headless_removed(void *, std::uint64_t id) {
     buffers.removed(id);
 }
 
+int headless_readback(void *, std::uint64_t id, const apkrt_window_readback *request) {
+    return buffers.readback(id, *request);
+}
+
 /// Posts one event; its serial number, 0 when the post failed, which apk-run reports.
 std::uint32_t post(std::uint32_t type, std::uint64_t a0 = 0, std::uint64_t a1 = 0, std::uint64_t a2 = 0) {
     const std::uint32_t serial = apkrt_session_post(type, a0, a1, a2);
@@ -1646,7 +1650,7 @@ int main(int argc, char **argv) {
         std::thread(run_frame_clock, session.configuration.refresh_rate).detach();
         if (!lifecycle.empty() && apk_run_sets_window_buffers() == 0) {
             static const apkrt_window_buffers headless_buffers = {headless_lock, headless_post, headless_removed,
-                                                                  nullptr, nullptr, nullptr};
+                                                                  nullptr, nullptr, headless_readback};
             apkrt_set_window_buffers(&headless_buffers);
         }
         // Events wait in the pipe until the guest reads them, so the start may be posted before the program runs.

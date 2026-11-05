@@ -1162,6 +1162,12 @@ run_app() {
     trim-memory-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TrimActivity
       ;;
+    # magnifier-test (ADR-0043 amendment, the text selection's loupe): a software-drawn activity that fills its window
+    # with a known color and copies the window with PixelCopy, as Magnifier draws its loupe; it logs the copy's result
+    # and the center pixel, then "done".
+    magnifier-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.MagnifierActivity
+      ;;
     # selection-mode-test (the text selection's action mode): a long press on a word of an EditText, at the place the
     # app names, starts the selection's floating action mode, which the app's custom callback and its activity log;
     # ends with "done".

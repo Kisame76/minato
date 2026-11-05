@@ -349,6 +349,57 @@ public:
         return windows;
     }
 
+    /// Copies a rectangle of window `id`'s last posted buffer into `request`, scaled to the request's size, as
+    /// RGBA_8888 by nearest neighbour (apk-run's headless host and its tests; graphics/host's window.m scales with
+    /// vImage on the device, so a later pixel comparison must not expect equal edges). RGBX_8888's alpha is 255 and
+    /// RGB_565 is widened, as window.m does. Only a window the host still has, with a posted buffer that no lock holds:
+    /// -ENODATA otherwise (never posted, locked, removed, a format it never drew); -EINVAL for an empty rectangle or
+    /// one outside the buffer. The runtime already refused an id that is not one of the guest's windows and checked the
+    /// destination's format, sizes, stride and address.
+    int readback(std::uint64_t id, const apkrt_window_readback &request) {
+        const std::lock_guard<std::mutex> hold(lock_);
+        const auto found = buffers_.find(id);
+        if (found == buffers_.end() || !found->second.posted || found->second.locked) return -ENODATA;
+        const Buffer &source = found->second;
+        const int source_bytes = source.format == 1 || source.format == 2 ? 4 : source.format == 4 ? 2 : 0;
+        if (source_bytes == 0) return -ENODATA;
+        const std::int32_t left = request.left, top = request.top, right = request.right, bottom = request.bottom;
+        if (right <= left || bottom <= top || left < 0 || top < 0 || right > source.width || bottom > source.height) {
+            return -EINVAL;
+        }
+        // The rectangle is within [0, width/height] (checked above), so these are non-negative.
+        const auto columns = static_cast<std::uint32_t>(right - left), rows = static_cast<std::uint32_t>(bottom - top);
+        const auto source_stride = static_cast<std::size_t>(source.width);
+        const auto source_pixel = static_cast<std::size_t>(source_bytes);
+        auto *const out = static_cast<std::uint8_t *>(request.pixels);
+        for (std::uint32_t y = 0; y < request.height; ++y) {
+            const std::uint32_t sy = static_cast<std::uint32_t>(top) +
+                                     static_cast<std::uint32_t>(static_cast<std::uint64_t>(y) * rows / request.height);
+            for (std::uint32_t x = 0; x < request.width; ++x) {
+                const std::uint32_t sx =
+                        static_cast<std::uint32_t>(left) +
+                        static_cast<std::uint32_t>(static_cast<std::uint64_t>(x) * columns / request.width);
+                const std::uint8_t *const in =
+                        source.pixels.data() + (static_cast<std::size_t>(sy) * source_stride + sx) * source_pixel;
+                std::uint8_t *const pixel = out + static_cast<std::size_t>(y) * request.stride +
+                                            static_cast<std::size_t>(x) * std::size_t{4};
+                if (source_bytes == 4) {
+                    pixel[0] = in[0];
+                    pixel[1] = in[1];
+                    pixel[2] = in[2];
+                    pixel[3] = source.format == 2 ? 255 : in[3];  // RGBX_8888 is opaque
+                } else {
+                    const auto p = static_cast<std::uint16_t>(in[0] | (in[1] << 8));  // RGB_565, little-endian
+                    pixel[0] = static_cast<std::uint8_t>(((p >> 11 & 0x1f) * 255 + 15) / 31);
+                    pixel[1] = static_cast<std::uint8_t>(((p >> 5 & 0x3f) * 255 + 31) / 63);
+                    pixel[2] = static_cast<std::uint8_t>(((p & 0x1f) * 255 + 15) / 31);
+                    pixel[3] = 255;
+                }
+            }
+        }
+        return 0;
+    }
+
     /// The window is gone: its buffer goes now, or at its post while a lock holds it.
     void removed(std::uint64_t id) {
         const std::lock_guard<std::mutex> hold(lock_);

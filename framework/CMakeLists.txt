@@ -385,7 +385,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
-                      GLESv2 GLESv3 nativewindow input sqlite aaudio mediandk)
+                      GLESv2 GLESv3 nativewindow input sqlite aaudio mediandk jnigraphics)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as
 # Android's app_process does, and sets liblog's default tag as zygote's SetThreadName does.

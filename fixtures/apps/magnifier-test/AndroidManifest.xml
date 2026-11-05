@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The text selection's loupe (ADR-0043 amendment): an activity drawn in software (hardwareAccelerated="false") that
+     fills its window with a known color and, once the window is shown, copies the window into a bitmap with PixelCopy,
+     the way android.widget.Magnifier draws its loupe. It logs the copy's result and the center pixel, then "done". -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.magnifier" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:hardwareAccelerated="false">
+    <activity android:name="io.github.kisame76.minato.test.magnifier.MagnifierActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
