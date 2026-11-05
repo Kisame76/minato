@@ -273,7 +273,8 @@ if [[ -n "${PIXELS:-}" ]]; then
              "activity-flow-test io.github.kisame76.minato.test.activityflow" \
              "window-formats-test io.github.kisame76.minato.test.windowformats" \
              "views-test-landscape io.github.kisame76.minato.test.viewslandscape" \
-             "static-window-test io.github.kisame76.minato.test.staticwindow"; do
+             "static-window-test io.github.kisame76.minato.test.staticwindow" \
+             "egl-probe-decor-test io.github.kisame76.minato.test.eglprobedecor"; do
     [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
   done
   [[ -n "${ONLY// /}" ]] ||
