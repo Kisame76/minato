@@ -113,6 +113,11 @@ int minato_graphics_set_window_by_drawables(int drawables);
    Release build, which ignores it. */
 int minato_graphics_set_window_by_contents(int contents);
 
+/* Debug builds only: a trace of the first 10 posts of each window to stderr (window.m: how each post ended and what
+   decided it), for a device run of a test app whose window stays black; MINATO_WINDOW_TRACE=1 asks for it too. Off by
+   default; a Release build ignores it. Returns 0. */
+int minato_graphics_set_window_trace(int on);
+
 /* Step f's dump (Debug builds and the Mac's tests): each window's last shown buffer goes to `folder`, made if need
    be, in place of an earlier dump's windows, as window-<id>.rgba, its rows tight in RGBA, RGBX_8888's alpha as 255
    and RGB_565 widened, and window-<id>.txt: a line "<width>x<height> <format>[ on black] post <n> shown" (or

@@ -695,9 +695,57 @@ static void clear_drawables(CAMetalLayer *layer) {
 /* Shows the buffer as the window layer's sublayer's contents, in the foreground, and counts the post; hides the layer
    for a buffer without a visible pixel on a layer that is not opaque. NO always: no GPU read follows, and Core
    Animation's use is IOSurfaceIsInUse's. */
+/* The window trace (Debug builds only, off by default: a device run of a test app whose window stays black): with
+   minato_graphics_set_window_trace(1) or MINATO_WINDOW_TRACE=1, the first 10 posts of each window write one line each
+   to stderr, the guest log in a session:
+   how the post ended (shown, no layer, background, hidden as all transparent) with what decides it (visible,
+   layer.opaque, layer.hidden, the buffers' sublayer's hidden after the commit, and the names of the sublayers above
+   it). */
+static atomic_int trace_on = -1;
+
+int minato_graphics_set_window_trace(int on) {
+    atomic_store(&trace_on, on != 0);
+    return 0;
+}
+
+static BOOL tracing(void) {
+#ifdef NDEBUG
+    return NO;  // Debug builds only, as the window CRC's switch
+#endif
+    int on = atomic_load(&trace_on);
+    if (on < 0) {
+        const char *asked = getenv("MINATO_WINDOW_TRACE");
+        on = asked != NULL && strcmp(asked, "1") == 0;
+        atomic_store(&trace_on, on);
+    }
+    return on == 1;
+}
+
+static void trace_post(uint64_t window_id, uint64_t post, const char *how, CALayer *layer, BOOL visible) {
+    if (post > 10 || !tracing()) {
+        return;
+    }
+    NSMutableString *above = [NSMutableString string];
+    CALayer *buffers = layer != nil ? found_buffers_layer(layer) : nil;
+    BOOL after = NO;
+    for (CALayer *sublayer in layer.sublayers) {
+        if (after) {
+            NSString *name = sublayer.name != nil ? sublayer.name : NSStringFromClass(sublayer.class);
+            [above appendFormat:@"%@%@%s", above.length > 0 ? @"," : @"", name, sublayer.hidden ? "(hidden)" : ""];
+        }
+        after = after || sublayer == buffers;
+    }
+    fprintf(stderr,
+            "minato window %llu: post %llu %s, visible %d, layer %s, opaque %d, hidden %d, buffers %s, above [%s]\n",
+            (unsigned long long)window_id, (unsigned long long)post, how, visible, layer != nil ? "there" : "none",
+            layer.opaque, layer.hidden, buffers == nil ? "none" : buffers.hidden ? "hidden" : "shown",
+            above.UTF8String);
+}
+
 static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, BOOL visible) {
     CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id);
     if (layer == nil) {
+        trace_post(window_id, buffer->posted, "without a layer", nil, visible);
         return NO;
     }
     if (!visible && !layer.opaque) {
@@ -709,11 +757,13 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
         minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         write_crc(window_id, buffer->posted, buffer, 0, 0, format, NO, YES);
         apkrt_window_presented(window_id);
+        trace_post(window_id, buffer->posted, "hidden as all transparent", layer, visible);
         return NO;
     }
     atomic_fetch_add(&in_flight, 1);
     if (apkrt_is_background()) {
         atomic_fetch_sub(&in_flight, 1);
+        trace_post(window_id, buffer->posted, "in the background", layer, visible);
         return NO;
     }
     static CGColorRef black;
@@ -739,6 +789,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
               (int32_t)IOSurfaceGetHeight(buffer->surface), format, format != format_rgba_8888 || layer.opaque, NO);
     atomic_fetch_sub(&in_flight, 1);
     apkrt_window_presented(window_id);
+    trace_post(window_id, buffer->posted, "shown", layer, visible);
     return NO;
 }
 
