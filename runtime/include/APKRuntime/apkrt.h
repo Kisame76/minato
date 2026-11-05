@@ -343,6 +343,14 @@ int apkrt_window_set_render_scale(uint64_t id, double scale);
 /// pair that the host upscales to the full size. Returns 0, or -1 for a window that is removed or unknown.
 int apkrt_window_render_size(uint64_t id, int32_t *width, int32_t *height);
 
+/// For the host (ADR-0067 point 3): the guest's view of the session configuration (session_configuration and the
+/// connect) is scaled by `scale`, 0.25 to 1 (1, the default, is no change): width and height become round(full *
+/// scale), at least 1 an axis, and the density scale follows (scale *= `scale`); orientation, night, refresh rate
+/// and locale are untouched. Applied on read, so it holds before or after apkrt_session_begin and across a turn.
+/// Pair it with apkrt_window_set_render_scale and apkrt_input_set_scale, the same factor. Returns 0, or -1 for a
+/// scale outside 0.25 to 1 (NaN included), which leaves the scale unchanged.
+int apkrt_session_set_render_scale(double scale);
+
 /// For graphics/host: after a present that succeeded, counted for apkrt_window_presents.
 void apkrt_window_presented(uint64_t id);
 

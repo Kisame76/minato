@@ -348,6 +348,72 @@ std::uint64_t pack(std::uint32_t low, std::uint32_t high) {
 
 // --- Without a session --------------------------------------------------------------------------
 
+// Placed before the first test that begins a session in this process: in_child forks and inherits the
+// one-session-per-process claim, so a begin after one in the parent is refused in every child.
+// ADR-0067 decision 3: under a render scale the guest's view of the session's configuration is the scaled screen.
+// apkrt_session_set_render_scale sets the scale (host-facing, 0 / -1 as the window's setter), which the runtime
+// applies to what connect and configuration give.
+
+/// The configuration the guest gets from session_configuration, after the host set `scale` (before or after begin).
+apkrt_configuration scaled_view(double scale, bool before_begin) {
+    apkrt_session session{};
+    session.end = on_end;
+    session.configuration = iphone();
+    if (before_begin) CHECK(apkrt_session_set_render_scale(scale) == 0);
+    CHECK(apkrt_session_begin(&session) == 0);
+    if (!before_begin) CHECK(apkrt_session_set_render_scale(scale) == 0);
+    apkrt_configuration received{};
+    CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&received)) == 0);
+    return received;
+}
+
+TEST(a_render_scale_scales_the_configurations_size_and_density_and_nothing_else) {
+    for (const bool before : {true, false}) {
+        CHECK(in_child([before] {
+            const apkrt_configuration view = scaled_view(0.5, before);
+            const apkrt_configuration full = iphone();
+            CHECK(view.width == 645 && view.height == 1398);  // 1290 and 2796 times 0.5
+            CHECK(view.scale == 1.5);                          // the density follows: 480 dpi becomes 240
+            CHECK(view.orientation == full.orientation && view.night == full.night);
+            CHECK(view.refresh_rate == full.refresh_rate);
+            CHECK(std::strcmp(view.language, "de") == 0 && std::strcmp(view.country, "DE") == 0);
+            // dp are the same as unscaled: 645 / 1.5 = 430 as 1290 / 3
+            CHECK(static_cast<double>(view.width) / view.scale == static_cast<double>(full.width) / full.scale);
+        }));
+    }
+}
+
+TEST(a_render_scale_rounds_the_size_and_is_at_least_one_pixel) {
+    CHECK(in_child([] {
+        const apkrt_configuration view = scaled_view(0.67, true);
+        CHECK(view.width == 864 && view.height == 1873);  // 864.3 and 1873.32
+        CHECK(view.scale == 3.0 * 0.67);
+    }));
+}
+
+TEST(a_render_scale_of_1_changes_nothing) {
+    CHECK(in_child([] {
+        const apkrt_configuration view = scaled_view(1.0, true);
+        CHECK(same(view, iphone()));
+    }));
+}
+
+TEST(a_render_scale_out_of_range_is_refused_and_keeps_the_one_before) {
+    CHECK(in_child([] {
+        CHECK(apkrt_session_set_render_scale(0.5) == 0);
+        for (const double bad : {0.0, 0.1, 0.2499, 1.0001, 2.0, -1.0, std::nan(""), HUGE_VAL}) {
+            CHECK(apkrt_session_set_render_scale(bad) == -1);
+        }
+        apkrt_session session{};
+        session.end = on_end;
+        session.configuration = iphone();
+        CHECK(apkrt_session_begin(&session) == 0);
+        apkrt_configuration received{};
+        CHECK(call(APKRT_NR_SESSION_CONFIGURATION, address(&received)) == 0);
+        CHECK(received.width == 645);
+    }));
+}
+
 TEST(without_a_session_nothing_goes_through) {
     CHECK(apkrt_session_post(APKRT_EVENT_CREATE, 0, 0, 0) == 0);
     CHECK(apkrt_session_wait(1, 0.01) == -1);

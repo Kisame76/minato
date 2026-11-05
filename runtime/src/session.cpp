@@ -52,6 +52,21 @@ constexpr std::size_t text_limit = 1024;        // of a START_FAILED text, the N
 std::atomic_flag claimed = ATOMIC_FLAG_INIT;  // by the first apkrt_session_begin that is valid
 apkrt_session described{};                    // written once, before `begun`
 std::atomic<bool> begun{false};
+std::atomic<double> render_scale{1.0};  // ADR-0067 point 3: the session configuration the guest reads is scaled
+                                        // by this (0.25 to 1, applied on read); 1 is no change
+
+// The configuration the guest sees under the render scale: the size rounds (at least one pixel an axis) and the
+// density scale follows, nothing else changes. memcpy copies the tail padding that apkrt_session_begin cleared.
+apkrt_configuration scaled_configuration(const apkrt_configuration &full, double scale) {
+    apkrt_configuration view;
+    std::memcpy(&view, &full, sizeof view);
+    if (scale < 1) {
+        view.width = std::max<std::int32_t>(1, static_cast<std::int32_t>(std::lround(full.width * scale)));
+        view.height = std::max<std::int32_t>(1, static_cast<std::int32_t>(std::lround(full.height * scale)));
+        view.scale = full.scale * scale;
+    }
+    return view;
+}
 
 // The channel. Posts, answers and the end change it under `lock`, and `changed` wakes the host's waits.
 std::mutex lock;
@@ -1159,8 +1174,9 @@ long connect(std::uint64_t configuration) {
     // a bad pointer then returns -EFAULT with the session still unconnected and read_end intact, where a
     // raw store would fault the host (ADR-0020). A concurrent connect that loses the race writes the
     // (read-only) configuration too before its -EBUSY, which is harmless.
-    if (!sys::memory::copy_checked(configuration, reinterpret_cast<std::uint64_t>(&described.configuration),
-                                   sizeof described.configuration))
+    const apkrt_configuration view = scaled_configuration(described.configuration,
+                                                          render_scale.load(std::memory_order_relaxed));
+    if (!sys::memory::copy_checked(configuration, reinterpret_cast<std::uint64_t>(&view), sizeof view))
         return -linux_errno::efault;
     int host;
     {
@@ -1177,8 +1193,9 @@ long configuration(std::uint64_t address) {
     if (address == 0) return -linux_errno::efault;
     // Set at the begin, before `begun`, and never again: no lock. Written through a checked copy so a bad
     // guest pointer returns -EFAULT instead of faulting the host.
-    if (!sys::memory::copy_checked(address, reinterpret_cast<std::uint64_t>(&described.configuration),
-                                   sizeof described.configuration))
+    const apkrt_configuration view = scaled_configuration(described.configuration,
+                                                          render_scale.load(std::memory_order_relaxed));
+    if (!sys::memory::copy_checked(address, reinterpret_cast<std::uint64_t>(&view), sizeof view))
         return -linux_errno::efault;
     return 0;
 }
@@ -1271,6 +1288,16 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
 }
 
 }  // namespace apkrt::session
+
+extern "C" int apkrt_session_set_render_scale(double scale) {
+    // The guest sees the session configuration scaled by this (ADR-0067 point 3), as apkrt_window_set_render_scale
+    // scales a window. A value outside [0.25, 1] -- NaN and the infinities too, since every comparison with them is
+    // false -- is refused and leaves the scale unchanged. Applied on read, so it works before or after the begin.
+    using namespace apkrt::session;
+    if (!(scale >= 0.25 && scale <= 1.0)) return -1;
+    render_scale.store(scale, std::memory_order_relaxed);
+    return 0;
+}
 
 extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     using namespace apkrt::session;
