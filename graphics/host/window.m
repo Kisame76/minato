@@ -47,6 +47,7 @@
 #import <QuartzCore/QuartzCore.h>
 
 #include <TargetConditionals.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -1002,9 +1003,16 @@ static float drawn_opacity(CALayer *layer) {
     return opacity;
 }
 
+// A color component of 0 to 1 as a byte.
+static long color_byte(CGFloat value) {
+    return lround(fmin(fmax(value, 0), 1) * 255);
+}
+
 // The lines after the first of a dump's facts: the window layer's frame in its root's points and its root's size,
 // the opacity it is drawn with, each layer drawn over it that shows something, cut to the frame, and each dumped
-// window drawn under it that it overlaps, so that a screenshot is compared only where the window is what it shows.
+// window drawn under it that it overlaps, so that a screenshot is compared only where the window is what it shows. A
+// layer of one color over it, drawn at less than full alpha (a dialog's dim), is a tint: its rectangle, its sRGB color
+// and its alpha, which tools/window_pixels.py blends in.
 static NSString *placed(CALayer *layer, NSArray<CALayer *> *order, NSDictionary<NSValue *, NSNumber *> *dumped) {
     CALayer *root = layer;
     while (root.superlayer != nil) {
@@ -1031,7 +1039,26 @@ static NSString *placed(CALayer *layer, NSArray<CALayer *> *order, NSDictionary<
             [lines appendFormat:@"under %@\n", window_id];
         } else if (index > at && (other.contents != nil || [other isKindOfClass:[CAMetalLayer class]] ||
                                   (other.backgroundColor != NULL && CGColorGetAlpha(other.backgroundColor) > 0))) {
-            [lines appendFormat:@"above %g %g %g %g\n", cut.origin.x, cut.origin.y, cut.size.width, cut.size.height];
+            const CGFloat amount = other.backgroundColor != NULL
+                                       ? CGColorGetAlpha(other.backgroundColor) * drawn_opacity(other)
+                                       : 1;
+            CGColorRef srgb = NULL;
+            if (other.contents == nil && ![other isKindOfClass:[CAMetalLayer class]] && amount < 1) {
+                CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+                srgb = CGColorCreateCopyByMatchingToColorSpace(space, kCGRenderingIntentDefault,
+                                                               other.backgroundColor, NULL);
+                CGColorSpaceRelease(space);
+            }
+            if (srgb != NULL && CGColorGetNumberOfComponents(srgb) == 4) {
+                const CGFloat *rgb = CGColorGetComponents(srgb);
+                [lines appendFormat:@"tint %g %g %g %g %ld %ld %ld %g\n", cut.origin.x, cut.origin.y,
+                                    cut.size.width, cut.size.height, color_byte(rgb[0]), color_byte(rgb[1]),
+                                    color_byte(rgb[2]), amount];
+            } else {
+                [lines appendFormat:@"above %g %g %g %g\n", cut.origin.x, cut.origin.y, cut.size.width,
+                                    cut.size.height];
+            }
+            if (srgb != NULL) CGColorRelease(srgb);
         }
     }
     return lines;

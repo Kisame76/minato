@@ -4,12 +4,14 @@ windows posted, with the standard library only (Python 3.9).
   window_pixels.py screen <dump folder> <screenshot.png> [--tolerance <n>]
     The dump is SessionCheck's window-dump (minato_graphics_window_dump): window-<id>.rgba and window-<id>.txt for
     each window, whose lines after the first give its layer's frame in its root's points, the opacity it is drawn
-    with, what is drawn over it and the windows under it. At 9 points of a 3 x 3 grid of each window's frame (at 1/6,
-    1/2 and 5/6 of each side) that nothing covers, the screenshot must show its buffer, RGBA over game mode's black,
+    with, what is drawn over it, the tints over it (a layer of one color drawn at less than full alpha, such as a
+    dialog's dim) and the windows under it. At 9 points of a 3 x 3 grid of each window's frame (at 1/6, 1/2 and 5/6
+    of each side) that nothing but tints covers, the screenshot must show its buffer, RGBA over game mode's black,
     within the tolerance per channel (3), after the buffer's sRGB is converted to the screenshot's Display P3 when
-    its ICC profile says so. A window the hide rule hid or drawn at less than full opacity is not compared, nor a
-    translucent pixel over another window. Exit 0 when every window compared matches, 1 when one differs, 2 when the
-    files cannot be read.
+    its ICC profile says so, and then each tint over the point blended in as Core Animation blends it, the color
+    times 1 - alpha plus the tint's times alpha (a black dim: the color times 1 - dim). A window the hide rule hid or
+    drawn at less than full opacity is not compared, nor a translucent pixel over another window. Exit 0 when every
+    window compared matches, 1 when one differs, 2 when the files cannot be read.
   window_pixels.py posts <log> <reference log>
     The CRC lines window.m writes (MINATO_WINDOW_CRC): each window's last post in <log> must have the CRC-32 of the
     reference's last post of the same window and size. Prints the first window that differs. Exit 0, 1 or 2."""
@@ -94,17 +96,24 @@ def srgb_to_p3(rgb):
 
 def placement(lines):
     """A dump's frame in its root's points, the root's size, the opacity it is drawn with, the rectangles drawn over
-    it and the windows under it; without a frame line the window covers the screen."""
-    frame, root, alpha, above, under = (0.0, 0.0, 1.0, 1.0), (1.0, 1.0), 1.0, [], []
+    it, the tints over it in their drawing order (a rectangle, an sRGB color and its alpha) and the windows under it;
+    without a frame line the window covers the screen. A tint of full alpha covers as a layer drawn over it."""
+    frame, root, alpha, above, tints, under = (0.0, 0.0, 1.0, 1.0), (1.0, 1.0), 1.0, [], [], []
     for line in lines:
         words = line.split()
         if words[:1] == ["frame"] and len(words) == 10:
             frame, root, alpha = tuple(map(float, words[1:5])), (float(words[6]), float(words[7])), float(words[9])
         elif words[:1] == ["above"] and len(words) == 5:
             above.append(tuple(map(float, words[1:5])))
+        elif words[:1] == ["tint"] and len(words) == 9:
+            rectangle, color, amount = tuple(map(float, words[1:5])), tuple(map(int, words[5:8])), float(words[8])
+            if amount >= 1:
+                above.append(rectangle)
+            elif amount > 0:
+                tints.append((rectangle, color, amount))
         elif words[:1] == ["under"]:
             under.append(words[1])
-    return frame, root, alpha, above, under
+    return frame, root, alpha, above, tints, under
 
 
 def compare_window(folder, window, image, tolerance):
@@ -122,7 +131,7 @@ def compare_window(folder, window, image, tolerance):
     pixels = open(f"{folder}/window-{window}.rgba", "rb").read()
     if len(pixels) != buffer_width * buffer_height * 4:
         raise Refused(f"{folder}/window-{window}.rgba: {len(pixels)} bytes for {buffer_width}x{buffer_height}")
-    (fx0, fy0, fw, fh), (root_width, root_height), alpha, above, under = placement(lines[1:])
+    (fx0, fy0, fw, fh), (root_width, root_height), alpha, above, tints, under = placement(lines[1:])
     if alpha != 1:
         print(f"window {window}: {lines[0]}; drawn at opacity {alpha:g}, not compared")
         return False
@@ -139,6 +148,11 @@ def compare_window(folder, window, image, tolerance):
                 continue  # translucent over another window
             sx, sy = int(px * width / root_width), int(py * height / root_height)
             want = srgb_to_p3((r, g, b)) if p3 else (r, g, b)  # premultiplied over black: the RGB as it is
+            for (x, y, w, h), color, amount in tints:
+                if x <= px < x + w and y <= py < y + h:
+                    tint = srgb_to_p3(color) if p3 else color
+                    want = tuple(c * (1 - amount) + t * amount for c, t in zip(want, tint))
+            want = tuple(round(c) for c in want)
             have = tuple(rows[sy][4 * sx:4 * sx + 3])
             error = max(abs(w - h) for w, h in zip(want, have))
             compared += 1

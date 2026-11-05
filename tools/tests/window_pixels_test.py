@@ -148,6 +148,34 @@ def main():
         png(f"{work}/no-dialog.png", gradient)
         check("a dialog the screen does not show", run("screen", f"{work}/s", f"{work}/no-dialog.png"), 1,
               "window 2: 6x6 RGBX_8888 on black post 2 shown; screen 12x18; 8 of 9 points, largest error 200: DIFFERS")
+        # A dialog's dim over window 1 (a black layer at 0.4, written as a tint): window 1 compared where only the
+        # dim covers it, as its color times 0.6; the dialog at 1, 2 points over both.
+        def dimmed(x, y):
+            return (200, 10, 10) if 3 <= x < 9 and 6 <= y < 12 else tuple(round(c * 0.6) for c in gradient(x, y))
+
+        png(f"{work}/dimmed.png", dimmed)
+        dump(f"{work}/m", lambda x, y: gradient(x, y) + (255,),
+             "12x18 RGBA_8888 post 4 shown\nframe 0 0 4 6 in 4 6 alpha 1\ntint 0 0 4 6 0 0 0 0.4\nabove 1 2 2 2", 1)
+        dump(f"{work}/m", lambda x, y: (200, 10, 10, 255), "6x6 RGBX_8888 on black post 2 shown\n"
+             "frame 1 2 2 2 in 4 6 alpha 1\nunder 1", 2, (6, 6))
+        check("a window under a dialog's dim", run("screen", f"{work}/m", f"{work}/dimmed.png"), 0,
+              "window 1: 12x18 RGBA_8888 post 4 shown; screen 12x18; 8 of 9 points, largest error 0: ok")
+        check("the dialog over its dim", run("screen", f"{work}/m", f"{work}/dimmed.png"), 0,
+              "window 2: 6x6 RGBX_8888 on black post 2 shown; screen 12x18; 9 points, largest error 0: ok")
+        check("a dim the screen does not show", run("screen", f"{work}/m", f"{work}/scene.png"), 1,
+              "window 1: 12x18 RGBA_8888 post 4 shown; screen 12x18; 8 of 9 points, largest error")
+        # On a Display P3 screen the color is converted first, then dimmed, as Core Animation blends in the screen's
+        # space: sRGB red is (234, 51, 35) there, (140, 31, 21) under a dim of 0.4.
+        dump(f"{work}/mp", lambda x, y: (255, 0, 0, 255),
+             "12x18 RGBX_8888 on black post 1 shown\nframe 0 0 4 6 in 4 6 alpha 1\ntint 0 0 4 6 0 0 0 0.4", 1)
+        png(f"{work}/mp.png", lambda x, y: (140, 31, 21), p3=True)
+        check("a dimmed window on a P3 screen", run("screen", f"{work}/mp", f"{work}/mp.png", "--tolerance", "1"), 0,
+              "P3; 9 points")
+        # A tint of full alpha hides what is under it, as a layer drawn over it.
+        dump(f"{work}/f", lambda x, y: gradient(x, y) + (255,),
+             "12x18 RGBA_8888 post 4 shown\nframe 0 0 4 6 in 4 6 alpha 1\ntint 0 0 4 6 0 0 0 1", 1)
+        check("a tint of full alpha", run("screen", f"{work}/f", f"{work}/same.png"), 0, "0 of 9 points: not compared")
+
         # A translucent pixel over another window is not compared, nor a window drawn at half opacity.
         dump(f"{work}/u", lambda x, y: (60, 60, 60, 128), "6x6 RGBA_8888 post 1 shown\n"
              "frame 1 2 2 2 in 4 6 alpha 1\nunder 1", 2, (6, 6))

@@ -5,8 +5,9 @@
 # second-windows-test (sub-windows, toasts, alpha), activity-flow-test (translucent windows over Main's),
 # window-formats-test (RGBA_8888, RGBX_8888 and RGB_565 in turn) and views-test-landscape (views-test in landscape),
 # each through its start, Home and the return. At each
-# checkpoint the screenshot must show each window's last buffer where nothing covers it (tools/window_pixels.py,
-# within 3 per channel after the sRGB to Display P3 conversion), and window-formats-test's log must be Android 15's.
+# checkpoint the screenshot must show each window's last buffer where nothing covers it, a dialog's dim blended in
+# (tools/window_pixels.py, within 3 per channel after the sRGB to Display P3 conversion), and window-formats-test's
+# log must be Android 15's.
 # With --device a second run of views-test draws its windows by drawables (MINATO_WINDOW_BY_DRAWABLES's Debug switch,
 # SessionCheck's window-by-drawables), and the check prints both runs' physical footprint, the changelog's number.
 # In the Simulator, which draws by drawables, a second run of every app shows the windows by contents, the iPhone's
