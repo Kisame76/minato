@@ -347,6 +347,9 @@ final class RuntimeSessionHost: SessionHost {
         if minato_graphics_set_providers(moltenVK, angle) != 0 {
             log.error("the graphics providers were refused: MoltenVK \(moltenVK ?? "none", privacy: .public), ANGLE \(angle ?? "none", privacy: .public)")
         }
+        // The cameras for the guest (ADR-0073 decision 10): the iPhone's through AVFoundation, the model cameras in the
+        // Simulator. The runtime opens one only with the app's camera grant.
+        if minato_graphics_set_cameras() != 0 { log.error("the runtime refused the cameras") }
     }()
 
     /// ADR-0044 d): the session's GLES on ANGLE's Vulkan backend for an app that asks for ES 3.1 or more
