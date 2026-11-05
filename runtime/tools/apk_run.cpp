@@ -1660,6 +1660,9 @@ int main(int argc, char **argv) {
             session.window = on_window;
         }
         session.webview = webview_fake ? webview_fake::handle : apk_run_webview();
+        // The guest's DisplayMetrics follow the render scale too (ADR-0067 point 3); before begin, so the first read
+        // is scaled.
+        if (render_scale < 1) apkrt_session_set_render_scale(render_scale);
         if (apkrt_session_begin(&session) != 0) {
             std::fprintf(stderr, "apk-run: the session did not begin\n");
             return 2;
