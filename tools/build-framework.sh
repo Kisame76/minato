@@ -259,6 +259,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
   --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
+  --class android.os.DropBoxManager \
   --class android.bluetooth.BluetoothGatt --class android.bluetooth.BluetoothGattCallback \
   --class android.bluetooth.BluetoothGattService --class android.bluetooth.BluetoothGattCharacteristic \
   --class android.bluetooth.BluetoothGattDescriptor --class android.bluetooth.BluetoothGattServer \

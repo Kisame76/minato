@@ -1,0 +1,17 @@
+I/services-e-test: DropBoxManager by name: true, by class: true, same: true
+I/services-e-test: DropBoxManager.isTagEnabled(minato): true
+I/services-e-test: DropBoxManager.getNextEntry(minato, 0): throws java.lang.SecurityException
+I/services-e-test: TvInputManager by name: false, by class: false, same: true
+I/services-e-test: ContentCaptureManager by name: false, by class: false, same: true
+I/services-e-test: View.getContentCaptureSession() is null: true
+I/services-e-test: View.getImportantForContentCapture(): 0
+I/services-e-test: MediaDrm.isCryptoSchemeSupported(edef): false
+I/services-e-test: MediaDrm(edef) then release(): throws android.media.UnsupportedSchemeException
+I/services-e-test: MediaDrm.isCryptoSchemeSupported(0000): false
+I/services-e-test: MediaDrm(0000) then release(): throws android.media.UnsupportedSchemeException
+I/services-e-test: SubscriptionManager.getSlotIndex(-1): -1
+I/services-e-test: SubscriptionManager.getSlotIndex(0): -1
+I/services-e-test: SubscriptionManager.getSlotIndex(1): 0
+I/services-e-test: SubscriptionManager.getSlotIndex(2): -1
+I/services-e-test: SubscriptionManager.getSlotIndex(2147483647): 0
+I/services-e-test: done

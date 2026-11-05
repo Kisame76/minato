@@ -26,6 +26,15 @@ class SubscriptionManager {
         return 1;
     }
 
+    /**
+     * The SIM slot of a subscription [verified: services-e-test]: the one subscription Minato names, ID 1, which is
+     * also what the default ID (Integer.MAX_VALUE) stands for, is in slot 0; every other ID is in none.
+     */
+    public static int getSlotIndex(int subscriptionId) {
+        return subscriptionId == getDefaultSubscriptionId() || subscriptionId == DEFAULT_SUBSCRIPTION_ID ? 0
+                : INVALID_SIM_SLOT_INDEX;
+    }
+
     public static boolean isValidSubscriptionId(int subscriptionId) {
         return subscriptionId > INVALID_SUBSCRIPTION_ID;
     }

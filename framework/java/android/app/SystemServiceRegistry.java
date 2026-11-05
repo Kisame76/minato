@@ -47,6 +47,7 @@ import android.net.ConnectivityManager;
 import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.BatteryStats;
+import android.os.DropBoxManager;
 import android.os.IBatteryPropertiesRegistrar;
 import android.os.IPowerManager;
 import android.os.IThermalService;
@@ -190,6 +191,7 @@ final class SystemServiceRegistry {
         cached(Context.GRAMMATICAL_INFLECTION_SERVICE, GrammaticalInflectionManager.class,
                 ctx -> new GrammaticalInflectionManager(ctx.getOuterContext()));
         cached(Context.PRINT_SERVICE, PrintManager.class, ctx -> new PrintManager(ctx.getOuterContext()));
+        cached(Context.DROPBOX_SERVICE, DropBoxManager.class, ctx -> new DropBoxManager(ctx.getOuterContext()));
         // Retest 8's batch B2: as the tag's, over the local account service.
         cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
                 IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));
