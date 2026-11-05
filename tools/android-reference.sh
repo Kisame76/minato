@@ -668,7 +668,7 @@ run_app() {
       | location-manager-test \
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
-      | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test)
+      | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;
@@ -1824,10 +1824,11 @@ run_app() {
       fi
     done
   fi
-  if [[ "$app" == context-test || "$app" == persisted-job-test ]]; then
+  if [[ "$app" == context-test || "$app" == persisted-job-test || "$app" == locale-persist-test ]]; then
     wait_for "$app" done || return 1
-    # persisted-job-test's process is killed in the background, as a force-stop would cancel its jobs.
-    if [[ "$app" == persisted-job-test ]]; then
+    # The process of persisted-job-test and locale-persist-test is killed in the background: a force-stop would cancel
+    # the jobs and clear the app's languages.
+    if [[ "$app" == persisted-job-test || "$app" == locale-persist-test ]]; then
       run input keyevent KEYCODE_HOME
       sleep 1
       run am kill "$package"

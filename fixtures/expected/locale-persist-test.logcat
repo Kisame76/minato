@@ -1,0 +1,10 @@
+I/locale-persist-test: start 1
+I/locale-persist-test: application locales in onCreate: 
+I/locale-persist-test: resources locale in onCreate: en-US
+I/locale-persist-test: application locales set: de-DE
+I/locale-persist-test: done
+I/locale-persist-test: start 2
+I/locale-persist-test: application locales in onCreate: de-DE
+I/locale-persist-test: resources locale in onCreate: de-DE,en-US
+I/locale-persist-test: application locales after the reset: true
+I/locale-persist-test: done

@@ -563,6 +563,8 @@ public final class ActivityThread {
             thread.mInstrumentation.basicInit(thread);
             thread.mActivityClientController = new LocalActivityClientController(thread);
             ActivityClient.setActivityClientController(thread.mActivityClientController);
+            // The app's stored languages, before any component of it exists.
+            LocaleManager.restoreAtStart(thread, app);
             // As handleBindApplication: the process's providers, before the Application's onCreate (step c2c1).
             thread.installContentProviders(app, packageInfo, pkg.processProviders(thread.mProcessName));
             // As handleBindApplication after the providers: Instrumentation.callApplicationOnCreate, and Android's
@@ -3296,10 +3298,9 @@ public final class ActivityThread {
         sMainThreadHandler.post(() -> handleAppLocales(appLocales, systemLocales));
     }
 
-    @SuppressWarnings("deprecation") // Resources.updateConfiguration, as handleTurn.
-    private void handleAppLocales(LocaleList appLocales, LocaleList systemLocales) {
-        final Resources system = Resources.getSystem();
-        final Configuration before = new Configuration(system.getConfiguration());
+    /** The system configuration with the app's languages before the system's. */
+    private static Configuration localeConfiguration(Configuration before, LocaleList appLocales,
+            LocaleList systemLocales) {
         final Configuration config = new Configuration(before);
         config.seq = 0;
         final java.util.ArrayList<java.util.Locale> merged = new java.util.ArrayList<>();
@@ -3312,6 +3313,29 @@ public final class ActivityThread {
             }
         }
         config.setLocales(new LocaleList(merged.toArray(new java.util.Locale[0])));
+        return config;
+    }
+
+    /**
+     * The app's stored languages at its start, before any component exists: they are in the Resources the Application
+     * and the first activity read, as Android's process start has them [verified: locale-persist-test].
+     */
+    @SuppressWarnings("deprecation") // Resources.updateConfiguration, as handleTurn.
+    void applyAppLocalesAtStart(LocaleList appLocales, LocaleList systemLocales) {
+        final Resources system = Resources.getSystem();
+        final Configuration config = localeConfiguration(system.getConfiguration(), appLocales, systemLocales);
+        final DisplayMetrics metrics = system.getDisplayMetrics();
+        Resources.updateSystemConfiguration(config, metrics, null);
+        if (mLoadedApk != null) {
+            mLoadedApk.getResources().updateConfiguration(config, metrics);
+        }
+    }
+
+    @SuppressWarnings("deprecation") // Resources.updateConfiguration, as handleTurn.
+    private void handleAppLocales(LocaleList appLocales, LocaleList systemLocales) {
+        final Resources system = Resources.getSystem();
+        final Configuration before = new Configuration(system.getConfiguration());
+        final Configuration config = localeConfiguration(before, appLocales, systemLocales);
         final int changes = before.diffPublicOnly(config);
         if (changes == 0) {
             return;
