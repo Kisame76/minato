@@ -1,6 +1,7 @@
 import APKRuntime
 import APKSession
 import AVFAudio
+import Synchronization
 import UIKit
 import os
 
@@ -15,7 +16,9 @@ protocol AudioStreamEventSink: AnyObject, Sendable {
 /// The audio host side (ADR-0036, decision 4): the audio session, category `.ambient`, and one engine with
 /// one source node per output stream into its main mixer, which converts rate and channels. `AudioOutput`
 /// decides; this carries it out, and follows interruptions, route changes, the engine's own stops and the
-/// return from the background.
+/// return from the background. The guest's input streams (ADR-0064) make the session playAndRecord while one is open;
+/// the input node's one tap converts each buffer to every input stream's rate and channels (MicrophoneTap) and hands
+/// it to the runtime's ring with apkrt_audio_input_write.
 ///
 /// Everything runs on a serial queue of its own, never the main thread: `libaaudio`'s calls come from guest
 /// threads, and the main thread can be busy with SwiftUI or wait for "scheduled" in the background.
@@ -31,6 +34,11 @@ final class AudioHost: @unchecked Sendable {
     private var outputLatency: Int64 = 0
     private var servesRuntime = false
     private var observers: [any NSObjectProtocol] = []
+    /// Whether the session records: playAndRecord while an input stream is open.
+    private var recording = false
+    /// The input streams, which the tap's thread reads too, and whether the input node has the tap.
+    private let microphone = MicrophoneTap()
+    private var tapped = false
 
     init(sink: AudioStreamEventSink) {
         self.sink = sink
@@ -81,6 +89,64 @@ final class AudioHost: @unchecked Sendable {
             var host = apkrt_audio_host(context: Unmanaged.passRetained(self).toOpaque(),
                                         open: Self.openFromRuntime, close: Self.closeFromRuntime)
             if apkrt_set_audio_host(&host) != 0 { log.error("the runtime took no audio host") }
+            var input = apkrt_audio_input_host(context: Unmanaged.passRetained(self).toOpaque(),
+                                               open: Self.openInputFromRuntime, close: Self.closeInputFromRuntime)
+            if apkrt_set_audio_input_host(&input) != 0 { log.error("the runtime took no audio input host") }
+        }
+    }
+
+    /// `apkrt_audio_input_host.open`, on the guest thread that opens input `stream`, inside its syscall. The runtime
+    /// calls it only with the app's grant; without iOS's own (Minato's) the open fails.
+    private static let openInputFromRuntime: @convention(c) (UnsafeMutableRawPointer?, UInt64, Double, Int32, Int32,
+                                                             UnsafeMutablePointer<apkrt_audio_hardware>?) -> Int32 = {
+        context, stream, sampleRate, channels, _, hardware in
+        guard let context, let hardware, channels > 0,
+              AVAudioApplication.shared.recordPermission == .granted else { return -1 }
+        let host = Unmanaged<AudioHost>.fromOpaque(context).takeUnretainedValue()
+        guard let now = host.openInput(stream, sampleRate: sampleRate, channels: Int(channels)) else { return -1 }
+        hardware.pointee = apkrt_audio_hardware(sample_rate: now.sampleRate, io_buffer_duration: now.ioBufferDuration)
+        return 0
+    }
+
+    /// `apkrt_audio_input_host.close`: the guest's close, or the grant's revoke, which closes every input stream.
+    private static let closeInputFromRuntime: @convention(c) (UnsafeMutableRawPointer?, UInt64) -> Void = {
+        context, stream in
+        guard let context else { return }
+        #if DEBUG
+        SessionCheck.event("audio input closed xruns \(apkrt_audio_xruns(stream))")
+        #endif
+        Unmanaged<AudioHost>.fromOpaque(context).takeUnretainedValue().closeInput(stream)
+    }
+
+    /// Opens input `stream` of `channels` at `sampleRate`, 0 for the hardware's; the hardware it captures on, nil when
+    /// the format fails or the stream is open already. From any thread but the host's queue.
+    func openInput(_ stream: UInt64, sampleRate: Double, channels: Int) -> AudioHardware? {
+        dispatchPrecondition(condition: .notOnQueue(queue))
+        return queue.sync {
+            guard !microphone.has(stream) else { return nil }
+            apply(output.inputOpened(stream))
+            let now = hardware
+            guard recording, let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                                        sampleRate: sampleRate > 0 ? sampleRate : now.sampleRate,
+                                                        channels: AVAudioChannelCount(channels), interleaved: true)
+            else {
+                apply(output.inputClosed(stream))
+                return nil
+            }
+            microphone.add(stream, format: format)
+            #if DEBUG
+            SessionCheck.event("audio input opened \(Int(format.sampleRate)) Hz \(channels) channels")
+            #endif
+            return now
+        }
+    }
+
+    /// From any thread but the host's queue.
+    func closeInput(_ stream: UInt64) {
+        dispatchPrecondition(condition: .notOnQueue(queue))
+        queue.sync {
+            guard microphone.remove(stream) else { return }
+            apply(output.inputClosed(stream))
         }
     }
 
@@ -200,6 +266,15 @@ final class AudioHost: @unchecked Sendable {
         apply(output.engineStopped())
     }
 
+    /// The category the streams call for: playAndRecord on the speaker, as `.ambient` plays there, while recording.
+    private func setCategory() throws {
+        if recording {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        } else {
+            try session.setCategory(.ambient)
+        }
+    }
+
     private func detach(_ streams: [UInt64]) {
         for id in streams {
             guard let node = nodes.removeValue(forKey: id) else { continue }
@@ -213,9 +288,27 @@ final class AudioHost: @unchecked Sendable {
                 switch action {
                 case .preferIOBuffer(let duration):
                     try session.setPreferredIOBufferDuration(duration)
+                case .record(let on):
+                    recording = on
+                    try setCategory()
                 case .activate:
-                    try session.setCategory(.ambient)
+                    try setCategory()
                     try session.setActive(true)
+                case .installTap:
+                    let input = engine.inputNode
+                    if tapped { input.removeTap(onBus: 0) }
+                    tapped = false
+                    let format = input.outputFormat(forBus: 0)
+                    // No input in the session's route: the streams read nothing.
+                    guard format.sampleRate > 0, format.channelCount > 0 else { break }
+                    let microphone = microphone
+                    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, time in
+                        microphone.captured(buffer, hostTime: time.isHostTimeValid ? time.hostTime : 0)
+                    }
+                    tapped = true
+                case .removeTap:
+                    if tapped { engine.inputNode.removeTap(onBus: 0) }
+                    tapped = false
                 case .deactivate:
                     try session.setActive(false)
                 case .startEngine:

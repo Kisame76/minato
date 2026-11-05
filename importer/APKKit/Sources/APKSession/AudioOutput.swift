@@ -21,13 +21,17 @@ public struct AudioHardware: Equatable, Sendable {
     public var burstFrames: Int { Int((sampleRate * ioBufferDuration).rounded()) }
 }
 
-/// The host side of the guest's audio output (ADR-0036, decision 4): what the audio session and the engine
-/// do as streams open and close, at interruptions and at route changes. The app carries out the actions.
-/// A stream is the runtime's handle (`apkrt.h`).
+/// The host side of the guest's audio output (ADR-0036, decision 4) and input (ADR-0064, decision 3): what the
+/// audio session and the engine do as streams open and close, at interruptions and at route changes. The app carries
+/// out the actions. A stream is the runtime's handle (`apkrt.h`). The engine runs while any stream, output or input,
+/// is open; the session is playAndRecord while an input stream is open, else `.ambient`, and a change of category
+/// while the engine runs restarts it. The input node has one tap for every input stream.
 public struct AudioOutput: Sendable {
     public enum Action: Equatable, Sendable {
         case preferIOBuffer(Double)
-        /// The session, category `.ambient`, becomes active.
+        /// The session's category from now on: playAndRecord (`true`) or `.ambient`.
+        case record(Bool)
+        /// The session, in the category last given, becomes active.
         case activate
         case deactivate
         case startEngine
@@ -38,9 +42,13 @@ public struct AudioOutput: Sendable {
         case withdrawOutput
         /// These streams get DISCONNECTED, and their nodes go.
         case disconnect([UInt64])
+        /// The input node's tap, for the input streams, in the input's format now; it replaces a tap that is there.
+        case installTap
+        case removeTap
     }
 
     private var streams: [UInt64: AudioPerformanceMode] = [:]
+    private var inputs: Set<UInt64> = []
     private var ioBuffer: Double?
     private var hardware: AudioHardware?
     private var interrupted = false
@@ -52,8 +60,14 @@ public struct AudioOutput: Sendable {
         modes.contains(.lowLatency) ? 0.005 : 0.020
     }
 
+    /// Whether a stream, output or input, keeps the engine.
+    private var running: Bool { !streams.isEmpty || !inputs.isEmpty }
+
+    /// The tap again before the engine starts, in the input's format then, while an input stream is open.
+    private var tap: [Action] { inputs.isEmpty ? [] : [.installTap] }
+
     public mutating func opened(_ stream: UInt64, mode: AudioPerformanceMode) -> [Action] {
-        let first = streams.isEmpty
+        let first = !running
         streams[stream] = mode
         var actions = preferIOBuffer()
         if first && !interrupted { actions += [.activate, .startEngine, .publishOutput] }
@@ -62,29 +76,50 @@ public struct AudioOutput: Sendable {
 
     public mutating func closed(_ stream: UInt64) -> [Action] {
         guard streams.removeValue(forKey: stream) != nil else { return [] }
-        return streams.isEmpty ? stopped() : []
+        return running ? [] : stopped()
+    }
+
+    /// An input stream opened: the first makes the session record and taps the input.
+    public mutating func inputOpened(_ stream: UInt64) -> [Action] {
+        guard !inputs.contains(stream) else { return [] }
+        let first = inputs.isEmpty, engine = running
+        inputs.insert(stream)
+        guard first else { return [] }
+        // The input has no format before the session is active: its tap comes with the interruption's end.
+        if interrupted { return [.record(true)] }
+        let restart: [Action] = engine ? [.withdrawOutput, .stopEngine] : []
+        return restart + [.record(true), .activate, .installTap, .startEngine, .publishOutput]
+    }
+
+    /// An input stream closed: after the last the session no longer records, and the engine stops without an output.
+    public mutating func inputClosed(_ stream: UInt64) -> [Action] {
+        guard inputs.remove(stream) != nil, inputs.isEmpty else { return [] }
+        if !running { return [.removeTap] + stopped() + [.record(false)] }
+        if interrupted { return [.removeTap, .record(false)] }
+        return [.removeTap, .withdrawOutput, .stopEngine, .record(false), .activate, .startEngine, .publishOutput]
     }
 
     /// A call or Siri: iOS stopped the engine.
     public mutating func interruptionBegan() -> [Action] {
         interrupted = true
-        return streams.isEmpty ? [] : [.withdrawOutput]
+        return running ? [.withdrawOutput] : []
     }
 
     /// The streams stay STARTED, so the engine starts again (ADR-0036, decision 6).
     public mutating func interruptionEnded() -> [Action] {
         interrupted = false
-        return streams.isEmpty ? [] : [.activate, .startEngine, .publishOutput]
+        return running ? [.activate] + tap + [.startEngine, .publishOutput] : []
     }
 
     /// Back from the background, where iOS stopped the engine: `.ambient` has no background audio.
     public mutating func enteredForeground() -> [Action] {
-        streams.isEmpty || interrupted ? [] : [.activate, .startEngine, .publishOutput]
+        !running || interrupted ? [] : [.activate] + tap + [.startEngine, .publishOutput]
     }
 
-    /// The engine stopped itself at a change of its configuration.
+    /// The engine stopped itself at a change of its configuration, where the input's format may have changed too.
     public mutating func engineStopped() -> [Action] {
-        streams.isEmpty || interrupted ? [] : [.startEngine, .publishOutput]
+        guard running, !interrupted else { return [] }
+        return tap + [.startEngine, .publishOutput]
     }
 
     /// The hardware now, after the host's own change of the IO buffer or, `rerouted`, after a route change.
@@ -105,7 +140,7 @@ public struct AudioOutput: Sendable {
         guard !streams.isEmpty else { return [] }
         let disconnected = streams.keys.sorted()
         streams = [:]
-        return [.disconnect(disconnected)] + stopped()
+        return [.disconnect(disconnected)] + (running ? [] : stopped())
     }
 
     /// A stream's burst is fixed at its open (`apkrt.h`), so the IO buffer shrinks for a LOW_LATENCY stream but
