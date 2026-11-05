@@ -244,15 +244,15 @@ void read_stamp(const Slot &slot, std::int64_t &position, std::int64_t &time) {
 
 // MARK: - The audio effects
 
-constexpr int effect_words = 9;
+constexpr int effect_words = 16;
 constexpr std::int32_t effect_flag_equalizer = 1, effect_flag_bass_boost = 2, effect_flag_virtualizer = 4,
-                       effect_flag_loudness = 8;
+                       effect_flag_loudness = 8, effect_flag_reverb = 16;
 
 /// One session's effects as a sequence-locked snapshot of plain words (seq_words.h): the writer, one guest syscall at a
 /// time under effect_lock, writes them as one; the render block reads without a lock, a wait or an allocation.
 struct EffectEntry {
     std::atomic<std::int32_t> session{-1};  // -1 while free
-    SeqWords<effect_words> words;           // flags, five bands, bass boost, virtualizer, loudness
+    SeqWords<effect_words> words;           // flags, five bands, bass boost, virtualizer, loudness, reverb (7)
 };
 
 EffectEntry effect_table[APKRT_AUDIO_EFFECT_SESSIONS];
@@ -268,6 +268,15 @@ effects::Settings settings_of(const std::int32_t (&words)[effect_words]) {
     settings.virtualizer_strength = words[7];
     settings.loudness = (words[0] & effect_flag_loudness) != 0;
     settings.loudness_millibel = words[8];
+    settings.reverb = (words[0] & effect_flag_reverb) != 0;
+    effects::ReverbSettings &reverb = settings.reverb_params;
+    reverb.room_level = words[9];
+    reverb.room_hf_level = words[10];
+    reverb.decay_time = words[11];
+    reverb.decay_hf_ratio = words[12];
+    reverb.reverb_level = words[13];
+    reverb.diffusion = words[14];
+    reverb.density = words[15];
     return settings;
 }
 
@@ -802,7 +811,7 @@ long effect(std::uint64_t address) {
     const auto *given = sys::as_pointer<const apkrt_audio_effect>(address);
     if (given == nullptr) return -linux_errno::efault;
     const apkrt_audio_effect asked = *given;
-    if (asked.session < 0 || asked.kind < APKRT_AUDIO_EFFECT_EQUALIZER || asked.kind > APKRT_AUDIO_EFFECT_LOUDNESS ||
+    if (asked.session < 0 || asked.kind < APKRT_AUDIO_EFFECT_EQUALIZER || asked.kind > APKRT_AUDIO_EFFECT_REVERB ||
         (asked.enabled != 0 && asked.enabled != 1) || asked.reserved != 0) {
         return -linux_errno::einval;
     }
@@ -826,7 +835,8 @@ long effect(std::uint64_t address) {
     const std::int32_t flag = asked.kind == APKRT_AUDIO_EFFECT_EQUALIZER     ? effect_flag_equalizer
                               : asked.kind == APKRT_AUDIO_EFFECT_BASS_BOOST  ? effect_flag_bass_boost
                               : asked.kind == APKRT_AUDIO_EFFECT_VIRTUALIZER ? effect_flag_virtualizer
-                                                                             : effect_flag_loudness;
+                              : asked.kind == APKRT_AUDIO_EFFECT_LOUDNESS    ? effect_flag_loudness
+                                                                             : effect_flag_reverb;
     if (asked.enabled == 1) {
         words[0] |= flag;
         switch (asked.kind) {
@@ -837,7 +847,16 @@ long effect(std::uint64_t address) {
                 break;
             case APKRT_AUDIO_EFFECT_BASS_BOOST: words[6] = std::clamp(asked.params[0], 0, 1000); break;
             case APKRT_AUDIO_EFFECT_VIRTUALIZER: words[7] = std::clamp(asked.params[0], 0, 1000); break;
-            default: words[8] = std::clamp(asked.params[0], 0, 2000); break;
+            case APKRT_AUDIO_EFFECT_LOUDNESS: words[8] = std::clamp(asked.params[0], 0, 2000); break;
+            default:  // the reverb: Android's ranges (room level -9000 to 0, decay 100 to 20000 ms, ratio 100 to 2000)
+                words[9] = std::clamp(asked.params[0], -9000, 0);
+                words[10] = std::clamp(asked.params[1], -9000, 0);
+                words[11] = std::clamp(asked.params[2], 100, 20000);
+                words[12] = std::clamp(asked.params[3], 100, 2000);
+                words[13] = std::clamp(asked.params[4], -9000, 2000);
+                words[14] = std::clamp(asked.params[5], 0, 1000);
+                words[15] = std::clamp(asked.params[6], 0, 1000);
+                break;
         }
     } else {
         words[0] &= ~flag;

@@ -56,7 +56,7 @@ void controlChanged(void *, int id, bool hasControl) {
     if (env->ExceptionCheck()) env->ExceptionClear();
 }
 
-/// Tells the runtime's mix what `session`'s effects are now: the four sounding kinds, each on or off with its
+/// Tells the runtime's mix what `session`'s effects are now: the five sounding kinds, each on or off with its
 /// parameters. gLock is held. A runtime without the call (an old one) answers -ENOSYS and nothing sounds.
 void publish(int session) {
     const minato::audiofx::Applied applied = gService.applied(session);
@@ -83,6 +83,12 @@ void publish(int session) {
     effect.kind = APKRT_AUDIO_EFFECT_LOUDNESS;
     effect.enabled = applied.loudness ? 1 : 0;
     effect.params[0] = applied.loudness_millibel;
+    syscall(APKRT_NR_AUDIO_EFFECT, reinterpret_cast<uint64_t>(&effect));
+    effect = {};
+    effect.session = session;
+    effect.kind = APKRT_AUDIO_EFFECT_REVERB;
+    effect.enabled = applied.reverb ? 1 : 0;
+    for (int i = 0; i < 7; ++i) effect.params[i] = applied.reverb_params[i];
     syscall(APKRT_NR_AUDIO_EFFECT, reinterpret_cast<uint64_t>(&effect));
 }
 

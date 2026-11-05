@@ -101,7 +101,112 @@ float soft_limit(float x) {
     return x < 0 ? -limited : limited;
 }
 
+// The reverb (see Reverb in the header). Android's level is the sum of room and reverb level less the maximum of
+// 2000 mB (EffectReverb.cpp, ReverbSetReverbLevel and ReverbSetRoomLevel), -12000 mB and below is silent, the send is
+// 0.75 (REVERB_SEND_LEVEL); the room HF level is the wet signal's high cut; the decay HF ratio is given at 5 kHz.
+constexpr int kLineBase[4] = {1031, 1327, 1721, 2113};  // prime frames at 48 kHz
+constexpr int kDiffuserBase[2] = {142, 107};
+constexpr float kSend = 0.75f;
+constexpr float kDampingHertz = 5000.0f;
+
 }  // namespace
+
+void Reverb::clear() {
+    for (auto &line : line_) std::fill(std::begin(line), std::end(line), 0.0f);
+    for (auto &line : diffuser_) std::fill(std::begin(line), std::end(line), 0.0f);
+    for (int i = 0; i < 4; ++i) at_[i] = 0, low_[i] = 0;
+    diffuser_at_[0] = diffuser_at_[1] = 0;
+    cut_[0] = cut_[1] = 0;
+}
+
+void Reverb::layout(const ReverbSettings &settings, float rate) {
+    // A denser room has the shorter lines, down to half the length at density 0.
+    const double density = std::clamp(settings.density, 0, 1000) / 1000.0;
+    const double scale = std::min<double>(rate / 48000.0, 3.9) * (0.5 + 0.5 * density);
+    const double time = std::max(settings.decay_time, 100) / 1000.0;
+    const double ratio = std::clamp(settings.decay_hf_ratio, 100, 2000) / 1000.0;
+    const double w = 2 * kPi * kDampingHertz / rate;
+    for (int i = 0; i < 4; ++i) {
+        length_[i] = std::clamp(static_cast<int>(kLineBase[i] * scale), 16, kMaxLine);
+        // the loop gain for the decay time: 60 dB in `time`, and at 5 kHz in time * ratio
+        const double db = -3.0 * length_[i] / (rate * time);  // log10 of the loop gain at DC
+        gain_[i] = static_cast<float>(std::pow(10.0, db));
+        const double h = std::pow(10.0, db * (1.0 / std::min(ratio, 1.0) - 1.0));  // |low-pass| needed at 5 kHz
+        double p = 0;
+        if (h < 0.999) {
+            const double b = 2 - 2 * h * h * std::cos(w), a = 1 - h * h;
+            p = (b - std::sqrt(std::max(b * b - 4 * a * a, 0.0))) / (2 * a);
+        }
+        damp_[i] = static_cast<float>(std::clamp(p, 0.0, 0.999));
+    }
+    for (int i = 0; i < 2; ++i) {
+        const double rate_scale = std::min<double>(rate / 48000.0, 3.9);
+        diffuser_length_[i] = std::clamp(static_cast<int>(kDiffuserBase[i] * rate_scale), 8, 1024);
+    }
+    diffuse_ = 0.7f * static_cast<float>(std::clamp(settings.diffusion, 0, 1000)) / 1000.0f;
+    // the room HF level cuts the wet signal's highs: -9000 mB at most, a one-pole at 8 kHz at its deepest
+    const double hf = std::clamp(settings.room_hf_level, -9000, 0) / 9000.0;  // 0 to -1
+    const double cut_hertz = 20000.0 * std::pow(0.4, -hf);                   // 20 kHz down to 8 kHz
+    high_cut_ = static_cast<float>(std::exp(-2 * kPi * std::min<double>(cut_hertz, 0.45 * rate) / rate));
+}
+
+void Reverb::set(bool on, const ReverbSettings &settings, float rate, bool at_once) {
+    const bool was_idle = idle();
+    const bool relayout = rate != rate_ || settings.decay_time != settings_.decay_time ||
+                          settings.decay_hf_ratio != settings_.decay_hf_ratio ||
+                          settings.density != settings_.density || settings.diffusion != settings_.diffusion ||
+                          settings.room_hf_level != settings_.room_hf_level;
+    const bool density_changes = rate != rate_ || settings.density != settings_.density;
+    settings_ = settings;
+    rate_ = rate;
+    if (on) {
+        if (relayout || was_idle) layout(settings, rate);
+        if (was_idle || density_changes) clear();  // new line lengths, or a tail from before: start from silence
+        const int combined = settings.reverb_level + settings.room_level - 2000;
+        wet_target_ = combined <= -12000 ? 0.0f : static_cast<float>(std::pow(10.0, combined / 2000.0)) * kSend;
+        if (at_once) wet_ = wet_target_;
+    } else {
+        wet_target_ = 0;
+        if (at_once) wet_ = 0;
+    }
+    on_ = on;
+}
+
+void Reverb::process_frame(float *at, int channels) {
+    if (idle()) return;
+    // the wet gain moves to its target by a share of the distance: about 2 ms for most of it
+    wet_ += (wet_target_ - wet_) * 0.01f;
+    float input = channels >= 2 ? 0.5f * (at[0] + at[1]) : at[0];
+    for (int i = 0; i < 2; ++i) {  // Schroeder allpass: y = -g x + d, d' = x + g y
+        float &slot = diffuser_[i][diffuser_at_[i]];
+        const float out = -diffuse_ * input + slot;
+        slot = input + diffuse_ * out;
+        if (++diffuser_at_[i] >= diffuser_length_[i]) diffuser_at_[i] = 0;
+        input = out;
+    }
+    float tap[4];
+    for (int i = 0; i < 4; ++i) tap[i] = line_[i][at_[i]];
+    // Hadamard feedback: the sums of the lines, orthogonal at 0.5
+    const float mixed[4] = {0.5f * (tap[0] + tap[1] + tap[2] + tap[3]), 0.5f * (tap[0] - tap[1] + tap[2] - tap[3]),
+                            0.5f * (tap[0] + tap[1] - tap[2] - tap[3]), 0.5f * (tap[0] - tap[1] - tap[2] + tap[3])};
+    for (int i = 0; i < 4; ++i) {
+        // the loop: gain, then the damping low-pass
+        const float fed = gain_[i] * (mixed[i] + 0.5f * input);
+        low_[i] = (1 - damp_[i]) * fed + damp_[i] * low_[i];
+        line_[i][at_[i]] = low_[i];
+        if (++at_[i] >= length_[i]) at_[i] = 0;
+    }
+    float left = 0.5f * (tap[0] + tap[1] - tap[2] - tap[3]);
+    float right = 0.5f * (tap[0] - tap[1] + tap[2] - tap[3]);
+    left = cut_[0] = (1 - high_cut_) * left + high_cut_ * cut_[0];
+    right = cut_[1] = (1 - high_cut_) * right + high_cut_ * cut_[1];
+    if (channels >= 2) {
+        at[0] += wet_ * left;
+        at[1] += wet_ * right;
+    } else {
+        at[0] += wet_ * 0.5f * (left + right);
+    }
+}
 
 bool Settings::operator==(const Settings &other) const {
     if (equalizer != other.equalizer || bass_boost != other.bass_boost || virtualizer != other.virtualizer ||
@@ -112,7 +217,7 @@ bool Settings::operator==(const Settings &other) const {
     for (int band = 0; band < kBands; ++band) {
         if (band_millibel[band] != other.band_millibel[band]) return false;
     }
-    return true;
+    return reverb == other.reverb && (!reverb || reverb_params == other.reverb_params);
 }
 
 Chain make_chain(const Settings &settings, float rate) {
@@ -164,6 +269,7 @@ Biquad Processor::blend(const Biquad &from, const Biquad &to, float t) {
 
 void Processor::set(const Settings &settings, float rate) {
     if (have_ && settings == settings_) return;
+    const bool had = have_;
     Chain target = make_chain(settings, rate);
     if (!have_) {
         from_ = target;
@@ -195,6 +301,7 @@ void Processor::set(const Settings &settings, float rate) {
         ramp_left_ = kRampFrames;
     }
     if (!active_ && settings.any()) reset();  // from idle: no stale delay lines
+    reverb_.set(settings.reverb, settings.reverb_params, rate, !had);
     settings_ = settings;
     active_ = settings.any();
 }
@@ -274,6 +381,7 @@ void Processor::process(float *samples, std::int64_t frames, int channels) {
                 at[channel] = loud + limit * (soft_limit(loud) - loud);  // the limiter's share ramps with the gain
             }
         }
+        reverb_.process_frame(at, channels);
     }
     if (ramp_left_ == 0) from_ = to_;
 }

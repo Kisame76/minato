@@ -92,8 +92,8 @@ All notable changes to Minato are documented in this file. The format follows
   their own player, ExoPlayer among them, play Opus
 - Audio effects (Equalizer, Bass Boost, Virtualizer, Loudness Enhancer, the reverbs) and the Visualizer can be created
   and set as on Android; the Visualizer shows what the app plays, and the Equalizer, Bass Boost, Virtualizer and
-  Loudness Enhancer change the sound of the app's streams of their audio session as an approximation of Android's
-  effect bundle (not for `MediaPlayer` yet)
+  Loudness Enhancer and the reverbs change the sound of the app's streams of their audio session as an approximation
+  of Android's effect bundle, `MediaPlayer` included
 - The text magnifier shows what is under your finger while you drag a selection handle
 - More of Android's system managers answer as on a phone without the hardware behind them instead of being missing: game
   mode, lock screen, USB, downloads, usage stats, storage stats, app restrictions, search, biometrics, device policy,

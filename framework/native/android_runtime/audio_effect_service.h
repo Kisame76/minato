@@ -84,6 +84,19 @@ constexpr int16_t kPresetLevels[kPresets][kBands] = {
     {3, 0, 0, 0, 3},  {5, 3, -2, 4, 4}, {6, 0, 2, 4, 1},  {0, 0, 0, 0, 0},  {3, 0, 0, 2, -1},
     {4, 1, 9, 3, 0},  {5, 3, 0, 1, 3},  {4, 2, -2, 2, 5}, {-1, 2, 5, 1, -2}, {5, 3, -1, 3, 5}};
 
+/// The preset reverb's presets as the effect bundle has them (EffectReverb.cpp, sReverbPresets, android-15.0.0_r1), in
+/// the order of the environmental reverb's values: room level, room HF level, decay time, decay HF ratio, reflections
+/// level, reflections delay, reverb level, reverb delay, diffusion, density. Preset 0 is none: no sound.
+constexpr int kReverbPresets = 7;
+constexpr int32_t kReverbPresetValues[kReverbPresets][10] = {
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    {-400, -600, 1100, 830, -400, 5, 500, 10, 1000, 1000},
+    {-400, -600, 1300, 830, -1000, 20, -200, 20, 1000, 1000},
+    {-400, -600, 1500, 830, -1600, 5, -1000, 40, 1000, 1000},
+    {-400, -600, 1800, 700, -1300, 15, -800, 30, 1000, 1000},
+    {-400, -600, 1800, 700, -2000, 30, -1400, 60, 1000, 1000},
+    {-400, -200, 1300, 900, 0, 2, 0, 10, 1000, 750}};
+
 /// The environmental reverb's parameters in effect_environmentalreverb.h's order; shorts and ints as the protocol
 /// has them.
 struct EnvReverb {
@@ -137,6 +150,10 @@ struct Applied {
     int32_t virtualizer_strength = 0;
     bool loudness = false;
     int32_t loudness_millibel = 0;
+    /// One reverb: the environmental reverb's room level, room HF level, decay time, decay HF ratio, reverb level,
+    /// diffusion and density (the reflections are not played, as in Android's bundle).
+    bool reverb = false;
+    int32_t reverb_params[7] = {0, 0, 0, 0, 0, 0, 0};
 };
 
 /// The instances, with the control passing of AudioEffect: of the instances of one implementation on a session, the
@@ -220,6 +237,13 @@ public:
     /// The effects of `session` that sound now.
     Applied applied(int session) const {
         Applied result;
+        bool environment = false;  // an environmental reverb of the session is on
+        for (const auto &[id, instance] : instances_) {
+            if (instance->session == session && instance->has_control && instance->enabled &&
+                instance->kind == Kind::env_reverb) {
+                environment = true;
+            }
+        }
         for (const auto &[id, instance] : instances_) {
             if (instance->session != session || !instance->has_control || !instance->enabled) continue;
             switch (instance->kind) {
@@ -239,6 +263,23 @@ public:
                     result.loudness = true;
                     result.loudness_millibel = instance->target_gain;
                     break;
+                case Kind::preset_reverb:
+                    // the preset's row, unless an environmental reverb is on (it plays instead, whatever the order)
+                    if (instance->reverb_preset > 0 && instance->reverb_preset < kReverbPresets && !environment) {
+                        const int32_t *row = kReverbPresetValues[instance->reverb_preset];
+                        const int32_t values[7] = {row[0], row[1], row[2], row[3], row[6], row[8], row[9]};
+                        std::memcpy(result.reverb_params, values, sizeof values);
+                        result.reverb = true;
+                    }
+                    break;
+                case Kind::env_reverb: {
+                    const EnvReverb &e = instance->env;
+                    const int32_t values[7] = {e.room_level, e.room_hf_level, e.decay_time, e.decay_hf_ratio,
+                                               e.reverb_level, e.diffusion, e.density};
+                    std::memcpy(result.reverb_params, values, sizeof values);
+                    result.reverb = true;
+                    break;
+                }
                 default: break;
             }
         }

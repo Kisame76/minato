@@ -1260,12 +1260,36 @@ TEST(an_equalizer_band_boosts_its_own_tone_and_leaves_a_far_one) {
     CHECK(close_stream(stream) == 0);
 }
 
+TEST(a_reverb_adds_a_tail_to_the_streams_of_its_session_and_to_no_other) {
+    use_fake_host();
+    const auto reverbed = opened(48'000, 2, 9);
+    const auto plain = opened(48'000, 2, 10);
+    CHECK(control(reverbed, APKRT_AUDIO_START) == 0 && control(plain, APKRT_AUDIO_START) == 0);
+    // room level, room HF level, decay time, decay HF ratio, reverb level, diffusion, density (the environmental
+    // reverb's, in Android's units)
+    CHECK(set_effect(9, APKRT_AUDIO_EFFECT_REVERB, true, {0, 0, 1500, 1000, 0, 1000, 1000}) == 0);
+    const auto tail_of = [&](std::uint64_t stream) {
+        std::vector<float> impulse(2 * 24'000, 0.0f);
+        impulse[0] = impulse[1] = 1.0f;
+        const std::vector<float> heard = played(stream, impulse);
+        double sum = 0;
+        for (std::size_t frame = 4800; frame < 24'000; ++frame) sum += heard[2 * frame] * heard[2 * frame];
+        return std::sqrt(sum / 19'200);
+    };
+    CHECK(tail_of(reverbed) > 1e-4);
+    CHECK(tail_of(plain) == 0.0);
+    CHECK(set_effect(9, APKRT_AUDIO_EFFECT_REVERB, false, {0, 0, 1500, 1000, 0, 1000, 1000}) == 0);
+    played(reverbed, std::vector<float>(2 * 48'000, 0.0f));  // the old tail leaves
+    CHECK(tail_of(reverbed) == 0.0);
+    CHECK(close_stream(reverbed) == 0 && close_stream(plain) == 0);
+}
+
 TEST(the_effect_call_refuses_bad_arguments_and_a_full_table) {
     use_fake_host();
     CHECK(call(APKRT_NR_AUDIO_EFFECT, {0}) == -efault);
     CHECK(set_effect(-1, APKRT_AUDIO_EFFECT_LOUDNESS, true, {100}) == -einval);
     CHECK(set_effect(3, 0, true, {100}) == -einval);
-    CHECK(set_effect(3, 5, true, {100}) == -einval);
+    CHECK(set_effect(3, 6, true, {100}) == -einval);
     apkrt_audio_effect effect{};
     effect.session = 3;
     effect.kind = APKRT_AUDIO_EFFECT_LOUDNESS;

@@ -1648,6 +1648,11 @@ enum apkrt_audio_effect_kind {
     APKRT_AUDIO_EFFECT_BASS_BOOST,     // params[0]: the strength, 0 to 1000
     APKRT_AUDIO_EFFECT_VIRTUALIZER,    // params[0]: the strength, 0 to 1000
     APKRT_AUDIO_EFFECT_LOUDNESS,       // params[0]: the target gain in millibel, 0 to 2000
+    // The reverb (Android's preset and environmental reverbs, approximated; the framework expands a preset to these):
+    // params[0] the room level (mB), [1] the room HF level (mB, 0 to -9000), [2] the decay time (ms), [3] the decay HF
+    // ratio (per mille), [4] the reverb level (mB), [5] the diffusion and [6] the density (per mille). The wet level is
+    // the reverb level plus the room level less 2000 mB; the reflections are not played, as Android's bundle does not.
+    APKRT_AUDIO_EFFECT_REVERB,
 };
 /// How many sessions can have effects at once (session 0 included).
 #define APKRT_AUDIO_EFFECT_SESSIONS 16
@@ -1665,7 +1670,7 @@ struct apkrt_audio_effect {
 /// audio_effect: x0 a struct apkrt_audio_effect. Sets one kind of effect of one session, which every output stream
 /// opened with that session (apkrt_audio_config.session) plays through in the runtime's mix, after the guest's samples
 /// and before the tap, the session's effects first and then session 0's. A change moves over 10 ms, with no click.
-/// Returns 0; -EFAULT for NULL, -EINVAL for a session below 0, a kind outside 1 to 4, `enabled` outside 0 and 1 or a
+/// Returns 0; -EFAULT for NULL, -EINVAL for a session below 0, a kind outside 1 to 5, `enabled` outside 0 and 1 or a
 /// `reserved` that is not 0, -ENOSPC when switching on needs a place for a session beyond APKRT_AUDIO_EFFECT_SESSIONS.
 /// Not gated: it is the app's own output. Parameters out of range are clamped (a band to ±1500, strengths to 0 to
 /// 1000, the gain to 0 to 2000).

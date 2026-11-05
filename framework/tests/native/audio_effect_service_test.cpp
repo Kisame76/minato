@@ -261,6 +261,32 @@ void the_applied_settings_of_a_session_are_those_of_the_enabled_instances_in_con
     CHECK(service.set_enabled(boost, false) == kSuccess && !service.applied(5).bass_boost);
 }
 
+void the_reverbs_are_applied_as_the_environmental_values_of_the_preset_or_the_environment() {
+    Service service;
+    int preset = 0, env = 0;
+    CHECK(create(service, kPresetReverb, 5, 0, nullptr, &preset) == kSuccess);
+    CHECK(!service.applied(5).reverb);  // created, not enabled
+    CHECK(service.set_enabled(preset, true) == kSuccess);
+    CHECK(!service.applied(5).reverb);  // preset 0 is none: nothing to play
+    CHECK(set_short(service, preset, param(0), 3) == kSuccess);  // large room
+    Applied applied = service.applied(5);
+    const int32_t large_room[7] = {-400, -600, 1500, 830, -1000, 1000, 1000};  // EffectReverb.cpp's row
+    CHECK(applied.reverb);
+    for (int i = 0; i < 7; ++i) CHECK(applied.reverb_params[i] == large_room[i]);
+    CHECK(set_short(service, preset, param(0), 6) == kSuccess);  // plate
+    applied = service.applied(5);
+    const int32_t plate[7] = {-400, -200, 1300, 900, 0, 1000, 750};
+    for (int i = 0; i < 7; ++i) CHECK(applied.reverb_params[i] == plate[i]);
+    CHECK(create(service, kEnvReverb, 5, 0, nullptr, &env) == kSuccess);
+    CHECK(service.set_enabled(env, true) == kSuccess);  // the environment, once on, is the one that plays
+    applied = service.applied(5);
+    const int32_t defaults[7] = {-6000, 0, 1490, 420, -6000, 1000, 1000};
+    CHECK(applied.reverb);
+    for (int i = 0; i < 7; ++i) CHECK(applied.reverb_params[i] == defaults[i]);
+    CHECK(service.set_enabled(env, false) == kSuccess && service.applied(5).reverb_params[2] == 1300);
+    CHECK(!service.applied(6).reverb);
+}
+
 void a_probe_answers_as_a_create_would_without_making_an_instance() {
     Service service;
     Events low_events;
@@ -298,6 +324,7 @@ int main() {
     the_equalizer_stores_levels_and_presets();
     the_other_effects_store_and_clamp();
     the_applied_settings_of_a_session_are_those_of_the_enabled_instances_in_control();
+    the_reverbs_are_applied_as_the_environmental_values_of_the_preset_or_the_environment();
     a_probe_answers_as_a_create_would_without_making_an_instance();
     std::printf("audio_effect_service_test: %s\n", failures == 0 ? "all fine" : "failed");
     return failures == 0 ? 0 : 1;

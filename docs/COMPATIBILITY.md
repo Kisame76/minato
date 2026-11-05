@@ -165,8 +165,11 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   channels) are in. `MediaCodec` and `MediaExtractor` have no Vorbis yet. The Equalizer, Bass Boost, Virtualizer and
   Loudness Enhancer change the sound of the `AudioTrack` and AAudio streams of their audio session (session 0: the
   whole mix, which `SoundPool` takes part in) as an approximation of Android's effect bundle, not bit for bit;
-  `MediaPlayer` is not played through them yet. The reverbs are accepted but do not change the sound. The Visualizer
-  shows the app's whole mix after the effects, before the stream's volume.
+  `MediaPlayer` plays through them too, when the tap can take its audio (32-bit float, up to 8 channels, an audio track
+  in the file); other formats play unchanged. The Preset Reverb and Environmental Reverb add a tail (decay time,
+  high-frequency decay, level) to the streams of their session, also as an approximation; the reflections are not
+  played, as in Android's bundle. The Visualizer
+  shows the app's whole mix, `MediaPlayer` included, after the effects and the player's volume.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
   says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
   cannot reach, emulators' recompilers).
@@ -188,8 +191,10 @@ In plain terms, as a user meets it:
 - On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
 - OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
   missing too.
-- Audio effects: the reverbs are accepted but do not change the sound, `MediaPlayer` does not play through the
-  Equalizer, Bass Boost, Virtualizer and Loudness Enhancer, and their curves approximate Android's.
+- Audio effects: the reverbs are an approximation of Android's (a tail of four feedback lines; an auxiliary reverb
+  acts as an insert on its session), `MediaPlayer` files whose audio the tap cannot
+  take play without the Equalizer, Bass Boost, Virtualizer and Loudness Enhancer, and their curves approximate
+  Android's.
 
 ## What the library tells you
 

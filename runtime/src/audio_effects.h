@@ -19,6 +19,20 @@ constexpr int kMaxChannels = 8;
 /// The centre frequencies of the Equalizer's bands, as the bundle has them.
 constexpr float kBandCentres[kBands] = {60.0f, 230.0f, 910.0f, 3600.0f, 14000.0f};
 
+/// The environmental reverb's parameters in Android's units (effect_environmentalreverb.h; the preset reverb's
+/// presets are expanded to these by whoever holds the table). The reflections are not modelled: Android's bundle does
+/// not apply them either.
+struct ReverbSettings {
+    std::int32_t room_level = -6000;      // mB, with the reverb level the wet level: level + room - 2000 mB
+    std::int32_t room_hf_level = 0;       // mB, 0 to -9000: the wet signal's high cut
+    std::int32_t decay_time = 1490;       // ms
+    std::int32_t decay_hf_ratio = 420;    // per mille: the decay time of the highs over that of the lows
+    std::int32_t reverb_level = -6000;    // mB
+    std::int32_t diffusion = 1000;        // per mille
+    std::int32_t density = 1000;          // per mille
+    bool operator==(const ReverbSettings &other) const = default;
+};
+
 /// What a session has set: the effects that are on and their parameters, in the units of Android's API.
 struct Settings {
     bool equalizer = false;
@@ -29,8 +43,10 @@ struct Settings {
     std::int32_t virtualizer_strength = 0;  // 0 to 1000
     bool loudness = false;
     std::int32_t loudness_millibel = 0;  // the target gain
+    bool reverb = false;
+    ReverbSettings reverb_params;
 
-    bool any() const { return equalizer || bass_boost || virtualizer || loudness; }
+    bool any() const { return equalizer || bass_boost || virtualizer || loudness || reverb; }
     bool operator==(const Settings &other) const;
 };
 
@@ -58,6 +74,40 @@ struct Chain {
 /// The coefficients for `settings` at `rate` Hz. A band above 45% of the rate is left out.
 Chain make_chain(const Settings &settings, float rate);
 
+/// The reverb stage of one stream: a mono send into two allpass diffusers and four delay lines with a Hadamard
+/// feedback matrix, damped by a one-pole low-pass in each line so that the highs decay by the ratio (at 5 kHz) and the
+/// whole in the time asked; the tail leaves as two decorrelated sums. An approximation of Android's LVREV, whose
+/// reflections Android does not apply either.
+class Reverb {
+public:
+    /// The most a line holds, in frames: 2113 at 48 kHz, so a rate up to 91 kHz keeps its lengths (above, the lines are
+    /// shorter than the rate scales them, which the decay time does not mind: the gain is made from the real length).
+    static constexpr int kMaxLine = 4096;
+
+    /// New parameters at `rate`; `on` false lets the tail fade out over a few milliseconds.
+    void set(bool on, const ReverbSettings &settings, float rate, bool at_once);
+    bool idle() const { return !on_ && wet_ < 1e-7f; }
+    /// Adds the tail of `at[0..channels)` to it, frame by frame.
+    void process_frame(float *at, int channels);
+
+private:
+    void clear();
+    void layout(const ReverbSettings &settings, float rate);
+
+    bool on_ = false;
+    float wet_ = 0, wet_target_ = 0;  // the wet gain now and where it goes
+    ReverbSettings settings_;
+    float rate_ = 0;
+    int length_[4] = {};
+    int at_[4] = {};
+    float gain_[4] = {}, damp_[4] = {}, low_[4] = {};
+    float diffuse_ = 0, high_cut_ = 0, cut_[2] = {};
+    int diffuser_length_[2] = {};
+    int diffuser_at_[2] = {};
+    float line_[4][kMaxLine] = {};
+    float diffuser_[2][1024] = {};
+};
+
 /// One stream's effect chain.
 class Processor {
 public:
@@ -73,7 +123,7 @@ public:
     void reset();
 
     /// True when the settings change nothing, so that process() may be skipped.
-    bool idle() const { return !active_ && ramp_left_ == 0; }
+    bool idle() const { return !active_ && ramp_left_ == 0 && reverb_.idle(); }
 
     /// Processes `frames` interleaved frames of `channels` channels in place; a mono stream gets the virtualizer's mid
     /// path.
@@ -96,6 +146,7 @@ private:
     Delay bass_hp_[kMaxChannels];
     Delay bass_bp_;
     Delay virt_mid_, virt_mid_eq_, virt_side_, virt_side_eq_;
+    Reverb reverb_;
 };
 
 }  // namespace apkrt::effects

@@ -5,6 +5,7 @@
 // ramp: a change of settings on a running tone moves the signal with no step larger than the tone's own.
 #include "audio_effects.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -316,6 +317,143 @@ void the_limiter_comes_in_and_goes_out_with_the_ramp_of_the_gain() {
     CHECK(std::fabs(turning_off.back() - 0.95f) < 1e-6f);
 }
 
+/// The reverb's response to a unit impulse on a mono stream: `seconds` of samples.
+std::vector<float> impulse_response(const Settings &settings, double seconds, int channels = 1) {
+    Processor processor;
+    processor.set(settings, kRate);
+    const int total = static_cast<int>(kRate * seconds);
+    std::vector<float> samples(static_cast<size_t>(total) * static_cast<size_t>(channels), 0.0f);
+    for (int channel = 0; channel < channels; ++channel) samples[static_cast<size_t>(channel)] = 1.0f;
+    // in blocks of 480 frames, as the render block hands them over
+    for (int at = 0; at < total; at += 480) {
+        processor.process(samples.data() + static_cast<size_t>(at) * static_cast<size_t>(channels),
+                          std::min(480, total - at), channels);
+    }
+    return samples;
+}
+
+Settings reverb(int time_ms, int decay_hf_ratio = 1000, int reverb_level = 0, int room_level = 0) {
+    Settings settings;
+    settings.reverb = true;
+    settings.reverb_params.decay_time = time_ms;
+    settings.reverb_params.decay_hf_ratio = decay_hf_ratio;
+    settings.reverb_params.reverb_level = reverb_level;
+    settings.reverb_params.room_level = room_level;
+    return settings;
+}
+
+/// The reverberation time T60 of a response in milliseconds, by Schroeder's backward integration: the time the energy
+/// takes to fall from -5 dB to -25 dB, times three. The first 10 ms (the dry impulse and a filter's own ringing)
+/// are left out.
+double decay_ms(const std::vector<float> &response, int channels = 1, int channel = 0) {
+    const size_t frames = response.size() / static_cast<size_t>(channels);
+    std::vector<double> energy(frames + 1, 0.0);
+    for (size_t frame = frames; frame-- > 480;) {
+        const double value = response[frame * static_cast<size_t>(channels) + static_cast<size_t>(channel)];
+        energy[frame] = energy[frame + 1] + value * value;
+    }
+    double t5 = -1, t25 = -1;
+    for (size_t frame = 480; frame < frames; ++frame) {
+        const double db = 10 * std::log10(std::max(energy[frame], 1e-30) / energy[480]);
+        if (t5 < 0 && db <= -5) t5 = static_cast<double>(frame);
+        if (t25 < 0 && db <= -25) {
+            t25 = static_cast<double>(frame);
+            break;
+        }
+    }
+    if (t5 < 0 || t25 < 0) return -1;
+    return 3.0 * (t25 - t5) / kRate * 1000.0;
+}
+
+/// A response through a second-order high-pass (Butterworth) at `hertz`.
+std::vector<float> high_passed(const std::vector<float> &input, double hertz) {
+    const double w0 = 2 * kPi * hertz / kRate, alpha = std::sin(w0) / (2 * 0.7071), cosine = std::cos(w0);
+    const double a0 = 1 + alpha, b0 = (1 + cosine) / 2 / a0, b1 = -(1 + cosine) / a0, a1 = -2 * cosine / a0,
+                 a2 = (1 - alpha) / a0;
+    std::vector<float> output(input.size());
+    double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (size_t i = 0; i < input.size(); ++i) {
+        const double x = input[i], y = b0 * x + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
+        x2 = x1; x1 = x; y2 = y1; y1 = y;
+        output[i] = static_cast<float>(y);
+    }
+    return output;
+}
+
+double rms(const std::vector<float> &v, size_t from, size_t to) {
+    double sum = 0;
+    for (size_t i = from; i < to; ++i) sum += static_cast<double>(v[i]) * v[i];
+    return std::sqrt(sum / static_cast<double>(to - from));
+}
+
+void the_reverb_keeps_the_dry_signal_and_adds_a_tail_that_decays_in_the_time_asked() {
+    for (int time : {600, 1500, 3000}) {
+        const std::vector<float> response = impulse_response(reverb(time), 6.0);
+        CHECK(std::fabs(response[0] - 1.0f) < 0.01f);  // an insert: the dry impulse comes through first
+        CHECK(rms(response, 4800, 9600) > 1e-4);       // and a tail follows
+        const double got = decay_ms(response);
+        CHECK(got > time * 0.8 && got < time * 1.2);
+        if (got <= time * 0.8 || got >= time * 1.2) std::printf("  decay %d ms measured %.0f\n", time, got);
+    }
+}
+
+void the_decay_hf_ratio_darkens_the_tail() {
+    const double flat = decay_ms(high_passed(impulse_response(reverb(2000, 1000), 6.0), 4000));
+    const double dark = decay_ms(high_passed(impulse_response(reverb(2000, 500), 6.0), 4000));
+    const double low = decay_ms(impulse_response(reverb(2000, 500), 6.0));
+    CHECK(flat > 1600);                          // ratio 1: the highs last as long as the rest
+    CHECK(dark > 0 && dark < 0.75 * low);        // ratio 0.5: they fall faster
+    CHECK(low > 1600 && low < 2400);             // and the broadband time is still the one asked
+}
+
+void the_reverb_level_scales_the_tail_in_millibel() {
+    const std::vector<float> loud = impulse_response(reverb(1500, 1000, -1000), 2.0);
+    const std::vector<float> quiet = impulse_response(reverb(1500, 1000, -3000), 2.0);
+    const double difference = 20 * std::log10(rms(loud, 4800, 48000) / rms(quiet, 4800, 48000));
+    CHECK(std::fabs(difference - 20.0) < 1.0);
+    // the room level adds to it, as Android's combined level does
+    const std::vector<float> room = impulse_response(reverb(1500, 1000, -1000, -2000), 2.0);
+    CHECK(std::fabs(20 * std::log10(rms(loud, 4800, 48000) / rms(room, 4800, 48000)) - 20.0) < 1.0);
+    // a level of -12000 and below is silent
+    const std::vector<float> none = impulse_response(reverb(1500, 1000, -6000, -6000), 1.0);
+    CHECK(rms(none, 4800, 48000) < 1e-5);
+}
+
+void a_stereo_stream_gets_a_tail_on_both_channels_and_a_mono_input_spreads_it() {
+    const std::vector<float> response = impulse_response(reverb(1500), 2.0, 2);
+    double left = 0, right = 0, both = 0;
+    for (size_t frame = 4800; frame < 48000; ++frame) {
+        left += response[frame * 2] * response[frame * 2];
+        right += response[frame * 2 + 1] * response[frame * 2 + 1];
+        both += response[frame * 2] * response[frame * 2 + 1];
+    }
+    CHECK(left > 1e-8 && right > 1e-8);
+    CHECK(std::fabs(both) < 0.5 * std::sqrt(left * right));  // the two sides are not the same signal
+}
+
+void the_reverb_goes_in_and_out_through_a_ramp_and_a_stopped_stream_gets_no_tail_from_before() {
+    Processor processor;
+    processor.set(Settings{}, kRate);
+    std::vector<float> tone(4800);
+    for (size_t i = 0; i < tone.size(); ++i) tone[i] = static_cast<float>(0.3 * std::sin(2 * kPi * 440 * static_cast<double>(i) / kRate));
+    std::vector<float> turning_on = tone;
+    processor.set(reverb(1500), kRate);
+    processor.process(turning_on.data(), 4800, 1);
+    float worst = 0;
+    for (size_t i = 1; i < turning_on.size(); ++i) {
+        worst = std::max(worst, std::fabs(turning_on[i] - turning_on[i - 1]));
+    }
+    CHECK(worst < 0.08f);  // the tone's own largest step is 0.3 * 2 pi 440 / 48000 = 0.017; the tail adds, never jumps
+    processor.set(Settings{}, kRate);
+    std::vector<float> silence(48000, 0.0f);
+    processor.process(silence.data(), 48000, 1);
+    CHECK(rms(silence, 4800, 48000) < 1e-7);  // off: the tail was cut within the ramp
+    processor.set(reverb(1500), kRate);
+    std::vector<float> after(4800, 0.0f);
+    processor.process(after.data(), 4800, 1);
+    CHECK(rms(after, 0, 4800) < 1e-7);  // and on again, it starts from silence
+}
+
 }  // namespace
 
 int main() {
@@ -329,6 +467,11 @@ int main() {
     a_change_of_settings_ramps_without_a_click();
     settings_off_again_returns_to_the_identity_through_a_ramp();
     the_limiter_comes_in_and_goes_out_with_the_ramp_of_the_gain();
+    the_reverb_keeps_the_dry_signal_and_adds_a_tail_that_decays_in_the_time_asked();
+    the_decay_hf_ratio_darkens_the_tail();
+    the_reverb_level_scales_the_tail_in_millibel();
+    a_stereo_stream_gets_a_tail_on_both_channels_and_a_mono_input_spreads_it();
+    the_reverb_goes_in_and_out_through_a_ramp_and_a_stopped_stream_gets_no_tail_from_before();
     std::printf("audio_effects_test: %s\n", failures == 0 ? "all fine" : "failed");
     return failures == 0 ? 0 : 1;
 }
