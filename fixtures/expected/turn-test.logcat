@@ -1,0 +1,48 @@
+I/turn-test: plain 1 onCreate, saved none, orientation 1, 430 x 932 dp
+I/turn-test: plain 1 onStart
+I/turn-test: plain 1 onResume
+I/turn-test: plain 1 onWindowFocusChanged true
+I/turn-test: plain 1 ready
+I/turn-test: plain 1 ready for turn 1
+I/turn-test: plain 1 onPause
+I/turn-test: plain 1 onStop
+I/turn-test: plain 1 onSaveInstanceState
+I/turn-test: plain 1 onDestroy, changing configurations true
+I/turn-test: plain 2 onCreate, saved plain 1, orientation 2, 932 x 430 dp
+I/turn-test: plain 2 onStart
+I/turn-test: plain 2 onRestoreInstanceState
+I/turn-test: plain 2 onResume
+I/turn-test: plain 2 onWindowFocusChanged true
+I/turn-test: plain 2 in landscape: decor 2796 x 1290, display 2796 x 1290, orientation 2, 932 x 430 dp
+I/turn-test: plain 2 ready for turn 2
+I/turn-test: plain 2 onPause
+I/turn-test: plain 2 onStop
+I/turn-test: plain 2 onSaveInstanceState
+I/turn-test: plain 2 onDestroy, changing configurations true
+I/turn-test: plain 3 onCreate, saved plain 2, orientation 1, 430 x 932 dp
+I/turn-test: plain 3 onStart
+I/turn-test: plain 3 onRestoreInstanceState
+I/turn-test: plain 3 onResume
+I/turn-test: plain 3 onWindowFocusChanged true
+I/turn-test: plain 3 in portrait: decor 1290 x 2796, display 1290 x 2796, orientation 1, 430 x 932 dp
+I/turn-test: plain 3 starts the next activity
+I/turn-test: plain 3 onPause
+I/turn-test: config 4 onCreate, saved none, orientation 1, 430 x 932 dp
+I/turn-test: config 4 onStart
+I/turn-test: config 4 onResume
+I/turn-test: plain 3 onWindowFocusChanged false
+I/turn-test: config 4 onWindowFocusChanged true
+I/turn-test: config 4 ready
+I/turn-test: plain 3 onStop
+I/turn-test: plain 3 onDestroy, changing configurations false
+I/turn-test: config 4 ready for turn 1
+I/turn-test: config 4 onConfigurationChanged orientation 2, 932 x 430 dp, resources orientation 2, 932 x 430 dp
+I/turn-test: config 4 onWindowFocusChanged false
+I/turn-test: config 4 onWindowFocusChanged true
+I/turn-test: config 4 in landscape: decor 2796 x 1290, display 2796 x 1290, orientation 2, 932 x 430 dp
+I/turn-test: config 4 ready for turn 2
+I/turn-test: config 4 onConfigurationChanged orientation 1, 430 x 932 dp, resources orientation 1, 430 x 932 dp
+I/turn-test: config 4 onWindowFocusChanged false
+I/turn-test: config 4 onWindowFocusChanged true
+I/turn-test: config 4 in portrait: decor 1290 x 2796, display 1290 x 2796, orientation 1, 430 x 932 dp
+I/turn-test: config 4 done

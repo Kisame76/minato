@@ -233,7 +233,7 @@ if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == j
   "$app" == ime-hide-test || "$app" == ime-hide-test-cb || "$app" == toolbar-test ||
   "$app" == action-bar-test || "$app" == action-bar-test-34 || "$app" == action-bar-menu-test ||
   "$app" == action-mode-standalone-test || "$app" == trim-memory-test || "$app" == selection-mode-test ||
-  "$app" == insertion-mode-test || "$app" == menu-pause-test ||
+  "$app" == insertion-mode-test || "$app" == menu-pause-test || "$app" == turn-test ||
   "$app" == ime-fallback-test || "$app" == enter-test || "$app" == enter-test-15 || "$app" == ime-extract-test ||
   "$app" == native-ime-test || "$app" == native-jni-ime-test || "$app" == back-test ||
   "$app" == back-test-callback ]]; then
@@ -829,6 +829,14 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ExtensionsActivity
       limit=90
       ;;
+    # turn-test (the turn of the display, a configuration change): PlainActivity, without android:configChanges, asks
+    # for landscape and then for portrait and is relaunched at each; it starts ConfigActivity, which has the
+    # configChanges and hears onConfigurationChanged and a relayout instead; each logs its callbacks, the
+    # configuration and the decor's size. Ends with "done".
+    turn-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PlainActivity
+      limit=120
+      ;;
     # photos-test (ADR-0057 step c): its activity picks one photo and then two with the photo picker and ends with
     # "done"; the script has red.jpg and blue.jpg in Pictures and in MediaStore, and taps the thumbnails by their
     # descriptions (tools/ui-pick.py), the first is red.jpg.
@@ -1206,7 +1214,7 @@ run_app() {
     run wm dismiss-keyguard
   fi
   local rotation=""
-  if [[ "$app" == rotation-test ]]; then
+  if [[ "$app" == rotation-test || "$app" == turn-test ]]; then
     # The activity leaves its orientation unspecified, so with the rotation locked it follows the user rotation.
     # "cmd window user-rotation" says "free" or "lock <rotation>", which it takes back as it is.
     rotation=$(run cmd window user-rotation | tr -d '\r')
@@ -1308,6 +1316,18 @@ run_app() {
       wait_for "$app" "resized: window landscape" && sleep 1 && run cmd window user-rotation lock 0 >/dev/null; } ||
       turned=no
     # Word splitting is wanted: "lock 1" is two arguments.
+    # shellcheck disable=SC2086
+    run cmd window user-rotation $rotation >/dev/null
+    [[ "$turned" == yes ]] || return 1
+  fi
+  if [[ "$app" == turn-test ]]; then
+    # The display turns to landscape and back at each "ready for turn" of the app, which says it twice for each of its
+    # two activities (the plain one, relaunched at each turn, and the one with configChanges).
+    local turned=yes
+    { wait_count "$app" "ready for turn 1" 1 && run cmd window user-rotation lock 1 >/dev/null &&
+      wait_count "$app" "ready for turn 2" 1 && run cmd window user-rotation lock 0 >/dev/null &&
+      wait_count "$app" "ready for turn 1" 2 && run cmd window user-rotation lock 1 >/dev/null &&
+      wait_count "$app" "ready for turn 2" 2 && run cmd window user-rotation lock 0 >/dev/null; } || turned=no
     # shellcheck disable=SC2086
     run cmd window user-rotation $rotation >/dev/null
     [[ "$turned" == yes ]] || return 1

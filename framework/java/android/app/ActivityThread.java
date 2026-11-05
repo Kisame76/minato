@@ -65,6 +65,7 @@ import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.hardware.display.DisplayManagerGlobal;
+import android.hardware.display.DisplayService;
 import android.net.TrafficStats;
 import android.os.AsyncTask;
 import android.os.Binder;
@@ -232,6 +233,10 @@ public final class ActivityThread {
         boolean windowsApplied;
         /** convertToTranslucent's: onTranslucentConversionComplete after the next pass. */
         boolean conversionPending;
+        /** A relaunch's: the state the new instance's onCreate and onRestoreInstanceState get, until its start ran. */
+        Bundle restoredState;
+        /** A relaunch's: what the old instance kept for getLastNonConfigurationInstance, until the new one attached. */
+        Activity.NonConfigurationInstances lastNonConfigurationInstances;
     }
 
     /** A result for an activity, as AOSP's ResultInfo: the embedded ID it was asked for, its request and its answer. */
@@ -1072,7 +1077,9 @@ public final class ActivityThread {
                 }
                 appContext.setOuterContext(activity);
                 activity.attach(appContext, this, mInstrumentation, r.token, 0, mInitialApplication, r.intent, aInfo,
-                        title, null, null, null, config, null, null, null, null, null, null, null);
+                        title, null, null, r.lastNonConfigurationInstances, config, null, null, null, null, null, null,
+                        null);
+                r.lastNonConfigurationInstances = null;
                 activity.mStartedActivity = false;
                 int theme = aInfo.getThemeResource();
                 if (theme != 0) {
@@ -1081,7 +1088,7 @@ public final class ActivityThread {
                 activity.mCalled = false;
                 // As AOSP's: the record knows the activity before onCreate, for the lifecycle callbacks.
                 r.activity = activity;
-                mInstrumentation.callActivityOnCreate(activity, null);
+                mInstrumentation.callActivityOnCreate(activity, r.restoredState);
                 if (!activity.mCalled) {
                     throw new SuperNotCalledException("Activity " + r.intent.getComponent().toShortString()
                             + " did not call through to super.onCreate()");
@@ -1098,13 +1105,21 @@ public final class ActivityThread {
         return activity;
     }
 
-    /** As AOSP's handleStartActivity for a new activity: onStart, then onPostCreate, as there is no saved state. */
+    /**
+     * As AOSP's handleStartActivity for a new activity: onStart, then, for a relaunch's saved state,
+     * onRestoreInstanceState, then onPostCreate.
+     */
     private void handleStartActivity(ActivityClientRecord r) {
         final Activity activity = r.activity;
+        final Bundle restored = r.restoredState;
+        r.restoredState = null;
         activity.performStart("handleStartActivity");
         r.state = ON_START;
+        if (restored != null) {
+            mInstrumentation.callActivityOnRestoreInstanceState(activity, restored);
+        }
         activity.mCalled = false;
-        mInstrumentation.callActivityOnPostCreate(activity, null);
+        mInstrumentation.callActivityOnPostCreate(activity, restored);
         if (!activity.mCalled) {
             throw new SuperNotCalledException("Activity " + r.intent.getComponent().toShortString()
                     + " did not call through to super.onPostCreate()");
@@ -1170,6 +1185,7 @@ public final class ActivityThread {
     private static final int EVENT_WINDOW_FOCUS_CHANGED = 8;
     private static final int EVENT_NATIVE_WINDOW_CREATED = 9;
     private static final int EVENT_NATIVE_WINDOW_RESIZED = 10;
+    private static final int EVENT_CONFIGURATION_CHANGED = 16;
     private static final int EVENT_NATIVE_WINDOW_REDRAW_NEEDED = 11;
     private static final int EVENT_NATIVE_WINDOW_DESTROYED = 12;
     private static final int EVENT_INPUT_QUEUE_CREATED = 13;
@@ -1231,8 +1247,10 @@ public final class ActivityThread {
     private ViewRootImpl mWindowRoot;
     /** Which window each activity has (gap 4 (b3), decision 3). */
     private final ActivityWindows mWindows = new ActivityWindows();
-    /** The event types answered without more, each logged once: the content's rectangle and turns. */
+    /** The event types answered without more, each logged once: the content's rectangle. */
     private final boolean[] mSkippedEvents = new boolean[32];
+    /** Whether the session's turn marker came and its window size has not yet. */
+    private boolean mTurnMarked;
 
     /**
      * Connects to the host's session, as activity-host does at its start, and reads its events from then on. Without a
@@ -1347,6 +1365,11 @@ public final class ActivityThread {
                 // The session's focus goes to its top focusable window (ADR-0041 gap 4 (b2)).
                 WindowManagerGlobal.getInstance().setSessionWindow(root, mHostFocus);
                 break;
+            case EVENT_CONFIGURATION_CHANGED:
+                // The host's turn (ADR-0038: the session's configuration stays): the marker of the window size that
+                // the next resize brings, from which the turn's configuration is derived.
+                mTurnMarked = true;
+                break;
             case EVENT_NATIVE_WINDOW_CREATED:
             case EVENT_NATIVE_WINDOW_RESIZED:
                 mHostWindow = event[2];
@@ -1356,6 +1379,10 @@ public final class ActivityThread {
                     windowRoot.setHostWindow(mHostWindow, mHostWidth, mHostHeight);
                 } else if (root != null) {
                     clearSessionWindow();
+                }
+                if (type == EVENT_NATIVE_WINDOW_RESIZED && mTurnMarked) {
+                    mTurnMarked = false;
+                    handleTurn(mHostWidth, mHostHeight);
                 }
                 break;
             case EVENT_NATIVE_WINDOW_REDRAW_NEEDED:
@@ -2773,13 +2800,28 @@ public final class ActivityThread {
      * then its window removed.
      */
     private void handleDestroyActivity(ActivityClientRecord r) {
+        handleDestroyActivity(r, false);
+    }
+
+    /**
+     * The same for a relaunch (`relaunching`): the activity is not finishing, its record stays in the task and what
+     * getLastNonConfigurationInstance gives goes to the next instance; isChangingConfigurations is true.
+     */
+    private void handleDestroyActivity(ActivityClientRecord r, boolean relaunching) {
         final Activity activity = r.activity;
-        activity.mFinished = true;
+        if (relaunching) {
+            activity.mChangingConfigurations = true;
+        } else {
+            activity.mFinished = true;
+        }
         if (r.state == ON_RESUME) {
             handlePauseActivity(r, false);
         }
         if (r.state == ON_PAUSE) {
             callActivityOnStop(r, false);
+        }
+        if (relaunching) {
+            r.lastNonConfigurationInstances = activity.retainNonConfigurationInstances();
         }
         activity.mCalled = false;
         mInstrumentation.callActivityOnDestroy(activity);
@@ -2791,7 +2833,9 @@ public final class ActivityThread {
             r.window.closeAllPanels();
         }
         r.state = ON_DESTROY;
-        removeRecord(r);
+        if (!relaunching) {
+            removeRecord(r);
+        }
         View decor = activity.mDecor;
         if (decor != null) {
             if (activity.mWindowAdded) {
@@ -2995,9 +3039,138 @@ public final class ActivityThread {
         });
     }
 
-    /** Activity.recreate's relaunch, which comes with step c3's lifecycle host. */
+    /** Activity.recreate's relaunch: on the main thread, after what the app posted before it. */
     public void scheduleRelaunchActivity(IBinder token) {
-        Log.w(TAG, "No relaunch yet (ADR-0039 step c3): " + token);
+        sMainThreadHandler.post(() -> {
+            final ActivityClientRecord r = mActivities.get(token);
+            if (r != null && r.activity != null && !r.activity.mFinished) {
+                relaunchActivity(r);
+            }
+        });
+    }
+
+    /**
+     * The screen turned (the session's size, from the window the host resized): as the window manager's
+     * configuration change and AOSP's handleConfigurationChanged have it. Display 0 has the new size, the system
+     * Resources and the app's, the Application and the other components hear of it, and each activity of the task,
+     * the top first, is relaunched when its manifest's configChanges do not cover the change and hears
+     * onConfigurationChanged and gets its window laid out again when they do.
+     */
+    @SuppressWarnings("deprecation") // Resources.updateConfiguration, whose public form updates a Resources' impl.
+    private void handleTurn(int width, int height) {
+        final Resources system = Resources.getSystem();
+        final DisplayMetrics now = system.getDisplayMetrics();
+        if (width <= 0 || height <= 0 || (now.widthPixels == width && now.heightPixels == height)) {
+            return;
+        }
+        final Configuration before = new Configuration(system.getConfiguration());
+        final Configuration config = new Configuration(before);
+        config.seq = 0;
+        config.orientation = width > height ? Configuration.ORIENTATION_LANDSCAPE
+                : Configuration.ORIENTATION_PORTRAIT;
+        final float density = config.densityDpi * DisplayMetrics.DENSITY_DEFAULT_SCALE;
+        config.screenWidthDp = (int) (width / density);
+        config.screenHeightDp = (int) (height / density);
+        final DisplayMetrics metrics = new DisplayMetrics();
+        metrics.setTo(now);
+        metrics.widthPixels = metrics.noncompatWidthPixels = width;
+        metrics.heightPixels = metrics.noncompatHeightPixels = height;
+        final int changes = before.diffPublicOnly(config);
+        DisplayService.turn(width, height);
+        DisplayManagerGlobal.getInstance().handleDisplayChangeFromWindowManager(Display.DEFAULT_DISPLAY);
+        Resources.updateSystemConfiguration(config, metrics, null);
+        if (mLoadedApk != null) {
+            mLoadedApk.getResources().updateConfiguration(config, metrics);
+        }
+        mInitialApplication.onConfigurationChanged(config);
+        for (ActivityClientRecord r : reversedTask()) {
+            if (r.activity == null || r.activity.mFinished || r.state < ON_CREATE || r.state > ON_STOP) {
+                continue;
+            }
+            r.overrideConfig = windowConfiguration();
+            if ((changes & ~r.activityInfo.getRealConfigChanged()) != 0) {
+                relaunchActivity(r);
+            } else {
+                performConfigurationChanged(r, config, metrics);
+            }
+        }
+        for (int i = 0; i < mServices.size(); i++) {
+            mServices.valueAt(i).onConfigurationChanged(config);
+        }
+        java.util.Set<ContentProvider> providers = new java.util.LinkedHashSet<>(mLocalProvidersByAuthority.values());
+        for (ContentProvider provider : providers) {
+            provider.onConfigurationChanged(config);
+        }
+    }
+
+    /**
+     * As AOSP's performActivityConfigurationChanged for an activity that handles the change itself: its Resources
+     * have the new configuration and metrics before onConfigurationChanged runs, and its window is laid out again with
+     * the focus gone and back, as the window manager's relayout does.
+     */
+    @SuppressWarnings("deprecation") // Resources.updateConfiguration, as handleTurn.
+    private void performConfigurationChanged(ActivityClientRecord r, Configuration config, DisplayMetrics metrics) {
+        final Activity activity = r.activity;
+        final Configuration merged = new Configuration(config);
+        merged.updateFrom(r.overrideConfig);
+        activity.getResources().updateConfiguration(merged, metrics);
+        activity.mConfigChangeFlags = 0;
+        activity.mCurrentConfig = new Configuration(merged);
+        activity.mCalled = false;
+        activity.onConfigurationChanged(merged);
+        if (!activity.mCalled) {
+            throw new SuperNotCalledException("Activity " + activity.getLocalClassName()
+                    + " did not call through to super.onConfigurationChanged()");
+        }
+        if (r.state == ON_RESUME && mHostRoot != null && rootOf(r) == mHostRoot) {
+            // The window's size came with the resize before: its relayout is scheduled, the focus goes and returns
+            // in a message of its own, as the window that is laid out again hears of both.
+            final ViewRootImpl turned = mHostRoot;
+            WindowManagerGlobal.getInstance().setSessionWindow(turned, false);
+            sMainThreadHandler.post(() -> {
+                if (mHostRoot == turned) {
+                    WindowManagerGlobal.getInstance().setSessionWindow(turned, mHostFocus);
+                }
+            });
+        }
+    }
+
+    /**
+     * As AOSP's handleRelaunchActivity: a resumed activity pauses, stops with its state saved and is destroyed with
+     * isChangingConfigurations true; a new instance of the same record is created with that state and non-configuration
+     * instance, started with onRestoreInstanceState, and resumed again. A paused or stopped one comes back stopped.
+     */
+    private void relaunchActivity(ActivityClientRecord r) {
+        final int before = r.state;
+        if (before != ON_RESUME && before != ON_PAUSE && before != ON_STOP) {
+            return;
+        }
+        if (before == ON_RESUME) {
+            handlePauseActivity(r, false);
+        }
+        if (r.state == ON_PAUSE) {
+            callActivityOnStop(r, true);
+        }
+        final Bundle saved = r.savedState;
+        handleDestroyActivity(r, true);
+        r.activity = null;
+        r.window = null;
+        r.windowsApplied = false;
+        r.launchStartTime = 0;
+        r.overrideConfig = windowConfiguration();
+        r.restoredState = saved;
+        if (performLaunchActivity(r) == null) {
+            removeRecord(r);
+            return;
+        }
+        handleStartActivity(r);
+        if (before == ON_RESUME) {
+            handleResumeActivity(r);
+            updateWindows();
+        } else {
+            callActivityOnStop(r, false);
+            updateWindows();
+        }
     }
 
     /** Instrumentation.finish: no instrumentation test runs on Minato. */

@@ -14,8 +14,8 @@
  *   - the 25 methods whose permission IDisplayManager.Stub enforces throw SecurityException with Android's message:
  *     each is a signature permission that an app never holds (ADR-0045 decision 6).
  * The rest returns AIDL's defaults, without decision 3's once-per-method log line, and registerCallback keeps nothing:
- * Minato's display does not change yet. Not under com.android.minato, whose classes tools/framework-host-check.sh
- * compiles on the host without android.*.
+ * Minato's display changes only at a turn (turn). Not under com.android.minato, whose classes
+ * tools/framework-host-check.sh compiles on the host without android.*.
  */
 package android.hardware.display;
 
@@ -37,8 +37,11 @@ public final class DisplayService extends IDisplayManager.Default {
     /** The rate without a session, as the emulator's display has it. */
     private static final int RATE_WITHOUT_SESSION = 60;
 
+    /** The one service of the process, which a turn changes (ActivityThread's, at the session's turn). */
+    private static DisplayService sInstance;
+
     private final Binder mBinder = new Binder();
-    private final DisplayInfo mInfo;
+    private volatile DisplayInfo mInfo;
 
     private DisplayService(DisplayInfo info) {
         mInfo = info;
@@ -47,7 +50,20 @@ public final class DisplayService extends IDisplayManager.Default {
 
     /** ServiceManager's maker for "display": the Binder that carries a new service. */
     public static IBinder newBinder() {
-        return new DisplayService(sessionDisplay()).asBinder();
+        DisplayService service = new DisplayService(sessionDisplay());
+        sInstance = service;
+        return service.asBinder();
+    }
+
+    /**
+     * The screen turned (ADR-0038: the window covers it whole): display 0 now has this size, at the density of the
+     * system Resources, and its rotation follows; the display manager's cache and listeners are told by the caller.
+     */
+    public static void turn(int width, int height) {
+        DisplayService service = sInstance;
+        if (service != null) {
+            service.mInfo = display(width, height, Resources.getSystem().getDisplayMetrics().densityDpi);
+        }
     }
 
     @Override
@@ -215,8 +231,10 @@ public final class DisplayService extends IDisplayManager.Default {
      */
     private static DisplayInfo sessionDisplay() {
         DisplayMetrics metrics = Resources.getSystem().getDisplayMetrics();
-        int width = metrics.widthPixels;
-        int height = metrics.heightPixels;
+        return display(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi);
+    }
+
+    private static DisplayInfo display(int width, int height, int densityDpi) {
         int rate = nativeSessionRefreshRate();
         if (rate <= 0) {
             rate = RATE_WITHOUT_SESSION;
@@ -244,8 +262,8 @@ public final class DisplayService extends IDisplayManager.Default {
         info.appsSupportedModes = info.supportedModes;
         info.modeId = info.defaultModeId = info.supportedModes[info.supportedModes.length - 1].getModeId();
         info.renderFrameRate = rate;
-        info.logicalDensityDpi = metrics.densityDpi;
-        info.physicalXDpi = info.physicalYDpi = metrics.densityDpi;
+        info.logicalDensityDpi = densityDpi;
+        info.physicalXDpi = info.physicalYDpi = densityDpi;
         info.presentationDeadlineNanos = 1_000_000_000L / rate;
         info.state = info.committedState = Display.STATE_ON;
         return info;

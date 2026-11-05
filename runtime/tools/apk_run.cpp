@@ -88,6 +88,12 @@
 //               (positive up and left), the pointer's leaving the window;
 //   imehide     (ADR-0068, the keyboard reopen bug) the user hides the keyboard: APKRT_EVENT_IME_HIDDEN, then
 //               APKRT_EVENT_IME_INSETS 0 as UIKit's keyboard frame would make the host post it;
+//   turn:<width>:<height>  the display turns: the window takes the new size in px, as the App plays a turn
+//               (ADR-0038): APKRT_EVENT_CONFIGURATION_CHANGED, the window's new size (apkrt_window_set_size), then
+//               NATIVE_WINDOW_RESIZED, CONTENT_RECT_CHANGED (the whole window) and REDRAW_NEEDED, whose answer it
+//               waits for. Without surface layers under graphics-run's layers only the guest's window turns;
+//   pause:<ms>  waits <ms> more (up to 30000) before the next step, for an app whose own steps take longer than the
+//               second between steps;
 //   barinsets:<top>:<bottom>  the system bars' heights in px change, as the host posts APKRT_EVENT_BAR_INSETS at a
 //               turn of the display;
 //   trimmemory:<level>  the system trims the app's memory: APKRT_EVENT_TRIM_MEMORY with the level of
@@ -392,6 +398,20 @@ bool parse_bar_insets(const std::string &step, int &top, int &bottom) {
            used == static_cast<int>(step.size()) && top >= 0 && bottom >= 0;
 }
 
+/// `step` as turn:<width>:<height>, the new size of the window in px (both above 0); false for any other step.
+bool parse_turn(const std::string &step, int &width, int &height) {
+    int used = 0;
+    return std::sscanf(step.c_str(), "turn:%d:%d%n", &width, &height, &used) == 2 &&
+           used == static_cast<int>(step.size()) && width > 0 && height > 0;
+}
+
+/// `step` as pause:<ms>, a wait of 0 to 30000 ms; false for any other step.
+bool parse_pause(const std::string &step, int &milliseconds) {
+    int used = 0;
+    return std::sscanf(step.c_str(), "pause:%d%n", &milliseconds, &used) == 1 &&
+           used == static_cast<int>(step.size()) && milliseconds >= 0 && milliseconds <= 30000;
+}
+
 /// `step` as trimmemory:<level>, the level of ComponentCallbacks2.onTrimMemory (0 to 100); false for any other step.
 bool parse_trim_memory(const std::string &step, int &level) {
     int used = 0;
@@ -406,9 +426,10 @@ bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) 
     std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
     for (std::string step; std::getline(list, step, ',');) {
         Touch touch;
-        int level = 0, state = 0, top = 0, bottom = 0;
+        int level = 0, state = 0, top = 0, bottom = 0, wide = 0, high = 0;
         if (turns % 2 == 1 && (parse_touch(step, touch) || parse_battery(step, level, state) || step == "back" ||
                               step == "imehide" || parse_bar_insets(step, top, bottom) ||
+                              parse_turn(step, wide, high) || parse_pause(step, level) ||
                               parse_trim_memory(step, level) || parse_network(step, level))) {
             steps.push_back(step);
             continue;
@@ -1110,6 +1131,21 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             apkrt_battery_set(level, state);
         } else if (int flags = 0; parse_network(steps[index], flags)) {
             apkrt_network_set(static_cast<std::uint32_t>(flags));
+        } else if (int milliseconds = 0; parse_pause(steps[index], milliseconds)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+        } else if (int wide = 0, high = 0; parse_turn(steps[index], wide, high)) {
+            // A turn as the App plays it (rotation_test.cpp): the configuration changes, the same window takes its
+            // new size, then the window's events; the later steps and a return use the new size.
+            width = wide;
+            height = high;
+            post(APKRT_EVENT_CONFIGURATION_CHANGED);
+            if (apkrt_window_set_size(window, width, height) != 0) {
+                std::fprintf(stderr, "apk-run: a turn was refused\n");
+            }
+            post(APKRT_EVENT_NATIVE_WINDOW_RESIZED, window, static_cast<std::uint64_t>(width),
+                 static_cast<std::uint64_t>(height));
+            post(APKRT_EVENT_CONTENT_RECT_CHANGED, headless::pair(0, 0), headless::pair(width, height));
+            if (!answered(post(APKRT_EVENT_NATIVE_WINDOW_REDRAW_NEEDED, window), "a turn")) return;
         } else if (int top = 0, bottom = 0; parse_bar_insets(steps[index], top, bottom)) {
             post(APKRT_EVENT_BAR_INSETS, static_cast<std::uint64_t>(top), static_cast<std::uint64_t>(bottom), 0);
         } else if (int trim = 0; parse_trim_memory(steps[index], trim)) {

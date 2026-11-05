@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- turn-test: what an activity hears when the display turns (Android's configuration change). PlainActivity declares
+     no android:configChanges, so Android relaunches it; ConfigActivity declares them, so it gets
+     onConfigurationChanged and a relayout. The script turns the display to landscape and back; each logs the
+     callbacks, the configuration and the size of its decor. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.turn" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.turn.PlainActivity" android:exported="true"
+        android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.turn.ConfigActivity" android:exported="false"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"/>
+  </application>
+</manifest>
