@@ -1,0 +1,22 @@
+I/glsurface-pause-test: onCreate
+I/glsurface-pause-test: onStart
+I/glsurface-pause-test: onResume
+I/glsurface-pause-test: surfaceCreated
+I/glsurface-pause-test: surfaceChanged
+I/glsurface-pause-test: ready
+I/glsurface-pause-test: onPause
+I/glsurface-pause-test: GLSurfaceView.onPause returned
+I/glsurface-pause-test: surfaceDestroyed
+I/glsurface-pause-test: onStop
+I/glsurface-pause-test: onRestart
+I/glsurface-pause-test: onStart
+I/glsurface-pause-test: onResume
+I/glsurface-pause-test: surfaceCreated
+I/glsurface-pause-test: surfaceChanged
+I/glsurface-pause-test: frames after the return
+I/glsurface-pause-test: renderer: onSurfaceCreated 2 times, onSurfaceChanged at least twice true, frames more than 60
+I/glsurface-pause-test: done
+I/glsurface-pause-test: onPause
+I/glsurface-pause-test: GLSurfaceView.onPause returned
+I/glsurface-pause-test: surfaceDestroyed
+I/glsurface-pause-test: onStop

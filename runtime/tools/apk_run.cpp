@@ -49,9 +49,10 @@
 //               redraw needed and the focus; the window's gate opens once these are posted, before their answers, as
 //               the App's SessionBridge opens it with the focus: a Java app draws on the thread that answers them;
 //               once they are answered, "apk-run: the start was answered" on stderr;
-//   background  the background, "scheduled", the window, the surfaces and the requested windows removed, PAUSE,
-//               the focus lost, each surface destroyed, each requested window destroyed, the window destroyed, STOP
-//               and SAVE_INSTANCE_STATE;
+//   background  the window, the surfaces and the requested windows removed, PAUSE, the focus lost, each surface
+//               destroyed, each requested window destroyed, the window destroyed and STOP, whose answers it waits for
+//               1.5 s while the guest's GPU work still goes through (SessionBridge's backgroundAnswerBudget, as the
+//               App's background order since 2026-10-27), then the background, "scheduled" and SAVE_INSTANCE_STATE;
 //   foreground  the background off, a new window, START, RESUME and the window's events as at the start but the
 //               rectangle, the gate opening as at the start; once they are answered, "apk-run: the return was
 //               answered" on stderr.
@@ -1083,7 +1084,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
     // The window, the surfaces and the requested windows go before PAUSE; the surfaces' and the windows' events come
     // after the focus, before the window's and STOP, as Android 15 calls surfaceDestroyed from the stopped window
     // before onStop (apkrt.h's surface and window handlers).
-    const auto hide = [&] {
+    const auto hide = [&]() -> std::uint32_t {
         apkrt_window_remove(window);
         surfaces.take_away();
         windows.take_away();
@@ -1092,7 +1093,7 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
         surfaces.post_destroyed();
         windows.post_destroyed();
         post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window);
-        post(APKRT_EVENT_STOP);
+        return post(APKRT_EVENT_STOP);
     };
     // The touch step whose lines are due before the next step, with the headless buffers only.
     std::string touched;
@@ -1163,11 +1164,15 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             }
             play_touch(input, touch, rate);
         } else if (steps[index] == "background") {
-            apkrt_set_background(1);
             surfaces.set_background(true);
             windows.set_background(true);
+            // The teardown's answers come first, while the runtime lets the guest's GPU work through: a GL thread
+            // that lets its surface go (GLSurfaceView's onPause waits for it) commits ANGLE's work, which the
+            // background holds until the return.
+            const std::uint32_t stop = hide();
+            if (stop != 0) apkrt_session_wait(stop, 1.5);
+            apkrt_set_background(1);
             if (apkrt_wait_scheduled(1.0) != 1) std::fprintf(stderr, "apk-run: \"scheduled\" did not answer yes\n");
-            hide();
             if (!answered(post(APKRT_EVENT_SAVE_INSTANCE_STATE), "the background")) return;
             stopped = true;
         } else {

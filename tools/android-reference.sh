@@ -730,6 +730,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TitleActivity
       limit=90
       ;;
+    # glsurface-pause-test: HOME and the return drive its GLSurfaceView (below), and it ends with "done".
+    glsurface-pause-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.GlPauseActivity
+      limit=90
+      ;;
     # windows-return-test (ADR-0041 gap 4 (b5a)): HOME and the return drive it (below), and it ends with "done".
     windows-return-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ReturnActivity
@@ -1636,6 +1641,16 @@ run_app() {
     sleep 1
     run input keyevent KEYCODE_HOME
     wait_for "$app" "the window goes" || return 1
+    sleep 1
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
+  if [[ "$app" == glsurface-pause-test ]]; then
+    # HOME a second after its GLSurfaceView drew 30 frames ("ready"), and the return a second after its stop, as
+    # apk-run's background and foreground follow the start in tools/glsurface-pause-check.sh.
+    wait_for "$app" "I/$app: ready" || return 1
+    sleep 1
+    run input keyevent KEYCODE_HOME
+    wait_for "$app" "I/$app: onStop" || return 1
     sleep 1
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   fi
