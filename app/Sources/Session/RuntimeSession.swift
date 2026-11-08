@@ -314,6 +314,10 @@ final class RuntimeSessionHost: SessionHost {
         session.webview = minato_webview_handle
         Self.setWebViewWindows(session.context)
         session.configuration = Self.record(configuration)
+        // Game mode's runtime lines in the session log: the 1 Hz memory picture, which apkrt_session_begin starts only
+        // with it set, and, at the program's start, the loader's choice of its scudo regions (memory_watermark.h,
+        // dl.cpp).
+        setenv("MINATO_LOADER_LOG", "1", 1)
         guard apkrt_session_begin(&session) == 0 else { return "the session did not begin" }
         return nil
     }
@@ -328,8 +332,6 @@ final class RuntimeSessionHost: SessionHost {
         // The app's profile, as the property area and the loader take it at the start (ADR-0065, ADR-0066).
         guard apkrt_set_device_profile(start.deviceProfile) == 0 else { return "the device profile could not be set" }
         guard apkrt_set_frame_rate_unlock(start.frameRateUnlock) == 0 else { return "the frame rate could not be set" }
-        // The loader's choice of its scudo regions in the session log, which only the iPhone's path shows.
-        setenv("MINATO_LOADER_LOG", "1", 1)
         var error = [CChar](repeating: 0, count: 1024)
         let result = withCStrings(start.arguments) { arguments in
             withCStrings(start.environment) { environment in

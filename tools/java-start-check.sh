@@ -716,6 +716,14 @@ run_lifecycle() {
           if await_line guest-log "^I/java-test: done$" 60; then
             ok "  done, after Home and the return, seen $(seconds "$TAP" "$SEEN") s after the tap"
             sleep 2
+            # Game mode's 1 Hz memory picture (memory_watermark.h) in the session log, seconds after the start.
+            local feet
+            feet=$(grep -c '^I/apkrt *: mem foot=' "$CHECK/guest-log" 2>/dev/null || true)
+            if (( ${feet:-0} >= 2 )); then
+              ok "  the memory picture: $feet \"mem foot=\" lines in the session log"
+            else
+              fail "  the memory picture: ${feet:-0} \"mem foot=\" lines in the session log, not 2 or more"
+            fi
           else
             failed_line "no done after the return" "java-test-$round"
           fi
