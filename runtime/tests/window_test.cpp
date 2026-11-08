@@ -593,6 +593,75 @@ TEST(a_post_after_the_removal_still_reaches_the_buffers_which_take_their_buffer_
     CHECK(apkrt_set_window_buffers(nullptr) == 0);
 }
 
+// The first-frame line (MINATO_LOADER_LOG, 3 s and 10 s after the window came): the guest's software locks and posts,
+// each answered or failed, and the host's presents by kind, beside the window's size and gate.
+TEST(the_first_frame_line_counts_software_locks_and_posts_and_each_kind_of_present) {
+    CHECK(apkrt_set_window_buffers(&fake_buffers) == 0);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    char line[256];
+    CHECK(apkrt_window_diagnostic(id, line, sizeof line) == 0);
+    CHECK(std::string(line) == "64x48, gate closed, software locks 0 (failed 0), posts 0 (failed 0), buffers shown 0, "
+                                "hidden as transparent 0, EGL swaps 0, Vulkan presents 0, video frames 0");
+    apkrt_window_set_gate(id, 1);
+    auto buffer = whole(64, 48, 1);
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == 0);
+    CHECK(call(APKRT_NR_WINDOW_POST, id) == 0);
+    fake.lock_answer = -einval;
+    CHECK(call(APKRT_NR_WINDOW_LOCK, id, address(&buffer)) == -einval);
+    fake.post_answer = -enodev;
+    CHECK(call(APKRT_NR_WINDOW_POST, id) == -enodev);
+    taken_calls();
+    for (int time = 0; time < 2; ++time) apkrt_window_presented_as(id, APKRT_PRESENT_EGL);
+    apkrt_window_presented_as(id, APKRT_PRESENT_VULKAN);
+    for (int time = 0; time < 3; ++time) apkrt_window_presented_as(id, APKRT_PRESENT_BUFFER_SHOWN);
+    apkrt_window_presented_as(id, APKRT_PRESENT_BUFFER_HIDDEN);
+    apkrt_window_presented_as(id, APKRT_PRESENT_VIDEO);
+    apkrt_window_presented_as(id, 99);  // no kind of its own: a present all the same
+    apkrt_window_presented(id);
+    CHECK(apkrt_window_presents(id) == 10);
+    CHECK(apkrt_window_diagnostic(id, line, sizeof line) == 0);
+    CHECK(std::string(line) == "64x48, gate open, software locks 1 (failed 1), posts 1 (failed 1), buffers shown 3, "
+                                "hidden as transparent 1, EGL swaps 2, Vulkan presents 1, video frames 1");
+    char small[8];
+    CHECK(apkrt_window_diagnostic(id, small, sizeof small) == 0);  // cut, and ended
+    CHECK(std::string(small) == "64x48, ");
+    CHECK(apkrt_window_remove(id) == 0);
+    CHECK(apkrt_window_diagnostic(id, line, sizeof line) == -1);
+    taken_calls();
+    CHECK(apkrt_set_window_buffers(nullptr) == 0);
+}
+
+// With MINATO_LOADER_LOG the runtime writes the line itself, 3 s after the window came, tagged apkrt.
+TEST(with_the_loader_log_the_first_frame_line_comes_3_s_after_the_window) {
+    char path[] = "/tmp/window_test_first_frame_XXXXXX";
+    const int file = ::mkstemp(path);
+    CHECK(file >= 0);
+    const int saved = ::dup(STDERR_FILENO);
+    ::dup2(file, STDERR_FILENO);
+    ::setenv("MINATO_LOADER_LOG", "1", 1);
+    const auto id = apkrt_window_add(nullptr, 64, 48);
+    ::unsetenv("MINATO_LOADER_LOG");
+    apkrt_window_presented_as(id, APKRT_PRESENT_EGL);
+    const std::string expected = "I/apkrt   : window " + std::to_string(id) +
+                                 " at 3 s: 64x48, gate closed, software locks 0 (failed 0), posts 0 (failed 0), "
+                                 "buffers shown 0, hidden as transparent 0, EGL swaps 1, Vulkan presents 0, "
+                                 "video frames 0\n";
+    std::string text;
+    for (int round = 0; round < 50 && text.find(expected) == std::string::npos; ++round) {
+        std::this_thread::sleep_for(100ms);
+        if (round < 25) continue;  // not before 2.5 s
+        char bytes[1024];
+        const ssize_t length = ::pread(file, bytes, sizeof bytes, 0);
+        text.assign(bytes, length > 0 ? static_cast<std::size_t>(length) : 0);
+    }
+    ::dup2(saved, STDERR_FILENO);
+    ::close(saved);
+    ::close(file);
+    ::unlink(path);
+    CHECK(text == expected);
+    apkrt_window_remove(id);
+}
+
 // --- The gate -----------------------------------------------------------------------------------
 
 TEST(a_new_window_s_gate_is_closed_and_opening_it_wakes_the_present) {

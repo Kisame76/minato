@@ -422,7 +422,7 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
     for (uint32_t index = 0; windows != NULL && index < windows->count && index < info->swapchainCount; index++) {
         const VkResult own = info->pResults != NULL ? info->pResults[index] : result;
         if (own == VK_SUCCESS || own == VK_SUBOPTIMAL_KHR) {
-            apkrt_window_presented(windows->windows[index]);
+            apkrt_window_presented_as(windows->windows[index], APKRT_PRESENT_VULKAN);
         }
     }
     return result;

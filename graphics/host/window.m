@@ -18,7 +18,7 @@
    - At TRIM_MEMORY_UI_HIDDEN (apkrt_window_buffers' trim) the buffers of every window that holds no lock go, as
      Android's hidden window gives its surface's back: the next lock makes new buffers and answers all of one dirty.
    - A post shows the buffer as the contents of the window layer's lowest sublayer, "minato.window.buffers", in one
-     Core Animation transaction without actions, and counts it (apkrt_window_presented); the window's layer takes no
+     Core Animation transaction without actions, and counts it (apkrt_window_presented_as); the window's layer takes no
      drawable; a recording of the layer takes each post as a tick-timed record (detail 5, present_pace.h). The
      first drawable another producer presents on the window's layer hides the sublayer (layer.m), and a
      post after one presents a transparent drawable first, so that its frame shows no more under transparent pixels
@@ -756,7 +756,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
         }
         minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         write_crc(window_id, buffer->posted, buffer, 0, 0, format, NO, YES);
-        apkrt_window_presented(window_id);
+        apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_HIDDEN);
         trace_post(window_id, buffer->posted, "hidden as all transparent", layer, visible);
         return NO;
     }
@@ -788,7 +788,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     write_crc(window_id, buffer->posted, buffer, (int32_t)IOSurfaceGetWidth(buffer->surface),
               (int32_t)IOSurfaceGetHeight(buffer->surface), format, format != format_rgba_8888 || layer.opaque, NO);
     atomic_fetch_sub(&in_flight, 1);
-    apkrt_window_presented(window_id);
+    apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_SHOWN);
     trace_post(window_id, buffer->posted, "shown", layer, visible);
     return NO;
 }
@@ -807,7 +807,7 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
         if (!layer.hidden) {
             set_hidden(layer, YES);
         }
-        apkrt_window_presented(window_id);
+        apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_HIDDEN);
         return NO;
     }
     BOOL changed = NO;
@@ -885,7 +885,7 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     }
     write_crc(window_id, buffer->posted, buffer, width, height, format, NO, NO);
     atomic_fetch_sub(&in_flight, 1);
-    apkrt_window_presented(window_id);
+    apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_SHOWN);
     return YES;
 }
 

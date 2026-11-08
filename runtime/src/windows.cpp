@@ -11,13 +11,18 @@
 #include "syscalls.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <dispatch/dispatch.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
+#include <cstdlib>
+#include <iterator>
 #include <mutex>
 #include <new>
 #include <vector>
@@ -37,6 +42,10 @@ struct Window {
     std::uint64_t presents;
     std::uint32_t frame_rate;  // a float's bits, 0 for no preference (ANativeWindow_setFrameRate)
     double scale = 1;          // the render scale (ADR-0067 step 2): the guest and the low layer render at this fraction
+    // The first-frame line's counts (apkrt_window_diagnostic): the guest's software locks and posts, answered and
+    // failed, and the presents by apkrt_present_kind.
+    std::uint64_t locks = 0, locks_failed = 0, posts = 0, posts_failed = 0;
+    std::uint64_t by_kind[5] = {};
 };
 
 /// The render size of a full dimension at a scale, at least one pixel (ADR-0067 step 2).
@@ -79,6 +88,28 @@ long answer(std::uint64_t id, std::uint64_t kind) {
     if (kind == APKRT_GATE_PRESENT) return window->open ? 0 : -1;
     if (kind == APKRT_GATE_PRESENT_TRY) return window->open ? 0 : 2;
     return in_background.load() ? -1 : 0;
+}
+
+/// The first-frame line of window `id` on stderr 3 s and 10 s after it came (MINATO_LOADER_LOG), or that it is gone:
+/// tag "apkrt", as the trim's footprint line, so it reaches the device's session log and java_app_run's app-tag
+/// comparison passes over it.
+void log_first_frames(std::uint64_t id) {
+    for (const int seconds : {3, 10}) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, std::int64_t{seconds} * 1'000'000'000),
+                       dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                           char counts[320];
+                           const bool there = apkrt_window_diagnostic(id, counts, sizeof counts) == 0;
+                           char text[400];
+                           const int length = std::snprintf(text, sizeof text, "I/apkrt   : window %llu at %d s: %s\n",
+                                                            static_cast<unsigned long long>(id), seconds,
+                                                            there ? counts : "removed");
+                           if (length > 0) {
+                               static_cast<void>(::write(STDERR_FILENO, text,
+                                                         std::min<std::size_t>(static_cast<std::size_t>(length),
+                                                                               sizeof text - 1)));
+                           }
+                       });
+    }
 }
 
 }  // namespace
@@ -138,7 +169,10 @@ long lock_buffer(std::uint64_t id, std::uint64_t address) {
         if (id == 0 || id >= next_id) return -linux_errno::einval;
         if (find(id) == nullptr) return -linux_errno::enodev;
     }
-    return with.lock(with.context, id, reinterpret_cast<apkrt_window_buffer *>(address));
+    const int answer = with.lock(with.context, id, reinterpret_cast<apkrt_window_buffer *>(address));
+    const std::lock_guard<std::mutex> hold(lock);
+    if (Window *window = find(id)) ++(answer == 0 ? window->locks : window->locks_failed);
+    return answer;
 }
 
 long post_buffer(std::uint64_t id) {
@@ -149,7 +183,10 @@ long post_buffer(std::uint64_t id) {
         if (with.post == nullptr) return -linux_errno::enosys;
         if (id == 0 || id >= next_id) return -linux_errno::einval;
     }
-    return with.post(with.context, id);
+    const int answer = with.post(with.context, id);
+    const std::lock_guard<std::mutex> hold(lock);
+    if (Window *window = find(id)) ++(answer == 0 ? window->posts : window->posts_failed);
+    return answer;
 }
 
 long readback_window(std::uint64_t id, std::uint64_t address) {
@@ -222,6 +259,7 @@ uint64_t apkrt_window_add(void *layer, int32_t width, int32_t height) {
         return 0;
     }
     if (layer != nullptr) CFRetain(layer);
+    if (::getenv("MINATO_LOADER_LOG") != nullptr) log_first_frames(next_id);
     return next_id++;
 }
 
@@ -330,9 +368,36 @@ int apkrt_window_set_render_scale(uint64_t id, double scale) {
 }
 
 void apkrt_window_presented(uint64_t id) {
+    apkrt_window_presented_as(id, UINT32_MAX);
+}
+
+void apkrt_window_presented_as(uint64_t id, uint32_t kind) {
     apkrt::stall::presented(id, clock_gettime_nsec_np(CLOCK_MONOTONIC));  // the stall watchdog's last frame for id
     const std::lock_guard<std::mutex> hold(lock);
-    if (Window *window = find(id)) ++window->presents;
+    if (Window *window = find(id)) {
+        ++window->presents;
+        if (kind < std::size(window->by_kind)) ++window->by_kind[kind];
+    }
+}
+
+int apkrt_window_diagnostic(uint64_t id, char *line, size_t size) {
+    const std::lock_guard<std::mutex> hold(lock);
+    const Window *window = find(id);
+    if (window == nullptr) return -1;
+    if (line == nullptr || size == 0) return 0;
+    const auto &kind = window->by_kind;
+    std::snprintf(line, size,
+                  "%dx%d, gate %s, software locks %llu (failed %llu), posts %llu (failed %llu), buffers shown %llu, "
+                  "hidden as transparent %llu, EGL swaps %llu, Vulkan presents %llu, video frames %llu",
+                  window->width, window->height, window->open ? "open" : "closed",
+                  static_cast<unsigned long long>(window->locks), static_cast<unsigned long long>(window->locks_failed),
+                  static_cast<unsigned long long>(window->posts), static_cast<unsigned long long>(window->posts_failed),
+                  static_cast<unsigned long long>(kind[APKRT_PRESENT_BUFFER_SHOWN]),
+                  static_cast<unsigned long long>(kind[APKRT_PRESENT_BUFFER_HIDDEN]),
+                  static_cast<unsigned long long>(kind[APKRT_PRESENT_EGL]),
+                  static_cast<unsigned long long>(kind[APKRT_PRESENT_VULKAN]),
+                  static_cast<unsigned long long>(kind[APKRT_PRESENT_VIDEO]));
+    return 0;
 }
 
 void apkrt_stall_surface_created(uint64_t id) {

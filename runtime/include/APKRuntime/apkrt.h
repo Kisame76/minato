@@ -368,6 +368,26 @@ int apkrt_session_set_render_scale(double scale);
 /// For graphics/host: after a present that succeeded, counted for apkrt_window_presents.
 void apkrt_window_presented(uint64_t id);
 
+/// What a present was, for the window's first-frame line (apkrt_window_diagnostic).
+enum apkrt_present_kind {
+    APKRT_PRESENT_EGL = 0,            // eglSwapBuffers through ANGLE
+    APKRT_PRESENT_VULKAN = 1,         // vkQueuePresentKHR through MoltenVK
+    APKRT_PRESENT_BUFFER_SHOWN = 2,   // a software post's buffer shown on the window's layer
+    APKRT_PRESENT_BUFFER_HIDDEN = 3,  // a post without a visible pixel on a layer that is not opaque, hidden
+    APKRT_PRESENT_VIDEO = 4,          // a video decoder's frame drawn into the window
+};
+
+/// For graphics/host: apkrt_window_presented, and counted by its kind (apkrt_present_kind; another value counts as a
+/// present alone).
+void apkrt_window_presented_as(uint64_t id, uint32_t kind);
+
+/// The window's first-frame line, without its ID, into `line` (cut to `size` and ended): its size, its gate, the
+/// guest's software locks and posts (each with those that failed), and the presents by kind. Returns 0, or -1 for a
+/// window that is removed or unknown. With MINATO_LOADER_LOG set, the runtime writes it to stderr 3 s and 10 s after
+/// the window came ("I/apkrt   : window <id> at <n> s: ..."), so a black window's session log tells whether the
+/// guest drew at all, and on which path. No app names: counts and sizes only.
+int apkrt_window_diagnostic(uint64_t id, char *line, size_t size);
+
 /// For the host: `id` (apkrt_window_add) is an app surface -- a SurfaceView's surface or a NativeActivity's native
 /// window handed to the app -- so the stall watchdog expects a first frame on it and dumps the threads if none comes
 /// within the timeout, even when the decor has drawn. Call it once per surface, after apkrt_window_add, and for the

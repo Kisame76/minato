@@ -224,7 +224,7 @@ static egl_boolean swapped(void *display, void *surface) {
         minato_present_take_back(layer, ticket);
     } else if (window != 0) {
         surface_asked(surface, 0);
-        apkrt_window_presented(window);
+        apkrt_window_presented_as(window, APKRT_PRESENT_EGL);
     }
     return result;
 }

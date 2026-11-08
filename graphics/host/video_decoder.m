@@ -1047,7 +1047,7 @@ static int present_window(CVPixelBufferRef image, CAMetalLayer *layer, id<CAMeta
     last_window_texture = drawable.texture;
 #endif
     if (commands.status == MTLCommandBufferStatusError) return -linux_eio;
-    apkrt_window_presented(window);
+    apkrt_window_presented_as(window, APKRT_PRESENT_VIDEO);
     return 0;
 }
 
