@@ -1,0 +1,10 @@
+# iPhone-only fixtures (ADR-0032 decision 8). They run on a real iPhone only, through tools/device-suite.sh
+# (--iphone-only, or by naming one) and the app's FixtureRunner, which reads this file after fixtures/tests.txt and
+# tools/embed-fixtures.sh copies into the bundle. Nothing else reads it: Mac ctest, tools/android-reference.sh (the
+# AVD) and the Simulator suite never start these -- they read only fixtures/tests.txt. Format is tests.txt's:
+# "<name> <fields>", with '#' comments and the same fields (program=, libraries=, system, status=, ...).
+#
+# memory-limit-test allocates and touches memory in 64 MiB steps until iOS ends the app for memory (jetsam); the
+# runtime's memory watermark (apkrt_report_memory_to -> last-session.memory) then names how much it held at the end.
+# "system" gives it bionic's /system/lib64 (malloc, printf).
+memory-limit-test system

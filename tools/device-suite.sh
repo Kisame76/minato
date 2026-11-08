@@ -14,6 +14,11 @@
 #       next tools/deploy.sh installs the app with the entitlement again.
 #   --frame-rate 60|120: frame-cap-test alone with the FPS unlock (ADR-0066 step 4, -frameRateUnlock): its stdout
 #       must be runtime/tests/frame_rate_run.py's lines for that rate. Its results go to <results>-unlock<rate>/.
+#   --iphone-only: run the fixtures/iphone-only.txt tests (memory-limit-test), which allocate until iOS ends the app
+#       for memory (jetsam) and check last-session.memory (ADR-0032 d8). OPT-IN, and a real iPhone only: they are
+#       never in a routine sweep (they would evict the user's background apps), refused under --simulator, and not in
+#       fixtures/tests.txt, so ctest and the AVD cannot start them. Also runnable by name (device-suite.sh --device
+#       memory-limit-test). Do NOT add them to the regression sweep.
 # ART's tests (ADR-0033 d2), staged in build/device-art by runtime/tests/device_art.py, which
 # tools/embed-fixtures.sh puts into the bundle, each started with -runART <test>, given 300 s and
 # compared by device_art.py check; the results go to <results>-art/ (-art-debug/ with --debug):
@@ -49,6 +54,7 @@ BUNDLE_ID="io.github.kisame76.minato"
 SIMULATOR=0
 SIGN_ON_DEVICE=0
 WITHOUT_INCREASED_MEMORY=0
+IPHONE_ONLY=0  # run the fixtures/iphone-only.txt tests (memory-limit-test): a real iPhone only, by opt-in
 WANTED_DEVICE=""
 ART=""  # the native tests, or ART's: "fixtures" (--art) or "run-tests" (--art-run-tests)
 SAMPLE=0
@@ -60,6 +66,9 @@ while [[ $# -gt 0 ]]; do
     --simulator) SIMULATOR=1; shift ;;
     --sign-on-device) SIGN_ON_DEVICE=1; shift ;;
     --without-increased-memory) WITHOUT_INCREASED_MEMORY=1; shift ;;
+    # Run the fixtures/iphone-only.txt tests (memory-limit-test): a real iPhone only, refused under --simulator. They
+    # allocate until iOS ends the app for memory (jetsam), so they are never in the normal suite (ADR-0032 d8).
+    --iphone-only) IPHONE_ONLY=1; shift ;;
     --device) WANTED_DEVICE="$2"; shift 2 ;;
     --art) ART=fixtures; shift ;;
     --art-run-tests) ART=run-tests; shift ;;
@@ -130,6 +139,26 @@ elif [[ -z "$ART" ]]; then
   for name in $(test_names); do
     [[ " ${NOT_ON_DEVICE[*]} " == *" $name "* ]] || tests+=("$name")
   done
+fi
+
+# fixtures/iphone-only.txt (memory-limit-test): the memory-watermark device check (ADR-0032 d8). These are NOT in
+# fixtures/tests.txt, so the normal suite -- and Mac ctest and the AVD, which read only tests.txt -- never start them.
+# They allocate until iOS ends the app for memory (jetsam), so a real iPhone only. Run them with --iphone-only, or by
+# naming one; the block after the main loop handles them and refuses the Simulator. A plain device run skips them.
+iphone_only_tests=()
+if [[ -z "$ART" ]]; then
+  # A tree without the list (a private test copy) has none; under pipefail a missing file must not end the run.
+  iphone_only_all=" $({ awk '!/^#/ && NF { print $1 }' fixtures/iphone-only.txt 2>/dev/null || true; } | tr '\n' ' ') "
+  remaining=()
+  for name in ${tests[@]+"${tests[@]}"}; do
+    if [[ "$iphone_only_all" == *" $name "* ]]; then iphone_only_tests+=("$name"); else remaining+=("$name"); fi
+  done
+  tests=(${remaining[@]+"${remaining[@]}"})
+  if [[ "$IPHONE_ONLY" == 1 ]]; then
+    for name in $iphone_only_all; do
+      [[ " ${iphone_only_tests[*]-} " == *" $name "* ]] || iphone_only_tests+=("$name")
+    done
+  fi
 fi
 
 # What goes into the app bundle: the fixtures, bionic, and apk-convert, which makes containers of them. Not with
@@ -329,6 +358,45 @@ for name in "${tests[@]}"; do
     fi
   fi
 done
+
+# The iphone-only tests (fixtures/iphone-only.txt, memory-limit-test): each allocates until iOS ends the app for
+# memory (jetsam), so the app dying IS the expected outcome, not a failure. Afterwards output/memory must hold the
+# watermark the runtime pwrote before the end (apkrt_report_memory_to): a footprint that grew large and a peak at
+# least that. Refused under --simulator, which runs on the Mac's memory and has no such limit.
+for name in ${iphone_only_tests[@]+"${iphone_only_tests[@]}"}; do
+  if [[ "$SIMULATOR" == 1 ]]; then
+    echo "SKIPPED  $name: allocates until iOS jetsam, a real iPhone only, never the Simulator" \
+      "(fixtures/iphone-only.txt)"
+    continue
+  fi
+  rm -rf "${RESULTS:?}/$name" "$RESULTS/$name.launch.json" "$RESULTS/$name.console"
+  launch "$name" || true  # iOS ends the app at its memory limit: expected, not a failure
+  if ! fetch "$name"; then
+    echo "FAILED   $name: no output on the device, see $RESULTS/$name.console"
+    failed=1
+    continue
+  fi
+  last=$(grep "MiB resident" "$RESULTS/$name/stdout" 2>/dev/null | tail -n 1 || true)
+  memory="$RESULTS/$name/memory"
+  if [[ ! -s "$memory" ]]; then
+    echo "DIFFERS  $name: no memory watermark after the end -- last-session.memory is empty${last:+; last step: $last}"
+    failed=1
+    continue
+  fi
+  read -r footprint available peak warning < <(awk '
+    $1 == "footprint" { f = $2 } $1 == "available" { a = $2 } $1 == "peak" { p = $2 } $1 == "warning" { w = $2 }
+    END { print f + 0, a + 0, p + 0, w + 0 }' "$memory")
+  if [[ "$footprint" -gt 1000000000 && "$peak" -ge "$footprint" ]]; then
+    awk -v n="$name" -v f="$footprint" -v a="$available" -v p="$peak" -v w="$warning" -v s="$last" \
+      'BEGIN { printf "memory   %-26s footprint %.0f MB, peak %.0f MB, available %.0f MB, warning %s; %s\n",
+               n, f / 1e6, p / 1e6, a / 1e6, w, s }'
+  else
+    echo "DIFFERS  $name: footprint $footprint peak $peak" \
+      "(want a footprint over 1 GB and peak >= footprint)${last:+; $last}"
+    failed=1
+  fi
+done
+
 where="in the Simulator"
 [[ "$SIMULATOR" == 1 ]] || where="on the iPhone, $ENTITLEMENT increased-memory-limit"
 how="signed on the Mac (M2a)"

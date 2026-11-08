@@ -8,6 +8,8 @@
 #   system/         the guest's /system for files: bionic's time zone file, and etc/hosts, which the runtime's
 #                   DNS proxy answers from first (ADR-0054 step b)
 #   tests.txt       the test list, for the app's FixtureRunner
+#   iphone-only.txt the tests that run on the iPhone only (fixtures/iphone-only.txt): their programs only in a build
+#                   for the iPhone; a Simulator build gets the list alone, so that its FixtureRunner refuses them
 #   art/            ART's tests (ADR-0033 d2), when tools/device-suite.sh staged them in build/device-art
 #                   (runtime/tests/device_art.py): bin/dalvikvm64.dylib, whose argv[0] the commands give as
 #                   /apex/com.android.art/bin/dalvikvm64; lib64-debug/, the debug flavor, which -flavor debug puts
@@ -25,6 +27,7 @@ CONVERT="$SRCROOT/build/native/macos/importer/converter/apk-convert"
 FIXTURES="$SRCROOT/build/fixtures/bin"
 BIONIC="$SRCROOT/build/bionic"
 TESTS="$SRCROOT/fixtures/tests.txt"
+IPHONE_ONLY="$SRCROOT/fixtures/iphone-only.txt"
 for needed in "$CONVERT" "$FIXTURES" "$BIONIC/lib/libc.so" "$BIONIC/system/usr/share/zoneinfo/tzdata" \
     "$BIONIC/system/etc/hosts"; do
   if [[ ! -e "$needed" ]]; then
@@ -55,24 +58,31 @@ cp "$BIONIC/system/usr/share/zoneinfo/tzdata" "$OUT/system/usr/share/zoneinfo/"
 mkdir -p "$OUT/system/etc"
 cp "$BIONIC/system/etc/hosts" "$OUT/system/etc/"
 cp "$TESTS" "$OUT/tests.txt"
+cp "$IPHONE_ONLY" "$OUT/iphone-only.txt"
 
-while read -r name fields; do
-  program=$name
-  libraries=""
-  for field in $fields; do
-    case "$field" in
-      program=*) program=${field#program=} ;;
-      libraries=*) libraries=${field#libraries=} ;;
-    esac
-  done
-  mkdir -p "$OUT/elf/$name"
-  contain "$FIXTURES/$program" "$OUT/tests/$name"
-  cp "$FIXTURES/$program" "$OUT/elf/$name/"
-  for library in ${libraries//,/ }; do
-    contain "$FIXTURES/$library" "$OUT/tests/$name"
-    cp "$FIXTURES/$library" "$OUT/elf/$name/"
-  done
-done < <(grep -v -e '^#' -e '^$' "$TESTS")
+# The tests of the list $1: each program and its own libraries, as containers and as ELF files.
+embed_tests() {
+  while read -r name fields; do
+    program=$name
+    libraries=""
+    for field in $fields; do
+      case "$field" in
+        program=*) program=${field#program=} ;;
+        libraries=*) libraries=${field#libraries=} ;;
+      esac
+    done
+    mkdir -p "$OUT/elf/$name"
+    contain "$FIXTURES/$program" "$OUT/tests/$name"
+    cp "$FIXTURES/$program" "$OUT/elf/$name/"
+    for library in ${libraries//,/ }; do
+      contain "$FIXTURES/$library" "$OUT/tests/$name"
+      cp "$FIXTURES/$library" "$OUT/elf/$name/"
+    done
+  done < <(grep -v -e '^#' -e '^$' "$1")
+}
+embed_tests "$TESTS"
+# A Simulator app runs on the Mac's memory: the iPhone's tests stay out of it.
+[[ "$PLATFORM" != ios ]] || embed_tests "$IPHONE_ONLY"
 
 STAGE="$SRCROOT/build/device-art"
 if [[ -d "$STAGE/tests" ]]; then

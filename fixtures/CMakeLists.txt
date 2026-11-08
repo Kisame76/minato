@@ -107,6 +107,11 @@ target_link_libraries(dl-own-test PRIVATE dl)
 add_executable(signal-test suite/signal-test.c)
 # kill-self-test: SIGKILL to its own process, as Process.killProcess(Process.myPid()) sends it (ADR-0028).
 add_executable(kill-self-test suite/kill-self-test.c)
+# memory-limit-test: allocates until iOS's jetsam ends it, for the memory-watermark device check (ADR-0032 d8). It is
+# listed in fixtures/iphone-only.txt, NOT fixtures/tests.txt, so only tools/device-suite.sh (--iphone-only) and the
+# app's FixtureRunner run it, on a real iPhone; Mac ctest, the AVD and the Simulator (which read only tests.txt) never
+# do, since only a device enforces the memory limit (elsewhere it would thrash the host).
+add_executable(memory-limit-test suite/memory-limit-test.c)
 # dl-lock-test and the library whose constructor holds the dynamic linker's lock (ADR-0025, addition d).
 add_library(dl-lock SHARED suite/libdl-lock.c)
 target_link_libraries(dl-lock PRIVATE dl)

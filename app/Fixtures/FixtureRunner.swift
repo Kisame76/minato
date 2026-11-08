@@ -4,7 +4,8 @@ import Darwin
 import Foundation
 import UIKit
 
-/// Runs one test of fixtures/tests.txt (M2 step 6) when the app is launched with -runFixture <test>:
+/// Runs one test of fixtures/tests.txt (M2 step 6), or on the iPhone of fixtures/iphone-only.txt, which a Simulator
+/// build refuses, when the app is launched with -runFixture <test>:
 /// the program from the bundle's Fixtures folder (tools/embed-fixtures.sh), the way Android's shell
 /// runs it: `cd /data/local/tmp && LD_LIBRARY_PATH=/data/local/tmp ./<program>`. With
 /// -signOnDevice (M2b) the app converts and signs the program and its own libraries itself, from
@@ -15,7 +16,8 @@ import UIKit
 /// first (devicectl's exit code is not reliable for a process that ends this quickly). So nothing
 /// else may write to stdout or stderr: the app shows an empty scene. output/traced says whether
 /// a debugger was attached (1) or not (0): M2's criterion wants the suite to pass without one. After
-/// the status the runtime writes what the run measured to output/measures (ADR-0033 d1). With
+/// the status the runtime writes what the run measured to output/measures (ADR-0033 d1), and while it runs the
+/// memory watermark to output/memory (apkrt_report_memory_to, ADR-0032 d8). With
 /// -frameRateUnlock 60|120 the program runs with the FPS unlock (ADR-0066 step 4, apkrt_set_frame_rate_unlock).
 ///
 /// The program starts once the app's launch has finished, at its first didBecomeActive, on a thread
@@ -77,9 +79,16 @@ enum FixtureRunner {
         }
         let output = folder.appending(path: "output", directoryHint: .isDirectory)
 
-        guard let fixtures = Bundle.main.resourceURL?.appending(path: "Fixtures", directoryHint: .isDirectory),
-              let fields = fields(of: test, in: fixtures.appending(path: "tests.txt"))
-        else {
+        guard let fixtures = Bundle.main.resourceURL?.appending(path: "Fixtures", directoryHint: .isDirectory) else {
+            fail("no fixture test \(test) in the app bundle; build the app with tools/device-suite.sh")
+        }
+        let iPhoneOnly = fields(of: test, in: fixtures.appending(path: "iphone-only.txt"))
+        #if targetEnvironment(simulator)
+        if iPhoneOnly != nil {
+            fail("\(test) runs on the iPhone only (fixtures/iphone-only.txt): a Simulator app runs on the Mac's memory")
+        }
+        #endif
+        guard let fields = fields(of: test, in: fixtures.appending(path: "tests.txt")) ?? iPhoneOnly else {
             fail("no fixture test \(test) in the app bundle; build the app with tools/device-suite.sh")
         }
         let program = fields.first { $0.hasPrefix("program=") }.map { String($0.dropFirst("program=".count)) } ?? test
@@ -205,8 +214,8 @@ enum FixtureRunner {
               error)
     }
 
-    /// A new tmp/fixtures/<test>/ with its output folder, which gets the status, stdout, stderr, traced and the
-    /// measures; returns the test's folder.
+    /// A new tmp/fixtures/<test>/ with its output folder, which gets the status, stdout, stderr, traced, the
+    /// measures and the memory watermark; returns the test's folder.
     private static func prepare(test: String) -> URL {
         let folder = URL.temporaryDirectory.appending(path: "fixtures/\(test)", directoryHint: .isDirectory)
         let output = folder.appending(path: "output", directoryHint: .isDirectory)
@@ -220,6 +229,9 @@ enum FixtureRunner {
         apkrt_report_exit_status(statusDescriptor)
         let measures = open(output.appending(path: "measures").path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
         apkrt_report_exit_measures(measures)
+        // The watermark's fixed block, written over again while the program runs, also when jetsam ends it.
+        let memory = open(output.appending(path: "memory").path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
+        apkrt_report_memory_to(memory)
         redirect(STDOUT_FILENO, to: output.appending(path: "stdout"))
         redirect(STDERR_FILENO, to: output.appending(path: "stderr"))
         try? Data((isTraced() ? "1\n" : "0\n").utf8).write(to: output.appending(path: "traced"))
