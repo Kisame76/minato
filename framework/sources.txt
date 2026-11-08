@@ -2943,3 +2943,29 @@ frameworks_base/core/java/android/app/backup/RestoreDescription.java
 frameworks_base/core/java/android/app/backup/BackupTransport.java
 frameworks_base/core/java/com/android/internal/backup/IBackupTransport.aidl
 frameworks_base/core/java/com/android/internal/backup/ITransportStatusCallback.aidl
+
+# Batch G's media browsing: MediaBrowser with MediaBrowserService, and the sessions they need: MediaSession and
+# MediaController over a local session service (framework/java/android/media/session).
+frameworks_base_types/media/java/android/media/browse/MediaBrowser.java
+frameworks_base_types/media/java/android/media/browse/MediaBrowser.aidl
+frameworks_base_types/media/java/android/media/browse/MediaBrowserUtils.java
+frameworks_base_types/media/java/android/service/media/MediaBrowserService.java
+frameworks_base_types/media/java/android/service/media/IMediaBrowserService.aidl
+frameworks_base_types/media/java/android/service/media/IMediaBrowserServiceCallbacks.aidl
+frameworks_base_types/media/java/android/media/session/MediaSession.java
+frameworks_base_types/media/java/android/media/session/MediaSession.aidl
+frameworks_base_types/media/java/android/media/session/MediaController.java
+frameworks_base_types/media/java/android/media/session/MediaController.aidl
+frameworks_base_types/media/java/android/media/session/ParcelableListBinder.java
+frameworks_base_types/media/java/android/media/session/ISession.aidl
+frameworks_base_types/media/java/android/media/session/ISessionCallback.aidl
+frameworks_base_types/media/java/android/media/session/ISessionController.aidl
+frameworks_base_types/media/java/android/media/session/ISessionControllerCallback.aidl
+frameworks_base_types/media/java/android/media/session/ISessionManager.aidl
+frameworks_base_types/media/java/android/media/session/IActiveSessionsListener.aidl
+frameworks_base_types/media/java/android/media/session/IOnMediaKeyEventDispatchedListener.aidl
+frameworks_base_types/media/java/android/media/session/IOnMediaKeyEventSessionChangedListener.aidl
+frameworks_base_types/media/java/android/media/session/IOnMediaKeyListener.aidl
+frameworks_base_types/media/java/android/media/session/IOnVolumeKeyLongPressListener.aidl
+frameworks_base_types/media/java/android/media/session/ISession2TokensListener.aidl
+frameworks_base_types/media/java/android/media/IRemoteSessionCallback.aidl

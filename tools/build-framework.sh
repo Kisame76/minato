@@ -186,7 +186,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.ActivityOptions --class android.app.BroadcastOptions --class android.app.SearchManager \
   --class android.app.admin.DevicePolicyManager --class android.app.WallpaperManager \
   --class android.content.pm.LauncherApps \
-  --class android.media.session.MediaController --class android.app.VoiceInteractor \
+  --class android.app.VoiceInteractor \
   --class android.window.SplashScreen \
   --class android.app.LocaleManager --class android.os.storage.OnObbStateChangeListener \
   --class android.net.http.SslCertificate \
@@ -194,7 +194,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.net.DhcpInfo --class android.net.http.SslError --class android.telephony.BarringInfo \
   --class android.telephony.ims.ImsReasonInfo \
   --class android.telephony.PreciseDataConnectionState --class android.telephony.TelephonyDisplayInfo \
-  --class android.media.session.MediaSession --class android.hardware.lights.LightsManager \
+  --class android.hardware.lights.LightsManager \
   --class android.media.session.MediaSessionManager \
   --class android.net.wifi.WifiInfo --class android.net.wifi.WifiConfiguration \
   --class android.net.wifi.hotspot2.PasspointConfiguration --class android.net.wifi.SoftApConfiguration \

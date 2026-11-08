@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of MediaBrowser against a MediaBrowserService of the app's own, with the MediaSession the service keeps and
+     a MediaController of its token (batch G), each with Android 15's answer. The launcher activity is the framework's
+     own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mediabrowser" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.mediabrowser.MediaBrowserApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <service android:name="io.github.kisame76.minato.test.mediabrowser.TestBrowserService" android:exported="false">
+      <intent-filter>
+        <action android:name="android.media.browse.MediaBrowserService"/>
+      </intent-filter>
+    </service>
+  </application>
+</manifest>
