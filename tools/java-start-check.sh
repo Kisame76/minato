@@ -1356,14 +1356,60 @@ if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-camera; then
   fi
 fi
 
+# The MinatoUITests runner (app/UITests, its own scheme), which drives SpringBoard: built once per run, when a round
+# needs it; false when it does not build.
+UITESTS=build/DerivedData-uitests
+uitests_built=""
+uitests_build() {
+  if [[ -z "$uitests_built" ]]; then
+    local destination="generic/platform=iOS Simulator"
+    [[ "$ON_DEVICE" != yes ]] || destination="generic/platform=iOS"
+    # The project as project.yml has it now, with the runner's target and the team that signs it (tools/gen.sh).
+    if tools/gen.sh > "$WORK/uitests-build.log" 2>&1 && xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
+        -derivedDataPath "$UITESTS" -allowProvisioningUpdates -quiet >> "$WORK/uitests-build.log" 2>&1; then
+      uitests_built=yes
+    else
+      uitests_built=no
+      fail "  the UI test runner did not build: $(grep -m 1 'error:' "$WORK/uitests-build.log")"
+    fi
+  fi
+  [[ "$uitests_built" == yes ]]
+}
+# Runs the runner's test $1 against this run's Simulator or iPhone, with TEST_RUNNER_MINATO_WAIT=$3 seconds (for a
+# banner or an alert); prints its notes, and its failure, false when it failed.
+uitest() {
+  local run
+  run=$(ls "$UITESTS"/Build/Products/*.xctestrun | head -n 1)
+  if TEST_RUNNER_MINATO_WAIT=${3:-0} xcodebuild test-without-building -xctestrun "$run" \
+      -destination "id=${DEVICE_UDID:-${SIM_UDID:-}}" \
+      -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1; then
+    grep -o "MINATO-UITEST .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
+    return 0
+  fi
+  grep -E "error: |XCTAssert|Failing tests" "$WORK/uitest-$1-$2.log" | head -n 3 | sed 's/^/      | /'
+  return 1
+}
+
 # ADR-0074 decision 1 in the Simulator: permission-request-test-notifications asks for POST_NOTIFICATIONS, Minato's
-# alert answers Allow by itself (permission-allow); iOS's own prompt, which simctl privacy does not cover, needs one
-# Allow by hand in a Simulator that never answered it, and later runs find the answer. Its log must be Android 15's,
-# where the harness grants POST_NOTIFICATIONS before the start.
+# alert answers Allow by itself (permission-allow); iOS's own prompt, which simctl privacy does not cover, comes in a
+# Simulator that never answered it, and the MinatoUITests runner answers it Allow (later runs find the answer). An
+# alert of SpringBoard's still up at the round's end is dismissed, with a line: it would outlive Minato's end and
+# hold up the next run's library. Its log must be Android 15's, where the harness grants POST_NOTIFICATIONS before
+# the start.
 if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-notifications; then
   # A fresh app for the host: no answer stored from an earlier run.
   rm -f "$SUPPORT/data/io.github.kisame76.minato.test.permreqnotifications/permissions.json"
+  allow=""
+  if uitests_build; then
+    uitest testAllowAlert notifications 45 > "$WORK/allow.out" 2>&1 &
+    allow=$!
+  fi
   run_one permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications
+  if [[ -n "$allow" ]]; then
+    if wait "$allow"; then ok "  the runner answered iOS's notifications prompt Allow"; else
+      echo "note    no iOS notifications prompt came (Minato's answer is iOS's already)"; fi
+    uitest testDismissAlert notifications
+  fi
   fetch_events
   # The app asks the host once: its second request finds POST_NOTIFICATIONS granted, as on Android.
   answers=$(grep -c -E " permission [0-9]+ group 4 outcome 1$" "$EVENTS" || true)
@@ -1583,15 +1629,8 @@ fi
 # limit of 3 apps on a device, stops these rounds with its own line.
 if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
   echo "== notify-tap-test, the user's tap through Notification Center"
-  UITESTS=build/DerivedData-uitests
   real_ready=yes
-  destination="generic/platform=iOS Simulator"
-  [[ "$ON_DEVICE" != yes ]] || destination="generic/platform=iOS"
-  if ! xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
-      -derivedDataPath "$UITESTS" -allowProvisioningUpdates -quiet > "$WORK/uitests-build.log" 2>&1; then
-    fail "  the UI test runner did not build: $(grep -m 1 'error:' "$WORK/uitests-build.log")"
-    real_ready=no
-  fi
+  uitests_build || real_ready=no
   if [[ "$real_ready" == yes && "$ON_DEVICE" == yes ]]; then
     runner=$(ls -d "$UITESTS"/Build/Products/Debug-iphoneos/MinatoUITests-Runner.app 2>/dev/null)
     if ! on_device install app --device "$DEVICE_ID" "$runner" > "$WORK/uitests-install.log" 2>&1; then
@@ -1600,20 +1639,6 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
       real_ready=no
     fi
   fi
-  # Runs the runner's test $1 against this run's Simulator or iPhone, with TEST_RUNNER_MINATO_WAIT=$3 seconds for a
-  # banner; prints its failure, false when it failed.
-  uitest() {
-    local run
-    run=$(ls "$UITESTS"/Build/Products/*.xctestrun | head -n 1)
-    if TEST_RUNNER_MINATO_WAIT=${3:-0} xcodebuild test-without-building -xctestrun "$run" \
-        -destination "id=${DEVICE_UDID:-${SIM_UDID:-}}" \
-        -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1; then
-      grep -o "MINATO-UITEST tapped the .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
-      return 0
-    fi
-    grep -E "error: |XCTAssert|Failing tests" "$WORK/uitest-$1-$2.log" | head -n 3 | sed 's/^/      | /'
-    return 1
-  }
   # The folder's requests for a start that iOS makes: the guest log on, no compile mode, no tap in the library.
   real_requests() {
     rm -rf "$CHECK"

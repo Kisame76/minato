@@ -69,14 +69,26 @@ final class NotificationTapUITests: XCTestCase {
     }
 
     /// iOS's alert for Minato's request, such as the notifications prompt of a Simulator that never answered it, is
-    /// answered Allow within 90 s (its first button that allows, in English or German).
+    /// answered Allow within TEST_RUNNER_MINATO_WAIT seconds, 90 by default (its button that allows, in English or
+    /// German).
     func testAllowAlert() {
         continueAfterFailure = false
         let alert = springboard.alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 90), "no alert within 90 s")
+        let seconds = ProcessInfo.processInfo.environment["MINATO_WAIT"].flatMap { Double($0) } ?? 90
+        XCTAssertTrue(alert.waitForExistence(timeout: seconds), "no alert within \(Int(seconds)) s")
         let allow = alert.buttons.matching(NSPredicate(format: "label IN %@", ["Allow", "Erlauben"])).firstMatch
         XCTAssertTrue(allow.exists, "the alert has no Allow button")
         allow.tap()
+        print("MINATO-UITEST answered an alert Allow")
+    }
+
+    /// An alert of SpringBoard's that is still up goes, by its first button (a prompt's "Don't Allow"), with a note:
+    /// it outlives the app that asked and would hold up the next launch.
+    func testDismissAlert() {
+        let alert = springboard.alerts.firstMatch
+        guard alert.waitForExistence(timeout: 2) else { return }
+        alert.buttons.element(boundBy: 0).tap()
+        print("MINATO-UITEST an alert of SpringBoard's was still up: dismissed by its first button")
     }
 
     private func waitUntil(_ seconds: TimeInterval, _ condition: () -> Bool) -> Bool {
