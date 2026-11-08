@@ -589,7 +589,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 registerCompatOnBackInvokedCallback();
             }
             mLayoutRequested = true;
-        } else if (mApplyInsetsRequested) {
+        } else if (mApplyInsetsRequested && !mWithdrawn) {
             dispatchApplyInsets(host);
             insetsDispatched = true;
             mLayoutRequested = true;
@@ -1246,12 +1246,19 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         return builder.build();
     }
 
-    /** The host reported another keyboard height (WindowManagerGlobal.dispatchImeInsets): the views apply it again. */
+    /**
+     * The host reported another keyboard height (WindowManagerGlobal.dispatchImeInsets): the views apply it again. A
+     * window of an activity that is not visible, withdrawn or stopped, as the one that started another and finishes,
+     * applies it once it is shown again (restoreRequest, setWindowStopped), as Android's window manager sends no
+     * insets to a window that is not visible.
+     */
     void imeInsetsChanged() {
         mHandler.post(() -> {
             mApplyInsetsRequested = true;
             mScrollMayChange = true;
-            scheduleTraversals();
+            if (!mStopped && !mWithdrawn) {
+                scheduleTraversals();
+            }
         });
     }
 

@@ -6,20 +6,29 @@ import XCTest
 final class SelectModeUITests: XCTestCase {
     private let minato = XCUIApplication(bundleIdentifier: "io.github.kisame76.minato")
 
-    private func startSelecting() {
+    /// False, after a "precondition not met" failure, when the library holds no app: Select is off then, and the
+    /// round says nothing about the bar.
+    private func startSelecting() -> Bool {
         minato.launch()
         let welcome = minato.buttons["Continue"]
         if welcome.waitForExistence(timeout: 3) { welcome.tap() }
         minato.tabBars.buttons["Library"].tap()
         minato.buttons["More"].tap()
-        minato.buttons["Select"].tap()
+        let select = minato.buttons["Select"]
+        guard select.waitForExistence(timeout: 5), select.isEnabled else {
+            print("MINATO-UITEST precondition not met: the library holds no app, so Select is off (import one first)")
+            XCTFail("precondition not met: the library holds no app, so Select is off")
+            return false
+        }
+        select.tap()
         XCTAssertTrue(minato.buttons["Select All"].waitForExistence(timeout: 5), "no Select All in Select mode")
+        return true
     }
 
     /// The user's regression: the bottom bar's keys sat behind the tab bar. Each must be hittable, clear of a tab bar
     /// that is still shown.
     func testSelectBarAboveTheTabBar() {
-        startSelecting()
+        guard startSelecting() else { return }
         let bar = minato.tabBars.firstMatch
         let barFrame: CGRect? = bar.exists && bar.isHittable ? bar.frame : nil
         for name in ["Select All", "Favorite", "Delete"] {
