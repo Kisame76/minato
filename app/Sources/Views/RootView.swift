@@ -65,8 +65,17 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
     var onSelect: (Int) -> Void = { _ in }
     private let pan = UIPanGestureRecognizer()
     private var interaction: UIPercentDrivenInteractiveTransition?
-    /// From the swipe's start until its pages have settled, finished or sprung back.
+    /// How far the pages have followed the finger, 0 to 1. Kept here: the interaction's percentComplete reads 0
+    /// throughout a tab bar controller's transition on iOS 26, so a slow swipe past half the way sprang back.
+    private var progress: CGFloat = 0
+    /// From the swipe's start until its pages have settled, finished or sprung back. Meanwhile no other swipe starts
+    /// and a tap on the bar waits: a second transition started while one still slides left no page in the window.
     private var swiping = false
+    /// Whether UIKit has started the swipe's pages, and a lift that came before (a flick within one turn of the run
+    /// loop): finishing or cancelling the interaction before its start left the transition paused at its start for
+    /// good, the page frozen and the bar's taps ignored.
+    private var started = false
+    private var early: (interaction: UIPercentDrivenInteractiveTransition, finishes: Bool)?
     private var swipe: TabSwipe { TabSwipe(count: viewControllers?.count ?? 0) }
 
     override func viewDidLoad() {
@@ -77,10 +86,26 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
         view.addGestureRecognizer(pan)
     }
 
+    #if DEBUG
+    private var stressed = false
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !stressed {
+            stressed = true
+            stressIfAsked()
+        }
+    }
+    #endif
+
     /// The selection SwiftUI holds, when it changed elsewhere (a file opened with Minato goes to Library).
     func show(_ index: Int) {
         guard !swiping, index != selectedIndex else { return }
         selectedIndex = index
+    }
+
+    func tabBarController(_ controller: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
+        !sliding
     }
 
     func tabBarController(_ controller: UITabBarController, didSelect viewController: UIViewController) {
@@ -91,6 +116,7 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
 
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard recognizer === pan else { return true }
+        guard !sliding else { return false }
         let velocity = pan.velocity(in: view)
         guard TabSwipe.isHorizontal(dx: velocity.x, dy: velocity.y),
               swipe.target(from: selectedIndex, translation: velocity.x) != nil,
@@ -108,32 +134,63 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
 
     @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
         let translation = recognizer.translation(in: view).x
+        let velocity = recognizer.velocity(in: view).x
         switch recognizer.state {
-        case .began:
-            guard let target = swipe.target(from: selectedIndex, translation: recognizer.velocity(in: view).x) else {
-                return
-            }
-            interaction = UIPercentDrivenInteractiveTransition()
-            interaction?.completionCurve = .easeOut
-            swiping = true
-            selectedIndex = target
-        case .changed:
-            guard let interaction else { return }
-            // Only the way the swipe began: back past the start holds the page there.
-            let towards = (translation < 0) == movesForward
-            interaction.update(towards ? TabSwipe.progress(translation: translation, width: view.bounds.width) : 0)
-        case .ended, .cancelled, .failed:
-            guard let interaction else { return }
-            let progress = interaction.percentComplete
-            let finishes = recognizer.state == .ended && (translation < 0) == movesForward
-                && TabSwipe.finishes(progress: progress, velocity: recognizer.velocity(in: view).x,
-                                     translation: translation)
-            if finishes { interaction.finish() } else { interaction.cancel() }
-            self.interaction = nil
-        default:
-            break
+        case .began: begin(velocity: velocity)
+        case .changed: move(translation)
+        case .ended: end(translation, velocity: velocity, released: true)
+        case .cancelled, .failed: end(translation, velocity: velocity, released: false)
+        default: break
         }
     }
+
+    /// The swipe's start: the bar selects the tab it goes to, and the pages follow the finger from here.
+    fileprivate func begin(velocity: CGFloat) {
+        guard !sliding, let target = swipe.target(from: selectedIndex, translation: velocity) else { return }
+        interaction = UIPercentDrivenInteractiveTransition()
+        interaction?.completionCurve = .easeOut
+        progress = 0
+        started = false
+        early = nil
+        swiping = true
+        selectedIndex = target
+    }
+
+    fileprivate func move(_ translation: CGFloat) {
+        guard let interaction else { return }
+        // Only the way the swipe began: back past the start holds the page there.
+        let towards = (translation < 0) == movesForward
+        progress = towards ? TabSwipe.progress(translation: translation, width: view.bounds.width) : 0
+        interaction.update(progress)
+    }
+
+    /// The finger's lift (`released`) or the system's cancel: the pages go on or spring back.
+    fileprivate func end(_ translation: CGFloat, velocity: CGFloat, released: Bool) {
+        guard let interaction else { return }
+        let finishes = released && (translation < 0) == movesForward
+            && TabSwipe.finishes(progress: progress, velocity: velocity, translation: translation)
+        self.interaction = nil
+        if started {
+            settle(interaction, finishes: finishes)
+        } else {
+            early = (interaction, finishes)
+        }
+    }
+
+    private func settle(_ interaction: UIPercentDrivenInteractiveTransition, finishes: Bool) {
+        if finishes { interaction.finish() } else { interaction.cancel() }
+    }
+
+    /// UIKit has started the pages: a lift that came first settles them now, once the interaction has paused them.
+    private func pagesStarted() {
+        started = true
+        guard let early else { return }
+        self.early = nil
+        DispatchQueue.main.async { self.settle(early.interaction, finishes: early.finishes) }
+    }
+
+    /// A swipe's pages, or the bar's own change of tab, still on their way.
+    private var sliding: Bool { swiping || transitionCoordinator != nil }
 
     /// Whether the swipe in progress goes to a later tab, a swipe to the left.
     private var movesForward = true
@@ -167,7 +224,7 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
         guard interaction != nil, let pages = viewControllers, let fromIndex = pages.firstIndex(of: from),
               let toIndex = pages.firstIndex(of: to) else { return nil }
         movesForward = toIndex > fromIndex
-        return PageSlide(forward: movesForward) { [weak self] in
+        return PageSlide(forward: movesForward, started: { [weak self] in self?.pagesStarted() }) { [weak self] in
             guard let self else { return }
             swiping = false
             onSelect(selectedIndex)
@@ -181,13 +238,77 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
     }
 }
 
+#if DEBUG
+/// For TabSwipeUITests: with MINATO_TAB_SWIPE_STRESS=<case> in its environment, Minato swipes by itself at its start
+/// what a user's quick fingers do and XCUITest cannot (it waits for each animation's end): "back", a swipe back while
+/// the last one still slides; "tap", a tap on Home while a page slides; "flick-left" and "flick-right", a flick whose
+/// lift comes before UIKit has started the pages. The test checks the page once it has settled.
+extension SwipeTabBarController {
+    func stressIfAsked() {
+        guard let stress = ProcessInfo.processInfo.environment["MINATO_TAB_SWIPE_STRESS"] else { return }
+        let width = view.bounds.width
+        // A swipe of 60 % in 4 steps of 20 ms each, let go with a flick; `at` is its start in seconds.
+        func swipe(at start: Double, left: Bool) {
+            let sign: CGFloat = left ? -1 : 1
+            after(start) { self.begin(velocity: sign * 300) }
+            for step in 1...4 {
+                after(start + 0.02 * Double(step)) { self.move(sign * width * 0.15 * CGFloat(step)) }
+            }
+            after(start + 0.1) { self.end(sign * width * 0.6, velocity: sign * 900, released: true) }
+        }
+        func tap(at start: Double, _ index: Int) {
+            after(start) {
+                guard let page = self.viewControllers?[index],
+                      self.delegate?.tabBarController?(self, shouldSelect: page) ?? true else { return }
+                self.selectedIndex = index
+                self.tabBarController(self, didSelect: page)
+            }
+        }
+        // A flick: the lift in the same turn of the run loop as the start, before UIKit starts the pages.
+        func flick(at start: Double, left: Bool) {
+            let sign: CGFloat = left ? -1 : 1
+            after(start) {
+                self.begin(velocity: sign * 900)
+                self.end(sign * width * 0.1, velocity: sign * 900, released: true)
+            }
+        }
+        // Each case from Library, where both ways lead somewhere; a swipe's lift is a flick, so its page slides on.
+        after(1.5) {
+            self.selectedIndex = 1
+            self.onSelect(1)
+        }
+        switch stress {
+        case "back":
+            // A swipe back while the last one still slides.
+            swipe(at: 2.0, left: true)
+            swipe(at: 2.15, left: false)
+        case "tap":
+            // A tap on Home while a page slides.
+            swipe(at: 2.0, left: true)
+            tap(at: 2.15, 0)
+        case "flick-left", "flick-right":
+            // A flick whose lift comes before UIKit starts the pages.
+            flick(at: 2.0, left: stress == "flick-left")
+        default:
+            break
+        }
+    }
+
+    private func after(_ seconds: Double, _ work: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+}
+#endif
+
 /// The two pages side by side, the new one coming in from the side the finger moves away from.
 private final class PageSlide: NSObject, UIViewControllerAnimatedTransitioning {
     let forward: Bool
+    let started: () -> Void
     let done: () -> Void
 
-    init(forward: Bool, done: @escaping () -> Void) {
+    init(forward: Bool, started: @escaping () -> Void, done: @escaping () -> Void) {
         self.forward = forward
+        self.started = started
         self.done = done
     }
 
@@ -217,6 +338,7 @@ private final class PageSlide: NSObject, UIViewControllerAnimatedTransitioning {
             context.completeTransition(!cancelled)
             self.done()
         }
+        started()
     }
 }
 
