@@ -57,6 +57,10 @@ public struct APKReport: Sendable, Equatable, Codable {
     /// System.loadLibrary, System.load or an engine's list of libraries loads at the start (ADR-0055 decision 2). Nil
     /// in reports from before the import read the dex.
     public var javaLibraries: [String]? = nil
+    /// Whether an APK of the app whose manifest lets it have code (android:hasCode, true by default) holds a
+    /// classes.dex, classes2.dex, ...: Java code that a NativeActivity app reaches through JNI. Nil in reports from
+    /// before the import looked, which count as none (each new Minato checks the library again, ADR-0055 decision 5).
+    public var javaCode: Bool? = nil
     /// Path of the chosen icon image inside the APK.
     public var iconPath: String?
     public var signature: SignatureInfo
@@ -64,6 +68,16 @@ public struct APKReport: Sendable, Equatable, Codable {
     /// Which Minato made this report, its analyzer and its converter's check (ADR-0055 decision 5): the library's check
     /// stamp at the import or the last check again. Nil in reports from before, which count as another Minato's.
     public var checkedBy: String? = nil
+}
+
+extension APKReport {
+    /// Whether the app starts through app_process on the Java path: a Java app, and a NativeActivity app with its own
+    /// Java code (ADR-0069 step 4a), whose JNI calls on activity-host would all answer that there is no Java. A
+    /// NativeActivity app without code stays on activity-host until the parity rerun (ADR-0069 decision 3).
+    public var startsOnJavaPath: Bool {
+        if case .art = runtime { return true }
+        return javaCode == true
+    }
 }
 
 public struct NativeLibrary: Sendable, Equatable, Codable {

@@ -149,6 +149,51 @@ struct APKAnalyzerTests {
         #expect(!report.compatibility.issues.contains(.needsART))
     }
 
+    /// ADR-0069 step 4a: a NativeActivity app with its own Java code, a classes.dex in an APK that may have code,
+    /// starts through app_process; without a dex, or with android:hasCode false, it stays on activity-host.
+    @Test func aNativeActivityWithItsOwnDexStartsOnTheJavaPath() throws {
+        func report(hasCode: Bool?, dex: Bool) throws -> APKReport {
+            let attributes: [AXMLBuilder.Attribute] =
+                hasCode.map { [.android("hasCode", 0x0101_000C, .bool($0))] } ?? []
+            let apk = TestAPK(
+                manifestChildren: [Self.application(attributes, [
+                    E("activity", [.android("name", 0x0101_0003, .string("android.app.NativeActivity"))], [
+                        Self.launcherFilter,
+                    ]),
+                ])],
+                files: [Self.library("lib/arm64-v8a/libmain.so")]
+                    + (dex ? [ZipBuilder.Entry(name: "classes.dex", content: Data(repeating: 1, count: 100))] : []))
+            return try APKAnalyzer.analyze(apk.archive(), preferredLanguages: [])
+        }
+        let withDex = try report(hasCode: nil, dex: true)
+        #expect(withDex.runtime == .nativeActivity(library: "main"))
+        #expect(withDex.javaCode == true)
+        #expect(withDex.startsOnJavaPath)
+        #expect(try !report(hasCode: nil, dex: false).startsOnJavaPath)
+        #expect(try !report(hasCode: false, dex: true).startsOnJavaPath)
+        #expect(try report(hasCode: false, dex: true).javaCode == false)
+    }
+
+    /// A Java app starts on the Java path whatever its record says; a report from before javaCode keeps a
+    /// NativeActivity app on activity-host until the library checks it again.
+    @Test func aJavaAppAndAnOlderReportStartWhereTheyDid() throws {
+        let java = TestAPK(manifestChildren: [Self.application([], [
+            E("activity", [.android("name", 0x0101_0003, .string(".Main"))], [Self.launcherFilter]),
+        ])])
+        #expect(try APKAnalyzer.analyze(java.archive(), preferredLanguages: []).startsOnJavaPath)
+        let native = TestAPK(manifestChildren: [Self.application([], [
+            E("activity", [.android("name", 0x0101_0003, .string("android.app.NativeActivity"))],
+              [Self.launcherFilter]),
+        ])], files: [Self.library("lib/arm64-v8a/libmain.so"),
+                     ZipBuilder.Entry(name: "classes.dex", content: Data(repeating: 1, count: 100))])
+        let report = try APKAnalyzer.analyze(native.archive(), preferredLanguages: [])
+        var stored = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
+        stored["javaCode"] = nil
+        let older = try JSONDecoder().decode(APKReport.self, from: JSONSerialization.data(withJSONObject: stored))
+        #expect(older.javaCode == nil)
+        #expect(!older.startsOnJavaPath)
+    }
+
     @Test func aReportFromBeforeTheFunctionNameHasNone() throws {
         let apk = TestAPK(manifestChildren: [Self.application([], [
             E("activity", [.android("name", 0x0101_0003, .string("android.app.NativeActivity"))], [Self.launcherFilter]),

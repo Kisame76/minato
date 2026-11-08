@@ -111,6 +111,7 @@ public enum APKAnalyzer {
         report.usesInternet = manifest.requestsInternet
         report.javaLibraries = javaLibraries(Set(nativeLibraries.map(\.name)),
                                              in: apks.filter(\.hasCode).map(\.archive))
+        report.javaCode = apks.filter(\.hasCode).contains { !dexEntries(in: $0.archive).isEmpty }
         report.compatibility = compatibility(of: report, manifest: manifest, hasCode: apks.contains(where: \.hasCode))
         return (report, icon?.archive)
     }
@@ -254,11 +255,7 @@ public enum APKAnalyzer {
     /// code (classes.dex, classes2.dex, ...): an SDL activity's names reach System.loadLibrary through an array, so
     /// any constant counts, not only one passed to the call directly.
     private static func javaLibraries(_ libraries: Set<String>, in archives: [ZipArchive]) -> [String] {
-        let dexes = archives.flatMap { archive in
-            archive.entries.filter { entry in
-                entry.name.hasPrefix("classes") && entry.name.hasSuffix(".dex") && !entry.name.contains("/")
-            }.map { (archive, $0) }
-        }
+        let dexes = archives.flatMap { archive in dexEntries(in: archive).map { (archive, $0) } }
         var constants: Set<String> = []
         for (archive, entry) in dexes {
             guard let data = try? archive.data(for: entry) else { continue }
@@ -269,6 +266,13 @@ public enum APKAnalyzer {
             return constants.contains(stem) || constants.contains(name)
                 || constants.contains { $0.hasSuffix("/" + name) }
         }.sorted()
+    }
+
+    /// The APK's dex files at its top, classes.dex, classes2.dex, ..., which ART loads as its code.
+    private static func dexEntries(in archive: ZipArchive) -> [ZipEntry] {
+        archive.entries.filter { entry in
+            entry.name.hasPrefix("classes") && entry.name.hasSuffix(".dex") && !entry.name.contains("/")
+        }
     }
 
     /// The first folder of each path under assets/ ("renpy" for assets/renpy/common/00start.rpyc).

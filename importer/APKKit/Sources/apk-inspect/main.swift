@@ -63,6 +63,8 @@ do {
     print("sdk:            min \(report.minSdk), target \(report.targetSdk)")
     print("launcher:       \(report.launcherActivity ?? "-")")
     print("runtime:        \(report.runtime)")
+    print("java code:      \(report.javaCode.map { $0 ? "yes" : "no" } ?? "-"), starts on "
+          + (report.startsOnJavaPath ? "app_process" : "activity-host"))
     print("engine:         \(report.engine ?? "-")")
     print("java loads:     \(report.javaLibraries.map { $0.joined(separator: ", ") } ?? "-")")
     print("ABIs:           \(report.abis.joined(separator: ", ")) -> \(report.selectedABI ?? "none")")

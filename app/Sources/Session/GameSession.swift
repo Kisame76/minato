@@ -371,7 +371,7 @@ final class GameSession {
         guard let (start, configuration) = guestStart(scale: runtime.layer?.contentsScale ?? 1) else {
             return couldNotStart("its base.apk has no valid SHA-256, which names its code path")
         }
-        if case .art = entry.report?.runtime, let failure = prepareJavaStart(start) {
+        if entry.report?.startsOnJavaPath == true, let failure = prepareJavaStart(start) {
             return couldNotStart(failure)
         }
         frameClock?.setUnlock(Float(start.frameRateUnlock))
@@ -419,9 +419,10 @@ final class GameSession {
                            orientation: orientation, device: .init(housing: housing, scale: scale))
     }
 
-    /// What the program needs for this app, activity-host for a NativeActivity app (ADR-0028, decisions 3 and 14)
-    /// or app_process64 for a Java app (ADR-0039 c5), with the window's size as the screen's in the session's
-    /// orientation. Nil for an app without base.apk's digest, which names its code path (ADR-0039, decision 6).
+    /// What the program needs for this app, activity-host for a NativeActivity app without Java code (ADR-0028,
+    /// decisions 3 and 14) or app_process64 for a Java app (ADR-0039 c5) and a NativeActivity app with its own Java
+    /// code (ADR-0069 step 4a), with the window's size as the screen's in the session's orientation. Nil for an app
+    /// without base.apk's digest, which names its code path (ADR-0039, decision 6).
     private func guestStart(scale: CGFloat) -> (GuestStart, GuestConfiguration)? {
         guard let kind = entry.report?.runtime, let paths = try? LibraryPaths.standard(),
               let bundle = Bundle.main.resourceURL, let digest = entry.base?.sha256
@@ -453,7 +454,7 @@ final class GameSession {
             .map { version.appending(path: $0).path }
         let start: GuestStart?
         switch kind {
-        case .nativeActivity(let library):
+        case .nativeActivity(let library) where entry.report?.startsOnJavaPath != true:
             start = GuestStart(
                 package: entry.id, library: library, function: entry.report?.nativeFunction,
                 apk: version.appending(path: "base.apk").path, apkSHA256: digest,
@@ -463,7 +464,7 @@ final class GameSession {
                 download: data.appending(path: "download").path,
                 documents: data.appending(path: "documents").path,
                 guestSystem: bundle.appending(path: "Guest").path, splits: splits, environment: guestEnvironment)
-        case .art:
+        case .nativeActivity, .art:
             // An unsigned APK has no signers.json.
             let signers = version.appending(path: SignersFile.fileName)
             // The compiled code the library kept for this boot class path (ADR-0053, M6 c), if any; ART rejects a stale
@@ -1054,7 +1055,7 @@ final class GameSession {
     /// Whether the frame clock runs: the lifecycle's rule for the app's kind (ADR-0041, decision 2), a Java app's
     /// frames while the scene is in the foreground (App's c6 host fixes), and none once the channel broke.
     private var framesRun: Bool {
-        let javaApp = if case .art = entry.report?.runtime { true } else { false }
+        let javaApp = entry.report?.startsOnJavaPath == true
         return !bridge.isBroken && bridge.lifecycle.framesRun(javaApp: javaApp)
     }
 

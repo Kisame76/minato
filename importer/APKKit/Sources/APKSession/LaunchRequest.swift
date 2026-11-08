@@ -126,8 +126,8 @@ public enum LaunchMode: Equatable, Sendable {
         case .run:
             self = .gameMode(entry)
         case .compile:
-            // A NativeActivity app has no Java code that ART would run compiled.
-            if case .art = entry.report?.runtime { self = .compileMode(entry) } else { self = .library(nil) }
+            // A NativeActivity app on activity-host has no Java code that ART would run compiled.
+            self = entry.report?.startsOnJavaPath == true ? .compileMode(entry) : .library(nil)
         }
     }
 }

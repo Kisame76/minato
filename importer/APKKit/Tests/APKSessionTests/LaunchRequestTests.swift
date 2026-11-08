@@ -177,6 +177,17 @@ struct LaunchRequestTests {
         #expect(mode == .library(nil))
     }
 
+    /// ADR-0069 step 4a: a NativeActivity app with its own Java code runs on the Java path, so its code is compiled
+    /// as a Java app's.
+    @Test func aCompileRequestForANativeActivityAppWithJavaCodeStartsCompileMode() throws {
+        var entry = try Self.entry()
+        entry.report?.javaCode = true
+
+        let mode = LaunchMode(request: LaunchRequest(package: entry.id, time: Date(), kind: .compile), entries: [entry])
+
+        #expect(mode == .compileMode(entry))
+    }
+
     @Test func aCompileRequestForAnAppThatIsNotReadyStartsTheLibraryWithAMessage() throws {
         let entry = try Self.entry(state: .needsSplits, nativeActivity: false)
 

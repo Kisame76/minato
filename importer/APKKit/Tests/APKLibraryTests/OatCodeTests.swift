@@ -156,6 +156,10 @@ struct OatCodeTests {
         let entry = try await Self.installed(sandbox, library)
 
         #expect(!sandbox.paths.needsCompiling(entry, bootClassPath: "bcp-1"))
+        // One with its own Java code runs on the Java path (ADR-0069 step 4a): its code is compiled.
+        var withCode = entry
+        withCode.report?.javaCode = true
+        #expect(sandbox.paths.needsCompiling(withCode, bootClassPath: "bcp-1"))
     }
 
     @Test func aFailedCompileIsNotTriedAgainForTheSameBootClassPath() async throws {

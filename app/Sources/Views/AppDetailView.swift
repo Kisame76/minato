@@ -48,7 +48,7 @@ struct AppDetailView: View {
                         LabeledContent("Launch Activity", value: report.launcherActivity ?? "–")
                     }
                     Section("Technical") {
-                        LabeledContent("Runtime", value: Texts.runtime(report.runtime))
+                        LabeledContent("Runtime", value: Texts.runtime(report))
                         LabeledContent("Engine", value: report.engine ?? "–")
                         LabeledContent("ABIs", value: report.abis.isEmpty ? "none (no native code)" : report.abis.joined(separator: ", "))
                         if !report.nativeLibraries.isEmpty {

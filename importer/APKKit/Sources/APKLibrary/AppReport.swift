@@ -133,7 +133,8 @@ public struct AppReport: Sendable, Equatable, Identifiable {
             lines.append("SDK: min \(report.minSdk), target \(report.targetSdk)")
             lines.append("ABIs: \(report.abis.isEmpty ? "none" : report.abis.joined(separator: ", "))")
             switch report.runtime {
-            case .nativeActivity(let library): lines.append("Runtime: NativeActivity (\(library))")
+            case .nativeActivity(let library):
+                lines.append("Runtime: NativeActivity (\(library))" + (report.startsOnJavaPath ? " with Java" : ""))
             case .art: lines.append("Runtime: ART (Java and Kotlin)")
             }
             if let engine = report.engine { lines.append("Engine: \(engine)") }

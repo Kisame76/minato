@@ -192,6 +192,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "notify-tap-test io.github.kisame76.minato.test.notifytap"
       "ime-engines-test io.github.kisame76.minato.test.imeengines"
       "ime-pan-test io.github.kisame76.minato.test.imepan" "ime-pan-test-34 io.github.kisame76.minato.test.imepan34"
+      "native-jni-ime-test io.github.kisame76.minato.test.nativejniime"
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
@@ -2139,6 +2140,24 @@ PY
 }
 pan_round ime-pan-test io.github.kisame76.minato.test.imepan "unspecified=visible pan=visible resize=covered"
 pan_round ime-pan-test-34 io.github.kisame76.minato.test.imepan34 "unspecified=visible pan=visible resize=visible"
+
+# A NativeActivity app with its own dex starts through app_process (ADR-0069 step 4a): native-jni-ime-test's JNI calls
+# into the framework answer as on Android 15, up to the keyboard's show once the decor view has the focus (its first
+# 13 lines of fixtures/expected/native-jni-ime-test.logcat, the window's size left out, which is the device's). On
+# activity-host they answer that there is no Java. Its keys are the Mac's tools/native-activity-check.sh's.
+if wanted native-jni-ime-test; then
+  if begin_start native-jni-ime-test io.github.kisame76.minato.test.nativejniime 1; then
+    await_line guest-log '^I/native-jni-ime-test: showSoftInput\(decorView, SHOW_FORCED\) again: ' 60 || true
+  fi
+  end_start native-jni-ime-test 1
+  got=$(grep '^I/native-jni-ime-test: ' "$WORK/native-jni-ime-test-1.log" | sed -n '2,13p')
+  if [[ "$got" == "$(sed -n '2,13p' fixtures/expected/native-jni-ime-test.logcat)" ]]; then
+    ok "  native-jni-ime-test's JNI answers are Android 15's, 12 lines"
+  else
+    fail "  native-jni-ime-test's JNI answers are not Android 15's:"
+    diff <(sed -n '2,13p' fixtures/expected/native-jni-ime-test.logcat) <(echo "$got") | sed 's/^/      | /' || true
+  fi
+fi
 
 # The keyboard's delete key in an empty SDL field (ime-surrounding-test-delete, as Ren'Py's empty name field):
 # Android's keyboard still calls deleteSurroundingText(1, 0) with nothing before the cursor, which SDL2 turns into

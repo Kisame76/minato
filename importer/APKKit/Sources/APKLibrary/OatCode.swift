@@ -98,10 +98,10 @@ extension Library {
 }
 
 extension LibraryPaths {
-    /// Whether compile mode compiles the app after its session (E5): an app with Java code, which has no compiled code
-    /// for the boot class path `bootClassPath` and whose compile did not fail for it.
+    /// Whether compile mode compiles the app after its session (E5): an app on the Java path, which has no compiled
+    /// code for the boot class path `bootClassPath` and whose compile did not fail for it.
     public func needsCompiling(_ entry: LibraryEntry, bootClassPath: String) -> Bool {
-        guard case .art = entry.report?.runtime, entry.compileFailed != bootClassPath else { return false }
+        guard entry.report?.startsOnJavaPath == true, entry.compileFailed != bootClassPath else { return false }
         return oatFolders(for: entry, bootClassPath: bootClassPath) == nil
     }
 

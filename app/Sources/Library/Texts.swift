@@ -445,8 +445,9 @@ enum Texts {
         "\(version >> 22).\((version >> 12) & 0x3FF)"
     }
 
-    static func runtime(_ runtime: APKReport.Runtime) -> String {
-        switch runtime {
+    static func runtime(_ report: APKReport) -> String {
+        switch report.runtime {
+        case .nativeActivity(let library) where report.startsOnJavaPath: "NativeActivity (lib\(library).so) with Java"
         case .nativeActivity(let library): "NativeActivity (lib\(library).so), no Java"
         case .art: "Java/Kotlin"
         }
