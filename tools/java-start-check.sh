@@ -1366,9 +1366,16 @@ uitests_build() {
     local destination="generic/platform=iOS Simulator"
     [[ "$ON_DEVICE" != yes ]] || destination="generic/platform=iOS"
     # The project as project.yml has it now, with the runner's target and the team that signs it (tools/gen.sh).
-    if tools/gen.sh > "$WORK/uitests-build.log" 2>&1 && xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
+    if tools/gen.sh > "$WORK/uitests-build.log" 2>&1 &&
+        xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
         -derivedDataPath "$UITESTS" -allowProvisioningUpdates -quiet >> "$WORK/uitests-build.log" 2>&1; then
       uitests_built=yes
+    elif grep -q -E "No Accounts|No Account for Team|requires a development team" "$WORK/uitests-build.log"; then
+      # Xcode signs the runner for the iPhone with the account signed in to it; without one its rounds cannot run.
+      # Not a test's failure, but no pass either: the run still ends with exit 1.
+      uitests_built=noaccount
+      echo "skipped  the UI test runner needs an Xcode account (Xcode > Settings > Accounts); its rounds do not run"
+      failures=$((failures + 1))
     else
       uitests_built=no
       fail "  the UI test runner did not build: $(grep -m 1 'error:' "$WORK/uitests-build.log")"
@@ -2095,7 +2102,8 @@ fi
 # Android's keyboard still calls deleteSurroundingText(1, 0) with nothing before the cursor, which SDL2 turns into
 # the game's backspace (fixtures/expected/ime-surrounding-test-delete.logcat, LatinIME on apk-runner-35). The
 # MinatoUITests runner taps UIKit's delete key once the keyboard is up; the app's log must be Android 15's.
-if wanted ime-surrounding-test-delete; then
+# Without an Xcode account for the runner the round is skipped with uitests_build's line, before the app starts.
+if wanted ime-surrounding-test-delete && { uitests_build || [[ "$uitests_built" != noaccount ]]; }; then
   if begin_start ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete 1; then
     if await_line guest-log '^I/ime-surrounding-test-delete: showSoftInput true$' 120 &&
         await_event 'keyboard show\(' 20 && uitests_build && uitest testKeyboardDelete 1; then
