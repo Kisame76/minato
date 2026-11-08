@@ -4,6 +4,7 @@
 #include "descriptors.h"
 #include "guest_context.h"
 #include "audio.h"
+#include "memory_watermark.h"
 #include "permissions.h"
 #include "stall_watchdog.h"
 #include "syscalls.h"
@@ -1320,6 +1321,10 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     std::memset(reinterpret_cast<char *>(&described.configuration) + fields, 0, sizeof described.configuration - fields);
     read_end = ends[0];
     write_end = ends[1];
+    // Game mode (MINATO_LOADER_LOG) logs the memory picture at 1 Hz and at each OS memory-pressure warning from here
+    // on, even though the app does not call apkrt_report_memory_to; the lines survive a jetsam kill
+    // (memory_watermark.h).
+    if (::getenv("MINATO_LOADER_LOG") != nullptr) apkrt::memory::start_instrument();
     begun.store(true, std::memory_order_release);
     return 0;
 }
@@ -1374,6 +1379,9 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
         // surface's back before the app hears of the trim.
         if (a0 >= 20) apkrt::windows::trim_buffers();
     }
+    // A memory warning (onLowMemory): the 1 Hz instrument's richer line now, so the session log shows the memory
+    // picture at the warning even when no trim follows (seen on the iPhone: warnings but no trim lines).
+    if (type == APKRT_EVENT_LOW_MEMORY) apkrt::memory::log_instrument(true);
     // The answer to a pick request frees its ID, also when the post fails: the request is over.
     if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
     if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);

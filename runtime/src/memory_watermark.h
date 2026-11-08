@@ -38,8 +38,40 @@ void write_now(int descriptor, bool warning);
 
 /// apkrt_report_memory_to: keeps `descriptor` as the slot, writes a first block at once, and -- once per process --
 /// starts a 1 Hz dispatch timer and a DISPATCH_SOURCE_TYPE_MEMORYPRESSURE source that call write_now (the timer with
-/// warning false, the pressure source with true). -1 turns the writing off (the sources, started once, then write
-/// nothing). One game per process, so the sources are never cancelled.
+/// warning false, the pressure source with true) and log_instrument. -1 turns the block writing off (the sources,
+/// started once, then write no block). One game per process, so the sources are never cancelled.
 void report_to(int descriptor);
+
+/// One reading for the 1 Hz / memory-warning instrument (ADR-0032 decision 8, the session-log half): the process's
+/// footprint split from TASK_VM_INFO, and the guest's mapped bytes by backing. All in bytes.
+struct Instrument {
+    std::uint64_t footprint = 0;   // phys_footprint: what iOS counts against the app's limit (the jetsam metric)
+    std::uint64_t internal = 0;    // anonymous dirty bytes (malloc, the allocator, engine buffers)
+    std::uint64_t compressed = 0;  // bytes the compressor holds (anonymous, paged out under pressure)
+    std::uint64_t external = 0;    // file-backed resident bytes
+    std::uint64_t graphics = 0;    // ledger_tag_graphics_footprint: GPU memory (IOSurface, Metal)
+    std::uint64_t media = 0;       // ledger_tag_media_footprint
+    std::uint64_t anon = 0;        // the guest's (VM tag 0) anonymous mapped bytes (Scudo's regions are here)
+    std::uint64_t file = 0;        // the guest's (VM tag 0) file-backed mapped bytes
+};
+
+/// Samples the Instrument now: task_info for the footprint split, a VM-region walk for the guest's mapped bytes. Safe
+/// to call from any thread; no allocation.
+Instrument sample_instrument();
+
+/// Formats the instrument line into out[0..size):
+/// "I/apkrt   : mem foot=.. int=.. comp=.. ext=.. gfx=.. media=.. anon=.. file=..[ warn]\n", every byte field in MiB,
+/// with " warn" when `warning`. Returns the length, or 0 if it would not fit. No allocation.
+std::size_t format_instrument(const Instrument &reading, bool warning, char *out, std::size_t size);
+
+/// Writes the instrument line to the session log (fd 2) with one write(2) -- so the lines survive a jetsam kill -- only
+/// when MINATO_LOADER_LOG is set (the figures are machine-dependent and would break the byte-compared fixtures; the app
+/// sets the env in game mode). `warning` marks a memory-pressure / low-memory line. No allocation; safe off any thread.
+void log_instrument(bool warning);
+
+/// Starts the 1 Hz timer and the memory-pressure source so log_instrument fires every second and at each OS warning,
+/// without the block writing of report_to. Game mode calls it at session start (gated by MINATO_LOADER_LOG), so the
+/// memory picture reaches the session log even though the app does not call apkrt_report_memory_to. Once per process.
+void start_instrument();
 
 }  // namespace apkrt::memory
