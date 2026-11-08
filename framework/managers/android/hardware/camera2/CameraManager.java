@@ -16,6 +16,11 @@ import java.util.concurrent.Executor;
 class CameraManager {
     private final Context mContext;
 
+    /** @hide AOSP's: what CameraCharacteristics listens with for the device's fold state (ADR-0073 step a). */
+    public interface DeviceStateListener {
+        void onDeviceStateChanged(boolean folded);
+    }
+
     /** @hide SystemServiceRegistry's, with the context it builds the manager for. */
     public CameraManager(Context context) {
         mContext = context;

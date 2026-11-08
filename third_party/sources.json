@@ -702,6 +702,22 @@
       "digest": "bfa32365863ac3ed0f59e918899731d6fe2168f50d58bd9c567eb754e9406283"
     },
     {
+      "name": "system_media_camera",
+      "comment": "libcamera_metadata and its tag tables (ADR-0073 decision 4, step a), under CameraMetadataNative's natives",
+      "project": "platform/system/media",
+      "commit": "0287f16fc74c607c04a9570ee3ae914e1285cd2c",
+      "license": "Apache-2.0",
+      "directories": [
+        "camera/include"
+      ],
+      "files": [
+        "camera/src/camera_metadata.c",
+        "camera/src/camera_metadata_tag_info.c",
+        "NOTICE"
+      ],
+      "digest": "1a17eb472d44f1e9f49c6cb55c0d5ed25af5445294927b55e2ead54f569eebaf"
+    },
+    {
       "name": "frameworks_base_types",
       "project": "platform/frameworks/base",
       "commit": "4e43ad12e1b211f15152e9c5b16b0fe88e6b93f3",

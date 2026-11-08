@@ -98,6 +98,18 @@ target_include_directories(cutils PUBLIC "${core}/libcutils/include" "${core}/li
 soong_module(cutils FLAGS -Wall -Wextra -Werror -Wno-unused-parameter)
 target_link_libraries(cutils PUBLIC base guest_log)
 
+# libcamera_metadata (system/media; ADR-0073 decision 4, step a), as its Android.bp builds it: camera_metadata.c,
+# which includes the tag tables' camera_metadata_tag_info.c, under CameraMetadataNative's natives. The vendor ID
+# functions' header, which system/media keeps private, is ours (native/camera_metadata).
+if(NOT EXISTS "${SOURCES}/system_media_camera")
+  message(FATAL_ERROR "No ${SOURCES}/system_media_camera: run tools/fetch-sources.py --set framework")
+endif()
+add_library(camera_metadata STATIC "${SOURCES}/system_media_camera/camera/src/camera_metadata.c")
+target_include_directories(camera_metadata PUBLIC "${SOURCES}/system_media_camera/camera/include"
+                           native/camera_metadata PRIVATE "${SOURCES}/system_media_camera/camera/src")
+soong_module(camera_metadata FLAGS -Wall -Wextra -Werror -fvisibility=hidden -std=c99)
+target_link_libraries(camera_metadata PUBLIC cutils guest_log)
+
 # libutils with libutils_binder.
 sources_in(utils_sources "${core}/libutils"
   FileMap.cpp JenkinsHash.cpp LightRefBase.cpp NativeHandle.cpp Printer.cpp StopWatch.cpp SystemClock.cpp Threads.cpp
@@ -348,6 +360,7 @@ add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${
             native/android_runtime/android_media_MediaPlayer.cpp native/android_runtime/ogg_wav.cpp
             native/android_runtime/opus_wav.cpp native/android_runtime/vorbis_wav.cpp
             native/android_runtime/android_hardware_camera2_utils_SurfaceUtils.cpp
+            native/android_runtime/android_hardware_camera2_CameraMetadata.cpp
             "${SOURCES}/frameworks_native_graphics/libs/ui/PublicFormat.cpp"
             "${SOURCES}/frameworks_native_etc1/opengl/libs/ETC1/etc1.cpp"
             native/android_runtime/android_hardware_Camera.cpp
@@ -385,6 +398,7 @@ soong_module(android_runtime FLAGS -Wno-unused-parameter -Wno-non-virtual-dtor -
   $<$<COMPILE_LANGUAGE:CXX>:-Wno-conversion-null>)
 target_link_options(android_runtime PRIVATE -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384)
 target_link_libraries(android_runtime PUBLIC utils PRIVATE androidfw art_libnativehelper guest_log hwui EGL GLESv1_CM
+                      camera_metadata
                       GLESv2 GLESv3 nativewindow input sqlite aaudio mediandk jnigraphics)
 
 # app_process registers libandroid_runtime's natives with register_framework_natives, so it links the library, as

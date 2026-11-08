@@ -1,0 +1,20 @@
+I/camera-metadata-test: empty: true, entries 0
+I/camera-metadata-test: entries after 11 keys: 11, empty false
+I/camera-metadata-test: set: facing 1, pipeline depth 8, max frame duration 333333333, flash true
+I/camera-metadata-test: set: apertures [1.78], exposure [13611, 1000000000], fps [[15, 30], [30, 30]]
+I/camera-metadata-test: set: pixel array 4032x3024, physical 5.76x4.32, active Rect(0, 0 - 4032, 3024), step 1/6
+I/camera-metadata-test: entries after 14 keys: 14
+I/camera-metadata-test: apertures grown: [1.78, 2.2, 2.8, 4.0]
+I/camera-metadata-test: copy: entries 14, orientation 270, the original's 90
+I/camera-metadata-test: update: facing 0, orientation 180, entries 14
+I/camera-metadata-test: move: facing 0, the source empty true
+I/camera-metadata-test: removed: orientation null, entries 13
+I/camera-metadata-test: tag of android.lens.facing 0x80005, type 0
+I/camera-metadata-test: tag of android.sensor.info.pixelArraySize 0xf0006
+I/camera-metadata-test: no such key: Could not find tag for key 'android.lens.noSuchKey')
+I/camera-metadata-test: parcel: entries 14
+I/camera-metadata-test: parcel: facing 1, pipeline depth 8, max frame duration 333333333, flash true
+I/camera-metadata-test: parcel: apertures [1.78, 2.2, 2.8, 4.0], exposure [13611, 1000000000], fps [[15, 30], [30, 30]]
+I/camera-metadata-test: parcel: pixel array 4032x3024, physical 5.76x4.32, active Rect(0, 0 - 4032, 3024), step 1/6
+I/camera-metadata-test: dumped
+I/camera-metadata-test: done

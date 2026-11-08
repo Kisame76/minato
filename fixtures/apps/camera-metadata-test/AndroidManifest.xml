@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0073 step a1's test of camera2's metadata (camera-metadata-test): CameraMetadataNative's natives over
+     libcamera_metadata, in Minato only (the class is hidden API, which Android 15 refuses an app). The launcher
+     activity is the framework's own android.app.Activity. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.camerametadata" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <application android:label="Camera Metadata Test"
+      android:name="io.github.kisame76.minato.test.camerametadata.MetadataApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
