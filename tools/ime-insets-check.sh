@@ -27,7 +27,10 @@ tools/build-framework.sh >/dev/null
 
 for app in ime-insets-test ime-insets-test-34; do
   tools/build-java-test-app.sh "$app" >/dev/null
-  python3 framework/tests/java_app_run.py \
+  # The fixture input method's window reports no visible insets on Android 15 (dumpsys window: mGivenVisibleInsets
+  # 0, as LatinIME's are its keyboard's top), so Android pans no adjustPan window for it: the host's keyboard gives
+  # no visible frame either. ime-pan-test checks the pan with a keyboard that gives one, as UIKit's always does.
+  MINATO_IME_VISIBLE_FRAME=none python3 framework/tests/java_app_run.py \
     --lifecycle start \
     "$app" io.github.kisame76.minato.test.imeinsets android.app.Application \
     build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \

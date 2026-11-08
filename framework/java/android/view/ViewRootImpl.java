@@ -144,6 +144,12 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     private boolean mTakenRedrawNeeded;
     private boolean mTakenLayoutPending;
     int mCurScrollY;
+    // As AOSP's pan (scrollToRectOrFocus): the scroll that keeps the focused view clear of the keyboard, the focus it
+    // was made for, and whether a layout or the keyboard has changed since.
+    private int mScrollY;
+    private boolean mScrollMayChange;
+    private WeakReference<View> mLastScrolledFocus;
+    private final Rect mVisRect = new Rect();
     /** As AOSP's: what the next draw redraws, in the window's pixels; invalidateRectOnScreen unions into it. */
     final Rect mDirty = new Rect();
     /** As AOSP's: a traversal runs, which draws what is invalidated meanwhile without another one. */
@@ -511,7 +517,15 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** As AOSP's: new attributes take effect at the next traversal. */
     void setLayoutParams(WindowManager.LayoutParams attrs, boolean newView) {
         synchronized (this) {
+            final int oldSoftInputMode = mWindowAttributes.softInputMode;
             mWindowAttributes.copyFrom(attrs);
+            // As AOSP's: an unspecified adjustment keeps the one last resolved.
+            if ((attrs.softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+                    == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_UNSPECIFIED) {
+                mWindowAttributes.softInputMode = (mWindowAttributes.softInputMode
+                        & ~WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+                        | (oldSoftInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST);
+            }
             mLayoutRequested = true;
             mWindowAttributesChanged = true;
             scheduleTraversals();
@@ -599,9 +613,14 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         if (mSurfaceHolder != null) {
             tellTakenSurface();
         }
+        if (first || mAttachInfo.mViewVisibilityChanged) {
+            mAttachInfo.mViewVisibilityChanged = false;
+            resolveSoftInputAdjust();
+        }
         boolean triggerGlobalLayoutListener = false;
         if (mLayoutRequested) {
             mLayoutRequested = false;
+            mScrollMayChange = true;
             final WindowManager.LayoutParams lp = mWindowAttributes;
             int width;
             int height;
@@ -1106,6 +1125,12 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mAttachInfo.mViewScrollChanged = false;
             mAttachInfo.mTreeObserver.dispatchOnScrollChanged();
         }
+        // As AOSP's: the pan for the focused view first, without its Scroller's animation.
+        scrollToRectOrFocus(null, false);
+        if (mCurScrollY != mScrollY) {
+            mCurScrollY = mScrollY;
+            fullRedrawNeeded = true;
+        }
         final float appScale = mAttachInfo.mApplicationScale;
         final boolean scalingRequired = mAttachInfo.mScalingRequired;
         final Rect dirty = mDirty;
@@ -1203,6 +1228,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * hidden.
      */
     static volatile int sImeBottom;
+    /** The keyboard gives no visible frame (WindowManagerGlobal.dispatchImeInsets): no pan can show the focus. */
+    static volatile boolean sImeNoVisibleFrame;
 
     /** A window's insets: the metrics' and the keyboard's, which only windows get (WindowMetrics leaves ime() out). */
     private static WindowInsets windowInsets() {
@@ -1223,6 +1250,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     void imeInsetsChanged() {
         mHandler.post(() -> {
             mApplyInsetsRequested = true;
+            mScrollMayChange = true;
             scheduleTraversals();
         });
     }
@@ -1563,15 +1591,116 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
     }
 
-    /** No window scrolls on Minato yet, so no rectangle needs one. */
-    /**
-     * As AOSP's adjustPan would scroll the window for it; not here (ADR-0068 step 2d): Android 15 on the emulator does
-     * not move this window's content when the keyboard comes, as ime-insets-test logs for target 34 (content not
-     * panned), so there is nothing to match, and the cause is not found. mCurScrollY stays 0.
-     */
+    /** As AOSP's: the window pans for the rectangle, in the child's coordinates, when the keyboard covers it. */
     @Override
     public boolean requestChildRectangleOnScreen(View child, Rect rectangle, boolean immediate) {
-        return false;
+        if (rectangle == null) {
+            return scrollToRectOrFocus(null, immediate);
+        }
+        rectangle.offset(child.getLeft() - child.getScrollX(), child.getTop() - child.getScrollY());
+        return scrollToRectOrFocus(rectangle, immediate);
+    }
+
+    /**
+     * As AOSP's performTraversals for a window whose adjustment is unspecified, at its first traversal and when a
+     * view's visibility changed: SOFT_INPUT_ADJUST_RESIZE when a scroll container is shown, SOFT_INPUT_ADJUST_PAN
+     * otherwise.
+     */
+    private void resolveSoftInputAdjust() {
+        final WindowManager.LayoutParams lp = mWindowAttributes;
+        if ((lp.softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+                != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_UNSPECIFIED) {
+            return;
+        }
+        int resizeMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+        for (View container : mAttachInfo.mScrollContainers) {
+            if (container.isShown()) {
+                resizeMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
+            }
+        }
+        lp.softInputMode = (lp.softInputMode & ~WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST) | resizeMode;
+    }
+
+    /**
+     * As AOSP's adjustPan (scrollToRectOrFocus, android-15.0.0_r1), measured with ime-pan-test on apk-runner-35: a
+     * window that pans moves its drawing up so far that the focused view, or `rectangle`, clears the keyboard, and
+     * back down once it is clear or the keyboard has gone. Its visible insets are the keyboard's part of the window
+     * (as InsetsState.calculateVisibleInsets), its content insets none; a window that resizes or adjusts nothing does
+     * not pan. Views keep their coordinates; the canvas and the touches move by mCurScrollY. No Scroller animation.
+     */
+    boolean scrollToRectOrFocus(Rect rectangle, boolean immediate) {
+        if (mView == null) {
+            return false;
+        }
+        final int adjust = mWindowAttributes.softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST;
+        final boolean pans = adjust == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                || adjust == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_UNSPECIFIED;
+        final int covered = pans ? keyboardOverWindow() : 0;
+        int scrollY = 0;
+        boolean handled = false;
+        if (covered > 0) {
+            scrollY = mScrollY;
+            final View focus = mView.findFocus();
+            if (focus == null) {
+                return false;
+            }
+            final View lastScrolledFocus = mLastScrolledFocus != null ? mLastScrolledFocus.get() : null;
+            if (focus != lastScrolledFocus) {
+                rectangle = null;
+            }
+            if (focus != lastScrolledFocus || mScrollMayChange || rectangle != null) {
+                mLastScrolledFocus = new WeakReference<>(focus);
+                mScrollMayChange = false;
+                if (focus.getGlobalVisibleRect(mVisRect, null)) {
+                    if (rectangle == null) {
+                        focus.getFocusedRect(mTempRect);
+                        if (mView instanceof ViewGroup) {
+                            ((ViewGroup) mView).offsetDescendantRectToMyCoords(focus, mTempRect);
+                        }
+                    } else {
+                        mTempRect.set(rectangle);
+                    }
+                    if (mTempRect.intersect(mVisRect)) {
+                        final int visibleBottom = mView.getHeight() - covered;
+                        if (mTempRect.height() > visibleBottom) {
+                            // Too tall to fit: left as it is.
+                        } else if (mTempRect.top < 0) {
+                            scrollY = mTempRect.top;
+                        } else if (mTempRect.bottom > visibleBottom) {
+                            scrollY = mTempRect.bottom - visibleBottom;
+                        } else {
+                            scrollY = 0;
+                        }
+                        handled = true;
+                    }
+                }
+            }
+        }
+        if (scrollY != mScrollY) {
+            mScrollY = scrollY;
+            invalidate();
+        }
+        return handled;
+    }
+
+    /** The keyboard's height over this window's frame, in its pixels; the host's keyboard rises from the bottom. */
+    private int keyboardOverWindow() {
+        final int ime = sImeBottom;
+        if (ime <= 0) {
+            return 0;
+        }
+        final Point size = new Point();
+        mDisplay.getRealSize(size);
+        if (mHostWidth > 0 && mHostHeight > 0) {
+            size.set(mHostWidth, mHostHeight);
+        }
+        final int bottom = mWinFrame.isEmpty() ? size.y : mWinFrame.bottom;
+        // An input method window without visible insets is a visible frame of its whole window (AOSP's
+        // InsetsSource.calculateVisibleInsets), which leaves no room for the focus: scrollToRectOrFocus's "too tall".
+        if (sImeNoVisibleFrame) {
+            return bottom;
+        }
+        return Math.max(0, Math.min(ime, bottom - (size.y - ime)));
     }
 
     /** Accessibility is off on Minato (ADR-0041 decision 2), so no event goes anywhere. */

@@ -191,6 +191,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "notify-test-granted io.github.kisame76.minato.test.notifygranted"
       "notify-tap-test io.github.kisame76.minato.test.notifytap"
       "ime-engines-test io.github.kisame76.minato.test.imeengines"
+      "ime-pan-test io.github.kisame76.minato.test.imepan" "ime-pan-test-34 io.github.kisame76.minato.test.imepan34"
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
@@ -2097,6 +2098,47 @@ sys.exit(failed)
 PY
     failures=$((failures + 1))
 fi
+
+# A field at the window's bottom under the keyboard (ime-pan-test, target 35, and ime-pan-test-34): its window's
+# soft input mode unspecified, adjustPan and adjustResize in turn, the keyboard up for 4 s in each. A screenshot at
+# each "<mode> shown" must show the magenta field above the keyboard, or not, as apk-runner-35's screenshots do with
+# LatinIME: panned for unspecified and pan, covered for resize at target 35 (edge to edge), resized at target 34.
+pan_round() {
+  local app=$1 package=$2 wanted=$3 mode verdict want
+  wanted "$app" || return 0
+  if begin_start "$app" "$package" 1; then
+    for mode in unspecified pan resize; do
+      if await_line guest-log "^I/$app: $mode shown$" 60; then
+        capture "$WORK/$app-$mode.png"
+        verdict=$(python3 - "$WORK/$app-$mode.png" <<'PY'
+import sys
+sys.path.insert(0, "tools")
+from window_pixels import read_png
+
+width, height, rows, _ = read_png(sys.argv[1])
+# The field's magenta (sRGB 255,0,255; Display P3 about 234,51,247): seen when a row holds enough of it.
+seen = sum(1 for row in rows if sum(1 for i in range(0, len(row), 16)
+                                    if row[i] > 180 and row[i + 1] < 110 and row[i + 2] > 180) > width // 16)
+print("visible" if seen >= 10 else "covered")
+PY
+)
+        want=$(echo "$wanted" | tr ' ' '\n' | grep "^$mode=" | cut -d= -f2)
+        if [[ "$verdict" == "$want" ]]; then
+          ok "  $app $mode: the field is $verdict, as on Android 15"
+        else
+          fail "  $app $mode: the field is $verdict, Android 15: $want"
+        fi
+      else
+        failed_line "no \"$mode shown\"" "$app-1"
+        break
+      fi
+    done
+    await_line guest-log "^I/$app: done$" 30 || true
+  fi
+  end_start "$app" 1
+}
+pan_round ime-pan-test io.github.kisame76.minato.test.imepan "unspecified=visible pan=visible resize=covered"
+pan_round ime-pan-test-34 io.github.kisame76.minato.test.imepan34 "unspecified=visible pan=visible resize=visible"
 
 # The keyboard's delete key in an empty SDL field (ime-surrounding-test-delete, as Ren'Py's empty name field):
 # Android's keyboard still calls deleteSurroundingText(1, 0) with nothing before the cursor, which SDL2 turns into

@@ -294,7 +294,10 @@ enum apkrt_event_type {
                                           // Android broadcast does not
     APKRT_EVENT_IME_INSETS,               // the soft keyboard's height (ADR-0068 step 2d): a0 the part of the session's
                                           // view that the keyboard covers, from its top edge to the view's bottom, in
-                                          // the session's pixels (0 when it is hidden); a1, a2 0. The host posts it
+                                          // the session's pixels (0 when it is hidden); a1 1 for a keyboard that gives
+                                          // no visible frame, as an input method whose window reports no visible
+                                          // insets on Android (no adjustPan then), else 0, as UIKit's always; a2 0.
+                                          // The host posts it
                                           // whenever the keyboard's frame changes (UIKit's keyboard notifications,
                                           // apk-run's model), also while it moves (the last value counts); the guest
                                           // makes the ime() inset of every window from the last one

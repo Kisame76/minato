@@ -236,12 +236,15 @@ public final class WindowManagerGlobal {
 
     /**
      * The soft keyboard's height in the session's pixels (ADR-0068 step 2d, APKRT_EVENT_IME_INSETS): the ime() inset
-     * of every window, which asks its views to apply their insets again.
+     * of every window, which asks its views to apply their insets again. {@code noVisibleFrame}: the keyboard gives no
+     * visible frame, so the whole of it counts as covering the window, as Android's InsetsSource takes an input
+     * method's window frame where its window reports no visible insets.
      */
-    public void dispatchImeInsets(int bottom) {
+    public void dispatchImeInsets(int bottom, boolean noVisibleFrame) {
         final ArrayList<ViewRootImpl> roots;
         synchronized (mLock) {
             ViewRootImpl.sImeBottom = Math.max(bottom, 0);
+            ViewRootImpl.sImeNoVisibleFrame = noVisibleFrame;
             roots = new ArrayList<>(mRoots);
         }
         for (ViewRootImpl root : roots) {

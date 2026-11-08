@@ -1564,7 +1564,7 @@ public final class ActivityThread {
                 break;
             case EVENT_IME_INSETS:
                 // The soft keyboard's height (ADR-0068 step 2d): every window's ime() inset follows it.
-                WindowManagerGlobal.getInstance().dispatchImeInsets((int) event[2]);
+                WindowManagerGlobal.getInstance().dispatchImeInsets((int) event[2], event[3] != 0);
                 break;
             case EVENT_BACK:
                 // The system's back (ADR-0041 decision 10), for the window that has the focus.

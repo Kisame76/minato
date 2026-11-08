@@ -87,6 +87,8 @@
 //               move to <x>, <y> by <dx>, <dy>, the buttons held after a press or release as
 //               AMOTION_EVENT_BUTTON_* (1 primary, 2 secondary, 4 tertiary, 8 back, 16 forward), a scroll in lines
 //               (positive up and left), the pointer's leaving the window;
+//               With MINATO_IME_VISIBLE_FRAME=none in its environment the keyboard gives no visible frame
+//               (APKRT_EVENT_IME_INSETS a1 1), as a fixture input method whose window reports no visible insets;
 //   imehide     (ADR-0068, the keyboard reopen bug) the user hides the keyboard: APKRT_EVENT_IME_HIDDEN, then
 //               APKRT_EVENT_IME_INSETS 0 as UIKit's keyboard frame would make the host post it;
 //   turn:<width>:<height>  the display turns: the window takes the new size in px, as the App plays a turn
@@ -724,7 +726,9 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
         if (request.compare(0, 5, "start") == 0) ime_serial.store(argument);
         // The model of UIKit's keyboard, whose frame the App reports as the keyboard's height (ADR-0068 step 2d): the
         // portrait keyboard of an iPhone 15 Pro Max with its home indicator, 335 points at scale 3.
-        if (request == "show") apkrt_session_post(APKRT_EVENT_IME_INSETS, 1005, 0, 0);
+        const char *frame = std::getenv("MINATO_IME_VISIBLE_FRAME");
+        const std::uint64_t no_frame = frame != nullptr && std::string(frame) == "none" ? 1 : 0;
+        if (request == "show") apkrt_session_post(APKRT_EVENT_IME_INSETS, 1005, no_frame, 0);
         if (request == "hide") apkrt_session_post(APKRT_EVENT_IME_INSETS, 0, 0, 0);
         return;
     }

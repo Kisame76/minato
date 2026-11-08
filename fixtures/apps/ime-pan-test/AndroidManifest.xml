@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ime-pan-test (ADR-0068, a field at the bottom and the keyboard): a field at the window's bottom with the
+     window's soft input mode unspecified, adjustPan and adjustResize in turn, the keyboard held up for a while in each,
+     so that a screenshot shows whether the field stays above it. Target 35. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.imepan" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.imepan.PanActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="stateHidden">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

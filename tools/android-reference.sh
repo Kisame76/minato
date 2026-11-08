@@ -1188,6 +1188,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity
       ;;
+    # ime-pan-test and ime-pan-test-34 (a field at the bottom under the keyboard, targets 35 and 34): the image's own
+    # keyboard, held up in each soft input mode; ends with "done".
+    ime-pan-test|ime-pan-test-34)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.imepan.PanActivity
+      ;;
     ime-surrounding-test-return)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity
