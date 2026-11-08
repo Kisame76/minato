@@ -1,0 +1,5 @@
+file at a 16K offset: mapped, bytes match, mprotect 0, munmap 0
+file at a 4K offset: mapped, bytes match, mprotect 0, munmap 0
+file at an 8K offset: mapped, bytes match, mprotect 0, munmap 0
+APK stored asset at a 4K offset: mapped, bytes match, mprotect 0, munmap 0
+done

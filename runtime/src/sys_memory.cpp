@@ -11,7 +11,9 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -62,6 +64,75 @@ void move_shared(std::uint64_t from, std::uint64_t old_length, std::uint64_t to,
     forget_shared(to, to + new_length);
     shared_mappings.insert(shared_mappings.end(), moved.begin(), moved.end());
 }
+
+/// A file mapping the guest asked for at an offset aligned to 4 KiB but not to the host's 16 KiB page, as a guest that
+/// hard-codes 4 KiB alignment maps an uncompressed APK/OBB entry (ADR-0007 change, 2026-11-07). Darwin's mmap refuses
+/// such an offset with EINVAL, so engines fall back to reading the whole file into anonymous memory -- a huge blow-up.
+/// The runtime maps the 16 KiB-aligned region [host_begin, host_end) at the aligned offset and hands the guest
+/// host_begin + delta; this table keeps the real host range so munmap, mprotect, msync, madvise and /proc/self/maps act
+/// on whole host pages. Apart from one another; under memory_lock. (Deliberately more permissive than a 16 KiB Android
+/// device, which also refuses it, because the apps run on 4 KiB Android.)
+struct OffsetMapping {
+    std::uint64_t host_begin;  // page-aligned real start of the host mapping
+    std::uint64_t host_end;    // page-aligned real end
+    std::uint64_t delta;       // guest address = host_begin + delta (0 < delta < page)
+};
+std::vector<OffsetMapping> offset_mappings;
+
+/// Drops the emulated mappings' parts in [begin, end), as proc::unmap's names go: a head keeps its delta,
+/// a tail starts at the page boundary `end` (delta 0). Under memory_lock.
+void forget_offset(std::uint64_t begin, std::uint64_t end) {
+    std::vector<OffsetMapping> kept;
+    for (const auto &mapping : offset_mappings) {
+        if (mapping.host_end <= begin || mapping.host_begin >= end) {
+            kept.push_back(mapping);
+            continue;
+        }
+        if (mapping.host_begin < begin) kept.push_back({mapping.host_begin, begin, mapping.delta});
+        if (mapping.host_end > end) kept.push_back({end, mapping.host_end, 0});
+    }
+    offset_mappings = std::move(kept);
+}
+
+/// The real host range a guest VM op should act on: if [address, address + length) begins inside an emulated file
+/// mapping, whole host pages clamped to that mapping's host bounds (so the op covers the delta-front page and never
+/// spills into a neighbour); otherwise the range unchanged. Under memory_lock.
+struct HostRange {
+    std::uint64_t address;
+    std::uint64_t length;
+};
+HostRange to_host_range(std::uint64_t address, std::uint64_t length) {
+    const std::uint64_t page = vm_page_size;
+    for (const auto &mapping : offset_mappings) {
+        if (address >= mapping.host_begin + mapping.delta && address < mapping.host_end) {
+            const std::uint64_t begin = address & ~(page - 1);  // the delta is below the page, so begin >= host_begin
+            std::uint64_t end;
+            if (length == 0) {
+                end = begin;
+            } else if (length > ~std::uint64_t{0} - address) {
+                end = mapping.host_end;  // the length overflows: clamp to the mapping
+            } else {
+                end = (address + length + page - 1) & ~(page - 1);
+            }
+            if (end > mapping.host_end) end = mapping.host_end;
+            if (end < begin) end = begin;
+            return {begin, end - begin};
+        }
+    }
+    return {address, length};
+}
+
+/// Writes `line` to the session log once per process (the first caller wins), only when MINATO_LOADER_LOG is set, as
+/// the loader's scudo line and session.cpp's trim-footprint line are: a real session (RuntimeSession.swift) sets it, so
+/// the line reaches the session log, while the byte-compared fixtures (Mac ctest and the AVD) leave it unset and
+/// stay unchanged. In normal context (under memory_lock), so a plain write() is enough; the line is in Minato's liblog
+/// form, so the exit path treats it as the runtime's own.
+void log_once(std::atomic_flag &written, const char *line, std::size_t length) {
+    if (::getenv("MINATO_LOADER_LOG") == nullptr) return;
+    if (!written.test_and_set(std::memory_order_relaxed)) static_cast<void>(::write(STDERR_FILENO, line, length));
+}
+std::atomic_flag offset_emulated_logged = ATOMIC_FLAG_INIT;
+std::atomic_flag fixed_offset_refused_logged = ATOMIC_FLAG_INIT;
 
 // Linux mmap flags (include/uapi/asm-generic/mman*.h) and protections.
 namespace linux_map {
@@ -133,6 +204,22 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
             read_only_at_most = true;
         }
     }
+    // A file offset aligned to 4 KiB but not to the host's 16 KiB page: Darwin refuses it. A fixed address cannot be
+    // shifted, so keep Linux's EINVAL there (logged once); otherwise map the 16 KiB-aligned region and hand back the
+    // address plus the delta (ADR-0007 change; recorded in offset_mappings below).
+    const std::uint64_t page = vm_page_size;
+    std::uint64_t delta = 0;
+    if (!(flags & linux_map::anonymous) && (offset & (page - 1)) != 0) {
+        if (flags & (linux_map::fixed | linux_map::fixed_noreplace)) {
+            static const char line[] = "E/apkrt: fixed file mapping at a 4K offset refused\n";
+            log_once(fixed_offset_refused_logged, line, sizeof line - 1);
+            return -linux_errno::einval;
+        }
+        delta = offset & (page - 1);
+        if (length > ~std::uint64_t{0} - delta) return -linux_errno::enomem;
+        offset -= delta;
+        length += delta;
+    }
     void *const wanted = reinterpret_cast<void *>(static_cast<std::uintptr_t>(address));
     void *const result = ::mmap(wanted, length, protection, host_flags, host_fd, static_cast<off_t>(offset));
     if (result == MAP_FAILED) return -to_linux_errno(errno);
@@ -151,8 +238,15 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
     const auto end = begin + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
     proc::unmap(begin, end);
     forget_shared(begin, end);
+    forget_offset(begin, end);
     if (description) proc::map_file(begin, end, fd, offset, type != linux_map::private_);
     if (counted) shared_mappings.push_back({begin, end, memfd_file->inode});
+    if (delta != 0) {
+        offset_mappings.push_back({begin, end, delta});
+        static const char line[] = "I/apkrt: file mapping at a 4K offset emulated\n";
+        log_once(offset_emulated_logged, line, sizeof line - 1);
+        return static_cast<long>(begin + delta);
+    }
     return static_cast<long>(begin);
 }
 
@@ -167,11 +261,14 @@ long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
         thread->deferred_unmap_length = length;
         return 0;
     }
-    const long result = result_or_error(::munmap(as_pointer<void>(address), length));
+    // An emulated 4 KiB-offset file mapping's guest address is not host-page-aligned: act on the real host range.
+    const HostRange host = to_host_range(address, length);
+    const long result = result_or_error(::munmap(as_pointer<void>(host.address), host.length));
     if (result == 0) {
-        const auto end = address + ((length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
-        proc::unmap(address, end);
-        forget_shared(address, end);
+        const auto end = host.address + ((host.length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
+        proc::unmap(host.address, end);
+        forget_shared(host.address, end);
+        forget_offset(host.address, end);
     }
     return result;
 }
@@ -199,7 +296,8 @@ long with_shared_mappings_of(const memfd::Inode &inode, const std::function<long
 long sys_mprotect(std::uint64_t address, std::uint64_t length, int protection) {
     if (auto error = check_protection(protection)) return *error;
     const std::lock_guard lock(memory_lock);
-    return result_or_error(::mprotect(reinterpret_cast<void *>(static_cast<std::uintptr_t>(address)), length, protection));
+    const HostRange host = to_host_range(address, length);  // an emulated 4 KiB-offset mapping: the real host range
+    return result_or_error(::mprotect(as_pointer<void>(host.address), host.length, protection));
 }
 
 namespace {
@@ -324,6 +422,13 @@ long sys_mremap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     new_length = page_align(new_length, page);
     if (new_length == 0) return -linux_errno::einval;
     const std::lock_guard lock(memory_lock);
+    // An emulated 4 KiB-offset file mapping (offset_mappings) cannot be moved here: its guest address is not on a host
+    // page, and its host range carries a delta the remap would lose. Refuse cleanly (EINVAL), as Linux does for a
+    // misaligned address; a guest that must grow such a mapping maps anew. The start already fails the alignment check
+    // above, but an interior 16 KiB-aligned address inside one would not.
+    for (const auto &mapping : offset_mappings) {
+        if (address >= mapping.host_begin + mapping.delta && address < mapping.host_end) return -linux_errno::einval;
+    }
     if (address > ~std::uint64_t{0} - page || !inspect(address, address + page).mapped) {
         return -linux_errno::efault;  // vma_lookup finds no mapping
     }
@@ -469,15 +574,28 @@ long sys_msync(std::uint64_t address, std::uint64_t length, int flags) {
     int host_flags = flags & (linux_async | linux_invalidate);
     if ((flags & linux_sync) != 0) host_flags |= MS_SYNC;
     if ((flags & (linux_async | linux_sync)) == 0) host_flags |= MS_ASYNC;  // Linux accepts neither; Darwin wants one
-    if ((address & (static_cast<std::uint64_t>(::getpagesize()) - 1)) != 0) return -linux_errno::einval;
     if (length == 0) return 0;
     const std::lock_guard lock(memory_lock);
+    // An emulated 4 KiB-offset file mapping: act on the real host range, whose start is on a host page. Only a mapping
+    // we did not shift must meet Linux's page-alignment rule.
+    const HostRange host = to_host_range(address, length);
+    if (host.address == address && (address & (static_cast<std::uint64_t>(::getpagesize()) - 1)) != 0) {
+        return -linux_errno::einval;
+    }
     // Linux answers ENOMEM for a range with a hole, also before it syncs the part that is mapped.
-    if (!inspect(address, address + length).mapped) return -linux_errno::enomem;
-    return result_or_error(::msync(as_pointer<void>(address), length, host_flags));
+    if (!inspect(host.address, host.address + host.length).mapped) return -linux_errno::enomem;
+    return result_or_error(::msync(as_pointer<void>(host.address), host.length, host_flags));
 }
 
 long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
+    // An emulated 4 KiB-offset file mapping: advise the real host range (its guest address is not on a host page). The
+    // scoped lock is released before the advice cases take memory_lock of their own.
+    {
+        const std::lock_guard lock(memory_lock);
+        const HostRange host = to_host_range(address, length);
+        address = host.address;
+        length = host.length;
+    }
     void *const start = as_pointer<void>(address);
     switch (advice) {
         case linux_madv::normal:

@@ -210,6 +210,10 @@ add_executable(socket-test suite/socket-test.c)
 # memory-test: every size class of the allocator, a 2 GiB window at a 4 GiB boundary and RLIMIT_STACK
 # (ADR-0035).
 add_executable(memory-test suite/memory-test.c)
+# mmap-offset-test: a file mapping at a 4 KiB-aligned (not 16 KiB-aligned) offset, as an engine makes for an
+# uncompressed APK/OBB entry; Minato emulates it so iOS's 16 KiB pages do not force a read()-into-RAM fallback
+# (ADR-0007 change).
+add_executable(mmap-offset-test suite/mmap-offset-test.c)
 # atexit-test: 2,000 handlers of __cxa_atexit, whose read-only array bionic grows with mremap (ADR-0021).
 add_executable(atexit-test suite/atexit-test.c)
 # start-test: ifunc resolvers and constructors run on the program's main thread (ADR-0028, decision 5).
