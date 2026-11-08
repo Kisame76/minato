@@ -19,24 +19,35 @@ struct RootView: View {
     @Environment(LibraryModel.self) private var library
     @Environment(SigningCoordinator.self) private var signing
     @AppStorage(RootTab.storageKey) private var tab = RootTab.library
+    @State private var tabBar = TabBarVisibility()
 
     var body: some View {
         // Only when a step by the user is needed; otherwise signing stays invisible (ADR-0023).
         SwipeTabs(selection: $tab, settingsBadge: signing.state.needsUser(next: signing.next),
-                  library: library, signing: signing)
+                  tabBarHidden: tabBar.hidden, library: library, signing: signing, tabBar: tabBar)
             .ignoresSafeArea()
     }
+}
+
+/// Whether a page hides the tab bar: Library's Select, whose bottom bar takes the tab bar's place, as in Files.
+/// SwiftUI's .toolbar(.hidden, for: .tabBar) does not reach UIKit's tab bar controller the pages sit in, so the page
+/// sets this and the controller hides its bar (setTabBarHidden).
+@Observable final class TabBarVisibility {
+    var hidden = false
 }
 
 private struct SwipeTabs: UIViewControllerRepresentable {
     @Binding var selection: RootTab
     let settingsBadge: Bool
+    let tabBarHidden: Bool
     let library: LibraryModel
     let signing: SigningCoordinator
+    let tabBar: TabBarVisibility
 
     func makeUIViewController(context: Context) -> SwipeTabBarController {
         func page(_ view: some View, _ title: String, _ symbol: String) -> UIViewController {
-            let page = UIHostingController(rootView: view.environment(library).environment(signing))
+            let page = UIHostingController(rootView: view.environment(library).environment(signing)
+                .environment(tabBar))
             page.tabBarItem = UITabBarItem(title: title, image: UIImage(systemName: symbol), selectedImage: nil)
             return page
         }
@@ -52,6 +63,9 @@ private struct SwipeTabs: UIViewControllerRepresentable {
         controller.onSelect = { index in selection = RootTab.allCases[index] }
         controller.show(RootTab.allCases.firstIndex(of: selection) ?? 1)
         controller.viewControllers?.last?.tabBarItem.badgeValue = settingsBadge ? "1" : nil
+        if controller.isTabBarHidden != tabBarHidden {
+            controller.setTabBarHidden(tabBarHidden, animated: true)
+        }
     }
 }
 
@@ -69,7 +83,7 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
     /// throughout a tab bar controller's transition on iOS 26, so a slow swipe past half the way sprang back.
     private var progress: CGFloat = 0
     /// From the swipe's start until its pages have settled, finished or sprung back. Meanwhile no other swipe starts
-    /// and a tap on the bar waits: a second transition started while one still slides left no page in the window.
+    /// and a tap on the bar is dropped: a second transition started while one still slides left no page in the window.
     private var swiping = false
     /// Whether UIKit has started the swipe's pages, and a lift that came before (a flick within one turn of the run
     /// loop): finishing or cancelling the interaction before its start left the transition paused at its start for
@@ -116,7 +130,8 @@ final class SwipeTabBarController: UITabBarController, UITabBarControllerDelegat
 
     func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard recognizer === pan else { return true }
-        guard !sliding else { return false }
+        // Nor while a page hides the bar (Library's Select): its bottom bar is the page's then.
+        guard !sliding, !isTabBarHidden else { return false }
         let velocity = pan.velocity(in: view)
         guard TabSwipe.isHorizontal(dx: velocity.x, dy: velocity.y),
               swipe.target(from: selectedIndex, translation: velocity.x) != nil,

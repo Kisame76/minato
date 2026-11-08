@@ -26,6 +26,7 @@ enum LibraryLayout: String {
 /// (AppTile), and in the manual order moving the finger drags the app into another place.
 struct LibraryView: View {
     @Environment(LibraryModel.self) private var model
+    @Environment(TabBarVisibility.self) private var tabBar
     @State private var actions = TileActions()
     @State private var isImporting = false
     @State private var isSelecting = false
@@ -46,8 +47,8 @@ struct LibraryView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $query)
                 .toolbar { toolbar }
-                // Select's bottom bar takes the tab bar's place, as in Files.
-                .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
+                // Select's bottom bar takes the tab bar's place, as in Files (RootView's controller hides it).
+                .onChange(of: isSelecting) { _, selecting in tabBar.hidden = selecting }
                 // An app's APKs, or their folder, as one pick (ADR-0048, decision 1); a set of APKs in one .apks or .zip
                 // (ADR-0049 a3), in an .xapk with its OBBs (c2) or an .apkm (e), and an app's OBB on its own (d).
                 .fileImporter(isPresented: $isImporting,

@@ -36,15 +36,19 @@ if ! { tools/gen.sh > "$WORK/build.log" 2>&1 &&
   exit 1
 fi
 run=$(ls "$WORK"/runner/Build/Products/*.xctestrun | head -n 1)
+# TESTS names other classes of the runner, SelectModeUITests say (Library's Select mode; the library must hold an
+# app).
+only=()
+for test in ${TESTS:-TabSwipeUITests}; do only+=(-only-testing:"MinatoUITests/$test"); done
 TEST_RUNNER_MINATO_LIGHT=$light xcodebuild test-without-building -xctestrun "$run" -destination "id=$UDID" \
-  -only-testing:MinatoUITests/TabSwipeUITests > "$WORK/test.log" 2>&1
+  "${only[@]}" > "$WORK/test.log" 2>&1
 status=$?
 grep -o "MINATO-UITEST .*" "$WORK/test.log" | sed 's/^MINATO-UITEST/note    /'
 grep -E "^Test Case .*(passed|failed)" "$WORK/test.log" |
-  sed -E 's/^Test Case .-\[MinatoUITests.TabSwipeUITests ([^]]*)\]. /\1 /'
+  sed -E 's/^Test Case .-\[MinatoUITests\.([^]]*)\]. /\1 /'
 if [[ $status == 0 ]]; then
-  echo "ok       every page was whole after each swipe"
+  echo "ok       ${TESTS:-TabSwipeUITests} passed"
 else
-  echo "FAIL     a swipe left a broken page (or the run failed): $WORK/test.log"
+  echo "FAIL     ${TESTS:-TabSwipeUITests} failed (or the run did): $WORK/test.log"
 fi
 exit $status
