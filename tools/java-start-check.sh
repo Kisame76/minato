@@ -2202,16 +2202,24 @@ PY
 fi
 
 # A field at the window's bottom under the keyboard (ime-pan-test, target 35, and ime-pan-test-34): its window's
-# soft input mode unspecified, adjustPan and adjustResize in turn, the keyboard up for 4 s in each. A screenshot at
+# soft input mode unspecified, adjustPan and adjustResize in turn, the keyboard up for 12 s in each. A screenshot at
 # each "<mode> shown" must show the magenta field above the keyboard, or not, as apk-runner-35's screenshots do with
 # LatinIME: panned for unspecified and pan, covered for resize at target 35 (edge to edge), resized at target 34.
+# Each screenshot must fall in its mode's keyboard: from the host's "keyboard show(" event (1 s on, for its
+# animation) to its "keyboard hide", on the device's clock. A screenshot outside fails as "late capture", whatever it
+# shows; each mode's line gives the times (on the iPhone the log and the screenshot take seconds over devicectl).
 pan_round() {
-  local app=$1 package=$2 wanted=$3 mode verdict want
+  # Its own names for the times: await_line reads the caller's "seen" (bash's dynamic scope).
+  local app=$1 package=$2 wanted=$3 mode verdict want shown_at shot_start shot_end
+  local -a shots=()
   wanted "$app" || return 0
   if begin_start "$app" "$package" 1; then
     for mode in unspecified pan resize; do
       if await_line guest-log "^I/$app: $mode shown$" 60; then
+        shown_at=$SEEN
+        shot_start=$(now)
         capture "$WORK/$app-$mode.png"
+        shot_end=$(now)
         verdict=$(python3 - "$WORK/$app-$mode.png" <<'PY'
 import sys
 sys.path.insert(0, "tools")
@@ -2224,20 +2232,54 @@ seen = sum(1 for row in rows if sum(1 for i in range(0, len(row), 16)
 print("visible" if seen >= 10 else "covered")
 PY
 )
-        want=$(echo "$wanted" | tr ' ' '\n' | grep "^$mode=" | cut -d= -f2)
-        if [[ "$verdict" == "$want" ]]; then
-          ok "  $app $mode: the field is $verdict, as on Android 15"
-        else
-          fail "  $app $mode: the field is $verdict, Android 15: $want"
-        fi
+        shots+=("$mode $verdict $shown_at $shot_start $shot_end")
       else
         failed_line "no \"$mode shown\"" "$app-1"
         break
       fi
     done
-    await_line guest-log "^I/$app: done$" 30 || true
+    await_line guest-log "^I/$app: done$" 60 || true
   fi
   end_start "$app" 1
+  fetch_events
+  local shot
+  for shot in "${shots[@]}"; do
+    read -r mode verdict shown_at shot_start shot_end <<< "$shot"
+    want=$(echo "$wanted" | tr ' ' '\n' | grep "^$mode=" | cut -d= -f2)
+    # The mode's keyboard: its show is the Nth "keyboard show(" of the start, its hide the "keyboard hide" after it.
+    local index=$(( $(echo "unspecified pan resize" | tr ' ' '\n' | grep -n "^$mode$" | cut -d: -f1) ))
+    local inside
+    inside=$(python3 - "$EVENTS" "$index" "$shot_start" "$shot_end" "$shown_at" <<'PY'
+import sys
+events, index, start, end, seen = sys.argv[1], int(sys.argv[2]), *map(float, sys.argv[3:])
+shows, hides = [], []
+for line in open(events, errors="replace"):
+    fields = line.split(" ", 2)
+    if len(fields) < 3:
+        continue
+    if fields[2].startswith("keyboard show("):
+        shows.append(float(fields[0]))
+    elif fields[2].strip() == "keyboard hide":
+        hides.append(float(fields[0]))
+if len(shows) < index:
+    print("no keyboard show %d" % index)
+    sys.exit()
+up = shows[index - 1]
+down = next((hide for hide in hides if hide > up), None)
+times = "shown %.1f s after the keyboard, capture %.1f..%.1f s, keyboard down at %s" % (
+    seen - up, start - up, end - up, "%.1f s" % (down - up) if down else "never")
+print(("inside " if start >= up + 1 and down is not None and end <= down else "late ") + times)
+PY
+)
+    echo "note    $app $mode: ${inside#* }"
+    if [[ "$inside" != inside* ]]; then
+      fail "  $app $mode: late capture (${inside#* })"
+    elif [[ "$verdict" == "$want" ]]; then
+      ok "  $app $mode: the field is $verdict, as on Android 15"
+    else
+      fail "  $app $mode: the field is $verdict, Android 15: $want"
+    fi
+  done
 }
 pan_round ime-pan-test io.github.kisame76.minato.test.imepan "unspecified=visible pan=visible resize=covered"
 pan_round ime-pan-test-34 io.github.kisame76.minato.test.imepan34 "unspecified=visible pan=visible resize=visible"

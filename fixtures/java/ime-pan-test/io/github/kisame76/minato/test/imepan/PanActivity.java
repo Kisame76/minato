@@ -19,7 +19,8 @@ import android.widget.FrameLayout;
  * where the system puts the field. Ends with "done".
  */
 public class PanActivity extends Activity {
-    private static final long HOLD_MS = 4000;
+    // Long enough for an iPhone's screenshot: the check sees "shown" in the log seconds later over devicectl.
+    private static final long HOLD_MS = 12000;
     private static final long SETTLE_MS = 2000;
     private static final String[] NAMES = {"unspecified", "pan", "resize"};
     private static final int[] MODES = {WindowManager.LayoutParams.SOFT_INPUT_ADJUST_UNSPECIFIED,
