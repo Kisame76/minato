@@ -1468,6 +1468,14 @@ std::size_t landing_pads(const JumpTable &table) {
 
 }  // namespace
 
+const char *instruction_kind(std::uint32_t word) {
+    if (is_casp(word)) return "pair compare-and-swap";
+    if (is_exclusive(word)) return "exclusive access";
+    if (is_branch(word)) return "branch";
+    if (writes_stack_pointer(word) || reaches_below_stack_pointer(word)) return "stack pointer use";
+    return "other";
+}
+
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings,
           const ReadOnlyData &read_only_data, bool monitor_inside) {
     if (address % 4 != 0 || code.size() % 4 != 0) {
@@ -1688,7 +1696,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                 findings.sites.push_back({at, SiteKind::x18, guest_x18, instruction});
             }
             if (reason) {
-                findings.x18_unsupported.push_back({at, reason});
+                findings.x18_unsupported.push_back({at, reason, instruction});
                 // Split the refused use (ADR-0020 (b)/(c)): x18 defined in its exclusive construct before any read,
                 // or live into it; a use in no exclusive construct is in neither count.
                 if (const auto window = enclosing_window(offset)) {

@@ -543,17 +543,23 @@ std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<co
         "; of the {}: {} defined in their loop, {} live into it, {} in no window; {} in a function with a free "
         "register",
         uses.size(), counts.defined_in_loop, counts.live_in, counts.no_exclusive, counts.with_free_register);
+    // The instruction word and its kind name the exact encoding of a site, for a next import to read.
+    const auto word_of = [](const rewrite::Unsupported &use) {
+        return std::format(" [word {:#010x}, {}]", use.word, rewrite::instruction_kind(use.word));
+    };
     if (uses.size() == 1) {
-        return std::format("x18 at {:#x}{} cannot run on iOS: {}{}", uses[0].address,
-                           describe_site(symbols, sections, uses[0].address), uses[0].reason, facts);
+        return std::format("x18 at {:#x}{} cannot run on iOS: {}{}{}", uses[0].address,
+                           describe_site(symbols, sections, uses[0].address), uses[0].reason, word_of(uses[0]), facts);
     }
     // One class per reason, the most common first, then the one met first; the first three addresses the scan met,
     // each with the symbol it sits in.
     std::vector<std::pair<std::string_view, std::vector<std::uint64_t>>> classes;
+    std::map<std::uint64_t, std::string> words;
     for (const auto &use : uses) {
         auto known = std::ranges::find(classes, std::string_view(use.reason), &decltype(classes)::value_type::first);
         if (known == classes.end()) known = classes.insert(classes.end(), {use.reason, {}});
         known->second.push_back(use.address);
+        words[use.address] = word_of(use);
     }
     std::ranges::stable_sort(classes, std::ranges::greater{}, [](const auto &c) { return c.second.size(); });
     constexpr std::size_t shown = 3;
@@ -563,8 +569,8 @@ std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<co
         text += std::format("{} {} where {} (", i == 0 ? ":" : ";", addresses.size(), reason);
         for (std::size_t k = 0; k < addresses.size() && k < shown; ++k) {
             const bool last = k + 1 == addresses.size();
-            text += std::format("{}{:#x}{}", k == 0 ? "" : last ? " and " : ", ", addresses[k],
-                                describe_site(symbols, sections, addresses[k]));
+            text += std::format("{}{:#x}{}{}", k == 0 ? "" : last ? " and " : ", ", addresses[k],
+                                describe_site(symbols, sections, addresses[k]), words[addresses[k]]);
         }
         if (addresses.size() > shown) text += std::format(" and {} more", addresses.size() - shown);
         text += ')';

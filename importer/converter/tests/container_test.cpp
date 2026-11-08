@@ -1342,6 +1342,8 @@ TEST(refuses_what_cannot_run) {
     register_branch.put<std::uint32_t>(0x218, 0xd61f'0240);  // br x18: an indirect island now (X2e)
     register_branch.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18: still refused, no island follows it
     CHECK_THROWS(Incompatible, convert(register_branch), "x18 at 0x21c cannot run on iOS: it is a register branch");
+    // The refusal names the exact encoding of the site: its word in hex and its kind (ret x18 is d65f0240).
+    CHECK_THROWS(Incompatible, convert(register_branch), "[word 0xd65f0240, branch]");
     // A jump table whose table lies in executable code stays refused: the x18 pass scans the table as
     // code and could rewrite an entry, so the br must not degrade to an indirect island (step C C2b).
     CHECK_THROWS(Incompatible, convert(jump_table_program(shf_alloc | shf_execinstr)),
@@ -1356,9 +1358,11 @@ TEST(refuses_what_cannot_run) {
     }
     CHECK_THROWS(Incompatible, convert(many),
                  "x18 cannot run on iOS in 6 places: 4 where it moves the stack pointer, below which the island keeps "
-                 "its registers (0x20c, 0x210, 0x214 and 1 more); 2 where x18 is the address of a pair "
+                 "its registers (0x20c [word 0x9100025f, stack pointer use], "
+                 "0x210 [word 0x9100025f, stack pointer use], "
+                 "0x214 [word 0x9100025f, stack pointer use] and 1 more); 2 where x18 is the address of a pair "
                  "compare-and-swap: it has no register field of its own that an island could stand in for "
-                 "(0x204 and 0x208)");
+                 "(0x204 [word 0x48227e44, pair compare-and-swap] and 0x208 [word 0x48227e44, pair compare-and-swap])");
 
     CHECK_THROWS(Incompatible, convert(static_program(0x100)), "text relocation");
     CHECK_THROWS(Incompatible, convert(static_program(0x9000)), "outside");

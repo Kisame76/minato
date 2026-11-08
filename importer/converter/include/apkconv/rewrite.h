@@ -58,9 +58,14 @@ struct Site {
 struct Unsupported {
     std::uint64_t address;
     const char *reason;
+    std::uint32_t word = 0;  // the instruction word, for the refusal text (x18_refusal)
 
     bool operator==(const Unsupported &) const = default;
 };
+
+/// A short name for the kind of instruction `word` is, for a refusal text that names the exact encoding: "pair
+/// compare-and-swap", "exclusive access", "branch", "stack pointer use" or "other".
+const char *instruction_kind(std::uint32_t word);
 
 /// A run from a load-exclusive to the store-exclusive or CLREX that closes it, with at least one
 /// use of x18 inside (ADR-0020 X2c). No other memory access may fall between the two, so the whole
