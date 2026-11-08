@@ -88,6 +88,9 @@ import UIKit
 ///            response notification-response-save kept, when there is one, so they come as fast as iOS's.
 ///   notification-response-save  a package: at launch Minato keeps the response to that app's newest delivered
 ///            notification in tmp/notification-response and logs "notification response saved"; the file goes.
+///   notification-repost  "<package> <seconds>": at launch, or by the session's poll, Minato hands that app's newest
+///            delivered notification to iOS once more, delivered after the seconds, so that its banner comes while
+///            Minato is in the background or not running, for a tap through SpringBoard; the file goes.
 ///   notification-tap  the same poll taps the app's newest delivered notification, as UNUserNotificationCenter's
 ///            didReceive would (ADR-0074 decision 4); the file goes.
 ///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
@@ -286,6 +289,7 @@ enum SessionCheck {
                 MainActor.assumeIsolated { event("scene \(label) state \(appState)") }
             }
         }
+        repostIfRequested()
         if let package = text(of: "notification-response-save") {
             try? FileManager.default.removeItem(at: folder.appending(path: "notification-response-save"))
             NotificationHost.shared.saveNewestResponse(package: package, to: savedResponse)
@@ -303,6 +307,16 @@ enum SessionCheck {
         try? FileManager.default.removeItem(at: folder.appending(path: "notification-cold-tap"))
         event("notification cold tap requested \(package) state \(appState)")
         tapNow(package: package)
+    }
+
+    /// notification-repost's request, taken once.
+    private static func repostIfRequested() {
+        guard let words = text(of: "notification-repost")?.split(separator: " "), let package = words.first else {
+            return
+        }
+        try? FileManager.default.removeItem(at: folder.appending(path: "notification-repost"))
+        let seconds = words.dropFirst().first.flatMap { Double($0) } ?? 8
+        NotificationHost.shared.repostNewest(package: String(package), after: seconds)
     }
 
     /// The response notification-response-save kept, next to the requests' folder, which the check empties.
@@ -497,6 +511,7 @@ enum SessionCheck {
                     try? FileManager.default.removeItem(at: folder.appending(path: "notification-tap"))
                     NotificationHost.shared.tapNewest(package: session.entry.id)
                 }
+                repostIfRequested()
                 if requested("pad") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "pad"))
                     await playVirtualPad()

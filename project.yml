@@ -255,3 +255,20 @@ targets:
         script: exec python3 "$SRCROOT/tools/bundle-licenses.py"
         basedOnDependencyAnalysis: false
     scheme: {}
+
+  # A real tap in Notification Center for tools/java-start-check.sh's NOTIFY_REAL rounds (ADR-0074 decision 4): the
+  # runner drives only SpringBoard, so iOS launches or resumes Minato as it does for the user's tap. It has no target
+  # application and links none of Minato's code; its own scheme keeps it out of the Minato scheme, deploy.sh and
+  # release.sh.
+  MinatoUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: app/UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kisame76.minato.uitests
+        GENERATE_INFOPLIST_FILE: YES
+    scheme:
+      testTargets:
+        - MinatoUITests

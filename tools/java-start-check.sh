@@ -82,6 +82,12 @@
 #              a paste (Cmd+V). Up to "channel: ready" the log must be Android 15's; the typed keys are not compared
 #              with Android's, since they may be any, but each must come from the hardware keyboard, device 1000, where
 #              Android's adb input is the virtual keyboard, -1.
+#   NOTIFY_REAL set: with notify-tap-test, its four rounds of the user's tap (the MinatoUITests runner drives
+#              SpringBoard): on the iPhone on the entry in Notification Center, in the Simulator on the banner of the
+#              notification handed to iOS again (Debug's notification-repost), since the Simulator treats Notification
+#              Center as the Lock Screen; each round says which it tapped. The iPhone must be unlocked. Needs a
+#              single-screen iPhone: on the iPhone Duo the runner's SpringBoard is the cover screen's, and its Home
+#              press and edge drags miss the main screen.
 #   IME        set: only ime-test runs (ADR-0068 step 2c); the typing is the operator's on UIKit's keyboard, which must
 #              show (in the Simulator I/O > Keyboard > Connect Hardware Keyboard off, on the iPhone no hardware
 #              keyboard connected): the script waits for the app's "showSoftInput true" and the session's "keyboard
@@ -132,7 +138,7 @@ if [[ "${1:-}" == --device ]]; then
   shift
 fi
 if [[ "$ON_DEVICE" == yes ]]; then
-  read -r DEVICE_ID _ _ _ < <(python3 tools/find-device.py "${1:-}") || true
+  read -r DEVICE_ID DEVICE_UDID _ _ < <(python3 tools/find-device.py "${1:-}") || true
   if [[ -z "${DEVICE_ID:-}" ]]; then
     echo "No paired iPhone found. Connect it by cable and trust this Mac." >&2
     exit 1
@@ -412,6 +418,7 @@ terminate() {
 REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents window-trace footprint-log pick-allow end events"
 # The notification taps of the notify-tap-test rounds.
 REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
+REQUESTS+=" notification-repost"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -1565,6 +1572,141 @@ if wanted notify-tap-test; then
   fetch_events
   tap_precondition "the tap from the background"
   game_mode_came "the tap from the background"
+fi
+
+# NOTIFY_REAL: the tap of the user, through Notification Center, in the four states Minato can be in at a tap
+# (ADR-0074 decision 4; device-regressions entry 1): a guest in game mode in front, Minato's library in front, Minato
+# in the background, and Minato not running. The MinatoUITests runner (app/UITests, its own scheme) drives SpringBoard
+# only: it goes Home, opens Notification Center and taps notify-tap-test's "Tap me", so iOS launches or resumes Minato
+# as for the user's tap; the session's events say what Minato did. On the iPhone the runner is installed first and
+# removed at the end (the runner only), which the sitting's OK covers; a refused install, such as by the free team's
+# limit of 3 apps on a device, stops these rounds with its own line.
+if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
+  echo "== notify-tap-test, the user's tap through Notification Center"
+  UITESTS=build/DerivedData-uitests
+  real_ready=yes
+  destination="generic/platform=iOS Simulator"
+  [[ "$ON_DEVICE" != yes ]] || destination="generic/platform=iOS"
+  if ! xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
+      -derivedDataPath "$UITESTS" -allowProvisioningUpdates -quiet > "$WORK/uitests-build.log" 2>&1; then
+    fail "  the UI test runner did not build: $(grep -m 1 'error:' "$WORK/uitests-build.log")"
+    real_ready=no
+  fi
+  if [[ "$real_ready" == yes && "$ON_DEVICE" == yes ]]; then
+    runner=$(ls -d "$UITESTS"/Build/Products/Debug-iphoneos/MinatoUITests-Runner.app 2>/dev/null)
+    if ! on_device install app --device "$DEVICE_ID" "$runner" > "$WORK/uitests-install.log" 2>&1; then
+      fail "  the UI test runner was not installed (the free team's limit of 3 apps on a device?):"
+      grep -i -m 3 "error\|limit\|maximum" "$WORK/uitests-install.log" | sed 's/^/      | /'
+      real_ready=no
+    fi
+  fi
+  # Runs the runner's test $1 against this run's Simulator or iPhone, with TEST_RUNNER_MINATO_WAIT=$3 seconds for a
+  # banner; prints its failure, false when it failed.
+  uitest() {
+    local run
+    run=$(ls "$UITESTS"/Build/Products/*.xctestrun | head -n 1)
+    if TEST_RUNNER_MINATO_WAIT=${3:-0} xcodebuild test-without-building -xctestrun "$run" \
+        -destination "id=${DEVICE_UDID:-${SIM_UDID:-}}" \
+        -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1; then
+      grep -o "MINATO-UITEST tapped the .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
+      return 0
+    fi
+    grep -E "error: |XCTAssert|Failing tests" "$WORK/uitest-$1-$2.log" | head -n 3 | sed 's/^/      | /'
+    return 1
+  }
+  # The folder's requests for a start that iOS makes: the guest log on, no compile mode, no tap in the library.
+  real_requests() {
+    rm -rf "$CHECK"
+    mkdir -p "$CHECK"
+    echo yes > "$CHECK/no-compile"
+    echo yes > "$CHECK/guest-log"
+    echo yes > "$CHECK/continue"
+    : > "$EVENTS"
+    seen=0
+    send_requests
+  }
+  # In the Simulator, notification-repost: Minato hands notify-tap-test's notification to iOS again, delivered $1 s
+  # later, so that its banner comes in the round's state, and the runner taps the banner (the Simulator treats
+  # Notification Center as the Lock Screen, where a tap on an entry opens nothing). On the iPhone the runner taps
+  # the entry in Notification Center, as the user did; there is no banner to wait for.
+  repost_request() {
+    [[ "$ON_DEVICE" == yes ]] || echo "io.github.kisame76.minato.test.notifytap $1" > "$CHECK/notification-repost"
+  }
+  banner_wait() { if [[ "$ON_DEVICE" == yes ]]; then echo 0; else echo "$1"; fi; }
+  # Whether TapActivity opened a second time within 30 s.
+  opened_again() {
+    local end=$((SECONDS + 30))
+    while (( SECONDS < end )); do
+      fetch "$CHECK_REL/guest-log" || true
+      (( $(grep -c "^I/notify-tap-test: opened by the tap: room 7$" "$CHECK/guest-log" 2>/dev/null) >= 2 )) && return 0
+      sleep 0.5
+    done
+    return 1
+  }
+  # Round $2 in state $1: notify-tap-test posts "Tap me", Minato is brought into the state, the runner taps.
+  real_tap() {
+    local state=$1 round=$2 label="the real tap, $1"
+    if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap "$round"; then
+      await_line guest-log "^I/notify-tap-test: done$" 120 || failed_line "no done" "notify-tap-test-$round"
+    fi
+    if [[ "$state" == game ]]; then
+      # TapActivity opens again in the running app, as for the host's tap of start 1.
+      # The banner of the app's own post goes first (about 5 s), so that the runner waits for the new one.
+      sleep 6
+      repost_request 8
+      send_requests
+      # TapActivity opens a second time. Through Notification Center the first drag from the top edge may open
+      # Minato's menu (game mode defers the edge), which pauses the app: its line after the tap then says so.
+      if uitest testTapNotification "$round" "$(banner_wait 30)" && opened_again; then
+        ok "  $label: TapActivity opened again in the running app"
+      else
+        failed_line "$label: no second opening" "notify-tap-test-$round"
+      fi
+      sleep 1
+      end_start notify-tap-test "$round"
+      fetch_events
+      on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
+      if [[ "$on_main" == 1 ]]; then ok "  $label: the delegate completed on the main thread"; else
+        fail "  $label: the delegate completed on the main thread $on_main times, not once"; fi
+      return
+    fi
+    end_start notify-tap-test "$round"
+    real_requests
+    repost_request 25
+    send_requests
+    launch
+    [[ "$ON_DEVICE" == yes ]] || await_event "notification reposted" 30 ||
+      fail "  $label: the notification was not handed to iOS again"
+    [[ "$state" != cold ]] || terminate
+    if [[ "$state" == background ]] && ! uitest testGoHome "$round"; then
+      fail "  $label: Minato did not go to the background"
+    fi
+    if uitest testTapNotification "$round" "$(banner_wait 40)" &&
+        await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 60; then
+      ok "  $label: TapActivity opened"
+    else
+      failed_line "$label: no TapActivity after the tap" "notify-tap-test-$round"
+    fi
+    sleep 2
+    end_start notify-tap-test "$((round + 1))"
+    fetch_events
+    grep -E " (notification (tap|launch)|restart|exit|process|launched|scene) " "$EVENTS" |
+      sed 's/^/      ev /' || true
+    game_mode_came "$label"
+  }
+  if [[ "$real_ready" == yes ]]; then
+    # A Simulator that shows its Lock Screen (as after its boot) is unlocked first: a tap on a Lock Screen
+    # notification opens nothing until then. The iPhone must be unlocked for the sitting.
+    [[ "$ON_DEVICE" == yes ]] || uitest testUnlock 0 >/dev/null || true
+    real_tap game 6
+    real_tap library 7
+    real_tap background 9
+    real_tap cold 11
+  fi
+  if [[ "$ON_DEVICE" == yes && "$real_ready" == yes ]]; then
+    on_device uninstall app --device "$DEVICE_ID" io.github.kisame76.minato.uitests.xctrunner >/dev/null 2>&1 &&
+      ok "  the UI test runner is removed again" || fail "  the UI test runner was not removed"
+  fi
 fi
 
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk

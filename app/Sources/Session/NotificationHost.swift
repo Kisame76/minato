@@ -143,6 +143,10 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
         let done = Carried(value: completionHandler)
         Self.onMain {
             if let key { Self.tapped(key) }
+            #if DEBUG
+            // UIKit asserts that its completion runs there; a real tap's and a check's say so alike.
+            SessionCheck.event("notification response completed on the main thread \(Thread.isMainThread)")
+            #endif
             done.value()
         }
     }
@@ -212,6 +216,28 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
         Self.send(found.withLock { $0 })
     }
 
+    /// The app's newest delivered notification once more, as a request under its identifier that iOS delivers
+    /// `seconds` later, so that its banner comes while Minato is in the background or not running, for a check's tap
+    /// through SpringBoard (tools/java-start-check.sh NOTIFY_REAL). Logs "notification reposted" or "notification not
+    /// reposted".
+    func repostNewest(package: String, after seconds: TimeInterval) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let mine = delivered.filter { ($0.request.content.userInfo[Self.packageKey] as? String) == package }
+            guard let newest = mine.max(by: { $0.date < $1.date }) else {
+                return SessionCheck.event("notification not reposted")
+            }
+            let request = UNNotificationRequest(identifier: newest.request.identifier,
+                                                content: newest.request.content,
+                                                trigger: UNTimeIntervalNotificationTrigger(timeInterval: seconds,
+                                                                                           repeats: false))
+            center.removeDeliveredNotifications(withIdentifiers: [newest.request.identifier])
+            center.add(request) { error in
+                SessionCheck.event(error == nil ? "notification reposted" : "notification not reposted")
+            }
+        }
+    }
+
     /// The response to the app's newest delivered notification, kept at `url` for a later process (secure coding), so
     /// that a later launch or return can hand it to the delegate at once, as fast as iOS's own didReceive comes.
     func saveNewestResponse(package: String, to url: URL) {
@@ -248,9 +274,7 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     @MainActor private static func send(_ response: Carried<UNNotificationResponse>?) {
         guard let response else { return SessionCheck.event("notification tap: none delivered") }
         let center = UNUserNotificationCenter.current()
-        center.delegate?.userNotificationCenter?(center, didReceive: response.value) {
-            SessionCheck.event("notification response completed on the main thread \(Thread.isMainThread)")
-        }
+        center.delegate?.userNotificationCenter?(center, didReceive: response.value) {}
     }
     #endif
 
