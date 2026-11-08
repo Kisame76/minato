@@ -32,6 +32,37 @@ class FingerprintManager {
                 + " nor current process has android.permission.USE_FINGERPRINT.");
     }
 
+    /**
+     * @hide The text of a fingerprint error, as AOSP's FingerprintManager.getErrorString picks it from the framework's
+     * strings, for BiometricPrompt's receiver; null for an error it has none for. Vendor errors have no text here.
+     */
+    public static String getErrorString(Context context, int errMsg, int vendorCode) {
+        switch (errMsg) {
+            case FINGERPRINT_ERROR_UNABLE_TO_PROCESS:
+                return context.getString(com.android.internal.R.string.fingerprint_error_unable_to_process);
+            case FINGERPRINT_ERROR_HW_UNAVAILABLE:
+                return context.getString(com.android.internal.R.string.fingerprint_error_hw_not_available);
+            case FINGERPRINT_ERROR_NO_SPACE:
+                return context.getString(com.android.internal.R.string.fingerprint_error_no_space);
+            case FINGERPRINT_ERROR_TIMEOUT:
+                return context.getString(com.android.internal.R.string.fingerprint_error_timeout);
+            case FINGERPRINT_ERROR_CANCELED:
+                return context.getString(com.android.internal.R.string.fingerprint_error_canceled);
+            case FINGERPRINT_ERROR_LOCKOUT:
+                return context.getString(com.android.internal.R.string.fingerprint_error_lockout);
+            case FINGERPRINT_ERROR_LOCKOUT_PERMANENT:
+                return context.getString(com.android.internal.R.string.fingerprint_error_lockout_permanent);
+            case FINGERPRINT_ERROR_USER_CANCELED:
+                return context.getString(com.android.internal.R.string.fingerprint_error_user_canceled);
+            case FINGERPRINT_ERROR_NO_FINGERPRINTS:
+                return context.getString(com.android.internal.R.string.fingerprint_error_no_fingerprints);
+            case FINGERPRINT_ERROR_HW_NOT_PRESENT:
+                return context.getString(com.android.internal.R.string.fingerprint_error_hw_not_present);
+            default:
+                return null;
+        }
+    }
+
     public boolean isHardwareDetected() {
         checkPermission("isHardwareDetected");
         return false;

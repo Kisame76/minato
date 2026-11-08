@@ -35,6 +35,9 @@ public final class FrameworkStatsLog {
     public static final int APP_COMPATIBILITY_CHANGE_REPORTED__SOURCE__APP_PROCESS = 1;
     public static final int APP_COMPATIBILITY_CHANGE_REPORTED__SOURCE__SYSTEM_SERVER = 2;
 
+    /** BiometricPrompt.authenticate's report (batch G); the ID is a distinct number, not AOSP's [unverified]. */
+    public static final int AUTH_PROMPT_AUTHENTICATE_INVOKED = 1000001;
+
     private FrameworkStatsLog() {
     }
 
@@ -48,6 +51,10 @@ public final class FrameworkStatsLog {
 
     /** GestureDetector's touch gesture, with its time and distance; statsd is absent, so it goes nowhere. */
     public static void write(int code, String arg1, int arg2, int arg3, float arg4) {
+    }
+
+    /** BiometricPrompt.authenticate's report; statsd is absent, so it goes nowhere. */
+    public static void write(int code, boolean arg1, boolean arg2, boolean arg3, boolean arg4, int arg5) {
     }
 
     /** ChangeReporter's compat change report; statsd is absent, so it goes nowhere. */

@@ -23,6 +23,7 @@ import android.app.LocalActivityTaskManager;
 import android.app.LocalBatteryService;
 import android.app.LocalAlarmManager;
 import android.app.backup.LocalBackupManager;
+import android.hardware.biometrics.LocalAuthService;
 import android.media.session.LocalMediaSessionService;
 import android.location.LocalLocationManager;
 import android.app.LocalGameManager;
@@ -93,6 +94,7 @@ public final class ServiceManager {
         sMakers.put(Context.MEDIA_METRICS_SERVICE, LocalMediaMetricsManager::newBinder);
         sMakers.put(Context.SHORTCUT_SERVICE, LocalShortcutService::newBinder);
         sMakers.put(Context.BACKUP_SERVICE, LocalBackupManager::newBinder);
+        sMakers.put(Context.AUTH_SERVICE, LocalAuthService::newBinder);
         sMakers.put(Context.MEDIA_SESSION_SERVICE, LocalMediaSessionService::newBinder);
         sMakers.put("batteryproperties", LocalBatteryService::newPropertiesBinder);
         sMakers.put(BatteryStats.SERVICE_NAME, LocalBatteryService::newStatsBinder);

@@ -1,0 +1,29 @@
+I/biometric-test: BiometricManager constants: BIOMETRIC_ERROR_HW_UNAVAILABLE=1 BIOMETRIC_ERROR_NONE_ENROLLED=11 BIOMETRIC_ERROR_NO_HARDWARE=12 BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED=15 BIOMETRIC_SUCCESS=0
+I/biometric-test: BiometricManager by name: true
+I/biometric-test: BiometricManager.canAuthenticate(7fff): throws java.lang.SecurityException
+I/biometric-test: BiometricManager.canAuthenticate(1): throws java.lang.SecurityException
+I/biometric-test: BiometricManager.canAuthenticate(2): throws java.lang.SecurityException
+I/biometric-test: BiometricManager.canAuthenticate(8000): 11
+I/biometric-test: BiometricPrompt constants: AUTHENTICATION_RESULT_TYPE_BIOMETRIC=2 AUTHENTICATION_RESULT_TYPE_DEVICE_CREDENTIAL=1
+I/biometric-test: BiometricPrompt.Builder without title: throws java.lang.IllegalArgumentException
+I/biometric-test: BiometricPrompt.Builder without negative button: throws java.lang.IllegalArgumentException
+I/biometric-test: BiometricPrompt.getAllowedAuthenticators(): 255
+I/biometric-test: BiometricPrompt.getContentView(): null
+I/biometric-test: BiometricPrompt.getDescription(): Description
+I/biometric-test: BiometricPrompt.getLogoBitmap(): null
+I/biometric-test: BiometricPrompt.getLogoDescription(): null
+I/biometric-test: BiometricPrompt.getLogoRes(): 0
+I/biometric-test: BiometricPrompt.getNegativeButtonText(): Cancel
+I/biometric-test: BiometricPrompt.getSubtitle(): Subtitle
+I/biometric-test: BiometricPrompt.getTitle(): Title
+I/biometric-test: BiometricPrompt.isConfirmationRequired(): false
+I/biometric-test: BiometricPrompt.Builder set and built: android.hardware.biometrics.BiometricPrompt
+I/biometric-test: BiometricPrompt.CryptoObject(Signature): throws java.lang.IllegalArgumentException
+I/biometric-test: BiometricPrompt.CryptoObject(Cipher): throws java.lang.IllegalArgumentException
+I/biometric-test: BiometricPrompt.CryptoObject(Mac): throws java.lang.IllegalArgumentException
+I/biometric-test: BiometricPrompt.authenticate returned
+I/biometric-test: BiometricPrompt: onAuthenticationError, message true
+I/biometric-test: FingerprintManager by name: true
+I/biometric-test: FingerprintManager.hasEnrolledFingerprints(): false
+I/biometric-test: FingerprintManager.authenticate returned
+I/biometric-test: done

@@ -254,3 +254,9 @@ android.os.connectivity.WifiActivityEnergyInfo <- com.android.internal.app.IBatt
 android.os.connectivity.WifiBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
 android.os.health.HealthStatsParceler <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
 android.telephony.ModemActivityInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
+
+# Batch G's biometric prompt.
+android.hardware.face.FaceManager <- android.hardware.biometrics.BiometricPrompt  # stays: BiometricPrompt's receiver asks it for the text of an error of the face modality, which no service of Minato sends (no face sensor an app can use, ADR-0045 decision 4)
+android.security.identity.IdentityCredential <- android.hardware.biometrics.CryptoObject  # gap: getIdentityCredential, which an app of identity credentials (wallets) calls; android.security.identity is not taken
+android.security.identity.PresentationSession <- android.hardware.biometrics.CryptoObject  # gap: getPresentationSession, as above
+android.os.PermissionEnforcer <- android.hardware.biometrics.IAuthService, android.hardware.biometrics.ITestSession  # stays: the Stubs' constructors, which the local authentication service (an IAuthService.Default) never runs

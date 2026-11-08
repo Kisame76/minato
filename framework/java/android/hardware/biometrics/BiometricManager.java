@@ -36,6 +36,11 @@ public class BiometricManager {
         int BIOMETRIC_CONVENIENCE = 0x0FFF;
         int BIOMETRIC_MIN_STRENGTH = 0x7FFF;
         int DEVICE_CREDENTIAL = 1 << 15;
+
+        @IntDef(flag = true, value = {BIOMETRIC_MAX_STRENGTH, BIOMETRIC_STRONG, BIOMETRIC_WEAK, BIOMETRIC_CONVENIENCE,
+                DEVICE_CREDENTIAL})
+        @Retention(RetentionPolicy.SOURCE)
+        @interface Types {}
     }
 
     /** Strings a prompt shows for a set of authenticators; none without a sensor. */
@@ -78,8 +83,24 @@ public class BiometricManager {
             throw new SecurityException("Must have USE_BIOMETRIC permission: Neither user " + android.os.Process.myUid()
                     + " nor current process has android.permission.USE_BIOMETRIC.");
         }
-        if ((authenticators & Authenticators.DEVICE_CREDENTIAL) != 0
-                && (authenticators & ~Authenticators.DEVICE_CREDENTIAL) == 0) {
+        return canAuthenticateWithoutSensor(authenticators);
+    }
+
+    /**
+     * What the authentication service answers a device without a biometric sensor and without a secure lock screen, which
+     * is what an iPhone is to Android code: an authenticator combination it does not take is a SecurityException (the
+     * emulator's answer for 0x7fff, 0x1 and 0x2 [verified: batch-g-test]; the rule is BiometricService's, of which the
+     * sources fetched here have only the hidden valid combinations [inferred]: no biometric bits, STRONG or WEAK, with
+     * or without DEVICE_CREDENTIAL); a device credential alone is not set, a biometric has no hardware
+     * (BIOMETRIC_ERROR_NO_HARDWARE, where the emulator's emulated sensor says none enrolled [deviation, ADR-0045
+     * decision 4: the iPhone has none]).
+     */
+    static int canAuthenticateWithoutSensor(int authenticators) {
+        final int biometric = authenticators & ~Authenticators.DEVICE_CREDENTIAL;
+        if (biometric != 0 && biometric != Authenticators.BIOMETRIC_STRONG && biometric != Authenticators.BIOMETRIC_WEAK) {
+            throw new SecurityException("Invalid authenticator configuration: " + Integer.toHexString(authenticators));
+        }
+        if ((authenticators & Authenticators.DEVICE_CREDENTIAL) != 0 && biometric == 0) {
             // A device credential alone: none is set on a device with no secure lock screen (see KeyguardManager).
             return BIOMETRIC_ERROR_NONE_ENROLLED;
         }

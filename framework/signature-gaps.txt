@@ -124,3 +124,8 @@ android.nfc.NfcAntennaInfo <- android.nfc.NfcAdapter  # gap: a hardware or call 
 android.nfc.NfcEvent <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
 android.nfc.Tag <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
 android.nfc.WlcListenerDeviceInfo <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
+
+# Batch G's biometric prompt.
+android.security.identity.IdentityCredential <- android.hardware.biometrics.BiometricPrompt, android.hardware.biometrics.CryptoObject  # gap: CryptoObject.getIdentityCredential; android.security.identity (22 types, wallets) is not taken
+android.security.identity.PresentationSession <- android.hardware.biometrics.BiometricPrompt, android.hardware.biometrics.CryptoObject  # gap: CryptoObject.getPresentationSession, as above
+android.os.PermissionEnforcer <- android.hardware.biometrics.IAuthService, android.hardware.biometrics.ITestSession  # stays: the Stubs' mEnforcer field; no app reflects over a Stub of the authentication service
