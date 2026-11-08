@@ -21,6 +21,8 @@ final class GameSession {
     private(set) var menuIsAtRoot = false
     /// The background opened the menu, which waits over the app at the return.
     @ObservationIgnored private var menuWaitsOnReturn = false
+    /// The open menu is the one the return from the background shows (showMenuForTheReturn), until it closes.
+    @ObservationIgnored private var menuIsForTheReturn = false
     /// The user chose Quit in the menu: the end that follows is theirs, not the app's.
     @ObservationIgnored private var quitAsked = false
     private(set) var showsHint: Bool
@@ -287,6 +289,15 @@ final class GameSession {
     func notificationTapped(package: String, id: Int32, tag: String) {
         guard package == entry.id, started, !bridge.isBroken else { return }
         RuntimeSessionHost.notificationTapped(id: id, tag: tag)
+        // The tap brought Minato back from the background: the app goes on at once, without the menu the return
+        // shows otherwise, so that the activity of the tap comes to the front, as on Android (ADR-0032 decision 7,
+        // changed for a notification's tap). A menu the user opened stays.
+        if menuIsForTheReturn {
+            #if DEBUG
+            SessionCheck.event("menu closed for the tap")
+            #endif
+            closeMenu()
+        }
     }
 
     /// The pointer's change, on the main thread.
@@ -671,6 +682,7 @@ final class GameSession {
         menuIsOpen = true
         menuIsAtRoot = false
         menuWaitsOnReturn = true
+        menuIsForTheReturn = true
         #if DEBUG
         SessionCheck.event("menu opened for the return")
         #endif
@@ -697,6 +709,7 @@ final class GameSession {
         guard menuIsOpen else { return }
         menuIsOpen = false
         menuIsAtRoot = false
+        menuIsForTheReturn = false
         #if DEBUG
         SessionCheck.event("menu closed")
         #endif

@@ -82,7 +82,7 @@
 #              a paste (Cmd+V). Up to "channel: ready" the log must be Android 15's; the typed keys are not compared
 #              with Android's, since they may be any, but each must come from the hardware keyboard, device 1000, where
 #              Android's adb input is the virtual keyboard, -1.
-#   NOTIFY_REAL set: with notify-tap-test, its four rounds of the user's tap (the MinatoUITests runner drives
+#   NOTIFY_REAL set: with notify-tap-test, its five rounds of the user's tap (the MinatoUITests runner drives
 #              SpringBoard): on the iPhone on the entry in Notification Center, in the Simulator on the banner of the
 #              notification handed to iOS again (Debug's notification-repost), since the Simulator treats Notification
 #              Center as the Lock Screen; each round says which it tapped. The iPhone must be unlocked. Needs a
@@ -1699,13 +1699,14 @@ if wanted notify-tap-test; then
   game_mode_came "the tap from the background"
 fi
 
-# NOTIFY_REAL: the tap of the user, through Notification Center, in the four states Minato can be in at a tap
-# (ADR-0074 decision 4; device-regressions entry 1): a guest in game mode in front, Minato's library in front, Minato
-# in the background, and Minato not running. The MinatoUITests runner (app/UITests, its own scheme) drives SpringBoard
-# only: it goes Home, opens Notification Center and taps notify-tap-test's "Tap me", so iOS launches or resumes Minato
-# as for the user's tap; the session's events say what Minato did. On the iPhone the runner is installed first and
-# removed at the end (the runner only), which the sitting's OK covers; a refused install, such as by the free team's
-# limit of 3 apps on a device, stops these rounds with its own line.
+# NOTIFY_REAL: the tap of the user, through Notification Center, in the states Minato can be in at a tap (ADR-0074
+# decision 4; device-regressions entry 1): a guest in game mode in front, Minato's library in front, Minato in the
+# background, Minato not running, and the guest's game mode in the background (game-background). NOTIFY_REAL=1 runs all
+# five; a list of them ("game-background cold") only those. The MinatoUITests runner (app/UITests, its own scheme)
+# drives SpringBoard only: it goes Home, opens Notification Center and taps notify-tap-test's "Tap me", so iOS launches
+# or resumes Minato as for the user's tap; the session's events say what Minato did. On the iPhone the runner is
+# installed first and removed at the end (the runner only), which the sitting's OK covers; a refused install, such as by
+# the free team's limit of 3 apps on a device, stops these rounds with its own line.
 if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
   echo "== notify-tap-test, the user's tap through Notification Center"
   real_ready=yes
@@ -1750,15 +1751,24 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
   # Round $2 in state $1: notify-tap-test posts "Tap me", Minato is brought into the state, the runner taps.
   real_tap() {
     local state=$1 round=$2 label="the real tap, $1"
+    [[ "$NOTIFY_REAL" == 1 || " $NOTIFY_REAL " == *" $state "* ]] || return 0
     if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap "$round"; then
       await_line guest-log "^I/notify-tap-test: done$" 120 || failed_line "no done" "notify-tap-test-$round"
     fi
-    if [[ "$state" == game ]]; then
-      # TapActivity opens again in the running app, as for the host's tap of start 1.
+    if [[ "$state" == game || "$state" == game-background ]]; then
+      # TapActivity opens again in the running app, as for the host's tap of start 1. game-background: Minato goes
+      # to the background first, as Notification Center may take it on the iPhone; the tap's return must not stop at
+      # Minato's menu (ADR-0032 decision 7: a notification tap of the running app resumes it).
       # The banner of the app's own post goes first (about 5 s), so that the runner waits for the new one.
       sleep 6
+      # game-background: the check's own Continue (begin_start's "continue") is off, so that only the tap can take
+      # the return's menu away.
+      [[ "$state" != game-background ]] || rm -f "$CHECK/continue"
       repost_request 8
       send_requests
+      if [[ "$state" == game-background ]] && ! uitest testGoHome "$round"; then
+        fail "  $label: Minato did not go to the background"
+      fi
       # TapActivity opens a second time. Through Notification Center the first drag from the top edge may open
       # Minato's menu (game mode defers the edge), which pauses the app: its line after the tap then says so.
       if uitest testTapNotification "$round" "$(banner_wait 30)" && opened_again; then
@@ -1806,6 +1816,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
     real_tap library 7
     real_tap background 9
     real_tap cold 11
+    real_tap game-background 13
   fi
   if [[ "$ON_DEVICE" == yes && "$real_ready" == yes ]]; then
     on_device uninstall app --device "$DEVICE_ID" io.github.kisame76.minato.uitests.xctrunner >/dev/null 2>&1 &&
