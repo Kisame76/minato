@@ -87,6 +87,8 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
         int lastWorkId;
         /** Set while the service runs the job. */
         boolean running;
+        /** Set while the job is stopped for a constraint it lost: what onStopJob answers says whether it stays. */
+        boolean constraintStop;
         boolean deadlineExpired;
         JobParameters params;
         ServiceConnection connection;
@@ -118,6 +120,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
     /** The runner: starts the jobs that can run, looking again every quarter second and when a job is added. */
     private void runLoop() {
         while (true) {
+            stopLostConstraints();
             final List<Entry> candidates = new ArrayList<>();
             synchronized (mEntries) {
                 final long now = SystemClock.elapsedRealtime();
@@ -162,6 +165,66 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                         return;
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * The stop reason of a constraint of the job that does not hold now, or 0: JobSchedulerService stops a running job
+     * that loses its charging, battery-not-low, connectivity or storage-not-low constraint with that constraint's
+     * reason [verified: job-constraints-test for charging and battery not low].
+     */
+    private static int lostConstraint(JobInfo job) {
+        final Application app = ActivityThread.currentApplication();
+        if (app == null) {
+            return 0;
+        }
+        if (job.isRequireCharging() || job.isRequireBatteryNotLow()) {
+            final Intent battery = app.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery != null) {
+                if (job.isRequireCharging() && battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) == 0) {
+                    return JobParameters.STOP_REASON_CONSTRAINT_CHARGING;
+                }
+                if (job.isRequireBatteryNotLow() && battery.getBooleanExtra(BatteryManager.EXTRA_BATTERY_LOW, false)) {
+                    return JobParameters.STOP_REASON_CONSTRAINT_BATTERY_NOT_LOW;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /** Stops the running jobs that lost a constraint: stopJob with the constraint's reason. */
+    private void stopLostConstraints() {
+        final List<Entry> running = new ArrayList<>();
+        synchronized (mEntries) {
+            for (Entry entry : mEntries) {
+                if (entry.running && !entry.constraintStop && entry.service != null) {
+                    running.add(entry);
+                }
+            }
+        }
+        for (Entry entry : running) {
+            final int reason = lostConstraint(entry.job);
+            if (reason == 0) {
+                continue;
+            }
+            final IBinder service;
+            final JobParameters params;
+            synchronized (mEntries) {
+                if (!entry.running || entry.constraintStop || entry.service == null) {
+                    continue;
+                }
+                entry.constraintStop = true;
+                service = entry.service;
+                params = entry.params;
+            }
+            params.setStopReason(reason, JobParameters.INTERNAL_STOP_REASON_CONSTRAINTS_NOT_SATISFIED,
+                    "constraint no longer satisfied");
+            try {
+                IJobService.Stub.asInterface(service).stopJob(params);
+            } catch (RemoteException e) {
+                Log.w(TAG, "stopJob: " + e);
+                finish(entry, true);
             }
         }
     }
@@ -244,12 +307,16 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                 return;
             }
             entry.running = false;
+            final boolean constraintStop = entry.constraintStop;
+            entry.constraintStop = false;
             connection = entry.connection;
             entry.connection = null;
             entry.service = null;
             if (mEntries.contains(entry)) {
                 final long now = SystemClock.elapsedRealtime();
-                if (reschedule) {
+                if (reschedule && constraintStop) {
+                    entry.notBefore = Math.min(entry.notBefore, now);
+                } else if (reschedule) {
                     entry.failures++;
                     final long initial = entry.job.getInitialBackoffMillis();
                     final long delay = entry.job.getBackoffPolicy() == JobInfo.BACKOFF_POLICY_LINEAR
@@ -329,6 +396,9 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
 
         @Override
         public void acknowledgeStopMessage(int jobId, boolean reschedule) {
+            // The answer of onStopJob to a stop for a lost constraint: the job stays, as it was and without a backoff,
+            // when it asks to be rescheduled, and is dropped (a periodic one kept) when it does not.
+            finish(mEntry, reschedule);
         }
 
         @Override

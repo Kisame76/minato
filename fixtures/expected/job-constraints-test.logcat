@@ -1,0 +1,19 @@
+I/job-constraints-test: job 1 charging: 1
+I/job-constraints-test: job 2 battery not low: 1
+I/job-constraints-test: job 3 battery not low: 1
+I/job-constraints-test: job 4: 1
+I/job-constraints-test: job 5: 1
+I/job-constraints-test: job 6: 1
+I/job-constraints-test: job 7: 1
+I/job-constraints-test: job 8: 1
+I/job-constraints-test: jobs 2 and 3 run
+I/job-constraints-test: ready
+I/job-constraints-test: job 1: [stopped 6, started]
+I/job-constraints-test: job 2: [stopped 5, started]
+I/job-constraints-test: job 3: [stopped 5]
+I/job-constraints-test: job 4: []
+I/job-constraints-test: job 5: []
+I/job-constraints-test: job 6: []
+I/job-constraints-test: job 7: []
+I/job-constraints-test: job 8: []
+I/job-constraints-test: done

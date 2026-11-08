@@ -247,7 +247,7 @@ fi
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
     || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test \
-    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test || "$app" == jobs-alarms-run-test ]]; then
+    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test || "$app" == jobs-alarms-run-test || "$app" == job-constraints-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -677,6 +677,13 @@ run_app() {
       | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test | batch-g-test | media-browser-test | biometric-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
+      ;;
+    job-constraints-test)
+      # The device is unplugged at the start; the steps plug it in after the jobs that need no charging run, and then
+      # (after "ready", the charging job's start, which may take up to two minutes) unplug it, take the level to 10 %,
+      # plug it in and take it to 50 %, two seconds apart; the run ends 3 s after both jobs started again.
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      mask=yes limit=420
       ;;
     jobs-alarms-run-test)
       # The alarms are due at 6 to 9 s, a job's backoff at 10 s, the summary comes after 26 s and the cancel tests
@@ -1436,6 +1443,12 @@ run_app() {
   if [[ -n "${BENCH_CONF:-}" && ("$app" == bench-gles || "$app" == bench-vulkan) ]]; then
     bench_conf_in "$package"
   fi
+  if [[ "$app" == job-constraints-test ]]; then
+    # Unplugged at 100 %: the jobs that need no charging run, and the test plugs the device in after them, so that
+    # the charging job's start does not depend on how long the emulator has been charging.
+    run dumpsys battery set ac 0 >/dev/null && run dumpsys battery set status 3 >/dev/null &&
+      run dumpsys battery set level 100 >/dev/null || return 1
+  fi
   if [[ "$app" == battery-test ]]; then
     # The battery the run starts with, as apk-run's fixed one: 100 % charging on AC. BatteryService takes each value
     # as one update and stops reading the emulator's battery until the reset at the end.
@@ -1495,6 +1508,21 @@ run_app() {
     # again.
     local stepped=yes
     { wait_for "$app" ready && sleep 2 && run dumpsys battery set level 50 >/dev/null && sleep 2 &&
+      run dumpsys battery set ac 0 >/dev/null && sleep 1 && run dumpsys battery set status 3 >/dev/null && sleep 2 &&
+      run dumpsys battery set level 10 >/dev/null && sleep 2 &&
+      run dumpsys battery set ac 1 >/dev/null && sleep 1 && run dumpsys battery set status 2 >/dev/null && sleep 2 &&
+      run dumpsys battery set level 50 >/dev/null; } || stepped=no
+    run dumpsys battery reset >/dev/null
+    [[ "$stepped" == yes ]] || return 1
+  fi
+  if [[ "$app" == job-constraints-test ]]; then
+    # The jobs that lose a constraint: plugged in once jobs 2 and 3 run, then, when the charging job has started,
+    # unplugged (AC off, then discharging), to 10 %, plugged in (AC on, then charging) and to 50 %, two seconds apart;
+    # then BatteryService reads the emulator's battery again.
+    local stepped=yes
+    { wait_for "$app" "jobs 2 and 3 run" 150 && sleep 1 &&
+      run dumpsys battery set ac 1 >/dev/null && sleep 1 && run dumpsys battery set status 2 >/dev/null &&
+      wait_for "$app" ready 240 && sleep 2 &&
       run dumpsys battery set ac 0 >/dev/null && sleep 1 && run dumpsys battery set status 3 >/dev/null && sleep 2 &&
       run dumpsys battery set level 10 >/dev/null && sleep 2 &&
       run dumpsys battery set ac 1 >/dev/null && sleep 1 && run dumpsys battery set status 2 >/dev/null && sleep 2 &&

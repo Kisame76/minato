@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the jobs that lose a constraint while they run (gap 9 of the compatibility plan): a job that needs the
+     device to charge and ones that need a battery that is not low, stopped as the battery changes and started again
+     as it recovers. The launcher activity is the framework's own android.app.Activity, so that `am start` starts the
+     process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.jobconstraints" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.jobconstraints.ConstraintsApplication">
+    <service android:name="io.github.kisame76.minato.test.jobconstraints.TestJob"
+        android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
