@@ -60,6 +60,10 @@ enum FixtureRunner {
         } else {
             return false
         }
+        // The runtime's fault line (ADR-0032 decision 8) is on in a Debug build, which this one is; off for these
+        // byte-compared runs, as tools/run-fixture.cmake has it, or signal-test's and c-signal-test's stderr would
+        // differ from the expected. The runtime reads it once, at the first program's start.
+        setenv("MINATO_FAULT_LOG", "0", 1)
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                                queue: .main) { _ in
             guard !launched else { return }
