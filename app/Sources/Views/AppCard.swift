@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -165,9 +166,41 @@ struct AppIcon: View {
     let url: URL?
     var cornerRadius: CGFloat = 17
 
+    private func load(_ url: URL) -> UIImage? {
+        if let image = Self.decoded.object(forKey: url as NSURL) { return image }
+        #if DEBUG
+        let image = SelectTiming.measure("icons") { Self.decode(url) }
+        #else
+        let image = Self.decode(url)
+        #endif
+        guard let image, let cgImage = image.cgImage else { return nil }
+        Self.decoded.setObject(image, forKey: url as NSURL, cost: cgImage.bytesPerRow * cgImage.height)
+        return image
+    }
+
+    /// Each icon decoded once, at most `pixels` on a side: a tile is drawn again at every change of the library
+    /// (each Select tap), and an app's own icon may be far larger than a tile. An icon file is never written again
+    /// in place (a new version has a folder of its own), so its path is its key.
+    nonisolated(unsafe) private static let decoded: NSCache<NSURL, UIImage> = {
+        let cache = NSCache<NSURL, UIImage>()
+        cache.totalCostLimit = 64 << 20
+        return cache
+    }()
+    private static let pixels = 360
+
+    private static func decode(_ url: URL) -> UIImage? {
+        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                       kCGImageSourceCreateThumbnailWithTransform: true,
+                       kCGImageSourceShouldCacheImmediately: true,
+                       kCGImageSourceThumbnailMaxPixelSize: pixels] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
     var body: some View {
         Group {
-            if let url, let image = UIImage(contentsOfFile: url.path) {
+            if let url, let image = load(url) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()

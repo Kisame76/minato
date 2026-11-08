@@ -293,6 +293,14 @@ final class LibraryModel {
     /// The installed apps in the order of the "…" menu, then the picks still being installed, at the end where a new
     /// app lands in the manual order (the navigation design, section 3).
     func items(arranged arrangement: LibraryArrangement) -> [LibraryItem] {
+        #if DEBUG
+        SelectTiming.measure("items") { arrangedItems(arrangement) }
+        #else
+        arrangedItems(arrangement)
+        #endif
+    }
+
+    private func arrangedItems(_ arrangement: LibraryArrangement) -> [LibraryItem] {
         let waiting = pending.map { unit in
             LibraryItem(
                 id: "pending:" + unit.url.lastPathComponent,

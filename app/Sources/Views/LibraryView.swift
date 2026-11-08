@@ -2,6 +2,9 @@ import APKLibrary
 import APKSession
 import SwiftUI
 import UniformTypeIdentifiers
+#if DEBUG
+import os
+#endif
 
 extension UTType {
     static let apk = UTType(importedAs: "com.android.package-archive")
@@ -99,16 +102,18 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if model.items.isEmpty {
+        if model.entries.isEmpty && model.pending.isEmpty {
             emptyLibrary
         } else {
+            // Built once per change: each Select tap renders the library again.
+            let items = visibleItems
             Group {
                 switch layout {
                 case .icons:
                     ScrollView {
                         // 4 apps side by side with Home Screen sized icons, as on Home (the navigation design,
                         // section 3).
-                        TileGrid(items: visibleItems, width: width,
+                        TileGrid(items: items, width: width,
                                  move: movesApps ? { move($0, before: $1) } : nil) { item, iconSize in
                             tile(item, iconSize: iconSize)
                         }
@@ -116,7 +121,7 @@ struct LibraryView: View {
                     }
                 case .list:
                     List {
-                        ForEach(visibleItems) { tile($0, asRow: true) }
+                        ForEach(items) { tile($0, asRow: true) }
                             .reorderableItems()
                     }
                     .listStyle(.plain)
@@ -140,7 +145,7 @@ struct LibraryView: View {
             }
             .animation(.default, value: model.note)
             .overlay {
-                if visibleItems.isEmpty {
+                if items.isEmpty {
                     noMatches
                 }
             }
@@ -160,6 +165,9 @@ struct LibraryView: View {
     private func tile(_ item: LibraryItem, iconSize: CGFloat = 60, asRow: Bool = false) -> some View {
         AppTile(item: item, actions: actions, asRow: asRow, iconSize: iconSize, isSelecting: isSelecting,
                 isSelected: selection.contains(item.id)) {
+            #if DEBUG
+            SelectTiming.tap()
+            #endif
             if selection.contains(item.id) {
                 selection.remove(item.id)
             } else {
@@ -196,15 +204,16 @@ struct LibraryView: View {
             ToolbarSpacer(placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
                 // For everything selected; when all are favorites already, it removes them instead.
-                let adds = favoriteCandidates.isEmpty
-                    || Library.favoriteAdds(favoriteCandidates.map(\.id), favorites: model.favorites)
+                let candidates = favoriteCandidates
+                let adds = candidates.isEmpty
+                    || Library.favoriteAdds(candidates.map(\.id), favorites: model.favorites)
                 Button(adds ? "Favorite" : "Unfavorite", systemImage: adds ? "star" : "star.slash") {
                     Task {
-                        await model.setFavorite(favoriteCandidates, adds)
+                        await model.setFavorite(candidates, adds)
                         endSelection()
                     }
                 }
-                .disabled(favoriteCandidates.isEmpty)
+                .disabled(candidates.isEmpty)
             }
             ToolbarItem(placement: .bottomBar) {
                 Button("Delete", systemImage: "trash", role: .destructive) {
@@ -218,7 +227,7 @@ struct LibraryView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Menu("More", systemImage: "ellipsis") {
                     Button("Select", systemImage: "checkmark.circle") { isSelecting = true }
-                        .disabled(!model.items.contains { $0.entry != nil })
+                        .disabled(model.entries.isEmpty)
                     // As Files' menu: the view as rows with the checkmark, the symbol and the name.
                     Section {
                         Picker("View", selection: $layout) {
@@ -327,13 +336,26 @@ struct LibraryView: View {
         }
     }
 
-    /// Pending files are still being imported and cannot be selected.
+    /// The installed apps shown, as visibleItems has them but without building the tiles' items, which a Select tap
+    /// did several times over; pending files are still being imported and cannot be selected.
     private var selectableIDs: [LibraryItem.ID] {
-        visibleItems.filter { $0.entry != nil }.map(\.id)
+        var entries = model.entries
+        if filter != .all {
+            let shown = Set(filter.filtered(entries, favorites: model.favorites).map(\.id))
+            entries = entries.filter { shown.contains($0.id) }
+        }
+        let query = trimmedQuery
+        if !query.isEmpty {
+            entries = entries.filter { entry in
+                entry.displayName.localizedStandardContains(query)
+                    || entry.report?.packageName.localizedStandardContains(query) == true
+            }
+        }
+        return entries.map(\.id)
     }
 
     private var selectedEntries: [LibraryEntry] {
-        model.items.filter { selection.contains($0.id) }.compactMap(\.entry)
+        model.entries.filter { selection.contains($0.id) }
     }
 
     /// The selected apps that can be favorites: files that are no valid APK are left out.
@@ -405,3 +427,61 @@ struct LibraryView: View {
         Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
     }
 }
+
+#if DEBUG
+/// Select mode's timing (the user's hang of 2026-11-07, after many apps were selected): each tap on a tile logs how
+/// long the main thread worked until it waited again, and a watchdog logs a main thread blocked for more than 250 ms,
+/// with what it was doing. Only times and phases, no names or counts. SelectModeUITests' runs read them.
+@MainActor enum SelectTiming {
+    private static let phase = OSAllocatedUnfairLock(initialState: "idle")
+    private static var watching = false
+    static var spent: [String: Double] = [:]
+    static var calls: [String: Int] = [:]
+
+    static func measure<T>(_ name: String, _ work: () -> T) -> T {
+        let start = CACurrentMediaTime()
+        defer {
+            spent[name, default: 0] += CACurrentMediaTime() - start
+            calls[name, default: 0] += 1
+        }
+        return work()
+    }
+
+    static func tap() {
+        watch()
+        let start = CACurrentMediaTime()
+        phase.withLock { $0 = "select tap" }
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false,
+                                                          Int.max) { observer, _ in
+            NSLog("MINATO-SELECT tap answered in %.1f ms, items %.1f ms in %d calls, icons %.1f ms in %d decodes",
+                  (CACurrentMediaTime() - start) * 1000, spent["items", default: 0] * 1000, calls["items", default: 0],
+                  spent["icons", default: 0] * 1000, calls["icons", default: 0])
+            spent = [:]
+            calls = [:]
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+            phase.withLock { $0 = "idle" }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    private static func watch() {
+        guard !watching else { return }
+        watching = true
+        let phase = phase
+        Thread.detachNewThread {
+            while true {
+                let sent = CACurrentMediaTime()
+                let answered = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { answered.signal() }
+                if answered.wait(timeout: .now() + 0.25) == .timedOut {
+                    let doing = phase.withLock { $0 }
+                    NSLog("MINATO-SELECT main thread blocked over 250 ms (%@)", doing)
+                    answered.wait()
+                    NSLog("MINATO-SELECT main thread blocked %.0f ms (%@)", (CACurrentMediaTime() - sent) * 1000, doing)
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
+    }
+}
+#endif
