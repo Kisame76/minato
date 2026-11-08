@@ -36,6 +36,11 @@ void map_file(std::uint64_t begin, std::uint64_t end, int fd, std::uint64_t offs
 /// [begin, end) is unmapped, or another mapping replaces it: the names of files there go.
 void unmap(std::uint64_t begin, std::uint64_t end);
 
+/// Whether any file mapping map_file recorded overlaps [begin, end): the runtime's own record of what is file-backed,
+/// which sys_madvise's MADV_DONTNEED trusts over the host VM's view (a written MAP_PRIVATE file gets an anonymous
+/// shadow, so the host reports no pager there).
+bool range_is_file_backed(std::uint64_t begin, std::uint64_t end);
+
 /// mremap moved [from, from + old_length) to `to` with `new_length`: the names go with the pages they name, the
 /// part past `new_length` loses its names, and what lay at the target before is replaced.
 void remap(std::uint64_t from, std::uint64_t old_length, std::uint64_t to, std::uint64_t new_length);

@@ -1,0 +1,10 @@
+malloc_free: flat
+mmap_pieces: flat
+madvise_dontneed: flat
+madvise_dontneed: pages left the resident size at once
+madvise_free: flat
+madvise_free: pages stay resident
+dontneed_other_range: second block after the first was advised away holds one block
+free_other_range: second block after the first was advised away holds both blocks
+free_returns: a freed 128 MiB block is returned
+private_file: flat

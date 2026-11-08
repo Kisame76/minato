@@ -687,6 +687,15 @@ void unmap(std::uint64_t begin, std::uint64_t end) {
     forget(current, begin, end);
 }
 
+bool range_is_file_backed(std::uint64_t begin, std::uint64_t end) {
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    for (const auto &mapping : current.files) {
+        if (mapping.begin < end && mapping.end > begin) return true;
+    }
+    return false;
+}
+
 void remap(std::uint64_t from, std::uint64_t old_length, std::uint64_t to, std::uint64_t new_length) {
     auto &current = state();
     const std::lock_guard lock(current.mutex);

@@ -535,29 +535,91 @@ constexpr int populate_read = 22;
 constexpr int populate_write = 23;
 }  // namespace linux_madv
 
-/// MADV_DONTNEED over [begin, end) one region of the VM map at a time: MADV_ZERO for private anonymous memory, and
-/// Darwin's MADV_DONTNEED, which keeps the contents, where MADV_ZERO refuses (a file's or a shared mapping's pages).
-/// ENOMEM at a hole, as Linux answers for a part that is not mapped. Under memory_lock.
-long dont_need_by_region(std::uint64_t begin, std::uint64_t end) {
+/// Whether a shared mapping the runtime records (a memfd's or ashmem's MAP_SHARED pages) overlaps [begin, end). Under
+/// memory_lock.
+bool shared_mapping_overlaps(std::uint64_t begin, std::uint64_t end) {
+    for (const auto &mapping : shared_mappings) {
+        if (mapping.begin < end && mapping.end > begin) return true;
+    }
+    return false;
+}
+
+/// Zeroes the private-anonymous sub-host-page remainder [at, stop) in place with MADV_ZERO, as Linux zeroes a 4 KiB
+/// sub-range of a 16 KiB page; the range is known private anonymous, so MADV_ZERO applies. Its footprint stays (below
+/// one host page an end), unlike Linux, but the remainder is tiny. Under memory_lock.
+long zero_anon(std::uint64_t at, std::uint64_t stop) {
+    if (at >= stop) return 0;
+    if (::madvise(as_pointer<void>(at), static_cast<std::size_t>(stop - at), MADV_ZERO) != 0) {
+        return -to_linux_errno(errno);
+    }
+    return 0;
+}
+
+/// Darwin's MADV_DONTNEED over [at, stop), for the ranges dont_need does not replace -- a file or a shared mapping. It
+/// keeps a shared mapping's data (shmem) and a private file's written bytes (never MADV_ZERO, which would zero shared
+/// anonymous memory) and frees what clean pages it can. Under memory_lock.
+long advise_keep(std::uint64_t at, std::uint64_t stop) {
+    if (at >= stop) return 0;
+    if (::madvise(as_pointer<void>(at), static_cast<std::size_t>(stop - at), MADV_DONTNEED) != 0) {
+        return -to_linux_errno(errno);
+    }
+    return 0;
+}
+
+/// Replaces the whole host pages [at, stop) with a fresh MAP_FIXED | MAP_PRIVATE | MAP_ANON mapping at `protection`, so
+/// their physical pages go and phys_footprint falls. Darwin's MAP_FIXED overwrites in place (VM_FLAGS_OVERWRITE), so no
+/// window unmaps the range for another thread. The guest's own anonymous mappings carry VM tag 0, so a -1 descriptor
+/// keeps the tag; executable is never set (ADR-0002). Under memory_lock.
+bool replace_anon(std::uint64_t at, std::uint64_t stop, vm_prot_t protection) {
+    const int prot = protection & (VM_PROT_READ | VM_PROT_WRITE);
+    void *const got = ::mmap(as_pointer<void>(at), static_cast<std::size_t>(stop - at), prot,
+                             MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
+    return got != MAP_FAILED;
+}
+
+/// MADV_DONTNEED over [begin, end): on Linux the pages are freed -- private anonymous read back as zero (allocators
+/// Scudo relies on it), a private file's copies drop, and resident size and footprint fall. On Darwin neither
+/// MADV_ZERO nor MADV_DONTNEED frees the physical pages: they stay in phys_footprint (the iOS jetsam metric), so an
+/// allocator's releaseToOS or a GC would never shrink the process (ADR-0007 change, 2026-11-07). So for every whole
+/// host page that is private and anonymous, replace it with a fresh anonymous mapping: the pages go and the next touch
+/// reads zero, as on Linux. A sub-host-page end of such a range (a guest that keeps 4 KiB pages: Linux zeroes a 4 KiB
+/// sub-range of a 16 KiB page) is zeroed in place. A file or a shared mapping keeps Darwin's MADV_DONTNEED, which keeps
+/// its data. Classification is careful: shared memory keeps its data on Linux (shmem), but XNU reports share_mode
+/// SM_PRIVATE for a single MAP_SHARED mapping (ref_count 1), so a mapping counts as shared on VM_INHERIT_SHARE (which
+/// MAP_SHARED sets), a shared share_mode, or the runtime's own shared record; and file-backed is the runtime's own
+/// map_file record, not the host's pager, because a written MAP_PRIVATE file gets an anonymous shadow that hides the
+/// pager. ENOMEM at a hole, as Linux answers. Under memory_lock.
+long dont_need(std::uint64_t begin, std::uint64_t end) {
+    const std::uint64_t page = vm_page_size;
     for (std::uint64_t at = begin; at < end;) {
-        vm_address_t region = static_cast<vm_address_t>(at);
+        vm_address_t query = static_cast<vm_address_t>(at);
         vm_size_t size = 0;
-        vm_region_basic_info_data_64_t info{};
-        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
-        mach_port_t object = MACH_PORT_NULL;
-        if (::vm_region_64(::mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
-                           reinterpret_cast<vm_region_info_t>(&info), &count, &object) != KERN_SUCCESS ||
-            region > at) {
-            return -linux_errno::enomem;
+        natural_t depth = 0;
+        vm_region_submap_short_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+        if (::vm_region_recurse_64(::mach_task_self(), &query, &size, &depth,
+                                   reinterpret_cast<vm_region_recurse_info_t>(&info), &count) != KERN_SUCCESS ||
+            query > at) {
+            return -linux_errno::enomem;  // a hole, as Linux answers for a part that is not mapped
         }
-        const std::uint64_t stop = std::min<std::uint64_t>(end, region + size);
-        void *const piece = as_pointer<void>(at);
-        const auto piece_length = static_cast<std::size_t>(stop - at);
-        if (::madvise(piece, piece_length, MADV_ZERO) != 0 &&
-            ((errno != EPERM && errno != ENOTSUP) || ::madvise(piece, piece_length, MADV_DONTNEED) != 0)) {
-            return -to_linux_errno(errno);
+        const std::uint64_t region_end = std::min<std::uint64_t>(end, query + size);
+        const bool shared = info.inheritance == VM_INHERIT_SHARE || info.share_mode == SM_SHARED ||
+                            info.share_mode == SM_TRUESHARED || info.share_mode == SM_SHARED_ALIASED ||
+                            shared_mapping_overlaps(at, region_end);
+        const bool replaceable = !info.is_submap && info.user_tag == 0 && !shared &&
+                                 !proc::range_is_file_backed(at, region_end);
+        const std::uint64_t whole_begin = (at + page - 1) & ~(page - 1);
+        const std::uint64_t whole_end = region_end & ~(page - 1);
+        if (replaceable && whole_end > whole_begin) {
+            if (!replace_anon(whole_begin, whole_end, info.protection)) return -to_linux_errno(errno);
+            if (const long error = zero_anon(at, whole_begin); error != 0) return error;        // sub-page head
+            if (const long error = zero_anon(whole_end, region_end); error != 0) return error;  // sub-page tail
+        } else if (replaceable) {  // a private anonymous region below one whole host page: zero it in place
+            if (const long error = zero_anon(at, region_end); error != 0) return error;
+        } else if (const long error = advise_keep(at, region_end); error != 0) {  // a file or a shared mapping
+            return error;
         }
-        at = stop;
+        at = region_end;
     }
     return 0;
 }
@@ -605,14 +667,11 @@ long sys_madvise(std::uint64_t address, std::uint64_t length, int advice) {
             return result_or_error(::madvise(start, length, advice));
 
         case linux_madv::dontneed: {
-            // Linux: private anonymous pages read back as zero afterwards, and allocators (Scudo)
-            // rely on that. Darwin's MADV_DONTNEED keeps the contents; MADV_ZERO clears them. A file's or
-            // a shared mapping's pages keep theirs on Linux, which reads them again, and Darwin's MADV_ZERO
-            // refuses those (EPERM, ENOTSUP): its MADV_DONTNEED is Linux's answer there.
+            // Linux frees the range: private anonymous pages read back as zero (allocators like Scudo rely on it), a
+            // private file's copies drop, and the footprint falls. Darwin's MADV_ZERO and MADV_DONTNEED both keep the
+            // pages in phys_footprint, so dont_need replaces private anonymous host pages with fresh ones instead.
             const std::lock_guard lock(memory_lock);
-            if (::madvise(start, length, MADV_ZERO) == 0) return 0;
-            if (errno != EPERM && errno != ENOTSUP) return -to_linux_errno(errno);
-            return dont_need_by_region(address, address + length);
+            return dont_need(address, address + length);
         }
 
         case linux_madv::free: {

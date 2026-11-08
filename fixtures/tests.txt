@@ -35,6 +35,7 @@ scudo-big-region-test system
 scudo-big-region-test-27 system program=scudo-big-region-test scudo-regions=27
 ctr-el0-test system
 files-test system
+memory-churn-test system
 math-test system
 log-test system
 thread-test system
