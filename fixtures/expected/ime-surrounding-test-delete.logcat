@@ -1,0 +1,3 @@
+I/ime-surrounding-test-delete: showSoftInput true
+I/ime-surrounding-test-delete: call deleteSurroundingText 1,0 -> true, text ""
+I/ime-surrounding-test-delete: done

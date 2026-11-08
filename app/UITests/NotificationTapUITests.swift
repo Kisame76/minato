@@ -68,6 +68,19 @@ final class NotificationTapUITests: XCTestCase {
                                                                                                          dy: 0.2)))
     }
 
+    /// UIKit's keyboard over Minato's session: its delete key is tapped once (for an empty field, where Android's
+    /// keyboard still deletes; tools/java-start-check.sh's ime-surrounding-test-delete round).
+    func testKeyboardDelete() {
+        continueAfterFailure = false
+        let keyboard = minato.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no keyboard over Minato")
+        let delete = keyboard.keys.matching(NSPredicate(format: "identifier ==[c] 'delete' OR label IN %@",
+                                                        ["delete", "Delete", "Löschen"])).firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "the keyboard has no delete key")
+        delete.tap()
+        print("MINATO-UITEST tapped the keyboard's delete key")
+    }
+
     /// iOS's alert for Minato's request, such as the notifications prompt of a Simulator that never answered it, is
     /// answered Allow within TEST_RUNNER_MINATO_WAIT seconds, 90 by default (its button that allows, in English or
     /// German).

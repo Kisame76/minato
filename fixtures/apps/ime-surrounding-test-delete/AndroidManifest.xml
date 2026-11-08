@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ime-surrounding-test-delete: ime-surrounding-test's field, empty, where the keyboard's delete key is pressed once:
+     Android's keyboard (LatinIME) still calls deleteSurroundingText(1, 0) with nothing before the cursor, which SDL2
+     turns into the game's backspace; Ren'Py's empty name field gets it so. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.imesurroundingdelete" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.imesurrounding.SurroundingActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="stateHidden">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

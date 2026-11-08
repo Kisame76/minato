@@ -190,7 +190,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "notify-test io.github.kisame76.minato.test.notify"
       "notify-test-granted io.github.kisame76.minato.test.notifygranted"
       "notify-tap-test io.github.kisame76.minato.test.notifytap"
-      "ime-engines-test io.github.kisame76.minato.test.imeengines")
+      "ime-engines-test io.github.kisame76.minato.test.imeengines"
+      "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -2088,6 +2089,40 @@ else:
 sys.exit(failed)
 PY
     failures=$((failures + 1))
+fi
+
+# The keyboard's delete key in an empty SDL field (ime-surrounding-test-delete, as Ren'Py's empty name field):
+# Android's keyboard still calls deleteSurroundingText(1, 0) with nothing before the cursor, which SDL2 turns into
+# the game's backspace (fixtures/expected/ime-surrounding-test-delete.logcat, LatinIME on apk-runner-35). The
+# MinatoUITests runner taps UIKit's delete key once the keyboard is up; the app's log must be Android 15's.
+if wanted ime-surrounding-test-delete; then
+  if begin_start ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete 1; then
+    if await_line guest-log '^I/ime-surrounding-test-delete: showSoftInput true$' 120 &&
+        await_event 'keyboard show\(' 20 && uitests_build && uitest testKeyboardDelete 1; then
+      if await_line guest-log '^I/ime-surrounding-test-delete: done$' 15; then
+        ok "  the delete key in the empty field reached the app"
+      else
+        failed_line "the delete key in the empty field reached nothing" ime-surrounding-test-delete-1
+      fi
+    else
+      failed_line "no keyboard to tap the delete key on" ime-surrounding-test-delete-1
+    fi
+  fi
+  end_start ime-surrounding-test-delete 1
+  python3 - "$WORK/ime-surrounding-test-delete-1.log" fixtures/expected/ime-surrounding-test-delete.logcat <<'PY' ||
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+log, expected = sys.argv[1:]
+compare_log("ime-surrounding-test-delete",
+            subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected, {})
+PY
+    failures=$((failures + 1))
+  # On the iPhone the runner goes again (the runner only).
+  [[ "$ON_DEVICE" != yes ]] ||
+    on_device uninstall app --device "$DEVICE_ID" io.github.kisame76.minato.uitests.xctrunner >/dev/null 2>&1 || true
 fi
 
 # IME: ime-test (ADR-0068 step 2c) starts with its field focused and asks for the keyboard; UIKit's must come, and the

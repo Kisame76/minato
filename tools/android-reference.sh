@@ -1176,6 +1176,12 @@ run_app() {
     ime-engines-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EnginesActivity
       ;;
+    # ime-surrounding-test-delete (an SDL field's delete key with nothing before the cursor): the image's own keyboard,
+    # its delete key tapped once the keyboard is up; ends with "done" 1 s after the edit.
+    ime-surrounding-test-delete)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity
+      ;;
     ime-surrounding-test-return)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity
@@ -1483,6 +1489,11 @@ run_app() {
       run dumpsys battery set level 50 >/dev/null; } || stepped=no
     run dumpsys battery reset >/dev/null
     [[ "$stepped" == yes ]] || return 1
+  fi
+  if [[ "$app" == ime-surrounding-test-delete ]]; then
+    # LatinIME's delete key, 2 s after the keyboard comes, where apk-runner-35's portrait keyboard has it (1080 x 1440
+    # px: the third row's right end).
+    { wait_for "$app" "showSoftInput true" && sleep 2 && run input tap 1003 1056; } || return 1
   fi
   if [[ "$app" == touch-test ]]; then
     # ADR-0045 step 7b2: a tap in the window's middle, then a swipe to the right through it, each a second after

@@ -20,12 +20,16 @@ import android.view.inputmethod.InputMethodManager;
  * gives null, and the view never calls updateExtractedText or updateSelection. It logs the editable after each edit of
  * the host's text steps, and ends with "done" after the last one. Its twin ime-surrounding-test-return hides the
  * keyboard at Enter as SDL2 does with SDL_HINT_RETURN_KEY_HIDES_IME (SDLInputConnection's ENTER, SDL_StopTextInput,
- * hideSoftInputFromWindow), as Ren'Py's name field does at Return, and ends with "done" 2 s later.
+ * hideSoftInputFromWindow), as Ren'Py's name field does at Return, and ends with "done" 2 s later. Its twin
+ * ime-surrounding-test-delete waits for one edit only, the keyboard's delete key in the empty field, which Android's
+ * keyboard still sends as deleteSurroundingText(1, 0), and ends with "done" 1 s after it.
  */
 public class SurroundingActivity extends Activity {
     static final String RETURN_PACKAGE = "io.github.kisame76.minato.test.imesurroundingreturn";
     static final String RETURN_TAG = "ime-surrounding-test-return";
-    private static final int EDITS = 3;
+    static final String DELETE_PACKAGE = "io.github.kisame76.minato.test.imesurroundingdelete";
+    static final String DELETE_TAG = "ime-surrounding-test-delete";
+    private int mEditsWanted = 3;
     private static final long TIMEOUT_MS = 12000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private DummyEdit mEdit;
@@ -93,8 +97,8 @@ public class SurroundingActivity extends Activity {
 
         private boolean edited(String call, boolean result) {
             Log.i(mTag, "call " + call + " -> " + result + ", text \"" + getEditable() + "\"");
-            if (++mEdits == EDITS) {
-                mHandler.postDelayed(SurroundingActivity.this::finishRun, 500);
+            if (++mEdits == mEditsWanted) {
+                mHandler.postDelayed(SurroundingActivity.this::finishRun, mEditsWanted == 1 ? 1000 : 500);
             }
             return result;
         }
@@ -106,6 +110,10 @@ public class SurroundingActivity extends Activity {
         mReturns = RETURN_PACKAGE.equals(getPackageName());
         if (mReturns) {
             mTag = RETURN_TAG;
+        }
+        if (DELETE_PACKAGE.equals(getPackageName())) {
+            mTag = DELETE_TAG;
+            mEditsWanted = 1;
         }
         mEdit = new DummyEdit(this);
         setContentView(mEdit);
@@ -128,6 +136,6 @@ public class SurroundingActivity extends Activity {
             return;
         }
         mDone = true;
-        Log.i(mTag, mEdits == EDITS || mReturned ? "done" : "timeout");
+        Log.i(mTag, mEdits == mEditsWanted || mReturned ? "done" : "timeout");
     }
 }

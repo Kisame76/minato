@@ -104,7 +104,10 @@ public struct KeyboardTraits: Sendable, Equatable {
     /// The editor's action on the bar above the keyboard, for the pads that have no return key on an iPhone; nil for
     /// the others, whose bar has only the key that puts the keyboard away.
     public var barAction: ReturnKeyKind?
-    /// The cursor starts at the text's start, where UIKit's keyboard begins a sentence (UIKeyInput's hasText false).
+    /// The cursor starts at the text's start of an editor that capitalizes, where UIKit's keyboard begins a sentence
+    /// (UIKeyInput's hasText false). An editor that does not, as SDL2's DummyEdit, always has text for UIKit: its
+    /// keyboard sends the delete key only then, and Android's still deletes with nothing before the cursor
+    /// (LatinIME's deleteSurroundingText(1, 0), which SDL2 makes the game's backspace).
     public var cursorAtStart: Bool
 
     public init(editor: EditorSpec) {
@@ -155,7 +158,7 @@ public struct KeyboardTraits: Sendable, Equatable {
         default: returnKey = .standard
         }
         barAction = [.numberPad, .decimalPad, .phonePad].contains(kind) ? returnKey : nil
-        cursorAtStart = editor.selectionStart <= 0 && editor.selectionEnd <= 0
+        cursorAtStart = capitalization != .none && editor.selectionStart <= 0 && editor.selectionEnd <= 0
     }
 }
 

@@ -143,8 +143,8 @@ import Testing
     }
 
     @Test func theCursorAtTheStartBeginsASentence() {
-        #expect(traits(Self.text).cursorAtStart)
-        var later = editor(Self.text)
+        #expect(traits(Self.text | Self.capSentences).cursorAtStart)
+        var later = editor(Self.text | Self.capSentences)
         later.selectionStart = 3
         later.selectionEnd = 3
         #expect(!KeyboardTraits(editor: later).cursorAtStart)
@@ -152,6 +152,17 @@ import Testing
         later.selectionStart = -1
         later.selectionEnd = -1
         #expect(KeyboardTraits(editor: later).cursorAtStart)
+    }
+
+    /// An editor that does not capitalize, as SDL2's DummyEdit: UIKit's keyboard must send its delete key even in an
+    /// empty field, which it does only while hasText is true, as Android's keyboard still deletes there
+    /// (ime-surrounding-test-delete, LatinIME on apk-runner-35).
+    @Test func anEditorThatDoesNotCapitalizeHasTextForTheDeleteKey() {
+        #expect(!traits(Self.text).cursorAtStart)
+        var unknown = editor(Self.text)
+        unknown.selectionStart = -1
+        unknown.selectionEnd = -1
+        #expect(!KeyboardTraits(editor: unknown).cursorAtStart)
     }
 
     // MARK: - Requests → what the view does
