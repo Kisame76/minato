@@ -1,0 +1,27 @@
+hwui's hardware bitmaps of the host flavor with their pixels.
+
+The host flavor (Layoutlib's) has no hardware bitmaps, so Bitmap::allocateHardwareBitmap gives a heap bitmap in their
+place, but one of the source's size only, calloc'd and never filled: every bitmap an app asked for as
+Bitmap.Config.HARDWARE (Bitmap.copy, BitmapFactory, ImageDecoder and BitmapRegionDecoder, as Glide and Coil decode on
+API 26 and later) drew as fully transparent. Now the heap bitmap gets the source's pixels (SkBitmap::readPixels), and
+a failed read gives no bitmap, as a failed hardware upload does on Android. Its config stays ARGB_8888 (no hardware
+bitmaps on the host flavor): pixel access works on it where Android's HARDWARE bitmap refuses it.
+Test: first-frame-test's HARDWARE bitmap step (orange, as on Android 15).
+
+--- a/frameworks/base/libs/hwui/hwui/Bitmap.cpp
++++ b/frameworks/base/libs/hwui/hwui/Bitmap.cpp
+@@ -150,7 +150,13 @@
+ #ifdef __ANDROID__  // Layoutlib does not support hardware acceleration
+     return uirenderer::HardwareBitmapUploader::allocateHardwareBitmap(bitmap);
+ #else
+-    return Bitmap::allocateHeapBitmap(bitmap.info());
++    // Minato: a heap bitmap with the source's pixels; the host flavor allocated one without them, so every hardware
++    // bitmap (copy(HARDWARE), BitmapFactory, ImageDecoder and BitmapRegionDecoder with Config.HARDWARE) drew nothing.
++    sk_sp<Bitmap> heap = Bitmap::allocateHeapBitmap(bitmap.info());
++    if (heap && !bitmap.readPixels(heap->info(), heap->pixels(), heap->rowBytes(), 0, 0)) {
++        return nullptr;
++    }
++    return heap;
+ #endif
+ }
+ 

@@ -1,0 +1,5 @@
+I/hardware-bitmap-test: Bitmap.copy(HARDWARE): made true, 8x8, pixels right true
+I/hardware-bitmap-test: BitmapFactory with HARDWARE: made true, 8x8, pixels right true
+I/hardware-bitmap-test: ImageDecoder with ALLOCATOR_HARDWARE: made true, 8x8, pixels right true
+I/hardware-bitmap-test: ImageDecoder with its default allocator: made true, 8x8, pixels right true
+I/hardware-bitmap-test: done

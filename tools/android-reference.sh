@@ -659,7 +659,7 @@ run_app() {
       | compat-test-35 | gles-java-test | input-service-test | asset-ndk-test | parcel-test | jni-lib-test \
       | owner-rules-test | settings-test | jnigraphics-test | drawables-test | checkbox-test | pointer-insets-test \
       | obb-test | palette-test | binder-test | strictmode-test | packs-test | packs-test-own | api-breadth-test \
-      | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test \
+      | contexts-test | traffic-test | widgets-test | breadth-test | priorities-test | json-test | hardware-bitmap-test \
       | jobs-test | hardware-buffer-test | telephony-test | audiotrack-test | sdl-audiotrack-test | jni-fields-test \
       | soundpool-test | soundpool-codec-test \
       | storage-test | storage-space-test | storage-access-test | location-test | gapscan-test | webview-camera-test | keystore-test \

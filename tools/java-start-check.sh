@@ -231,6 +231,7 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ "$ON_DEVICE" == no ]] || APPS+=("gles-procs-test io.github.kisame76.minato.test.glesprocs")
 [[ "$ON_DEVICE" == no ]] || APPS+=("engine-start-test io.github.kisame76.minato.test.enginestart")
 APPS+=("program-binary-test io.github.kisame76.minato.test.programbinary")
+APPS+=("hardware-bitmap-test io.github.kisame76.minato.test.hardwarebitmap")
 # ADR-0060 e2c's decoder apps on the iPhone only, on its hardware VideoToolbox (the Mac has checks of their own).
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-codec-test io.github.kisame76.minato.test.mediacodec")
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-bench-test io.github.kisame76.minato.test.mediabench")
@@ -1872,6 +1873,9 @@ fi
 [[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
 [[ "$ON_DEVICE" == no ]] || run_one gles-procs-test io.github.kisame76.minato.test.glesprocs
 [[ "$ON_DEVICE" == no ]] || run_one engine-start-test io.github.kisame76.minato.test.enginestart
+# hardware-bitmap-test: Bitmap.Config.HARDWARE bitmaps made by Bitmap.copy, BitmapFactory and ImageDecoder keep
+# their pixels (hwui patch 0012), in the Simulator and on the iPhone.
+run_one hardware-bitmap-test io.github.kisame76.minato.test.hardwarebitmap
 # program-binary-test (a game engine's shader cache), in the Simulator and on the iPhone: its first start saves its GL
 # programs' binaries, its second, a new process, loads them and binaries a driver must refuse without a crash. Both
 # starts' lines must be Android 15's.
