@@ -142,23 +142,34 @@ TEST(format_instrument_writes_the_memory_fields_in_mib) {
     constexpr std::uint64_t mib = std::uint64_t{1} << 20;
     const memory::Instrument reading{.footprint = 6000 * mib, .internal = 5000 * mib, .compressed = 100 * mib,
                                      .external = 200 * mib, .graphics = 300 * mib, .media = 50 * mib,
+                                     .purgeable = 40 * mib, .purgeable_compressed = 10 * mib, .other = 500 * mib,
                                      .anon = 5500 * mib, .file = 250 * mib};
     char out[256];
     const std::size_t length = memory::format_instrument(reading, true, out, sizeof out);
     CHECK(std::string(out, length) ==
-          "I/apkrt   : mem foot=6000 int=5000 comp=100 ext=200 gfx=300 media=50 anon=5500 file=250 warn\n");
+          "I/apkrt   : mem foot=6000 int=5000 comp=100 gfx=300 media=50 purg=40 purgc=10 other=500 ext=200 "
+          "anon=5500 file=250 warn\n");
 }
 
 TEST(format_instrument_omits_the_marker_without_a_warning) {
     char out[256];
     const std::size_t length = memory::format_instrument(memory::Instrument{}, false, out, sizeof out);
-    CHECK(std::string(out, length) == "I/apkrt   : mem foot=0 int=0 comp=0 ext=0 gfx=0 media=0 anon=0 file=0\n");
+    CHECK(std::string(out, length) ==
+          "I/apkrt   : mem foot=0 int=0 comp=0 gfx=0 media=0 purg=0 purgc=0 other=0 ext=0 anon=0 file=0\n");
 }
 
 TEST(sample_instrument_reads_the_footprint_and_some_anonymous_memory) {
     const memory::Instrument reading = memory::sample_instrument();
     CHECK(reading.footprint > 0);
     CHECK(reading.anon > 0);  // the test process holds anonymous mappings
+    // The footprint breakdown sums to the footprint: "other" is the remainder for the parts the SDK does not name.
+    const std::uint64_t parts = reading.internal + reading.compressed + reading.graphics + reading.media +
+                                reading.purgeable + reading.purgeable_compressed;
+    if (reading.footprint >= parts) {
+        CHECK(parts + reading.other == reading.footprint);
+    } else {
+        CHECK(reading.other == 0);  // nothing to add when the named parts already exceed the footprint
+    }
 }
 
 }  // namespace

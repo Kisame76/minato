@@ -6,6 +6,8 @@
 #include <dispatch/dispatch.h>
 #include <mach/mach.h>
 #include <mach/vm_region.h>
+#include <pthread.h>
+#include <time.h>
 #include <unistd.h>
 #if TARGET_OS_IPHONE
 #include <os/proc.h>
@@ -43,10 +45,18 @@ void put_value(char *out, std::size_t size, std::size_t &at, const char *name, s
     if (at < size) out[at++] = '\n';
 }
 
-void timer_fired(void *) {
-    const int descriptor = slot.load(std::memory_order_relaxed);
-    if (descriptor >= 0) write_now(descriptor, false);
-    log_instrument(false);  // the 1 Hz memory picture in the session log
+void *periodic_sampler(void *) {
+    // A dedicated thread, not a dispatch timer: the sources below share one serial queue, and under the memory
+    // pressure we want to record libdispatch may be unable to spawn a worker to run it. A thread created at session
+    // start and parked in nanosleep needs no allocation to wake, so it keeps sampling right up to the jetsam kill.
+    while (true) {
+        const struct timespec delay = {1, 0};  // ~1 Hz; a late wake under load only stretches the interval
+        ::nanosleep(&delay, nullptr);
+        const int descriptor = slot.load(std::memory_order_relaxed);
+        if (descriptor >= 0) write_now(descriptor, false);
+        log_instrument(false);  // the 1 Hz memory picture in the session log
+    }
+    return nullptr;  // one game per process (ADR-0003); the thread runs until the process ends
 }
 
 void pressure_fired(void *) {
@@ -55,22 +65,25 @@ void pressure_fired(void *) {
     log_instrument(true);
 }
 
-/// Starts, once per process (ADR-0003: one game), the serial queue, the 1 Hz timer and the
-/// DISPATCH_SOURCE_TYPE_MEMORYPRESSURE source that drive write_now and log_instrument. Never cancelled.
+/// Starts, once per process (ADR-0003: one game), the 1 Hz sampler thread and the DISPATCH_SOURCE_TYPE_MEMORYPRESSURE
+/// source that drive write_now and log_instrument. The thread (not a dispatch timer) survives memory pressure; see
+/// periodic_sampler. The pressure source stays for the Mac fixture path, which has no UIKit memory-warning callback.
 void ensure_sources() {
     static std::once_flag started;
     std::call_once(started, [] {
+        pthread_t thread;
+        pthread_attr_t attr;
+        if (::pthread_attr_init(&attr) == 0) {
+            ::pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            static_cast<void>(::pthread_create(&thread, &attr, periodic_sampler, nullptr));
+            ::pthread_attr_destroy(&attr);
+        }
         dispatch_queue_t queue = dispatch_queue_create("io.github.kisame76.minato.memory", DISPATCH_QUEUE_SERIAL);
-        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
-        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC,
-                                  NSEC_PER_SEC / 10);
-        dispatch_source_set_event_handler_f(timer, timer_fired);
-        dispatch_resume(timer);
         dispatch_source_t pressure =
             dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
                                    DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL, queue);
         dispatch_source_set_event_handler_f(pressure, pressure_fired);
-        dispatch_resume(pressure);  // works in game mode without UIKit (ADR-0032 decision 8); never cancelled
+        dispatch_resume(pressure);  // warn lines for the fixture path; game mode also logs on APKRT_EVENT_LOW_MEMORY
     });
 }
 
@@ -138,6 +151,13 @@ Instrument sample_instrument() {
         const auto nonneg = [](std::int64_t value) { return value > 0 ? static_cast<std::uint64_t>(value) : 0; };
         reading.graphics = nonneg(info.ledger_tag_graphics_footprint);
         reading.media = nonneg(info.ledger_tag_media_footprint);
+        reading.purgeable = nonneg(info.ledger_purgeable_nonvolatile);
+        reading.purgeable_compressed = nonneg(info.ledger_purgeable_novolatile_compressed);
+        // "other" closes the line to the footprint: IOKit/GPU-wired, page tables and alternate accounting are
+        // counted in phys_footprint but absent from the iOS SDK's task_vm_info, so report them as one remainder.
+        const std::uint64_t parts = reading.internal + reading.compressed + reading.graphics + reading.media +
+                                    reading.purgeable + reading.purgeable_compressed;
+        reading.other = reading.footprint > parts ? reading.footprint - parts : 0;
     }
     // The guest's own mappings carry VM tag 0 (sys_mmap's); split them by backing, as sys_madvise classifies them.
     // vm_region_recurse_64 (not mach_vm_region_recurse, which the iOS SDK lacks): vm_address_t/vm_size_t, as inspect().
@@ -164,9 +184,12 @@ Instrument sample_instrument() {
 std::size_t format_instrument(const Instrument &reading, bool warning, char *out, std::size_t size) {
     const auto m = [](std::uint64_t bytes) { return static_cast<unsigned long long>(bytes >> 20); };  // bytes -> MiB
     const int length = std::snprintf(
-        out, size, "I/apkrt   : mem foot=%llu int=%llu comp=%llu ext=%llu gfx=%llu media=%llu anon=%llu file=%llu%s\n",
-        m(reading.footprint), m(reading.internal), m(reading.compressed), m(reading.external), m(reading.graphics),
-        m(reading.media), m(reading.anon), m(reading.file), warning ? " warn" : "");
+        out, size,
+        "I/apkrt   : mem foot=%llu int=%llu comp=%llu gfx=%llu media=%llu purg=%llu purgc=%llu other=%llu ext=%llu "
+        "anon=%llu file=%llu%s\n",
+        m(reading.footprint), m(reading.internal), m(reading.compressed), m(reading.graphics), m(reading.media),
+        m(reading.purgeable), m(reading.purgeable_compressed), m(reading.other), m(reading.external), m(reading.anon),
+        m(reading.file), warning ? " warn" : "");
     if (length < 0 || static_cast<std::size_t>(length) >= size) return 0;
     return static_cast<std::size_t>(length);
 }
