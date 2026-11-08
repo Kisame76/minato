@@ -290,11 +290,13 @@ long sys_rt_sigpending(std::uint64_t address, std::uint64_t size);
 long sys_rt_sigsuspend(std::uint64_t address, std::uint64_t size);
 long sys_rt_sigtimedwait(std::uint64_t set_address, std::uint64_t info_address, std::uint64_t timeout_address,
                          std::uint64_t size);
-long sys_kill(int pid, int signal);
+// `caller_fp` is the guest's frame pointer (x29) at the syscall: when the call kills the guest's own process with
+// SIGKILL, note_self_kill (process_exit.h) records the caller from it, so the last-session status names the cause.
+long sys_kill(int pid, int signal, std::uint64_t caller_fp);
 /// tgkill; tkill is tgkill with process -1.
-long sys_tgkill(int process, int tid, int signal);
+long sys_tgkill(int process, int tid, int signal, std::uint64_t caller_fp);
 /// rt_sigqueueinfo (tid 0: to the process) and rt_tgsigqueueinfo.
-long sys_rt_sigqueueinfo(int process, int tid, int signal, std::uint64_t info_address);
+long sys_rt_sigqueueinfo(int process, int tid, int signal, std::uint64_t info_address, std::uint64_t caller_fp);
 
 // --- Threads (sys_threads.cpp) -----------------------------------------------------------------------
 

@@ -97,6 +97,19 @@ struct AppReportTests {
         #expect(line(1).contains("Last session: it closed itself 1 second after it opened\n"))
     }
 
+    /// The runtime's record of the end (LastSessionNotice.record) follows the end's line, indented, in the text the
+    /// user reads and trims; the form's URL leaves it out, as it does the log.
+    @Test func theEndsRecordFollowsItsLineInTheTextOnly() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let report = AppReport(entry: try await entry(sandbox), device: device, status: "Ready", issues: [],
+                               ending: .signal(9, name: "SIGKILL"), log: nil,
+                               record: ["killed itself with signal 9 (Killed)", "#0 libc.so+0x68f0c"])
+        #expect(report.summary.contains("Last session: it ended with signal 9 (SIGKILL)\n"
+            + "  killed itself with signal 9 (Killed)\n  #0 libc.so+0x68f0c\n"))
+        #expect(!report.url.absoluteString.contains("68f0c"))
+    }
+
     @Test func withoutALogOrAnEndTheirPartsAreLeftOut() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

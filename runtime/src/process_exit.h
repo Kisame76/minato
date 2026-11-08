@@ -47,6 +47,18 @@ void report_death_by(int signal);
 /// host's SIGKILL after the report, as when a signal's default action ends the process.
 [[noreturn]] void killed();
 
+/// A crash names its cause (ADR-0032 decision 8): when a guest kills its own process -- kill/tgkill/tkill of itself
+/// with `signal` (always SIGKILL, the only self-signal the runtime ends the process on; Process.killProcess and a
+/// Crashlytics NDK re-raise reach it too) -- records, before the kill, a bounded async-signal-safe line
+/// "killed itself with signal <N> (<name>)\n" and up to 8 frames of the caller's guest frame-pointer chain from
+/// `caller_fp` (x29 at the syscall), each as "#<n> <library>+0x<offset>\n". report_status appends the record to the
+/// last-session status after the bare exit number, so an app whose process ended "without a status" still shows the
+/// cause. Privacy (crash_report.h): only an engine/Android/Minato library appears by name, any other as "app library
+/// N"; an address in no loaded guest image (a rewriter stub lies below every image) is a bare "0x<address>", never a
+/// foreign .so offset. Called in the syscall's normal context, so it may allocate for the lookup; the later append is
+/// only a write(). A second call (another thread racing to self-kill) is ignored: the first record stands.
+void note_self_kill(int signal, std::uint64_t caller_fp);
+
 /// For an app's log, the guest's callers of exit_group with a `status` other than 0, which no Android log names, so
 /// that an app that ends itself with an error status shows where (a Python SystemExit is Py_Exit's exit): one line,
 /// "W/apkrt   : exit_group(<status>) from <symbol>+<offset> (<image>) <- ...", up to `limit` frames up the guest's

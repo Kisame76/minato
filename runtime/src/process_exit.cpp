@@ -1,6 +1,7 @@
 #include "process_exit.h"
 
 #include "APKRuntime/apkrt.h"
+#include "crash_report.h"
 #include "session.h"
 #include "signals.h"
 #include "dl.h"
@@ -26,6 +27,7 @@
 #include <format>
 #include <mutex>
 #include <string_view>
+#include <vector>
 
 namespace apkrt::process {
 namespace {
@@ -35,6 +37,13 @@ std::atomic<int> measures_descriptor{-1};
 std::atomic<apkrt_log_drain> log_drain{nullptr};
 std::atomic<bool> log_drained{false};  // the drain runs once, whichever end reaches it first
 std::atomic<bool> program_ended{false};  // with a session (end)
+
+// The crash record a self-kill leaves (note_self_kill), which report_status appends to the status after the bare exit
+// number. Built once in normal context; read in report_status with only write(), which a signal handler may reach.
+constexpr std::size_t crash_record_capacity = 1024;
+char crash_record[crash_record_capacity];
+std::size_t crash_record_length = 0;              // set before crash_record_present, read after it
+std::atomic<bool> crash_record_present{false};
 
 /// Writes `status` and a newline to the report descriptor, once; only with write(), because the
 /// caller may be a signal handler.
@@ -53,6 +62,11 @@ void report_status(int status) {
     while (count > 0) text[length++] = digits[--count];
     text[length++] = '\n';
     static_cast<void>(::write(descriptor, text, static_cast<size_t>(length)));
+    // A self-kill's cause (note_self_kill), on the lines after the number, so an app that ended "without a status"
+    // shows it. Only write(), so this stays safe on the signal-handler path that reaches report_status.
+    if (crash_record_present.load(std::memory_order_acquire)) {
+        static_cast<void>(::write(descriptor, crash_record, crash_record_length));
+    }
 }
 
 /// What the measures take at the program's start (program_starts) for its end.
@@ -215,6 +229,14 @@ void report(EndKind kind, int value) {
     if (drain != nullptr && !log_drained.exchange(true)) drain();
 }
 
+/// A crash record frame's resolver (note_self_kill): `context` is the loaded guest images, so a return address names
+/// the library and its guest offset under crash_report's privacy mask. A rewriter stub lies below every image, so a
+/// stub address is in no image and resolves to a bare "0x<address>", never a foreign .so offset (container_format.h).
+crash::Module resolve_in_mapped_objects(std::uint64_t address, void *context) {
+    const auto &objects = *static_cast<const std::vector<crash::LoadedObject> *>(context);
+    return crash::resolve_in_objects(address, objects);
+}
+
 }  // namespace
 
 void report_exit_status_to(int descriptor) {
@@ -280,6 +302,36 @@ void killed() {
     report_death_by(sigkill);
     ::kill(::getpid(), SIGKILL);
     for (;;) ::pause();
+}
+
+void note_self_kill(int signal, std::uint64_t caller_fp) {
+    // Serialize racing self-kills (two threads SIGKILL at once): the first builds the record, the rest return at once,
+    // so no one writes the shared buffer under another. crash_record_present then tells report_status it is ready.
+    static std::atomic_flag building;
+    if (building.test_and_set(std::memory_order_relaxed)) return;  // the first self-kill's record stands
+    // The loaded guest images, so a caller frame names <library>+<guest offset> under the privacy mask; taken here in
+    // the syscall's normal context, where allocation is allowed. The sonames point into `mapped`, which outlives the
+    // backtrace, and write_backtrace copies the names it keeps into crash_record.
+    std::vector<dl::MappedObject> mapped = dl::mapped_objects();
+    std::vector<crash::LoadedObject> objects;
+    objects.reserve(mapped.size());
+    for (const dl::MappedObject &object : mapped) {
+        const std::string_view path = object.path;
+        const std::size_t slash = path.rfind('/');
+        objects.push_back({.image_begin = object.image_begin,
+                           .image_end = object.image_end,
+                           .bias = object.bias,
+                           .soname = slash == std::string_view::npos ? path : path.substr(slash + 1)});
+    }
+    std::size_t at = 0;
+    append_text(crash_record, crash_record_capacity, at, "killed itself with signal ");
+    append_decimal(crash_record, crash_record_capacity, at, signal);
+    append_text(crash_record, crash_record_capacity, at, " (");
+    append_text(crash_record, crash_record_capacity, at, signal_name(signal));
+    append_text(crash_record, crash_record_capacity, at, ")\n");
+    crash::write_backtrace(crash_record, crash_record_capacity, at, caller_fp, 8, resolve_in_mapped_objects, &objects);
+    crash_record_length = at;
+    crash_record_present.store(true, std::memory_order_release);
 }
 
 bool ended() {

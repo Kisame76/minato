@@ -89,7 +89,7 @@ struct LibraryScene: View {
             return library.report(of: entry)
         case .quitUnexpectedly(let notice):
             guard let entry = library.items.first(where: { $0.id == notice.package })?.entry else { return nil }
-            return library.report(of: entry, ending: AppReport.Ending(notice.cause))
+            return library.report(of: entry, ending: AppReport.Ending(notice.cause), record: notice.record)
         }
     }
 

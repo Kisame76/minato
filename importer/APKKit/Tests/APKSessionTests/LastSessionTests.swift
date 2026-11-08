@@ -25,6 +25,12 @@ struct LastSessionTests {
         close(descriptor)
     }
 
+    /// The runtime's report with a record after the status line, as it writes it at a kill of itself or a crash.
+    static func report(_ text: String, to descriptor: Int32) {
+        #expect(text.withCString { write(descriptor, $0, strlen($0)) } == text.utf8.count)
+        close(descriptor)
+    }
+
     func files() -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
     }
@@ -123,6 +129,47 @@ struct LastSessionTests {
         Self.report(128 + 9, to: descriptor)
 
         #expect(store.take() == LastSessionNotice(name: "Example", cause: .signal(9), package: Self.session.package))
+    }
+
+    /// A kill of itself without the end handler, with the runtime's record after the status: the status line is the
+    /// signal, the record's lines are kept for the report (a status read over the whole file was no number, and the
+    /// kill read as an end by iOS).
+    @Test func aKillOfItselfKeepsTheRuntimesRecord() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        Self.report("137\nkilled itself with signal 9 (Killed)\n#0 libc.so+0x68f0c\n#1 libc.so+0x5b164\n",
+                    to: descriptor)
+
+        #expect(store.take() == LastSessionNotice(
+            name: "Example", cause: .signal(9), package: Self.session.package,
+            record: ["killed itself with signal 9 (Killed)", "#0 libc.so+0x68f0c", "#1 libc.so+0x5b164"]))
+    }
+
+    /// The same report through the end handler is no crash: nothing is shown, as before the record.
+    @Test func aRecordThroughTheEndHandlerShowsNothing() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        Self.report("137\nkilled itself with signal 9 (Killed)\n#0 libc.so+0x68f0c\n", to: descriptor)
+        store.ended()
+
+        #expect(store.take() == nil)
+    }
+
+    /// A crash's record: signal, pc, lr and frames. Blank lines go, and at most 12 lines of at most 160 characters
+    /// are kept, so that a broken file cannot fill the alert's report.
+    @Test func aCrashsRecordIsKeptWithinItsBounds() throws {
+        let descriptor = store.begin(Self.session)
+        try #require(descriptor >= 0)
+        let frames = (0..<20).map { "#\($0) app library 1+0x\(String($0, radix: 16))" }
+        let long = "pc: " + String(repeating: "f", count: 300)
+        Self.report((["139", "signal: 11 (SIGSEGV)", "", long] + frames).joined(separator: "\n") + "\n", to: descriptor)
+
+        let notice = try #require(store.take())
+        #expect(notice.cause == .signal(11))
+        try #require(notice.record.count == 12)
+        #expect(notice.record.first == "signal: 11 (SIGSEGV)")
+        #expect(notice.record[1] == String(long.prefix(160)))
+        #expect(notice.record.last == "#9 app library 1+0x9")
     }
 
     /// A record of an older build, without the end, reads as before: a crash is still shown.

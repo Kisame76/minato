@@ -272,6 +272,10 @@ enum SessionCheck {
             case .exitStatus(let status):
                 event("process library quitUnexpectedly \(notice.name) status \(status)\(seconds)")
             }
+            // The runtime's record of the end, which Report a Problem shows: its size and its cause line only.
+            if let cause = notice.record.first {
+                event("process library lastSessionRecord \(notice.record.count) lines: \(cause)")
+            }
         }
     }
 

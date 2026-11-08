@@ -264,31 +264,36 @@ long sys_rt_sigtimedwait(std::uint64_t set_address, std::uint64_t info_address, 
     return -linux_errno::eagain;
 }
 
-long sys_kill(int pid, int signal) {
+long sys_kill(int pid, int signal, std::uint64_t caller_fp) {
     // Other processes do not exist for a guest (F11); 0 and -1 mean its own process group, and
     // every process it may signal: its own.
     if (pid != ::getpid() && pid != 0 && pid != -1 && pid != -::getpid()) return -linux_errno::esrch;
     if (signal != 0 && !valid_signal(signal)) return -linux_errno::einval;
-    if (signal == sigkill) process::killed();  // every thread at once, not when one goes back to guest code
+    if (signal == sigkill) {
+        process::note_self_kill(signal, caller_fp);  // name the cause in the status before the process ends
+        process::killed();  // every thread at once, not when one goes back to guest code
+    }
     return signals::send_to_process(signal, sender_info(signal, signals::si_user));
 }
 
-long sys_tgkill(int process, int tid, int signal) {
+long sys_tgkill(int process, int tid, int signal, std::uint64_t caller_fp) {
     if (tid <= 0 || (process != -1 && process <= 0)) return -linux_errno::einval;
     if (process != -1 && process != ::getpid()) return -linux_errno::esrch;
     if (signal != 0 && !valid_signal(signal)) return -linux_errno::einval;
     if (signal == sigkill) {  // to one thread, it ends the whole process, once that thread exists
         if (const long found = signals::send_to_thread(tid, 0, {}); found != 0) return found;
+        process::note_self_kill(signal, caller_fp);
         process::killed();
     }
     return signals::send_to_thread(tid, signal, sender_info(signal, signals::si_tkill));
 }
 
-long sys_rt_sigqueueinfo(int process, int tid, int signal, std::uint64_t info_address) {
+long sys_rt_sigqueueinfo(int process, int tid, int signal, std::uint64_t info_address, std::uint64_t caller_fp) {
     if (process != ::getpid()) return -linux_errno::esrch;
     if (!valid_signal(signal)) return -linux_errno::einval;
     if (signal == sigkill) {
         if (const long found = tid == 0 ? 0 : signals::send_to_thread(tid, 0, {}); found != 0) return found;
+        process::note_self_kill(signal, caller_fp);
         process::killed();
     }
     auto info = *as_pointer<const LinuxSiginfo>(info_address);

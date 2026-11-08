@@ -60,15 +60,18 @@ public struct AppReport: Sendable, Equatable, Identifiable {
     public var ending: Ending?
     /// The kept lines of the last session's guest log.
     public var log: String?
+    /// The runtime's record of the end: its cause, registers and frames (LastSessionNotice.record).
+    public var record: [String]
 
     public init(entry: LibraryEntry, device: Device, status: String, issues: [String], ending: Ending?,
-                log: String?) {
+                log: String?, record: [String] = []) {
         self.entry = entry
         self.device = device
         self.status = status
         self.issues = issues
         self.ending = ending
         self.log = log
+        self.record = record
     }
 
     public var id: String { entry.id }
@@ -144,7 +147,10 @@ public struct AppReport: Sendable, Equatable, Identifiable {
             lines.append("Issues:")
             lines += issues.map { "- " + $0.replacingOccurrences(of: "\n", with: "\n  ") }
         }
-        if let endingLine { lines.append("Last session: \(endingLine)") }
+        if let endingLine {
+            lines.append("Last session: \(endingLine)")
+            lines += record.map { "  " + $0 }
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 

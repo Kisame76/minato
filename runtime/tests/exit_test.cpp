@@ -135,6 +135,22 @@ TEST(a_signal_that_ends_the_process_is_reported_as_128_plus_its_number_once) {
     CHECK(ended.report == "139\n");
 }
 
+TEST(a_self_kill_names_its_cause_after_the_status) {
+    // A guest that kills its own process leaves "without a status" (it reads as endedByIOS): note_self_kill records the
+    // cause before the kill, and report_status appends it after the bare 128 + 9. The caller frames resolve against no
+    // loaded guest image here, so each is a bare address -- the record's shape is what this checks (the privacy mask
+    // and the guest names are checked by crash_report_test and the self-kill fixture).
+    const auto ended = in_child([](int report) {
+        apkrt_report_exit_status(report);
+        apkrt::process::note_self_kill(9, reinterpret_cast<std::uint64_t>(__builtin_frame_address(0)));
+        apkrt::process::report_death_by(9);  // 128 + 9, as killed() reports a self-SIGKILL without a session
+        apkrt::process::exit(0);             // ends the child; report_status already took the descriptor
+    });
+    CHECK(ended.report.starts_with("137\n"));
+    CHECK(ended.report.find("killed itself with signal 9 (Killed)\n") != std::string::npos);
+    CHECK(ended.report.find("\n#0 ") != std::string::npos);
+}
+
 TEST(without_a_report_descriptor_the_process_just_ends) {
     const auto ended = in_child([](int) { apkrt::process::exit(7); });
     CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 7);

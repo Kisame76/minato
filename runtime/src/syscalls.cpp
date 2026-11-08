@@ -972,15 +972,15 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case nr::rt_sigaction:
             return sys_rt_sigaction(as_int(x[0]), x[1], x[2], x[3]);
         case nr::kill:
-            return sys_kill(as_int(x[0]), as_int(x[1]));
+            return sys_kill(as_int(x[0]), as_int(x[1]), x[29]);
         case nr::tkill:
-            return sys_tgkill(-1, as_int(x[0]), as_int(x[1]));
+            return sys_tgkill(-1, as_int(x[0]), as_int(x[1]), x[29]);
         case nr::tgkill:
-            return sys_tgkill(as_int(x[0]), as_int(x[1]), as_int(x[2]));
+            return sys_tgkill(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[29]);
         case nr::rt_sigqueueinfo:
-            return sys_rt_sigqueueinfo(as_int(x[0]), 0, as_int(x[1]), x[2]);
+            return sys_rt_sigqueueinfo(as_int(x[0]), 0, as_int(x[1]), x[2], x[29]);
         case nr::rt_tgsigqueueinfo:
-            return sys_rt_sigqueueinfo(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[3]);
+            return sys_rt_sigqueueinfo(as_int(x[0]), as_int(x[1]), as_int(x[2]), x[3], x[29]);
         case nr::rt_sigpending:
             return sys_rt_sigpending(x[0], x[1]);
         case nr::rt_sigsuspend:

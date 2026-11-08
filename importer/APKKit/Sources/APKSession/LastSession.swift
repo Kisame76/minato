@@ -35,11 +35,15 @@ public struct LastSessionNotice: Equatable, Sendable {
     public var cause: Cause
     /// The app's package, for its report (ADR-0070); nil in a notice made without one.
     public var package: String?
+    /// The runtime's record after the status line, as it writes it at a kill of itself or a crash: the cause, then
+    /// the registers and frames with the libraries named or masked (Runtime); empty in a status of an older build.
+    public var record: [String]
 
-    public init(name: String, cause: Cause, package: String? = nil) {
+    public init(name: String, cause: Cause, package: String? = nil, record: [String] = []) {
         self.name = name
         self.cause = cause
         self.package = package
+        self.record = record
     }
 
     private static let signalNames = [
@@ -104,12 +108,11 @@ public struct LastSessionStore: Sendable {
     /// Read once, then removed: what the library shows, nil for an end that went right.
     public func take() -> LastSessionNotice? {
         let session = read()
-        let status = (try? String(contentsOf: statusFile, encoding: .utf8))
-            .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        let (status, record) = Self.status((try? String(contentsOf: statusFile, encoding: .utf8)) ?? "")
         try? FileManager.default.removeItem(at: recordFile)
         try? FileManager.default.removeItem(at: statusFile)
         guard let session else { return nil }
-        let notice = { LastSessionNotice(name: session.name, cause: $0, package: session.package) }
+        let notice = { LastSessionNotice(name: session.name, cause: $0, package: session.package, record: record) }
         if let failure = session.failure { return notice(.failure(failure)) }
         // An exit code, through the end handler or not (the decision, 2026-11-01).
         if let status, (1...128).contains(status) {
@@ -123,6 +126,23 @@ public struct LastSessionStore: Sendable {
         // A shell's 128 + the signal.
         guard status > 128 else { return nil }
         return notice(.signal(status - 128))
+    }
+
+    /// Lines of the record kept, and characters of each: a cause, pc, lr and 8 frames, with room to spare.
+    static let recordLines = 12
+    static let recordLineLength = 160
+
+    /// The status file's first line, the exit status or 128 + the signal, as the number; the lines after it, which
+    /// the runtime writes at a kill of itself or a crash, as the record, blank ones left out.
+    static func status(_ text: String) -> (Int32?, [String]) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let first = lines.first else { return (nil, []) }
+        let record = lines.dropFirst()
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(recordLines)
+            .map { String($0.prefix(recordLineLength)) }
+        return (Int32(first.trimmingCharacters(in: .whitespacesAndNewlines)), Array(record))
     }
 
     private func read() -> LastSession? {

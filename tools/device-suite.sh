@@ -276,8 +276,9 @@ for name in "${tests[@]}"; do
   fi
 
   # The exit status as the runtime reported it (apkrt_report_exit_status); devicectl's exit code is
-  # not reliable for a process that ends right after its start.
-  status=$(tr -d '\n' <"$RESULTS/$name/status" 2>/dev/null || true)
+  # not reliable for a process that ends right after its start. The bare number is the first line; a self-kill's
+  # cause follows on the lines after it (ADR-0032 d8, process_exit.h note_self_kill), so compare the number alone.
+  status=$(head -n 1 "$RESULTS/$name/status" 2>/dev/null | tr -d '\n' || true)
   expected=fixtures/expected/$name
   expected_out=$expected.out
   if [[ -n "$FRAME_RATE" ]]; then

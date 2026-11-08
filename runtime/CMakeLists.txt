@@ -13,7 +13,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
-  src/stall_watchdog.cpp src/monitor_probe.cpp
+  src/stall_watchdog.cpp src/crash_report.cpp src/monitor_probe.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
@@ -779,6 +779,13 @@ if(APK_HOST_BUILD)
   target_link_libraries(session_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.session COMMAND session_test)
   set_tests_properties(runtime.session PROPERTIES TIMEOUT 60)
+
+  # The crash record's allow list and masking rule (ADR-0032 decision 8).
+  add_executable(crash_report_test tests/crash_report_test.cpp)
+  target_include_directories(crash_report_test PRIVATE src)
+  target_link_libraries(crash_report_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.crash_report COMMAND crash_report_test)
+  set_tests_properties(runtime.crash_report PROPERTIES TIMEOUT 60)
 
   # The vsync and input channels (ADR-0036).
   add_executable(channels_test tests/channels_test.cpp)

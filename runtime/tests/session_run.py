@@ -119,22 +119,36 @@ def main():
     malformed = run("--configuration", "1290x@3")
     if malformed.returncode != 2 or malformed.stdout:
         failures.append(f"malformed: exit status {malformed.returncode}, stdout {malformed.stdout.splitlines()}")
-    # SIGKILL to its own process: the session's end with 137, or without a session the host's SIGKILL (-9 here).
+    # SIGKILL to its own process: the session's end with 137, or without a session the host's SIGKILL (-9 here). The
+    # status the app reads (--report) is the bare 128 + 9, then the self-kill's cause (ADR-0032 d8, note_self_kill):
+    # the line "killed itself with signal 9 (Killed)" and the caller's frames, so an app that ended "without a status"
+    # still shows it, by kill, tgkill and sigqueue. Old code wrote the bare number alone, so this is red without the fix.
     for options, call, status in ((["--configuration", "1290x2796@3"], "kill", 137),
                                   (["--configuration", "1290x2796@3"], "tgkill", 137),
                                   (["--configuration", "1290x2796@3"], "sigqueue", 137),
                                   ([], "kill", -9)) if "kill-self-test" in programs else ():
-        result = run(*options, fixture="kill-self-test", arguments=[call])
+        report_path = os.path.join(work, f"kill-self-{call}-{'session' if options else 'bare'}.status")
+        result = run(*options, "--report", report_path, fixture="kill-self-test", arguments=[call])
         if result.returncode != status or result.stdout.splitlines() != KILLED:
             failures.append(f"kill-self-test {call} {'with' if options else 'without'} a session: exit status "
                             f"{result.returncode}, not {status}; stdout {result.stdout.splitlines()}, "
                             f"stderr's end {result.stderr.splitlines()[-5:]}")
+        try:
+            with open(report_path) as handle:
+                report = handle.read().splitlines()
+        except OSError:
+            report = []
+        if report[:1] != ["137"]:
+            failures.append(f"kill-self-test {call}: the report's first line is {report[:1]}, not ['137']")
+        elif "killed itself with signal 9 (Killed)" not in report or not any(line.startswith("#0 ") for line in report):
+            failures.append(f"kill-self-test {call}: the status names no self-kill cause: {report}")
     if not failures:
         print("--configuration began the session whose configuration session-test saw, at the iPhone 18 Pro's "
               "and the Duo's folded and open displays, portrait and landscape; "
               "without it, ENOENT; malformed, usage." +
               (" kill-self-test's SIGKILL to itself ended the program through the session's end handler with 137, "
-               "by kill, tgkill and sigqueue, and without a session by the host's SIGKILL"
+               "by kill, tgkill and sigqueue, and without a session by the host's SIGKILL, the status naming the "
+               "self-kill's cause after the number"
                if "kill-self-test" in programs else ""))
         # After the result, so that CTest's "^skipped:" leaves the test counted: only these runs are left out.
         if "kill-self-test" not in programs:

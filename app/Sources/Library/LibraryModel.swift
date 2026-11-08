@@ -555,15 +555,17 @@ final class LibraryModel {
     }
 
     /// The app's report for Report a Problem (ADR-0070): Get Info's status line and issues, how its last session
-    /// ended where the caller knows it, else that it closed itself, and the last session's kept log.
-    func report(of entry: LibraryEntry, ending: AppReport.Ending? = nil) -> AppReport {
+    /// ended where the caller knows it with the runtime's record of it, else that it closed itself, and the last
+    /// session's kept log.
+    func report(of entry: LibraryEntry, ending: AppReport.Ending? = nil, record: [String] = []) -> AppReport {
         let log = paths.flatMap { paths in
             try? String(contentsOf: SessionLog(folder: paths.sessionLogDirectory).keptFile(for: entry.id),
                         encoding: .utf8)
         }
         return AppReport(entry: entry, device: .current, status: Texts.statusLine(Texts.status(of: entry)),
                          issues: (entry.report?.compatibility.issues ?? []).map(Texts.issue),
-                         ending: ending ?? closedItself(entry).map { .closedItself(seconds: $0) }, log: log)
+                         ending: ending ?? closedItself(entry).map { .closedItself(seconds: $0) }, log: log,
+                         record: ending == nil ? [] : record)
     }
 
     /// Every installed app's space for Settings › Storage, largest first (Library.storage).
