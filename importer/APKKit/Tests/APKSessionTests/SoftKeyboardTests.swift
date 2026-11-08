@@ -133,13 +133,21 @@ import Testing
     }
 
     @Test func onlyThePadsWithoutAReturnKeyHaveTheActionOnTheBar() {
-        // Every keyboard's bar has the key that puts it away, as Android's Back does while an IME is shown; the pads
-        // without a return key also have the editor's action there.
+        // The pads without a return key have the editor's action on the bar.
         #expect(traits(Self.number, Self.done).barAction == .done)
         #expect(traits(Self.number | Self.decimal).barAction == .standard)
         #expect(traits(Self.phone, Self.go).barAction == .go)
         #expect(traits(Self.number | Self.signed).barAction == nil)
         #expect(traits(Self.text, Self.done).barAction == nil)
+    }
+
+    /// The user's bug of 2026-11-05: a field whose keyboard a tap outside does not put away (SDL2's, without extract
+    /// UI, as Android 15 keeps it) gets the key that hides it on the bar; the others hide at a tap outside.
+    @Test func aFieldThatKeepsTheKeyboardAtAnOutsideTapHasTheHideKey() {
+        #expect(traits(Self.text, SoftKeyboard.noExtractUI).hideKey)
+        #expect(traits(Self.text | Self.capSentences, SoftKeyboard.noExtractUI | Self.done).hideKey)
+        #expect(!traits(Self.text).hideKey)
+        #expect(!traits(Self.number, Self.done).hideKey)
     }
 
     @Test func theCursorAtTheStartBeginsASentence() {

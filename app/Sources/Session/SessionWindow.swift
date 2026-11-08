@@ -628,6 +628,7 @@ final class SoftKeyboardView: UIView, UIKeyInput {
     private var resigning = false
     private var bar: KeyboardBarView?
     private var barAction: ReturnKeyKind?
+    private var barHideKey = false
     private var textBar: TextBar?
 
     override var canBecomeFirstResponder: Bool { active }
@@ -715,6 +716,7 @@ final class SoftKeyboardView: UIView, UIKeyInput {
         isSecureTextEntry = traits.secure
         hasText = !traits.cursorAtStart
         barAction = traits.barAction
+        barHideKey = traits.hideKey
         // A new editor: its text comes with its next extract.
         textBar = nil
         bar = nil
@@ -733,14 +735,22 @@ final class SoftKeyboardView: UIView, UIKeyInput {
         if isFirstResponder, had != (bar != nil) || height != bar?.frame.height { reloadInputViews() }
     }
 
-    /// The bar while it has something to show: the field's text, the pads' action, or both.
+    /// The bar while it has something to show: the field's text, the pads' action, the hide key.
     private func rebuildBar() {
-        guard textBar != nil || barAction != nil else {
+        guard textBar != nil || barAction != nil || barHideKey else {
             bar = nil
             return
         }
         if bar == nil {
-            let made = KeyboardBarView(action: barAction) { [weak self] in self?.onReturn() }
+            let made = KeyboardBarView(action: barAction, hideKey: barHideKey, onReturn: { [weak self] in
+                self?.onReturn()
+            }, onHide: { [weak self] in
+                #if DEBUG
+                SessionCheck.event("keyboard hide key")
+                #endif
+                // As UIKit's own dismiss: the guest hears of the user's hide (onDismissed).
+                _ = self?.resignFirstResponder()
+            })
             made.onSelect = { [weak self] in self?.onSelect($0) }
             bar = made
         }

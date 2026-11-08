@@ -2189,6 +2189,22 @@ compare_log("ime-surrounding-test-delete",
             subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected, {})
 PY
     failures=$((failures + 1))
+  # The bar's hide key (the user's bug of 2026-11-05): an SDL field keeps the keyboard at a tap outside, as on Android
+  # 15, so the bar has Apple's key that hides it; the runner taps it, and Minato hides the keyboard as at the user's
+  # own hide, which the guest hears of.
+  if begin_start ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete 2; then
+    if await_line guest-log '^I/ime-surrounding-test-delete: showSoftInput true$' 120 &&
+        await_event 'keyboard show\(' 20 && uitests_build && uitest testKeyboardHide 2; then
+      if await_event 'keyboard hide key' 10 && await_event 'keyboard dismissed' 10; then
+        ok "  the bar's hide key put the SDL field's keyboard away"
+      else
+        failed_line "the bar's hide key did not put the keyboard away" ime-surrounding-test-delete-2
+      fi
+    else
+      failed_line "no Hide Keyboard key over the SDL field's keyboard" ime-surrounding-test-delete-2
+    fi
+  fi
+  end_start ime-surrounding-test-delete 2
   # On the iPhone the runner goes again (the runner only).
   [[ "$ON_DEVICE" != yes ]] ||
     on_device uninstall app --device "$DEVICE_ID" io.github.kisame76.minato.uitests.xctrunner >/dev/null 2>&1 || true

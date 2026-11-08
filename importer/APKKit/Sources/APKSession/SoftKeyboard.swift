@@ -102,8 +102,12 @@ public struct KeyboardTraits: Sendable, Equatable {
     /// Autocorrection and spell checking, off where Android's keyboards suggest nothing.
     public var corrects: Bool
     /// The editor's action on the bar above the keyboard, for the pads that have no return key on an iPhone; nil for
-    /// the others, whose bar has only the key that puts the keyboard away.
+    /// the others.
     public var barAction: ReturnKeyKind?
+    /// The key that hides the keyboard on the bar, for an editor whose keyboard a tap outside keeps up
+    /// (SoftKeyboard.keepsKeyboardAtOutsideTap: SDL2's, without extract UI): the user's bug of 2026-11-05, a keyboard
+    /// that nothing but Return and the edge's back put away.
+    public var hideKey = false
     /// The cursor starts at the text's start of an editor that capitalizes, where UIKit's keyboard begins a sentence
     /// (UIKeyInput's hasText false). An editor that does not, as SDL2's DummyEdit, always has text for UIKit: its
     /// keyboard sends the delete key only then, and Android's still deletes with nothing before the cursor
@@ -158,6 +162,7 @@ public struct KeyboardTraits: Sendable, Equatable {
         default: returnKey = .standard
         }
         barAction = [.numberPad, .decimalPad, .phonePad].contains(kind) ? returnKey : nil
+        hideKey = editor.imeOptions & SoftKeyboard.noExtractUI != 0
         cursorAtStart = capitalization != .none && editor.selectionStart <= 0 && editor.selectionEnd <= 0
     }
 }

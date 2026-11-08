@@ -5,8 +5,10 @@ import UIKit
 /// its cursor, selection and composing region, the hint dimmed while it is empty and bullets for a password, as
 /// Android's extract mode shows a field the keyboard covers; a tap in it moves the guest's cursor there. Typing still
 /// goes through SoftKeyboardView, so the guest owns the text and the bar redraws from its next extract. The pads, which
-/// have no return key, have the editor's action at the bar's right. The text sits on glass of its own, since UIKit's
-/// keyboard leaves an accessory view's background clear and the app shows through. Its text is never logged.
+/// have no return key, have the editor's action at the bar's right; a field whose keyboard a tap outside keeps up has
+/// Apple's key that hides the keyboard at the far right (KeyboardTraits.hideKey). The text sits on glass of its own,
+/// since UIKit's keyboard leaves an accessory view's background clear and the app shows through. Its text is never
+/// logged.
 final class KeyboardBarView: UIInputView {
     /// A tap in the text, at this offset in UTF-16 units of the bar's text.
     var onSelect: (Int) -> Void = { _ in }
@@ -21,7 +23,7 @@ final class KeyboardBarView: UIInputView {
     /// accessory views white, which the glass hides.
     private static let accent = UIColor.systemBlue
 
-    init(action: ReturnKeyKind?, onReturn: @escaping () -> Void) {
+    init(action: ReturnKeyKind?, hideKey: Bool, onReturn: @escaping () -> Void, onHide: @escaping () -> Void) {
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: Self.height(multiLine: false)),
                    inputViewStyle: .keyboard)
         autoresizingMask = .flexibleHeight
@@ -52,31 +54,45 @@ final class KeyboardBarView: UIInputView {
             text.leadingAnchor.constraint(equalTo: surface.contentView.leadingAnchor),
             text.trailingAnchor.constraint(equalTo: surface.contentView.trailingAnchor),
         ]
+        // From the right: the hide key, then the editor's action, then the text's glass.
+        var trailing = safeAreaLayoutGuide.trailingAnchor
+        if hideKey {
+            let image = UIImage(systemName: "keyboard.chevron.compact.down")
+            let button = UIButton(configuration: .glass(), primaryAction: UIAction(image: image) { _ in onHide() })
+            button.accessibilityLabel = "Hide Keyboard"
+            constraints += place(button, before: trailing)
+            trailing = button.leadingAnchor
+        }
         if let action {
             let button = UIButton(configuration: .prominentGlass(), primaryAction: UIAction(title: Self.title(action)) {
                 _ in onReturn()
             })
-            button.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(button)
-            constraints += [
-                button.centerYAnchor.constraint(equalTo: centerYAnchor),
-                button.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -8),
-                surface.trailingAnchor.constraint(equalTo: button.leadingAnchor, constant: -8),
-            ]
-        } else {
-            constraints.append(surface.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor,
-                                                                 constant: -8))
+            constraints += place(button, before: trailing)
+            trailing = button.leadingAnchor
         }
+        constraints.append(surface.trailingAnchor.constraint(equalTo: trailing, constant: -8))
         NSLayoutConstraint.activate(constraints)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not from a nib") }
 
+    /// A key of the bar, centered, 8 points before `trailing`.
+    private func place(_ button: UIButton, before trailing: NSLayoutXAxisAnchor) -> [NSLayoutConstraint] {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+        return [
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            button.trailingAnchor.constraint(equalTo: trailing, constant: -8),
+        ]
+    }
+
     /// The field's text as the guest last sent it, or none (the pads' action alone).
     func show(_ bar: TextBar?) {
         self.bar = bar
         frame.size.height = Self.height(multiLine: bar?.multiLine ?? false)
+        // Without a text, the keys alone: no empty glass beside them.
+        surface.isHidden = bar == nil
         guard let bar else {
             text.attributedText = nil
             caret.isHidden = true

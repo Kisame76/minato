@@ -81,6 +81,15 @@ final class NotificationTapUITests: XCTestCase {
         print("MINATO-UITEST tapped the keyboard's delete key")
     }
 
+    /// The bar's key that hides the keyboard (KeyboardBarView, "Hide Keyboard"), tapped once it is there.
+    func testKeyboardHide() {
+        continueAfterFailure = false
+        let hide = minato.buttons["Hide Keyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 10), "no Hide Keyboard key over Minato's keyboard")
+        hide.tap()
+        print("MINATO-UITEST tapped the bar's Hide Keyboard key")
+    }
+
     /// iOS's alert for Minato's request, such as the notifications prompt of a Simulator that never answered it, is
     /// answered Allow within TEST_RUNNER_MINATO_WAIT seconds, 90 by default (its button that allows, in English or
     /// German).
