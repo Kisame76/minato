@@ -633,7 +633,10 @@ run_fallback() {
   sleep 1.5
   launch
   await_event "fallback confirmed" || fail "the alert was not confirmed"
-  restarts=$(head -n "$seen" "$EVENTS" | awk -v pid="$game_pid" '$2 == pid && $3 == "restart"' | wc -l | tr -d ' ')
+  # A restart's own events only: "restart state <phase>" and "restart waits for active" (Restart.whenActive) only
+  # report when a restart ran.
+  restarts=$(head -n "$seen" "$EVENTS" |
+    awk -v pid="$game_pid" '$2 == pid && $3 == "restart" && $4 != "state" && $4 != "waits"' | wc -l | tr -d ' ')
   expect "  game mode restarts once, also after Home and back" "1" "$restarts"
   sleep 1
   launch
@@ -718,7 +721,9 @@ run_order() {
   await_event "process library" && ok "Quit returns to the library" || fail "no library after Quit"
   local tried expected="restart workspace,restart workspace"
   [[ "$answer" == unanswered ]] && expected="restart workspace,restartFailed workspace,restart url,restart workspace"
-  tried=$(head -n "$seen" "$EVENTS" | awk '$3 == "restart" || $3 == "restartFailed" { print $3 " " $4 }' | paste -sd , -)
+  tried=$(head -n "$seen" "$EVENTS" |
+    awk '($3 == "restart" && $4 != "state" && $4 != "waits") || $3 == "restartFailed" { print $3 " " $4 }' |
+    paste -sd , -)
   expect "  the ways tried" "$expected" "$tried"
   head -n "$seen" "$EVENTS" | grep -q " fallback " && fail "  the alert showed" || ok "  no alert"
   has "$REQUEST_REL" && fail "a launch request is left" || ok "no launch request left"
