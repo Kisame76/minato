@@ -46,19 +46,20 @@ def read_png(path):
         elif kind == b"iCCP":
             name = body.split(b"\0", 1)[0]
             p3 = b"P3" in name or b"Display P3" in zlib.decompress(body[len(name) + 2:])[:256]
-    if depth != 8 or color not in (2, 6):
-        raise Refused(f"{path}: depth {depth}, color type {color}; only 8-bit RGB or RGBA")
+    if depth not in (8, 16) or color not in (2, 6):
+        raise Refused(f"{path}: depth {depth}, color type {color}; only 8- or 16-bit RGB or RGBA")
     channels = 4 if color == 6 else 3
+    step = channels * depth // 8  # bytes a pixel: an iPhone's screenshot can come with 16 bits a channel
     raw = zlib.decompress(idat)
-    stride = width * channels
+    stride = width * step
     rows, previous = [], bytearray(stride)
     for y in range(height):
         start = y * (stride + 1)
         kind, line = raw[start], bytearray(raw[start + 1:start + 1 + stride])
         for x in range(stride):
-            left = line[x - channels] if x >= channels else 0
+            left = line[x - step] if x >= step else 0
             up = previous[x]
-            corner = previous[x - channels] if x >= channels else 0
+            corner = previous[x - step] if x >= step else 0
             if kind == 1:
                 line[x] = (line[x] + left) & 0xff
             elif kind == 2:
@@ -69,11 +70,13 @@ def read_png(path):
                 guess = left + up - corner
                 near = min((abs(guess - left), 0, left), (abs(guess - up), 1, up), (abs(guess - corner), 2, corner))
                 line[x] = (line[x] + near[2]) & 0xff
+        previous = line
+        if depth == 16:
+            line = line[0::2]  # the high byte of each big-endian sample
         if channels == 3:
             rows.append(bytes(b for i in range(width) for b in line[3 * i:3 * i + 3] + b"\xff"))
         else:
             rows.append(bytes(line))
-        previous = line
     return width, height, rows, p3
 
 
