@@ -36,6 +36,7 @@ import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
 import android.app.job.JobService;
 import android.app.job.JobWorkItem;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -106,6 +107,13 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
     /** JobStatus's default backoff ceiling, five hours. */
     private static final long MAX_BACKOFF = 5 * 60 * 60 * 1000L;
 
+    /** How many times the runner has gone through its loop, for the wake-up measurement (job-wakeups-test). */
+    private static volatile long sWakeups;
+
+    static long wakeupCount() {
+        return sWakeups;
+    }
+
     private final Binder mBinder = new Binder();
     /** The app's jobs, in every namespace; under the service's lock. */
     private final List<Entry> mEntries = new ArrayList<>();
@@ -117,25 +125,75 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
         runner.start();
     }
 
-    /** The runner: starts the jobs that can run, looking again every quarter second and when a job is added. */
+    /** A wake-up that came while the runner was busy, which it must not sleep through; under the service's lock. */
+    private boolean mPoked;
+    /** Whether the receivers that wake the runner at a change of the battery or the network are registered. */
+    private boolean mWatching;
+
+    /** Wakes the runner; for the service's lock to be held by the caller. */
+    private void wakeLocked() {
+        mPoked = true;
+        mEntries.notifyAll();
+    }
+
+    /** Wakes the runner at a change of the battery or the network, which the constraints and running jobs depend on. */
+    @SuppressWarnings("deprecation")
+    private void watchTheDevice() {
+        if (mWatching) {
+            return;
+        }
+        final Application app = ActivityThread.currentApplication();
+        if (app == null) {
+            return;
+        }
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                synchronized (mEntries) {
+                    wakeLocked();
+                }
+            }
+        };
+        app.registerReceiver(receiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        app.registerReceiver(receiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+        mWatching = true;
+    }
+
+    /** The shorter of two waits, where 0 is no wait at all to be made (the runner waits until it is woken). */
+    private static long sooner(long wait, long other) {
+        return wait == 0 ? other : Math.min(wait, other);
+    }
+
+    /**
+     * The runner: starts the jobs that can run, and then sleeps until something can change: the earliest start or
+     * deadline of a job, a job that is added or ends, or a change of the battery or the network. With no job waiting
+     * for a time it sleeps until it is woken, and never looks on its own.
+     */
     private void runLoop() {
         while (true) {
+            sWakeups++;
+            watchTheDevice();
             stopLostConstraints();
             final List<Entry> candidates = new ArrayList<>();
+            long wait = mWatching ? 0 : 250;  // before an Application, the receivers cannot be registered: look again
             synchronized (mEntries) {
                 final long now = SystemClock.elapsedRealtime();
                 for (Entry entry : mEntries) {
-                    if (!entry.running && now >= entry.notBefore) {
+                    if (entry.running) {
+                        continue;
+                    }
+                    if (now >= entry.notBefore) {
                         candidates.add(entry);
+                    } else {
+                        wait = sooner(wait, entry.notBefore - now);
                     }
-                }
-                if (candidates.isEmpty()) {
-                    try {
-                        mEntries.wait(250);
-                    } catch (InterruptedException e) {
-                        return;
+                    if (entry.job.hasLateConstraint()) {
+                        final long deadline = entry.scheduledAt + (entry.job.isPeriodic()
+                                ? entry.job.getIntervalMillis() : entry.job.getMaxExecutionDelayMillis());
+                        if (deadline > now) {
+                            wait = sooner(wait, deadline - now);
+                        }
                     }
-                    continue;
                 }
             }
             boolean started = false;
@@ -157,14 +215,17 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                 start(entry);
                 started = true;
             }
-            if (!started) {
-                synchronized (mEntries) {
-                    try {
-                        mEntries.wait(250);
-                    } catch (InterruptedException e) {
-                        return;
-                    }
+            synchronized (mEntries) {
+                if (started || mPoked) {
+                    mPoked = false;
+                    continue;
                 }
+                try {
+                    mEntries.wait(wait);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                mPoked = false;
             }
         }
     }
@@ -331,7 +392,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                     persistLocked();
                 }
             }
-            mEntries.notifyAll();
+            wakeLocked();
         }
         unbind(connection);
     }
@@ -653,7 +714,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             if (work != null && existing != null && existing.job.equals(job)) {
                 existing.work.add(work);
                 persistLocked();
-                mEntries.notifyAll();
+                wakeLocked();
                 return JobScheduler.RESULT_SUCCESS;
             }
             if (mEntries.size() > MAX_JOBS_PER_APP) {
@@ -670,7 +731,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             }
             mEntries.add(entry);
             persistLocked();
-            mEntries.notifyAll();
+            wakeLocked();
         }
         if (replaced != null) {
             stopRunning(replaced);
@@ -759,7 +820,7 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
                     entry.work.addAll(work);
                     mEntries.add(entry);
                 }
-                mEntries.notifyAll();
+                wakeLocked();
             }
         } catch (IOException | RuntimeException e) {
             Log.w(TAG, "The persisted jobs could not be read: " + e);

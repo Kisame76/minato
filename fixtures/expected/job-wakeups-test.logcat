@@ -1,0 +1,3 @@
+I/job-wakeups-test: scheduled: 1
+I/job-wakeups-test: pending after 60 s: true
+I/job-wakeups-test: done

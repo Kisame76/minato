@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of what the job scheduler costs while it only waits: one pending job that is not due for an hour, an app
+     that sits idle for a minute, and the number of times the scheduler's runner woke up in it (Minato's own counter,
+     read by reflection; Android has none). The launcher activity is the framework's own android.app.Activity, so that
+     `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.jobwakeups" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.jobwakeups.WakeupsApplication">
+    <service android:name="io.github.kisame76.minato.test.jobwakeups.TestJob"
+        android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
