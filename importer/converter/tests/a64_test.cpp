@@ -425,8 +425,8 @@ int compare_with_objdump(const std::string &objdump, const std::filesystem::path
     if (mismatches > 0) {
         for (const auto &[mnemonic, count] : mismatches_by_mnemonic) std::fprintf(stderr, "  %6zu  %s\n", count, mnemonic.c_str());
     }
-    if (compared != words.size()) {
-        std::fprintf(stderr, "llvm-objdump printed %zu of %zu words\n", compared, words.size());
+    if (compared + unallocated != words.size()) {
+        std::fprintf(stderr, "llvm-objdump printed %zu of %zu words\n", compared + unallocated, words.size());
         return 1;
     }
     const auto substitutions = compare_substitutions(objdump, scratch, words, lines);
