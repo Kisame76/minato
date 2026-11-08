@@ -386,9 +386,25 @@ long move_pages(std::uint64_t address, std::uint64_t old_length, std::uint64_t t
                 vm_prot_t protection, bool rest_mapped) {
     vm_address_t remapped = static_cast<vm_address_t>(target);
     vm_prot_t current = VM_PROT_NONE, maximum = VM_PROT_NONE;
+    // Carry the source's inheritance to the moved region (vm_remap defaults to VM_INHERIT_COPY): a MAP_SHARED mapping
+    // stays VM_INHERIT_SHARE so dont_need still keeps it, a private one stays VM_INHERIT_COPY. vm_remap leaves the
+    // moved region SM_TRUESHARED regardless, which is why dont_need classifies by inheritance, not share_mode.
+    vm_inherit_t inheritance = VM_INHERIT_COPY;
+    {
+        vm_address_t probe = static_cast<vm_address_t>(address);
+        vm_size_t probe_size = 0;
+        natural_t depth = 0;
+        vm_region_submap_short_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+        if (::vm_region_recurse_64(::mach_task_self(), &probe, &probe_size, &depth,
+                                   reinterpret_cast<vm_region_recurse_info_t>(&info), &count) == KERN_SUCCESS &&
+            probe <= address) {
+            inheritance = info.inheritance;
+        }
+    }
     if (::vm_remap(::mach_task_self(), &remapped, static_cast<vm_size_t>(old_length), 0,
                    VM_FLAGS_FIXED | VM_FLAGS_OVERWRITE, ::mach_task_self(), static_cast<vm_address_t>(address), FALSE,
-                   &current, &maximum, VM_INHERIT_DEFAULT) != KERN_SUCCESS) {
+                   &current, &maximum, inheritance) != KERN_SUCCESS) {
         return -linux_errno::enomem;
     }
     if (new_length > old_length) {
@@ -584,11 +600,11 @@ bool replace_anon(std::uint64_t at, std::uint64_t stop, vm_prot_t protection) {
 /// host page that is private and anonymous, replace it with a fresh anonymous mapping: the pages go and the next touch
 /// reads zero, as on Linux. A sub-host-page end of such a range (a guest that keeps 4 KiB pages: Linux zeroes a 4 KiB
 /// sub-range of a 16 KiB page) is zeroed in place. A file or a shared mapping keeps Darwin's MADV_DONTNEED, which keeps
-/// its data. Classification is careful: shared memory keeps its data on Linux (shmem), but XNU reports share_mode
-/// SM_PRIVATE for a single MAP_SHARED mapping (ref_count 1), so a mapping counts as shared on VM_INHERIT_SHARE (which
-/// MAP_SHARED sets), a shared share_mode, or the runtime's own shared record; and file-backed is the runtime's own
-/// map_file record, not the host's pager, because a written MAP_PRIVATE file gets an anonymous shadow that hides the
-/// pager. ENOMEM at a hole, as Linux answers. Under memory_lock.
+/// its data. Classification uses the inheritance and the runtime's own records, NOT share_mode: XNU leaves a private
+/// mapping moved by mremap (vm_remap) as SM_TRUESHARED, so share_mode would wrongly keep it. A mapping counts as shared
+/// on VM_INHERIT_SHARE (which MAP_SHARED sets and move_pages preserves across a move) or the runtime's own shared
+/// record (a memfd's or ashmem's pages); file-backed is the runtime's own map_file record, not the host's pager,
+/// because a written MAP_PRIVATE file gets an anonymous shadow that hides the pager. ENOMEM at a hole.
 long dont_need(std::uint64_t begin, std::uint64_t end) {
     const std::uint64_t page = vm_page_size;
     for (std::uint64_t at = begin; at < end;) {
@@ -603,9 +619,7 @@ long dont_need(std::uint64_t begin, std::uint64_t end) {
             return -linux_errno::enomem;  // a hole, as Linux answers for a part that is not mapped
         }
         const std::uint64_t region_end = std::min<std::uint64_t>(end, query + size);
-        const bool shared = info.inheritance == VM_INHERIT_SHARE || info.share_mode == SM_SHARED ||
-                            info.share_mode == SM_TRUESHARED || info.share_mode == SM_SHARED_ALIASED ||
-                            shared_mapping_overlaps(at, region_end);
+        const bool shared = info.inheritance == VM_INHERIT_SHARE || shared_mapping_overlaps(at, region_end);
         const bool replaceable = !info.is_submap && info.user_tag == 0 && !shared &&
                                  !proc::range_is_file_backed(at, region_end);
         const std::uint64_t whole_begin = (at + page - 1) & ~(page - 1);

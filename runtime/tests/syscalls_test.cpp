@@ -258,6 +258,24 @@ TEST(mremap_moves_a_mapping_that_cannot_grow_where_it_lies) {
     CHECK(call(nr_munmap, {address + page, page}) == 0);
 }
 
+TEST(madvise_dontneed_keeps_a_shared_anonymous_mapping_after_a_move) {
+    // A MAP_SHARED anonymous mapping keeps its data on MADV_DONTNEED (shmem), even after mremap moves it: the move
+    // carries VM_INHERIT_SHARE, so dont_need keeps it rather than replacing the pages as it would a private one.
+    constexpr std::uint64_t map_shared = 0x01;
+    const auto address = static_cast<std::uint64_t>(
+        call(nr_mmap, {0, 2 * page, prot_read | prot_write, map_shared | map_anonymous, ~std::uint64_t{0}, 0}));
+    CHECK(address > 0);
+    reinterpret_cast<volatile std::uint8_t *>(address)[0] = 0x5a;
+    const auto moved = call(nr_mremap, {address, 2 * page, 4 * page, mremap_maymove, 0});
+    const auto target = static_cast<std::uint64_t>(moved);
+    CHECK(moved > 0);
+    reinterpret_cast<volatile std::uint8_t *>(target)[page] = 0x77;
+    CHECK(call(nr_madvise, {target, 2 * page, madv_dontneed}) == 0);
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(target)[0] == 0x5a);     // shared data survives DONTNEED
+    CHECK(reinterpret_cast<const volatile std::uint8_t *>(target)[page] == 0x77);  // a private mapping would read 0
+    CHECK(call(nr_munmap, {target, 4 * page}) == 0);
+}
+
 TEST(mremap_shrinks_a_mapping_by_unmapping_its_tail) {
     const auto address = map_anonymous_pages(3);
     reinterpret_cast<volatile std::uint8_t *>(address)[0] = 9;
