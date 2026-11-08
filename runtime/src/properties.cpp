@@ -36,6 +36,7 @@
 
 #include "APKRuntime/apkrt.h"
 #include "host_calls.h"
+#include "install_sources.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <sys/sysctl.h>
@@ -344,6 +345,9 @@ std::string area() {
     // ES 3.1 on ANGLE's Vulkan backend, ES 3.0 on Metal (ADR-0044 d)), set before the program starts as the
     // providers are.
     written.add("ro.opengles.version", std::to_string(opengles_version.load()));
+    // The install-sources grant (apkrt_set_install_sources) for PackageManager.canRequestPackageInstalls, read at the
+    // start; a run-time grant reaches the framework by APKRT_EVENT_INSTALL_SOURCES_RESULT (the area is a snapshot).
+    written.add("minato.install_sources", install_sources::granted() ? "1" : "0");
     return std::move(written).bytes();
 }
 

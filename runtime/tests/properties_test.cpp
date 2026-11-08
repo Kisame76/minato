@@ -5,6 +5,7 @@
 // the Vulkan driver's name only while graphics/host provides Vulkan.
 // The area is read as bionic reads it (prop_area.cpp's find_property, prop_info's short and long values);
 // fixture.property-test reads it through bionic itself.
+#include "install_sources.h"
 #include "properties.h"
 
 #include "APKRuntime/apkrt.h"
@@ -279,6 +280,19 @@ TEST(an_unknown_profile_is_refused_and_the_default_comes_back) {
     CHECK(apkrt_set_device_profile(nullptr) == 0);
     area = apkrt::properties::area();
     CHECK(get("ro.product.manufacturer") == "Apple");
+}
+
+TEST(install_sources_publishes_minato_install_sources_from_the_grant) {
+    // canRequestPackageInstalls reads minato.install_sources at the start (the property area is a start snapshot); the
+    // host sets the grant with apkrt_set_install_sources before the program starts. Denied by default.
+    apkrt::install_sources::reset();
+    area = apkrt::properties::area();
+    CHECK(get("minato.install_sources") == "0");
+    apkrt::install_sources::set(true);
+    area = apkrt::properties::area();
+    CHECK(get("minato.install_sources") == "1");
+    apkrt::install_sources::reset();
+    area = apkrt::properties::area();  // leave the default for any later test
 }
 
 }  // namespace

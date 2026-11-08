@@ -342,8 +342,7 @@ enum apkrt_event_type {
                                           // notification's content PendingIntent, as SystemUI does
     APKRT_EVENT_INSTALL_SOURCES_RESULT,   // answer to APKRT_REQUEST_ASK_INSTALL_SOURCES (an app installer): a0 the
                                           // request's ID; a1 1 granted / 0 denied. The framework overwrites its own
-                                          // canRequestPackageInstalls() state from a1 (as it does PICK_RESULT); the
-                                          // runtime also records a1 in install_sources
+                                          // canRequestPackageInstalls() state from a1, as it does for PICK_RESULT
     APKRT_EVENT_INSTALL_RESULT,           // answer to APKRT_REQUEST_CONFIRM_INSTALL: a0 the request's ID; a1 the
                                           // outcome 0 ready, 1 failed, 2 cancelled
 };

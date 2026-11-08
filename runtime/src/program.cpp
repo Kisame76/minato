@@ -14,6 +14,7 @@
 #include "dl.h"
 #include "environment.h"
 #include "guest_call.h"
+#include "install_sources.h"
 #include "loader.h"
 #include "proc.h"
 #include "process_exit.h"
@@ -170,6 +171,13 @@ extern "C" int apkrt_set_internet(int granted) {
     const std::lock_guard hold(start_mutex);
     if (start_tried) return -1;
     apkrt::sockets::set_internet(granted != 0);
+    return 0;
+}
+
+extern "C" int apkrt_set_install_sources(int granted) {
+    const std::lock_guard hold(start_mutex);
+    if (start_tried) return -1;
+    apkrt::install_sources::set(granted != 0);
     return 0;
 }
 
