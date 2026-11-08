@@ -1170,6 +1170,12 @@ run_app() {
     ime-prefill-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PrefillActivity
       ;;
+    # ime-engines-test (the text bar and engines' fields with text: Godot's, a framework's own editable, Cocos2d-x's,
+    # then dialogs that ask for the keyboard with their soft input mode), in turn with the image's own keyboard, each
+    # logging what it reads and whether the keyboard is up for it; ends with "done".
+    ime-engines-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EnginesActivity
+      ;;
     ime-surrounding-test-return)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       activity_class=io.github.kisame76.minato.test.imesurrounding.SurroundingActivity

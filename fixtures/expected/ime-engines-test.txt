@@ -1,0 +1,5 @@
+# ime-engines-test on the Mac (tools/ime-extract-check.sh): the app's own lines that do not depend on the input
+# method; the bar's text and the keyboard's show and hide are checked from apk-run's ime lines. Android 15's lines, with
+# LatinIME's reads, are fixtures/expected/ime-engines-test.logcat.
+logcat I/ime-engines-test: ready
+logcat I/ime-engines-test: done

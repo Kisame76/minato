@@ -30,6 +30,7 @@ tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh ime-extract-test >/dev/null
 tools/build-java-test-app.sh ime-surrounding-test >/dev/null
 tools/build-java-test-app.sh ime-prefill-test >/dev/null
+tools/build-java-test-app.sh ime-engines-test >/dev/null
 
 head='\t5\tnote\t'
 steps='start,text:0:1:0:!,text:1:1:0:ab,text:2:0:0:,text:4:2:4:'
@@ -88,3 +89,33 @@ python3 framework/tests/java_app_run.py \
   "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/ime-prefill-check \
   build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
   build/ime-prefill-test/ime-prefill-test.apk fixtures/expected/ime-prefill-test.txt 1290x2796@3,en-US
+
+# Engines' fields with text (ime-engines-test): a Godot-style hidden EditText, a framework's own editable as Flutter's,
+# a Cocos2d-x-style EditText, then AlertDialogs that ask for the keyboard with their window's soft input mode only, as
+# an engine's text input dialog does. Each field's text reaches the bar, and the keyboard is up for each field, or not,
+# as on apk-runner-35 with LatinIME (the keyboard lines of fixtures/expected/ime-engines-test.logcat): the guest's
+# input method manager decides it for a window's focus as Android's service does.
+I='I/ime-engines-test: '
+keyboard=("${I}godot: keyboard true" "${I}flutter: keyboard true" "${I}cocos: keyboard true"
+  "${I}dialog: keyboard true" "${I}dialog-visible: keyboard true" "${I}dialog-resize: keyboard true"
+  "${I}dialog-plain: keyboard false")
+diff <(grep ': keyboard ' fixtures/expected/ime-engines-test.logcat) <(printf '%s\n' "${keyboard[@]}")
+python3 framework/tests/java_app_run.py \
+  --in-order 'apk-run: ime 2: extract\t2\t0\t7\t7\t-1\t-1\t1\t\tGodette' --in-order "${keyboard[0]}" \
+  --in-order 'apk-run: ime 3: show' --in-order 'apk-run: ime 3: extract\t3\t0\t4\t4\t-1\t-1\t1\t\tDash' \
+  --in-order "${keyboard[1]}" \
+  --in-order 'apk-run: ime 4: show' --in-order 'apk-run: ime 4: extract\t4\t0\t5\t5\t-1\t-1\t1\t\tCocos' \
+  --in-order "${keyboard[2]}" \
+  --in-order 'apk-run: ime 5: show' --in-order 'apk-run: ime 5: extract\t5\t0\t8\t8\t-1\t-1\t1\t\tPlayer 1' \
+  --in-order "${keyboard[3]}" \
+  --in-order 'apk-run: ime 7: show' --in-order 'apk-run: ime 7: extract\t7\t0\t8\t8\t-1\t-1\t1\t\tPlayer 1' \
+  --in-order "${keyboard[4]}" \
+  --in-order 'apk-run: ime 9: show' --in-order 'apk-run: ime 9: extract\t9\t0\t8\t8\t-1\t-1\t1\t\tPlayer 1' \
+  --in-order "${keyboard[5]}" \
+  --in-order 'apk-run: ime 11: hide' --in-order "${keyboard[6]}" \
+  --lifecycle start \
+  ime-engines-test io.github.kisame76.minato.test.imeengines android.app.Application \
+  build/art build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \
+  "$NATIVE/importer/converter/apk-convert" "$NATIVE/runtime/apk-run" build/ime-engines-check \
+  build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
+  build/ime-engines-test/ime-engines-test.apk fixtures/expected/ime-engines-test.txt 1290x2796@3,en-US

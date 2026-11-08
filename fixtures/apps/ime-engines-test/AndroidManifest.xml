@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ime-engines-test (ADR-0068, the host's text bar): the text fields of game engines and app frameworks, as their
+     open sources build them, each holding text before the keyboard comes and logging what the input method reads.
+     On Android it runs with the image's own keyboard (LatinIME), so its lines say what a keyboard is given. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.imeengines" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.imeengines.EnginesActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:windowSoftInputMode="stateHidden">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

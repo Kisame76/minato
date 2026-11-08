@@ -19,6 +19,8 @@
 // getExtractedText and then again at the view's updateSelection (not monitoring, which ends a selection's action mode).
 import android.app.ActivityThread;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -53,6 +55,8 @@ class InputMethodManager {
     private long mLastSerial;
     // Whether the keyboard is wanted: showSoftInput has been asked and no hide since.
     private boolean mKeyboardWanted;
+    // The service's mCurFocusedWindow: the token of the last window that gained the focus.
+    private IBinder mFocusedWindow;
 
     private InputMethodManager() {
     }
@@ -560,8 +564,84 @@ class InputMethodManager {
         onViewFocusChangedInternal(viewForWindowFocus, true);
         // The served view without a connection is served again; with no input method, no connection is active.
         final boolean forceFocus = mServedView == viewForWindowFocus;
-        if (mCurRootView != null && checkFocusInternal(forceFocus, mCurRootView)) {
-            startInputOnWindowFocusGain();
+        if (mCurRootView != null && checkFocusInternal(forceFocus, mCurRootView)
+                && startInputOnWindowFocusGain(true)) {
+            return;
+        }
+        // As AOSP's: no input started, so the service hears of the window's focus alone.
+        windowFocusOrInputStarted(viewForWindowFocus, windowAttribute, true);
+    }
+
+    /**
+     * The service's part of an input's start or a window's focus gain (InputMethodManagerService's
+     * startInputOrWindowGainedFocus with ImeVisibilityStateComputer.computeState at android-15.0.0_r1): the window's
+     * soft input mode shows or hides the keyboard, after the start, for `focused`, the view the input started for or
+     * the window's focused view (its own when none has the focus). An editor in the window that had the focus last
+     * changes nothing. Not here: the restore of a task's keyboard when the user switches back to it (the window
+     * manager's shouldRestoreImeVisibility), as Minato runs one task.
+     */
+    private void windowFocusOrInputStarted(View focused, WindowManager.LayoutParams attrs, boolean gainedFocus) {
+        final IBinder window = focused.getWindowToken();
+        final boolean focusChanged = window != mFocusedWindow;
+        // getStartInputFlags.
+        final boolean editor = focused.onCheckIsTextEditor();
+        if (!focusChanged && editor) {
+            return;
+        }
+        mFocusedWindow = window;
+        final int mode = attrs.softInputMode;
+        final Configuration configuration = focused.getResources().getConfiguration();
+        final boolean autoShow = (mode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+                == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                || configuration.isLayoutSizeAtLeast(Configuration.SCREENLAYOUT_SIZE_LARGE);
+        final boolean forward = (mode & WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION) != 0;
+        // isSoftInputModeStateVisibleAllowed: before Android 9 any window, since then one with an editor focused.
+        final boolean allowVisible =
+                focused.getContext().getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.P || editor;
+        switch (mode & WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE) {
+            case WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED:
+                if (focusChanged && (!editor || !autoShow)) {
+                    if (WindowManager.LayoutParams.mayUseInputMethod(attrs.flags)) {
+                        hideRequest();
+                        return;
+                    }
+                } else if (editor && autoShow && forward) {
+                    showRequest();
+                    return;
+                }
+                break;
+            case WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN:
+                if (forward) {
+                    hideRequest();
+                    return;
+                }
+                break;
+            case WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN:
+                if (focusChanged) {
+                    hideRequest();
+                    return;
+                }
+                break;
+            case WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE:
+                if (forward && allowVisible) {
+                    showRequest();
+                    return;
+                }
+                break;
+            case WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE:
+                if (allowVisible && focusChanged) {
+                    showRequest();
+                    return;
+                }
+                break;
+            default:
+                // SOFT_INPUT_STATE_UNCHANGED keeps what the keyboard was.
+                break;
+        }
+        // A window that had the focus last and gains it again without an editor, or a window without an editor while
+        // the keyboard is up, hides it.
+        if (!focusChanged && gainedFocus || !editor && mKeyboardWanted && gainedFocus) {
+            hideRequest();
         }
     }
 
@@ -578,7 +658,7 @@ class InputMethodManager {
     /** @hide */
     public void onScheduledCheckFocus(ViewRootImpl viewRootImpl) {
         if (checkFocusInternal(false, viewRootImpl)) {
-            startInputOnWindowFocusGain();
+            startInputOnWindowFocusGain(false);
         }
     }
 
@@ -625,7 +705,7 @@ class InputMethodManager {
     /** @hide As AOSP's (3512-3525): serves the next served view now. */
     public void checkFocus() {
         if (mCurRootView != null && checkFocusInternal(false, mCurRootView)) {
-            startInputOnWindowFocusGain();
+            startInputOnWindowFocusGain(false);
         }
     }
 
@@ -645,14 +725,15 @@ class InputMethodManager {
         return true;
     }
 
-    private void startInputOnWindowFocusGain() {
+    /** `gainedFocus`: for the window's focus gain (StartInputFlags.WINDOW_GAINED_FOCUS). */
+    private boolean startInputOnWindowFocusGain(boolean gainedFocus) {
         mCurrentEditorInfo = null;
         mServedConnecting = true;
-        startInputInner();
+        return startInputInner(gainedFocus);
     }
 
     /** As AOSP's (3155-3330) up to the service: the served view's input connection, made on its thread. */
-    private boolean startInputInner() {
+    private boolean startInputInner(boolean gainedFocus) {
         final View view = getServedView();
         if (view == null) {
             return false;
@@ -662,7 +743,7 @@ class InputMethodManager {
             return false;
         }
         if (handler.getLooper() != Looper.myLooper()) {
-            handler.post(this::startInputOnWindowFocusGain);
+            handler.post(() -> startInputOnWindowFocusGain(gainedFocus));
             return false;
         }
         if (view.getWindowToken() == null) {
@@ -704,6 +785,7 @@ class InputMethodManager {
             if (!fallback && mKeyboardWanted) {
                 mServedInputConnection.startFeeding(editorInfo);
             }
+            windowFocusOrInputStarted(view, view.getViewRootImpl().mWindowAttributes, gainedFocus);
         }
         return true;
     }
@@ -778,15 +860,23 @@ class InputMethodManager {
     public boolean showSoftInput(View view, int flags, android.os.ResultReceiver resultReceiver) {
         checkFocus();
         final boolean served = hasServedByInputMethod(view);
-        if (served && mServedInputConnection != null) {
-            mKeyboardWanted = true;
-            requestIme(mServedInputConnection.mSerial, "show");
-            // As a keyboard that shows the text asks when it starts: the host's text bar hears of the view then.
-            if (!mServedInputConnection.mFallback) {
-                mServedInputConnection.startFeeding(mCurrentEditorInfo);
-            }
+        if (served) {
+            showRequest();
         }
         return served;
+    }
+
+    /** The keyboard is wanted for the served connection, if there is one. */
+    private void showRequest() {
+        if (mServedInputConnection == null) {
+            return;
+        }
+        mKeyboardWanted = true;
+        requestIme(mServedInputConnection.mSerial, "show");
+        // As a keyboard that shows the text asks when it starts: the host's text bar hears of the view then.
+        if (!mServedInputConnection.mFallback) {
+            mServedInputConnection.startFeeding(mCurrentEditorInfo);
+        }
     }
 
     public boolean hideSoftInputFromWindow(IBinder windowToken, int flags) {
@@ -890,7 +980,7 @@ class InputMethodManager {
             return;
         }
         mServedConnecting = true;
-        startInputInner();
+        startInputInner(false);
     }
 
     // What a text view tells the input method: no one listens.

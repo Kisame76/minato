@@ -181,7 +181,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "permission-request-test-notifications io.github.kisame76.minato.test.permreqnotifications"
       "notify-test io.github.kisame76.minato.test.notify"
       "notify-test-granted io.github.kisame76.minato.test.notifygranted"
-      "notify-tap-test io.github.kisame76.minato.test.notifytap")
+      "notify-tap-test io.github.kisame76.minato.test.notifytap"
+      "ime-engines-test io.github.kisame76.minato.test.imeengines")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -1755,6 +1756,56 @@ else:
     failed = 1
 sys.exit(failed)
 EOF
+fi
+
+# Engines' fields with text (ime-engines-test, ADR-0068; the user's bug of 2026-11-05 in device-regressions entry 4):
+# a Godot-style hidden EditText, a framework's own editable as Flutter's, a Cocos2d-x-style EditText, then AlertDialogs
+# that ask for the keyboard with their window's soft input mode only, as an engine's text input dialog does. Each of
+# the seven fields logs whether the keyboard is up for it, from its window's insets, which follow UIKit's keyboard
+# here: each line must be Android 15's (fixtures/expected/ime-engines-test.logcat, LatinIME on apk-runner-35), and
+# the session's "keyboard text bar" events must give each field's text to the bar, by its length, in order.
+if wanted ime-engines-test; then
+  if begin_start ime-engines-test io.github.kisame76.minato.test.imeengines 1; then
+    if await_line guest-log '^I/ime-engines-test: done$' 120; then
+      ok "  done, $(seconds "$TAP" "$SEEN") s after the tap"
+    else
+      failed_line 'no "done"' ime-engines-test-1
+    fi
+  fi
+  fetch_events
+  end_start ime-engines-test 1
+  python3 - "$WORK/ime-engines-test-1.log" "$EVENTS" fixtures/expected/ime-engines-test.logcat <<'PY' ||
+import re
+import sys
+
+log, events, expected = sys.argv[1:]
+prefix = "I/ime-engines-test: "
+pattern = re.compile(r"^I/ime-engines-test: ([a-z-]+): keyboard (true|false)$")
+ours = dict(m.groups() for m in map(pattern.match, open(log, encoding="utf-8", errors="replace").read().splitlines())
+            if m)
+failed = 0
+for line in open(expected, encoding="utf-8").read().splitlines():
+    match = pattern.match(line)
+    if not match:
+        continue
+    field, android = match.groups()
+    if ours.get(field) == android:
+        print(f"ok      {field}: keyboard {android}, as Android 15")
+    else:
+        print(f"FAIL    {field}: keyboard {ours.get(field, 'not logged')}, Android 15: {android}")
+        failed = 1
+# Godette, Dash, Cocos, then "Player 1" for each of the dialogs that show it, among the bar's other texts.
+bars = [int(n) for n in re.findall(r" keyboard text bar of (\d+) units$", open(events, encoding="utf-8").read(), re.M)]
+wanted = [7, 4, 5, 8, 8, 8]
+left = iter(bars)
+if all(any(n == want for n in left) for want in wanted):
+    print("ok      the bar had each field's text: " + ", ".join(f"{n} units" for n in wanted))
+else:
+    print(f"FAIL    the bar's texts: expected {wanted} units in this order, got {bars}")
+    failed = 1
+sys.exit(failed)
+PY
+    failures=$((failures + 1))
 fi
 
 # IME: ime-test (ADR-0068 step 2c) starts with its field focused and asks for the keyboard; UIKit's must come, and the
