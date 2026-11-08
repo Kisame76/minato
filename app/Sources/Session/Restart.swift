@@ -32,13 +32,43 @@ enum Restart {
 
     /// Asks iOS to start Minato again and ends this process once a way's request is answered. When no way
     /// restarts, refused, unable to run or unanswered within `answerTimeout` each, `failed` runs instead, on
-    /// the main actor: the caller shows the fallback, and the launch request stays for the next launch.
+    /// the main actor: the caller shows the fallback, and the launch request stays for the next launch. The
+    /// request waits until Minato's scene is active (whenActive).
     @MainActor
     static func now(through requested: Way? = requestedWay, failed: @escaping @MainActor @Sendable () -> Void) {
         guard !isUnderway else { return }
         isUnderway = true
         sequence = RestartSequence(requested: requested)
-        follow(sequence.start(), failed: failed)
+        whenActive { follow(sequence.start(), failed: failed) }
+    }
+
+    /// Runs `work` at once while Minato is active, else on the main queue's turn after it becomes active. While iOS
+    /// still brings Minato to the front for a notification's tap, it answers a reopen of Minato "opened" but starts
+    /// no new process then. Measured on the iPhone, from the Home Screen and from a launch by the tap: "restart
+    /// workspace" at state inactive, answered, exit, and no process until the user opened Minato by hand. A tap
+    /// in the library restarts while active and its new process starts 0.1 s later.
+    @MainActor
+    static func whenActive(_ work: @escaping @MainActor @Sendable () -> Void) {
+        if UIApplication.shared.applicationState == .active { return work() }
+        #if DEBUG
+        SessionCheck.event("restart waits for active")
+        #endif
+        let token = Observation()
+        token.value = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                guard let observer = token.value else { return }
+                token.value = nil
+                NotificationCenter.default.removeObserver(observer)
+                DispatchQueue.main.async { work() }
+            }
+        }
+    }
+
+    /// The observer of whenActive, which its own block removes.
+    private final class Observation: @unchecked Sendable {
+        var value: NSObjectProtocol?
     }
 
     @MainActor
@@ -68,6 +98,7 @@ enum Restart {
         log.info("Restarting through \(way.rawValue, privacy: .public)")
         #if DEBUG
         SessionCheck.event("restart \(way.rawValue)")
+        SessionCheck.event("restart state \(SessionCheck.appState)")
         #endif
         let giveUp: @MainActor @Sendable (_ why: String) -> Void = { why in
             guard let next = Restart.sequence.failed(way) else { return }

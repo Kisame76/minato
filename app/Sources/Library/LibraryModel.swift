@@ -402,6 +402,7 @@ final class LibraryModel {
         let start = intent.flatMap { NotificationTap.startIntent($0, package: package, activities: activities) }
         #if DEBUG
         SessionCheck.event("notification cold tap \(package) start intent \(start == nil ? "none" : "checked")")
+        SessionCheck.event("notification launch state \(SessionCheck.appState)")
         #endif
         _ = await launch(entry, startIntent: start)
     }

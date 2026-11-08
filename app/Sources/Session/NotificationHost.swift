@@ -174,6 +174,7 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     @MainActor private static func tapped(_ key: (package: String, id: Int32, tag: String, intent: String?)) {
         #if DEBUG
         SessionCheck.event("notification tapped \(key.tag)|\(key.id)")
+        SessionCheck.event("notification tap state \(SessionCheck.appState) session \(GameSession.current != nil)")
         #endif
         if let session = GameSession.current {
             session.notificationTapped(package: key.package, id: key.id, tag: key.tag)
@@ -192,23 +193,63 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     func tapNewest(package: String) {
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { delivered in
-            let mine = delivered.filter { ($0.request.content.userInfo[Self.packageKey] as? String) == package }
-            guard let newest = mine.max(by: { $0.date < $1.date }) else {
-                return SessionCheck.event("notification tap: none delivered")
-            }
-            let make = NSSelectorFromString("responseWithNotification:actionIdentifier:")
-            let made = (UNNotificationResponse.self as AnyObject)
-                .perform(make, with: newest, with: UNNotificationDefaultActionIdentifier)?.takeUnretainedValue()
-            guard let response = made as? UNNotificationResponse else {
-                return SessionCheck.event("notification tap: no response")
-            }
-            let carried = Carried(value: response)
-            DispatchQueue.main.async {
-                let center = UNUserNotificationCenter.current()
-                center.delegate?.userNotificationCenter?(center, didReceive: carried.value) {
-                    SessionCheck.event("notification response completed on the main thread \(Thread.isMainThread)")
-                }
-            }
+            let carried = Self.response(newestOf: package, in: delivered).map { Carried(value: $0) }
+            DispatchQueue.main.async { Self.send(carried) }
+        }
+    }
+
+    /// The same at once, on the main thread, as iOS calls didReceive while it brings Minato to the front: before the
+    /// scene is active, at the launch a tap made or at the return from the background. It waits for the delivered
+    /// notifications (at most 2 s).
+    @MainActor func tapNewestNow(package: String) {
+        let found = Mutex<Carried<UNNotificationResponse>?>(nil)
+        let read = DispatchSemaphore(value: 0)
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            found.withLock { $0 = Self.response(newestOf: package, in: delivered).map { Carried(value: $0) } }
+            read.signal()
+        }
+        _ = read.wait(timeout: .now() + 2)
+        Self.send(found.withLock { $0 })
+    }
+
+    /// The response to the app's newest delivered notification, kept at `url` for a later process (secure coding), so
+    /// that a later launch or return can hand it to the delegate at once, as fast as iOS's own didReceive comes.
+    func saveNewestResponse(package: String, to url: URL) {
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            guard let response = Self.response(newestOf: package, in: delivered),
+                  let data = try? NSKeyedArchiver.archivedData(withRootObject: response, requiringSecureCoding: true),
+                  (try? data.write(to: url)) != nil
+            else { return SessionCheck.event("notification response not saved") }
+            SessionCheck.event("notification response saved")
+        }
+    }
+
+    /// The response kept at `url` to the delegate at once, on the main thread; false when there is none.
+    @MainActor func tapSaved(from url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let response = try? NSKeyedUnarchiver.unarchivedObject(ofClass: UNNotificationResponse.self, from: data)
+        else { return false }
+        try? FileManager.default.removeItem(at: url)
+        Self.send(Carried(value: response))
+        return true
+    }
+
+    /// A response to the app's newest delivered notification, by UNNotificationResponse's own factory.
+    private static func response(newestOf package: String, in delivered: [UNNotification]) -> UNNotificationResponse? {
+        let mine = delivered.filter { ($0.request.content.userInfo[packageKey] as? String) == package }
+        guard let newest = mine.max(by: { $0.date < $1.date }) else { return nil }
+        let make = NSSelectorFromString("responseWithNotification:actionIdentifier:")
+        let made = (UNNotificationResponse.self as AnyObject)
+            .perform(make, with: newest, with: UNNotificationDefaultActionIdentifier)?.takeUnretainedValue()
+        return made as? UNNotificationResponse
+    }
+
+    /// The response to the center's delegate through the Objective-C runtime, as UIKit sends a tap's.
+    @MainActor private static func send(_ response: Carried<UNNotificationResponse>?) {
+        guard let response else { return SessionCheck.event("notification tap: none delivered") }
+        let center = UNUserNotificationCenter.current()
+        center.delegate?.userNotificationCenter?(center, didReceive: response.value) {
+            SessionCheck.event("notification response completed on the main thread \(Thread.isMainThread)")
         }
     }
     #endif

@@ -410,6 +410,8 @@ terminate() {
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
 REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents window-trace footprint-log pick-allow end events"
+# The notification taps of the notify-tap-test rounds.
+REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
 # On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
 # does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
 send_requests() {
@@ -948,6 +950,19 @@ for app in "${APPS[@]}"; do
   done
   state=$(field state "$package")
   if [[ "$state" == "{'ready': {}}" ]]; then ok "$package is ready"; else fail "$package is not ready: $state"; fi
+  # No entry at all after the first app's minute: Minato imported nothing, as when an iOS alert over the library
+  # holds it up; the run stops here rather than wait a minute for each app.
+  if [[ "$app" == "${APPS[0]}" && "$state" != "{'ready': {}}" ]] && python3 -c 'import json,sys
+try: entries = json.load(open(sys.argv[1])).get("entries")
+except (OSError, ValueError): entries = None
+sys.exit(1 if entries else 0)' "$SUPPORT/library.json"; then
+    screenshot not-ready
+    fail "Minato imported nothing within 60 s: an iOS alert may be open over the library${LOGS:+, see the screenshot}"
+    [[ -z "${LOGS:-}" ]] || echo "      $LOGS/not-ready.png"
+    terminate
+    echo "$failures failed"
+    exit 1
+  fi
 done
 
 # The pixel round (PIXELS, ADR-0043 b5's step f). A screenshot into $1, of the iPhone's screen or the Simulator's
@@ -1379,17 +1394,78 @@ if [[ "$ON_DEVICE" == no ]] && { wanted notify-test || wanted notify-test-grante
   fi
 fi
 
-# ADR-0074 decision 4 in the Simulator: notify-tap-test starts with the grant (the host's record of the app) and sends
-# its notification's content intent itself, which is what SystemUI does on a tap; its first lines must be Android 15's.
-# Its post comes in the Application's onCreate, before the session, and the host must get it all the same. Then
-# session-check's notification-tap taps the delivered notification, its response sent to Minato's delegate as UIKit
-# sends a tap's: the guest sends the content intent again (APKRT_EVENT_NOTIFICATION_TAP), TapActivity opens a second
-# time, the notification, auto-cancelled, is gone, and the delegate called its completion handler on the main thread,
-# where UIKit asserts.
-if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
-  mkdir -p "$SUPPORT/data/io.github.kisame76.minato.test.notifytap"
-  echo '{"notifications":{"outcome":1,"denials":0}}' \
-    > "$SUPPORT/data/io.github.kisame76.minato.test.notifytap/permissions.json"
+# The seconds from the tapping process's last restart to the game mode process's first active scene, from the events,
+# or "none": a restart that iOS answers while it still brings Minato to the front starts no process (measured on the
+# iPhone), so game mode must be active within seconds of it.
+active_after_restart() {
+  awk '$3 == "restart" && ($4 == "workspace" || $4 == "ownURL") { at = $1 }
+    $3 == "process" && $4 == "gameMode" { game = $2 }
+    game != "" && $2 == game && $3 == "scene" && $4 == "didActivate" && !done { printf "%.1f\n", $1 - at; done = 1 }
+    END { if (!done) print "none" }' "$EVENTS"
+}
+# Minato in its library with notification-response-save: it keeps the response to notify-tap-test's delivered
+# notification for the next tap request, which then hands it to the delegate as fast as iOS's didReceive comes.
+save_response() {
+  rm -rf "$CHECK"
+  mkdir -p "$CHECK"
+  echo yes > "$CHECK/no-compile"
+  echo io.github.kisame76.minato.test.notifytap > "$CHECK/notification-response-save"
+  : > "$EVENTS"
+  send_requests
+  launch
+  if await_line events " notification response saved$" 20; then ok "  $1: the tap's response is kept"; else
+    fail "  $1: the tap's response was not kept"; fi
+}
+# The round's precondition: the tap reached the delegate before Minato was active, and so did the restart, or its
+# wait for active with the fix. Only then does the round stand for the user's tap; a restart that came at active
+# proves nothing. Prints the round's events of the tap and the restart.
+tap_precondition() {
+  grep -E " (notification (tap|cold tap|foreground tap|launch)|restart|exit|process|launched|scene) " "$EVENTS" |
+    sed 's/^/      ev /' || true
+  local verdict
+  verdict=$(awk '$3 == "notification" && $4 == "tap" && $5 == "state" { tap = $6; tapper = $2 }
+    tap != "" && !seen && $3 == "restart" && $4 == "waits" { verdict = "met: tap at " tap ", restart waited"; seen = 1 }
+    tap != "" && !seen && $3 == "restart" && $4 == "state" {
+      verdict = ($5 == "active" ? "not met" : "met") ": tap at " tap ", restart at " $5; seen = 1 }
+    tap != "" && $2 == tapper && $3 == "scene" && $4 == "didActivate" { active = 1 }
+    # A build from before the state events logs only the restart, by its way: before or after the scene was active.
+    tap != "" && way == "" && $3 == "restart" && ($4 == "workspace" || $4 == "ownURL") {
+      way = (active ? "not met" : "met") ": tap at " tap ", restart " (active ? "after" : "before") " active" }
+    END { if (tap == "") print "not met: no tap"; else if (seen) print verdict; else if (way != "") print way
+      else print "not met: no restart" }' \
+    "$EVENTS")
+  if [[ "$verdict" == met:* && "$verdict" != *"tap at active"* ]]; then ok "  $1: precondition $verdict"; else
+    fail "  $1: precondition $verdict (the round does not stand for the user's tap)"; fi
+}
+game_mode_came() {
+  local seconds
+  seconds=$(active_after_restart)
+  if [[ "$seconds" != none ]] && awk -v s="$seconds" 'BEGIN { exit !(s <= 5) }'; then
+    ok "  $1: game mode was active ${seconds} s after the restart"
+  else
+    fail "  $1: game mode was not active within 5 s of the restart (${seconds})"
+  fi
+}
+
+# ADR-0074 decision 4 in the Simulator and on the iPhone: notify-tap-test starts with the grant (the host's record of
+# the app) and sends its notification's content intent itself, which is what SystemUI does on a tap; its first lines
+# must be Android 15's. Its post comes in the Application's onCreate, before the session, and the host must get it all
+# the same. Then session-check's notification-tap taps the delivered notification, its response sent to Minato's
+# delegate as UIKit sends a tap's: the guest sends the content intent again (APKRT_EVENT_NOTIFICATION_TAP), TapActivity
+# opens a second time, the notification, auto-cancelled, is gone, and the delegate called its completion handler on the
+# main thread, where UIKit asserts.
+# The three rounds run on the iPhone too (--device), where the user's tap is what they stand in for; the app's grant
+# goes into its data folder by devicectl there.
+if wanted notify-tap-test; then
+  mkdir -p "$WORK/notifytap-data"
+  echo '{"notifications":{"outcome":1,"denials":0}}' > "$WORK/notifytap-data/permissions.json"
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy to --source "$WORK/notifytap-data" \
+      --destination "$SUPPORT_REL/data/io.github.kisame76.minato.test.notifytap"
+  else
+    mkdir -p "$SUPPORT/data/io.github.kisame76.minato.test.notifytap"
+    cp "$WORK/notifytap-data/permissions.json" "$SUPPORT/data/io.github.kisame76.minato.test.notifytap/"
+  fi
   if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap 1; then
     if await_line guest-log "^I/notify-tap-test: done$" 120; then
       request notification-tap
@@ -1420,16 +1496,18 @@ if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   fi
 fi
 
-# ADR-0074 decision 4's cold tap in the Simulator: once notify-tap-test has run and its notification is delivered,
+# ADR-0074 decision 4's cold tap: once notify-tap-test has run and its notification is delivered,
 # Minato starts and session-check's notification-cold-tap taps it as it launches, before the library has its entries,
 # as didReceive comes when the tap launched Minato: the tap waits for the library, which checks the stored content
 # intent (its own TapActivity) and starts the app with it, so TapActivity is the first activity, before the app's own
 # send.
-if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
+if wanted notify-tap-test; then
   if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap 2; then
     await_line guest-log "^I/notify-tap-test: done$" 120 || failed_line "no done" notify-tap-test-2
   fi
   end_start notify-tap-test 2
+  save_response "the cold tap"
+  terminate
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
   echo yes > "$CHECK/no-compile"
@@ -1451,9 +1529,42 @@ if [[ "$ON_DEVICE" == no ]] && wanted notify-tap-test; then
   sleep 2
   end_start notify-tap-test 3
   fetch_events
+  tap_precondition "the cold tap"
+  game_mode_came "the cold tap"
   on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
   if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the cold tap's response on the main thread"; else
     fail "  the delegate completed the cold tap's response on the main thread $on_main times, not once"; fi
+fi
+
+# The same tap with Minato in the background, in its library: Settings comes to the front, then Minato again, and
+# session-check's notification-foreground-tap taps the delivered notification as the scene enters the foreground,
+# before it is active, where iOS's didReceive comes for a tap in Notification Center. The library starts the app
+# with TapActivity once Minato is active.
+if wanted notify-tap-test; then
+  if begin_start notify-tap-test io.github.kisame76.minato.test.notifytap 4; then
+    await_line guest-log "^I/notify-tap-test: done$" 120 || failed_line "no done" notify-tap-test-4
+  fi
+  end_start notify-tap-test 4
+  save_response "the tap from the background"
+  # Minato stays up in its library; the guest log of the start the tap makes comes into the folder from here on.
+  echo yes > "$CHECK/guest-log"
+  send_requests
+  sleep 2
+  launch "$AWAY"
+  sleep 2
+  echo io.github.kisame76.minato.test.notifytap > "$CHECK/notification-foreground-tap"
+  send_requests
+  launch
+  if await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 120; then
+    ok "  the tap from the background started TapActivity"
+  else
+    failed_line "no TapActivity after the tap from the background" notify-tap-test-5
+  fi
+  sleep 2
+  end_start notify-tap-test 5
+  fetch_events
+  tap_precondition "the tap from the background"
+  game_mode_came "the tap from the background"
 fi
 
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk

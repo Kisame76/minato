@@ -81,7 +81,13 @@ import UIKit
 ///            connected" and "virtual pad done". The file goes.
 ///   notification-cold-tap  a package: Minato taps that app's newest delivered notification as it launches, before
 ///            the library has its entries, as UNUserNotificationCenter's didReceive does when the tap launched it
-///            (ADR-0074 decision 4), and removes the file.
+///            (ADR-0074 decision 4), and removes the file. The response goes to the delegate at once, on the main
+///            thread, while the scene is not active yet.
+///   notification-foreground-tap  a package: the same when the scene next enters the foreground, as didReceive comes
+///            for a tap in Notification Center while Minato is in the background; the file goes. Both take the
+///            response notification-response-save kept, when there is one, so they come as fast as iOS's.
+///   notification-response-save  a package: at launch Minato keeps the response to that app's newest delivered
+///            notification in tmp/notification-response and logs "notification response saved"; the file goes.
 ///   notification-tap  the same poll taps the app's newest delivered notification, as UNUserNotificationCenter's
 ///            didReceive would (ADR-0074 decision 4); the file goes.
 ///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
@@ -216,6 +222,16 @@ enum SessionCheck {
     /// line overwrites another at the file's end, and in the order of their times.
     private static let writing = Mutex(())
 
+    /// UIApplication's state, for the events of a notification's tap and the restart it makes (trace only).
+    @MainActor static var appState: String {
+        switch UIApplication.shared.applicationState {
+        case .active: "active"
+        case .inactive: "inactive"
+        case .background: "background"
+        @unknown default: "unknown"
+        }
+    }
+
     static func event(_ text: String) {
         guard isOn else { return }
         writing.withLock { _ in
@@ -258,11 +274,47 @@ enum SessionCheck {
 
     /// A cold tap (ADR-0074 decision 4) as Minato launches: the app's newest delivered notification, tapped before
     /// the library is made, as iOS's didReceive comes when the tap launched Minato.
-    static func coldTapIfRequested() {
+    @MainActor static func coldTapIfRequested() {
+        // The scene's steps with UIApplication's state, which a notification's tap and the restart it makes are read
+        // against (java-start-check's notify-tap-test rounds).
+        event("launched state \(appState)")
+        for (name, label) in [(UIScene.willEnterForegroundNotification, "willEnterForeground"),
+                              (UIScene.didActivateNotification, "didActivate"),
+                              (UIScene.willDeactivateNotification, "willDeactivate"),
+                              (UIScene.didEnterBackgroundNotification, "didEnterBackground")] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { event("scene \(label) state \(appState)") }
+            }
+        }
+        if let package = text(of: "notification-response-save") {
+            try? FileManager.default.removeItem(at: folder.appending(path: "notification-response-save"))
+            NotificationHost.shared.saveNewestResponse(package: package, to: savedResponse)
+        }
+        NotificationCenter.default.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil,
+                                               queue: .main) { _ in
+            MainActor.assumeIsolated {
+                guard let package = text(of: "notification-foreground-tap") else { return }
+                try? FileManager.default.removeItem(at: folder.appending(path: "notification-foreground-tap"))
+                event("notification foreground tap requested \(package) state \(appState)")
+                tapNow(package: package)
+            }
+        }
         guard let package = text(of: "notification-cold-tap") else { return }
         try? FileManager.default.removeItem(at: folder.appending(path: "notification-cold-tap"))
-        event("notification cold tap requested \(package)")
-        NotificationHost.shared.tapNewest(package: package)
+        event("notification cold tap requested \(package) state \(appState)")
+        tapNow(package: package)
+    }
+
+    /// The response notification-response-save kept, next to the requests' folder, which the check empties.
+    private static var savedResponse: URL {
+        folder.deletingLastPathComponent().appending(path: "notification-response")
+    }
+
+    /// A tap at once: the saved response, as fast as iOS's didReceive, else the newest delivered notification's.
+    @MainActor private static func tapNow(package: String) {
+        if NotificationHost.shared.tapSaved(from: savedResponse) { return }
+        event("notification tap: no saved response")
+        NotificationHost.shared.tapNewestNow(package: package)
     }
 
     /// The library taps the requested app once, as the user would.
