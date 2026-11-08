@@ -98,6 +98,11 @@ extern int register_android_database_SQLiteConnection(JNIEnv *env);
 extern int register_android_database_SQLiteGlobal(JNIEnv *env);
 extern int register_android_database_SQLiteDebug(JNIEnv *env);
 extern int register_android_database_SQLiteRawStatement(JNIEnv *env);
+// The backup classes' (batch G): AOSP's core/jni files over libandroidfw's BackupData and BackupHelpers.
+extern int register_android_backup_BackupDataInput(JNIEnv *env);
+extern int register_android_backup_BackupDataOutput(JNIEnv *env);
+extern int register_android_backup_BackupHelperDispatcher(JNIEnv *env);
+extern int register_android_backup_FileBackupHelperBase(JNIEnv *env);
 
 namespace {
 JavaVM *gJavaVM = nullptr;
@@ -148,6 +153,8 @@ int register_framework_natives(JNIEnv *env) {
           register_android_graphics_classes, register_android_database_CursorWindow,
           register_android_database_SQLiteConnection, register_android_database_SQLiteGlobal,
           register_android_database_SQLiteDebug, register_android_database_SQLiteRawStatement,
+          register_android_backup_BackupDataInput, register_android_backup_BackupDataOutput,
+          register_android_backup_BackupHelperDispatcher, register_android_backup_FileBackupHelperBase,
           register_android_os_MessageQueue, register_android_os_Trace, register_android_os_Debug,
           register_android_os_Process,
           register_com_android_internal_util_VirtualRefBasePtr,

@@ -1,0 +1,68 @@
+I/batch-g-test: StrongBoxUnavailableException(): android.security.keystore.StrongBoxUnavailableException message null provider true
+I/batch-g-test: StrongBoxUnavailableException(msg, cause): m cause true
+I/batch-g-test: StrongBoxUnavailableException(cause): java.lang.RuntimeException: c cause true
+I/batch-g-test: KeyStoreException constants: ERROR_ATTESTATION_CHALLENGE_TOO_LARGE=9 ERROR_ATTESTATION_KEYS_UNAVAILABLE=16 ERROR_ID_ATTESTATION_FAILURE=8 ERROR_INCORRECT_USAGE=13 ERROR_INTERNAL_SYSTEM_ERROR=4 ERROR_KEYMINT_FAILURE=10 ERROR_KEYSTORE_FAILURE=11 ERROR_KEYSTORE_UNINITIALIZED=3 ERROR_KEY_CORRUPTED=7 ERROR_KEY_DOES_NOT_EXIST=6 ERROR_KEY_NOT_TEMPORALLY_VALID=14 ERROR_KEY_OPERATION_EXPIRED=15 ERROR_OTHER=1 ERROR_PERMISSION_DENIED=5 ERROR_UNIMPLEMENTED=12 ERROR_USER_AUTHENTICATION_REQUIRED=2 RETRY_AFTER_NEXT_REBOOT=4 RETRY_NEVER=1 RETRY_WHEN_CONNECTIVITY_AVAILABLE=3 RETRY_WITH_EXPONENTIAL_BACKOFF=2
+I/batch-g-test: KeyStoreException superclass: java.lang.Exception
+I/batch-g-test: KeyStoreException is a GeneralSecurityException: false
+I/batch-g-test: KeyProperties constants: AUTH_BIOMETRIC_STRONG=2 AUTH_DEVICE_CREDENTIAL=1 BLOCK_MODE_CBC=CBC BLOCK_MODE_CTR=CTR BLOCK_MODE_ECB=ECB BLOCK_MODE_GCM=GCM DIGEST_MD5=MD5 DIGEST_NONE=NONE DIGEST_SHA1=SHA-1 DIGEST_SHA224=SHA-224 DIGEST_SHA256=SHA-256 DIGEST_SHA384=SHA-384 DIGEST_SHA512=SHA-512 ENCRYPTION_PADDING_NONE=NoPadding ENCRYPTION_PADDING_PKCS7=PKCS7Padding ENCRYPTION_PADDING_RSA_OAEP=OAEPPadding ENCRYPTION_PADDING_RSA_PKCS1=PKCS1Padding KEY_ALGORITHM_3DES=DESede KEY_ALGORITHM_AES=AES KEY_ALGORITHM_EC=EC KEY_ALGORITHM_HMAC_SHA1=HmacSHA1 KEY_ALGORITHM_HMAC_SHA224=HmacSHA224 KEY_ALGORITHM_HMAC_SHA256=HmacSHA256 KEY_ALGORITHM_HMAC_SHA384=HmacSHA384 KEY_ALGORITHM_HMAC_SHA512=HmacSHA512 KEY_ALGORITHM_RSA=RSA NAMESPACE_APPLICATION=-1 NAMESPACE_WIFI=102 ORIGIN_GENERATED=1 ORIGIN_IMPORTED=2 ORIGIN_SECURELY_IMPORTED=8 ORIGIN_UNKNOWN=4 PURPOSE_AGREE_KEY=64 PURPOSE_ATTEST_KEY=128 PURPOSE_DECRYPT=2 PURPOSE_ENCRYPT=1 PURPOSE_SIGN=4 PURPOSE_VERIFY=8 PURPOSE_WRAP_KEY=32 SECURITY_LEVEL_SOFTWARE=0 SECURITY_LEVEL_STRONGBOX=2 SECURITY_LEVEL_TRUSTED_ENVIRONMENT=1 SECURITY_LEVEL_UNKNOWN=-2 SECURITY_LEVEL_UNKNOWN_SECURE=-1 SIGNATURE_PADDING_RSA_PKCS1=PKCS1 SIGNATURE_PADDING_RSA_PSS=PSS UNRESTRICTED_USAGE_COUNT=-1
+I/batch-g-test: KeyProtection.getBlockModes(): []
+I/batch-g-test: KeyProtection.getDigests(): throws java.lang.IllegalStateException
+I/batch-g-test: KeyProtection.getEncryptionPaddings(): []
+I/batch-g-test: KeyProtection.getKeyValidityForConsumptionEnd(): null
+I/batch-g-test: KeyProtection.getKeyValidityForOriginationEnd(): null
+I/batch-g-test: KeyProtection.getKeyValidityStart(): null
+I/batch-g-test: KeyProtection.getMaxUsageCount(): -1
+I/batch-g-test: KeyProtection.getMgf1Digests(): throws java.lang.IllegalStateException
+I/batch-g-test: KeyProtection.getPurposes(): 3
+I/batch-g-test: KeyProtection.getSignaturePaddings(): []
+I/batch-g-test: KeyProtection.getUserAuthenticationType(): 2
+I/batch-g-test: KeyProtection.getUserAuthenticationValidityDurationSeconds(): 0
+I/batch-g-test: KeyProtection.isDigestsSpecified(): false
+I/batch-g-test: KeyProtection.isInvalidatedByBiometricEnrollment(): true
+I/batch-g-test: KeyProtection.isMgf1DigestsSpecified(): false
+I/batch-g-test: KeyProtection.isRandomizedEncryptionRequired(): true
+I/batch-g-test: KeyProtection.isUnlockedDeviceRequired(): false
+I/batch-g-test: KeyProtection.isUserAuthenticationRequired(): false
+I/batch-g-test: KeyProtection.isUserAuthenticationValidWhileOnBody(): false
+I/batch-g-test: KeyProtection.isUserConfirmationRequired(): false
+I/batch-g-test: KeyProtection.isUserPresenceRequired(): false
+I/batch-g-test: KeyProtection.Builder(ENCRYPT|DECRYPT).build(): android.security.keystore.KeyProtection
+I/batch-g-test: KeyProtection full.getBlockModes(): [GCM, CBC]
+I/batch-g-test: KeyProtection full.getDigests(): [SHA-256, SHA-512]
+I/batch-g-test: KeyProtection full.getEncryptionPaddings(): [NoPadding, PKCS7Padding]
+I/batch-g-test: KeyProtection full.getKeyValidityForConsumptionEnd(): null
+I/batch-g-test: KeyProtection full.getKeyValidityForOriginationEnd(): null
+I/batch-g-test: KeyProtection full.getKeyValidityStart(): null
+I/batch-g-test: KeyProtection full.getMaxUsageCount(): 5
+I/batch-g-test: KeyProtection full.getMgf1Digests(): throws java.lang.IllegalStateException
+I/batch-g-test: KeyProtection full.getPurposes(): 15
+I/batch-g-test: KeyProtection full.getSignaturePaddings(): [PKCS1]
+I/batch-g-test: KeyProtection full.getUserAuthenticationType(): 3
+I/batch-g-test: KeyProtection full.getUserAuthenticationValidityDurationSeconds(): 30
+I/batch-g-test: KeyProtection full.isDigestsSpecified(): true
+I/batch-g-test: KeyProtection full.isInvalidatedByBiometricEnrollment(): false
+I/batch-g-test: KeyProtection full.isMgf1DigestsSpecified(): false
+I/batch-g-test: KeyProtection full.isRandomizedEncryptionRequired(): false
+I/batch-g-test: KeyProtection full.isUnlockedDeviceRequired(): false
+I/batch-g-test: KeyProtection full.isUserAuthenticationRequired(): true
+I/batch-g-test: KeyProtection full.isUserAuthenticationValidWhileOnBody(): false
+I/batch-g-test: KeyProtection full.isUserConfirmationRequired(): false
+I/batch-g-test: KeyProtection full.isUserPresenceRequired(): false
+I/batch-g-test: KeyProtection.Builder full: built
+I/batch-g-test: KeyProtection.Builder bad purposes: set
+I/batch-g-test: KeyProtection.Builder validity end before start: Thu Jan 01 01:00:01 GMT+01:00 1970 Thu Jan 01 01:00:05 GMT+01:00 1970
+I/batch-g-test: BackupManager constants: ERROR_AGENT_FAILURE=-1003 ERROR_BACKUP_CANCELLED=-2003 ERROR_BACKUP_NOT_ALLOWED=-2001 ERROR_PACKAGE_NOT_FOUND=-2002 ERROR_TRANSPORT_ABORTED=-1000 ERROR_TRANSPORT_INVALID=-2 ERROR_TRANSPORT_PACKAGE_REJECTED=-1002 ERROR_TRANSPORT_QUOTA_EXCEEDED=-1005 ERROR_TRANSPORT_UNAVAILABLE=-1 FLAG_NON_INCREMENTAL_BACKUP=1 PACKAGE_MANAGER_SENTINEL=@pm@ SUCCESS=0
+I/batch-g-test: BackupManager.dataChanged(): null
+I/batch-g-test: BackupManager.dataChanged(pkg): null
+I/batch-g-test: BackupManager.dataChanged(unknown): null
+I/batch-g-test: BackupManager.requestRestore(null): -1
+I/batch-g-test: BackupManager.isBackupEnabled(): throws java.lang.SecurityException
+I/batch-g-test: BackupAgent constants: FLAG_CLIENT_SIDE_ENCRYPTION_ENABLED=1 FLAG_DEVICE_TO_DEVICE_TRANSFER=2 TYPE_DIRECTORY=2 TYPE_FILE=1
+I/batch-g-test: BackupAgentHelper constants: 
+I/batch-g-test: BackupDataOutput constants: 
+I/batch-g-test: TestBackupAgent is a BackupAgentHelper: true true true
+I/batch-g-test: SharedPreferencesBackupHelper(ctx, name): android.app.backup.SharedPreferencesBackupHelper true
+I/batch-g-test: FileBackupHelper(ctx, files): android.app.backup.FileBackupHelper true
+I/batch-g-test: manifest backup agent: io.github.kisame76.minato.test.batchg.TestBackupAgent
+I/batch-g-test: manifest allowBackup: true
+I/batch-g-test: done

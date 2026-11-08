@@ -168,7 +168,8 @@ sources_in(androidfw_sources "${androidfw}"
   FileStream.cpp
   Idmap.cpp LoadedArsc.cpp Locale.cpp LocaleData.cpp misc.cpp NinePatch.cpp ObbFile.cpp PosixUtils.cpp Png.cpp
   PngChunkFilter.cpp PngCrunch.cpp ResourceTimer.cpp ResourceTypes.cpp ResourceUtils.cpp StreamingZipInflater.cpp
-  StringPool.cpp TypeWrappers.cpp Util.cpp ZipFileRO.cpp ZipUtils.cpp PathUtils.cpp)
+  StringPool.cpp TypeWrappers.cpp Util.cpp ZipFileRO.cpp ZipUtils.cpp PathUtils.cpp
+  BackupData.cpp BackupHelpers.cpp)
 add_library(androidfw STATIC ${androidfw_sources} "${androidfw_patched}")
 # native/include stands in for libbinder's TextOutput.h, which ResourceTypes.cpp includes without calling.
 target_include_directories(androidfw PUBLIC "${androidfw}/include" "${androidfw}/include_pathutils"
@@ -314,6 +315,11 @@ sources_in(android_runtime_sources "${jni}"
 sources_in(database_jni_sources "${jni}"
   android_database_CursorWindow.cpp android_database_SQLiteCommon.cpp android_database_SQLiteConnection.cpp
   android_database_SQLiteDebug.cpp android_database_SQLiteGlobal.cpp android_database_SQLiteRawStatement.cpp)
+# The backup classes' natives (the compatibility plan's gap 1, batch G): AOSP's core/jni files for BackupDataInput,
+# BackupDataOutput, BackupHelperDispatcher and FileBackupHelperBase over libandroidfw's BackupData and BackupHelpers.
+sources_in(backup_jni_sources "${jni}"
+  android_backup_BackupDataInput.cpp android_backup_BackupDataOutput.cpp android_backup_BackupHelperDispatcher.cpp
+  android_backup_FileBackupHelperBase.cpp)
 # ActivityThread's native (b3.4c) reads the session's configuration through libandroid, which it opens with dlopen
 # rather than linking: on Android libandroid needs libandroid_runtime, not the other way. DisplayEventReceiver's
 # natives (ADR-0041 a)) take libandroid's AChoreographer the same way.
@@ -340,7 +346,7 @@ foreach(file android_opengl_EGL14.cpp android_opengl_EGL15.cpp android_opengl_EG
   list(APPEND gles_sources "${gles_patched}/${file}")
 endforeach()
 add_library(android_runtime SHARED ${android_runtime_sources} ${gles_sources} ${input_jni_sources}
-            ${database_jni_sources} native/android_runtime/AndroidRuntime.cpp
+            ${database_jni_sources} ${backup_jni_sources} native/android_runtime/AndroidRuntime.cpp
             native/android_runtime/android_os_MessageQueue.cpp native/android_runtime/android_os_Trace.cpp
             native/android_runtime/android_os_Debug.cpp
             native/android_runtime/android_util_Process.cpp
