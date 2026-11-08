@@ -4,6 +4,7 @@
 
 #include <TargetConditionals.h>
 #include <dispatch/dispatch.h>
+#include <dlfcn.h>
 #include <mach/mach.h>
 #include <mach/vm_region.h>
 #include <pthread.h>
@@ -24,6 +25,9 @@ namespace {
 
 std::atomic<int> slot{-1};              // the descriptor to write to; below 0 turns the writing off
 std::atomic<bool> warning_seen{false};  // a memory-pressure warning has come, and stays seen to the end
+
+std::atomic<GraphicsLineFn> graphics_source{nullptr};  // a test-injected ANGLEMetalMemoryLine stand-in
+std::atomic<bool> graphics_source_active{false};       // true: use graphics_source; false: dlsym the real symbol
 
 constexpr std::size_t value_width = 20;  // the digits of 2^64 - 1: a value is right-justified in this many columns,
                                          // space padded, so every block is the same block_size bytes (the pwrite slot)
@@ -85,6 +89,15 @@ void ensure_sources() {
         dispatch_source_set_event_handler_f(pressure, pressure_fired);
         dispatch_resume(pressure);  // warn lines for the fixture path; game mode also logs on APKRT_EVENT_LOW_MEMORY
     });
+}
+
+/// The resolved ANGLEMetalMemoryLine, or a test-injected stand-in. dlsym once and cache (RTLD_DEFAULT finds the symbol
+/// libGLESv2 exports from ANGLE patch 0015); absent on the Mac fixtures and pre-0015 ANGLE, where it stays nullptr.
+GraphicsLineFn graphics_line_source() {
+    if (graphics_source_active.load(std::memory_order_relaxed)) return graphics_source.load(std::memory_order_relaxed);
+    static const GraphicsLineFn resolved =
+        reinterpret_cast<GraphicsLineFn>(::dlsym(RTLD_DEFAULT, "ANGLEMetalMemoryLine"));
+    return resolved;
 }
 
 }  // namespace
@@ -200,6 +213,27 @@ void log_instrument(bool warning) {
     char line[256];
     const std::size_t length = format_instrument(reading, warning, line, sizeof line);
     if (length > 0) static_cast<void>(::write(STDERR_FILENO, line, length));
+    char gl[256];
+    const std::size_t gl_length = graphics_line(warning, gl, sizeof gl);  // the ANGLE/Metal line, when 0015 is present
+    if (gl_length > 0) static_cast<void>(::write(STDERR_FILENO, gl, gl_length));
+}
+
+std::size_t graphics_line(bool warning, char *out, std::size_t size) {
+    const GraphicsLineFn fn = graphics_line_source();
+    if (fn == nullptr) return 0;  // no ANGLEMetalMemoryLine (Mac fixtures, pre-0015 ANGLE)
+    char stats[192];
+    stats[0] = '\0';
+    int written = fn(stats, sizeof stats);
+    if (written <= 0) return 0;
+    if (static_cast<std::size_t>(written) > sizeof stats) written = static_cast<int>(sizeof stats);
+    const int length = std::snprintf(out, size, "I/apkrt   : %.*s%s\n", written, stats, warning ? " warn" : "");
+    if (length < 0 || static_cast<std::size_t>(length) >= size) return 0;
+    return static_cast<std::size_t>(length);
+}
+
+void set_graphics_line_source_for_test(GraphicsLineFn fn, bool active) {
+    graphics_source.store(fn, std::memory_order_relaxed);
+    graphics_source_active.store(active, std::memory_order_relaxed);
 }
 
 }  // namespace apkrt::memory

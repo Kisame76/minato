@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 
@@ -170,6 +171,33 @@ TEST(sample_instrument_reads_the_footprint_and_some_anonymous_memory) {
     } else {
         CHECK(reading.other == 0);  // nothing to add when the named parts already exceed the footprint
     }
+}
+
+/// A stand-in for libGLESv2's ANGLEMetalMemoryLine, so the test needs no real ANGLE: writes a fixed stats string.
+int fake_angle_line(char *line, std::size_t size) {
+    static const char stats[] = "gl tex=5/2 priv=1 shared=1 comp=1/0 color=2/1 depth=1/0 msaa=1/1 mless=0 "
+                                "buf=2/2 bufpriv=0 pool=0/0 mtl=4";
+    const std::size_t length = sizeof stats - 1;
+    if (length >= size) return 0;
+    std::memcpy(line, stats, length + 1);
+    return static_cast<int>(length);
+}
+
+TEST(graphics_line_wraps_the_angle_stats_when_the_symbol_is_present) {
+    memory::set_graphics_line_source_for_test(fake_angle_line, true);
+    char out[256];
+    const std::size_t length = memory::graphics_line(true, out, sizeof out);
+    CHECK(std::string(out, length) ==
+          "I/apkrt   : gl tex=5/2 priv=1 shared=1 comp=1/0 color=2/1 depth=1/0 msaa=1/1 mless=0 buf=2/2 "
+          "bufpriv=0 pool=0/0 mtl=4 warn\n");
+    memory::set_graphics_line_source_for_test(nullptr, false);  // restore the dlsym lookup
+}
+
+TEST(graphics_line_is_empty_without_the_symbol) {
+    memory::set_graphics_line_source_for_test(nullptr, true);  // mimic a build without ANGLEMetalMemoryLine
+    char out[256];
+    CHECK(memory::graphics_line(false, out, sizeof out) == 0);
+    memory::set_graphics_line_source_for_test(nullptr, false);
 }
 
 }  // namespace

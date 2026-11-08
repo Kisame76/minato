@@ -78,4 +78,17 @@ void log_instrument(bool warning);
 /// calls it at session start (gated by MINATO_LOADER_LOG); once per process.
 void start_instrument();
 
+/// The signature of libGLESv2's ANGLEMetalMemoryLine: writes a one-line, allocation-free ANGLE/Metal memory summary
+/// (e.g. "gl tex=5/2 priv=1 ... mtl=4") into line[0..size) and returns its length. Resolved at run time, not linked.
+using GraphicsLineFn = int (*)(char *line, std::size_t size);
+
+/// Builds "I/apkrt   : <stats>[ warn]\n" from ANGLEMetalMemoryLine (dlsym(RTLD_DEFAULT), resolved once and cached) into
+/// out[0..size). Returns the length, or 0 when the symbol is absent (Mac fixtures, pre-0015 ANGLE) or it would not fit.
+/// log_instrument writes it with one write(2) after each mem line, so the graphics view follows every sample.
+std::size_t graphics_line(bool warning, char *out, std::size_t size);
+
+/// Test seam (tests only): `active` true makes graphics_line use `fn` (which may be nullptr to mimic a missing symbol)
+/// instead of dlsym; `active` false restores the dlsym lookup. Lets a test inject a stand-in without linking ANGLE.
+void set_graphics_line_source_for_test(GraphicsLineFn fn, bool active);
+
 }  // namespace apkrt::memory
