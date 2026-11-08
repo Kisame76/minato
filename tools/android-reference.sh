@@ -247,7 +247,7 @@ fi
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
     || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test \
-    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test ]]; then
+    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -674,7 +674,7 @@ run_app() {
       | gms-absent-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
-      | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test)
+      | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
       ;;

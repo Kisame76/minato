@@ -1,0 +1,38 @@
+I/activity-options-test: makeBasic().toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null}
+I/activity-options-test: makeCustomAnimation(1, 2).toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animEnterRes=1, android:activity.animExitRes=2, android:activity.animStartListener=null, android:activity.animType=1, android:activity.backgroundColor=0, android:activity.packageName=io.github.kisame76.minato.test.activityoptions}
+I/activity-options-test: makeCustomAnimation(1, 2, 3).toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animEnterRes=1, android:activity.animExitRes=2, android:activity.animStartListener=null, android:activity.animType=1, android:activity.backgroundColor=3, android:activity.packageName=io.github.kisame76.minato.test.activityoptions}
+I/activity-options-test: makeScaleUpAnimation(5, 6, 7, 8).toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animHeight=8, android:activity.animStartX=5, android:activity.animStartY=6, android:activity.animType=2, android:activity.animWidth=7, android:activity.packageName=io.github.kisame76.minato.test.activityoptions}
+I/activity-options-test: makeClipRevealAnimation(5, 6, 7, 8).toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animHeight=8, android:activity.animStartX=5, android:activity.animStartY=6, android:activity.animType=11, android:activity.animWidth=7}
+I/activity-options-test: makeTaskLaunchBehind().toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animType=7}
+I/activity-options-test: makeScaleUpAnimation(null view): throws java.lang.NullPointerException
+I/activity-options-test: makeThumbnailScaleUpAnimation(null bitmap): android.app.ActivityOptions
+I/activity-options-test: getLaunchBounds() of makeBasic: null
+I/activity-options-test: setLaunchBounds(1,2,30,40).getLaunchBounds(): [1,2][30,40]
+I/activity-options-test: setLaunchBounds returns the same object: true
+I/activity-options-test: setLaunchBounds copies its argument: [1,2][30,40]
+I/activity-options-test: setLaunchBounds(1,2,30,40).toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.launchBounds=[1,2][30,40]}
+I/activity-options-test: setLaunchBounds(null).getLaunchBounds(): null
+I/activity-options-test: setLaunchDisplayId(3): 3 {android.activity.launchDisplayId=3, android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null}
+I/activity-options-test: getLaunchDisplayId() of makeBasic: -1
+I/activity-options-test: setLockTaskEnabled(true): true {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.lockTaskMode=true}
+I/activity-options-test: setShareIdentityEnabled(true): true {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.shareIdentity=true}
+I/activity-options-test: isShareIdentityEnabled() of makeBasic: false
+I/activity-options-test: setSplashScreenStyle(1): 1 {android.activity.splashScreenStyle=1, android:activity.animAbortListener=null}
+I/activity-options-test: getSplashScreenStyle() of makeBasic: -1
+I/activity-options-test: setAppVerificationBundle(x=1).toBundle(): {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:instantapps.installerbundle={x=1}}
+I/activity-options-test: setPendingIntentBackgroundActivityStartMode(1): 1 {android.activity.splashScreenStyle=-1, android.pendingIntent.backgroundActivityAllowed=1, android:activity.animAbortListener=null}
+I/activity-options-test: setPendingIntentCreatorBackgroundActivityStartMode(2): 2 {android.activity.pendingIntentCreatorBackgroundActivityStartMode=2, android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null}
+I/activity-options-test: requestUsageTimeReport(null): returned
+I/activity-options-test: update(makeCustomAnimation) into makeBasic: {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animEnterRes=1, android:activity.animExitRes=2, android:activity.animStartListener=null, android:activity.animType=1, android:activity.backgroundColor=0, android:activity.launchBounds=[1,2][3,4], android:activity.packageName=io.github.kisame76.minato.test.activityoptions} Rect(1, 2 - 3, 4)
+I/activity-options-test: update(makeBasic) into makeCustomAnimation: {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.packageName=io.github.kisame76.minato.test.activityoptions}
+I/activity-options-test: update(makeScaleUpAnimation) into makeCustomAnimation: {android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null, android:activity.animHeight=8, android:activity.animStartX=5, android:activity.animStartY=6, android:activity.animType=2, android:activity.animWidth=7, android:activity.packageName=io.github.kisame76.minato.test.activityoptions}
+I/activity-options-test: update(null): throws java.lang.NullPointerException
+I/activity-options-test: toBundle() twice is equal: true
+I/activity-options-test: setPendingIntentBackgroundActivityStartMode(7): 1 {android.activity.splashScreenStyle=-1, android.pendingIntent.backgroundActivityAllowed=1, android:activity.animAbortListener=null}
+I/activity-options-test: setPendingIntentBackgroundActivityLaunchAllowed(false): false 2 {android.activity.splashScreenStyle=-1, android.pendingIntent.backgroundActivityAllowed=2, android:activity.animAbortListener=null}
+I/activity-options-test: isPendingIntentBackgroundActivityLaunchAllowed() of makeBasic: true
+I/activity-options-test: setSplashScreenStyle(5) is ignored: -1
+I/activity-options-test: makeLaunchIntoPip().toBundle(): {android.activity.launchIntoPipParams=android.app.PictureInPictureParams, android.activity.splashScreenStyle=-1, android:activity.animAbortListener=null}
+I/activity-options-test: EXTRA_USAGE_TIME_REPORT: android.activity.usage_time
+I/activity-options-test: MODE_BACKGROUND_ACTIVITY_START_DENIED: 2
+I/activity-options-test: done
