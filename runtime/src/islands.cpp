@@ -139,15 +139,24 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
         if (word >= pad_start && word < island.words) {
             const auto *stub = reinterpret_cast<const std::uint32_t *>(header + island.stub);
             for (;;) {
-                const bool exit_pad = (stub[pad_start] & 0xffe0'0c00) == 0xf840'0000;  // LDUR, else STUR
-                const std::uint64_t length = exit_pad ? 2 : std::uint64_t{preamble} + 1;
+                // LDUR: an exit pad of a window that only reads x18; MRS: one of a window that writes it, which stores x18
+                // back first (mrs, bic, str: 6 words with the restores and the branch); else STUR, an entry pad.
+                const bool read_exit = (stub[pad_start] & 0xffe0'0c00) == 0xf840'0000;
+                const bool write_exit = (stub[pad_start] & 0xffff'ffe0) == 0xd53b'd060;
+                const bool exit_pad = read_exit || write_exit;
+                const std::uint64_t length = read_exit ? 2 : write_exit ? 6 : std::uint64_t{preamble} + 1;
                 if (word < pad_start + length || pad_start + length >= island.words) {
                     const std::uint64_t at = header + island.stub + 4 * (pad_start + length - 1);  // the pad's B
                     const std::uint32_t branch = stub[pad_start + length - 1];
                     const auto displacement = static_cast<std::int64_t>(static_cast<std::int32_t>(branch << 6) >> 6);
                     const auto target = static_cast<std::uint64_t>(static_cast<std::int64_t>(at) + 4 * displacement);
-                    if (exit_pad) {
+                    if (write_exit && word < pad_start + 3) settled.x18 = context.x[island.value];  // not stored back yet
+                    if (exit_pad && (branch & 0xffff'fc1f) != 0xd61f'0000 && (branch & 0xffff'fc1f) != 0xd65f'0000) {
                         settled.context.pc = target;
+                    } else if (exit_pad) {
+                        // A register branch (BR xN, RET xN) the exit pad runs as the guest wrote it: the thread goes
+                        // where xN says, and xN is a guest register the island never touches.
+                        settled.context.pc = context.x[(branch >> 5) & 0x1f];
                     } else {
                         pad_word = word - pad_start;
                         in_entry_pad = true;
@@ -164,6 +173,11 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
         const bool back = island.commit == APK_ISLAND_NO_COMMIT || word <= island.commit;
         if (!back && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
         settled.context.pc = header + island.site + (back ? 0 : 4 * std::uint64_t{island.resume});
+        // A pair island's destination write-back (ADR-0020 X7 c2): the CASP has run, but x19 has not yet been copied from the
+        // scratch's odd register, so the thread's x19 is that register's until the copy's word has run.
+        if (island.kind == APK_ISLAND_PAIR && !back && island.store != 0 && word <= std::uint64_t{island.commit} + 1) {
+            settled.context.x[19] = context.x[island.base];
+        }
     }
     // A no-save island (ADR-0020 C7) runs the use over registers proven dead right after it, so it saves
     // nothing to the red zone; there is nothing to restore, and its value/base registers stay as they are

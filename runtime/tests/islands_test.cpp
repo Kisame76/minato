@@ -216,6 +216,53 @@ constexpr std::uint32_t code[] = {
     0xaa08'03e0,  // 0x3f8 mov x0, x8
     0xd65f'03c0,  // 0x3fc ret
 };
+// reg_loop(inputs): inputs[0] = x18, [1] = the cell, [2] = the expected value, [3] = a flag. The same compare-and-swap with a
+// register branch in its window (ADR-0020 X7): with the flag set the cbz does not skip the `br x6`, which leaves the window
+// for the label after it, through an exit pad that restores the value register and runs the br. Returns the old value.
+constexpr std::uint32_t reg_code[] = {
+    0xf940'0012,  // 0x420 ldr x18, [x0]                 single, writes
+    0xf940'0801,  // 0x424 ldr x1, [x0, #16]
+    0xf940'0c02,  // 0x428 ldr x2, [x0, #24]
+    0xf940'0400,  // 0x42c ldr x0, [x0, #8]
+    0x1000'0106,  // 0x430 adr x6, 0x450                 where the br goes
+    0xc85f'fc08,  // 0x434 ldaxr x8, [x0]                the window's load-exclusive
+    0xeb01'011f,  // 0x438 cmp x8, x1
+    0x5400'00a1,  // 0x43c b.ne 0x450                    leaves the window
+    0xb400'0042,  // 0x440 cbz x2, 0x448                 skips the register branch unless the flag is set
+    0xd61f'00c0,  // 0x444 br x6                         leaves the window through an exit pad
+    0xc809'fc12,  // 0x448 stlxr w9, x18, [x0]           x18 read here
+    0x35ff'ff49,  // 0x44c cbnz w9, 0x434
+    0xaa08'03e0,  // 0x450 mov x0, x8
+    0xd65f'03c0,  // 0x454 ret
+    // write_loop(inputs): inputs[0] = x18, [1] = the cell, [2] = a bound. A loop that WRITES x18 and leaves it by a branch
+    // (ADR-0020 X7): while the cell is below the bound it sets x18 to twice the cell and increments the cell; at the bound
+    // the b.hs leaves with x18 as it was. Returns x18, which shows whether the island stored it back on each way out.
+    0xf940'0012,  // 0x458 ldr x18, [x0]                 single, writes
+    0xf940'0401,  // 0x45c ldr x1, [x0, #8]
+    0xf940'0802,  // 0x460 ldr x2, [x0, #16]
+    0xc85f'fc23,  // 0x464 ldaxr x3, [x1]                the window's load-exclusive
+    0xeb02'007f,  // 0x468 cmp x3, x2
+    0x5400'00a2,  // 0x46c b.hs 0x480                    leaves the window
+    0x8b03'0072,  // 0x470 add x18, x3, x3               writes x18, so a retry gives the same
+    0x9100'0464,  // 0x474 add x4, x3, #1
+    0xc805'fc24,  // 0x478 stlxr w5, x4, [x1]
+    0x35ff'ff45,  // 0x47c cbnz w5, 0x464
+    0xaa12'03e0,  // 0x480 mov x0, x18
+    0xd65f'03c0,  // 0x484 ret
+    // pair_loop(inputs): inputs[0], [1] = the expected pair (x18, x19), [2] = a pair of words in memory, [3], [4] = the new
+    // pair. A compare-and-swap pair with x18 in its destination pair (ADR-0020 X7): the island runs it on an even scratch
+    // pair and writes x18 and x19 back. Returns x18 + (x19 << 8) as the CASP left them: the memory's old pair.
+    0xaa13'03e9,  // 0x488 mov x9, x19                   x19 is callee-saved: kept here
+    0xf940'0012,  // 0x48c ldr x18, [x0]                 single, writes
+    0xf940'0413,  // 0x490 ldr x19, [x0, #8]
+    0xf940'0804,  // 0x494 ldr x4, [x0, #16]
+    0xf940'0c02,  // 0x498 ldr x2, [x0, #24]
+    0xf940'1003,  // 0x49c ldr x3, [x0, #32]
+    0x4832'7c82,  // 0x4a0 casp x18, x19, x2, x3, [x4]   the pair island
+    0x8b13'2240,  // 0x4a4 add x0, x18, x19, lsl #8
+    0xaa09'03f3,  // 0x4a8 mov x19, x9
+    0xd65f'03c0,  // 0x4ac ret
+};
 constexpr std::int32_t jump_table[] = {0x258 - 0x400, 0x260 - 0x400, 0x268 - 0x400, 0x270 - 0x400};
 constexpr std::uint64_t literal = 0x1122'3344'5566'7788;  // what the LDR (literal) of forms() loads
 constexpr std::uint64_t run_at = 0x200, run_end = 0x280, window_at = 0x228, loop_at = 0x280, fault_at = 0x2a4,
@@ -223,7 +270,8 @@ constexpr std::uint64_t run_at = 0x200, run_end = 0x280, window_at = 0x228, loop
                         fault_window_at = 0x32c, indirect_at = 0x340, helper_at = 0x368, tail_at = 0x370,
                         fault_window_deep_at = 0x378, backedge_at = 0x38c, exit_loop_at = 0x3a4, exit_loop_end = 0x3cc,
                         exit_window_at = 0x3b0, entry_loop_at = 0x3cc, entry_loop_end = 0x400, entry_window_at = 0x3e4, table_at = 0x400, literal_at = 0x410,
-                        program_end = 0x418;
+                        reg_loop_at = 0x420, reg_loop_end = 0x458, reg_window_at = 0x434, write_loop_at = 0x458, write_loop_end = 0x488,
+                        write_window_at = 0x464, pair_loop_at = 0x488, pair_loop_end = 0x4b0, program_end = 0x4b0;
 
 // The jump table island (rewrite.cpp, emit_jump_table): 13 words up to its BR, a trap of 3, then a
 // landing pad of 4 words for each word from the lowest target on, whose fourth word never runs.
@@ -239,9 +287,11 @@ std::vector<std::byte> program_container() {
     std::memcpy(builder.bytes.data() + run_at, code, sizeof code);
     std::memcpy(builder.bytes.data() + table_at, jump_table, sizeof jump_table);
     std::memcpy(builder.bytes.data() + literal_at, &literal, sizeof literal);
+    std::memcpy(builder.bytes.data() + reg_loop_at, reg_code, sizeof reg_code);
     builder.sections({
         {".text", elf::sht_progbits, elf::shf_alloc | elf::shf_execinstr, run_at, run_at, sizeof code},
-        {".rodata", elf::sht_progbits, elf::shf_alloc, table_at, table_at, program_end - table_at},
+        {".rodata", elf::sht_progbits, elf::shf_alloc, table_at, table_at, 0x418 - table_at},
+        {".text.reg", elf::sht_progbits, elf::shf_alloc | elf::shf_execinstr, reg_loop_at, reg_loop_at, sizeof reg_code},
     });
     return apk::container::convert(builder.bytes, {.install_name = "@rpath/islands-program.dylib"}).bytes;
 }
@@ -407,15 +457,18 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
             const unsigned tail = island->base != APK_ISLAND_NO_REGISTER ? 6 : 2;
             for (unsigned pad = preamble + body + tail; pad < island->words;) {
                 const auto *words = reinterpret_cast<const std::uint32_t *>(loaded.header + island->stub);
-                const bool exit_pad = (words[pad] & 0xffe0'0c00) == 0xf840'0000;
-                const unsigned length = exit_pad ? 2 : preamble + 1;
+                const bool read_exit = (words[pad] & 0xffe0'0c00) == 0xf840'0000;  // ldur
+                const bool write_exit = (words[pad] & 0xffff'ffe0) == 0xd53b'd060;  // mrs: the store-back of x18 first
+                const bool exit_pad = read_exit || write_exit;
+                const unsigned length = read_exit ? 2 : write_exit ? 6 : preamble + 1;
                 if (word >= pad && word < pad + length) {
                     const auto branch = words[pad + length - 1];
                     const auto displacement = static_cast<std::int64_t>(static_cast<std::int32_t>(branch << 6) >> 6);
                     const auto target = static_cast<std::uint64_t>(
                         static_cast<std::int64_t>(loaded.header + island->stub + 4 * (pad + length - 1)) + 4 * displacement);
                     if (exit_pad) {
-                        guest_pc = target;
+                        const bool register_branch = (branch & 0xffff'fc1f) == 0xd61f'0000 || (branch & 0xffff'fc1f) == 0xd65f'0000;
+                        guest_pc = register_branch ? context_of(steps[at]).x[(branch >> 5) & 0x1f] : target;
                         guest = body;
                         earlier_state = false;
                     } else {
@@ -604,7 +657,9 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     // exit_loop(): the compare-and-swap that stores x18 and the one whose branch leaves the window, through an exit pad
     // (ADR-0020 X7), every word of the island stepped, the pad's two words included: wherever the thread stops, leave()
     // must give the state the guest passes through, and in a pad the leaving branch's target.
-    for (const unsigned stepped_visits : {0u, 1u}) {
+    // Each pass of the three loops below runs three times: a thread that is single-stepped can lose a step under load, and
+    // the check at the end wants every island word stepped once at least.
+    for (const unsigned stepped_visits : {0u, 1u, 0u, 1u, 0u, 1u}) {
         for (const bool differs : {false, true}) {
             if (differs && stepped_visits == 1) continue;  // no store-exclusive on that path: one pass is enough
             std::uint64_t cell_value = 0;
@@ -630,7 +685,7 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
 
     // entry_loop(): the same loop entered from outside at its store-exclusive (ADR-0020 X7), every word of the island and of
     // its entry pad stepped: wherever the thread stops in the pad, leave() gives the guest at the branch from outside.
-    for (const bool entered : {false, true}) {
+    for (const bool entered : {false, true, false, true, false, true}) {
         for (const bool differs : {false, true}) {
             for (const unsigned stepped_visits : {0u, 1u}) {
                 if (differs && stepped_visits == 1) continue;
@@ -655,12 +710,89 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
         }
     }
 
+    // reg_loop(): a register branch in the window, which leaves it through an exit pad, run as the guest wrote it (ADR-0020
+    // X7): every word stepped, the pad's two included; wherever the thread stops, its pc is where x6 says.
+    for (const bool leaves : {false, true, false, true, false, true}) {
+        for (const bool differs : {false, true}) {
+          for (const unsigned stepped_visits : {0u, 1u}) {
+            const bool stores = !leaves && !differs;  // only that pass reaches the store-exclusive
+            if (!stores && stepped_visits == 1) continue;
+            std::uint64_t cell_value = 0;
+            std::uint64_t inputs[4] = {};
+            const auto result = step_and_compare(
+                reg_loop_at,
+                [&] {
+                    cell_value = 41;
+                    inputs[0] = 77;
+                    inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
+                    inputs[2] = differs ? 40 : 41;
+                    inputs[3] = leaves ? 1 : 0;
+                    return reinterpret_cast<std::uint64_t>(inputs);
+                },
+                stores ? std::vector{free_run(loaded.island_at(reg_window_at), stepped_visits)}
+                       : std::vector<apkrt::testing::FreeRun>{},
+                covered, compared);
+            CHECK(result == 41);
+            CHECK(cell_value == (stores ? 77u : 41u));
+          }
+        }
+    }
+
+    // write_loop(): a window that writes x18 and leaves by a branch (ADR-0020 X7), every word stepped, the exit pad's six
+    // included (its store-back of x18 first, then the restores and the branch): wherever the thread stops, x18 and the
+    // other registers are the guest's.
+    for (const bool leaves : {false, true, false, true, false, true}) {
+        for (const unsigned stepped_visits : {0u, 1u}) {
+            if (leaves && stepped_visits == 1) continue;
+            std::uint64_t cell_value = 0;
+            std::uint64_t inputs[3] = {};
+            const auto result = step_and_compare(
+                write_loop_at,
+                [&] {
+                    cell_value = leaves ? 11 : 3;
+                    inputs[0] = 100;
+                    inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
+                    inputs[2] = 10;  // the bound
+                    return reinterpret_cast<std::uint64_t>(inputs);
+                },
+                leaves ? std::vector<apkrt::testing::FreeRun>{}
+                       : std::vector{free_run(loaded.island_at(write_window_at), stepped_visits)},
+                covered, compared);
+            CHECK(result == (leaves ? 100u : 6u));
+            CHECK(cell_value == (leaves ? 11u : 4u));
+        }
+    }
+
+    // pair_loop(): a CASP with x18 in its destination pair (ADR-0020 X7), every island word stepped: before the CASP the thread
+    // goes back to the site, after it on to the next word with x18 and x19 as the CASP left them, wherever it stops.
+    alignas(16) std::uint64_t pair_memory[2];
+    for (const bool matches : {true, false, true, false, true, false}) {
+        std::uint64_t inputs[5] = {};
+        const auto result = step_and_compare(
+            pair_loop_at,
+            [&] {
+                pair_memory[0] = 7;
+                pair_memory[1] = 9;
+                inputs[0] = matches ? 7 : 1;  // x18: the expected low half
+                inputs[1] = matches ? 9 : 2;  // x19: the expected high half
+                inputs[2] = reinterpret_cast<std::uint64_t>(pair_memory);
+                inputs[3] = 100;
+                inputs[4] = 200;
+                return reinterpret_cast<std::uint64_t>(inputs);
+            },
+            {}, covered, compared);
+        CHECK(result == 7 + (9u << 8));  // the memory's old pair, whether it was swapped
+        CHECK(pair_memory[0] == (matches ? 100u : 7u) && pair_memory[1] == (matches ? 200u : 9u));
+    }
+
     CHECK(compared > 0);
     // Every word of every island of run() and forms() that can run was stepped.
     for (const auto &island : loaded.islands) {
         const auto site = loaded.header + island.site - loaded.image;
         if (!(site >= run_at && site < run_end) && !(site >= forms_at && site < forms_end) &&
-            !(site >= exit_loop_at && site < exit_loop_end) && !(site >= entry_loop_at && site < entry_loop_end)) {
+            !(site >= exit_loop_at && site < exit_loop_end) && !(site >= entry_loop_at && site < entry_loop_end) &&
+            !(site >= reg_loop_at && site < reg_loop_end) && !(site >= write_loop_at && site < write_loop_end) &&
+            !(site >= pair_loop_at && site < pair_loop_end)) {
             continue;
         }
         for (unsigned word = 0; word < island.words; ++word) {

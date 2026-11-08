@@ -382,6 +382,57 @@ function x18_cas_entered
     restore_x18
     ret
 
+// uint64_t x18_cas_indirect(uint64_t *cell, uint64_t expected, uint64_t desired, uint64_t leave): the strong CAS with a
+// register branch in its window (ADR-0020 X7): with `leave` set the cbz does not skip the `br x6`, which goes to the
+// label after the loop through an exit pad. Returns the cell's old value.
+function x18_cas_indirect
+    save_x18
+    mov     x18, x2
+    adr     x6, 2f
+1:  ldaxr   x5, [x0]
+    cmp     x5, x1
+    b.ne    2f
+    cbz     x3, 3f
+    br      x6
+3:  stlxr   w4, x18, [x0]
+    cbnz    w4, 1b
+2:  mov     x0, x5
+    restore_x18
+    ret
+
+// uint64_t x18_write_exit(uint64_t *cell, uint64_t bound, uint64_t start): x18 starts at `start`; a loop that WRITES x18
+// and leaves it by a branch (ADR-0020 X7): below the bound it sets x18 to twice the cell and increments the cell; at the
+// bound the b.hs leaves with x18 as it was. Returns x18, which shows what the island stored back on each way out.
+function x18_write_exit
+    save_x18
+    mov     x18, x2
+1:  ldaxr   x3, [x0]
+    cmp     x3, x1
+    b.hs    2f
+    add     x18, x3, x3
+    add     x4, x3, #1
+    stlxr   w5, x4, [x0]
+    cbnz    w5, 1b
+2:  mov     x0, x18
+    restore_x18
+    ret
+
+// uint64_t x18_casp(uint64_t pair[2], uint64_t expected_low, uint64_t expected_high, uint64_t new_low, uint64_t new_high):
+// a compare-and-swap pair with the expected pair in (x18, x19) (ADR-0020 X7): the island runs it on an even scratch pair and
+// writes x18 and x19 back. Returns the memory's old pair as old_low + (old_high << 8); x19 is callee-saved and kept in x9.
+function x18_casp
+    save_x18
+    mov     x9, x19
+    mov     x6, x3
+    mov     x7, x4
+    mov     x18, x1
+    mov     x19, x2
+    casp    x18, x19, x6, x7, [x0]
+    add     x0, x18, x19, lsl #8
+    mov     x19, x9
+    restore_x18
+    ret
+
 // uint64_t x18_clrex_only(uint64_t *cell): the cell, from a window that a CLREX closes alone.
 function x18_clrex_only
     save_x18

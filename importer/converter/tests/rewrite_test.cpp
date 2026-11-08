@@ -1027,13 +1027,15 @@ TEST(a_nested_load_exclusive_makes_the_first_lone_and_the_second_its_own_window)
     }
 }
 
-// A nested first load-exclusive whose run branches out is not lone: the branch could carry the first
-// monitor to the store-exclusive, so it stays refused (window_nested), keeping that cause covered.
-TEST(a_nested_load_exclusive_with_a_branch_out_of_the_first_run_stays_refused) {
+// A nested first load-exclusive whose run branches out is not lone: the branch could carry the first monitor to a
+// store-exclusive. After ADR-0020 X7 such a window is decided per use, like an unclosed one: the use is refused when a
+// path from its load-exclusive reaches a store-exclusive before the monitor is re-armed (here the branch lands on the
+// nested store-exclusive, skipping its load), and islands when none does (the branch lands past it).
+TEST(a_nested_load_exclusive_with_a_branch_out_of_the_first_run_is_decided_by_its_paths) {
     const std::uint32_t code[] = {
         0xc85f'7c01,  // 0x1000 ldxr x1, [x0]: the first load-exclusive
         0x9100'0432,  // 0x1004 add x18, x1, #1: x18 use
-        0x1400'0003,  // 0x1008 b 0x1014: a branch out of the first run
+        0x1400'0002,  // 0x1008 b 0x1010: a branch out of the first run, onto the nested store-exclusive
         0xc85f'7c62,  // 0x100c ldxr x2, [x3]: the nested second load-exclusive
         0xc804'7c62,  // 0x1010 stxr w4, x2, [x3]
         0xd503'201f,  // 0x1014 nop
@@ -1043,9 +1045,15 @@ TEST(a_nested_load_exclusive_with_a_branch_out_of_the_first_run_stays_refused) {
     CHECK(findings.x18_unsupported.size() == 1);
     if (findings.x18_unsupported.size() == 1) {
         CHECK(findings.x18_unsupported[0].address == 0x1004);
-        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("another load-exclusive") !=
+        CHECK(std::string_view(findings.x18_unsupported[0].reason).find("between a load- and a store-exclusive") !=
               std::string_view::npos);
     }
+    std::uint32_t past[std::size(code)];
+    std::copy(std::begin(code), std::end(code), std::begin(past));
+    past[2] = 0x1400'0003;  // b 0x1014: past the nested store-exclusive
+    const auto islanded = scan_words(past, past + std::size(past), 0x1000);
+    CHECK(islanded.x18_unsupported.empty());
+    CHECK(!islanded.sites.empty() && islanded.sites[0].address == 0x1004);
 }
 
 // The load-/store-exclusive loop of ref_x18_ll_sc becomes one region; the x18 instructions before
@@ -1854,9 +1862,10 @@ TEST(an_x18_use_a_branch_reaches_past_a_relocated_window_stays_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1018);
 }
 
-// The same hazard through a register branch the rewriter cannot follow: the exclusive_sequence flag,
-// which a covered window does not clear, keeps the use refused.
-TEST(an_x18_use_a_register_branch_may_reach_past_a_relocated_window_stays_refused) {
+// The same hazard through a register branch the rewriter cannot follow: until ADR-0020 X7 (c1) the exclusive_sequence
+// flag, which a covered window does not clear, kept the use refused; the register branch now ends the hull of its path,
+// so the use islands and the branch is counted.
+TEST(an_x18_use_a_register_branch_may_reach_past_a_relocated_window_islands_under_the_hull_rule) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]        L0, non-lone through the register branch
         0xd61f0120,  // 0x04 br x9                a branch whose target the rewriter cannot see
@@ -1870,9 +1879,9 @@ TEST(an_x18_use_a_register_branch_may_reach_past_a_relocated_window_stays_refuse
     apk::rewrite::Findings findings;
     apk::rewrite::scan(bytes, 0x1000, findings);
     CHECK(findings.exclusive_regions.size() == 1);
-    CHECK(findings.x18_unsupported.size() == 1);
-    if (!findings.x18_unsupported.empty()) CHECK(findings.x18_unsupported[0].address == 0x1014);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1014));
+    CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1004});
 }
 
 // The branch-reached refusal also closes the old gap where the inner window has no x18, so its own
@@ -3232,6 +3241,14 @@ const SeenForm x7_exit_pad_loops[] = {
      {0x885ffc20, 0x7101901f, 0x54000082, 0x0b120003, 0x8804fc23, 0x35ffff64, 0xd65f03c0}},
     {"ldxr; cbz out; add x0,x0,x18; stxr; cbnz: x18 an operand, an early exit",
      {0xc85f7c20, 0xb4000080, 0x8b120000, 0xc8027c20, 0x35ffff82, 0xd65f03c0}},
+    {"a register branch the cbz skips: ldxr; add x0,x0,x18; cbz out; br x9; out: stxr; cbnz loop",
+     {0xc85f7c20, 0x8b120000, 0xb4000040, 0xd61f0120, 0xc8027c20, 0x35ffff62, 0xd65f03c0}},
+    {"a register branch the cbnz skips: ldxr; add x0,x0,x18; cbnz 2f; br x9; 2: stxr; cbnz loop",
+     {0xc85f7c20, 0x8b120000, 0xb5000040, 0xd61f0120, 0xc8027c20, 0x35ffff62, 0xd65f03c0}},
+    {"a loop that writes x18 and leaves by cbz: ldxr; cbz out; add x18,x0,#1; stxr w2,x18; cbnz loop",
+     {0xc85f7c20, 0xb4000080, 0x91000412, 0xc8027c32, 0x35ffff82, 0xd65f03c0}},
+    {"a loop that reads and writes x18 and leaves by b.hs: ldaxr; cmp; b.hs out; add x18,x18,x0; stlxr; cbnz",
+     {0xc85ffc20, 0xf101901f, 0x54000082, 0x8b000252, 0xc802fc20, 0x35ffff62, 0xd65f03c0}},
     {"x18 as the store-exclusive's address with an early exit",
      {0xc85f7c20, 0xb4000060, 0xc8027e40, 0x35ffffa2, 0xd65f03c0}},
 };
@@ -3257,6 +3274,124 @@ const std::pair<SeenForm, std::string_view> x7_refused[] = {
      "it is an exclusive access, and the island's memory accesses could break its LL/SC "
          "sequence"},
 };
+
+// A window that another load-exclusive interrupts: the nested load re-arms the monitor, so a use between the two loads
+// that no path takes to the first store-exclusive islands, and one such a path reaches stays refused (X7).
+TEST(x7_a_nested_load_exclusive_ends_the_hull_of_the_first) {
+    // ldxr; cbz 9f; add x18; ldxr; stxr; cbnz; 9: stxr
+    const std::vector<std::uint32_t> skipped = {0xc85f7c20, 0xb40000a0, 0x8b120000, 0xc85f7c83,
+                                                0xc8027c83, 0x35ffff62, 0xc8057c20, 0xd65f03c0};
+    const auto islanded = scan_words(skipped.data(), skipped.data() + skipped.size(), 0x10000);
+    CHECK(islanded.x18_unsupported.empty());
+    // ldxr; add x18; cbnz 8f; ldxr; stxr; ret; 8: stxr
+    const std::vector<std::uint32_t> reached = {0xc85f7c20, 0x8b120000, 0xb5000080, 0xc85f7c83,
+                                                0xc8027c83, 0xd65f03c0, 0xc8057c20, 0xd65f03c0};
+    const auto refused = scan_words(reached.data(), reached.data() + reached.size(), 0x10000);
+    CHECK(refused.x18_unsupported.size() == 1);
+    if (!refused.x18_unsupported.empty()) {
+        CHECK(std::string_view(refused.x18_unsupported[0].reason).find("between a load- and a store-exclusive") !=
+              std::string_view::npos);
+    }
+}
+
+// ADR-0020 X7 (c2): with `monitor_inside` the converter lets an ordinary island's own memory accesses lie inside the
+// guest's LL/SC, for the uses that only a window's shape, an exclusive sequence or their own exclusive access refuse; each
+// is listed, so that the container can mark the library and the runtime can probe the core before it loads it.
+const SeenForm x7_monitor_inside[] = {
+    {"a use on a real LL/SC path: ldxr; add x18; cbnz 8f; ldxr; stxr; ret; 8: stxr",
+     {0xc85f7c20, 0x8b120000, 0xb5000080, 0xc85f7c83, 0xc8027c83, 0xd65f03c0, 0xc8057c20, 0xd65f03c0}},
+    {"a window that moves sp: ldxr; add sp,sp,#16; add x0,x0,x18; stxr; cbnz",
+     {0xc85f7c20, 0x910043ff, 0x8b120000, 0xc8027c20, 0x35ffff82, 0xd65f03c0}},
+    {"a store-exclusive with x18 as its data and no load-exclusive in sight: stxr w2,x18,[x1]; cbnz",
+     {0xc8027c32, 0x35ffffe2, 0xd65f03c0}},
+};
+
+TEST(x7_monitor_inside_islands_the_uses_a_window_shape_refuses_and_lists_them) {
+    for (const auto &form : x7_monitor_inside) {
+        const std::span code(reinterpret_cast<const std::byte *>(form.words.data()), 4 * form.words.size());
+        apk::rewrite::Findings off, on;
+        apk::rewrite::scan(code, 0x10000, off);
+        apk::rewrite::scan(code, 0x10000, on, {}, true);
+        if (off.x18_unsupported.empty()) apk::testing::fail(std::source_location::current(), "refused without c2: ",
+            form.what);
+        if (!on.x18_unsupported.empty()) {
+            apk::testing::fail(std::source_location::current(), form.what, on.x18_unsupported.front().reason);
+        }
+        if (on.monitor_inside_sites.empty() || on.sites.empty()) {
+            apk::testing::fail(std::source_location::current(), "not an island in the sequence: ", form.what);
+        }
+        if (!off.monitor_inside_sites.empty()) {
+            apk::testing::fail(std::source_location::current(), "listed without c2: ", form.what);
+        }
+    }
+    // A CASP with x18 in a pair has an island of its own since X7 (an even scratch pair); one whose address is x18 has no
+    // register field for an island to stand in for and stays refused.
+    const std::vector<std::uint32_t> casp = {0xc85f7c20, 0x48327c82, 0xc8057c20, 0x35ffffa5, 0xd65f03c0};
+    const std::span code(reinterpret_cast<const std::byte *>(casp.data()), 4 * casp.size());
+    apk::rewrite::Findings on;
+    apk::rewrite::scan(code, 0x10000, on, {}, true);
+    CHECK(on.x18_unsupported.empty() && !on.sites.empty() && on.monitor_inside_sites.size() == 1);
+    const std::vector<std::uint32_t> address = {0x48227e44};  // casp x2, x3, x4, x5, [x18]
+    const std::span address_code(reinterpret_cast<const std::byte *>(address.data()), 4);
+    apk::rewrite::Findings refused;
+    apk::rewrite::scan(address_code, 0x10000, refused, {}, true);
+    CHECK(refused.x18_unsupported.size() == 1);
+}
+
+// The island of a CASP with x18 in a pair (ADR-0020 X7): destination pair, data pair, and their layouts.
+TEST(x7_a_casp_with_x18_in_a_pair_has_an_island_over_a_scratch_pair) {
+    struct Case {
+        std::uint32_t word;
+        bool destination;
+    };
+    const Case cases[] = {
+        {0x4832'7c82, true},   // casp x18, x19, x2, x3, [x4]: the destination pair
+        {0x4822'7c92, false},  // casp x2, x3, x18, x19, [x4]: the data pair, only read
+        {0x4832'7c92, true},   // casp x18, x19, x18, x19, [x4]: both
+    };
+    for (const auto &test : cases) {
+        const std::vector<std::uint32_t> code = {test.word, 0xd65f'03c0};
+        const std::span bytes(reinterpret_cast<const std::byte *>(code.data()), 8);
+        apk::rewrite::Findings findings;
+        apk::rewrite::scan(bytes, 0x10000, findings);
+        CHECK(findings.x18_unsupported.empty());
+        CHECK(findings.sites.size() == 1);
+        if (findings.sites.size() != 1) continue;
+        const auto &site = findings.sites[0];
+        const auto layout = apk::rewrite::island_layout(site);
+        CHECK(layout.kind == APK_ISLAND_PAIR);
+        CHECK(layout.value % 2 == 0 && layout.base == layout.value + 1);
+        CHECK(layout.commit == 6 && layout.resume == 1);
+        CHECK(layout.store == (test.destination ? 10u : 0u));
+        CHECK(layout.words == apk::rewrite::stub_size(site) / 4);
+        // The stub runs the CASP on the scratch pair and writes both registers back for a destination pair.
+        const auto [patch, stub] = emit_at(site, 0x10000, 0x20000);
+        (void)patch;
+        std::uint32_t casp_word;
+        std::memcpy(&casp_word, stub.data() + 4 * 6, 4);
+        CHECK(((casp_word >> 23) & 0x7f) == 0x10);  // still a CASP
+        const unsigned rs = (casp_word >> 16) & 0x1f, rt = casp_word & 0x1f;
+        CHECK(rs != 18 && rt != 18 && rs != 19 && rt != 19);
+        CHECK(rs % 2 == 0 && rt % 2 == 0);
+    }
+}
+
+// Runtime's finding on b2b-1: a window's close is read past a word that ends the straight line only when a branch of the
+// window, reachable from its load-exclusive, jumps over it. Here the next function's own forward branch (its source lies
+// after F's return) must not make F's `ret` look skipped, or G's store-exclusive would close F's window.
+TEST(x7_a_later_functions_branch_does_not_close_an_earlier_functions_window) {
+    const std::uint32_t code[] = {
+        0xc85f'7c08,  // 0x00 ldxr x8, [x0]       F: the load-exclusive
+        0x8b12'0109,  // 0x04 add x9, x8, x18     F: an x18 use
+        0xd65f'03c0,  // 0x08 ret                 F ends: no path from the ldxr reaches what follows
+        0xb400'0041,  // 0x0c cbz x1, 0x14        G: a forward branch over its own code
+        0xd503'201f,  // 0x10 nop
+        0xc802'7c08,  // 0x14 stxr w2, x8, [x0]   G: a store-exclusive of its own
+        0xd65f'03c0,  // 0x18 ret
+    };
+    const auto findings = scan_words(code, code + std::size(code), 0x1000);
+    CHECK(findings.exclusive_regions.empty());  // F's x18 use is not relocated as a window with G's store-exclusive
+}
 
 TEST(x7_a_register_branch_that_is_no_jump_table_ends_the_hull) {
     for (const auto &form : x7_hull_ending_branches) {

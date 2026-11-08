@@ -141,7 +141,42 @@ std::size_t indirect_island_words(std::uint32_t instruction) {
     return instruction == 0xd63f'0240u ? indirect_call_island_words : indirect_branch_island_words;  // blr vs br x18
 }
 
+// --- A compare-and-swap pair (CASP) with x18 in a register pair (ADR-0020 X7 c2) ----------------
+//
+// CASP{A}{L} Rs, Rs+1, Rt, Rt+1, [Rn] names its registers in even pairs, so x18 appears as the pair (x18, x19) and no single
+// scratch register stands in for it. The island takes an even scratch pair (E, E+1) in their place: it loads E with the
+// guest x18 and E+1 with x19, runs the CASP on them, and when the pair was the compare-and-swap's destination (Rs) copies E+1
+// back to x19 and stores E to slot 11. Its accesses lie inside any LL/SC the guest has around it, as c2 allows.
+
+constexpr bool is_casp(std::uint32_t word) {
+    return ((word >> 23) & 0x7f) == 0x10 && ((word >> 31) & 1) == 0 && ((word >> 21) & 1) == 1 &&
+           ((word >> 10) & 0x1f) == 0x1f;
+}
+constexpr unsigned casp_rs(std::uint32_t word) { return (word >> 16) & 0x1f; }
+constexpr unsigned casp_rt(std::uint32_t word) { return word & 0x1f; }
+
+/// The island's even scratch register E of a CASP with x18 in a pair, E and E + 1 both free of the instruction's registers;
+/// nothing when its address is x18 or no pair is free.
+std::optional<unsigned> casp_scratch(std::uint32_t word) {
+    const unsigned rs = casp_rs(word), rt = casp_rt(word), rn = (word >> 5) & 0x1f;
+    if (rs != 18 && rt != 18) return std::nullopt;
+    if (rn == 18) return std::nullopt;
+    const std::uint32_t taken = (1u << rs) | (1u << (rs + 1)) | (1u << rt) | (1u << (rt + 1)) | (1u << rn);
+    for (unsigned even = 0; even <= 26; even += 2) {
+        if ((taken & ((1u << even) | (1u << (even + 1)))) == 0) return even;
+    }
+    return std::nullopt;
+}
+
+/// Whether the CASP's destination pair is (x18, x19): the island then writes both registers back.
+constexpr bool casp_writes_x18(std::uint32_t word) { return casp_rs(word) == 18; }
+
+/// The words of the island of a CASP: save E and E + 1, load E (mrs, bic, ldr), copy x19, the CASP, and for a destination
+/// pair the write-back (mov x19; mrs, bic, str), the restores and the branch.
+constexpr std::size_t casp_island_words(std::uint32_t word) { return 2 + 3 + 1 + 1 + (casp_writes_x18(word) ? 4u : 0u) + 2 + 1; }
+
 std::size_t x18_island_words(std::uint32_t instruction) {
+    if (is_casp(instruction)) return casp_island_words(instruction);
     if (is_two_way_branch(instruction)) return branch_island_words;
     if (is_indirect_branch_on_x18(instruction)) return indirect_island_words(instruction);
     const auto use = a64::register_use(instruction);
@@ -475,6 +510,14 @@ const char *unsupported_reason(std::uint32_t instruction, bool exclusive_ok = fa
         return "it is a register branch the indirect island cannot follow: a return, a pointer-authenticated "
                "branch, or x18 only as the modifier of one";
     }
+    // A compare-and-swap pair names x18 in the pair (x18, x19): an even scratch pair stands in for it (ADR-0020 X7 c2).
+    if (is_casp(instruction) && ((casp_rs(instruction) == 18 || casp_rt(instruction) == 18) || (instruction >> 5 & 0x1f) == 18)) {
+        if (casp_scratch(instruction)) return nullptr;
+        return (instruction >> 5 & 0x1f) == 18
+                   ? "x18 is the address of a pair compare-and-swap: it has no register field of its own that an island could "
+                     "stand in for"
+                   : "it leaves no free even register pair for a pair compare-and-swap";
+    }
     // A load-exclusive that pairs with no store-exclusive (lone_load_exclusive) runs in an island like
     // any other use: there is no LL/SC sequence an island's memory access could break (step C C3).
     if (is_exclusive(instruction) && !exclusive_ok) {
@@ -592,14 +635,33 @@ constexpr std::size_t window_cap = 64 * 4;
 /// first store-exclusive, plus a CLREX right behind it, or the first CLREX. Nullopt when the window
 /// nests another load-exclusive or finds no close within a small cap.
 std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code, std::size_t open) {
+    // The close is the first store-exclusive or CLREX, and it counts only when a path from the load-exclusive reaches it
+    // (ADR-0020 X7): a word that ends the straight line (a return, a register branch, an unconditional B) is passed only
+    // by a branch of the window that is itself reachable from the load-exclusive and jumps over it. A branch that lies
+    // after such a word, say in the next function, does not make it skipped, or that function's store-exclusive would
+    // close this window.
     for (std::size_t j = open + 4; j < code.size() && j - open <= window_cap; j += 4) {
         const auto word = word_at(code, j);
         if (is_load_exclusive(word)) return std::nullopt;
-        if (is_store_exclusive(word)) {
-            return (j + 4 < code.size() && is_clrex(word_at(code, j + 4))) ? j + 4 : j;
+        if (!is_store_exclusive(word) && !is_clrex(word)) continue;
+        const bool clrex_behind = is_store_exclusive(word) && j + 4 < code.size() && is_clrex(word_at(code, j + 4));
+        const std::size_t close = clrex_behind ? j + 4 : j;
+        // The words of [open, close] reachable from the load-exclusive: forward in address order, a word passes on to the
+        // next unless it ends the straight line, and a direct branch reaches its target when that lies ahead.
+        std::vector<bool> reached((close - open) / 4 + 1, false);
+        reached[0] = true;
+        for (std::size_t k = 0; k < reached.size(); ++k) {
+            if (!reached[k]) continue;
+            const auto at = word_at(code, open + 4 * k);
+            if (!ends_straight_line(at) && k + 1 < reached.size()) reached[k + 1] = true;
+            if (const auto displacement = branch_displacement(at)) {
+                const auto target = static_cast<std::int64_t>(4 * k) + *displacement;
+                if (target > static_cast<std::int64_t>(4 * k) && target / 4 < static_cast<std::int64_t>(reached.size())) {
+                    reached[static_cast<std::size_t>(target / 4)] = true;
+                }
+            }
         }
-        if (is_clrex(word)) return j;
-        if (ends_straight_line(word)) return std::nullopt;  // the path ends with no close reached: unclosed
+        return reached.back() ? std::optional<std::size_t>(close) : std::nullopt;
     }
     return std::nullopt;
 }
@@ -1039,6 +1101,14 @@ const char *restart_problem(std::span<const std::byte> code, std::size_t open, s
 // copied in order and resumed in place. Only what the island cannot reproduce at its own address stays
 // refused, and its x18 uses with it.
 
+/// BR xN or RET xN, whose register is not x18: the register branches an exit pad can run after it has
+/// restored the value register (ADR-0020 X7).
+bool is_plain_register_branch(std::uint32_t word) {
+    const std::uint32_t reg = (word >> 5) & 0x1f;
+    if (reg == guest_x18) return false;
+    return (word & 0xffff'fc1f) == 0xd61f'0000 || (word & 0xffff'fc1f) == 0xd65f'0000;  // BR xN, RET xN
+}
+
 constexpr const char *relocated_window_call =
     "it lies in an exclusive window a signal can resume, but it holds a call, whose return address would point "
     "into the island";
@@ -1081,7 +1151,9 @@ const char *relocation_problem(std::span<const std::byte> code, std::size_t open
                 return relocated_window_branch_leaves;
             }
         } else if (is_branch(word) && (word & 0xff00'0000) != 0xd400'0000) {
-            return relocated_window_register_branch;
+            // A plain BR xN or RET xN (N not x18) leaves through an exit pad that restores the value register and
+            // runs the branch itself (ADR-0020 X7); the value register is no register the window uses, so not xN.
+            if (!(exit_pads && is_plain_register_branch(word))) return relocated_window_register_branch;
         }
         // pc_relative_words catches ADR, ADRP and the integer literal loads; the second test also catches
         // the SIMD/FP literal loads (bit 26 set) and PRFM (literal), which share the load-literal form but
@@ -1397,7 +1469,7 @@ std::size_t landing_pads(const JumpTable &table) {
 }  // namespace
 
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings,
-          const ReadOnlyData &read_only_data) {
+          const ReadOnlyData &read_only_data, bool monitor_inside) {
     if (address % 4 != 0 || code.size() % 4 != 0) {
         throw RewriteError(std::format("code at {:#x} with {:#x} bytes is not word aligned", address, code.size()));
     }
@@ -1432,7 +1504,10 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             // ADR-0020 step D: a window that does not close within the cap and whose closure reaches no
             // register branch has its x18 uses decided by the C6 monitor-escape test below, not blanket-
             // refused here; a reachable store, register branch or out-of-section edge still refuses one.
-            if (problem == window_unclosed) {
+            // A window another load-exclusive interrupts (window_nested) is decided the same way (ADR-0020 X7): that load
+            // re-arms the monitor, which ends this window's hull like a CLREX, so each x18 use is judged by the paths from
+            // its own load-exclusive to a store-exclusive.
+            if (problem == window_unclosed || problem == window_nested) {
                 const auto register_branches = reached_register_branches(code, offset, ends_hull);
                 if (register_branches.empty()) {
                     unclosed_loads.push_back(offset);
@@ -1461,7 +1536,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             continue;
         }
         // A branch from outside into the middle of the window gets an entry pad (ADR-0020 X7), so it no longer refuses.
-        problem = relocation_problem(code, offset, *end, !region->writes_x18);
+        problem = relocation_problem(code, offset, *end, true);
         if (problem) {
             refused_windows.emplace_back(offset, *end, problem);
             continue;
@@ -1580,6 +1655,16 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                         nosave = true;
                     }
                 }
+            }
+            // ADR-0020 X7 (c2): a use that only a window's shape, an exclusive sequence or its own exclusive access refuses
+            // runs in an ordinary island, whose memory accesses then lie inside the guest's LL/SC. A register branch has
+            // its own islands, so is not taken here.
+            if (monitor_inside && reason != nullptr &&
+                (window_reason != nullptr || reason == inside_exclusive_sequence || is_exclusive(instruction)) &&
+                !(is_branch(instruction) && !is_two_way_branch(instruction))) {
+                const char *own = unsupported_reason(instruction, true);
+                if (own == nullptr) findings.monitor_inside_sites.insert(at);
+                reason = own;
             }
             if (instruction == br_x18 && window_reason == nullptr && reason != inside_exclusive_sequence) {
                 // A br x18 runs as the end of a jump table through landing pads (X2d), or, when it ends
@@ -1843,6 +1928,33 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
         }
 
         case SiteKind::x18: {
+            if (is_casp(site.instruction)) {
+                // The pair island (ADR-0020 X7 c2): see casp_island_words.
+                const auto even = casp_scratch(site.instruction);
+                if (!even) throw RewriteError("no scratch pair for a CASP island");
+                const unsigned e = *even, o = *even + 1;
+                std::uint32_t word = site.instruction;
+                if (casp_rs(word) == 18) word = (word & ~(0x1fu << 16)) | (e << 16);
+                if (casp_rt(word) == 18) word = (word & ~0x1fu) | e;
+                write(stur(e, sp, scratch_slot_0));
+                write(stur(o, sp, scratch_slot_1));
+                write(mrs_tpidrro_el0(e));
+                write(bic_7(e, e));
+                write(ldr_unsigned(e, e, guest_x18_offset));
+                write(0xaa00'03e0u | (19u << 16) | o);  // mov E+1, x19
+                write(word);
+                if (casp_writes_x18(site.instruction)) {
+                    write(0xaa00'03e0u | (o << 16) | 19u);  // mov x19, E+1: the old second half
+                    write(mrs_tpidrro_el0(o));
+                    write(bic_7(o, o));
+                    write(str_unsigned(e, o, guest_x18_offset));  // x18 back to slot 11
+                }
+                write(ldur(e, sp, scratch_slot_0));
+                write(ldur(o, sp, scratch_slot_1));
+                write(b(write.next_address(), back));
+                write.finish();
+                return b(site_address, stub_address);
+            }
             if (is_two_way_branch(site.instruction)) {
                 // A two-way island: read guest x18 into the value scratch, test it with the branch
                 // retargeted three words ahead, and restore the scratch on both exits before leaving.
@@ -1974,14 +2086,15 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
 namespace {
 
 /// The branches of the window that leave it (a direct branch whose target is outside [0, 4 * words), the word after
-/// the window included), in word order: each runs through an exit pad when the window only reads x18 (ADR-0020 X7).
+/// the window included), in word order: each runs through an exit pad (ADR-0020 X7).
 std::vector<std::size_t> window_exits(const ExclusiveRegion &region) {
     std::vector<std::size_t> exits;
-    if (region.writes_x18) return exits;
     for (std::size_t index = 0; index < region.words.size(); ++index) {
         if (const auto displacement = branch_displacement(region.words[index])) {
             const auto target = 4 * static_cast<std::int64_t>(index) + *displacement;
             if (target < 0 || target >= 4 * static_cast<std::int64_t>(region.words.size())) exits.push_back(index);
+        } else if (is_plain_register_branch(region.words[index])) {
+            exits.push_back(index);  // a register branch always leaves the window
         }
     }
     return exits;
@@ -1990,6 +2103,10 @@ std::vector<std::size_t> window_exits(const ExclusiveRegion &region) {
 }  // namespace
 
 namespace {
+
+/// The words of an exit pad: the restore of the value register and the branch, and in a window that writes x18 the tail's
+/// store-back before them (mrs, bic, str) and the base's restore.
+std::size_t exit_pad_words(const ExclusiveRegion &region) { return region.writes_x18 ? 6 : 2; }
 
 /// The words of the island without its pads: the preamble, the window and the tail.
 std::size_t island_words_without_pads(const ExclusiveRegion &region) {
@@ -2008,7 +2125,7 @@ std::size_t island_preamble_words(const ExclusiveRegion &region) {
 
 std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
     std::size_t words = island_words_without_pads(region);
-    words += 2 * window_exits(region).size();                                    // an exit pad per leaving branch
+    words += exit_pad_words(region) * window_exits(region).size();               // an exit pad per leaving branch
     words += region.entries.size() * (island_preamble_words(region) + 1);        // an entry pad per entry: preamble, b
     return 4 * words;
 }
@@ -2017,7 +2134,8 @@ std::vector<std::pair<std::uint64_t, std::uint32_t>> exclusive_region_entry_patc
                                                                                     std::uint64_t region_address,
                                                                                     std::uint64_t stub_address) {
     std::vector<std::pair<std::uint64_t, std::uint32_t>> patches;
-    const std::uint64_t first_pad = stub_address + 4 * (island_words_without_pads(region) + 2 * window_exits(region).size());
+    const std::uint64_t first_pad =
+        stub_address + 4 * (island_words_without_pads(region) + exit_pad_words(region) * window_exits(region).size());
     const std::uint64_t pad_bytes = 4 * (island_preamble_words(region) + 1);
     for (std::size_t k = 0; k < region.entries.size(); ++k) {
         const std::uint64_t site = region_address + 4 * std::uint64_t{region.entries[k]};
@@ -2044,19 +2162,24 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     const std::uint64_t window_start = write.next_address();
     // The exit pads follow the island's tail: pad k at `pads + 8 * k`, for the k-th leaving branch.
     const auto exits = window_exits(region);
-    const std::uint64_t pads = window_start + window_bytes + 8;  // after the tail: restore the value, branch
+    const std::size_t tail_words = region.writes_x18 ? 6 : 2;     // the tail: [store-back, base restore,] value restore, branch
+    const std::uint64_t pads = window_start + window_bytes + 4 * tail_words;
+    const std::uint64_t pad_bytes = 4 * exit_pad_words(region);
     std::size_t exit_index = 0;
     for (std::size_t index = 0; index < region.words.size(); ++index) {
         auto word = region.words[index];
         const auto use = a64::register_use(word);
         if ((use.reads | use.writes) & x18_bit) word = *a64::substitute(word, guest_x18, value);
-        if (const auto displacement = branch_displacement(word)) {
+        if (exit_index < exits.size() && exits[exit_index] == index && !branch_displacement(word)) {
+            // A register branch: the exit pad restores the value register and runs it (ADR-0020 X7).
+            word = b(write.next_address(), pads + pad_bytes * exit_index++);
+        } else if (const auto displacement = branch_displacement(word)) {
             const auto target = static_cast<std::int64_t>(region_address + 4 * index) + *displacement;
             const auto offset_in_window = target - static_cast<std::int64_t>(region_address);
             const bool inside = offset_in_window >= 0 && offset_in_window < static_cast<std::int64_t>(window_bytes);
             const bool through_pad = !inside && exit_index < exits.size() && exits[exit_index] == index;
             const std::uint64_t to = inside ? window_start + static_cast<std::uint64_t>(offset_in_window)
-                                     : through_pad ? pads + 8 * exit_index++
+                                     : through_pad ? pads + pad_bytes * exit_index++
                                                    : static_cast<std::uint64_t>(target);
             word = with_any_branch_displacement(word, static_cast<std::int64_t>(to - write.next_address()));
         }
@@ -2072,10 +2195,19 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     write(b(write.next_address(), region_address + window_bytes));  // the instruction after the window
     // The exit pads: restore the value register, then the branch's own target.
     for (const auto index : exits) {
-        const auto target = static_cast<std::int64_t>(region_address + 4 * index) +
-                            *branch_displacement(region.words[index]);
+        if (region.writes_x18) {  // the tail's store-back and base restore, then the branch
+            write(mrs_tpidrro_el0(base));
+            write(bic_7(base, base));
+            write(str_unsigned(value, base, guest_x18_offset));
+        }
         write(ldur(value, sp, scratch_slot_0));
-        write(b(write.next_address(), static_cast<std::uint64_t>(target)));
+        if (region.writes_x18) write(ldur(base, sp, scratch_slot_1));
+        if (const auto displacement = branch_displacement(region.words[index])) {
+            const auto target = static_cast<std::int64_t>(region_address + 4 * index) + *displacement;
+            write(b(write.next_address(), static_cast<std::uint64_t>(target)));
+        } else {
+            write(region.words[index]);  // a register branch, run as the guest wrote it
+        }
     }
     // The entry pads (ADR-0020 X7): what a branch from outside runs in place of the window's word it lands on, the
     // island's preamble and then the body at that word.
@@ -2441,6 +2573,20 @@ IslandLayout island_layout(const Site &site) {
         return layout;
     }
     if (site.kind != SiteKind::x18) throw RewriteError("only an x18 site has an island layout");
+    if (is_casp(site.instruction)) {
+        // As emit() writes it: save E, E + 1; load E (3 words); copy x19; the CASP is the commit (word 6); for a destination
+        // pair mov x19, mrs, bic and the store (word 10). Before the CASP a thread goes back to the site; after it, on to
+        // site + 4, with x19 taken from E + 1 until the write-back's first word has run (settle for APK_ISLAND_PAIR).
+        const unsigned even = casp_scratch(site.instruction).value_or(0);
+        IslandLayout layout{.kind = APK_ISLAND_PAIR,
+                            .words = static_cast<std::uint32_t>(casp_island_words(site.instruction)),
+                            .value = static_cast<std::uint8_t>(even),
+                            .base = static_cast<std::uint8_t>(even + 1)};
+        layout.commit = 6;
+        layout.store = casp_writes_x18(site.instruction) ? 10 : 0;
+        layout.resume = 1;
+        return layout;
+    }
     const auto scratch = scratch_registers(site.instruction);
     IslandLayout layout{.kind = APK_ISLAND_SINGLE,
                         .words = static_cast<std::uint32_t>(x18_island_words(site.instruction)),

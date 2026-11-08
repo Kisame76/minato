@@ -33,9 +33,13 @@
    code, with no island-table entry), so a version-6 container still loads; the bump only forces the
    reconvert. The converter writes this current version; the loader reads back to
    APK_CONTAINER_OLDEST_VERSION, each at the size its own version had. */
-#define APK_CONTAINER_VERSION 8
+#define APK_CONTAINER_VERSION 9
 #define APK_CONTAINER_OLDEST_VERSION 2  /* the loader still reads containers converted before the runs */
-/* 8: the entry-hook table (ADR-0072 decision 3 b): a library that exports ffi_closure_alloc, ffi_closure_free and
+/* 9: the flag APK_CONTAINER_MONITOR_INSIDE (ADR-0020 X7 c2): the library holds x18 islands whose own memory accesses lie
+   between a guest's load- and store-exclusive, so the loader refuses it on a core that clears the exclusive monitor for
+   such an access. The format is unchanged from 8; the bump keeps a runtime that does not check the flag from loading such
+   a library, and reconverts the apps converted before it.
+   8: the entry-hook table (ADR-0072 decision 3 b): a library that exports ffi_closure_alloc, ffi_closure_free and
    ffi_prep_closure_loc has their first instructions redirected, so that a call by direct branch, which no
    relocation names, reaches the loader's override too. A version 7 or older __apk_info ends before the fields. */
 /* From this version a container may hold the (c) R-range table (apk_c_range): the PC ranges where a renamed
@@ -60,6 +64,9 @@
 enum {
     /// Neither PT_INTERP nor DT_NEEDED: the program runs on its own, like the static fixtures.
     APK_CONTAINER_STATIC = 1u << 0,
+    /// Some x18 island's own memory accesses lie inside a guest LL/SC window or sequence (ADR-0020 X7 c2): the loader
+    /// loads the library only where the core keeps the exclusive monitor across an access to another granule.
+    APK_CONTAINER_MONITOR_INSIDE = 1u << 1,
 };
 
 /// In __TEXT,__apk_info. Read only.
@@ -138,6 +145,8 @@ enum {
     APK_ISLAND_EXCLUSIVE = 3,   // a whole LL/SC window with x18 (ADR-0020 X2c)
     APK_ISLAND_JUMP_TABLE = 4,  // BR x18 at the end of a jump table, with its landing pads (X2d)
     APK_ISLAND_INDIRECT = 5,    // BR or BLR x18 that ends no jump table, branching to the guest x18 (X2e)
+    APK_ISLAND_PAIR = 7,           // a compare-and-swap pair (CASP) with x18 in a register pair: an even scratch pair stands in
+                                   // for (x18, x19) (ADR-0020 X7 c2); value = the even register, base = the odd one
     APK_ISLAND_SINGLE_NOSAVE = 6,  // an in-sequence x18 use over a register proven dead; no red-zone save,
                                    // touches only TSD slot 11 (ADR-0020 C3b, C7). value = the dead register
 };

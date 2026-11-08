@@ -13,7 +13,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
-  src/stall_watchdog.cpp
+  src/stall_watchdog.cpp src/monitor_probe.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
@@ -48,6 +48,13 @@ if(APK_HOST_BUILD)
   target_include_directories(stall_watchdog_test PRIVATE src)
   target_link_libraries(stall_watchdog_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.stall_watchdog COMMAND stall_watchdog_test)
+
+  # The exclusive-monitor probe (ADR-0020 X7 c2) and the loader's refusal of a library that needs the monitor kept.
+  add_executable(monitor_probe_test tests/monitor_probe_test.cpp)
+  target_include_directories(monitor_probe_test PRIVATE src)
+  target_link_libraries(monitor_probe_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.monitor_probe COMMAND monitor_probe_test)
+  set_tests_properties(runtime.monitor_probe PROPERTIES TIMEOUT 120)
 
   # Loads small containers the converter makes (ADR-0020 X4), so it needs a directory of its own.
   add_executable(loader_test tests/loader_test.cpp tests/checked_loader.cpp)

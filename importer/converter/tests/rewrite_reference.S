@@ -212,10 +212,10 @@ _ref_x18_branches:
 _ref_x18_thread_pointer:
     mrs     x18, TPIDR_EL0
     msr     TPIDR_EL0, x18
-// x18 without a register field of its own: half of a pair, one of the eight registers of ST64B.
+// x18 without a register field of its own: the address of a pair compare-and-swap, one of the eight registers of ST64B.
     .globl _ref_x18_without_field
 _ref_x18_without_field:
-    casp    x18, x19, x0, x1, [x2]
+    casp    x0, x1, x2, x3, [x18]
     st64b   x16, [x0]
     .globl _ref_x18_unsupported_end
 _ref_x18_unsupported_end:

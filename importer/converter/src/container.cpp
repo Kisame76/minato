@@ -258,7 +258,7 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
                                            section.name, segment->address));
         }
         rewrite::scan(elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size)),
-                      section.address, scan.findings, data);
+                      section.address, scan.findings, data, true);  // ADR-0020 X7 (c2)
         scan.code_bytes += section.size;
     }
     return scan;
@@ -1236,6 +1236,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
             case rewrite::SiteKind::x18:
             case rewrite::SiteKind::x18_nosave:
                 ++report.x18_islands;
+                if (findings.monitor_inside_sites.contains(site.address)) ++report.monitor_inside_islands;
                 add_island(rewrite::island_layout(site), stub, site_address);
                 break;
         }
@@ -1353,7 +1354,8 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     apk_container_info info{};
     std::memcpy(info.magic, APK_CONTAINER_MAGIC, sizeof info.magic);
     info.version = APK_CONTAINER_VERSION;
-    info.flags = report.is_static ? APK_CONTAINER_STATIC : 0;
+    info.flags = (report.is_static ? APK_CONTAINER_STATIC : 0u) |
+                 (report.monitor_inside_islands != 0 ? APK_CONTAINER_MONITOR_INSIDE : 0u);
     info.image_offset = image_offset + layout.shift;
     info.image_size = end - min_vaddr;
     info.min_vaddr = min_vaddr;

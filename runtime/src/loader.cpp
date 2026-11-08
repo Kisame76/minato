@@ -3,6 +3,7 @@
 #include "hwcap.h"
 #include "identity.h"
 #include "islands.h"
+#include "monitor_probe.h"
 #include "syscall_frame.h"
 
 #include <dlfcn.h>
@@ -97,6 +98,13 @@ std::uint64_t *relocation_target(std::uint64_t address, std::uint64_t bias, cons
 constexpr std::uint64_t most_runs = (std::uint64_t{4} << 30) / (16 * 1024);
 
 }  // namespace
+
+void require_monitor_kept(std::uint32_t flags, std::string_view name) {
+    if ((flags & APK_CONTAINER_MONITOR_INSIDE) == 0 || monitor::kept()) return;
+    throw LoadError(std::format("{}: this library's x18 islands lie inside the guest's LL/SC loops, which needs a core that "
+                                "keeps the exclusive monitor across a memory access to another granule; this device's core "
+                                "clears it, so the loops would never end (ADR-0020 X7)", name));
+}
 
 bool Writable::contains(std::uint64_t address, std::uint64_t size) const {
     return std::ranges::any_of(ranges, [&](const Range &range) {
@@ -309,6 +317,8 @@ Image load(const std::string &path) {
         throw LoadError(std::format("{}: container version {}, this runtime reads versions {} to {}", resolved,
                                     info->version, APK_CONTAINER_OLDEST_VERSION, APK_CONTAINER_VERSION));
     }
+
+    require_monitor_kept(info->flags, resolved);
 
     const auto base = reinterpret_cast<std::uint64_t>(header);
     auto *slots = reinterpret_cast<apk_runtime_slots *>(base + info->runtime_slots);

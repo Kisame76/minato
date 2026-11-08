@@ -29,6 +29,9 @@ x18 across a syscall: kept
 x18 across 1000 sched_yield: kept
 a strong CAS with x18 as the new value: old 7 now 100, then old 100 now 100
 a CAS entered from outside at its store-exclusive: old 7 now 100, then old 100 now 100, then entered normally old 100 now 300
+a CAS with a register branch in its window: old 7 now 100, then left through the br: old 100 now 100
+a loop that writes x18 and leaves by a branch: x18 6 cell 4, then left: x18 77 cell 11
+a CASP with x18 in its pair: old 2311 now 100 200, then old 51300 now 100 200
 a weak CAS with x18 as the new value: status 0 now 6, then status 2 now 6
 an exchange with x18, left alone on 0: old 0 now 0, old 9 now 33
 an add with x18 up to a bound: old 3, 7, 11, now 11

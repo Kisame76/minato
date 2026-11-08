@@ -22,6 +22,11 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+/// Throws LoadError for the container `name` when its `flags` say its islands' accesses lie inside a guest's LL/SC
+/// (APK_CONTAINER_MONITOR_INSIDE, ADR-0020 X7 c2) and this core clears the exclusive monitor for such an access
+/// (monitor_probe.h): the loop would never end, so the library is refused with its own reason instead.
+void require_monitor_kept(std::uint32_t flags, std::string_view name);
+
 /// ELF addresses [start, end).
 struct Range {
     std::uint64_t start;

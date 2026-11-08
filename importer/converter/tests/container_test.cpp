@@ -1299,16 +1299,33 @@ TEST(the_refusal_text_carries_the_per_site_facts) {
     auto prog = static_program();
     const std::uint32_t window[] = {
         0xc85f'7db1,  // 0x200 ldxr x17, [x13]
-        0x9400'0001,  // 0x204 bl .+4: a call in the window refuses it
-        0x8b0e'0232,  // 0x208 add x18, x17, x14: x18 written before the store (defined in the loop)
+        0x9100'025f,  // 0x204 mov sp, x18: no island moves sp from x18, so the window's use stays refused
+        0x8b0e'0232,  // 0x208 add x18, x17, x14
         0xc810'fdb2,  // 0x20c stlxr w16, x18, [x13]
         0x35ff'ff90,  // 0x210 cbnz w16, ldxr
         0xd65f'03c0,  // 0x214 ret
     };
     for (std::size_t i = 0; i < std::size(window); ++i) prog.put<std::uint32_t>(0x200 + 4 * i, window[i]);
     CHECK_THROWS(Incompatible, convert(prog),
-                 "of the 2: 2 defined in their loop, 0 live into it, 0 in no window; 2 in a function with a free "
+                 "of the 1: 0 defined in their loop, 1 live into it, 0 in no window; 1 in a function with a free "
                  "register");
+}
+
+// ADR-0020 X7 (c2): an x18 use that only an exclusive access refuses (here a store-exclusive with x18 as its data and no
+// load-exclusive of its window in sight) runs in an ordinary island whose own accesses lie inside a guest LL/SC; the
+// container then carries the flag the loader asks the exclusive-monitor probe about, and the report counts the island. A
+// library without such a site has neither.
+TEST(a_container_with_an_island_inside_an_ll_sc_sequence_carries_the_monitor_flag) {
+    auto inside = static_program();
+    inside.put<std::uint32_t>(0x200, 0xc802'7c32);  // stxr w2, x18, [x1]
+    inside.put<std::uint32_t>(0x204, 0xd65f'03c0);  // ret
+    const auto marked = convert(inside);
+    CHECK(marked.report.monitor_inside_islands == 1);
+    CHECK((read_info(marked.bytes).flags & APK_CONTAINER_MONITOR_INSIDE) != 0);
+    CHECK(read_info(marked.bytes).version == 9);
+    const auto plain = convert(static_program());
+    CHECK(plain.report.monitor_inside_islands == 0);
+    CHECK((read_info(plain.bytes).flags & APK_CONTAINER_MONITOR_INSIDE) == 0);
 }
 
 TEST(refuses_what_cannot_run) {
@@ -1332,14 +1349,15 @@ TEST(refuses_what_cannot_run) {
     // More than one use: every reason with its count and its first addresses, the most common first, so that one
     // refusal names all that a library still needs.
     auto many = static_program();
-    many.put<std::uint32_t>(0x204, 0x4832'7c82);  // casp x18, x19, x2, x3, [x4]
-    many.put<std::uint32_t>(0x208, 0x4832'7c82);
+    many.put<std::uint32_t>(0x204, 0x4822'7e44);  // casp x2, x3, x4, x5, [x18]: x18 as the address
+    many.put<std::uint32_t>(0x208, 0x4822'7e44);
     for (const std::uint32_t at : {0x20cu, 0x210u, 0x214u, 0x218u}) {
         many.put<std::uint32_t>(at, 0x9100'025f);  // mov sp, x18
     }
     CHECK_THROWS(Incompatible, convert(many),
                  "x18 cannot run on iOS in 6 places: 4 where it moves the stack pointer, below which the island keeps "
-                 "its registers (0x20c, 0x210, 0x214 and 1 more); 2 where x18 has no register field of its own in it "
+                 "its registers (0x20c, 0x210, 0x214 and 1 more); 2 where x18 is the address of a pair "
+                 "compare-and-swap: it has no register field of its own that an island could stand in for "
                  "(0x204 and 0x208)");
 
     CHECK_THROWS(Incompatible, convert(static_program(0x100)), "text relocation");

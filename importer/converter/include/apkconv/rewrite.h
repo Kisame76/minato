@@ -122,6 +122,12 @@ struct Findings {
     /// Register branches that are no recognized jump table, each of which ended the monitor hull of a path an LL/SC window
     /// or an in-sequence x18 use was judged by (ADR-0020 X7 (c1)): the import report counts them.
     std::set<std::uint64_t> hull_ending_register_branches;
+    /// x18 uses that run in an ordinary island although an LL/SC window or sequence of the guest holds them (ADR-0020 X7
+    /// c2): the island's own accesses (the TSD load, the red-zone saves, the store to slot 11) lie between the guest's
+    /// load- and store-exclusive. Atomicity never depends on them; whether the loop makes progress depends on the core's
+    /// monitor keeping through an access to another granule, which the runtime probes (C3b's method) before it loads a
+    /// library that has any. The container marks such a library; the import report counts them.
+    std::set<std::uint64_t> monitor_inside_sites;
     /// Of the refused uses that sit in a load-exclusive construct (a relocated-or-refused window, or a lone,
     /// unclosed or in-sequence one), how the guest x18 reaches each one, for the ADR-0020 (b)/(c) split:
     /// `x18_defined_in_loop` = x18 is written in the construct before any read, so a context switch that zeroes it
@@ -159,9 +165,12 @@ inline constexpr std::uint32_t guest_thread_pointer_offset = 8 * 6;
 inline constexpr std::uint32_t guest_x18_offset = 8 * 11;
 
 /// Scans the instructions in `code`, which starts at `address`, and appends what it finds. Tables of
-/// jump tables are read through `read_only_data`; without it, a br x18 is refused.
+/// jump tables are read through `read_only_data`; without it, a br x18 is refused. With `monitor_inside` (ADR-0020 X7
+/// c2; the converter's choice, off here so that the conservative analysis stays testable on its own) an x18 use that
+/// only an LL/SC window's shape, an exclusive sequence or its own exclusive access refuses runs in an ordinary island,
+/// and is listed in Findings::monitor_inside_sites.
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings,
-          const ReadOnlyData &read_only_data = {});
+          const ReadOnlyData &read_only_data = {}, bool monitor_inside = false);
 
 /// The general-purpose register a whole-function x18 rename (ADR-0020 option c) may use in `code`: the first one
 /// unused across `code`, the temporaries x9-x15 first, then -- only when `code` is a leaf (no BL/BLR/BR and no

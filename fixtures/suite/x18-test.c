@@ -40,6 +40,9 @@ uint64_t x18_clrex_only(uint64_t *cell);
 uint64_t x18_cas_exit(uint64_t *cell, uint64_t expected, uint64_t desired);
 uint64_t x18_cas_weak(uint64_t *cell, uint64_t expected, uint64_t desired);
 uint64_t x18_cas_entered(uint64_t *cell, uint64_t expected, uint64_t desired, uint64_t enter);
+uint64_t x18_cas_indirect(uint64_t *cell, uint64_t expected, uint64_t desired, uint64_t leave);
+uint64_t x18_write_exit(uint64_t *cell, uint64_t bound, uint64_t start);
+uint64_t x18_casp(uint64_t pair[2], uint64_t expected_low, uint64_t expected_high, uint64_t new_low, uint64_t new_high);
 uint64_t x18_swap_exit(uint64_t *cell, uint64_t value);
 uint32_t x18_add_bound(uint32_t *cell, uint32_t delta, uint32_t limit);
 uint64_t x18_skipped_write(uint64_t *cell);
@@ -248,6 +251,24 @@ int main(void) {
     printf("a CAS entered from outside at its store-exclusive: old %" PRIu64 " now %" PRIu64 ", then old %" PRIu64
            " now %" PRIu64 ", then entered normally old %" PRIu64 " now %" PRIu64 "\n", entered_hit, entered_after_hit,
            entered_miss, entered_after_miss, entered_plain, entered_after_plain);
+    cell = 7;
+    const uint64_t indirect_stay = x18_cas_indirect(&cell, 7, 100, 0), indirect_after_stay = cell;
+    const uint64_t indirect_leave = x18_cas_indirect(&cell, 100, 200, 1), indirect_after_leave = cell;
+    printf("a CAS with a register branch in its window: old %" PRIu64 " now %" PRIu64 ", then left through the br: old %"
+           PRIu64 " now %" PRIu64 "\n", indirect_stay, indirect_after_stay, indirect_leave, indirect_after_leave);
+    cell = 3;
+    const uint64_t wrote = x18_write_exit(&cell, 10, 77), wrote_after = cell;
+    cell = 11;
+    const uint64_t left = x18_write_exit(&cell, 10, 77), left_after = cell;
+    printf("a loop that writes x18 and leaves by a branch: x18 %" PRIu64 " cell %" PRIu64 ", then left: x18 %" PRIu64
+           " cell %" PRIu64 "\n", wrote, wrote_after, left, left_after);
+    _Alignas(16) uint64_t casp_cell[2] = {7, 9};
+    const uint64_t casp_hit = x18_casp(casp_cell, 7, 9, 100, 200), casp_hit_low = casp_cell[0],
+                   casp_hit_high = casp_cell[1];
+    const uint64_t casp_miss = x18_casp(casp_cell, 7, 9, 1, 2), casp_miss_low = casp_cell[0],
+                   casp_miss_high = casp_cell[1];
+    printf("a CASP with x18 in its pair: old %" PRIu64 " now %" PRIu64 " %" PRIu64 ", then old %" PRIu64 " now %" PRIu64
+           " %" PRIu64 "\n", casp_hit, casp_hit_low, casp_hit_high, casp_miss, casp_miss_low, casp_miss_high);
     cell = 5;
     const uint64_t weak_hit = x18_cas_weak(&cell, 5, 6), weak_after_hit = cell;
     const uint64_t weak_miss = x18_cas_weak(&cell, 5, 7), weak_after_miss = cell;

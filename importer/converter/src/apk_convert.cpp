@@ -309,6 +309,12 @@ int convert(std::vector<std::string> arguments) {
                              "it in a register dump\n",
                              report.x18_islands, report.x18_islands == 1 ? "" : "s", report.island_table_bytes,
                              report.x18_writes, report.x18_saves)
+              << (report.monitor_inside_islands == 0
+                      ? std::string()
+                      : std::format("  needs the monitor kept: {} of the islands lie inside a guest LL/SC window or sequence "
+                                    "(ADR-0020 X7), so the loader refuses the library on a core that clears the exclusive "
+                                    "monitor for an access to another granule\n",
+                                    report.monitor_inside_islands))
               << std::format("  relocations: {}, ELF image at {:#x}\n", report.relocations, report.image_offset)
               << std::format("  converted in {:.2f} ms\n", elapsed.count());
     return 0;
