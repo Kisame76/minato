@@ -381,13 +381,24 @@ int compare_with_objdump(const std::string &objdump, const std::filesystem::path
     write_elf(path, words);
     const auto lines = disassemble(objdump, path);
 
-    std::size_t compared = 0, unknown = 0, mismatches = 0;
+    std::size_t compared = 0, unknown = 0, mismatches = 0, unallocated = 0;
     std::map<std::string, std::size_t> mismatches_by_mnemonic;
     for (const auto &line : lines) {
         if (line.address < 0x1000 || (line.address - 0x1000) % 4 != 0) continue;
         const auto index = (line.address - 0x1000) / 4;
         if (index >= words.size()) continue;
         const auto word = words[index];
+        // Arm leaves the 128-bit system words with L set and op0 0x, or L clear and op0 00, unallocated (MRRS and
+        // MSRR take op0 = 1:o0, SYSP op0 = 01); llvm-objdump still prints them as MRRS or MSRR with an S0_ or S1_
+        // register. The decoder gives them no register (data, a SIGILL if run), so they are counted, not compared.
+        if ((word >> 22) == 0b1101010101u) {
+            const bool load = ((word >> 21) & 1u) != 0;
+            const auto op0 = (word >> 19) & 3u;
+            if (load ? op0 < 2 : op0 == 0) {
+                ++unallocated;
+                continue;
+            }
+        }
         const std::string_view text(line.text);
         const auto tab = text.find_first_of("\t ");
         const auto mnemonic = text.substr(0, tab);
@@ -408,8 +419,9 @@ int compare_with_objdump(const std::string &objdump, const std::filesystem::path
                          registers(use.reads).c_str(), registers(use.writes).c_str(), registers(expected).c_str());
         }
     }
-    std::printf("compared %zu words (%zu from the fixtures, %zu unknown to llvm-objdump), %zu mismatches\n", compared,
-                real_words, unknown, mismatches);
+    std::printf("compared %zu words (%zu from the fixtures, %zu unknown to llvm-objdump, %zu unallocated 128-bit "
+                "system words left out), %zu mismatches\n",
+                compared, real_words, unknown, unallocated, mismatches);
     if (mismatches > 0) {
         for (const auto &[mnemonic, count] : mismatches_by_mnemonic) std::fprintf(stderr, "  %6zu  %s\n", count, mnemonic.c_str());
     }
