@@ -247,7 +247,7 @@ fi
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
     || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test \
-    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test ]]; then
+    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test || "$app" == jobs-alarms-run-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -677,6 +677,11 @@ run_app() {
       | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test | batch-g-test | media-browser-test | biometric-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes
+      ;;
+    jobs-alarms-run-test)
+      # The alarms are due at 6 to 9 s, a job's backoff at 10 s, and the summary comes after 26 s.
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      mask=yes limit=60
       ;;
     media-extractor-test)
       # Both files through the NDK's and Java's sources take about a minute on the emulator.

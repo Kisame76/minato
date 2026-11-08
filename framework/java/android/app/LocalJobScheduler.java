@@ -297,6 +297,11 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             entry.service = null;
         }
         if (service != null) {
+            // Both ways here are the app's own: JobSchedulerService stops a job that the app cancels, and one that it
+            // replaces by scheduling its ID again, with STOP_REASON_CANCELLED_BY_APP [verified: jobs-alarms-run-test
+            // for cancel; replace is JobSchedulerService.scheduleAsPackage's cancelJobImplLocked at the tag, inferred].
+            params.setStopReason(JobParameters.STOP_REASON_CANCELLED_BY_APP, JobParameters.INTERNAL_STOP_REASON_CANCELED,
+                    "canceled by app");
             try {
                 IJobService.Stub.asInterface(service).stopJob(params);
             } catch (RemoteException e) {

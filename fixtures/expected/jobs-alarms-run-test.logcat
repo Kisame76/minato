@@ -1,0 +1,34 @@
+I/jobs-alarms-run-test: start
+I/jobs-alarms-run-test: can schedule exact alarms: true
+I/jobs-alarms-run-test: next alarm clock: trigger true, show intent true
+I/jobs-alarms-run-test: alarms set
+I/jobs-alarms-run-test: job 1 expedited: 1
+I/jobs-alarms-run-test: job 2: 1
+I/jobs-alarms-run-test: job 3 with a backoff: 1
+I/jobs-alarms-run-test: job 4: 1
+I/jobs-alarms-run-test: job 5 with three work items: 1
+I/jobs-alarms-run-test: job 6 charging: 1
+I/jobs-alarms-run-test: job 7 battery not low: 1
+I/jobs-alarms-run-test: job 8 storage not low: 1
+I/jobs-alarms-run-test: alarm EXACT: 1 time(s), first in time
+I/jobs-alarms-run-test: alarm EXACT_IDLE: 1 time(s), first in time
+I/jobs-alarms-run-test: alarm WINDOW: 1 time(s), first in time
+I/jobs-alarms-run-test: alarm CLOCK: 1 time(s), first in time
+I/jobs-alarms-run-test: alarm listener: 1 time(s), first in time
+I/jobs-alarms-run-test: alarm CANCELLED: never
+I/jobs-alarms-run-test: next alarm clock after it rang: null
+I/jobs-alarms-run-test: alarm listener: on the handler's thread true
+I/jobs-alarms-run-test: expedited job: expedited true, user-initiated false, stop reason 0, deadline expired false, network false, extras extra, transient transient, job id 1
+I/jobs-alarms-run-test: job 3 right after its reschedule: pending true, backoff 10000 0
+I/jobs-alarms-run-test: job 4 stop reason 1
+I/jobs-alarms-run-test: regular job: expedited false, stop reason 0, triggered uris null, clip data null, granted 0
+I/jobs-alarms-run-test: work one delivery 1 1 time(s)
+I/jobs-alarms-run-test: work three delivery 1 1 time(s)
+I/jobs-alarms-run-test: work two delivery 1 1 time(s)
+I/jobs-alarms-run-test: job 1: started 1 time(s), stopped 0 time(s)
+I/jobs-alarms-run-test: job 2: started 1 time(s), stopped 0 time(s)
+I/jobs-alarms-run-test: job 4: started 1 time(s), stopped 1 time(s)
+I/jobs-alarms-run-test: job 5: started 1 time(s), stopped 0 time(s)
+I/jobs-alarms-run-test: job 6 never ran while the device was not charging: true
+I/jobs-alarms-run-test: job 7 ran exactly when the battery is not low: true
+I/jobs-alarms-run-test: done

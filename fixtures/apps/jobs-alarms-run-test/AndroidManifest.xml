@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of alarms and jobs that run beyond run-test's (gap 9 of the compatibility plan): exact alarms of an app that
+     holds USE_EXACT_ALARM (exact, exact and allowed while idle, an alarm clock, a window), and jobs: an expedited one,
+     one with its params, one rescheduled by its backoff, one cancelled while it runs, one with work items and the
+     charging, battery-not-low and storage-not-low constraints. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.jobsalarms" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.jobsalarms.JobsAlarmsApplication">
+    <receiver android:name="io.github.kisame76.minato.test.jobsalarms.AlarmReceiver" android:exported="false"/>
+    <service android:name="io.github.kisame76.minato.test.jobsalarms.TestJob"
+        android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
