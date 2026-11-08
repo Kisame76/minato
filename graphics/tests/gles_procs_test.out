@@ -1,19 +1,21 @@
-dlsym:libEGL: NULL: none
-dlsym:libGLESv1_CM: NULL: none
-dlsym:libGLESv2: NULL: none
-dlsym:libGLESv3: NULL: none
-egl:before: NULL: none
-egl:none: NULL: none
-egl:es1: NULL: none
-egl:es2: NULL: none
+dlsym:libEGL: NULL count 0
+dlsym:libGLESv1_CM: NULL count 0
+dlsym:libGLESv2: NULL count 0
+dlsym:libGLESv2: glGetStringi found
+dlsym:libGLESv3: NULL count 0
+dlsym:libGLESv3: glGetStringi found
+egl:before: NULL count 0
+egl:none: NULL count 0
+egl:es1: NULL count 0
+egl:es2: NULL count 0
 egl:es2: listed extensions' functions NULL: 0
 egl:es2: glGetStringi lists GL_EXTENSIONS' names true
-egl:es3: NULL: none
+egl:es3: NULL count 0
 egl:es3: listed extensions' functions NULL: 0
 egl:es3: glGetStringi lists GL_EXTENSIONS' names true
 glGetVkProcAddrNV: found, called: NULL
-dlsym:libvulkan: NULL: none
-vk:global: NULL: none
-vk:instance: NULL: none
-vk:device: NULL: none
+dlsym:libvulkan: NULL count 0
+vk:global: NULL count 0
+vk:instance: NULL count 0
+vk:device: NULL count 0
 done

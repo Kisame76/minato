@@ -10,9 +10,10 @@
      extensions where the device has them).
    Built with GLES_PROCS_MEASURE, on the emulator, it prints every name each check finds among all the NDK's
    headers' functions (gles_procs.py --candidates): Android's measurement, graphics/tests/gles_procs_android.txt.
-   Built without, it prints for each check the names of that measurement it does not find ("none" on Android), and:
-   in each GLES context the listed extensions whose functions eglGetProcAddress lacks, whether glGetStringi lists
-   GL_EXTENSIONS' names, and a call of glGetVkProcAddrNV, which no listed extension offers here and Android answers
+   Built without, it prints for each check how many names of that measurement it does not find (0 on Android) and
+   those names, whether dlsym finds glGetStringi in libGLESv2 and libGLESv3, and: in each GLES context the listed
+   extensions whose functions eglGetProcAddress lacks, whether glGetStringi lists GL_EXTENSIONS' names, and a call
+   of glGetVkProcAddrNV, which no listed extension offers here and Android answers
    with its "called unimplemented OpenGL ES API" entry, returning NULL. Every line is the same on every device.
    SAY prints a line's pieces (printf, or the log in fixtures/apps/gles-procs-test). */
 #include <EGL/egl.h>
@@ -108,7 +109,8 @@ static void *by_vk_device(const char *name) {
 }
 
 /* The measurement prints "<check> <name>" for each name of the kinds it asks that the lookup finds; the test prints
-   "<check>: NULL:" and the measured names it does not find, or "none". */
+   "<check>: NULL count <n>" for the measured names it does not find, then those names, 30 a line, as
+   "<check>: NULL: <names>" (a device's log cuts a line at about 4000 bytes). */
 static void check(const char *name_of_check, lookup find, unsigned kinds, int vk_level) {
 #ifdef GLES_PROCS_MEASURE
     for (size_t index = 0; index < COUNT(candidates); index++) {
@@ -121,15 +123,21 @@ static void check(const char *name_of_check, lookup find, unsigned kinds, int vk
     (void)kinds;
     (void)vk_level;
     int missing = 0;
-    SAY("%s: NULL:", name_of_check);
     for (size_t index = 0; index < COUNT(required); index++) {
-        if (strcmp(required[index].check, name_of_check) != 0) continue;
-        if (find(required[index].name) == NULL) {
-            SAY(" %s", required[index].name);
-            missing++;
+        if (strcmp(required[index].check, name_of_check) == 0 && find(required[index].name) == NULL) missing++;
+    }
+    SAY("%s: NULL count %d\n", name_of_check, missing);
+    int in_line = 0;
+    for (size_t index = 0; index < COUNT(required); index++) {
+        if (strcmp(required[index].check, name_of_check) != 0 || find(required[index].name) != NULL) continue;
+        if (in_line == 0) SAY("%s: NULL:", name_of_check);
+        SAY(" %s", required[index].name);
+        if (++in_line == 30) {
+            SAY("\n");
+            in_line = 0;
         }
     }
-    SAY("%s\n", missing == 0 ? " none" : "");
+    if (in_line > 0) SAY("\n");
 #endif
 }
 
@@ -143,6 +151,12 @@ static void dlsym_check(const char *soname, const char *name_of_check, unsigned 
         return;
     }
     check(name_of_check, by_dlsym, kinds, -1);
+#ifndef GLES_PROCS_MEASURE
+    // The function whose NULL ended an engine at its start, on a line of its own.
+    if (strcmp(soname, "libGLESv2.so") == 0 || strcmp(soname, "libGLESv3.so") == 0) {
+        SAY("%s: glGetStringi %s\n", name_of_check, by_dlsym("glGetStringi") != NULL ? "found" : "NULL");
+    }
+#endif
 }
 
 #ifndef GLES_PROCS_MEASURE
