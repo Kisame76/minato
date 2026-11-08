@@ -183,21 +183,37 @@ int fake_angle_line(char *line, std::size_t size) {
     return static_cast<int>(length);
 }
 
+memory::GraphicsLineFn present_lookup() { return fake_angle_line; }
+memory::GraphicsLineFn absent_lookup() { return nullptr; }
+
+int g_graphics_calls = 0;  // for flaky_lookup: nullptr first, the symbol second, nullptr after
+memory::GraphicsLineFn flaky_lookup() { return g_graphics_calls++ == 1 ? fake_angle_line : nullptr; }
+
 TEST(graphics_line_wraps_the_angle_stats_when_the_symbol_is_present) {
-    memory::set_graphics_line_source_for_test(fake_angle_line, true);
+    memory::set_graphics_lookup_for_test(present_lookup);
     char out[256];
     const std::size_t length = memory::graphics_line(true, out, sizeof out);
     CHECK(std::string(out, length) ==
           "I/apkrt   : gl tex=5/2 priv=1 shared=1 comp=1/0 color=2/1 depth=1/0 msaa=1/1 mless=0 buf=2/2 "
           "bufpriv=0 pool=0/0 mtl=4 warn\n");
-    memory::set_graphics_line_source_for_test(nullptr, false);  // restore the dlsym lookup
+    memory::set_graphics_lookup_for_test(nullptr);  // restore the real lookup, clear the cache
 }
 
 TEST(graphics_line_is_empty_without_the_symbol) {
-    memory::set_graphics_line_source_for_test(nullptr, true);  // mimic a build without ANGLEMetalMemoryLine
+    memory::set_graphics_lookup_for_test(absent_lookup);  // mimic a build where the symbol never resolves
     char out[256];
     CHECK(memory::graphics_line(false, out, sizeof out) == 0);
-    memory::set_graphics_line_source_for_test(nullptr, false);
+    memory::set_graphics_lookup_for_test(nullptr);
+}
+
+TEST(graphics_line_retries_until_the_symbol_appears_then_caches_it) {
+    g_graphics_calls = 0;
+    memory::set_graphics_lookup_for_test(flaky_lookup);
+    char out[256];
+    CHECK(memory::graphics_line(false, out, sizeof out) == 0);  // call 0: lookup misses (ANGLE not loaded) -> no line
+    CHECK(memory::graphics_line(false, out, sizeof out) > 0);   // call 1: symbol appears -> line, pointer cached
+    CHECK(memory::graphics_line(false, out, sizeof out) > 0);   // call 2: lookup would miss, but the cache answers
+    memory::set_graphics_lookup_for_test(nullptr);
 }
 
 }  // namespace

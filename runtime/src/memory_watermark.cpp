@@ -7,6 +7,7 @@
 #include <dlfcn.h>
 #include <mach/mach.h>
 #include <mach/vm_region.h>
+#include <mach-o/dyld.h>
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
@@ -19,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <string_view>
 
 namespace apkrt::memory {
 namespace {
@@ -26,8 +28,8 @@ namespace {
 std::atomic<int> slot{-1};              // the descriptor to write to; below 0 turns the writing off
 std::atomic<bool> warning_seen{false};  // a memory-pressure warning has come, and stays seen to the end
 
-std::atomic<GraphicsLineFn> graphics_source{nullptr};  // a test-injected ANGLEMetalMemoryLine stand-in
-std::atomic<bool> graphics_source_active{false};       // true: use graphics_source; false: dlsym the real symbol
+std::atomic<GraphicsLineFn> graphics_cached{nullptr};         // the once-found symbol; cached atomically, never a miss
+std::atomic<GraphicsLookupFn> graphics_test_lookup{nullptr};  // a test lookup; nullptr -> use the real resolver
 
 constexpr std::size_t value_width = 20;  // the digits of 2^64 - 1: a value is right-justified in this many columns,
                                          // space padded, so every block is the same block_size bytes (the pwrite slot)
@@ -91,13 +93,33 @@ void ensure_sources() {
     });
 }
 
-/// The resolved ANGLEMetalMemoryLine, or a test-injected stand-in. dlsym once and cache (RTLD_DEFAULT finds the symbol
-/// libGLESv2 exports from ANGLE patch 0015); absent on the Mac fixtures and pre-0015 ANGLE, where it stays nullptr.
+/// Finds ANGLEMetalMemoryLine the real way: dlsym(RTLD_DEFAULT) first; else the loaded libGLESv2 image (ANGLE loads it
+/// RTLD_LOCAL, which RTLD_DEFAULT cannot see) reopened RTLD_NOLOAD, then dlsym its handle. Null until ANGLE loads.
+GraphicsLineFn resolve_graphics_symbol() {
+    if (void *direct = ::dlsym(RTLD_DEFAULT, "ANGLEMetalMemoryLine"))
+        return reinterpret_cast<GraphicsLineFn>(direct);
+    constexpr std::string_view suffix = "/libGLESv2.framework/libGLESv2";
+    const std::uint32_t count = ::_dyld_image_count();
+    for (std::uint32_t index = 0; index < count; index++) {
+        const char *name = ::_dyld_get_image_name(index);
+        if (name == nullptr) continue;
+        const std::string_view path(name);
+        if (path.size() < suffix.size() || path.substr(path.size() - suffix.size()) != suffix) continue;
+        void *handle = ::dlopen(name, RTLD_LAZY | RTLD_NOLOAD | RTLD_LOCAL);
+        if (handle == nullptr) continue;
+        if (void *symbol = ::dlsym(handle, "ANGLEMetalMemoryLine")) return reinterpret_cast<GraphicsLineFn>(symbol);
+    }
+    return nullptr;
+}
+
+/// ANGLEMetalMemoryLine for the gl line: the injected test lookup, else resolve_graphics_symbol. A hit is cached and
+/// returned ever after; a miss is NOT cached, so each call retries (1 Hz, cheap) until ANGLE has loaded the symbol.
 GraphicsLineFn graphics_line_source() {
-    if (graphics_source_active.load(std::memory_order_relaxed)) return graphics_source.load(std::memory_order_relaxed);
-    static const GraphicsLineFn resolved =
-        reinterpret_cast<GraphicsLineFn>(::dlsym(RTLD_DEFAULT, "ANGLEMetalMemoryLine"));
-    return resolved;
+    if (GraphicsLineFn found = graphics_cached.load(std::memory_order_relaxed)) return found;
+    const GraphicsLookupFn lookup = graphics_test_lookup.load(std::memory_order_relaxed);
+    const GraphicsLineFn found = lookup != nullptr ? lookup() : resolve_graphics_symbol();
+    if (found != nullptr) graphics_cached.store(found, std::memory_order_relaxed);  // cache a hit only; retry a miss
+    return found;
 }
 
 }  // namespace
@@ -231,9 +253,9 @@ std::size_t graphics_line(bool warning, char *out, std::size_t size) {
     return static_cast<std::size_t>(length);
 }
 
-void set_graphics_line_source_for_test(GraphicsLineFn fn, bool active) {
-    graphics_source.store(fn, std::memory_order_relaxed);
-    graphics_source_active.store(active, std::memory_order_relaxed);
+void set_graphics_lookup_for_test(GraphicsLookupFn lookup) {
+    graphics_test_lookup.store(lookup, std::memory_order_relaxed);
+    graphics_cached.store(nullptr, std::memory_order_relaxed);  // clear the cache so each test starts fresh
 }
 
 }  // namespace apkrt::memory

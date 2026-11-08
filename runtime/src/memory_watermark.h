@@ -82,13 +82,19 @@ void start_instrument();
 /// (e.g. "gl tex=5/2 priv=1 ... mtl=4") into line[0..size) and returns its length. Resolved at run time, not linked.
 using GraphicsLineFn = int (*)(char *line, std::size_t size);
 
-/// Builds "I/apkrt   : <stats>[ warn]\n" from ANGLEMetalMemoryLine (dlsym(RTLD_DEFAULT), resolved once and cached) into
-/// out[0..size). Returns the length, or 0 when the symbol is absent (Mac fixtures, pre-0015 ANGLE) or it would not fit.
-/// log_instrument writes it with one write(2) after each mem line, so the graphics view follows every sample.
+/// A lookup for ANGLEMetalMemoryLine: the symbol, or nullptr while ANGLE is not loaded yet. graphics_line retries it
+/// every call until it finds the symbol, then caches the pointer; the tests inject one with a counter.
+using GraphicsLookupFn = GraphicsLineFn (*)();
+
+/// Builds "I/apkrt   : <stats>[ warn]\n" from ANGLEMetalMemoryLine into out[0..size). The symbol is found by dlsym and,
+/// failing that (ANGLE is loaded RTLD_LOCAL, which RTLD_DEFAULT cannot see), by the loaded libGLESv2 image; the lookup
+/// is retried each call until it succeeds and the pointer is then cached. Returns the length, or 0 when the symbol is
+/// absent (Mac fixtures, pre-0015 ANGLE, or not loaded yet) or it would not fit. log_instrument writes it with one
+/// write(2) after each mem line, so the graphics view follows every sample.
 std::size_t graphics_line(bool warning, char *out, std::size_t size);
 
-/// Test seam (tests only): `active` true makes graphics_line use `fn` (which may be nullptr to mimic a missing symbol)
-/// instead of dlsym; `active` false restores the dlsym lookup. Lets a test inject a stand-in without linking ANGLE.
-void set_graphics_line_source_for_test(GraphicsLineFn fn, bool active);
+/// Test seam (tests only): replaces the dlsym/_dyld lookup with `lookup` and clears the cached pointer; nullptr
+/// restores the real lookup (and clears the cache). Lets a test model a symbol that appears only after a first call.
+void set_graphics_lookup_for_test(GraphicsLookupFn lookup);
 
 }  // namespace apkrt::memory
