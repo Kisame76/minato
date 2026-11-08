@@ -660,7 +660,8 @@ bool lone_load_exclusive(std::span<const std::byte> code, std::size_t open) {
 /// because a use at the branch's unseen target could sit inside a live LL/SC (a jump-table retry loop),
 /// and C6 never follows a register branch to find it. The offsets let the caller name, for step-E sizing,
 /// whether each is a jump table in read-only data it could follow; empty means the closure reaches none.
-std::vector<std::size_t> reached_register_branches(std::span<const std::byte> code, std::size_t open) {
+std::vector<std::size_t> reached_register_branches(std::span<const std::byte> code, std::size_t open,
+                                                   const std::function<bool(std::size_t)> &ends_hull) {
     std::unordered_set<std::size_t> visited;
     std::vector<std::size_t> work{open + 4};
     std::vector<std::size_t> found;
@@ -670,7 +671,10 @@ std::vector<std::size_t> reached_register_branches(std::span<const std::byte> co
         if (p + 4 > code.size() || !visited.insert(p).second) continue;
         const auto word = word_at(code, p);
         if (is_register_branch(word)) {
-            found.push_back(p);  // its target is unseen, so do not fall through past it
+            // Its target is unseen, so do not fall through past it. One that is no recognized jump table ends the
+            // monitor hull of its path like a return or a call does (ADR-0020 X7 (c1)): compilers pair no LL/SC
+            // across it (Arm ARM B2.9), so it is not a reach the window's x18 uses must fear.
+            if (!ends_hull(p)) found.push_back(p);
             continue;
         }
         // A boundary ends the monitor-live run here: a store-exclusive, CLREX or nested load (the
@@ -747,12 +751,16 @@ std::unordered_set<std::size_t> branch_reached_sequence(std::span<const std::byt
 /// seeds over reverse control edges built only among the reached offsets, held sparsely so a section
 /// with nothing reached allocates nothing and the edge store is O(reached), not O(code).
 std::unordered_set<std::size_t> monitor_escapes(std::span<const std::byte> code,
-                                                const std::unordered_set<std::size_t> &reached) {
+                                                const std::unordered_set<std::size_t> &reached,
+                                                const std::function<bool(std::size_t)> &ends_hull) {
     std::unordered_set<std::size_t> escapes;
     if (reached.empty()) return escapes;  // no non-lone load reached anything: nothing can escape
-    const auto ends_pairing = [](std::uint32_t w) {
+    // A register branch that is no recognized jump table ends the pairing too (ADR-0020 X7 (c1)), as a return does.
+    const auto ends_pairing = [&](std::size_t offset) {
+        const auto w = word_at(code, offset);
         return is_load_exclusive(w) || is_clrex(w) || is_register_return(w) || is_register_call(w)
-               || (w & 0xfc00'0000) == 0x9400'0000;  // BL
+               || (w & 0xfc00'0000) == 0x9400'0000  // BL
+               || (is_register_branch(w) && ends_hull(offset));
     };
     std::unordered_map<std::size_t, std::vector<std::size_t>> predecessors;  // reverse edges, reached words only
     std::vector<std::size_t> work;
@@ -761,16 +769,16 @@ std::unordered_set<std::size_t> monitor_escapes(std::span<const std::byte> code,
     };
     for (const auto p : reached) {
         const auto word = word_at(code, p);
+        if (ends_pairing(p)) continue;  // the monitor does not carry a danger across it
         if (is_store_exclusive(word) || is_register_branch(word)) {
             seed(p);  // a reached register branch is itself the danger (a store-exclusive is never reached)
             continue;
         }
-        if (ends_pairing(word)) continue;  // the monitor does not carry a danger across it
         const auto link = [&](std::int64_t s) {
             if (s < 0 || s + 4 > static_cast<std::int64_t>(code.size())) return;
             const auto index = static_cast<std::size_t>(s);
             const auto word_s = word_at(code, index);
-            if (ends_pairing(word_s)) return;  // the successor ends the pairing: no danger crosses it
+            if (ends_pairing(index)) return;  // the successor ends the pairing: no danger crosses it
             if (is_store_exclusive(word_s) || is_register_branch(word_s)) seed(index);
             predecessors[index].push_back(p);
         };
@@ -1038,7 +1046,8 @@ constexpr const char *relocated_window_register_branch =
 /// converter rewrites elsewhere (a guest thread-pointer read or write, an svc) the island would copy
 /// verbatim and so run against the host, not the guest. The word right after the window counts as
 /// outside it: a branch there skips the tail as well.
-const char *relocation_problem(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+const char *relocation_problem(std::span<const std::byte> code, std::size_t open, std::size_t end,
+                               bool exit_pads = false) {
     for (std::size_t j = open; j <= end; j += 4) {
         const auto word = word_at(code, j);
         // BL; BLR, BLRAA, BLRAB and their Z forms (restart_problem names the same shapes window_call).
@@ -1050,7 +1059,7 @@ const char *relocation_problem(std::span<const std::byte> code, std::size_t open
         // not register branches; an svc is caught by the redirected check below, so exclude 0xd4 here.
         if (const auto displacement = branch_displacement(word)) {
             const auto target = static_cast<std::int64_t>(j) + *displacement;
-            if (target < static_cast<std::int64_t>(open) || target > static_cast<std::int64_t>(end)) {
+            if ((target < static_cast<std::int64_t>(open) || target > static_cast<std::int64_t>(end)) && !exit_pads) {
                 return relocated_window_branch_leaves;
             }
         } else if (is_branch(word) && (word & 0xff00'0000) != 0xd400'0000) {
@@ -1378,6 +1387,14 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     // its offsets, so the main loop below leaves them alone. Every other window is dropped with its
     // cause, and its x18 uses are refused there with it: one without a close, one the island cannot
     // build, one a branch could enter in the middle, one that cannot run again from its start (X4).
+    // ADR-0020 X7 (c1): a register branch that is no recognized jump table (and no return) ends the monitor hull of the
+    // path that reaches it. Each one a hull met is counted in the findings, for the import report.
+    const auto ends_hull = [&](std::size_t offset) {
+        JumpTable table;
+        if (find_jump_table(code, address, offset, read_only_data, table) == nullptr) return false;  // a jump table
+        findings.hull_ending_register_branches.insert(address + offset);
+        return true;
+    };
     std::vector<std::pair<std::size_t, std::size_t>> covered;
     std::vector<std::tuple<std::size_t, std::size_t, const char *>> refused_windows;
     std::vector<std::size_t> lone_loads;  // load-exclusives that pair with no store-exclusive (step C C3)
@@ -1398,7 +1415,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             // register branch has its x18 uses decided by the C6 monitor-escape test below, not blanket-
             // refused here; a reachable store, register branch or out-of-section edge still refuses one.
             if (problem == window_unclosed) {
-                const auto register_branches = reached_register_branches(code, offset);
+                const auto register_branches = reached_register_branches(code, offset, ends_hull);
                 if (register_branches.empty()) {
                     unclosed_loads.push_back(offset);
                     continue;
@@ -1425,7 +1442,9 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             }
             continue;
         }
-        problem = branch_enters_window(code, offset, *end) ? window_entered : relocation_problem(code, offset, *end);
+        problem = branch_enters_window(code, offset, *end)
+                      ? window_entered
+                      : relocation_problem(code, offset, *end, !region->writes_x18);
         if (problem) {
             refused_windows.emplace_back(offset, *end, problem);
             continue;
@@ -1466,7 +1485,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     // and of those the ones from which a store-exclusive or register branch is still reachable: only
     // those could put an island's memory inside a live LL/SC.
     const auto branch_live = branch_reached_sequence(code);
-    const auto monitor_escape = monitor_escapes(code, branch_live);
+    const auto monitor_escape = monitor_escapes(code, branch_live, ends_hull);
     // Words that some load-literal (LDR/LDRSW/SIMD-literal/PRFM) reads as a constant: data even when the word
     // decodes as an instruction, so a svc #imm among them is kept, not rewritten (the svc decision below).
     std::vector<bool> literal_target(code.size() / 4, false);
@@ -1934,10 +1953,29 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
     return b(site_address, stub_address);
 }
 
+namespace {
+
+/// The branches of the window that leave it (a direct branch whose target is outside [0, 4 * words), the word after
+/// the window included), in word order: each runs through an exit pad when the window only reads x18 (ADR-0020 X7).
+std::vector<std::size_t> window_exits(const ExclusiveRegion &region) {
+    std::vector<std::size_t> exits;
+    if (region.writes_x18) return exits;
+    for (std::size_t index = 0; index < region.words.size(); ++index) {
+        if (const auto displacement = branch_displacement(region.words[index])) {
+            const auto target = 4 * static_cast<std::int64_t>(index) + *displacement;
+            if (target < 0 || target >= 4 * static_cast<std::int64_t>(region.words.size())) exits.push_back(index);
+        }
+    }
+    return exits;
+}
+
+}  // namespace
+
 std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
     std::size_t words = 1 /* save value */ + region.words.size() + 1 /* restore value */ + 1 /* branch */;
     if (region.loads_x18) words += 3;                 // mrs, bic, ldr before the window
     if (region.writes_x18) words += 1 + 3 + 1;         // save base; mrs, bic, str; restore base
+    words += 2 * window_exits(region).size();         // an exit pad per leaving branch: restore the value, branch
     return 4 * words;
 }
 
@@ -1957,6 +1995,10 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     }
     // The window itself, x18 renamed to the value register and its own branches retargeted.
     const std::uint64_t window_start = write.next_address();
+    // The exit pads follow the island's tail: pad k at `pads + 8 * k`, for the k-th leaving branch.
+    const auto exits = window_exits(region);
+    const std::uint64_t pads = window_start + window_bytes + 8;  // after the tail: restore the value, branch
+    std::size_t exit_index = 0;
     for (std::size_t index = 0; index < region.words.size(); ++index) {
         auto word = region.words[index];
         const auto use = a64::register_use(word);
@@ -1964,9 +2006,11 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
         if (const auto displacement = branch_displacement(word)) {
             const auto target = static_cast<std::int64_t>(region_address + 4 * index) + *displacement;
             const auto offset_in_window = target - static_cast<std::int64_t>(region_address);
-            const std::uint64_t to = (offset_in_window >= 0 && offset_in_window < static_cast<std::int64_t>(window_bytes))
-                                         ? window_start + static_cast<std::uint64_t>(offset_in_window)
-                                         : static_cast<std::uint64_t>(target);
+            const bool inside = offset_in_window >= 0 && offset_in_window < static_cast<std::int64_t>(window_bytes);
+            const bool through_pad = !inside && exit_index < exits.size() && exits[exit_index] == index;
+            const std::uint64_t to = inside ? window_start + static_cast<std::uint64_t>(offset_in_window)
+                                     : through_pad ? pads + 8 * exit_index++
+                                                   : static_cast<std::uint64_t>(target);
             word = with_any_branch_displacement(word, static_cast<std::int64_t>(to - write.next_address()));
         }
         write(word);
@@ -1979,6 +2023,13 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
     write(ldur(value, sp, scratch_slot_0));
     if (region.writes_x18) write(ldur(base, sp, scratch_slot_1));
     write(b(write.next_address(), region_address + window_bytes));  // the instruction after the window
+    // The exit pads: restore the value register, then the branch's own target.
+    for (const auto index : exits) {
+        const auto target = static_cast<std::int64_t>(region_address + 4 * index) +
+                            *branch_displacement(region.words[index]);
+        write(ldur(value, sp, scratch_slot_0));
+        write(b(write.next_address(), static_cast<std::uint64_t>(target)));
+    }
     write.finish();
     return b(region_address, stub_address);
 }

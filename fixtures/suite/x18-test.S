@@ -304,6 +304,67 @@ function x18_cmpxchg
     restore_x18
     ret
 
+// ADR-0020 X7: loops of the shapes compilers make for atomics, with x18 read in them and a branch out of the loop
+// (the failure of a compare, a bound), which the island leaves through an exit pad.
+
+// uint64_t x18_cas_exit(uint64_t *cell, uint64_t expected, uint64_t desired): strong CAS with desired in x18;
+// returns the cell's old value.
+function x18_cas_exit
+    save_x18
+    mov     x18, x2
+1:  ldaxr   x3, [x0]
+    cmp     x3, x1
+    b.ne    2f
+    stlxr   w4, x18, [x0]
+    cbnz    w4, 1b
+2:  mov     x0, x3
+    restore_x18
+    ret
+
+// uint64_t x18_cas_weak(uint64_t *cell, uint64_t expected, uint64_t desired): weak CAS with desired in x18, no
+// retry loop: 0 when it stored, the store-exclusive's status (1) when it failed, 2 when the cell differed.
+function x18_cas_weak
+    save_x18
+    mov     x18, x2
+    ldxr    x3, [x0]
+    cmp     x3, x1
+    b.ne    2f
+    stxr    w4, x18, [x0]
+    mov     x0, x4
+    b       3f
+2:  clrex
+    mov     x0, #2
+3:  restore_x18
+    ret
+
+// uint64_t x18_swap_exit(uint64_t *cell, uint64_t value): exchange with value in x18, left alone when the cell
+// holds 0; returns the old value.
+function x18_swap_exit
+    save_x18
+    mov     x18, x1
+1:  ldxr    x2, [x0]
+    cbz     x2, 2f
+    stlxr   w3, x18, [x0]
+    cbnz    w3, 1b
+2:  mov     x0, x2
+    restore_x18
+    ret
+
+// uint32_t x18_add_bound(uint32_t *cell, uint32_t delta, uint32_t limit): adds delta (in x18) to the cell unless it
+// is at the limit or more; returns the old value.
+function x18_add_bound
+    save_x18
+    mov     w18, w1
+1:  ldaxr   w3, [x0]
+    cmp     w3, w2
+    b.hs    2f
+    add     w4, w3, w18
+    stlxr   w5, w4, [x0]
+    cbnz    w5, 1b
+2:  mov     w0, w3
+    restore_x18
+    ret
+
 // uint64_t x18_clrex_only(uint64_t *cell): the cell, from a window that a CLREX closes alone.
 function x18_clrex_only
     save_x18

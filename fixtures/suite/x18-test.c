@@ -37,6 +37,10 @@ uint64_t x18_ll_sc_address(uint64_t *cell);
 uint64_t x18_ll_sc_w(uint32_t *cell);
 uint64_t x18_cmpxchg(uint64_t *cell, uint64_t expected, uint64_t desired);
 uint64_t x18_clrex_only(uint64_t *cell);
+uint64_t x18_cas_exit(uint64_t *cell, uint64_t expected, uint64_t desired);
+uint64_t x18_cas_weak(uint64_t *cell, uint64_t expected, uint64_t desired);
+uint64_t x18_swap_exit(uint64_t *cell, uint64_t value);
+uint32_t x18_add_bound(uint32_t *cell, uint32_t delta, uint32_t limit);
 uint64_t x18_skipped_write(uint64_t *cell);
 uint64_t x18_nosave_read(uint64_t *cell);
 uint64_t x18_nosave_write(void);
@@ -135,6 +139,24 @@ static int nosave_storm(void) {
     return ok && alarms >= storm_wanted;
 }
 
+struct contended {
+    uint64_t *counter;
+    uint32_t *added;
+};
+
+// Contends for a counter by the strong CAS and for a word by the bounded add, both with x18 read in the loop.
+static void *contend(void *argument) {
+    struct contended *c = argument;
+    for (int i = 0; i < 100000; i++) {
+        for (;;) {
+            const uint64_t old = *(volatile uint64_t *)c->counter;
+            if (x18_cas_exit(c->counter, old, old + 1) == old) break;
+        }
+        x18_add_bound(c->added, 1, 0xffffffffu);
+    }
+    return NULL;
+}
+
 int main(void) {
     printf("mov, add and mov through x18: %" PRIu64 "\n", x18_move(41));
     printf("add w18 of 0x1fffffffe and 1: 0x%" PRIx64 "\n", x18_add_w(0x1fffffffe));
@@ -211,6 +233,37 @@ int main(void) {
         printf("x18 across a syscall: 0x%" PRIx64 "\n", after_syscall);
     }
     printf("x18 across 1000 sched_yield: %s\n", x18_yield(0xabcdef, 1000) == 0 ? "kept" : "changed");
+
+    // ADR-0020 X7: the loops that compilers make for atomics, with x18 read in them and a branch out of the loop.
+    cell = 7;
+    const uint64_t cas_hit = x18_cas_exit(&cell, 7, 100), cas_after_hit = cell;
+    const uint64_t cas_miss = x18_cas_exit(&cell, 7, 200), cas_after_miss = cell;
+    printf("a strong CAS with x18 as the new value: old %" PRIu64 " now %" PRIu64 ", then old %" PRIu64 " now %" PRIu64
+           "\n", cas_hit, cas_after_hit, cas_miss, cas_after_miss);
+    cell = 5;
+    const uint64_t weak_hit = x18_cas_weak(&cell, 5, 6), weak_after_hit = cell;
+    const uint64_t weak_miss = x18_cas_weak(&cell, 5, 7), weak_after_miss = cell;
+    printf("a weak CAS with x18 as the new value: status %" PRIu64 " now %" PRIu64 ", then status %" PRIu64
+           " now %" PRIu64 "\n", weak_hit, weak_after_hit, weak_miss, weak_after_miss);
+    cell = 0;
+    const uint64_t swap_zero = x18_swap_exit(&cell, 33), swap_zero_after = cell;
+    cell = 9;
+    const uint64_t swap_nine = x18_swap_exit(&cell, 33), swap_nine_after = cell;
+    printf("an exchange with x18, left alone on 0: old %" PRIu64 " now %" PRIu64 ", old %" PRIu64 " now %" PRIu64 "\n",
+           swap_zero, swap_zero_after, swap_nine, swap_nine_after);
+    uint32_t bounded = 3;
+    const uint32_t b1 = x18_add_bound(&bounded, 4, 10), b2 = x18_add_bound(&bounded, 4, 10);
+    const uint32_t b3 = x18_add_bound(&bounded, 4, 10);
+    printf("an add with x18 up to a bound: old %u, %u, %u, now %u\n", b1, b2, b3, bounded);
+    {
+        uint64_t counter = 0;
+        uint32_t added = 0;
+        pthread_t workers[8];
+        struct contended contended = {&counter, &added};
+        for (int i = 0; i < 4; i++) pthread_create(&workers[i], NULL, contend, &contended);
+        for (int i = 0; i < 4; i++) pthread_join(workers[i], NULL);
+        printf("4 threads, 100000 passes each: strong CAS sum %" PRIu64 ", bounded add sum %u\n", counter, added);
+    }
 
     struct sigaction action;
     memset(&action, 0, sizeof action);

@@ -186,13 +186,27 @@ constexpr std::uint32_t code[] = {
     0x54ff'ffa1,  // 0x398 b.ne 0x38c                    back-edge to the load-exclusive while rounds != 0
     0xc809'7c08,  // 0x39c stxr w9, x8, [x0]             one store to end the window (its result is ignored)
     0xd65f'03c0,  // 0x3a0 ret
+    // exit_loop(inputs): inputs[0] = x18 (the new value), inputs[1] = the cell, inputs[2] = the expected value. A
+    // strong compare-and-swap with the new value in x18 and a branch out of the loop when the cell differs
+    // (ADR-0020 X7): the island runs that branch through an exit pad. Returns the cell's old value.
+    0xf940'0012,  // 0x3a4 ldr x18, [x0]                 single, writes
+    0xf940'0801,  // 0x3a8 ldr x1, [x0, #16]
+    0xf940'0400,  // 0x3ac ldr x0, [x0, #8]
+    0xc85f'fc08,  // 0x3b0 ldaxr x8, [x0]                the window's load-exclusive
+    0xeb01'011f,  // 0x3b4 cmp x8, x1
+    0x5400'0061,  // 0x3b8 b.ne 0x3c4                    leaves the window
+    0xc809'fc12,  // 0x3bc stlxr w9, x18, [x0]           x18 read here
+    0x35ff'ff89,  // 0x3c0 cbnz w9, 0x3b0
+    0xaa08'03e0,  // 0x3c4 mov x0, x8
+    0xd65f'03c0,  // 0x3c8 ret
 };
 constexpr std::int32_t jump_table[] = {0x258 - 0x400, 0x260 - 0x400, 0x268 - 0x400, 0x270 - 0x400};
 constexpr std::uint64_t literal = 0x1122'3344'5566'7788;  // what the LDR (literal) of forms() loads
 constexpr std::uint64_t run_at = 0x200, run_end = 0x280, window_at = 0x228, loop_at = 0x280, fault_at = 0x2a4,
                         forms_at = 0x2ac, forms_end = 0x320, cmpxchg_at = 0x2ec, fault_read_at = 0x320,
                         fault_window_at = 0x32c, indirect_at = 0x340, helper_at = 0x368, tail_at = 0x370,
-                        fault_window_deep_at = 0x378, backedge_at = 0x38c, table_at = 0x400, literal_at = 0x410,
+                        fault_window_deep_at = 0x378, backedge_at = 0x38c, exit_loop_at = 0x3a4, exit_loop_end = 0x3cc,
+                        exit_window_at = 0x3b0, table_at = 0x400, literal_at = 0x410,
                         program_end = 0x418;
 
 // The jump table island (rewrite.cpp, emit_jump_table): 13 words up to its BR, a trap of 3, then a
@@ -366,8 +380,22 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
             // between maps to an original instruction the island replaced, which the trace never ran,
             // so only its reconstructed pc is checked there.
             const unsigned preamble = island->commit, body = island->resume;
-            const auto guest = word < preamble ? 0u : std::min<unsigned>(word - preamble, body);
-            const auto guest_pc = site + 4 * guest;
+            auto guest = word < preamble ? 0u : std::min<unsigned>(word - preamble, body);
+            auto guest_pc = site + 4 * guest;
+            // An exit pad (ADR-0020 X7), after the tail of a window that only reads x18: the thread goes on at the
+            // target of the branch that left the window, named by the pad's own B; the state to compare with is the
+            // guest's at that target, found like the exit's.
+            const unsigned pads = preamble + body + 2;
+            const bool in_pad = island->store == 0 && island->base == APK_ISLAND_NO_REGISTER && word >= pads;
+            if (in_pad) {
+                const auto branch = *reinterpret_cast<const std::uint32_t *>(loaded.header + island->stub +
+                                                                              4 * (pads + ((word - pads) | 1)));
+                const auto displacement = static_cast<std::int64_t>(static_cast<std::int32_t>(branch << 6) >> 6);
+                guest_pc = static_cast<std::uint64_t>(
+                    static_cast<std::int64_t>(loaded.header + island->stub + 4 * (pads + ((word - pads) | 1))) +
+                    4 * displacement);
+                guest = body;  // compared like an exit: the first later step at the target
+            }
             if (!left[at].first) {
                 apk::testing::fail(location, "leave() did not see an island at ", std::format("{:#x}", pc).c_str());
             } else if (left[at].second.context.pc != guest_pc) {
@@ -542,11 +570,41 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
         }
     }
 
+    // exit_loop(): the compare-and-swap that stores x18 and the one whose branch leaves the window, through an exit pad
+    // (ADR-0020 X7), every word of the island stepped, the pad's two words included: wherever the thread stops, leave()
+    // must give the state the guest passes through, and in a pad the leaving branch's target.
+    for (const unsigned stepped_visits : {0u, 1u}) {
+        for (const bool differs : {false, true}) {
+            if (differs && stepped_visits == 1) continue;  // no store-exclusive on that path: one pass is enough
+            std::uint64_t cell_value = 0;
+            std::uint64_t inputs[3] = {};
+            const auto result = step_and_compare(
+                exit_loop_at,
+                [&] {
+                    cell_value = 41;
+                    inputs[0] = 77;  // the new value, in x18
+                    inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
+                    inputs[2] = differs ? 40 : 41;
+                    return reinterpret_cast<std::uint64_t>(inputs);
+                },
+                // Single-stepping clears the monitor, so a pass that stores runs its window free (see free_run); the pass
+                // that leaves before its store-exclusive has none to fail and is stepped whole.
+                differs ? std::vector<apkrt::testing::FreeRun>{}
+                        : std::vector{free_run(loaded.island_at(exit_window_at), stepped_visits)},
+                covered, compared);
+            CHECK(result == 41);
+            CHECK(cell_value == (differs ? 41u : 77u));
+        }
+    }
+
     CHECK(compared > 0);
     // Every word of every island of run() and forms() that can run was stepped.
     for (const auto &island : loaded.islands) {
         const auto site = loaded.header + island.site - loaded.image;
-        if (!(site >= run_at && site < run_end) && !(site >= forms_at && site < forms_end)) continue;
+        if (!(site >= run_at && site < run_end) && !(site >= forms_at && site < forms_end) &&
+            !(site >= exit_loop_at && site < exit_loop_end)) {
+            continue;
+        }
         for (unsigned word = 0; word < island.words; ++word) {
             if (runs(island, word) && !covered.contains({&island, word})) {
                 const auto detail = std::format("site {:#x}, word {}", island.site, word);
@@ -597,6 +655,50 @@ TEST(a_resumable_exclusive_island_maps_every_word_to_the_guest_instruction) {
     after_store.x[value] = worked;
     const auto settled = apkrt::islands::settle(island, header, after_store, saved_value, saved_base, slot11, true);
     CHECK(settled.context.pc == header + island.site + 4 * 3);
+}
+
+// ADR-0020 X7: a thread stopped in an exit pad of a window that only reads x18 continues at the target of the branch
+// that left the window, which the pad's own B names, and has its value register back; a word of the window body or of
+// the tail keeps the map above. The pads sit behind the tail: two words each, the restore and the B.
+TEST(an_exit_pad_leaves_to_the_target_of_the_branch_that_left_the_window) {
+    constexpr std::uint8_t preamble = 4, body = 5, value = 9;  // save value; mrs, bic, ldr; ldaxr, cmp, b.ne, stlxr, cbnz
+    constexpr unsigned tail = 2, pads = 2;
+    std::vector<std::uint32_t> stub(preamble + body + tail + 2 * pads, 0xd503'201f);
+    const auto base_address = reinterpret_cast<std::uint64_t>(stub.data());
+    const std::uint64_t targets[] = {base_address + 0x1000, base_address - 0x400};  // two exits, forward and back
+    apk_island island{};
+    island.stub = 0x1000;
+    island.site = 0x400;
+    island.words = static_cast<std::uint16_t>(stub.size());
+    island.kind = APK_ISLAND_EXCLUSIVE;
+    island.value = value;
+    island.base = APK_ISLAND_NO_REGISTER;
+    island.commit = preamble;
+    island.store = 0;
+    island.resume = body;
+    const std::uint64_t header = reinterpret_cast<std::uint64_t>(stub.data()) - island.stub;
+    for (unsigned pad = 0; pad < pads; pad++) {
+        const unsigned at_word = preamble + body + tail + 2 * pad + 1;
+        const std::uint64_t at = header + island.stub + 4 * at_word;
+        const std::int64_t distance = static_cast<std::int64_t>(targets[pad]) - static_cast<std::int64_t>(at);
+        stub[at_word] = 0x1400'0000u | (static_cast<std::uint32_t>(distance / 4) & 0x03ff'ffffu);  // b target
+    }
+    constexpr std::uint64_t worked = 0xbeef, saved_value = 0xcafe, slot11 = 0x1818;
+    for (unsigned k = 0; k < island.words; ++k) {
+        apkrt::GuestContext context{};
+        context.pc = header + island.stub + 4 * k;
+        context.x[value] = worked;
+        const auto settled = apkrt::islands::settle(island, header, context, saved_value, 0, slot11, true);
+        const unsigned first_pad = preamble + body + tail;
+        if (k >= first_pad) {
+            CHECK(settled.context.pc == targets[(k - first_pad) / 2]);
+        } else {
+            const std::uint64_t guest = k < preamble ? 0 : std::min<std::uint64_t>(k - preamble, body);
+            CHECK(settled.context.pc == 0 + header + island.site + 4 * guest);
+        }
+        CHECK(settled.context.x[value] == (k >= 1 ? saved_value : worked));
+        CHECK(settled.x18 == slot11);  // the window only reads x18: slot 11 holds it throughout
+    }
 }
 
 // (b) ADR-0020 C7: a read no-save island loads the guest x18 into a dead value register, runs the use,

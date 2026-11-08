@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 
 namespace apkrt::islands {
 namespace {
@@ -126,6 +127,18 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
         if (word >= preamble && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
         const std::uint64_t guest = word < preamble ? 0 : std::min<std::uint64_t>(word - preamble, body);
         settled.context.pc = header + island.site + 4 * guest;
+        // An exit pad (ADR-0020 X7), after the tail of a window that only reads x18 (no store-back, no base): two
+        // words, the value register's restore and a B to where the leaving branch went. A thread stopped in one
+        // continues at that target, which the pad's own B names (the stub is read-only, so reading it here is
+        // safe), not after the window; the value register is restored below like anywhere past word 0.
+        const std::uint64_t pads = preamble + body + 2;
+        if (island.store == 0 && island.base == APK_ISLAND_NO_REGISTER && word >= pads && word < island.words) {
+            const std::uint64_t at = header + island.stub + 4 * (pads + ((word - pads) | 1));  // the pad's B
+            std::uint32_t branch;
+            std::memcpy(&branch, reinterpret_cast<const void *>(at), sizeof branch);
+            const auto displacement = static_cast<std::int64_t>(static_cast<std::int32_t>(branch << 6) >> 6);
+            settled.context.pc = static_cast<std::uint64_t>(static_cast<std::int64_t>(at) + 4 * displacement);
+        }
     } else {
         // Before its commit the island runs again from the site; after it the thread goes on.
         const bool back = island.commit == APK_ISLAND_NO_COMMIT || word <= island.commit;

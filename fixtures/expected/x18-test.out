@@ -27,5 +27,10 @@ the no-save islands run correctly under a SIGALRM storm: yes
 a jump table through br x18: 10 11 12 13 -1
 x18 across a syscall: kept
 x18 across 1000 sched_yield: kept
+a strong CAS with x18 as the new value: old 7 now 100, then old 100 now 100
+a weak CAS with x18 as the new value: status 0 now 6, then status 2 now 6
+an exchange with x18, left alone on 0: old 0 now 0, old 9 now 33
+an add with x18 up to a bound: old 3, 7, 11, now 11
+4 threads, 100000 passes each: strong CAS sum 400000, bounded add sum 400000
 the handler found x18 in its frame: 0x1818aaaa, the thread went on with the handler's: 0x5eed
 a new thread's x18 is set: yes, and is not its creator's: yes

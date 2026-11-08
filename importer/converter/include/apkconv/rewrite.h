@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -115,6 +116,9 @@ struct Findings {
     std::vector<std::uint64_t> x18_saves;
     /// Uses of x18 that no island handles; the converter refuses a file with any of them.
     std::vector<Unsupported> x18_unsupported;
+    /// Register branches that are no recognized jump table, each of which ended the monitor hull of a path an LL/SC window
+    /// or an in-sequence x18 use was judged by (ADR-0020 X7 (c1)): the import report counts them.
+    std::set<std::uint64_t> hull_ending_register_branches;
     /// Of the refused uses that sit in a load-exclusive construct (a relocated-or-refused window, or a lone,
     /// unclosed or in-sequence one), how the guest x18 reaches each one, for the ADR-0020 (b)/(c) split:
     /// `x18_defined_in_loop` = x18 is written in the construct before any read, so a context switch that zeroes it

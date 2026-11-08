@@ -146,3 +146,4 @@ address-space system measures
 # The C3b on-device monitor check (ADR-0020 C3b): does an unrelated-granule store between a load-
 # and store-exclusive clear the local monitor, which would livelock the island's x18 spill.
 c3b-monitor-probe system measures
+c3b-contention-probe system measures

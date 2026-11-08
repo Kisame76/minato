@@ -152,6 +152,11 @@ void inspect(const std::string &path) {
                       << ')';
         }
         std::cout << '\n';
+        if (!findings.hull_ending_register_branches.empty()) {
+            std::cout << std::format("  register branches that are no jump table and ended the monitor hull of a path "
+                                     "the x18 pass judged (ADR-0020 X7): {}\n",
+                                     findings.hull_ending_register_branches.size());
+        }
     } catch (const apk::container::Incompatible &error) {
         std::cout << "  code: " << error.what() << '\n';
     }

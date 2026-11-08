@@ -102,6 +102,7 @@ namespace oracle {
 struct Toggles {
     bool call_return;   // ON: a call or return (BL, BLR, RET) ends the monitor path (the C6 limit)
     bool section_exit;  // ON: the section end, or a branch out of it, pairs nothing (one output section)
+    bool register_branch = false;  // ON: a register branch that is no jump table ends the monitor hull (ADR-0020 X7 c1)
 };
 std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base, Toggles t);
 }  // namespace oracle
@@ -114,11 +115,16 @@ apk::rewrite::Findings scan_words(const std::uint32_t *begin, const std::uint32_
     apk::rewrite::scan(code, address, findings);
     // The step-D oracle also runs on every fixture: under the real limits scan() must island no x18 use
     // on a live LL/SC path (ADR-0020 step D). flags() re-scans with apk::rewrite::scan, not scan_words.
-    if (const auto unsound = oracle::flags(begin, end, address, {true, true}); !unsound.empty()) {
+    if (const auto unsound = oracle::flags(begin, end, address, {true, true, true}); !unsound.empty()) {
         apk::testing::fail(location, "the step-D oracle flagged an unsound x18 island at ",
                            std::format("{:#x}", unsound.front()).c_str());
     }
     return findings;
+}
+
+/// Whether an x18 island (single or no-save) was made for the instruction at `address`.
+bool has_site_at(const apk::rewrite::Findings &findings, std::uint64_t address) {
+    return std::ranges::any_of(findings.sites, [&](const Site &site) { return site.address == address; });
 }
 
 /// Names the word at `address` of the words scanned from `begin` at `base`, for a failure message.
@@ -1632,9 +1638,15 @@ TEST(a_branch_that_leaves_a_window_or_a_register_branch_keeps_it_from_relocating
         std::size_t uses;
         std::string_view reason;
     };
+    // A branch that leaves a window which only reads x18 runs through an exit pad since ADR-0020 X7: the island
+    // restores the value register there and branches on (x7_* tests below); the window stays one island.
+    for (const auto &words : {std::pair{ref_x18_window_exit, ref_x18_window_input},
+                              std::pair{ref_x18_window_exit_next, ref_x18_window_base}}) {
+        const auto findings = scan_words(words.first, words.second, 0x10000);
+        CHECK(findings.exclusive_regions.size() == 1 && findings.x18_unsupported.empty());
+    }
+    (void)leaves;
     const Case cases[] = {
-        {ref_x18_window_exit, ref_x18_window_input, 2, leaves},            // b.ne out of the window
-        {ref_x18_window_exit_next, ref_x18_window_base, 2, leaves},        // branch to the word right after it
         // The return before the store-exclusive ends the window's straight-line path (ADR-0020 step D), so
         // exclusive_window_end() no longer reads the later store-exclusive as its close. The window is unclosed,
         // and its two x18-address exclusive accesses are refused as exclusive accesses (an island's memory could
@@ -2009,9 +2021,10 @@ TEST(a_store_exclusive_reachable_from_the_fail_path_use_keeps_it_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
 }
 
-// A register branch reachable from the use is a danger too: its target the rewriter cannot follow, so
-// the monitor may reach a store there. A reached register branch keeps the use refused (C6 decision 3).
-TEST(a_register_branch_reachable_from_the_use_keeps_it_refused) {
+// A register branch that is no jump table ends the monitor hull of the path that reaches it (ADR-0020 X7 c1), as a
+// return or a call does: nothing after the use on that path pairs with the load, so the use islands. The branch is
+// counted for the import report.
+TEST(a_register_branch_reachable_from_the_use_ends_the_hull_and_the_use_islands) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
         0xf100011f,  // 0x04 cmp x8, #0
@@ -2019,12 +2032,12 @@ TEST(a_register_branch_reachable_from_the_use_keeps_it_refused) {
         0xc80a7c08,  // 0x0c stxr w10, x8, [x0]
         0x35ffff8a,  // 0x10 cbnz w10, 0x00
         0x91000652,  // 0x14 add x18, x18, #1     the use: monitor live on the 0x08->0x14 path
-        0xd61f00a0,  // 0x18 br x5                a register branch the monitor reaches: the use escapes
+        0xd61f00a0,  // 0x18 br x5                a register branch the monitor reaches: it ends the hull
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
-    CHECK(findings.x18_unsupported.size() == 1);
-    if (!findings.x18_unsupported.empty()) CHECK(findings.x18_unsupported[0].address == 0x1014);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1014));
+    CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1018});
 }
 
 // An unconditional B carries the monitor to the use (the only path to it), which then escapes to a
@@ -2162,10 +2175,9 @@ TEST(a_backward_branch_to_the_store_keeps_the_use_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
 }
 
-// A pointer-authenticated register branch (BRAA, and its Z form BRAAZ) is an indirect jump like BR, so
-// a monitor reaching it escapes and the use stays refused. Guards is_register_branch's mask against a
-// narrowing to bare BR only.
-TEST(a_pac_register_branch_reachable_from_the_use_keeps_it_refused) {
+// A pointer-authenticated register branch (BRAA, and its Z form BRAAZ) is an indirect jump like BR, so it ends the
+// hull the same way (X7 c1). Guards is_register_branch's mask against a narrowing to bare BR only.
+TEST(a_pac_register_branch_reachable_from_the_use_ends_the_hull_and_the_use_islands) {
     for (const std::uint32_t tail : {0xd71f08a6u, 0xd61f08bfu}) {  // braa x5, x6 ; braaz x5
         const std::uint32_t code[] = {
             0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0
@@ -2174,13 +2186,12 @@ TEST(a_pac_register_branch_reachable_from_the_use_keeps_it_refused) {
             0xc80a7c08,  // 0x0c stxr w10, x8, [x0]
             0x35ffff8a,  // 0x10 cbnz w10, 0x00
             0x91000652,  // 0x14 add x18, x18, #1    the use: monitor live on 0x08->0x14
-            tail,        // 0x18 braa x5, x6 / braaz x5: an authenticated register branch (the escape)
+            tail,        // 0x18 braa x5, x6 / braaz x5: an authenticated register branch
         };
         const auto findings = scan_words(code, code + std::size(code), 0x1000);
-        bool refused = false;
-        for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
-        CHECK(refused);
-        for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+        CHECK(findings.x18_unsupported.empty());
+        CHECK(has_site_at(findings, 0x1014));
+        CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1018});
     }
 }
 
@@ -2230,9 +2241,9 @@ TEST(a_return_ends_the_monitor_path_so_the_use_before_it_islands) {
     }
 }
 
-// `ret xN` with N != 30 is an indirect branch, not a return (hand-written code uses it as a computed
-// jump). So a monitor reaching it escapes and the use stays refused, as for BR.
-TEST(a_ret_to_a_register_other_than_x30_is_an_escape_not_a_return) {
+// `ret xN` with N != 30 is an indirect branch, not a return (hand-written code uses it as a computed jump): it ends the
+// hull like BR (X7 c1), and is counted as one.
+TEST(a_ret_to_a_register_other_than_x30_ends_the_hull_like_a_br) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
         0xb5000088,  // 0x04 cbnz x8, 0x14       reach the use, monitor live
@@ -2240,13 +2251,12 @@ TEST(a_ret_to_a_register_other_than_x30_is_an_escape_not_a_return) {
         0x35ffffaa,  // 0x0c cbnz w10, 0x00
         0xd65f03c0,  // 0x10 ret                 the normal return (x30), a safe path end
         0x91000652,  // 0x14 add x18, x18, #1    the use: monitor live
-        0xd65f00a0,  // 0x18 ret x5              an indirect branch via x5: the escape
+        0xd65f00a0,  // 0x18 ret x5              an indirect branch via x5: it ends the hull
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
-    bool refused = false;
-    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1014) refused = true;
-    CHECK(refused);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1014));
+    CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1018});
 }
 
 // ADR-0020 step D: a window that does not close within 64 words no longer blanket-refuses its x18
@@ -2292,21 +2302,19 @@ TEST(an_x18_use_after_a_call_in_an_unclosed_window_stays_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
 }
 
-// FC (guard ii): a window whose monitor closure reaches a register branch keeps its blanket refusal.
-// The branch's targets are invisible to the C6 walk, so a use at one (0x08 here, reachable only
-// through the br, as in a jump-table retry loop) could sit in a live LL/SC. Islanding it would
-// livelock on the device; the whole window stays refused.
-TEST(an_unclosed_window_that_reaches_a_register_branch_stays_refused) {
+// FC (guard ii), after ADR-0020 X7 (c1): a window whose monitor closure reaches a register branch that is no jump table
+// no longer keeps its blanket refusal: the branch ends the hull of its path. The use behind it (reached only through the
+// branch) islands like any use no visible path pairs with a store, and the branch is counted.
+TEST(an_unclosed_window_that_reaches_a_register_branch_islands_and_counts_it) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone (the register branch leaves its run)
-        0xd61f0120,  // 0x04 br x9               a register branch in the closure: its targets are unseen
+        0xd61f0120,  // 0x04 br x9               a register branch in the closure: it ends the hull
         0x0b12010a,  // 0x08 add w10, w8, w18    a use reachable only through the br
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
-    bool refused = false;
-    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
-    CHECK(refused);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1008));
+    CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1004});
 }
 
 // FD: a use whose monitor leaves the scanned section through a direct branch islands — nothing across a
@@ -2340,12 +2348,12 @@ TEST(an_ldxr_x18_in_an_unclosed_window_stays_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1000);
 }
 
-// FC, two variants that drop guard ii would island: the register branch comes before the x18 use, so the
-// use sits only at the branch's unseen target, inside a window that still reaches its store far ahead.
-// branch_reached_sequence never reaches the use (it stops at the branch), so without guard ii's blanket
-// refusal monitor_escapes would miss it and the use would island into a live LL/SC — a device livelock.
-// A br and a `ret xN` used as an indirect jump are both such branches; the oracle flags each if islanded.
-TEST(an_unclosed_window_whose_register_branch_target_reaches_a_store_stays_refused) {
+// FC, two variants, after ADR-0020 X7 (c1): the register branch comes before the x18 use, so the use sits only at the
+// branch's unseen target, inside a window that still reaches its store far ahead. Guard ii refused these; (c1) trusts the
+// branch to end its path (Arm ARM B2.9 allows no call or jump between the exclusives of correct code), so the use
+// islands and the branch is counted. This is the named residual of (c1): a computed goto into the middle of an LL/SC
+// loop; the island's spill would then lie inside the live loop. A `ret xN` used as an indirect jump is such a branch too.
+TEST(an_unclosed_window_whose_register_branch_target_reaches_a_store_islands_under_the_hull_rule) {
     std::vector<std::uint32_t> code{
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
         0xd61f0120,  // 0x04 br x9               a register branch; its unseen target may re-enter the window
@@ -2354,13 +2362,12 @@ TEST(an_unclosed_window_whose_register_branch_target_reaches_a_store_stays_refus
     code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x100: nops, pushing the store past 64 words
     code.push_back(0xc80b7c0a);               // 0x104 stxr w11, x10, [x0]  pairs with L0 if the monitor is live
     const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
-    bool refused = false;
-    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
-    CHECK(refused);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1008));
+    CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1004});
 }
 
-TEST(an_unclosed_window_whose_ret_used_as_a_branch_reaches_a_store_stays_refused) {
+TEST(an_unclosed_window_whose_ret_used_as_a_branch_reaches_a_store_islands_under_the_hull_rule) {
     std::vector<std::uint32_t> code{
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
         0xd65f0120,  // 0x04 ret x9              a register branch (ret xN, N != 30), its target unseen
@@ -2369,30 +2376,23 @@ TEST(an_unclosed_window_whose_ret_used_as_a_branch_reaches_a_store_stays_refused
     code.insert(code.end(), 62, 0xd503201f);  // 0x0c..0x100: nops, pushing the store past 64 words
     code.push_back(0xc80b7c0a);               // 0x104 stxr w11, x10, [x0]
     const auto findings = scan_words(code.data(), code.data() + code.size(), 0x1000);
-    bool refused = false;
-    for (const auto &use : findings.x18_unsupported) if (use.address == 0x1008) refused = true;
-    CHECK(refused);
-    for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1008));
+    CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1004});
 }
 
-// Step E sizing (ADR-0020): a window that does not close and whose closure reaches a register branch
-// stays refused (guard ii), but its reason now names whether that branch is a recognized jump table in
-// read-only data. A re-import's per-reason counts then separate the step-E-eligible windows (the branch
-// is a jump table the rewriter could follow with landing pads) from the C7-C9 ones, with no conversion
-// change here. This window reaches a br x9 the rewriter cannot read as a table -> the register-branch reason.
-TEST(an_unclosed_window_reaching_a_non_jump_table_register_branch_names_the_register_branch) {
+// Step E sizing (ADR-0020), after X7 (c1): a window that does not close and whose closure reaches a register branch that
+// is a recognized jump table in read-only data stays refused with the jump-table reason (next test); one that reaches a
+// br the rewriter cannot read as a table no longer does: the branch ends the hull and the use islands.
+TEST(an_unclosed_window_reaching_a_non_jump_table_register_branch_islands) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
         0xd61f0120,  // 0x04 br x9               a register branch, not a jump table
         0x0b12010a,  // 0x08 add w10, w8, w18    an x18 use in the window
     };
     const auto findings = scan_words(code, code + std::size(code), 0x1000);
-    const auto refused = std::ranges::find(findings.x18_unsupported, 0x1008u, &apk::rewrite::Unsupported::address);
-    CHECK(refused != findings.x18_unsupported.end());
-    if (refused != findings.x18_unsupported.end()) {
-        CHECK(std::string_view(refused->reason).find("register branch") != std::string_view::npos);
-        CHECK(std::string_view(refused->reason).find("jump table") == std::string_view::npos);
-    }
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(has_site_at(findings, 0x1008));
 }
 
 // Step E sizing: the same, but the window's closure reaches a br x18 that IS a recognized jump table in
@@ -2495,6 +2495,7 @@ bool reaches_store(const std::uint32_t *code, std::size_t words, std::size_t fro
         if (p >= words || seen[p]) continue;
         seen[p] = true;
         const auto w = code[p];
+        if (o_reg_branch(w) && t.register_branch) continue;   // trusted (X7 c1): the pairing ends at it
         if (o_store_excl(w) || o_reg_branch(w)) return true;  // the pairing store, or an unfollowable target
         if (o_clrex(w) || o_load_excl(w)) continue;           // monitor cleared or re-armed: a safe boundary
         if (o_bl(w) || o_reg_call(w) || o_reg_return(w)) {    // a call or a return
@@ -2564,7 +2565,10 @@ std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t
             if (p >= words || from_load[p]) continue;
             from_load[p] = true;
             const auto w = begin[p];
-            if (o_reg_branch(w)) { reached_register_branch = true; continue; }  // target unseen: see below
+            if (o_reg_branch(w)) {  // target unseen: see below, unless the pairing is trusted to end here (X7 c1)
+                if (!t.register_branch) reached_register_branch = true;
+                continue;
+            }
             if (o_store_excl(w) || o_clrex(w) || o_load_excl(w)) continue;      // monitor consumed/cleared/re-armed
             if (t.call_return && (o_bl(w) || o_reg_call(w) || o_reg_return(w))) continue;  // the C6 call/return limit
             if (!o_b_uncond(w) && !o_reg_return(w) && p + 1 < words) work.push_back(p + 1);
@@ -3173,11 +3177,100 @@ TEST(a_window_branch_out_of_field_range_is_rejected_not_truncated) {
     // The branch at .+16 lands past the three-word window, so emit keeps its absolute target. The
     // B.cond's stub sits 2 MiB away, beyond its +-1 MiB imm19; the CMPBR's only 4 KiB away, within
     // imm19 but beyond its own +-1 KiB imm9, so a wrong (wider) field would not catch it.
-    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0x5400'0080, 0x100000 + (2u << 20)), "range");  // b.eq .+16
-    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0xf4c6'0085, 0x100000 + 0x1000), "range");  // cmpbr .+16
-    // A stub two bytes off makes the island-relative displacement odd: not a multiple of 4.
-    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0x5400'0080, 0x100000 + (2u << 20) + 2), "multiple of 4");
+    // Since ADR-0020 X7 a leaving branch goes to an exit pad inside the island and the pad's B reaches the target:
+    // the conditional and the CMPBR keep their short ranges, and it is the pad's B (+-128 MiB) that overflows.
+    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0x5400'0080, 0x100000 + (129ull << 20)), "128 MiB");  // b.eq .+16
+    CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0xf4c6'0085, 0x100000 + (129ull << 20)), "128 MiB");  // cmpbr .+16
 }
+
+
+// ADR-0020 X7 (2026-11-05): the forms of a user's Unity library (28 refused x18 uses) reproduced in own assembly. The
+// words are what `clang -target arm64-apple-macos13` makes of the lines in each comment (`out` is the ret after the
+// loop, `loop` its first word). A loop of a recognized shape that only reads x18 and has a branch out of it (the
+// failure of a compare, a bound) runs in one island, the branch through an exit pad; what stays refused keeps its own
+// reason, in the last table.
+struct SeenForm {
+    const char *what;
+    std::vector<std::uint32_t> words;
+};
+
+/// `head`, `count` nops (a window that does not close within 64 words), `tail`.
+std::vector<std::uint32_t> with_nops(std::vector<std::uint32_t> head, std::size_t count,
+                                     const std::vector<std::uint32_t> &tail) {
+    head.insert(head.end(), count, 0xd503'201f);
+    head.insert(head.end(), tail.begin(), tail.end());
+    return head;
+}
+
+// LL/SC loops with x18 read in them that a branch leaves: an exit pad takes the branch (ADR-0020 X7).
+const SeenForm x7_exit_pad_loops[] = {
+    {"strong CAS, x18 the new value, the failure leaves the loop: ldaxr x0,[x1]; cmp x0,x2; "
+         "b.ne out; stlxr w3,x18,[x1]; cbnz w3,loop",
+     {0xc85ffc20, 0xeb02001f, 0x54000061, 0xc803fc32, 0x35ffff83, 0xd65f03c0}},
+    {"weak CAS, no retry loop (the caller reads the status): ldxr x0,[x1]; cmp x0,x2; b.ne "
+         "out; stxr w3,x18,[x1]",
+     {0xc85f7c20, 0xeb02001f, 0x54000041, 0xc8037c32, 0xd65f03c0}},
+    {"exchange with x18 as the new value and an early exit on zero: ldxr x0,[x1]; cbz x0,out; "
+         "stlxr w3,x18,[x1]; cbnz w3,loop",
+     {0xc85f7c20, 0xb4000060, 0xc803fc32, 0x35ffffa3, 0xd65f03c0}},
+    {"add loop with a bound, x18 the operand: ldaxr w0,[x1]; cmp w0,#100; b.hs out; add "
+         "w3,w0,w18; stlxr w4,w3,[x1]; cbnz",
+     {0x885ffc20, 0x7101901f, 0x54000082, 0x0b120003, 0x8804fc23, 0x35ffff64, 0xd65f03c0}},
+    {"ldxr; cbz out; add x0,x0,x18; stxr; cbnz: x18 an operand, an early exit",
+     {0xc85f7c20, 0xb4000080, 0x8b120000, 0xc8027c20, 0x35ffff82, 0xd65f03c0}},
+    {"x18 as the store-exclusive's address with an early exit",
+     {0xc85f7c20, 0xb4000060, 0xc8027e40, 0x35ffffa2, 0xd65f03c0}},
+};
+
+
+// A window that does not close within 64 words and reaches a register branch that is no jump table: the branch ends the
+// monitor hull of its path (ADR-0020 X7 c1), so the x18 use islands and the branch is counted in the import report.
+const SeenForm x7_hull_ending_branches[] = {
+    {"a use, 70 nops, br x9: ldxr; add x0,x0,x18; nop x70; br x9",
+     with_nops({0xc85f7c20, 0x8b120000}, 70, {0xd61f0120})},
+    {"a use before br x0: ldxr; add x0,x0,x18; br x0; stxr",
+     {0xc85f7c20, 0x8b120000, 0xd61f0000, 0xc8027c20, 0xd65f03c0}},
+};
+
+// What stays refused, each with its own reason: x18 has no register field in a CASP, and a store-exclusive that no
+// load-exclusive of the window pairs with.
+const std::pair<SeenForm, std::string_view> x7_refused[] = {
+    {{"cat8",
+      {0xc85f7c20, 0x48327c82, 0xc8057c20, 0x35ffffa5, 0xd65f03c0}},
+     "it lies in an exclusive window in which x18 has no register field of its own"},
+    {{"cat4a",
+      {0xc8027c32, 0x35ffffe2, 0xd65f03c0}},
+     "it is an exclusive access, and the island's memory accesses could break its LL/SC "
+         "sequence"},
+};
+
+TEST(x7_a_register_branch_that_is_no_jump_table_ends_the_hull) {
+    for (const auto &form : x7_hull_ending_branches) {
+        const auto findings = scan_words(form.words.data(), form.words.data() + form.words.size(), 0x10000);
+        if (!findings.x18_unsupported.empty()) {
+            apk::testing::fail(std::source_location::current(), form.what, findings.x18_unsupported.front().reason);
+        }
+        if (findings.hull_ending_register_branches.empty()) {
+            apk::testing::fail(std::source_location::current(), "no hull ended: ", form.what);
+        }
+    }
+}
+
+TEST(x7_what_stays_refused_keeps_its_own_reason) {
+    for (const auto &[form, reason] : x7_refused) {
+        const auto findings = scan_words(form.words.data(), form.words.data() + form.words.size(), 0x10000);
+        if (findings.x18_unsupported.empty()) {
+            apk::testing::fail(std::source_location::current(), "no refusal: ", form.what);
+            continue;
+        }
+        for (const auto &use : findings.x18_unsupported) {
+            if (std::string_view(use.reason) != reason) {
+                apk::testing::fail(std::source_location::current(), form.what, use.reason);
+            }
+        }
+    }
+}
+
 
 }  // namespace
 

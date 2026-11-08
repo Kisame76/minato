@@ -351,6 +351,8 @@ add_executable(address-space bench/address-space.c)
 # c3b-monitor-probe: does an unrelated-granule store between a load- and store-exclusive clear the
 # local monitor (ADR-0020 C3b)? A livelock there would mean the island's x18 spill breaks the window.
 add_executable(c3b-monitor-probe bench/c3b-monitor-probe.c)
+# c3b-contention-probe: the same question under contention, 1, 4 and 8 threads, with the sums checked (ADR-0020 X7 (c1)).
+add_executable(c3b-contention-probe bench/c3b-contention-probe.c)
 # lld relaxes ADRP and ADD into NOP and ADR when the target lies within 1 MiB, and the converter
 # knows a jump table's base only from ADRP and ADD, as the toolchains that use x18 left it.
 target_link_options(x18-test PRIVATE -Wl,--no-relax)
