@@ -1007,6 +1007,15 @@ int apkrt_set_frame_rate_unlock(int rate);
 /// once a start was tried, from which on the process keeps what it has.
 int apkrt_set_internet(int granted);
 
+/// Whether the app may install other apps (REQUEST_INSTALL_PACKAGES; PackageManager.canRequestPackageInstalls, as an
+/// app that installs an APK asks). Denied by default, unlike INTERNET: the host grants it in its settings flow. The
+/// runtime publishes the value as the system property minato.install_sources ("0"/"1"), which the framework reads at
+/// start for the initial canRequestPackageInstalls(); a run-time grant comes through the host's answer to
+/// APKRT_REQUEST_ASK_INSTALL_SOURCES (APKRT_EVENT_INSTALL_SOURCES_RESULT), which the framework applies to its own state
+/// because the guest's property area is a start snapshot. Only before the program starts: 0, or -1 once a start was
+/// tried.
+int apkrt_set_install_sources(int granted);
+
 // MARK: - Sensors (ADR-0061)
 
 /// The host's CoreMotion side. The hub calls start and stop on the thread that enabled or disabled the sensor: a guest

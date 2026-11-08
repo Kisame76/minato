@@ -340,6 +340,12 @@ enum apkrt_event_type {
                                           // (ADR-0074 decision 4): a0 its id, sign-extended, a1 the FNV-1a 64 of
                                           // its tag's UTF-8 (no tag as the empty one), a2 0. The guest sends the
                                           // notification's content PendingIntent, as SystemUI does
+    APKRT_EVENT_INSTALL_SOURCES_RESULT,   // answer to APKRT_REQUEST_ASK_INSTALL_SOURCES (an app installer): a0 the
+                                          // request's ID; a1 1 granted / 0 denied. The framework overwrites its own
+                                          // canRequestPackageInstalls() state from a1 (as it does PICK_RESULT); the
+                                          // runtime also records a1 in install_sources
+    APKRT_EVENT_INSTALL_RESULT,           // answer to APKRT_REQUEST_CONFIRM_INSTALL: a0 the request's ID; a1 the
+                                          // outcome 0 ready, 1 failed, 2 cancelled
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and
@@ -521,6 +527,14 @@ enum apkrt_request_type {
                                    // bidirectional or invisible characters). The runtime refuses -EACCES without the
                                    // app's notifications grant (APKRT_PERMISSION_NOTIFICATIONS), -EINVAL any other
                                    // text or an a1 not 0, -EFAULT an unreadable one. No answer comes
+    APKRT_REQUEST_ASK_INSTALL_SOURCES,  // guest only (an app installer): a0 the address of NUL text
+                                        // "<package>\n<label>", a1 the request's ID. The framework sends this for the
+                                        // Settings action MANAGE_UNKNOWN_APP_SOURCES, not ActivityNotFoundException;
+                                        // the host shows the per-source allow flow and answers once with
+                                        // APKRT_EVENT_INSTALL_SOURCES_RESULT
+    APKRT_REQUEST_CONFIRM_INSTALL,      // guest only (an app installer): a0 the address of NUL text "<path>\n<package>"
+                                        // (the APK path and the requesting package), a1 the request's ID. The host
+                                        // shows the package installer and answers once with APKRT_EVENT_INSTALL_RESULT
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)
