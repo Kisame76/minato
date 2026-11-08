@@ -1,0 +1,143 @@
+// Checks the memory watermark (memory_watermark.h): the fixed-size block format() writes, that write_now overwrites
+// the one slot (so the last reading survives an abrupt end) and keeps a memory-pressure warning once it has come, and
+// that sample() reads the process's footprint. The 1 Hz timer and the pressure source (report_to) are not exercised
+// here -- they are dispatch, device-checked; this is the writer under them.
+#include "memory_watermark.h"
+
+#include "check.h"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <string_view>
+
+namespace {
+
+using namespace apkrt;
+
+/// A temporary file, removed at the end of its scope; write_now pwrites to it, so it must be a seekable regular file.
+struct TempFile {
+    std::string path;
+    int fd = -1;
+    TempFile() {
+        char name[] = "/tmp/minato-memory-XXXXXX";
+        fd = ::mkstemp(name);
+        path = name;
+    }
+    ~TempFile() {
+        if (fd >= 0) ::close(fd);
+        ::unlink(path.c_str());
+    }
+    std::string contents() const {
+        std::string text;
+        char buffer[256];
+        ssize_t count = 0;
+        for (off_t at = 0; (count = ::pread(fd, buffer, sizeof buffer, at)) > 0; at += count) {
+            text.append(buffer, static_cast<std::size_t>(count));
+        }
+        return text;
+    }
+    off_t size() const {
+        struct stat info{};
+        return ::fstat(fd, &info) == 0 ? info.st_size : -1;
+    }
+};
+
+/// The value of the "<name> " line in `block`, trimmed of its padding spaces; empty when the line is missing.
+std::string field(const std::string &block, std::string_view name) {
+    const std::string key = std::string(name) + " ";
+    std::size_t at = block.find(key);
+    while (at != std::string::npos && at != 0 && block[at - 1] != '\n') at = block.find(key, at + 1);
+    if (at == std::string::npos) return {};
+    const std::size_t start = at + key.size();
+    const std::size_t end = block.find('\n', start);
+    std::string value = block.substr(start, end - start);
+    const std::size_t first = value.find_first_not_of(' ');
+    return first == std::string::npos ? std::string() : value.substr(first);
+}
+
+/// The length of the whole line "<name> ..." including its newline.
+std::size_t line_length(const std::string &block, std::string_view name) {
+    const std::size_t at = block.find(std::string(name) + " ");
+    if (at == std::string::npos) return 0;
+    return block.find('\n', at) - at + 1;
+}
+
+TEST(format_writes_a_fixed_size_block_of_parseable_fields) {
+    const memory::Watermark watermark{.footprint = 1000, .available = 2000, .peak = 3000, .warning = true};
+    char out[memory::block_size + 16];
+    const std::size_t length = memory::format(watermark, out, sizeof out);
+    CHECK(length == memory::block_size);
+    const std::string block(out, length);
+    CHECK(field(block, "footprint") == "1000");
+    CHECK(field(block, "available") == "2000");
+    CHECK(field(block, "peak") == "3000");
+    CHECK(field(block, "warning") == "1");
+    // Fixed width per line, so the block's size never changes between writes (the pwrite slot).
+    CHECK(line_length(block, "footprint") == 31);
+    CHECK(line_length(block, "available") == 31);
+    CHECK(line_length(block, "peak") == 26);
+    CHECK(line_length(block, "warning") == 10);
+}
+
+TEST(format_keeps_the_block_size_for_the_largest_values) {
+    const memory::Watermark watermark{.footprint = UINT64_MAX, .available = UINT64_MAX, .peak = UINT64_MAX,
+                                      .warning = false};
+    char out[memory::block_size + 16];
+    const std::size_t length = memory::format(watermark, out, sizeof out);
+    CHECK(length == memory::block_size);
+    const std::string block(out, length);
+    CHECK(field(block, "footprint") == "18446744073709551615");
+    CHECK(field(block, "warning") == "0");
+}
+
+TEST(format_writes_nothing_into_too_small_a_buffer) {
+    const memory::Watermark watermark{};
+    char out[memory::block_size - 1];
+    CHECK(memory::format(watermark, out, sizeof out) == 0);
+}
+
+TEST(write_now_fills_the_slot_with_the_process_footprint) {
+    const TempFile file;
+    memory::write_now(file.fd, false);
+    CHECK(file.size() == static_cast<off_t>(memory::block_size));
+    const std::string block = file.contents();
+    CHECK(!field(block, "footprint").empty());
+    CHECK(std::stoull(field(block, "footprint")) > 0);  // the test process holds some memory
+    CHECK(!field(block, "peak").empty());
+    CHECK(field(block, "warning") == "0");
+}
+
+TEST(write_now_overwrites_the_one_slot_each_time) {
+    const TempFile file;
+    memory::write_now(file.fd, false);
+    memory::write_now(file.fd, false);
+    CHECK(file.size() == static_cast<off_t>(memory::block_size));  // overwritten at offset 0, not appended
+}
+
+TEST(write_now_keeps_a_warning_once_it_has_come) {
+    const TempFile file;
+    memory::write_now(file.fd, true);
+    CHECK(field(file.contents(), "warning") == "1");
+    memory::write_now(file.fd, false);  // a later write without a warning does not clear it
+    CHECK(field(file.contents(), "warning") == "1");
+}
+
+TEST(write_now_does_nothing_for_a_descriptor_below_zero) {
+    memory::write_now(-1, false);  // must not crash or fault
+}
+
+TEST(sample_reads_the_footprint_and_a_peak_at_least_as_large) {
+    const memory::Watermark watermark = memory::sample();
+    CHECK(watermark.footprint > 0);
+    CHECK(watermark.peak >= watermark.footprint);
+}
+
+}  // namespace
+
+int main() { return apk::testing::run_all(); }

@@ -9,7 +9,7 @@
 //           [--grant-location fine|coarse|denied] [--location-script <host file>]
 //           [--device-profile pixel|galaxy] [--frame-rate 60|120] [--render-scale <0.25..1>]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>] [--webview-fake]
-//           [--report <file>] [--measures <file>] <container.dylib> [argument...]
+//           [--report <file>] [--memory <file>] [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64. Both split at
 // their last '=': a guest path may hold one, as Android 15's code paths do (/data/app/~~<base64>==/...), a host
@@ -137,7 +137,10 @@
 // no more steps. A touch has no answer: the next step comes a second after its last event.
 // --report has the runtime write the exit status to <file> at the program's end (apkrt_report_exit_status): the bare
 // number the app reads, and after it a self-kill's cause (process_exit.h note_self_kill), as the app's last-session
-// status holds it. --measures has the runtime write what the run measured to <file> (apkrt_report_exit_measures).
+// status holds it. --memory has the runtime write the memory watermark (footprint, available, peak, warning) to
+// <file> again and again, overwriting one fixed block, as the app's last-session.memory holds it
+// (apkrt_report_memory_to). --measures has the runtime write what the run measured to <file>
+// (apkrt_report_exit_measures).
 // The guest's audio streams play on an output that plays nowhere (headless_audio.h), at 48 kHz in 10 ms bursts.
 #include "APKRuntime/apkrt.h"
 #include "apk_run_layers.h"
@@ -200,7 +203,8 @@ int usage() {
                  "               [--pick-photo <host file>]...\n"
                  "               [--pick-create Download] [--pick-tree <path below /storage/emulated/0>]\n"
                  "               [--webview-fake]\n"
-                 "               [--report <file>] [--measures <file>] <container.dylib> [argument...]\n"
+                 "               [--report <file>] [--memory <file>] [--measures <file>]\n"
+                 "               <container.dylib> [argument...]\n"
                  "--mount and --libraries split at the last '=', --env at the first.\n");
     return 2;
 }
@@ -1632,6 +1636,13 @@ int main(int argc, char **argv) {
                 return 2;
             }
             apkrt_report_exit_status(report);
+        } else if (option == "--memory") {
+            const int memory = ::open(value.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+            if (memory < 0) {
+                std::fprintf(stderr, "apk-run: cannot open %s: %s\n", value.c_str(), std::strerror(errno));
+                return 2;
+            }
+            apkrt_report_memory_to(memory);
         } else {
             return usage();
         }

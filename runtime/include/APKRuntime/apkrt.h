@@ -146,6 +146,20 @@ void apkrt_report_exit_status(int descriptor);
 /// the measures afterwards, as the status.
 void apkrt_report_exit_measures(int descriptor);
 
+/// Game mode has the runtime write the process's memory watermark again and again to the file descriptor
+/// `descriptor`, overwriting one fixed-size block in place (pwrite at offset 0), once a second and at once on each
+/// memory-pressure warning, so the LAST block is on disk even when iOS ends the process for using too much memory,
+/// which leaves no exit status (the empty "ended without a status"). Four "<name> <value>\n" lines, each value
+/// right-justified in a fixed width (space-padded) so the block's size never changes, in this order:
+///   footprint   the physical footprint now, which iOS's memory limit counts, in bytes (TASK_VM_INFO phys_footprint)
+///   available   iOS only: os_proc_available_memory, the bytes left before the limit; 0 on the Mac
+///   peak        the peak physical footprint so far, in bytes (ledger_phys_footprint_peak)
+///   warning     1 once a memory-pressure warning has come (it stays 1 to the end), else 0
+/// The app empties and opens the file at game mode's start and reads it at the next start, beside last-session.status.
+/// -1 turns it off. Only numbers, never guest text (no path or package name). A first block is written at once, so
+/// even a program that ends within a second leaves one.
+void apkrt_report_memory_to(int descriptor);
+
 /// Called once when a guest program ends the process, also by a signal, after the end's log line, the exit status
 /// and the measures went out, before the process ends or the session's end handler runs: a host whose stderr goes
 /// through a pipe drains it here, so that the last lines, a crash's among them, reach where they go (ADR-0070). It
