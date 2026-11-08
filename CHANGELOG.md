@@ -101,11 +101,26 @@ All notable changes to Minato are documented in this file. The format follows
   configuration, NFC, MIDI, media projection and roles, and 32 more of Android's public classes load
 - An app that sets its own language with LocaleManager gets it at once, in its texts and its screens, and keeps it
   at its next start
-- Web and e-mail addresses in apps' texts become links where the app asks for them (Linkify), and apps that ask for
-  the text classifier get one, as on a phone without its model
+- Web and e-mail addresses and phone numbers in apps' texts become links where the app asks for them (Linkify), and
+  apps that ask for the text classifier get one, as on a phone without its model
 - Ren'Py games built on Python 2.7 get past ctypes' callbacks, which needed executable memory, through trampolines in
   Minato's signed code
 - Get Info says when an app's engine needs a JIT, which iOS does not allow
+- Swiping in from the left or right edge goes back in Android apps, as on Android, and puts the keyboard away first
+  when it is up
+- Apps whose text fields keep the keyboard up when you tap elsewhere get Apple's key that hides the keyboard in the
+  bar above it
+- Ogg Vorbis files open in MediaExtractor and decode through MediaCodec, as on Android 15
+- Media apps can run a MediaBrowserService with MediaBrowser, MediaSession and MediaController in their own process:
+  browsing, the session's state and its transport commands arrive as on Android 15
+- BiometricPrompt and BiometricManager: on an iPhone apps find no biometric hardware and take their fallback, as on a
+  phone without a fingerprint reader
+- Apps and libraries that ask for the fingerprint, grammatical inflection or print manager, the share action provider,
+  the quick settings tile service, the DRM client, DropBoxManager, Bluetooth GATT, AndroidX Security's keystore
+  classes or the backup helpers find them, with Android 15's answers for a phone without that hardware or service
+- Accessibility node, window and service infos, and the accessibility spans of styled text, are Android's own classes
+  instead of default answers
+- When an app crashes or ends itself, Report a Problem says where it happened
 
 ### Changed
 
@@ -136,6 +151,16 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps that allocate many objects of one size, as Ren'Py games do at their start, have twice the room for them
 - When an app ends with an error, its session log names the files it could not find and its last output, which
   Report a Problem includes
+- Tapping a notification of the app you were using opens what it points to right away, instead of showing Minato's
+  menu first
+- Selecting apps in the library is quicker, also with many apps: each tap does far less work, and icons are decoded
+  once and kept
+- Apps with scheduled jobs use less power while they wait: Minato's job runner wakes 2 times a minute instead of 236
+- Apps built on NativeActivity that bring their own Java code start with Android's full Java framework, so their calls
+  into Java answer as on Android
+- Jobs stop as on Android: a job the app cancels, replaces or clears with cancelAll gets Android's stop reason, and a
+  running job that loses its charging or battery constraint stops and starts again once it holds
+- ActivityOptions keeps the options an app sets and hands them on with Android's keys and values
 
 ### Fixed
 
@@ -177,3 +202,24 @@ All notable changes to Minato are documented in this file. The format follows
 - Ren'Py 7.8 games that need a lot of memory of one size start where the iPhone has the address space for it
 - An app no longer crashes while it closes when the network, the battery or a sensor reports a change at that moment
 - /sdcard and Android's other storage links resolve to their real folder in an app's canonical paths, as on Android
+- Memory that an app or game engine gives back is really freed, as on Android, so games that load and free a lot no
+  longer grow until iOS closes them
+- Apps that map a file of their APK or OBB at a 4 KB offset get the mapping instead of an error
+- Images that apps load as hardware bitmaps, as most image libraries and ImageDecoder do, are no longer invisible
+- Unity games that look up OpenGL ES 3 functions such as glGetStringi in libGLESv2.so no longer crash at their start
+- Games that cache their shaders, such as Unity games, no longer crash at their start when a cached shader is damaged;
+  the shader is built again, as on Android
+- Games with frame pacing, such as Unity games with Optimized Frame Pacing, get Android's EGL fence waits and frame
+  timestamps instead of errors
+- Unity IL2CPP libraries whose atomic loops use the x18 register import instead of being refused; installed apps are
+  converted again at their next start
+- A window takes one producer at a time, as on Android: an EGL or Vulkan surface on a window the app drew in software
+  is refused, instead of a black window
+- A text field at the bottom of an app's screen moves up above the keyboard, as on Android
+- A text dialog that asks for the keyboard when it opens, as many games' name dialogs do, gets it
+- The delete key works in an empty text field of a game, such as a name field in Ren'Py games
+- Apps that check whether they may write to the shared storage root get Android's no, so they use their own folders
+  instead of failing later
+- Swiping between Home, Library and Settings no longer leaves a black page, and a slow swipe past the middle goes on
+  to the next tab
+- In Select mode the library's bottom bar (Select All, Favorite, Delete) is no longer hidden behind the tab bar

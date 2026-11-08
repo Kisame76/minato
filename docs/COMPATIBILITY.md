@@ -90,9 +90,10 @@ Only what the project has evidence for is stated as working; "untested" means th
 
 - **Godot 4:** runs. Our Godot 4.7.2 test game runs with Vulkan (the Mobile renderer) and GLES (the Compatibility
   renderer) and reaches parity with its native iOS build.
-- **Unity with IL2CPP, built with clang 9 or newer:** untested. The native path, ES 3.1 and Vulkan are in place.
-- **Unity with IL2CPP, built with an older clang:** the Unity test APK is still "Incompatible", because some of
-  its `x18` forms have no island yet (ADR-0020).
+- **Unity with IL2CPP:** the Unity test APK imports and starts on the iPhone, also with IL2CPP libraries whose atomic
+  loops use `x18` (ADR-0020); the native path, ES 3.1 and Vulkan are in place. A large Unity game can still run out
+  of memory on the iPhone sooner than on Android: depth and multisample buffers take more graphics memory under Metal,
+  which is being worked on.
 - **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono builds for Android are
   32-bit only [inferred].
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
@@ -179,7 +180,7 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   through Android's Camera API; Camera2 and CameraX are not in yet.
 - Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added 32
   more, and the ones still missing are rare in apps. The text classifier answers as a phone without its model does, and
-  Linkify finds web and e-mail addresses but no phone numbers yet.
+  Linkify finds web and e-mail addresses and phone numbers.
 
 ## What does not work yet
 
