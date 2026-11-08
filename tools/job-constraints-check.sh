@@ -8,7 +8,8 @@
 # with Android 15's on apk-runner-35-bare (fixtures/expected/job-constraints-test.logcat, from
 # tools/android-reference.sh --app job-constraints-test): the stop reasons of a job that needs the device to charge
 # (6) and of ones that need a battery that is not low (5), the ones started again once the constraint holds, and the
-# one that is not because its onStopJob returned false. The run takes about 20 s.
+# one that is not because its onStopJob returned false; and that a lost network (20 s) stops no job. The run takes
+# about 60 s.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/job-constraints-check.sh
 set -euo pipefail
@@ -26,8 +27,9 @@ tools/build-framework-native.sh >/dev/null
 tools/build-framework.sh >/dev/null
 tools/build-java-test-app.sh job-constraints-test >/dev/null
 
-python3 framework/tests/java_app_run.py \
-  --lifecycle start,pause:3000,battery:100:1,battery:10:1,battery:10:2,battery:50:2 job-constraints-test \
+lifecycle=start,network:3,pause:3000,battery:100:1,battery:10:1,battery:10:2,battery:50:2,pause:3000
+lifecycle+=,network:0,pause:20000,network:3
+python3 framework/tests/java_app_run.py --lifecycle "$lifecycle" job-constraints-test \
   io.github.kisame76.minato.test.jobconstraints \
   io.github.kisame76.minato.test.jobconstraints.ConstraintsApplication build/art \
   build/bionic/lib build/bionic/system build/hwui/lib build/sources/icu/icu4c/source/stubdata/icudt75l.dat \

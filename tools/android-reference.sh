@@ -1453,6 +1453,14 @@ run_app() {
     # the charging job's start does not depend on how long the emulator has been charging.
     run dumpsys battery set ac 0 >/dev/null && run dumpsys battery set status 3 >/dev/null &&
       run dumpsys battery set level 100 >/dev/null || return 1
+    # The network on: an earlier run's airplane mode leaves Wi-Fi off on this emulator, and job 9 needs a network.
+    run cmd connectivity airplane-mode disable >/dev/null || true
+    run svc wifi enable >/dev/null || true
+    run svc data enable >/dev/null || true
+    for _ in $(seq 1 60); do
+      run dumpsys connectivity | grep -q 'Active default network: [0-9]' && break
+      sleep 1
+    done
   fi
   if [[ "$app" == battery-test ]]; then
     # The battery the run starts with, as apk-run's fixed one: 100 % charging on AC. BatteryService takes each value
@@ -1521,17 +1529,22 @@ run_app() {
     [[ "$stepped" == yes ]] || return 1
   fi
   if [[ "$app" == job-constraints-test ]]; then
-    # The jobs that lose a constraint: plugged in once jobs 2 and 3 run, then, when the charging job has started,
+    # The jobs that lose a constraint: plugged in once jobs 2, 3 and 9 run, then, when the charging job has started,
     # unplugged (AC off, then discharging), to 10 %, plugged in (AC on, then charging) and to 50 %, two seconds apart;
+    # then the airplane mode for twenty seconds, which does not stop the job that needs a network [measured: 20 s];
     # then BatteryService reads the emulator's battery again.
     local stepped=yes
-    { wait_for "$app" "jobs 2 and 3 run" 150 && sleep 1 &&
+    { wait_for "$app" "jobs 2, 3 and 9 run" 150 && sleep 1 &&
       run dumpsys battery set ac 1 >/dev/null && sleep 1 && run dumpsys battery set status 2 >/dev/null &&
       wait_for "$app" ready 240 && sleep 2 &&
       run dumpsys battery set ac 0 >/dev/null && sleep 1 && run dumpsys battery set status 3 >/dev/null && sleep 2 &&
       run dumpsys battery set level 10 >/dev/null && sleep 2 &&
       run dumpsys battery set ac 1 >/dev/null && sleep 1 && run dumpsys battery set status 2 >/dev/null && sleep 2 &&
-      run dumpsys battery set level 50 >/dev/null; } || stepped=no
+      run dumpsys battery set level 50 >/dev/null && sleep 3 &&
+      run cmd connectivity airplane-mode enable >/dev/null && sleep 20 &&
+      run cmd connectivity airplane-mode disable >/dev/null; } || stepped=no
+    run cmd connectivity airplane-mode disable >/dev/null
+    run svc wifi enable >/dev/null
     run dumpsys battery reset >/dev/null
     [[ "$stepped" == yes ]] || return 1
   fi

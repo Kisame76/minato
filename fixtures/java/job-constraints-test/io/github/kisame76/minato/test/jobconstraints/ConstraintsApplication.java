@@ -14,10 +14,11 @@ import java.util.List;
 
 /**
  * Jobs that lose a constraint while they run (gap 9 of the compatibility plan): job 1 needs the device to charge, job
- * 2 and job 3 a battery that is not low (jobs 4 to 8 only make five jobs ready). The test's host unplugs the device
- * at the start and plugs it in once jobs 2 and 3 run; after "ready" it unplugs it, takes the level to 10 %, plugs it
- * in and takes it to 50 %. A job stopped for the lost constraint gets onStopJob with its stop reason and, if it
- * returns true, is started again once the constraint holds; job 3 returns false and is not.
+ * 2 and job 3 a battery that is not low, job 9 a network (jobs 4 to 8 only make five jobs ready). The test's host
+ * unplugs the device at the start and plugs it in once jobs 2, 3 and 9 run; after "ready" it unplugs it, takes the
+ * level to 10 %, plugs it in, takes it to 50 % and then turns the network off and on. A job stopped for the lost
+ * constraint gets onStopJob with its stop reason and, if it returns true, is started again once the constraint
+ * holds; job 3 returns false and is not.
  */
 public class ConstraintsApplication extends Application {
     static final String TAG = "job-constraints-test";
@@ -25,7 +26,7 @@ public class ConstraintsApplication extends Application {
     private static final List<List<String>> PER_JOB = new ArrayList<>();
 
     static {
-        for (int id = 0; id <= 8; id++) {
+        for (int id = 0; id <= 9; id++) {
             PER_JOB.add(new ArrayList<>());
         }
     }
@@ -73,19 +74,20 @@ public class ConstraintsApplication extends Application {
         for (int id = 4; id <= 8; id++) {
             Log.i(TAG, "job " + id + ": " + mJobs.schedule(job(id).build()));
         }
+        Log.i(TAG, "job 9 network: " + mJobs.schedule(job(9).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).build()));
         mMain.postDelayed(this::poll, 200);
     }
 
     /**
-     * "jobs 2 and 3 run" once the jobs that need no charging have started; "ready" once job 1 has started too, which
-     * waits for the device to charge (the test's host plugs it in after the first line); the events before "ready" are
-     * dropped, so that the summary only has what the battery's steps cause. "done" 3 s after jobs 1 and 2 have started
-     * again, or 25 s after "ready".
+     * "jobs 2, 3 and 9 run" once the jobs that need no charging have started; "ready" once job 1 has started too,
+     * which waits for the device to charge (the test's host plugs it in after the first line); the events before
+     * "ready" are dropped, so that the summary only has what the host's steps cause. "done" 40 s after "ready", when
+     * the steps (the battery's, then the network's) are over.
      */
     private void poll() {
-        if (!mTwoRun && count("job 2 started") > 0 && count("job 3 started") > 0) {
+        if (!mTwoRun && count("job 2 started") > 0 && count("job 3 started") > 0 && count("job 9 started") > 0) {
             mTwoRun = true;
-            Log.i(TAG, "jobs 2 and 3 run");
+            Log.i(TAG, "jobs 2, 3 and 9 run");
         }
         if (mTwoRun && !mReady && count("job 1 started") > 0) {
             mReady = true;
@@ -98,16 +100,15 @@ public class ConstraintsApplication extends Application {
             mReadyAt = SystemClock.elapsedRealtime();
             Log.i(TAG, "ready");
         }
-        if (mReady && (SystemClock.elapsedRealtime() - mReadyAt > 25000 || count("job 1 started") > 0
-                && count("job 1 stopped") > 0 && count("job 2 started") > 0 && count("job 2 stopped") > 0)) {
-            mMain.postDelayed(this::summary, 3000);
+        if (mReady && SystemClock.elapsedRealtime() - mReadyAt > 40000) {
+            summary();
             return;
         }
         mMain.postDelayed(this::poll, 200);
     }
 
     private void summary() {
-        for (int id = 1; id <= 8; id++) {
+        for (int id = 1; id <= 9; id++) {
             synchronized (ConstraintsApplication.class) {
                 Log.i(TAG, "job " + id + ": " + PER_JOB.get(id));
             }
