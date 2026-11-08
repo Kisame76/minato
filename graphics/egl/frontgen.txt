@@ -16,6 +16,12 @@ hand eglGetDisplay eglGetPlatformDisplay eglCreateWindowSurface eglCreatePlatfor
 hand eglDestroySurface eglTerminate eglChooseConfig eglGetConfigAttrib eglSwapBuffers
 hand eglSwapBuffersWithDamageKHR eglGetProcAddress eglQueryString eglPresentationTimeANDROID
 hand eglClientWaitSync eglClientWaitSyncKHR
+# A server wait on a thread without a current context answers as Android's drivers do (engine-start-test).
+hand eglWaitSync eglWaitSyncKHR
+# EGL_ANDROID_get_frame_timestamps, as Android's libEGL implements it (timestamps.c), with eglSurfaceAttrib's
+# EGL_TIMESTAMPS_ANDROID and eglGetError, which answers the errors these leave.
+hand eglGetError eglSurfaceAttrib eglGetNextFrameIdANDROID eglGetFrameTimestampsANDROID
+hand eglGetFrameTimestampSupportedANDROID eglGetCompositorTimingANDROID eglGetCompositorTimingSupportedANDROID
 # ADR-0058 b): EGL images of AHardwareBuffers, by their IDs to graphics/host.
 hand eglGetNativeClientBufferANDROID eglCreateImageKHR eglCreateImage
 

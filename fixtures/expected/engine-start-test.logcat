@@ -1,0 +1,35 @@
+I/engine-start-test: an ES 3 config for windows and pbuffers: true
+I/engine-start-test: ES 3.2 context asked first: an answer Android allows true
+I/engine-start-test: ES 3.1 context asked first: an answer Android allows true
+I/engine-start-test: glGetString without a current context: NULL
+I/engine-start-test: ES 3.0 context after them: made true, current true, error EGL_SUCCESS
+I/engine-start-test: ES 3.0 context: GL_VERSION ES 3.0 or above true, GL_EXTENSIONS a string
+I/engine-start-test: shared context on a second thread: made true, current true
+I/engine-start-test: its texture read back here: true
+I/engine-start-test: client wait from the render thread: for 0 true, for 1 s true, forever true
+I/engine-start-test: client wait from the render thread, flushing: for 0 true, for 1 s true, forever true
+I/engine-start-test: eglWaitSyncKHR from the render thread: true, EGL_SUCCESS
+I/engine-start-test: its status from the render thread after the wait: signaled true
+I/engine-start-test: client wait from a thread without a context: for 0 true, for 1 s true, forever true
+I/engine-start-test: client wait from a thread without a context, flushing: for 0 true, for 1 s true, forever true
+I/engine-start-test: eglWaitSyncKHR from a thread without a context: true, EGL_SUCCESS
+I/engine-start-test: its status from a thread without a context after the wait: signaled true
+I/engine-start-test: client wait from a thread with another context: for 0 true, for 1 s true, forever true
+I/engine-start-test: client wait from a thread with another context, flushing: for 0 true, for 1 s true, forever true
+I/engine-start-test: eglWaitSyncKHR from a thread with another context: true, EGL_SUCCESS
+I/engine-start-test: its status from a thread with another context after the wait: signaled true
+I/engine-start-test: EGL_ANDROID_native_fence_sync: listed and its fd signals, or not listed: true
+I/engine-start-test: EGL_ANDROID_get_frame_timestamps listed: true
+I/engine-start-test: before they are enabled: eglGetNextFrameIdANDROID true, EGL_SUCCESS
+I/engine-start-test: before they are enabled: eglGetFrameTimestampsANDROID false, EGL_BAD_SURFACE
+I/engine-start-test: supported timestamps besides display present: requested present, rendering complete, composition latch, first composition start, last composition start, first composition GPU finished, dequeue ready, reads done
+I/engine-start-test: supported compositor timings: composite deadline, composite interval, composite to present latency
+I/engine-start-test: EGL_TIMESTAMPS_ANDROID set: true
+I/engine-start-test: frame IDs: got true, the next one after a swap is the one before plus 1 true
+I/engine-start-test: an earlier frame's timestamps: true, EGL_SUCCESS, rendering complete is a time or pending true
+I/engine-start-test: a future frame's timestamps: false, EGL_BAD_ACCESS
+I/engine-start-test: default display: found true, an exception false
+I/engine-start-test: default display: refresh rate > 0 true, app vsync offset >= 0 true, presentation deadline > 0 true
+I/engine-start-test: the APK's class through the activity's class loader: found true, an exception false
+I/engine-start-test: its native method: registered true, called with the refresh periods true, an exception false
+I/engine-start-test: done

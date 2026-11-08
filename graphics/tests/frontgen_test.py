@@ -47,7 +47,8 @@ import ndk_headers
 # ADR-0041 a1 adds libGLESv1_CM: 173 names beyond libGLESv2's and libGLESv3's, 169 the same in both ABIs and 4
 # with small arguments (glColor4ub, glDrawTexsOES, glSampleCoveragex, glSampleCoveragexOES), and the 7 outside.
 # ADR-0058 decision 7 writes vkCreateImage, vkDestroyImage, vkAllocateMemory, vkFreeMemory and
-# vkGetPhysicalDeviceImageFormatProperties2 by hand, and the five calls with barriers.
+# vkGetPhysicalDeviceImageFormatProperties2 by hand, and the five calls with barriers. libEGL writes eglWaitSync,
+# eglWaitSyncKHR, eglSurfaceAttrib and eglGetError by hand too (a server wait without a context, frame timestamps).
 ABI_COUNTS = {
     "gles": {"same": 589, "extend": 37, "repack": 8},
     "egl": {"same": 73},
@@ -55,7 +56,7 @@ ABI_COUNTS = {
 }
 KIND_COUNTS = {
     "gles": {"plain": 578, "extend": 37, "repack": 8, "by hand": 11},
-    "egl": {"plain": 55, "by hand": 18},
+    "egl": {"plain": 51, "by hand": 22},
     "vulkan": {"plain": 141, "without allocator": 41, "by hand": 51},
 }
 # ADR-0029, decision 14: the extensions the strings withhold by name, whatever their commands; and the

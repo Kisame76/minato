@@ -27,13 +27,13 @@ extern const int64_t minato_gles_no_driver[MINATO_GLES_TABLE_LENGTH] MINATO_HIDD
 extern const int64_t minato_egl_no_driver[MINATO_EGL_TABLE_LENGTH] MINATO_HIDDEN;
 extern int minato_vulkan_binding MINATO_HIDDEN, minato_gles_binding MINATO_HIDDEN, minato_egl_binding MINATO_HIDDEN;
 
-/* The stubs called here, with the NDK's C types written as their sizes. The functions that libvulkan and
-   libGLESv2 write by hand reach their host functions through minato_host_<name>. */
+/* The stubs called here, with the NDK's C types written as their sizes. The functions that libvulkan, libGLESv2 and
+   libEGL write by hand reach their host functions through minato_host_<name>. */
 int32_t minato_host_vkEnumerateInstanceVersion(uint32_t *version);
 int32_t minato_host_vkEnumerateInstanceLayerProperties(uint32_t *count, void *properties);
 const unsigned char *minato_host_glGetString(uint32_t name);
 uint32_t eglQueryAPI(void);
-int32_t eglGetError(void);
+int32_t minato_host_eglGetError(void);
 uint32_t glGetError(void);
 void glFlush(void);
 void glColorMask(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
@@ -68,7 +68,7 @@ static void calls(void) {
         printf("  vkEnumerateInstanceVersion %d (%u.%u), vkEnumerateInstanceLayerProperties %d (count %u)\n",
                enumerated, version >> 22, version >> 12 & 0x3ffu, listed, layers);
         const uint32_t api = eglQueryAPI();
-        printf("  eglQueryAPI 0x%x, eglGetError 0x%x\n", api, eglGetError());
+        printf("  eglQueryAPI 0x%x, eglGetError 0x%x\n", api, minato_host_eglGetError());
         glFlush();
         glColorMask(1, 1, 1, 1);                                     /* an extend stub */
         glBlitFramebuffer(0, 0, 1, 1, 0, 0, 1, 1, 0x4000, 0x2600);  /* repack: GL_COLOR_BUFFER_BIT, GL_NEAREST */

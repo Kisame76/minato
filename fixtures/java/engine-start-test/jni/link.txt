@@ -1,0 +1,4 @@
+android
+log
+EGL
+GLESv3

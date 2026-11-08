@@ -50,4 +50,17 @@ MINATO_HIDDEN void minato_queue_destroyed(EGLDisplay display, EGLSurface surface
 MINATO_HIDDEN void minato_queue_terminated(EGLDisplay display);
 MINATO_HIDDEN int minato_queue_presentation_time(EGLDisplay display, EGLSurface surface, int64_t time);
 
+/* Whether `surface` is a window surface of surface.c's on a host window (not a queue window's). */
+MINATO_HIDDEN int minato_window_surface(EGLDisplay display, EGLSurface surface);
+
+/* EGL_ANDROID_get_frame_timestamps (timestamps.c): eglPresentationTimeANDROID's time for the next frame; a swap's
+   fence, made on the swapping thread before ANGLE's swap while the surface's history is on (EGL_NO_SYNC_KHR
+   otherwise), and its record after the swap; a destroyed surface's history, or all of a display's for
+   EGL_NO_SURFACE. */
+MINATO_HIDDEN void minato_timestamps_presentation(EGLDisplay display, EGLSurface surface, int64_t time);
+MINATO_HIDDEN EGLSyncKHR minato_timestamps_before_swap(EGLDisplay display, EGLSurface surface);
+MINATO_HIDDEN void minato_timestamps_swapped(EGLDisplay display, EGLSurface surface, EGLSyncKHR sync,
+                                             EGLBoolean swapped);
+MINATO_HIDDEN void minato_timestamps_destroyed(EGLDisplay display, EGLSurface surface);
+
 #endif

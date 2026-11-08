@@ -18,7 +18,12 @@
      one.
      On a SurfaceTexture's queue window the time is the next frame's timestamp (queue.c).
    - eglClientWaitSync and eglClientWaitSyncKHR wait in slices of at most 10 ms, their flush is glFlush; a
-     reusable sync, on which ANGLE cannot wait, is asked without a wait between sleeps. */
+     reusable sync, on which ANGLE cannot wait, is asked without a wait between sleeps. On a thread without a
+     current context, where ANGLE's Metal backend refuses a client wait with EGL_BAD_CONTEXT and Android's drivers
+     wait (a frame pacer waits for its render thread's fences so), the sync's status is asked between the same
+     sleeps, and the flush bit has no context to flush. eglWaitSync and eglWaitSyncKHR answer EGL_TRUE there for a
+     sync that exists, as Android's drivers do (no context's commands to hold back), where ANGLE refuses with
+     EGL_BAD_MATCH. */
 #include <android/native_window.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -36,6 +41,8 @@ MINATO_HOST(eglQueryString);
 MINATO_HOST(eglPresentationTimeANDROID);
 MINATO_HOST(eglClientWaitSync);
 MINATO_HOST(eglClientWaitSyncKHR);
+MINATO_HOST(eglWaitSync);
+MINATO_HOST(eglWaitSyncKHR);
 
 static EGLDisplay metal_display(void) {
     static const EGLAttrib metal[] = MINATO_EGL_METAL_DISPLAY;
@@ -163,7 +170,8 @@ static int is_withheld(const char *name, size_t length) {
 
 /* The extensions libEGL adds to a string: the client's, and a display's. */
 static const char *const client_added[] = {PLATFORM_ANDROID};
-static const char *const display_added[] = {"EGL_ANDROID_get_native_client_buffer", "EGL_ANDROID_image_native_buffer"};
+static const char *const display_added[] = {"EGL_ANDROID_get_native_client_buffer", "EGL_ANDROID_image_native_buffer",
+                                             "EGL_ANDROID_get_frame_timestamps"};
 
 /* One of ANGLE's extension strings and what is kept of it, for the process's life: displays and their
    strings are few. */
@@ -266,6 +274,7 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *name) {
 }
 
 EGLBoolean eglPresentationTimeANDROID(EGLDisplay display, EGLSurface surface, EGLnsecsANDROID time) {
+    minato_timestamps_presentation(display, surface, time);
     if (minato_queue_presentation_time(display, surface, time)) {
         return EGL_TRUE;  // the next frame's timestamp on a SurfaceTexture's queue (queue.c)
     }
@@ -301,12 +310,37 @@ static void flush(void) {
     }
 }
 
+/* A client wait without a current context: the sync's status until it is signaled or the timeout ends, with
+   sleeps of 64 us growing to 1 ms between; EGL_FALSE, with the status query's error, for a sync it cannot ask. */
+static EGLint status_wait(EGLDisplay display, EGLSyncKHR sync, uint64_t start, uint64_t timeout) {
+    for (uint64_t pause = 64000;; pause = pause < 1000000 ? 2 * pause : pause) {
+        EGLint status = 0;
+        if (!eglGetSyncAttribKHR(display, sync, EGL_SYNC_STATUS_KHR, &status)) {
+            return EGL_FALSE;
+        }
+        if (status == EGL_SIGNALED_KHR) {
+            return EGL_CONDITION_SATISFIED_KHR;
+        }
+        const uint64_t waited = now_ns() - start, left = waited < timeout ? timeout - waited : 0;
+        if (left == 0) {
+            return EGL_TIMEOUT_EXPIRED_KHR;
+        }
+        const uint64_t sleep = pause < left ? pause : left;
+        const struct timespec time = {(time_t)(sleep / 1000000000u), (long)(sleep % 1000000000u)};
+        nanosleep(&time, NULL);
+    }
+}
+
 /* In slices of at most 10 ms, with a return to guest code between them (ADR-0030, decision 4); a timeout of
    one slice or less goes as it is. Once the sync is not signaled already, the flush is glFlush. A reusable
-   sync is asked without a wait, with sleeps of 64 us growing to 1 ms between. */
+   sync is asked without a wait, with sleeps of 64 us growing to 1 ms between. Without a current context, the
+   status is asked (status_wait). */
 #define SLICED(name, sync_type, time_type)                                                                        \
     EGLint name(EGLDisplay display, sync_type sync, EGLint flags, time_type timeout) {                            \
         const uint64_t start = now_ns();                                                                          \
+        if (eglGetCurrentContext() == EGL_NO_CONTEXT) {                                                           \
+            return status_wait(display, (EGLSyncKHR)sync, start, (uint64_t)timeout);                              \
+        }                                                                                                         \
         if (flags & EGL_SYNC_FLUSH_COMMANDS_BIT_KHR) {                                                            \
             flags &= ~EGL_SYNC_FLUSH_COMMANDS_BIT_KHR;                                                            \
             const EGLint now = minato_host_##name(display, sync, flags, 0);                                       \
@@ -333,3 +367,21 @@ static void flush(void) {
 SLICED(eglClientWaitSync, EGLSync, EGLTime)
 SLICED(eglClientWaitSyncKHR, EGLSyncKHR, EGLTimeKHR)
 #undef SLICED
+
+/* A server wait: on a thread without a current context EGL_TRUE for a sync whose status can be asked (its error
+   otherwise), else ANGLE's. */
+EGLBoolean eglWaitSync(EGLDisplay display, EGLSync sync, EGLint flags) {
+    EGLint status = 0;
+    if (eglGetCurrentContext() == EGL_NO_CONTEXT) {
+        return eglGetSyncAttribKHR(display, (EGLSyncKHR)sync, EGL_SYNC_STATUS_KHR, &status);
+    }
+    return minato_host_eglWaitSync(display, sync, flags);
+}
+
+EGLint eglWaitSyncKHR(EGLDisplay display, EGLSyncKHR sync, EGLint flags) {
+    EGLint status = 0;
+    if (eglGetCurrentContext() == EGL_NO_CONTEXT) {
+        return eglGetSyncAttribKHR(display, sync, EGL_SYNC_STATUS_KHR, &status);
+    }
+    return minato_host_eglWaitSyncKHR(display, sync, flags);
+}

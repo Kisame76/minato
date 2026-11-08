@@ -213,6 +213,7 @@ target_compile_definitions(gles-procs-measure PRIVATE GLES_PROCS_MEASURE)
 set(egl "${graphics}/egl")
 set(gles "${graphics}/gles")
 add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/image.c" "${egl}/queue.c" "${egl}/procs.c"
+  "${egl}/timestamps.c"
   "${gen}/egl_stubs.S" "${gen}/egl_bind.c")
 # AHardwareBuffer_getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato resolve.
 set_source_files_properties("${egl}/image.c" PROPERTIES COMPILE_DEFINITIONS __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__

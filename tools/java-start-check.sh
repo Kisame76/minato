@@ -63,9 +63,11 @@
 # Vulkan needs MoltenVK, which the Simulator lacks: VK_ANDROID_external_memory_android_hardware_buffer's import and
 # export on the iPhone's IOSurfaces. gles-procs-test runs on the iPhone only too, a NativeActivity app of
 # tools/build-fixtures.sh: which GLES, EGL and Vulkan functions an app finds by dlsym, eglGetProcAddress and
-# vk*ProcAddr, against Android 15's measurement (graphics/tests/gles_procs_android.txt). media-codec-test and
-# media-window-test (ADR-0060 e2c) run on the iPhone only too, against Android 15's lines, and media-bench-test,
-# Minato's measurement at 1080p and 4K (its lines shown, Home twice).
+# vk*ProcAddr, against Android 15's measurement (graphics/tests/gles_procs_android.txt); engine-start-test too, a game
+# engine's start past those lookups (contexts from ES 3.2 down, a shared context, frame
+# timestamps, a frame pacer's fence wait and display timing; the Mac's tools/engine-start-check.sh).
+# media-codec-test and media-window-test (ADR-0060 e2c) run on the iPhone only too, against Android 15's lines, and
+# media-bench-test, Minato's measurement at 1080p and 4K (its lines shown, Home twice).
 # Usage: tools/java-start-check.sh [--device] [simulator or iPhone name or identifier]
 # Optional environment:
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
@@ -218,6 +220,7 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ -z "$GODOT_TEST" ]] || APPS+=("godot-bench-gles io.github.kisame76.minato.godotbench.gles")
 [[ "$ON_DEVICE" == no ]] || APPS+=("vk-ahb-test io.github.kisame76.minato.test.vkahb")
 [[ "$ON_DEVICE" == no ]] || APPS+=("gles-procs-test io.github.kisame76.minato.test.glesprocs")
+[[ "$ON_DEVICE" == no ]] || APPS+=("engine-start-test io.github.kisame76.minato.test.enginestart")
 # ADR-0060 e2c's decoder apps on the iPhone only, on its hardware VideoToolbox (the Mac has checks of their own).
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-codec-test io.github.kisame76.minato.test.mediacodec")
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-bench-test io.github.kisame76.minato.test.mediabench")
@@ -1512,6 +1515,7 @@ fi
 # On the iPhone only, as its APPS entry (the Simulator has no MoltenVK).
 [[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
 [[ "$ON_DEVICE" == no ]] || run_one gles-procs-test io.github.kisame76.minato.test.glesprocs
+[[ "$ON_DEVICE" == no ]] || run_one engine-start-test io.github.kisame76.minato.test.enginestart
 [[ "$ON_DEVICE" == no ]] || run_one media-codec-test io.github.kisame76.minato.test.mediacodec
 [[ "$ON_DEVICE" == no ]] || ! wanted media-bench-test || run_media_bench
 [[ "$ON_DEVICE" == no ]] || run_one media-window-test io.github.kisame76.minato.test.mediawindow

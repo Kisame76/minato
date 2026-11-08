@@ -197,6 +197,7 @@ static void release(EGLDisplay display, EGLSurface surface) {
         }
     }
     pthread_mutex_unlock(&lock);
+    minato_timestamps_destroyed(display, surface);
     while (gone != NULL) {
         struct window_surface *next = gone->next;
         minato_window_disconnect(gone->window);
@@ -218,6 +219,16 @@ EGLBoolean eglDestroySurface(EGLDisplay display, EGLSurface surface) {
 void minato_release_windows(EGLDisplay display) {
     release(display, EGL_NO_SURFACE);
     minato_queue_terminated(display);
+}
+
+int minato_window_surface(EGLDisplay display, EGLSurface surface) {
+    int found = 0;
+    pthread_mutex_lock(&lock);
+    for (const struct window_surface *entry = surfaces; entry != NULL && !found; entry = entry->next) {
+        found = entry->display == display && entry->surface == surface;
+    }
+    pthread_mutex_unlock(&lock);
+    return found;
 }
 
 /* A copy of a window surface's record; 0 for any other surface. */
@@ -294,7 +305,9 @@ static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
         minato_bad_native_window(display, record.config);
         return EGL_FALSE;
     }
+    const EGLSyncKHR sync = minato_timestamps_before_swap(display, surface);
     const EGLBoolean result = minato_host_eglSwapBuffers(display, surface);
+    minato_timestamps_swapped(display, surface, sync, result);
     if (result) {
         follow(display, surface, &record);
     }

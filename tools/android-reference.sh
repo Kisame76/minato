@@ -1251,6 +1251,11 @@ run_app() {
     native-ime-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
       ;;
+    # engine-start-test (a game engine's start, past the lookups): its worker's EGL, GLES and display probes, from the
+    # window's first focus to "done".
+    engine-start-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      ;;
     # native-jni-ime-test (ADR-0069 step 1): a NativeActivity that opens the keyboard through JNI, which its fixture
     # input method types into; then, as for native-ime-test, B and DEL from outside, and "done".
     native-jni-ime-test)
