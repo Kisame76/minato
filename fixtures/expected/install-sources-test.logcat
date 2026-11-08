@@ -1,3 +1,5 @@
 I/install-sources-test: canRequestPackageInstalls: false
 I/install-sources-test: settings page resolves: true
+I/install-sources-test: install intent resolves: true
+I/install-sources-test: view intent resolves: true
 I/install-sources-test: done
