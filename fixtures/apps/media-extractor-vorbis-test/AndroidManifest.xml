@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gap 13's test of MediaExtractor and MediaCodec on Ogg Vorbis (media-extractor-vorbis-test): two stereo Ogg Vorbis
+     files (assets/vorbis.ogg at 22050 Hz and assets/vorbis-long.ogg at 44100 Hz, those of media-player-ogg-test)
+     through their descriptors and through MediaDataSources, their track formats with the codec-specific data, samples
+     and seeks, and their samples decoded by MediaCodec, which is also asked for by name and listed in MediaCodecList.
+     aapt stores .ogg, so that each opens as a descriptor (openFd). The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.mediaextractorvorbis" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <application android:label="Media Extractor Vorbis Test"
+      android:name="io.github.kisame76.minato.test.mediaextractorvorbis.ExtractorVorbisApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

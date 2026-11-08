@@ -215,10 +215,31 @@ TEST(a_packet_across_pages_is_one_packet) {
     CHECK(got.size() == 1 && got[0].data == long_packet);
 }
 
-TEST(vorbis_is_refused_and_another_stream_has_no_track) {
+// Gap 13: media-player-ogg-test's tone.ogg (Ogg Vorbis, stereo, 22050 Hz, 7 audio packets on one page of 5568 samples)
+// as OggExtractor reads it [verified: media-extractor-vorbis-test on Android 15]: the packets' times, the 4 bytes
+// that follow each (the page's samples after its first packet, else -1) and the format.
+TEST(vorbis_file_has_its_track_and_times) {
+    Opened opened(file_bytes("tone.ogg"), true);
+    CHECK(opened.kind == ogg::Kind::kVorbis && opened.reader != nullptr);
+    const ogg::Format &format = ogg::format(opened.reader);
+    CHECK(format.vorbis && format.channels == 2 && format.sample_rate == 22050 && format.head_size == 30);
+    CHECK(format.head[0] == 1 && format.setup != nullptr && format.setup[0] == 5);
+    const std::vector<Read> got = packets(opened.reader);
+    const int64_t times[] = {0, 0, 46439, 92879, 139319, 185759, 232199};
+    const size_t sizes[] = {241, 79, 88, 86, 89, 233, 264};
+    CHECK(got.size() == 7);
+    for (size_t i = 0; i < got.size() && i < 7; i++) {
+        CHECK(got[i].time_us == times[i] && got[i].data.size() == sizes[i]);
+        int32_t after;
+        std::memcpy(&after, &got[i].data[got[i].data.size() - 4], 4);
+        CHECK(after == (i == 0 ? 5568 : -1));
+    }
+}
+
+TEST(a_broken_vorbis_stream_and_another_stream_have_no_track) {
     Bytes vorbis;
     page(vorbis, 2, 0, 0, {Bytes{1, 'v', 'o', 'r', 'b', 'i', 's', 0, 0, 0, 0}});
-    CHECK(Opened(vorbis, true).kind == ogg::Kind::kVorbis);
+    CHECK(Opened(vorbis, true).kind == ogg::Kind::kNoTrack);
     Bytes other;
     page(other, 2, 0, 0, {Bytes{'X', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0}});
     page(other, 0, 0, 1, {opus_tags()});

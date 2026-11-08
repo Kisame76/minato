@@ -217,9 +217,10 @@ if(APK_HOST_BUILD)
   set_tests_properties(runtime.mp4_extractor_sweep PROPERTIES TIMEOUT 120)
 
   # ADR-0060 e2: libmediandk's Ogg Opus reader on the host, with ASan, on media-player-ogg-test's Ogg Opus files and
-  # files of pages it builds, and every changed and cut mono file.
-  add_executable(ogg_extractor_test tests/ogg_extractor_test.cpp android/ogg_extractor.cpp)
-  target_include_directories(ogg_extractor_test PRIVATE android)
+  # files of pages it builds, and every changed and cut mono file; with its Ogg Vorbis reader (gap 13) over stb_vorbis
+  # (tools/fetch-sources.py).
+  add_executable(ogg_extractor_test tests/ogg_extractor_test.cpp android/ogg_extractor.cpp android/vorbis_codec.c)
+  target_include_directories(ogg_extractor_test PRIVATE android "${PROJECT_SOURCE_DIR}/build/sources/stb_vorbis")
   target_compile_definitions(ogg_extractor_test PRIVATE
     OGG_DIR="${PROJECT_SOURCE_DIR}/fixtures/apps/media-player-ogg-test/assets")
   target_link_libraries(ogg_extractor_test PRIVATE apk_defaults apk_testing)

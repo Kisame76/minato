@@ -66,6 +66,17 @@
         "tools/fs_config/fs_config_generator.py"
       ],
       "digest": "579c68b6515583a5c1fd8c4f291fad7422d18a3c2aa8e93ff988937df55510b3"
+    },
+    {
+      "name": "stb_vorbis",
+      "raw": "https://raw.githubusercontent.com/nothings/stb/1ee679ca2ef753a528db5ba6801e1067b40481b8",
+      "commit": "1ee679ca2ef753a528db5ba6801e1067b40481b8",
+      "license": "MIT or public domain (stb_vorbis.c, version 1.22)",
+      "files": [
+        "LICENSE",
+        "stb_vorbis.c"
+      ],
+      "digest": "48b076edbcdfe7dd0448a9647001a8b0ca58f6e460bc8e899b0f5b58b3a26597"
     }
   ],
   "art": [

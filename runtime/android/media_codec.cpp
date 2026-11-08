@@ -77,6 +77,13 @@
 //   whose frames are all discarded gives no output buffer, as C2SoftOpusDec's empty work. A packet libopus refuses
 //   (no frames, more than 120 ms) and a configuration it refuses are the codec's error. Input buffers of 5760 bytes;
 //   the output format is the decoder's 48000 Hz and OpusHead's channels, with configure's channel mask.
+// - Vorbis (gap 13), as Android 15's C2SoftVorbisDec [verified: media-extractor-vorbis-test]: c2.android.vorbis.decoder
+//   and OMX.google.vorbis.decoder, decoded in the guest by stb_vorbis (vorbis_codec.h): its first two units, from csd-0
+//   and csd-1 or queued, flagged or not, are the identification and the setup header; every packet after them ends in
+//   the 4 bytes of its page's sample count (OggExtractor's), which cut the frames of the page's last packet; the first
+//   packet after a start or a flush gives no frames and so no output buffer. The output format is the stream's rate
+//   and channels, with configure's channel mask. Named limit: stb_vorbis decodes streams of up to 16 channels; where
+//   Android's libvorbis decodes 8, the same channels come out here.
 // - After an error has reached the app, stop and flush answer AMEDIA_ERROR_INVALID_OPERATION (Android's error state)
 //   [verified: media-codec-opus-test]; the delete still ends the codec.
 // Bionic's C library and pthreads alone, as the rest of runtime/android: no C++ library.
@@ -97,6 +104,7 @@
 #include "APKRuntime/buffer_queue.h"
 #include "APKRuntime/guest_interface.h"
 #include "APKRuntime/media_codec.h"
+#include "vorbis_codec.h"
 
 // libm's (its math.h clashes with the NDK's float.h here).
 extern "C" double pow(double, double);
@@ -165,6 +173,7 @@ constexpr char kMp3Type[] = "audio/mpeg", kMp3Decoder[] = "c2.android.mp3.decode
 constexpr char kFlacType[] = "audio/flac", kFlacDecoder[] = "c2.android.flac.decoder";
 constexpr char kRawType[] = "audio/raw", kRawDecoder[] = "c2.android.raw.decoder";
 constexpr char kOpusType[] = "audio/opus", kOpusDecoder[] = "c2.android.opus.decoder";
+constexpr char kVorbisType[] = "audio/vorbis", kVorbisDecoder[] = "c2.android.vorbis.decoder";
 
 const minato_media_codec_info kCodecs[] = {
     {"c2.apple.avc.decoder", "video/avc", 0, 1, "c2.apple.avc.decoder", 1},
@@ -179,10 +188,14 @@ const minato_media_codec_info kCodecs[] = {
     {"OMX.google.raw.decoder", kRawType, 0, 0, kRawDecoder, 0},
     {kOpusDecoder, kOpusType, 0, 0, kOpusDecoder, 0},
     {"OMX.google.opus.decoder", kOpusType, 0, 0, kOpusDecoder, 0},
+    {kVorbisDecoder, kVorbisType, 0, 0, kVorbisDecoder, 0},
+    {"OMX.google.vorbis.decoder", kVorbisType, 0, 0, kVorbisDecoder, 0},
 };
 
 /// Raw's type of ours, beside the host's audio codec types: its samples are copied in the guest.
 constexpr uint32_t kRawCodec = 0x100;
+/// Vorbis's too: its packets are decoded in the guest, by stb_vorbis (vorbis_codec.h).
+constexpr uint32_t kVorbisCodec = 0x101;
 /// android.media.AudioFormat's PCM encodings.
 constexpr int32_t kPcm16 = 2, kPcm8 = 3, kPcmFloat = 4, kPcm24Packed = 21, kPcm32 = 22;
 /// The frames of C2SoftMp3Dec's decoder delay, which it cuts from the start and adds as silence at the end.
@@ -205,6 +218,7 @@ uint32_t audio_type(const char *type) {
     if (strcasecmp(type, kMp3Type) == 0) return APKRT_AUDIO_CODEC_MP3;
     if (strcasecmp(type, kFlacType) == 0) return APKRT_AUDIO_CODEC_FLAC;
     if (strcasecmp(type, kOpusType) == 0) return APKRT_AUDIO_CODEC_OPUS;
+    if (strcasecmp(type, kVorbisType) == 0) return kVorbisCodec;
     return strcasecmp(type, kRawType) == 0 ? kRawCodec : 0;
 }
 
@@ -453,11 +467,15 @@ struct AMediaCodec {
     bool stuck;                       // FLAC: a frame the host could not decode since the start or a flush
     bool announce;                    // FLAC, Opus: the configuration's format due with the next buffer, frames or not
     int64_t anchor_us;                // MP3: the time of the first unit since the start or a flush
-    Bytes later_csd[2];               // Opus: configure's csd-1 and csd-2, queued after csd-0 at the start
+    Bytes later_csd[2];               // Opus: configure's csd-1 and csd-2, queued after csd-0 at the start; Vorbis: csd-1
     uint32_t opus_configs;            // Opus: the configuration units taken since the start, up to 3
     int64_t opus_delay, opus_pre_roll, opus_discard;  // Opus: the frames to discard at time 0, after a flush, now
     int16_t opus_gain;                // Opus: OpusHead's output gain, in 1/256 dB
     uint64_t processed;               // MP3: the frames given since then
+    apk_vorbis *vorbis;               // Vorbis: the decoder, from its second configuration unit on
+    Bytes vorbis_ident;               // Vorbis: the identification header, kept until the setup header comes
+    uint32_t vorbis_configs;          // Vorbis: the configuration units taken since the start, up to 2
+    int32_t vorbis_left;              // Vorbis: the frames left on the page of the packet, -1 for none known
     // Asynchronous mode.
     AMediaCodecOnAsyncNotifyCallback callbacks;
     void *userdata;
@@ -658,6 +676,47 @@ bool opus_config(AMediaCodec *codec, const uint8_t *data, size_t size) {
     return true;
 }
 
+/// A Vorbis configuration unit, taken as C2SoftVorbisDec takes the first two units it is given, with the codec's lock
+/// held: the identification header, then the setup header, which makes the decoder.
+bool vorbis_config(AMediaCodec *codec, const uint8_t *data, size_t size) {
+    if (codec->vorbis_configs == 0) {
+        if (!resize(&codec->vorbis_ident, size)) return false;
+        memcpy(codec->vorbis_ident.data, data, size);
+        codec->vorbis_configs = 1;
+        return true;
+    }
+    codec->vorbis = apk_vorbis_open(codec->vorbis_ident.data, codec->vorbis_ident.size, data, size);
+    if (codec->vorbis == nullptr) return false;
+    codec->vorbis_configs = 2;
+    codec->channels = static_cast<uint32_t>(apk_vorbis_channels(codec->vorbis));
+    codec->decoded = AudioShape{apk_vorbis_rate(codec->vorbis), static_cast<int32_t>(codec->channels), 0};
+    // C2SoftVorbisDec's configuration update, which the next buffer brings, frames or not.
+    codec->announce = true;
+    return true;
+}
+
+/// One Vorbis packet's frames into the codec's pcm, as C2SoftVorbisDec gives them, with the codec's lock held: the
+/// packet ends in the 4 bytes of its page's sample count (OggExtractor's numPageSamples, -1 for a packet that is not
+/// the first of its page), and the frames after the page's are cut; the first packet after a start or a flush gives
+/// none. -1 for a packet the decoder refuses.
+long vorbis_unit(AMediaCodec *codec, const Unit &unit) {
+    if (codec->vorbis == nullptr || unit.bytes.size < 4) return -1;
+    const size_t size = unit.bytes.size - 4;
+    int32_t page = 0;
+    memcpy(&page, unit.bytes.data + size, 4);
+    if (page >= 0) codec->vorbis_left = page;
+    constexpr size_t kMostFrames = 8192;
+    if (!resize(&codec->pcm, kMostFrames * codec->channels * 2)) return -1;
+    int frames = apk_vorbis_decode(codec->vorbis, unit.bytes.data, size, reinterpret_cast<int16_t *>(codec->pcm.data),
+                                   kMostFrames);
+    if (frames < 0) return -1;
+    if (codec->vorbis_left >= 0) {
+        if (frames > codec->vorbis_left) frames = codec->vorbis_left;
+        codec->vorbis_left -= frames;
+    }
+    return frames;
+}
+
 /// One unit decoded by the host at `at` frames into the codec's pcm, with the codec's lock held: the frames it
 /// gave, or -1 for an error.
 long decode_unit(AMediaCodec *codec, const uint8_t *data, size_t size, size_t at) {
@@ -834,6 +893,7 @@ long unit_frames(AMediaCodec *codec, const Unit &unit, int64_t *time_us) {
     }
     if (unit.bytes.size == 0) return 0;
     if (codec->type == APKRT_AUDIO_CODEC_OPUS) return opus_unit(codec, unit);
+    if (codec->type == kVorbisCodec) return vorbis_unit(codec, unit);
     if (codec->type == APKRT_AUDIO_CODEC_FLAC && codec->stuck) return 0;
     const long frames = decode_unit(codec, unit.bytes.data, unit.bytes.size, 0);
     if (codec->type != APKRT_AUDIO_CODEC_FLAC) return frames;
@@ -867,11 +927,14 @@ void retrim(AMediaCodec *codec) {
 void push_audio(AMediaCodec *codec) {
     while (codec->waiting_count > 0 && codec->error == AMEDIA_OK && !codec->ended) {
         Unit &unit = codec->waiting[codec->waiting_head];
-        if (codec->type == APKRT_AUDIO_CODEC_OPUS && unit.bytes.size > 0 &&
-            (codec->opus_configs < 3 || (unit.flags & kUnitConfig) != 0)) {
-            // C2SoftOpusDec takes its first three units as its configuration, flagged or not, and ignores a flagged
-            // one after them.
-            if (codec->opus_configs < 3 && !opus_config(codec, unit.bytes.data, unit.bytes.size)) {
+        const bool vorbis = codec->type == kVorbisCodec;
+        const uint32_t taken = vorbis ? codec->vorbis_configs : codec->opus_configs, wanted = vorbis ? 2 : 3;
+        if ((codec->type == APKRT_AUDIO_CODEC_OPUS || vorbis) && unit.bytes.size > 0 &&
+            (taken < wanted || (unit.flags & kUnitConfig) != 0)) {
+            // C2SoftOpusDec takes its first three units as its configuration, C2SoftVorbisDec its first two, flagged
+            // or not, and each ignores a flagged one after them.
+            if (taken < wanted && !(vorbis ? vorbis_config(codec, unit.bytes.data, unit.bytes.size)
+                                           : opus_config(codec, unit.bytes.data, unit.bytes.size))) {
                 codec->error = AMEDIA_ERROR_UNKNOWN;
                 return;
             }
@@ -915,8 +978,8 @@ void push_audio(AMediaCodec *codec) {
             if (split) unit.flags &= ~uint32_t{APKRT_VIDEO_DECODER_END_OF_STREAM};
             int64_t time_us = 0;
             const long frames = unit_frames(codec, unit, &time_us);
-            // An Opus packet whose frames were all discarded gives no buffer, as C2SoftOpusDec's empty work.
-            if (codec->type == APKRT_AUDIO_CODEC_OPUS && frames == 0 &&
+            // An Opus or Vorbis packet whose frames were all discarded gives no buffer, as the decoders' empty work.
+            if ((codec->type == APKRT_AUDIO_CODEC_OPUS || codec->type == kVorbisCodec) && frames == 0 &&
                 (unit.flags & APKRT_VIDEO_DECODER_END_OF_STREAM) == 0) {
                 if (split) {
                     unit.bytes.size = 0;
@@ -1058,6 +1121,8 @@ void stop_thread(AMediaCodec *codec) {
 
 void end_decoder(AMediaCodec *codec) {
     if (codec->decoder != 0 && codec->audio) audio_call(APKRT_AUDIO_CODEC_DESTROY, codec->decoder);
+    apk_vorbis_close(codec->vorbis);
+    codec->vorbis = nullptr;
     if (codec->decoder != 0 && !codec->audio) video_call(APKRT_VIDEO_DECODER_DESTROY, codec->decoder);
     codec->decoder = 0;
     drop_buffers(codec);
@@ -1258,7 +1323,7 @@ media_status_t configure_audio(AMediaCodec *codec, AMediaFormat *asked) {
         Bytes &later = codec->later_csd[n];
         later.size = 0;
         const bool before = n == 0 ? codec->codec_data.size > 0 : codec->later_csd[0].size > 0;
-        if (codec->type != APKRT_AUDIO_CODEC_OPUS || !before ||
+        if ((codec->type != APKRT_AUDIO_CODEC_OPUS && (codec->type != kVorbisCodec || n != 0)) || !before ||
             !AMediaFormat_getBuffer(asked, n == 0 ? AMEDIAFORMAT_KEY_CSD_1 : AMEDIAFORMAT_KEY_CSD_2, &data, &size) ||
             size == 0) {
             continue;
@@ -1329,6 +1394,21 @@ media_status_t start_audio(AMediaCodec *codec) {
         codec->channels = static_cast<uint32_t>(codec->configured.channels);
         codec->decoded = codec->configured;
     }
+    if (codec->type == kVorbisCodec) {
+        apk_vorbis_close(codec->vorbis);
+        codec->vorbis = nullptr;
+        codec->vorbis_configs = 0;
+        codec->vorbis_left = -1;
+        codec->announce = false;
+        const Bytes *configs[] = {&codec->codec_data, &codec->later_csd[0]};
+        for (const Bytes *config : configs) {
+            if (config->data == nullptr || config->size == 0) break;
+            if (!vorbis_config(codec, config->data, config->size)) {
+                codec->error = AMEDIA_ERROR_UNKNOWN;
+                break;
+            }
+        }
+    }
     if (codec->type == APKRT_AUDIO_CODEC_OPUS) {
         codec->opus_configs = 0;
         codec->opus_delay = codec->opus_pre_roll = codec->opus_discard = 0;
@@ -1370,6 +1450,9 @@ media_status_t flush_audio(AMediaCodec *codec) {
     codec->processed = 0;
     // C2SoftOpusDec's onFlush_sm: the seek pre-roll's frames are discarded after a flush.
     if (codec->type == APKRT_AUDIO_CODEC_OPUS && codec->decoder != 0) codec->opus_discard = codec->opus_pre_roll;
+    // C2SoftVorbisDec's onFlush: the decoder restarts, and no page's frames are left.
+    if (codec->vorbis != nullptr) apk_vorbis_reset(codec->vorbis);
+    codec->vorbis_left = -1;
     if (!codec->told_decoded) {
         Output &output = codec->outputs[0];
         output.format = audio_format(codec, codec->configured);
@@ -1451,6 +1534,8 @@ media_status_t AMediaCodec_delete(AMediaCodec *codec) {
     pthread_mutex_unlock(&codec->mutex);
     AMediaFormat_delete(codec->input_format);
     AMediaFormat_delete(codec->output_format);
+    apk_vorbis_close(codec->vorbis);
+    free(codec->vorbis_ident.data);
     free(codec->codec_data.data);
     for (auto &later : codec->later_csd) free(later.data);
     free(codec->pcm.data);

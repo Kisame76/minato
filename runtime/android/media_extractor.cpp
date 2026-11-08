@@ -198,15 +198,15 @@ bool legacy_sniff(const mp4::Source &source) {
 }
 
 // The source taken: the sniff, then the parse (initMediaExtractor and the extractor's readMetaData). MPEG4Extractor's
-// sniffers first, then OggExtractor's ("OggS" at the start): Ogg Opus has its track, another Ogg none; Ogg Vorbis is
-// refused as a source no sniff takes (named limit: Vorbis waits for its decoder).
+// sniffers first, then OggExtractor's ("OggS" at the start): Ogg Opus and Ogg Vorbis have their track, another Ogg
+// none.
 media_status_t open_source(AMediaExtractor *extractor) {
     if (!better_sniff(extractor->source) && !legacy_sniff(extractor->source)) {
         minato::ogg::Kind kind = minato::ogg::Kind::kNotOgg;
         if (minato::ogg::open(extractor->source, extractor->sized, &kind, &extractor->ogg) != 0) {
             return AMEDIA_ERROR_UNKNOWN;
         }
-        if (kind == minato::ogg::Kind::kNotOgg || kind == minato::ogg::Kind::kVorbis) return AMEDIA_ERROR_UNKNOWN;
+        if (kind == minato::ogg::Kind::kNotOgg) return AMEDIA_ERROR_UNKNOWN;
         extractor->opened = true;
         extractor->ogg_file = true;
         extractor->parsed = extractor->ogg != nullptr;
@@ -422,6 +422,19 @@ void track_format(AMediaFormat *format, const mp4::Track &track) {
 // with the source's size.
 void ogg_format(AMediaFormat *format, const minato::ogg::Reader *reader) {
     const minato::ogg::Format &ogg = minato::ogg::format(reader);
+    if (ogg.vorbis) {
+        // MyVorbisExtractor's meta: the identification header as csd-0 and the setup header as csd-1.
+        AMediaFormat_setString(format, "mime", "audio/vorbis");
+        AMediaFormat_setInt32(format, "track-id", 1);
+        if (ogg.duration_us >= 0) AMediaFormat_setInt64(format, "durationUs", ogg.duration_us);
+        AMediaFormat_setInt32(format, "channel-count", static_cast<int32_t>(ogg.channels));
+        static const int32_t vorbis_masks[] = {0, 0x1, 0x3, 0x7, 0x33, 0x37, 0x3f, 0x13f, 0x63f};
+        AMediaFormat_setInt32(format, "channel-mask", ogg.channels <= 8 ? vorbis_masks[ogg.channels] : 0);
+        AMediaFormat_setInt32(format, "sample-rate", static_cast<int32_t>(ogg.sample_rate));
+        AMediaFormat_setBuffer(format, "csd-0", ogg.head, ogg.head_size);
+        AMediaFormat_setBuffer(format, "csd-1", ogg.setup, ogg.setup_size);
+        return;
+    }
     AMediaFormat_setString(format, "mime", "audio/opus");
     AMediaFormat_setInt32(format, "track-id", 1);  // the extractor service's numbering
     if (ogg.duration_us >= 0) AMediaFormat_setInt64(format, "durationUs", ogg.duration_us);

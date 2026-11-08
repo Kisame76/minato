@@ -813,6 +813,7 @@ jobject audio_capabilities(JNIEnv *env, const minato_media_codec_info *info) {
             {"audio/flac", "1-21000000", "8", "1-655350"},
             {"audio/raw", "1-10000000", "12", "8000-192000"},
             {"audio/opus", "6000-510000", "8", "8000,12000,16000,24000,48000"},
+            {"audio/vorbis", "32000-500000", "8", "8000-96000"},
     };
     const Limits *limit = &limits[0];
     for (const Limits &each : limits) {

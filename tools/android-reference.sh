@@ -685,7 +685,7 @@ run_app() {
       ;;
     # media-codec-opus-test and media-extractor-ogg-test (ADR-0060 e2): about thirty Opus decodes each, surround ones
     # among them.
-    media-codec-opus-test | media-extractor-ogg-test)
+    media-codec-opus-test | media-extractor-ogg-test | media-extractor-vorbis-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes limit=180
       ;;

@@ -302,8 +302,9 @@ add_custom_command(OUTPUT "${mediandk_map}" "${mediandk_stubs}"
   DEPENDS "${android_sources}/stubgen.py" "${ndk_stubs}/libmediandk.so" VERBATIM)
 apk_bionic_unit(apk_mediandk SOURCES "${android_sources}/image_reader.cpp" "${android_sources}/media_keys.cpp"
   "${android_sources}/media_format.cpp" "${android_sources}/media_codec.cpp" "${android_sources}/mp4_extractor.cpp"
-  "${android_sources}/media_extractor.cpp" "${android_sources}/ogg_extractor.cpp" "${mediandk_stubs}"
-  INCLUDES ${android_includes} CFLAGS -Wall -Wextra STRICT)
+  "${android_sources}/media_extractor.cpp" "${android_sources}/ogg_extractor.cpp"
+  "${android_sources}/vorbis_codec.c" "${mediandk_stubs}"
+  INCLUDES ${android_includes} "${APK_SOURCES}/stb_vorbis" CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libm libnativewindow
   VERSION_SCRIPTS "${mediandk_map}")
 

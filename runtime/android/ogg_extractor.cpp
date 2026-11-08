@@ -1,8 +1,11 @@
-// Minato's Ogg Opus reader (ogg_extractor.h): OggExtractor's MyOggExtractor and MyOpusExtractor, step by step.
+// Minato's Ogg Opus and Ogg Vorbis reader (ogg_extractor.h): OggExtractor's MyOggExtractor, MyOpusExtractor and
+// MyVorbisExtractor, step by step.
 #include "ogg_extractor.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+#include "vorbis_codec.h"
 
 namespace minato::ogg {
 namespace {
@@ -48,6 +51,12 @@ struct Reader {
     size_t next_lace;
     Page page;
     int64_t first_data_offset;
+    // MyVorbisExtractor's: its decoder (for the block sizes), the packets' block size and position.
+    apk_vorbis *vorbis;
+    uint8_t *setup;      // the setup header's copy
+    uint32_t rate;
+    int32_t prev_block;  // the block size of the packet before on the page, -1 for a page's first
+    int64_t prev_pos;    // the next packet's position in samples
     // MyOpusExtractor's.
     uint16_t codec_delay;
     int64_t start_granule;  // -1 until the first data page is read
@@ -180,6 +189,7 @@ int seek_to_offset(Reader *reader, int64_t offset) {
     reader->page_samples = 0;
     reader->page.segments = 0;
     reader->next_lace = 0;
+    reader->prev_block = -1;
     return 0;
 }
 
@@ -271,6 +281,11 @@ uint32_t packet_samples(const uint8_t *data, size_t size) {
 
 // MyOpusExtractor::getTimeUsOfGranule.
 int64_t granule_time_us(const Reader *reader, uint64_t granule) {
+    if (reader->vorbis != nullptr) {
+        // MyVorbisExtractor::getTimeUsOfGranule.
+        if (granule > static_cast<uint64_t>(INT64_MAX / 1000000)) return INT64_MAX;
+        return static_cast<int64_t>(granule * 1000000 / reader->rate);
+    }
     const uint64_t pcm = granule > reader->codec_delay ? granule - reader->codec_delay : 0;
     if (pcm > static_cast<uint64_t>(INT64_MAX / 1000000)) return INT64_MAX;
     return static_cast<int64_t>(pcm * 1000000 / kRate);
@@ -358,6 +373,103 @@ int init(Reader *reader) {
     return 0;
 }
 
+// MyVorbisExtractor::verifyHeader's check of the comment header: "\x03vorbis", a vendor string and comments that fit
+// the packet, and the framing bit, as vorbis_unpack_comment reads them.
+bool vorbis_comment(const uint8_t *data, size_t size) {
+    if (size < 7 || data[0] != 3 || memcmp(data + 1, "vorbis", 6) != 0) return false;
+    const int64_t length = static_cast<int64_t>(size) + 1;  // with OggExtractor's framing bit
+    const auto word = [&](int64_t at) -> int32_t {
+        return at + 4 <= static_cast<int64_t>(size) ? static_cast<int32_t>(le32(data + at)) : -1;
+    };
+    int64_t at = 7;
+    const int32_t vendor = word(at);
+    at += 4;
+    if (vendor < 0 || vendor > length - at) return false;
+    at += vendor;
+    const int32_t count = word(at);
+    at += 4;
+    if (count < 0 || count > ((length - (at < length ? at : length)) >> 2)) return false;
+    for (int32_t i = 0; i < count; i++) {
+        const int32_t each = word(at);
+        at += 4;
+        if (each < 0 || each > length - (at < length ? at : length)) return false;
+        at += each;
+    }
+    return at >= 0 && at < static_cast<int64_t>(size) && (data[at] & 1) != 0;  // the framing bit
+}
+
+// MyOggExtractor::init for Vorbis: its three headers, then the duration and table of contents with the source's
+// size. The identification header gives the format, the setup header (as books) the decoder.
+int init_vorbis(Reader *reader) {
+    uint8_t *ident = nullptr;
+    size_t ident_size = 0;
+    int answer = 0;
+    for (int header = 0; header < 3 && answer == 0; header++) {
+        const int read = read_packet(reader);
+        if (read != 0) {
+            answer = read;
+            break;
+        }
+        const uint8_t type = static_cast<uint8_t>(header * 2 + 1);
+        if (reader->size < 7 || reader->data[0] != type || memcmp(reader->data + 1, "vorbis", 6) != 0) {
+            answer = mp4::kMalformed;
+        } else if (header == 0) {
+            // vorbis_unpack_info: version 0, channels and rate above 0, the two block sizes and the framing bit.
+            const uint8_t *data = reader->data;
+            const size_t size = reader->size;
+            if (size < 30 || le32(data + 7) != 0 || data[11] == 0 || le32(data + 12) == 0 || (data[28] & 0xf) < 6 ||
+                (data[28] >> 4) < 6 || (data[28] & 0xf) > (data[28] >> 4) || (data[28] >> 4) > 13 ||
+                (data[29] & 1) == 0) {
+                answer = mp4::kMalformed;
+                break;
+            }
+            ident = static_cast<uint8_t *>(malloc(size));
+            if (ident == nullptr) {
+                answer = mp4::kNoMemory;
+                break;
+            }
+            memcpy(ident, data, size);
+            ident_size = size;
+            reader->head = ident;
+            reader->format.head = ident;
+            reader->format.head_size = size;
+            reader->format.channels = data[11];
+            reader->rate = le32(data + 12);
+            reader->format.sample_rate = reader->rate;
+            const int32_t nominal = static_cast<int32_t>(le32(data + 20));
+            reader->format.bit_rate = nominal;
+            reader->format.vorbis = true;
+        } else if (header == 1) {
+            if (!vorbis_comment(reader->data, reader->size)) answer = mp4::kMalformed;
+        } else {
+            reader->setup = static_cast<uint8_t *>(malloc(reader->size));
+            if (reader->setup == nullptr) {
+                answer = mp4::kNoMemory;
+                break;
+            }
+            memcpy(reader->setup, reader->data, reader->size);
+            reader->format.setup = reader->setup;
+            reader->format.setup_size = reader->size;
+            reader->vorbis = apk_vorbis_open(ident, ident_size, reader->setup, reader->format.setup_size);
+            if (reader->vorbis == nullptr) answer = mp4::kMalformed;
+        }
+    }
+    if (answer != 0) return answer;
+    reader->first_data_offset = reader->offset + reader->page_size;
+    reader->format.duration_us = -1;
+    reader->format.delay_ns = reader->format.pre_roll_ns = 0;
+    if (reader->sized && reader->format.bit_rate > 0) {
+        reader->format.duration_us = static_cast<int64_t>(reader->source->length) * 8000000 / reader->format.bit_rate;
+    }
+    uint64_t last = 0;
+    if (reader->sized && find_prev_granule(reader, static_cast<int64_t>(reader->source->length), &last) == 0) {
+        reader->format.duration_us = granule_time_us(reader, last);
+        build_toc(reader);
+    }
+    reader->prev_block = -1;
+    return 0;
+}
+
 }  // namespace
 
 int open(const mp4::Source &source, bool sized, Kind *kind, Reader **out) {
@@ -371,11 +483,21 @@ int open(const mp4::Source &source, bool sized, Kind *kind, Reader **out) {
     reader->sized = sized;
     reader->first_data_offset = -1;
     reader->start_granule = -1;
-    // OggExtractor tries Vorbis first: a first packet that is Vorbis's identification header.
+    // OggExtractor tries Vorbis first: a first packet that is Vorbis's identification header. Headers that do not
+    // pass give no track, as its Opus reader then finds no OpusHead either.
     if (seek_to_offset(reader, 0) == 0 && read_packet(reader) == 0 && reader->size >= 7 && reader->data[0] == 1 &&
         memcmp(reader->data + 1, "vorbis", 6) == 0) {
-        *kind = Kind::kVorbis;
-        close(reader);
+        const int vorbis = seek_to_offset(reader, 0) == 0 ? init_vorbis(reader) : mp4::kUnknown;
+        if (vorbis == mp4::kNoMemory) {
+            close(reader);
+            return vorbis;
+        }
+        *kind = vorbis == 0 ? Kind::kVorbis : Kind::kNoTrack;
+        if (vorbis == 0) {
+            *out = reader;
+        } else {
+            close(reader);
+        }
         return 0;
     }
     reader->size = 0;
@@ -397,6 +519,8 @@ int open(const mp4::Source &source, bool sized, Kind *kind, Reader **out) {
 void close(Reader *reader) {
     if (reader == nullptr) return;
     free(reader->data);
+    apk_vorbis_close(reader->vorbis);
+    free(reader->setup);
     free(reader->head);
     free(reader->toc);
     free(reader);
@@ -406,6 +530,31 @@ const Format &format(const Reader *reader) { return reader->format; }
 
 // MyOpusExtractor::readNextPacket.
 int next(Reader *reader, Packet *packet) {
+    if (reader->vorbis != nullptr) {
+        // MyOggExtractor::_readNextPacket with Vorbis's times.
+        const int read = read_packet(reader);
+        if (read != 0) return read;
+        const int block = apk_vorbis_block_size(reader->vorbis, reader->data, reader->size);
+        int64_t position;
+        // Anchored at the start and after a seek only; a new page goes on from the packet before, as Android does.
+        if (reader->prev_block < 0) {
+            reader->prev_block = block;
+            reader->prev_pos = static_cast<int64_t>(reader->page.granule) - reader->valid;
+            position = reader->prev_pos;
+        } else {
+            position = reader->prev_pos;
+            reader->prev_pos += (block + reader->prev_block) / 2 / 2;
+            reader->prev_block = block;
+        }
+        // The packet's number of page samples after it: its page's if it is the page's first, else -1.
+        const int32_t page_samples = reader->has_valid ? reader->valid : -1;
+        if (!reserve(reader, reader->size + 5)) return mp4::kNoMemory;
+        memcpy(reader->data + reader->size, &page_samples, sizeof page_samples);
+        packet->data = reader->data;
+        packet->size = reader->size + sizeof page_samples;
+        packet->time_us = position * 1000000 / reader->rate;
+        return 0;
+    }
     if (reader->offset <= reader->first_data_offset && reader->start_granule < 0) {
         // The first packet need not start at 0: the first data page's granule position less its packets' samples.
         uint32_t samples = 0;
@@ -438,7 +587,7 @@ int next(Reader *reader, Packet *packet) {
 
 // MyOggExtractor::seekToTime.
 int seek(Reader *reader, int64_t time_us) {
-    time_us -= kPreRollUs;
+    if (reader->vorbis == nullptr) time_us -= kPreRollUs;
     if (time_us < 0) time_us = 0;
     if (reader->toc_count == 0) return mp4::kUnknown;  // the approximate seek of a bit rate of 0
     size_t left = 0, right = reader->toc_count;
