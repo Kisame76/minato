@@ -11,11 +11,15 @@ public class TestJob extends JobService {
     @Override
     public boolean onStartJob(JobParameters params) {
         final int id = params.getJobId();
+        if (id >= 11) {
+            return startCancelJob(params);
+        }
         JobsAlarmsApplication.record("job " + id + " started");
         switch (id) {
             case 1:
                 JobsAlarmsApplication.fact("expedited job: expedited " + params.isExpeditedJob() + ", user-initiated "
-                        + params.isUserInitiatedJob() + ", stop reason " + params.getStopReason() + ", deadline expired "
+                        + params.isUserInitiatedJob() + ", stop reason " + params.getStopReason()
+                        + ", deadline expired "
                         + params.isOverrideDeadlineExpired() + ", network " + (params.getNetwork() != null)
                         + ", extras " + params.getExtras().getString("key") + ", transient "
                         + params.getTransientExtras().getString("key") + ", job id " + id);
@@ -65,10 +69,48 @@ public class TestJob extends JobService {
         return false;
     }
 
+    /** The label of a job in the cancel tests: its namespace and ID. */
+    static String label(JobParameters params) {
+        return (params.getJobNamespace() == null ? "" : params.getJobNamespace() + "/") + params.getJobId();
+    }
+
+    /** The jobs of the cancel tests run until they are stopped; job 16 also takes the work enqueued while it runs. */
+    private boolean startCancelJob(JobParameters params) {
+        final String label = label(params);
+        JobsAlarmsApplication.record("job " + label + " started");
+        if (params.getJobId() == 16) {
+            // The job ends by itself once the work it has dequeued is complete ("last work dequeued"): it takes "a" at
+            // once and completes it only after the test has enqueued "b", which it dequeues 3 s later.
+            final Handler handler = new Handler(Looper.getMainLooper());
+            final java.util.ArrayList<JobWorkItem> taken = new java.util.ArrayList<>();
+            handler.post(() -> take(params, taken));
+            handler.postDelayed(() -> {
+                take(params, taken);
+                for (JobWorkItem item : taken) {
+                    params.completeWork(item);
+                }
+            }, 3000);
+        }
+        return true;
+    }
+
+    private static void take(JobParameters params, java.util.List<JobWorkItem> taken) {
+        try {
+            JobWorkItem item;
+            while ((item = params.dequeueWork()) != null) {
+                JobsAlarmsApplication.record("work " + item.getIntent().getAction() + " of job 16");
+                taken.add(item);
+            }
+        } catch (RuntimeException e) {
+            JobsAlarmsApplication.fact("job 16 dequeue: throws " + e);
+        }
+    }
+
     @Override
     public boolean onStopJob(JobParameters params) {
-        JobsAlarmsApplication.record("job " + params.getJobId() + " stopped");
-        JobsAlarmsApplication.fact("job " + params.getJobId() + " stop reason " + params.getStopReason());
+        final String label = label(params);
+        JobsAlarmsApplication.record("job " + label + " stopped");
+        JobsAlarmsApplication.fact("job " + label + " stop reason " + params.getStopReason());
         return false;
     }
 }

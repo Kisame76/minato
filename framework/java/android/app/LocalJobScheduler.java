@@ -297,11 +297,11 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
             entry.service = null;
         }
         if (service != null) {
-            // Both ways here are the app's own: JobSchedulerService stops a job that the app cancels, and one that it
-            // replaces by scheduling its ID again, with STOP_REASON_CANCELLED_BY_APP [verified: jobs-alarms-run-test
-            // for cancel; replace is JobSchedulerService.scheduleAsPackage's cancelJobImplLocked at the tag, inferred].
-            params.setStopReason(JobParameters.STOP_REASON_CANCELLED_BY_APP, JobParameters.INTERNAL_STOP_REASON_CANCELED,
-                    "canceled by app");
+            // Both ways here are the app's own: JobSchedulerService stops a job that the app cancels, one that it
+            // replaces by scheduling its ID again and the ones of cancelAll, with STOP_REASON_CANCELLED_BY_APP
+            // [verified: jobs-alarms-run-test].
+            params.setStopReason(JobParameters.STOP_REASON_CANCELLED_BY_APP,
+                    JobParameters.INTERNAL_STOP_REASON_CANCELED, "canceled by app");
             try {
                 IJobService.Stub.asInterface(service).stopJob(params);
             } catch (RemoteException e) {
@@ -441,24 +441,34 @@ public final class LocalJobScheduler extends IJobScheduler.Default {
         }
     }
 
+    /** The binder's cancelAll: the jobs of every namespace, each stopped as cancel(...) does if it runs. */
     @Override
     public void cancelAll() {
+        final List<Entry> stopped;
         synchronized (mEntries) {
+            stopped = new ArrayList<>(mEntries);
             mEntries.clear();
             persistLocked();
+        }
+        for (Entry entry : stopped) {
+            stopRunning(entry);
         }
     }
 
     @Override
     public void cancelAllInNamespace(String namespace) {
         namespace = validateNamespace(namespace);
+        final List<Entry> stopped = new ArrayList<>();
         synchronized (mEntries) {
             for (int i = mEntries.size() - 1; i >= 0; i--) {
                 if (Objects.equals(namespace, mEntries.get(i).namespace)) {
-                    mEntries.remove(i);
+                    stopped.add(mEntries.remove(i));
                 }
             }
             persistLocked();
+        }
+        for (Entry entry : stopped) {
+            stopRunning(entry);
         }
     }
 

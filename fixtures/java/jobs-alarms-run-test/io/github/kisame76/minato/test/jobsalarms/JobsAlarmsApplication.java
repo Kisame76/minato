@@ -23,11 +23,11 @@ import java.util.TreeMap;
 /**
  * Alarms and jobs that run, beyond run-test's (gap 9 of the compatibility plan). Alarms of an app that holds
  * USE_EXACT_ALARM: exact, exact and allowed while idle, an alarm clock with its next-alarm info, a window, one with a
- * listener on a handler thread, one cancelled; jobs: an expedited one with its params, a regular one, one rescheduled by
- * its linear backoff, one cancelled while it runs (onStopJob and its stop reason), one with work items, and the
- * charging, battery-not-low and storage-not-low constraints against what the device's battery says. The live events
- * are collected and written as one summary after 26 s, each alarm with whether it came within a window; the alarms
- * are scheduled for 6 to 9 s, as AlarmManagerService raises every alarm that is due in less than 5 s to 5 s
+ * listener on a handler thread, one cancelled; jobs: an expedited one with its params, a regular one, one
+ * rescheduled by its linear backoff, one cancelled while it runs (onStopJob and its stop reason), one with work items,
+ * and the charging, battery-not-low and storage-not-low constraints against what the device's battery says. The live
+ * events are collected and written as one summary after 26 s, each alarm with whether it came within a window; the
+ * alarms are scheduled for 6 to 9 s, as AlarmManagerService raises every alarm that is due in less than 5 s to 5 s
  * (MIN_FUTURITY).
  */
 public class JobsAlarmsApplication extends Application {
@@ -67,6 +67,10 @@ public class JobsAlarmsApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        Thread.setDefaultUncaughtExceptionHandler((thread, e) -> {
+            Log.i(TAG, "uncaught on " + thread.getName() + ": " + e);
+            System.exit(1);
+        });
         mMain.post(this::start);
     }
 
@@ -183,6 +187,63 @@ public class JobsAlarmsApplication extends Application {
                 + sticky.getIntExtra(BatteryManager.EXTRA_STATUS, -1));
         Log.i(TAG + "-device", "charging " + charging + ", level " + level + ", job 6 ran " + count("job 6 started")
                 + ", job 7 ran " + count("job 7 started") + ", job 8 ran " + count("job 8 started"));
+        mMain.post(this::cancelStart);
+    }
+
+    /**
+     * The cancel tests, after the summary: jobs that run until they are stopped, cancelAll of a namespaced scheduler
+     * (job 12 only), a job scheduled again with its ID while it runs (job 15), the same JobInfo enqueued again (job 16:
+     * work added, not stopped), cancelAll of the default namespace, then cancelInAllNamespaces for ns2's job 13.
+     */
+    private void cancelStart() {
+        final JobScheduler ns1 = mJobs.forNamespace("ns1");
+        final JobScheduler ns2 = mJobs.forNamespace("ns2");
+        mJobs.schedule(job(11).build());
+        ns1.schedule(job(12).build());
+        ns2.schedule(job(13).build());
+        mJobs.schedule(job(14).build());
+        mJobs.schedule(job(15).build());
+        final JobInfo sixteen = job(16).build();
+        mJobs.enqueue(sixteen, new JobWorkItem(new Intent("a")));
+        mMain.postDelayed(() -> {
+            ns1.cancelAll();
+            Log.i(TAG, "pending in ns1 after its cancelAll: " + ns1.getAllPendingJobs().size());
+            try {
+                Log.i(TAG, "job 15 scheduled again while it runs: " + mJobs.schedule(job(15).build()));
+                Log.i(TAG, "job 16 enqueued again while it runs: "
+                        + mJobs.enqueue(sixteen, new JobWorkItem(new Intent("b"))));
+            } catch (RuntimeException e) {
+                Log.i(TAG, "scheduling again: throws " + e);
+            }
+        }, 2500);
+        mMain.postDelayed(() -> {
+            record("cancelAll called");
+            mJobs.cancelAll();
+            Log.i(TAG, "pending in the default namespace after its cancelAll: " + mJobs.getAllPendingJobs().size()
+                    + ", in ns2 " + ns2.getAllPendingJobs().size());
+        }, 4500);
+        mMain.postDelayed(() -> {
+            mJobs.cancelInAllNamespaces();
+            Log.i(TAG, "pending in ns2 after cancelInAllNamespaces: " + ns2.getAllPendingJobs().size());
+        }, 5500);
+        mMain.postDelayed(this::cancelSummary, 7000);
+    }
+
+    private void cancelSummary() {
+        for (String label : new String[] {"11", "ns1/12", "ns2/13", "14", "15", "16"}) {
+            Log.i(TAG, "job " + label + ": started " + count("job " + label + " started") + " time(s), stopped "
+                    + count("job " + label + " stopped") + " time(s)");
+        }
+        for (String work : new String[] {"a", "b"}) {
+            Log.i(TAG, "work " + work + " of job 16: " + count("work " + work + " of job 16") + " time(s)");
+        }
+        synchronized (JobsAlarmsApplication.class) {
+            for (String fact : FACTS.values()) {
+                if (fact.startsWith("job 1") || fact.startsWith("job ns")) {
+                    Log.i(TAG, fact);
+                }
+            }
+        }
         Log.i(TAG, "done");
     }
 

@@ -679,9 +679,10 @@ run_app() {
       mask=yes
       ;;
     jobs-alarms-run-test)
-      # The alarms are due at 6 to 9 s, a job's backoff at 10 s, and the summary comes after 26 s.
+      # The alarms are due at 6 to 9 s, a job's backoff at 10 s, the summary comes after 26 s and the cancel tests
+      # end at 33 s.
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
-      mask=yes limit=60
+      mask=yes limit=90
       ;;
     media-extractor-test)
       # Both files through the NDK's and Java's sources take about a minute on the emulator.

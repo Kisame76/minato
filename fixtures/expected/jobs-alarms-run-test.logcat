@@ -31,4 +31,23 @@ I/jobs-alarms-run-test: job 4: started 1 time(s), stopped 1 time(s)
 I/jobs-alarms-run-test: job 5: started 1 time(s), stopped 0 time(s)
 I/jobs-alarms-run-test: job 6 never ran while the device was not charging: true
 I/jobs-alarms-run-test: job 7 ran exactly when the battery is not low: true
+I/jobs-alarms-run-test: pending in ns1 after its cancelAll: 0
+I/jobs-alarms-run-test: job 15 scheduled again while it runs: 1
+I/jobs-alarms-run-test: job 16 enqueued again while it runs: 1
+I/jobs-alarms-run-test: pending in the default namespace after its cancelAll: 0, in ns2 1
+I/jobs-alarms-run-test: pending in ns2 after cancelInAllNamespaces: 0
+I/jobs-alarms-run-test: job 11: started 1 time(s), stopped 1 time(s)
+I/jobs-alarms-run-test: job ns1/12: started 1 time(s), stopped 1 time(s)
+I/jobs-alarms-run-test: job ns2/13: started 1 time(s), stopped 1 time(s)
+I/jobs-alarms-run-test: job 14: started 1 time(s), stopped 1 time(s)
+I/jobs-alarms-run-test: job 15: started 2 time(s), stopped 2 time(s)
+I/jobs-alarms-run-test: job 16: started 1 time(s), stopped 1 time(s)
+I/jobs-alarms-run-test: work a of job 16: 1 time(s)
+I/jobs-alarms-run-test: work b of job 16: 1 time(s)
+I/jobs-alarms-run-test: job 11 stop reason 1
+I/jobs-alarms-run-test: job 14 stop reason 1
+I/jobs-alarms-run-test: job 15 stop reason 1
+I/jobs-alarms-run-test: job 16 stop reason 1
+I/jobs-alarms-run-test: job ns1/12 stop reason 1
+I/jobs-alarms-run-test: job ns2/13 stop reason 1
 I/jobs-alarms-run-test: done
