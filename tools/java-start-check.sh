@@ -230,6 +230,7 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ "$ON_DEVICE" == no ]] || APPS+=("vk-ahb-test io.github.kisame76.minato.test.vkahb")
 [[ "$ON_DEVICE" == no ]] || APPS+=("gles-procs-test io.github.kisame76.minato.test.glesprocs")
 [[ "$ON_DEVICE" == no ]] || APPS+=("engine-start-test io.github.kisame76.minato.test.enginestart")
+APPS+=("program-binary-test io.github.kisame76.minato.test.programbinary")
 # ADR-0060 e2c's decoder apps on the iPhone only, on its hardware VideoToolbox (the Mac has checks of their own).
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-codec-test io.github.kisame76.minato.test.mediacodec")
 [[ "$ON_DEVICE" == no ]] || APPS+=("media-bench-test io.github.kisame76.minato.test.mediabench")
@@ -1804,6 +1805,24 @@ fi
 [[ "$ON_DEVICE" == no ]] || run_one vk-ahb-test io.github.kisame76.minato.test.vkahb
 [[ "$ON_DEVICE" == no ]] || run_one gles-procs-test io.github.kisame76.minato.test.glesprocs
 [[ "$ON_DEVICE" == no ]] || run_one engine-start-test io.github.kisame76.minato.test.enginestart
+# program-binary-test (a game engine's shader cache), in the Simulator and on the iPhone: its first start saves its GL
+# programs' binaries, its second, a new process, loads them and binaries a driver must refuse without a crash. Both
+# starts' lines must be Android 15's.
+if wanted program-binary-test; then
+  run_start program-binary-test io.github.kisame76.minato.test.programbinary 1
+  run_start program-binary-test io.github.kisame76.minato.test.programbinary 2
+  python3 - "$WORK/program-binary-test-1.log" "$WORK/program-binary-test-2.log" \
+    fixtures/expected/program-binary-test.logcat <<'EOF' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+first, second, expected = sys.argv[1:]
+log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
+compare_log("program-binary-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
+EOF
+fi
 [[ "$ON_DEVICE" == no ]] || run_one media-codec-test io.github.kisame76.minato.test.mediacodec
 [[ "$ON_DEVICE" == no ]] || ! wanted media-bench-test || run_media_bench
 [[ "$ON_DEVICE" == no ]] || run_one media-window-test io.github.kisame76.minato.test.mediawindow

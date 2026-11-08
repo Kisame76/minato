@@ -1,0 +1,22 @@
+I/program-binary-test: an ES 3 context: true
+I/program-binary-test: first start: no saved programs
+I/program-binary-test: plain: linked from its source true, drawn right true
+I/program-binary-test: engine-like: linked from its source true, drawn right true
+I/program-binary-test: transform feedback: linked from its source true, drawn right true
+I/program-binary-test: GLSL ES 1.00: linked from its source true, drawn right true
+I/program-binary-test: each program gave its binary in a listed format, where the device lists formats: true
+I/program-binary-test: saved: true
+I/program-binary-test: done
+I/program-binary-test: an ES 3 context: true
+I/program-binary-test: second start: saved programs found
+I/program-binary-test: plain: drawn right after its saved binary true
+I/program-binary-test: engine-like: drawn right after its saved binary true
+I/program-binary-test: transform feedback: drawn right after its saved binary true
+I/program-binary-test: GLSL ES 1.00: drawn right after its saved binary true
+I/program-binary-test: saved programs deleted: true
+I/program-binary-test: a binary of a format not listed: linked false, drawn right after a link from its source true
+I/program-binary-test: an empty binary: linked false, drawn right after a link from its source true
+I/program-binary-test: a binary with 64 bytes after its end: drawn right true
+I/program-binary-test: a binary with its middle overwritten: linked false, drawn right after a link from its source true
+I/program-binary-test: a binary cut to half its length: linked false, drawn right after a link from its source true
+I/program-binary-test: done

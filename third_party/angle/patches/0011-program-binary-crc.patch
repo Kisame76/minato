@@ -1,0 +1,39 @@
+Check program binaries before ANGLE deserializes them: a CRC and the size over every binary, on Metal and Vulkan.
+
+Why: glProgramBinary handed ANGLE's deserializer the bytes as they came. A binary cut short or damaged, as a game
+engine's shader cache can hold one after an update or a write that did not finish, made a count out of the bytes and
+aborted the process in std::vector (length_error under -fno-exceptions), where Android's drivers refuse the binary
+with a link status of false and the engine links from its source again. ANGLE's frontend feature
+compressProgramBinaryBlob (upstream on for Samsung's Vulkan devices only) writes a header with a magic value, the
+CRC32 and the size of the payload, and loadBinary refuses a binary whose header, size or CRC does not match before it
+deserializes anything. The binaries get smaller too (zlib).
+Test: fixtures program-binary-test (two starts: saved binaries loaded in a new process, then a binary of a format not
+listed, one cut short, one with its middle overwritten, an empty one and one with bytes after its end).
+Upstream: could go upstream (the deserializer's counts are the real fix).
+Remove: when upstream checks every count it reads, or turns the feature on by default.
+
+--- a/src/libANGLE/renderer/metal/DisplayMtl.mm
++++ b/src/libANGLE/renderer/metal/DisplayMtl.mm
+@@ -516,6 +516,10 @@
+     ANGLE_FEATURE_CONDITION(features, linkJobIsThreadSafe, true);
+ 
+     ANGLE_FEATURE_CONDITION(features, setNeedInitOnInvalidation, true);
++
++    // Minato: program binaries carry a CRC and their size, so that a binary cut short or damaged is refused
++    // (link status false) before it is deserialized, as Android's drivers refuse one.
++    ANGLE_FEATURE_CONDITION(features, compressProgramBinaryBlob, true);
+ }
+ 
+ void DisplayMtl::populateFeatureList(angle::FeatureList *features)
+--- a/src/libANGLE/renderer/vulkan/vk_renderer.cpp
++++ b/src/libANGLE/renderer/vulkan/vk_renderer.cpp
+@@ -7337,7 +7337,8 @@
+ 
+     // Enable the program binary blob compression for glGetProgramBinary and glGetProgramiv.  It
+     // will be decompressed when loading the program binary by glProgramBinary.
+-    ANGLE_FEATURE_CONDITION(features, compressProgramBinaryBlob, isSamsung);
++    // Minato: on every device, so that a binary cut short or damaged is refused before it is deserialized.
++    ANGLE_FEATURE_CONDITION(features, compressProgramBinaryBlob, isSamsung || true);
+ }
+ 
+ angle::Result Renderer::getLockedPipelineCacheDataIfNew(vk::ErrorContext *context,
