@@ -75,6 +75,9 @@ struct ExclusiveRegion {
     bool writes_x18 = false;           // x18 is written -> store the scratch back after
     std::uint8_t scratch = 0;          // stands in for x18 across the window (the value)
     std::uint8_t base = 0;             // holds the TSD base for the store-back; used only when writing
+    /// Words of the window, after its first, that a direct branch from outside lands on (ADR-0020 X7): each gets an
+    /// entry pad behind the island, which the container patches into the guest word with a branch to it.
+    std::vector<std::uint32_t> entries;
 
     bool operator==(const ExclusiveRegion &) const = default;
 };
@@ -359,6 +362,12 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
 
 /// Bytes the relocated island of an exclusive region needs in the stub area.
 std::size_t exclusive_region_stub_size(const ExclusiveRegion &region);
+
+/// The guest words an island of `region` patches besides the window's first, each with its branch to its entry pad:
+/// {address, word} for `region_address` the guest address of the window and `stub_address` that of the island.
+std::vector<std::pair<std::uint64_t, std::uint32_t>> exclusive_region_entry_patches(const ExclusiveRegion &region,
+                                                                                    std::uint64_t region_address,
+                                                                                    std::uint64_t stub_address);
 
 /// Writes the relocated island of `region` into `stub` (exactly exclusive_region_stub_size bytes)
 /// and returns the branch that replaces the load-exclusive at `region_address`. `stub_address` is

@@ -1250,6 +1250,9 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         const auto patch = rewrite::emit_exclusive_region(region, region_address, stub,
                                                           std::span(file_at(stub, size), static_cast<std::size_t>(size)));
         std::memcpy(file_at(region_address, sizeof patch), &patch, sizeof patch);
+        for (const auto &[at, word] : rewrite::exclusive_region_entry_patches(region, region_address, stub)) {
+            std::memcpy(file_at(at, sizeof word), &word, sizeof word);  // a branch from outside enters through its pad
+        }
         add_island(rewrite::exclusive_region_layout(region), stub, region_address);
         stub += size;
         ++report.x18_islands;

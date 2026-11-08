@@ -458,7 +458,6 @@ constexpr const char *window_no_register = "it lies in an exclusive window that 
 constexpr const char *window_registers =
     "it lies in an exclusive window that writes x18 and leaves fewer than two registers free";
 constexpr const char *window_field = "it lies in an exclusive window in which x18 has no register field of its own";
-constexpr const char *window_entered = "it lies in an exclusive window into which a branch from outside leads";
 
 /// Why an x18 instruction cannot run in an island, or nullptr when it can. The island saves two
 /// scratch registers in the red zone, loads the guest x18 from the TSD, runs the instruction with
@@ -900,6 +899,25 @@ bool branch_enters_window(std::span<const std::byte> code, std::size_t open, std
         }
     }
     return false;
+}
+
+/// The words of the window (open, end] that a direct branch from outside lands on, as word indices from `open`, in
+/// order and without repeats (ADR-0020 X7): each gets an entry pad that does the island's preamble and enters the body
+/// there. Indirect branches cannot be checked; jump tables whose targets enter a window stay refused elsewhere.
+std::vector<std::uint32_t> window_entries(std::span<const std::byte> code, std::size_t open, std::size_t end) {
+    std::vector<std::uint32_t> entries;
+    for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
+        if (j >= open && j <= end) continue;
+        if (const auto displacement = branch_displacement(word_at(code, j))) {
+            const auto target = static_cast<std::int64_t>(j) + *displacement;
+            if (target > static_cast<std::int64_t>(open) && target <= static_cast<std::int64_t>(end)) {
+                entries.push_back(static_cast<std::uint32_t>((static_cast<std::size_t>(target) - open) / 4));
+            }
+        }
+    }
+    std::ranges::sort(entries);
+    entries.erase(std::ranges::unique(entries).begin(), entries.end());
+    return entries;
 }
 
 // --- Windows that run again from their start (ADR-0020 X4) -------------------------------------
@@ -1442,13 +1460,13 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             }
             continue;
         }
-        problem = branch_enters_window(code, offset, *end)
-                      ? window_entered
-                      : relocation_problem(code, offset, *end, !region->writes_x18);
+        // A branch from outside into the middle of the window gets an entry pad (ADR-0020 X7), so it no longer refuses.
+        problem = relocation_problem(code, offset, *end, !region->writes_x18);
         if (problem) {
             refused_windows.emplace_back(offset, *end, problem);
             continue;
         }
+        region->entries = window_entries(code, offset, *end);
         findings.exclusive_regions.push_back(std::move(*region));
         covered.emplace_back(offset, *end);
     }
@@ -1971,12 +1989,41 @@ std::vector<std::size_t> window_exits(const ExclusiveRegion &region) {
 
 }  // namespace
 
-std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
+namespace {
+
+/// The words of the island without its pads: the preamble, the window and the tail.
+std::size_t island_words_without_pads(const ExclusiveRegion &region) {
     std::size_t words = 1 /* save value */ + region.words.size() + 1 /* restore value */ + 1 /* branch */;
     if (region.loads_x18) words += 3;                 // mrs, bic, ldr before the window
     if (region.writes_x18) words += 1 + 3 + 1;         // save base; mrs, bic, str; restore base
-    words += 2 * window_exits(region).size();         // an exit pad per leaving branch: restore the value, branch
+    return words;
+}
+
+/// The words of the preamble an entry pad repeats, before its branch into the body.
+std::size_t island_preamble_words(const ExclusiveRegion &region) {
+    return 1 + (region.writes_x18 ? 1u : 0u) + (region.loads_x18 ? 3u : 0u);
+}
+
+}  // namespace
+
+std::size_t exclusive_region_stub_size(const ExclusiveRegion &region) {
+    std::size_t words = island_words_without_pads(region);
+    words += 2 * window_exits(region).size();                                    // an exit pad per leaving branch
+    words += region.entries.size() * (island_preamble_words(region) + 1);        // an entry pad per entry: preamble, b
     return 4 * words;
+}
+
+std::vector<std::pair<std::uint64_t, std::uint32_t>> exclusive_region_entry_patches(const ExclusiveRegion &region,
+                                                                                    std::uint64_t region_address,
+                                                                                    std::uint64_t stub_address) {
+    std::vector<std::pair<std::uint64_t, std::uint32_t>> patches;
+    const std::uint64_t first_pad = stub_address + 4 * (island_words_without_pads(region) + 2 * window_exits(region).size());
+    const std::uint64_t pad_bytes = 4 * (island_preamble_words(region) + 1);
+    for (std::size_t k = 0; k < region.entries.size(); ++k) {
+        const std::uint64_t site = region_address + 4 * std::uint64_t{region.entries[k]};
+        patches.emplace_back(site, b(site, first_pad + pad_bytes * k));
+    }
+    return patches;
 }
 
 std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t region_address,
@@ -2029,6 +2076,18 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
                             *branch_displacement(region.words[index]);
         write(ldur(value, sp, scratch_slot_0));
         write(b(write.next_address(), static_cast<std::uint64_t>(target)));
+    }
+    // The entry pads (ADR-0020 X7): what a branch from outside runs in place of the window's word it lands on, the
+    // island's preamble and then the body at that word.
+    for (const auto entry : region.entries) {
+        write(stur(value, sp, scratch_slot_0));
+        if (region.writes_x18) write(stur(base, sp, scratch_slot_1));
+        if (region.loads_x18) {
+            write(mrs_tpidrro_el0(value));
+            write(bic_7(value, value));
+            write(ldr_unsigned(value, value, guest_x18_offset));
+        }
+        write(b(write.next_address(), window_start + 4 * std::uint64_t{entry}));
     }
     write.finish();
     return b(region_address, stub_address);

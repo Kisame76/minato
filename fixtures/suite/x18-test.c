@@ -39,6 +39,7 @@ uint64_t x18_cmpxchg(uint64_t *cell, uint64_t expected, uint64_t desired);
 uint64_t x18_clrex_only(uint64_t *cell);
 uint64_t x18_cas_exit(uint64_t *cell, uint64_t expected, uint64_t desired);
 uint64_t x18_cas_weak(uint64_t *cell, uint64_t expected, uint64_t desired);
+uint64_t x18_cas_entered(uint64_t *cell, uint64_t expected, uint64_t desired, uint64_t enter);
 uint64_t x18_swap_exit(uint64_t *cell, uint64_t value);
 uint32_t x18_add_bound(uint32_t *cell, uint32_t delta, uint32_t limit);
 uint64_t x18_skipped_write(uint64_t *cell);
@@ -240,6 +241,13 @@ int main(void) {
     const uint64_t cas_miss = x18_cas_exit(&cell, 7, 200), cas_after_miss = cell;
     printf("a strong CAS with x18 as the new value: old %" PRIu64 " now %" PRIu64 ", then old %" PRIu64 " now %" PRIu64
            "\n", cas_hit, cas_after_hit, cas_miss, cas_after_miss);
+    cell = 7;
+    const uint64_t entered_hit = x18_cas_entered(&cell, 7, 100, 1), entered_after_hit = cell;
+    const uint64_t entered_miss = x18_cas_entered(&cell, 8, 200, 1), entered_after_miss = cell;
+    const uint64_t entered_plain = x18_cas_entered(&cell, 100, 300, 0), entered_after_plain = cell;
+    printf("a CAS entered from outside at its store-exclusive: old %" PRIu64 " now %" PRIu64 ", then old %" PRIu64
+           " now %" PRIu64 ", then entered normally old %" PRIu64 " now %" PRIu64 "\n", entered_hit, entered_after_hit,
+           entered_miss, entered_after_miss, entered_plain, entered_after_plain);
     cell = 5;
     const uint64_t weak_hit = x18_cas_weak(&cell, 5, 6), weak_after_hit = cell;
     const uint64_t weak_miss = x18_cas_weak(&cell, 5, 7), weak_after_miss = cell;

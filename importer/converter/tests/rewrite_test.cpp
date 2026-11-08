@@ -1170,8 +1170,9 @@ TEST(a_window_that_can_skip_its_only_write_of_x18_loads_it_first) {
     CHECK(region.writes_x18);
 }
 
-TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
-    // A branch from before the loop lands on the add inside the window: it cannot be relocated.
+TEST(a_branch_into_the_exclusive_window_gets_an_entry_pad) {
+    // A branch from before the loop lands on the add inside the window (ADR-0020 X7): the island has an entry pad for
+    // it, and the window is relocated.
     const std::uint32_t code[] = {
         0x1400'0002,  // b .+8, onto the add
         0xc85f'7db1,  // ldxr x17, [x13]
@@ -1180,10 +1181,23 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
         0x35ff'ffb0,  // cbnz w16, ldxr
     };
     const auto findings = scan_words(code, code + 5, 0x4000);
-    CHECK(findings.exclusive_regions.empty());
-    CHECK(findings.x18_unsupported.size() == 2);  // the add and the stlxr
-    for (const auto &use : findings.x18_unsupported) {
-        CHECK(std::string_view(use.reason) == "it lies in an exclusive window into which a branch from outside leads");
+    CHECK(findings.x18_unsupported.empty());
+    CHECK(findings.exclusive_regions.size() == 1);
+    if (findings.exclusive_regions.size() == 1) {
+        const auto &region = findings.exclusive_regions[0];
+        CHECK(region.entries == std::vector<std::uint32_t>{1});  // the add, one word in
+        // The island carries the entry pad after its tail: the preamble (save, mrs, bic, ldr; x18 is written, so the
+        // base is saved too: 1 + 1 + 3 words) and a branch into the body. The container patches the add with a branch
+        // to that pad.
+        // save value, the window, restore value, branch; mrs, bic, ldr; save base, mrs, bic, str, restore base.
+        const std::size_t base_words = 1 + region.words.size() + 1 + 1 + 3 + (1 + 3 + 1);
+        CHECK(apk::rewrite::exclusive_region_stub_size(region) == 4 * (base_words + (1 + 1 + 3 + 1)));
+        const auto patches = apk::rewrite::exclusive_region_entry_patches(region, 0x4004, 0x9000);
+        CHECK(patches.size() == 1 && patches[0].first == 0x4008);
+        // b to the pad at the island's start + 4 * base_words
+        const std::int64_t distance = static_cast<std::int64_t>(0x9000 + 4 * base_words) - 0x4008;
+        CHECK(patches.size() == 1 &&
+              patches[0].second == (0x1400'0000u | (static_cast<std::uint32_t>(distance / 4) & 0x03ff'ffffu)));
     }
 }
 
@@ -1191,11 +1205,11 @@ TEST(a_branch_into_the_exclusive_window_makes_it_unsupported) {
 // the window before use (a retry after a context switch recomputes it) or live into the window (zeroing corrupts it).
 TEST(scan_counts_a_refused_window_with_x18_written_as_defined_in_the_loop) {
     const std::uint32_t code[] = {
-        0x1400'0002,  // b .+8, onto the add (refuses the window: a branch leads in)
         0xc85f'7db1,  // ldxr x17, [x13]
+        0x9400'0001,  // bl .+4              (refuses the window: it holds a call)
         0x8b0e'0232,  // add x18, x17, x14   (x18 written before the store: defined in the loop)
         0xc810'fdb2,  // stlxr w16, x18, [x13]
-        0x35ff'ffb0,  // cbnz w16, ldxr
+        0x35ff'ff90,  // cbnz w16, ldxr
     };
     const auto findings = scan_words(code, code + 5, 0x4000);
     CHECK(findings.x18_unsupported.size() == 2);  // the add and the stlxr
@@ -1205,11 +1219,11 @@ TEST(scan_counts_a_refused_window_with_x18_written_as_defined_in_the_loop) {
 
 TEST(scan_counts_a_refused_window_with_x18_live_in) {
     const std::uint32_t code[] = {
-        0x1400'0002,  // b .+8, onto the add (refuses the window: a branch leads in)
         0xc85f'7db1,  // ldxr x17, [x13]
+        0x9400'0001,  // bl .+4              (refuses the window: it holds a call)
         0x8b0e'0240,  // add x0, x18, x14    (x18 read, never written: live into the window)
         0xc810'fdb1,  // stlxr w16, x17, [x13]
-        0x35ff'ffb0,  // cbnz w16, ldxr
+        0x35ff'ff90,  // cbnz w16, ldxr
     };
     const auto findings = scan_words(code, code + 5, 0x4000);
     CHECK(findings.x18_unsupported.size() == 1);  // only the add uses x18

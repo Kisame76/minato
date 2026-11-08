@@ -111,6 +111,8 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
                std::uint64_t saved_value, std::uint64_t saved_base, std::uint64_t x18, bool resumable) {
     const std::uint64_t word = (context.pc - (header + island.stub)) / 4;
     Settled settled{context, x18};
+    std::uint64_t pad_word = 0;  // the word of an entry pad the thread stopped in (ADR-0020 X7)
+    bool in_entry_pad = false;
     // x18 is in the value register until the island stores it back to slot 11; read it from the
     // current context before the red-zone restore below gives that register its guest value again.
     // Only a resumable EXCLUSIVE window uses the per-word map; an older container's EXCLUSIVE window is
@@ -127,17 +129,35 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
         if (word >= preamble && island.store != 0 && word <= island.store) settled.x18 = context.x[island.value];
         const std::uint64_t guest = word < preamble ? 0 : std::min<std::uint64_t>(word - preamble, body);
         settled.context.pc = header + island.site + 4 * guest;
-        // An exit pad (ADR-0020 X7), after the tail of a window that only reads x18 (no store-back, no base): two
-        // words, the value register's restore and a B to where the leaving branch went. A thread stopped in one
-        // continues at that target, which the pad's own B names (the stub is read-only, so reading it here is
-        // safe), not after the window; the value register is restored below like anywhere past word 0.
-        const std::uint64_t pads = preamble + body + 2;
-        if (island.store == 0 && island.base == APK_ISLAND_NO_REGISTER && word >= pads && word < island.words) {
-            const std::uint64_t at = header + island.stub + 4 * (pads + ((word - pads) | 1));  // the pad's B
-            std::uint32_t branch;
-            std::memcpy(&branch, reinterpret_cast<const void *>(at), sizeof branch);
-            const auto displacement = static_cast<std::int64_t>(static_cast<std::int32_t>(branch << 6) >> 6);
-            settled.context.pc = static_cast<std::uint64_t>(static_cast<std::int64_t>(at) + 4 * displacement);
+        // The pads behind the tail (ADR-0020 X7), each starting with the word that tells its kind: an exit pad of a window
+        // that only reads x18 (the value register's restore and a B to where the leaving branch went), a thread in
+        // which continues at that B's target, not after the window; and an entry pad (the island's preamble and a B into
+        // the body), in which the thread is at the window word the entry replaced, the registers its own preamble has
+        // saved so far. The stub is read-only, so reading its words here is safe.
+        const std::uint64_t tail = island.base != APK_ISLAND_NO_REGISTER ? 6 : 2;
+        std::uint64_t pad_start = preamble + body + tail;
+        if (word >= pad_start && word < island.words) {
+            const auto *stub = reinterpret_cast<const std::uint32_t *>(header + island.stub);
+            for (;;) {
+                const bool exit_pad = (stub[pad_start] & 0xffe0'0c00) == 0xf840'0000;  // LDUR, else STUR
+                const std::uint64_t length = exit_pad ? 2 : std::uint64_t{preamble} + 1;
+                if (word < pad_start + length || pad_start + length >= island.words) {
+                    const std::uint64_t at = header + island.stub + 4 * (pad_start + length - 1);  // the pad's B
+                    const std::uint32_t branch = stub[pad_start + length - 1];
+                    const auto displacement = static_cast<std::int64_t>(static_cast<std::int32_t>(branch << 6) >> 6);
+                    const auto target = static_cast<std::uint64_t>(static_cast<std::int64_t>(at) + 4 * displacement);
+                    if (exit_pad) {
+                        settled.context.pc = target;
+                    } else {
+                        pad_word = word - pad_start;
+                        in_entry_pad = true;
+                        const std::uint64_t body_word = (target - (header + island.stub)) / 4;  // the island word entered
+                        settled.context.pc = header + island.site + 4 * (body_word - preamble);
+                    }
+                    break;
+                }
+                pad_start += length;
+            }
         }
     } else {
         // Before its commit the island runs again from the site; after it the thread goes on.
@@ -149,8 +169,10 @@ Settled settle(const apk_island &island, std::uint64_t header, const GuestContex
     // nothing to the red zone; there is nothing to restore, and its value/base registers stay as they are
     // (the guest never reads them again). Every other island saved its scratch and gets it back here.
     if (island.kind != APK_ISLAND_SINGLE_NOSAVE) {
-        if (word >= 1) settled.context.x[island.value] = saved_value;
-        if (island.base != APK_ISLAND_NO_REGISTER && word >= 2) settled.context.x[island.base] = saved_base;
+        // An entry pad saves the registers itself, so counts its own words, not the island's.
+        const std::uint64_t saved = in_entry_pad ? pad_word : word;
+        if (saved >= 1) settled.context.x[island.value] = saved_value;
+        if (island.base != APK_ISLAND_NO_REGISTER && saved >= 2) settled.context.x[island.base] = saved_base;
     }
     return settled;
 }

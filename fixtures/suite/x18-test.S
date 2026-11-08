@@ -365,6 +365,23 @@ function x18_add_bound
     restore_x18
     ret
 
+// uint64_t x18_cas_entered(uint64_t *cell, uint64_t expected, uint64_t desired, uint64_t enter): the strong CAS above with
+// a branch from outside into its window (ADR-0020 X7): with `enter` set the cbnz jumps onto the store-exclusive, which
+// runs without its load-exclusive and fails, and the loop goes round to the load-exclusive. Returns the cell's old value.
+function x18_cas_entered
+    save_x18
+    mov     x18, x2
+    mov     x5, x1
+    cbnz    x3, 3f
+1:  ldaxr   x5, [x0]
+    cmp     x5, x1
+    b.ne    2f
+3:  stlxr   w4, x18, [x0]
+    cbnz    w4, 1b
+2:  mov     x0, x5
+    restore_x18
+    ret
+
 // uint64_t x18_clrex_only(uint64_t *cell): the cell, from a window that a CLREX closes alone.
 function x18_clrex_only
     save_x18

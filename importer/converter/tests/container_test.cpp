@@ -1298,11 +1298,11 @@ TEST(x18_sites_c_would_take_counts_the_refused_sites_in_functions_c_accepts) {
 TEST(the_refusal_text_carries_the_per_site_facts) {
     auto prog = static_program();
     const std::uint32_t window[] = {
-        0x1400'0002,  // 0x200 b .+8, into the add (a branch from outside refuses the window)
-        0xc85f'7db1,  // 0x204 ldxr x17, [x13]
+        0xc85f'7db1,  // 0x200 ldxr x17, [x13]
+        0x9400'0001,  // 0x204 bl .+4: a call in the window refuses it
         0x8b0e'0232,  // 0x208 add x18, x17, x14: x18 written before the store (defined in the loop)
         0xc810'fdb2,  // 0x20c stlxr w16, x18, [x13]
-        0x35ff'ffb0,  // 0x210 cbnz w16, ldxr
+        0x35ff'ff90,  // 0x210 cbnz w16, ldxr
         0xd65f'03c0,  // 0x214 ret
     };
     for (std::size_t i = 0; i < std::size(window); ++i) prog.put<std::uint32_t>(0x200 + 4 * i, window[i]);
