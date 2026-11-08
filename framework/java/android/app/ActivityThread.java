@@ -120,6 +120,7 @@ import com.android.minato.permissions.PermissionAnswers;
 import com.android.minato.permissions.PermissionPolicy;
 import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.open.SystemOpenActivity;
+import com.android.internal.minato.install.InstallSourcesActivity;
 import com.android.internal.minato.permissions.SystemPermissionActivity;
 import android.location.LocalLocationManager;
 import com.android.internal.minato.picker.PickerIntents;
@@ -1296,6 +1297,7 @@ public final class ActivityThread {
     private static final int EVENT_NETWORK = 33;
     private static final int EVENT_TRIM_MEMORY = 34;
     private static final int EVENT_NOTIFICATION_TAP = 35;
+    private static final int EVENT_INSTALL_SOURCES_RESULT = 36;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1553,6 +1555,9 @@ public final class ActivityThread {
             case EVENT_OPEN_RESULT:
                 SystemOpenActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
+            case EVENT_INSTALL_SOURCES_RESULT:
+                InstallSourcesActivity.onResult(event[2], (int) event[3]);
+                break;
             case EVENT_PERMISSION_RESULT:
                 SystemPermissionActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
@@ -1652,13 +1657,17 @@ public final class ActivityThread {
         // Activity.requestPermissions' intent goes to the activity that stands in for the permission dialog (ADR-0063).
         final boolean permissions = component == null && pickerKind == PickerIntents.NONE && !open
                 && PackageManager.ACTION_REQUEST_PERMISSIONS.equals(intent.getAction());
+        // The settings page "Install unknown apps" goes to the activity that asks the host whether the app may.
+        final boolean sources = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
+                && InstallSourcesActivity.handles(intent);
         ActivityInfo info = pickerKind != PickerIntents.NONE
                 ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
                 : open ? OpenIntents.activityInfo(mPackage.applicationInfo(0))
                 : permissions ? SystemPermissionActivity.activityInfo(mPackage.applicationInfo(0))
+                : sources ? InstallSourcesActivity.activityInfo(mPackage.applicationInfo(0))
                 : component != null
                 ? mPackage.activityInfo(component, PackageManager.GET_SHARED_LIBRARY_FILES, false) : null;
-        final int result = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
+        final int result = component == null && pickerKind == PickerIntents.NONE && !open && !permissions && !sources
                 ? ActivityManager.START_INTENT_NOT_RESOLVED
                 : info == null ? ActivityManager.START_CLASS_NOT_FOUND : ActivityManager.START_SUCCESS;
         if (info != null) {
@@ -1667,7 +1676,7 @@ public final class ActivityThread {
             return result;
         }
         final Intent started = new Intent(intent);
-        if (pickerKind != PickerIntents.NONE || open || permissions) {
+        if (pickerKind != PickerIntents.NONE || open || permissions || sources) {
             started.setComponent(new ComponentName(info.packageName, info.name));
         }
         sMainThreadHandler.post(() -> addTransaction(
@@ -2691,6 +2700,36 @@ public final class ActivityThread {
         return thread == null ? PermissionPolicy.Grant.DENIED_FIXED : thread.mPackage.grantOf(permission);
     }
 
+    /** The grant canRequestPackageInstalls reports: the host's initial value, then each answer to the settings page. */
+    private static volatile int sInstallSources = -1;
+
+    /** @hide canRequestPackageInstalls: whether the app may install apps (minato.install_sources at the start). */
+    public static boolean installSources() {
+        int grant = sInstallSources;
+        if (grant < 0) {
+            grant = "1".equals(SystemProperties.get("minato.install_sources", "0")) ? 1 : 0;
+            sInstallSources = grant;
+        }
+        return grant != 0;
+    }
+
+    /** @hide InstallSourcesActivity's: the host's answer to the settings page. */
+    public static void setInstallSources(boolean allowed) {
+        sInstallSources = allowed ? 1 : 0;
+    }
+
+    /**
+     * @hide InstallSourcesActivity's: the request `id` with its text for the host, which answers with
+     * INSTALL_SOURCES_RESULT; 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestInstallSources(long id, String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestAskInstallSources(id, text.getBytes(StandardCharsets.UTF_8));
+    }
+
     /** @hide SystemPermissionActivity's: whether the app holds the permission now, as checkSelfPermission answers. */
     public static boolean permissionGranted(String permission) {
         final ActivityThread thread = sCurrentActivityThread;
@@ -3113,6 +3152,8 @@ public final class ActivityThread {
     private static native int nativeSessionRequestOpenCancel(long id);
 
     private static native int nativeSessionRequestPermission(long id, byte[] text);
+
+    private static native int nativeSessionRequestAskInstallSources(long id, byte[] text);
 
     private static native int nativeSessionRequestPermissionCancel(long id);
 

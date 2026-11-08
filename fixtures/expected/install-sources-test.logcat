@@ -1,0 +1,3 @@
+I/install-sources-test: canRequestPackageInstalls: false
+I/install-sources-test: settings page resolves: true
+I/install-sources-test: done

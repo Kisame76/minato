@@ -38,6 +38,7 @@ import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
 import com.android.externalstorage.ExternalStorageProvider;
+import com.android.internal.minato.install.InstallSourcesActivity;
 import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
@@ -556,6 +557,12 @@ class ApplicationPackageManager {
             found = new ArrayList<>(found);
             found.add(PickerIntents.resolveInfo(picker));
         }
+        // The settings page "Install unknown apps" resolves to Android's Settings when the app has no component for it.
+        if (kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty() && picker == PickerIntents.NONE
+                && InstallSourcesActivity.handles(intent)) {
+            found = new ArrayList<>(found);
+            found.add(InstallSourcesActivity.resolveInfo());
+        }
         // The links, mail, calls, texts, maps and shares of ADR-0062 resolve to the phone's app that iOS stands in for.
         if (kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty() && picker == PickerIntents.NONE
                 && OpenIntents.kindOf(intent) != 0) {
@@ -901,6 +908,14 @@ class ApplicationPackageManager {
 
     public boolean hasSystemFeature(String name, int version) {
         return SystemFeatures.has(name, version, ManifestPackage.vulkan());
+    }
+
+    /**
+     * As AOSP's: whether the app may install apps. Minato's host decides, per app and for good (the settings page
+     * "Install unknown apps" asks it): minato.install_sources at the start, then each answer.
+     */
+    public boolean canRequestPackageInstalls() {
+        return ActivityThread.installSources();
     }
 
     private PackageInstaller mInstaller;

@@ -289,6 +289,23 @@ jint SessionRequestPermission(JNIEnv *env, jclass, jlong id, jbyteArray text) {
                    : 0;
 }
 
+// APKRT_REQUEST_ASK_INSTALL_SOURCES (an app installer): the text "<package>\n<label>" by address and the request ID;
+// 0, or the negative errno. The host answers with APKRT_EVENT_INSTALL_SOURCES_RESULT.
+jint SessionRequestAskInstallSources(JNIEnv *env, jclass, jlong id, jbyteArray text) {
+    if (text == nullptr) return -EINVAL;
+    const jsize length = env->GetArrayLength(text);
+    std::vector<char> bytes(static_cast<size_t>(length) + 1, '\0');
+    env->GetByteArrayRegion(text, 0, length, reinterpret_cast<jbyte *>(bytes.data()));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -EFAULT;
+    }
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_ASK_INSTALL_SOURCES,
+                   reinterpret_cast<uintptr_t>(bytes.data()), static_cast<uint64_t>(id)) < 0
+                   ? -errno
+                   : 0;
+}
+
 // APKRT_REQUEST_PERMISSION_CANCEL: the request `id` is not wanted any more; 0, or the negative errno.
 jint SessionRequestPermissionCancel(JNIEnv *, jclass, jlong id) {
     return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION_CANCEL, static_cast<uint64_t>(id), 0) < 0 ? -errno
@@ -446,6 +463,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRequestOpenCancel", "(J)I", reinterpret_cast<void *>(SessionRequestOpenCancel)},
         {"nativeSessionRequestPermission", "(J[B)I", reinterpret_cast<void *>(SessionRequestPermission)},
         {"nativeSessionRequestPermissionCancel", "(J)I", reinterpret_cast<void *>(SessionRequestPermissionCancel)},
+        {"nativeSessionRequestAskInstallSources", "(J[B)I", reinterpret_cast<void *>(SessionRequestAskInstallSources)},
         {"nativeSessionRequestIme", "(J[B)I", reinterpret_cast<void *>(SessionRequestIme)},
         {"nativeLocationStart", "(II)I", reinterpret_cast<void *>(LocationStart)},
         {"nativeLocationGrant", "(I)I", reinterpret_cast<void *>(LocationGrant)},
