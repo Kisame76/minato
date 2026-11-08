@@ -1,6 +1,7 @@
 #include "signals.h"
 
 #include "APKRuntime/apkrt.h"
+#include "crash_report.h"
 #include "islands.h"
 #include "process_exit.h"
 #include "sockets.h"
@@ -15,6 +16,7 @@
 #include <unistd.h>
 
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -187,6 +189,44 @@ struct sigaction previous_fault_actions[std::size(fault_signals)];
 
 thread_local ThreadSignals host_thread_signals;  // for threads without a guest thread (tests)
 
+// --- Fault diagnostic (ADR-0032 decision 8) -------------------------------------------------------
+//
+// MINATO_FAULT_LOG logs one line for each synchronous fault the runtime hands to a GUEST handler -- the app's own
+// crash handler (Unity, Crashlytics, Breakpad). Such a handler may end the process itself (_exit/kill), so the
+// runtime's exit path writes no status and the app shows "ended without a status"; the line names the fault so the
+// crash can name itself. On by default in a Debug build (no NDEBUG), off in Release; MINATO_FAULT_LOG=0/1 overrides
+// (install_handlers). The byte-compared fixtures run with it set to 0 (tools/run-fixture.cmake), so they are unchanged.
+// crash::write_fault_line is async-signal-safe (one write(), the lock-free module registry), so the handler path stays
+// safe; at most 8 lines per process, so ART's implicit null checks (skipped below) or a fault storm cannot flood it.
+bool fault_log_enabled = false;
+std::uint64_t fault_log_page_size = 16384;  // getpagesize() at install; ART's zero-page null checks fault in [0, page)
+std::atomic<int> fault_log_count{0};
+
+/// The synchronous/fatal signals the diagnostic reports: the ones a native crash reporter catches.
+bool fault_log_class(int signal) {
+    return signal == sigsegv || signal == sigbus || signal == sigill || signal == sigfpe || signal == sigtrap ||
+           signal == 6 /* SIGABRT */;
+}
+
+/// Whether a hardware fault is an implicit null check ART's fault manager recovers (the select decode, patch 0006): a
+/// SEGV_MAPERR in the zero page [0, page). Skipped, or ART's hundreds of null checks would spend the 8-line budget
+/// before the app's real fault. (A genuine zero-page null dereference in the app's own code is skipped with them; a
+/// stack-overflow guard-page fault and, once the decode is unconditional, the heap-window guard page are not -- both
+/// rarer, and the budget bounds a storm.)
+bool art_null_check(int signal, int code, std::uint64_t address) {
+    return signal == sigsegv && code == 1 /* SEGV_MAPERR */ && address < fault_log_page_size;
+}
+
+/// Logs one line for a fault about to reach a guest handler, under MINATO_FAULT_LOG and the 8-line budget; `hardware`
+/// marks the synchronous-fault path, where ART's implicit null checks are skipped. Async-signal-safe.
+void log_fault_to_handler(int signal, int code, std::uint64_t address, std::uint64_t pc, bool hardware) {
+    if (!fault_log_enabled || !fault_log_class(signal)) return;
+    if (hardware && art_null_check(signal, code, address)) return;
+    if (fault_log_count.load(std::memory_order_relaxed) >= 8) return;
+    fault_log_count.fetch_add(1, std::memory_order_relaxed);
+    crash::write_fault_line(STDERR_FILENO, signal, code, address, pc);
+}
+
 // --- Pending signals -----------------------------------------------------------------------------
 
 bool is_real_time(int signal) {
@@ -332,6 +372,9 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
             die_by(signal);
             return;
         }
+        // A fatal signal raised (not a hardware fault, so no fault address) and taken by a guest handler: SIGABRT
+        // from abort() reaches a crash reporter here, the half of a crash diagnosis the fault handler does not see.
+        log_fault_to_handler(signal, info.code, 0, context.pc, false);
         setup_frame(state, signal, info, chosen, context, nullptr);
     }
     // Every way back into guest code comes by here: after the program's end the thread stops instead.
@@ -436,6 +479,7 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     info.signo = translated.signal;
     info.code = translated.code;
     info.fields.address = translated.fault.address;
+    log_fault_to_handler(translated.signal, translated.code, translated.fault.address, context.pc, true);
     setup_frame(state, translated.signal, info, chosen, context, &translated.fault);
     apply(context, uc);
 }
@@ -503,6 +547,19 @@ void nudge(ThreadSignals &state) {
 }
 
 void install_handlers() {
+    // On by default in a Debug build (no NDEBUG) -- deploy.sh's iPhone build is one, so it logs a guest's fault with no
+    // shell to set an env var -- and off in a Release build (NDEBUG). MINATO_FAULT_LOG=0/1 overrides either way. Read
+    // once here, in normal context, so the handler path only reads the flag.
+    if (const char *env = ::getenv("MINATO_FAULT_LOG")) {
+        fault_log_enabled = std::strcmp(env, "0") != 0;
+    } else {
+#ifdef NDEBUG
+        fault_log_enabled = false;
+#else
+        fault_log_enabled = true;
+#endif
+    }
+    fault_log_page_size = static_cast<std::uint64_t>(::getpagesize());
     ::pthread_key_create(&request_key, nullptr);
     struct sigaction action {};
     action.sa_sigaction = handle_runtime_signal;

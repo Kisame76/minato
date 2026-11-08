@@ -8,6 +8,8 @@
 #include <string>
 #include <string_view>
 
+#include <unistd.h>
+
 using apkrt::crash::kept_soname;
 using apkrt::crash::keep_libs_list;
 using std::string_view;
@@ -145,6 +147,63 @@ TEST(resolve_names_the_object_and_gives_the_guest_vaddr_as_the_offset) {
     CHECK(std::string(b2, a2) == "app library 1+0xd00");  // 0x3500 - 0x2800
     CHECK(apkrt::crash::resolve_in_objects(0x5500, objects).app_index == 2);
     CHECK(!apkrt::crash::resolve_in_objects(0x9999, objects).found);  // in no object
+}
+
+TEST(resolve_registered_matches_resolve_in_objects_but_lock_free) {
+    // The signal-frames resolver: the loader appends modules, a signal handler reads them with no lock or allocation.
+    apkrt::crash::reset_modules();
+    apkrt::crash::register_module(0x1000, 0x2000, 0x1000, "libil2cpp.so");  // listed
+    apkrt::crash::register_module(0x3000, 0x4000, 0x2800, "libMyGame.so");   // app library 1
+    apkrt::crash::register_module(0x5000, 0x6000, 0x4800, "libOther.so");    // app library 2
+    const auto il2cpp = apkrt::crash::resolve_registered(0x1500, nullptr);
+    char b1[64]; std::size_t a1 = 0;
+    apkrt::crash::format_frame(b1, sizeof b1, a1, 0x1500, il2cpp);
+    CHECK(std::string(b1, a1) == "libil2cpp.so+0x500");
+    const auto game = apkrt::crash::resolve_registered(0x3500, nullptr);
+    CHECK(game.found && game.app_index == 1);
+    char b2[64]; std::size_t a2 = 0;
+    apkrt::crash::format_frame(b2, sizeof b2, a2, 0x3500, game);
+    CHECK(std::string(b2, a2) == "app library 1+0xd00");
+    CHECK(apkrt::crash::resolve_registered(0x5500, nullptr).app_index == 2);
+    CHECK(!apkrt::crash::resolve_registered(0x9999, nullptr).found);  // in no module
+    apkrt::crash::reset_modules();
+    CHECK(!apkrt::crash::resolve_registered(0x1500, nullptr).found);  // emptied
+}
+
+namespace {
+// Captures one write_fault_line() call through a pipe, so the exact bytes it writes can be checked.
+std::string fault_line(int signal, int code, std::uint64_t address, std::uint64_t pc) {
+    int fds[2];
+    if (::pipe(fds) != 0) return "<pipe failed>";
+    apkrt::crash::write_fault_line(fds[1], signal, code, address, pc);
+    ::close(fds[1]);
+    char buffer[512];
+    const ssize_t read = ::read(fds[0], buffer, sizeof buffer);
+    ::close(fds[0]);
+    return read > 0 ? std::string(buffer, static_cast<std::size_t>(read)) : std::string();
+}
+}  // namespace
+
+TEST(a_fault_line_names_the_signal_the_faulting_library_and_the_fault_address) {
+    // The fault diagnostic (ADR-0032 decision 8): when a synchronous fault reaches a guest handler, one line names
+    // the signal, the faulting library (masked), the si_code and the fault address. The library comes from the
+    // lock-free module registry the loader fills, so it obeys the same privacy mask as the crash record.
+    apkrt::crash::reset_modules();
+    apkrt::crash::register_module(0x100000, 0x200000, 0x100000, "libil2cpp.so");  // listed engine library
+    apkrt::crash::register_module(0x300000, 0x400000, 0x300000, "libMyGame.so");  // app library 1 (masked)
+    // A SIGSEGV whose pc is in a listed engine library: named, with the guest vaddr as the offset.
+    CHECK(fault_line(11, 1, 0xdead0000, 0x100500) ==
+          "E/apkrt: fault SIGSEGV code 1 at libil2cpp.so+0x500, addr 0xdead0000, to the app's handler\n");
+    // A pc in an unlisted library never shows the name (privacy): "app library N".
+    const std::string masked = fault_line(11, 2, 0x12340000, 0x300040);
+    CHECK(masked == "E/apkrt: fault SIGSEGV code 2 at app library 1+0x40, addr 0x12340000, to the app's handler\n");
+    CHECK(masked.find("MyGame") == std::string::npos);
+    // SIGABRT from abort(): no fault address, a pc in no known module is a bare hex address.
+    CHECK(fault_line(6, 0, 0, 0x999) == "E/apkrt: fault SIGABRT code 0 at 0x999, addr 0x0, to the app's handler\n");
+    // SIGBUS and a negative si_code (a raised signal, e.g. SI_TKILL) are printed as they are.
+    CHECK(fault_line(7, -6, 0, 0x100010) ==
+          "E/apkrt: fault SIGBUS code -6 at libil2cpp.so+0x10, addr 0x0, to the app's handler\n");
+    apkrt::crash::reset_modules();
 }
 
 int main() { return apk::testing::run_all(); }

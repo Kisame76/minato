@@ -1,5 +1,6 @@
 #include "loader.h"
 
+#include "crash_report.h"
 #include "hwcap.h"
 #include "identity.h"
 #include "islands.h"
@@ -340,6 +341,11 @@ Image load(const std::string &path) {
     name.remove_prefix(name.rfind('/') + 1);
     if (name.ends_with(".dylib")) name.remove_suffix(std::string_view(".dylib").size());
     islands::add(header, *info, name);
+    // Record the image for the async-signal-safe crash/fault resolver (ADR-0032 decision 8): a signal handler names a
+    // faulting address by its library and guest vaddr without a lock or allocation. The range and bias match
+    // mapped_objects(); the soname is copied, so `name`'s view into the realpath buffer need not outlive this call.
+    crash::register_module(base + info->image_offset, base + info->image_offset + info->image_size,
+                           base + info->image_offset - info->min_vaddr, name);
     return Image{.header = header, .info = info, .bias = base + info->image_offset - info->min_vaddr};
 }
 

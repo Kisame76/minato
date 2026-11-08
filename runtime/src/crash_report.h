@@ -57,4 +57,32 @@ struct LoadedObject {
 /// address is named by its island's guest site instead -- that path uses the island table.)
 Module resolve_in_objects(std::uint64_t address, std::span<const LoadedObject> objects);
 
+/// Registers a loaded module for the async-signal-safe resolver (the signal-frames and fault-diagnostic paths): its
+/// host address range, its load bias, and its soname, which it copies (bounded to 63 bytes), so the caller's view need
+/// not outlive the call. The loader calls it on each module load; it appends to a fixed, lock-free registry (modules
+/// are never unloaded, ADR-0003). It writes the registry, so it is not itself for a signal handler --
+/// resolve_registered reads it.
+void register_module(std::uint64_t image_begin, std::uint64_t image_end, std::uint64_t bias, std::string_view soname);
+
+/// Resolves a host address over the registered modules (register_module), with the signature write_backtrace's
+/// `resolve` takes (`ctx` is unused): the same result as resolve_in_objects over the live objects, but reading the
+/// append-only registry with no lock and no allocation, so a signal handler may call it (the signal-frames path).
+/// found = false ("0x<address>") when no module holds the address, or when the registry was already full at the load.
+Module resolve_registered(std::uint64_t address, void *ctx);
+
+/// Empties the module registry, for tests.
+void reset_modules();
+
+/// Writes ONE async-signal-safe diagnostic line for a synchronous fault the runtime is about to deliver to a guest
+/// handler -- the app's own crash handler (Unity, Crashlytics, Breakpad), which may end the process itself so the
+/// runtime's exit path never writes a status (ADR-0032 decision 8; gated by MINATO_FAULT_LOG in signals.cpp):
+///   "E/apkrt: fault <NAME> code <C> at <frame>, addr 0x<addr>, to the app's handler\n"
+/// <NAME> is the signal (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGTRAP/SIGABRT, else "SIG<n>"), <C> the si_code (signed),
+/// <addr> the faulting address (0 for a non-fault terminating signal). <frame> names `pc`'s module as format_frame
+/// does, so the privacy mask holds: a non-allow-listed library is "app library N", an address in no module "0x<pc>".
+/// Resolves `pc` over the lock-free module registry (register_module) only, so no allocation and no lock the faulting
+/// thread may hold; one write() to `fd`. The line is in Minato's liblog form, so the exit path's output capture
+/// (process_exit.cpp is_log_line) treats it as the runtime's own words, not the app's.
+void write_fault_line(int fd, int signal, int code, std::uint64_t fault_address, std::uint64_t pc);
+
 }  // namespace apkrt::crash

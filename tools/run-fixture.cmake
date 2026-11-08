@@ -108,6 +108,11 @@ function(without_zygote text out)
   set(${out} "${kept}" PARENT_SCOPE)
 endfunction()
 
+# The fault diagnostic (ADR-0032 decision 8) is on by default in a Debug build (no NDEBUG), which the Mac tests are;
+# turn it off for these byte-exact runs, where its "E/apkrt: fault ..." stderr lines would differ from the expected.
+# Through the script's environment, not `cmake -E env`, which ends with 1 when the run dies by a signal, so a fixture
+# that must end by one (kill-self-test, jni-fatal-test) would lose its status.
+set(ENV{MINATO_FAULT_LOG} 0)
 execute_process(COMMAND "${RUN}" ${options} "${container}"
   RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
 without_zygote("${error}" error)

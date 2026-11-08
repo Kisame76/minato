@@ -1,8 +1,11 @@
 #include "crash_report.h"
 
+#include <atomic>
+#include <cstddef>
 #include <cstring>
 
 #include <mach/mach.h>
+#include <unistd.h>
 
 namespace apkrt::crash {
 namespace {
@@ -101,6 +104,96 @@ Module resolve_in_objects(std::uint64_t address, std::span<const LoadedObject> o
             return {.found = true, .base = object.bias, .soname = object.soname, .app_index = kept ? 0 : app};
     }
     return {.found = false};
+}
+
+namespace {
+
+// The append-only registry a signal handler reads without a lock or allocation (the signal-frames path). Modules are
+// never unloaded (ADR-0003), so the loader only appends: it writes an entry, then releases the count; a reader
+// acquires the count and iterates [0, count). The loader serializes loads under its own lock, so there is one writer.
+struct RegisteredModule {
+    std::uint64_t image_begin = 0;
+    std::uint64_t image_end = 0;
+    std::uint64_t bias = 0;
+    char soname[64] = {};  // a bounded copy: the loader's name is a view into a transient buffer (loader.cpp realpath)
+    std::size_t soname_size = 0;
+};
+constexpr std::size_t max_modules = 512;
+RegisteredModule registered_modules[max_modules];
+std::atomic<std::size_t> registered_count{0};
+
+}  // namespace
+
+void register_module(std::uint64_t image_begin, std::uint64_t image_end, std::uint64_t bias, string_view soname) {
+    const std::size_t at = registered_count.load(std::memory_order_relaxed);  // one writer: the loader, under its lock
+    if (at >= max_modules) return;  // full: the signal path shows these addresses bare, never a wrong name
+    RegisteredModule &module = registered_modules[at];
+    module.image_begin = image_begin;
+    module.image_end = image_end;
+    module.bias = bias;
+    const std::size_t size = soname.size() < sizeof module.soname ? soname.size() : sizeof module.soname - 1;
+    std::memcpy(module.soname, soname.data(), size);  // copied, so the caller's view need not outlive the call
+    module.soname[size] = '\0';
+    module.soname_size = size;
+    registered_count.store(at + 1, std::memory_order_release);  // the entry is complete before the count is seen
+}
+
+Module resolve_registered(std::uint64_t address, void *) {
+    const std::size_t count = registered_count.load(std::memory_order_acquire);
+    int app = 0;  // as resolve_in_objects: the non-listed modules in load order
+    for (std::size_t index = 0; index < count; ++index) {
+        const RegisteredModule &module = registered_modules[index];
+        const string_view soname(module.soname, module.soname_size);
+        const bool kept = kept_soname(soname);
+        if (!kept) ++app;
+        if (address >= module.image_begin && address < module.image_end)
+            return {.found = true, .base = module.bias, .soname = soname, .app_index = kept ? 0 : app};
+    }
+    return {.found = false};
+}
+
+void reset_modules() { registered_count.store(0, std::memory_order_release); }
+
+namespace {
+
+/// The name for a Linux signal number the diagnostic reports, or null for one it does not (then "SIG<n>").
+const char *fault_signal_name(int signal) {
+    switch (signal) {
+        case 4: return "SIGILL";
+        case 5: return "SIGTRAP";
+        case 6: return "SIGABRT";
+        case 7: return "SIGBUS";
+        case 8: return "SIGFPE";
+        case 11: return "SIGSEGV";
+        default: return nullptr;
+    }
+}
+
+}  // namespace
+
+void write_fault_line(int fd, int signal, int code, std::uint64_t fault_address, std::uint64_t pc) {
+    char line[256];  // the longest line (a 63-char soname, a negative code, two 16-digit addresses) fits with room
+    std::size_t at = 0;
+    append(line, sizeof line, at, "E/apkrt: fault ");
+    if (const char *name = fault_signal_name(signal)) {
+        append(line, sizeof line, at, name);
+    } else {
+        append(line, sizeof line, at, "SIG");
+        append_decimal(line, sizeof line, at, static_cast<unsigned long>(signal));
+    }
+    append(line, sizeof line, at, " code ");
+    if (code < 0) {  // a raised signal's si_code (SI_QUEUE, SI_TKILL) is negative; a fault's is positive
+        append(line, sizeof line, at, "-");
+        append_decimal(line, sizeof line, at, static_cast<unsigned long>(-static_cast<long>(code)));
+    } else {
+        append_decimal(line, sizeof line, at, static_cast<unsigned long>(code));
+    }
+    append(line, sizeof line, at, " at ");
+    format_frame(line, sizeof line, at, pc, resolve_registered(pc, nullptr));
+    append(line, sizeof line, at, ", addr 0x");
+    append_hex(line, sizeof line, at, fault_address);
+    append(line, sizeof line, at, ", to the app's handler\n");
+    static_cast<void>(::write(fd, line, at));
 }
 
 int write_backtrace(char *out, std::size_t cap, std::size_t &at, std::uint64_t fp, int limit,
