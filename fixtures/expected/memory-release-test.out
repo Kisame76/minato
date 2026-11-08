@@ -1,0 +1,11 @@
+madvise_remove_anonymous: EINVAL
+madvise_cold: ok, pages stay resident
+dontneed_private_anonymous: first bytes of 4 pages 00 00 00 00
+dontneed_shared_anonymous: first bytes of 4 pages 33 33 33 33
+dontneed_memfd: first bytes of 4 pages 44 44 44 44
+mremap_shrink: ok, the cut-off 96 MiB left the resident size
+mremap_grow: ok, whole block usable yes
+munmap_page: ok, neighbours readable 11, the gap unmapped
+mprotect_4096_piece: ok, the pieces next to it readable 11
+gc_reserve: flat, decommitted pages left the resident size
+mprotect_none: ok, contents back yes

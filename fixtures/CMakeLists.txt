@@ -53,6 +53,8 @@ add_executable(libc-test suite/libc-test.c)
 add_executable(files-test suite/files-test.c)
 # memory-churn-test: memory released in rounds (malloc, munmap, madvise, a dirtied private file) must not add up.
 add_executable(memory-churn-test suite/memory-churn-test.c)
+# memory-release-test: the other ways to give memory back (MADV_REMOVE, mremap, a GC reservation) and to hold it.
+add_executable(memory-release-test suite/memory-release-test.c)
 # Without builtins, so that clang does not fold the math calls at compile time.
 add_executable(math-test suite/math-test.c)
 # scudo-region-test: one size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27).
