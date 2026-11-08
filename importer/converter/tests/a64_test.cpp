@@ -87,6 +87,23 @@ TEST(substitution_renames_register_fields_and_nothing_else) {
     // cbz x18, #+8 and msr TPIDR_EL0, x18: only Rt; the offset and the system register stay.
     CHECK(substitute(0xb400'0052, 18, 9) == 0xb400'0049u);
     CHECK(substitute(0xd51b'd052, 18, 9) == 0xd51b'd049u);
+    // The unallocated part of the 128-bit system space (bits 31:22 = 1101010101): L set with op0 = 0x, or L clear with
+    // op0 = 00. The CPU raises SIGILL on such a word, so it is data or dead bytes, and uses no register (a pair
+    // instruction there would make a "use" of x18 that nothing can run).
+    CHECK(apk::a64::register_use(0xd566'6e72) == RegisterUse{});
+    for (std::uint32_t low = 0; low < (1u << 22); ++low) {
+        const std::uint32_t word = 0xd540'0000u | low;
+        if ((word >> 22) != 0b1101010101) continue;
+        const bool l = (word >> 21 & 1) != 0;
+        const unsigned op0 = word >> 19 & 3;
+        if ((l && op0 < 2) || (!l && op0 == 0)) {
+            if (apk::a64::register_use(word) != RegisterUse{}) {
+                std::printf("unallocated 128-bit system word %08x uses registers\n", word);
+                CHECK(false);
+                break;
+            }
+        }
+    }
     // A word without x18 stays as it is.
     CHECK(substitute(0x8b02'0020, 18, 9) == 0x8b02'0020u);
     // Refused: x18 without a field of its own (st64b x16 uses x16 to x23), a register pair (casp),

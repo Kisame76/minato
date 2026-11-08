@@ -143,7 +143,11 @@ RegisterUse system(std::uint32_t w) {
         if (!l && field(w, 20, 12) == 0b00'011'0010 && t == zr) return hint(field(w, 11, 5));
         return l ? Use().write(t) : Use().read(t);
     }
-    // 128-bit forms with a pair of registers from an even number: SYSP, MSRR (read), MRRS (write)
+    // 128-bit forms with a pair of registers from an even number: SYSP (L clear, op0 = 01), MSRR (L clear, op0 = 1x,
+    // read), MRRS (L set, op0 = 1x, write). L set with op0 = 0x and L clear with op0 = 00 are unallocated: the CPU
+    // raises SIGILL, so such a word is data or dead bytes and uses no register.
+    const auto op0 = field(w, 20, 19);
+    if (l ? op0 < 2 : op0 == 0) return {};
     if (t == zr || t % 2 != 0) return {};
     return l ? Use().write(t, 2) : Use().read(t, 2);
 }

@@ -191,6 +191,21 @@ TEST(a_tpidrro_read_inside_an_exclusive_window_is_still_refused) {
     CHECK(findings.tpidrro_reads == (std::vector<std::uint64_t>{0x3008}));
 }
 
+// An unallocated word of the 128-bit system space (L set, op0 = 00, Rt = x18) lies in an exclusive window: the CPU
+// would raise SIGILL on it, so it is data or dead bytes, and neither a use of x18 nor a refusal.
+TEST(an_unallocated_system_word_in_an_exclusive_window_is_no_x18_use) {
+    const std::uint32_t words[] = {
+        0xc85f'7c01,  // ldxr x1, [x0]
+        0x9100'0432,  // add x18, x1, #1
+        0xd566'6e72,  // unallocated (it would be an MRRS pair x18, x19 if op0 were 1x)
+        0xc802'7c12,  // stxr w2, x18, [x0]
+    };
+    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, 0x3000, findings);
+    CHECK(findings.x18_unsupported.empty());
+}
+
 TEST(scan_sorts_x18_into_reads_writes_and_register_dumps) {
     const auto size = address_of(ref_x18_end) - address_of(ref_x18);
     const std::span code(reinterpret_cast<const std::byte *>(ref_x18), size);
