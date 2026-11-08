@@ -823,6 +823,44 @@ except Exception:
     print(-1)
 PY
 }
+# The checks after a return from the background (the resume round): the second ping, new frames for an app that moves,
+# a screenshot that is not black, and the menu's answer. $1 the app, $2 the label of the case.
+check_return() {
+  local app=$1 wait_for=$2 presents_after presents_now lit
+    presents_after=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
+    # The windows are made again at the return, so the counts before and after the background are not comparable:
+    # the frames of the app after the return are those between this ping and the next.
+    sleep 3
+    request ping
+    EVENT=""
+    await_event "pong presents [0-9]+ scene .*" 15 || true
+    screenshot "$app-resume-$wait_for"
+    lit=-1
+    [[ -z "${LOGS:-}" ]] || lit=$(lit_percent "$LOGS/$app-resume-$wait_for.png")
+    if [[ -z "$EVENT" ]]; then
+      failed_line "after $wait_for: the second ping got no answer" "$app-resume-$wait_for"
+    elif [[ "$app" == surface-test || "$app" == views-test ]]; then
+      echo "note  after $wait_for s: $app draws a still picture, so new frames say nothing"
+    elif (( $(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT") > presents_after )); then
+      presents_now=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
+      ok "  after $wait_for: new frames ($presents_after to $presents_now)"
+    else
+      failed_line "after $wait_for: no new frames in 3 s ($presents_after)" "$app-resume-$wait_for"
+    fi
+    if (( lit < 0 )); then
+      echo "note  after $wait_for s: no screenshot to judge"
+    elif (( lit >= 2 )); then
+      ok "  after $wait_for: the screen is not black ($lit % lit)"
+    else
+      failed_line "after $wait_for: the screen is black ($lit % lit)" "$app-resume-$wait_for"
+    fi
+    request menu
+    if await_event "menu opened" 15; then
+      ok "  after $wait_for: the menu answers"
+    else
+      failed_line "after $wait_for: no answer of the menu" "$app-resume-$wait_for"
+    fi
+}
 # The resume round of app $1 (package $2), the user's bug of a black screen after leaving Minato and coming back: the
 # app runs, Minato goes to the background for 15 s and again for 60 s (iOS suspends a background app), and after each
 # return the host's main thread answers (ping), the guest's windows present new frames, the screen is not black, and the
@@ -860,43 +898,68 @@ run_resume() {
       fi
       break
     fi
-    presents_after=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
-    # The windows are made again at the return, so the counts before and after the background are not comparable:
-    # the frames of the app after the return are those between this ping and the next.
-    sleep 3
-    request ping
-    EVENT=""
-    await_event "pong presents [0-9]+ scene .*" 15 || true
-    screenshot "$app-resume-$wait_for"
-    lit=-1
-    [[ -z "${LOGS:-}" ]] || lit=$(lit_percent "$LOGS/$app-resume-$wait_for.png")
-    if [[ -z "$EVENT" ]]; then
-      failed_line "after $wait_for s in the background: the second ping got no answer" "$app-resume-$wait_for"
-    elif [[ "$app" == surface-test || "$app" == views-test ]]; then
-      echo "note  after $wait_for s: $app draws a still picture, so new frames say nothing"
-    elif (( $(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT") > presents_after )); then
-      presents_now=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
-      ok "  after $wait_for s in the background: new frames ($presents_after to $presents_now)"
-    else
-      failed_line "after $wait_for s in the background: no new frames in 3 s ($presents_after)" "$app-resume-$wait_for"
-    fi
-    if (( lit < 0 )); then
-      echo "note  after $wait_for s: no screenshot to judge"
-    elif (( lit >= 2 )); then
-      ok "  after $wait_for s in the background: the screen is not black ($lit % lit)"
-    else
-      failed_line "after $wait_for s in the background: the screen is black ($lit % lit)" "$app-resume-$wait_for"
-    fi
-    request menu
-    if await_event "menu opened" 15; then
-      ok "  after $wait_for s in the background: the menu answers"
-    else
-      failed_line "after $wait_for s in the background: no answer of the menu" "$app-resume-$wait_for"
-    fi
+    check_return "$app" "$wait_for s in the background"
     sleep 2
   done
   fetch_events
   cp "$EVENTS" "$WORK/$app-resume-events.out" 2>/dev/null || true
+  end_start "$app" 1
+}
+
+# More cases of the resume round (RESUME_CASES=1, after run_resume's): `continue` is requested, so that every return
+# closes the menu that waits over the app after 1 s, as the user's Continue does. For app $1 (package $2): (1) the
+# three-finger menu open when Minato goes to the background for 15 s; (2) two short trips in a row (3 s away, 2 s
+# back, twice); (3) a trip 1 s after the start. Each one checks as run_resume does.
+ping_again() {
+  request ping
+  EVENT=""
+  await_event "pong presents [0-9]+ scene .*" 20 || true
+}
+run_resume_cases() {
+  local app=$1 package=$2 trip
+  if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  sleep "${RESUME_SETTLE:-8}"
+  request continue
+  ping_again
+  if [[ -z "$EVENT" ]]; then
+    failed_line "no pong before the cases: the host's main thread does not answer" "$app-resume-cases"
+    end_start "$app" 1
+    return
+  fi
+  request menu-hold
+  await_event "menu held" 15 || failed_line "the menu did not open to be held" "$app-resume-cases"
+  launch "$AWAY"
+  sleep 15
+  launch
+  sleep 4
+  # The menu that was open stays open over the paused app (Continue starts it again): the menu request closes it.
+  request menu
+  await_event "menu opened" 15 || true
+  sleep 4
+  ping_again
+  check_return "$app" "the three-finger menu open in the background"
+  for trip in 1 2; do
+    launch "$AWAY"
+    sleep 3
+    launch
+    sleep 2
+  done
+  ping_again
+  check_return "$app" "two short trips in a row"
+  fetch_events
+  cp "$EVENTS" "$WORK/$app-resume-cases-events.out" 2>/dev/null || true
+  end_start "$app" 1
+  if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  sleep 1
+  request continue
+  launch "$AWAY"
+  sleep 5
+  launch
+  sleep "${RESUME_EARLY_WAIT:-20}"
+  ping_again
+  check_return "$app" "a trip 1 s after the start"
+  fetch_events
+  cp "$EVENTS" "$WORK/$app-resume-cases-early-events.out" 2>/dev/null || true
   end_start "$app" 1
 }
 
@@ -1119,7 +1182,11 @@ fi
 # RESUME=1 runs only the resume round, for the apps ONLY names (default: the four that draw in the Simulator).
 if [[ -n "${RESUME:-}" ]]; then
   for app in "${APPS[@]}"; do
-    run_resume "${app%% *}" "${app#* }"
+    if [[ -n "${RESUME_CASES:-}" ]]; then
+      run_resume_cases "${app%% *}" "${app#* }"
+    else
+      run_resume "${app%% *}" "${app#* }"
+    fi
   done
   echo "java start check: $failures failed"
   exit $((failures > 0))

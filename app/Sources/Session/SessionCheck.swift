@@ -56,6 +56,9 @@ import UIKit
 ///            presented so far and the scene's state (the resume round of tools/java-start-check.sh).
 ///   menu     the same poll opens game mode's menu, logs "menu opened" and closes it 0.5 s later, as the three-finger
 ///            gesture and the menu's Continue do; the file goes.
+///   menu-hold  the same poll opens game mode's menu and leaves it open, logs "menu held"; the file goes. A menu that
+///            is open when Minato goes to the background stays open over the paused app at the return, and `menu`
+///            closes it (Continue), as the resume round's leave with the menu open does.
 ///   continue  the menu that waits over the app at a return from the background (ADR-0032 decision 7, the menu's
 ///            pause) chooses Continue after the seconds the file names (1 when it names none) and logs "menu
 ///            continued"; the file stays for every return.
@@ -526,6 +529,11 @@ enum SessionCheck {
                     event("menu opened")
                     try? await Task.sleep(for: .seconds(0.5))
                     session.closeMenu()
+                }
+                if requested("menu-hold") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "menu-hold"))
+                    session.openMenu()
+                    event("menu held")
                 }
             }
         }
