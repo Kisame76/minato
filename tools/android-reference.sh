@@ -679,6 +679,7 @@ run_app() {
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \
       | install-session-test \
+      | bitmap-region-test \
       | obb-large-test \
       | obb-zip64-test \
       | install-set-test \

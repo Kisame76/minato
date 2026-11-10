@@ -1,0 +1,41 @@
+I/bitmap-region-test: png from bytes: 640x480
+I/bitmap-region-test: png quadrant 0 sample 1: 320x240, color right true
+I/bitmap-region-test: png quadrant 1 sample 1: 320x240, color right true
+I/bitmap-region-test: png quadrant 2 sample 1: 320x240, color right true
+I/bitmap-region-test: png quadrant 3 sample 1: 320x240, color right true
+I/bitmap-region-test: png quadrant 0 sample 2: 160x120, color right true
+I/bitmap-region-test: png quadrant 1 sample 2: 160x120, color right true
+I/bitmap-region-test: png quadrant 2 sample 2: 160x120, color right true
+I/bitmap-region-test: png quadrant 3 sample 2: 160x120, color right true
+I/bitmap-region-test: png quadrant 0 sample 4: 80x60, color right true
+I/bitmap-region-test: png quadrant 1 sample 4: 80x60, color right true
+I/bitmap-region-test: png quadrant 2 sample 4: 80x60, color right true
+I/bitmap-region-test: png quadrant 3 sample 4: 80x60, color right true
+I/bitmap-region-test: png 565 config: ARGB_8888
+I/bitmap-region-test: png partly outside: 40x40
+I/bitmap-region-test: png wholly outside: IllegalArgumentException
+I/bitmap-region-test: png recycled: true
+I/bitmap-region-test: png from a stream: 640x480
+I/bitmap-region-test: png from a path: 640x480
+I/bitmap-region-test: png from a descriptor: 640x480
+I/bitmap-region-test: jpeg from bytes: 640x480
+I/bitmap-region-test: jpeg quadrant 0 sample 1: 320x240, color right true
+I/bitmap-region-test: jpeg quadrant 1 sample 1: 320x240, color right true
+I/bitmap-region-test: jpeg quadrant 2 sample 1: 320x240, color right true
+I/bitmap-region-test: jpeg quadrant 3 sample 1: 320x240, color right true
+I/bitmap-region-test: jpeg quadrant 0 sample 2: 160x120, color right true
+I/bitmap-region-test: jpeg quadrant 1 sample 2: 160x120, color right true
+I/bitmap-region-test: jpeg quadrant 2 sample 2: 160x120, color right true
+I/bitmap-region-test: jpeg quadrant 3 sample 2: 160x120, color right true
+I/bitmap-region-test: jpeg quadrant 0 sample 4: 80x60, color right true
+I/bitmap-region-test: jpeg quadrant 1 sample 4: 80x60, color right true
+I/bitmap-region-test: jpeg quadrant 2 sample 4: 80x60, color right true
+I/bitmap-region-test: jpeg quadrant 3 sample 4: 80x60, color right true
+I/bitmap-region-test: jpeg 565 config: RGB_565
+I/bitmap-region-test: jpeg partly outside: 40x40
+I/bitmap-region-test: jpeg wholly outside: IllegalArgumentException
+I/bitmap-region-test: jpeg recycled: true
+I/bitmap-region-test: jpeg from a stream: 640x480
+I/bitmap-region-test: jpeg from a path: 640x480
+I/bitmap-region-test: jpeg from a descriptor: 640x480
+I/bitmap-region-test: done
