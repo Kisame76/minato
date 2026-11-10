@@ -95,17 +95,23 @@ All notable changes to Minato are documented in this file. The format follows
   Loudness Enhancer and the reverbs change the sound of the app's streams of their audio session as an approximation
   of Android's effect bundle, `MediaPlayer` included
 - The text magnifier shows what is under your finger while you drag a selection handle
-- More of Android's system managers answer as on a phone without the hardware behind them instead of being missing: game
-  mode, lock screen, USB, downloads, usage stats, storage stats, app restrictions, search, biometrics, device policy,
-  wallpaper and launcher apps, media sessions, the media router, Bluetooth, SIM subscriptions, Telecom, carrier
-  configuration, NFC, MIDI, media projection and roles, and 32 more of Android's public classes load
+- More of Android's system managers answer as on a phone without the hardware, the service or the privileges behind
+  them instead of being missing: game mode, lock screen, USB, downloads, usage stats, storage stats, app restrictions,
+  search, biometrics, device policy, wallpaper and launcher apps, media sessions, the media router, Bluetooth, SIM
+  subscriptions, Telecom, carrier configuration, NFC, MIDI, media projection, roles, performance hints, system health,
+  hardware properties, network stats, the status bar, text services, the blob store, bug reports, companion devices,
+  credentials, cross-profile apps, display hashes, domain verification, file integrity, overlays, people, virtual
+  devices, IPsec, VPN, connectivity diagnostics, network service discovery, Wi-Fi Direct, IMS, AppSearch, Device Lock,
+  Health Connect and media communication; an app that asks for any of Android 15's 88 public system services by name
+  gets what Android 15 gives, a manager or none, and 32 more of Android's public classes load
 - An app that sets its own language with LocaleManager gets it at once, in its texts and its screens, and keeps it
   at its next start
 - Web and e-mail addresses and phone numbers in apps' texts become links where the app asks for them (Linkify), and
   apps that ask for the text classifier get one, as on a phone without its model
 - Ren'Py games built on Python 2.7 get past ctypes' callbacks, which needed executable memory, through trampolines in
   Minato's signed code
-- Get Info says when an app's engine needs a JIT, which iOS does not allow
+- Get Info says when an app's engine needs a JIT, which iOS does not allow, also for Unity games on the Mono backend,
+  which bring no ahead-of-time compiled code
 - Swiping in from the left or right edge goes back in Android apps, as on Android, and puts the keyboard away first
   when it is up
 - Apps whose text fields keep the keyboard up when you tap elsewhere get Apple's key that hides the keyboard in the
@@ -121,13 +127,36 @@ All notable changes to Minato are documented in this file. The format follows
 - Accessibility node, window and service infos, and the accessibility spans of styled text, are Android's own classes
   instead of default answers
 - When an app crashes or ends itself, Report a Problem says where it happened
+- An app that installs other apps can do so through Minato: Minato asks you once per app whether it may install apps,
+  then asks before each install, checks the APK or split set as it checks every import and adds it to your library;
+  Android's install intents and PackageInstaller sessions answer as on Android 15, and a failed install tells the app
+  why (not an APK, another signer, an older version, no space, incompatible)
+- An app can ask to remove an app, with Android's uninstall requests: Minato asks you first in its Delete alert, which
+  names the app, and deletes it only after your yes; an app without Android's permission to ask is refused, as on
+  Android 15
+- An app shows its starting window the moment you open it, as Android 12 and later do: the app's icon on the colour of
+  its theme, which Minato knows from the app's last start, or on Android's light or dark default, until the app draws
+  its first frame
+- A frame rate limit for all apps in Settings, under Apps: 120, 60 or 30 fps, of which only the steps the iPhone's
+  screen can show are offered; it applies from an app's next start, also to apps that draw without pacing of their own,
+  and a frame rate chosen on an app's own page goes above it
+- Apps can connect to devices on your local network: iOS asks, with Minato's own text, whether Minato may, and apps
+  reach those devices once you allow it
+- Apps made with .NET on Mono that bring ahead-of-time compiled code run Mono on its interpreter: Minato switches it
+  over when the app starts Mono, since iOS does not allow Mono's compiler; this is built and tested with a stand-in for
+  Mono, not yet with a real .NET app
+- More of Android's classes answer as on Android 15: Formatter for file sizes, SearchView, Proxy, PhoneNumberUtils,
+  VideoView, and LocalSocket with LocalServerSocket for local sockets inside an app
+- Apps get Android 15's provider contracts for the calendar, the call log, voicemail, blocked numbers and browser
+  bookmarks; the providers behind them answer as on a phone where you said no to those permissions, since Minato does
+  not read the iPhone's calendar or call history
 
 ### Changed
 
 - Apps written in Java or Kotlin run faster: Android's fast interpreter is now the default
-- A tap outside the on-screen keyboard puts it away, as many iPhone apps do, and does nothing else in the app, so
-  games that ask for their keyboard on every tap no longer open it again at once; a drag or a scroll keeps it up, and
-  the button above the keyboard is gone
+- A tap outside the on-screen keyboard puts it away, as many iPhone apps do, and then reaches the app, as Android gives
+  it that tap, so engines such as Godot and Cocos2d-x close their text field at it; a drag or a scroll keeps the
+  keyboard up, and the button above the keyboard is gone
 - An app that cannot start because a library it needs does not load says why in one line, following the chain of
   libraries to the one that fails ("it needs libpython2.7.so, which cannot load: …")
 - An app whose optional library does not load shows "Ready, without" and that library, and starts without it
@@ -144,8 +173,8 @@ All notable changes to Minato are documented in this file. The format follows
 - The library's "…" menu shows the view and the sort order as Files does, with the active order's direction under its
   name, and says when Manual cannot move apps
 - Minato's own screens follow larger text sizes and read well with VoiceOver
-- In game engines' text fields, a tap outside goes to the game and the keyboard stays, as on Android; Return finishes
-  the field
+- In SDL games' text fields, such as Ren'Py's, a tap outside goes to the game and the keyboard stays, as on Android;
+  Return finishes the field
 - Games that draw with OpenGL ES or Vulkan use less memory: the transparent window over their picture keeps one
   full-screen buffer, 14 to 29 MB less on an iPhone 15 Pro Max
 - Apps that allocate many objects of one size, as Ren'Py games do at their start, have twice the room for them
@@ -161,6 +190,15 @@ All notable changes to Minato are documented in this file. The format follows
 - Jobs stop as on Android: a job the app cancels, replaces or clears with cancelAll gets Android's stop reason, and a
   running job that loses its charging or battery constraint stops and starts again once it holds
 - ActivityOptions keeps the options an app sets and hands them on with Android's keys and values
+- Games that draw with OpenGL ES and hold more textures than iOS lets an app keep, such as a long sequence of
+  full-screen frames, stay under iOS's memory limit: when memory gets short, textures that were not used for a while
+  are kept as compressed copies and come back bit for bit when they are drawn again
+- Games that ask OpenGL ES for a multisampled window use less memory: the window's samples no longer take a buffer of
+  their own, 55 MB for 4x at 1290 x 2796 pixels
+- An app that is refused at import for the way a library uses the x18 register names the exact instruction in its
+  reason
+- Apps that use OpenGL ES 3.1 spend less graphics time on each frame: their render passes no longer wait on a fence
+  each
 
 ### Fixed
 
@@ -215,7 +253,8 @@ All notable changes to Minato are documented in this file. The format follows
   converted again at their next start
 - A window takes one producer at a time, as on Android: an EGL or Vulkan surface on a window the app drew in software
   is refused, instead of a black window
-- A text field at the bottom of an app's screen moves up above the keyboard, as on Android
+- A text field at the bottom of an app's screen moves up above the keyboard, as on Android, on the iPhone Duo opened up
+  too
 - A text dialog that asks for the keyboard when it opens, as many games' name dialogs do, gets it
 - The delete key works in an empty text field of a game, such as a name field in Ren'Py games
 - Apps that check whether they may write to the shared storage root get Android's no, so they use their own folders
@@ -223,3 +262,22 @@ All notable changes to Minato are documented in this file. The format follows
 - Swiping between Home, Library and Settings no longer leaves a black page, and a slow swipe past the middle goes on
   to the next tab
 - In Select mode the library's bottom bar (Select All, Favorite, Delete) is no longer hidden behind the tab bar
+- Apps and engines that manage memory in 4 KB steps, as Mono's and IL2CPP's memory pools do, can free, reuse and map
+  single 4 KB pieces inside the iPhone's 16 KB pages, as on Android, instead of getting an error
+- Memory that an app gives back with madvise reads afterwards as Linux gives it: zero again for memory the app had
+  moved, and the file's own contents again for a file it had mapped privately and written to
+- Native libraries with data bytes inside an atomic loop that only look like a use of the x18 register import instead
+  of being refused
+- Apps that read large images in tiles (BitmapRegionDecoder), use gain maps, show animated GIF or WebP drawables or
+  draw meshes no longer fail with a missing native method
+- A chain of screens hands its results back as on Android: when a screen closes with its answer while it takes the
+  result of a screen that closed at once, the screen below is resumed and gets that answer
+- TCP options (no delay, keep alive, linger) that an app sets on a connection after it shut down its sending side stay
+  set, as on Android, instead of failing
+- When the iPhone's storage fills up while an .xapk or another container is being imported, the import is refused with
+  the missing space as its reason, like one that does not fit from the start, and leaves nothing behind
+- Apps and engines that look at /proc when they start, as Mono does, find it as on Android 15: asking whether /proc,
+  /proc/self and the /proc files Minato serves exist, and what they are, gets Android's answers, also through the links
+  /proc/self/exe, cwd, root and fd
+- A tap on a notification while Minato is closed hands the app the notification's extras as the app put them in,
+  Bundles, arrays and Parcelables included, not only strings, numbers and booleans

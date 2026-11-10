@@ -1,6 +1,6 @@
 # Compatibility
 
-What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-05. Numbers in
+What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-11. Numbers in
 parentheses refer to the records indexed in [DESIGN.md](DESIGN.md).
 
 The goal is that every app whose purpose fits the limits at the end of this page works after its import, without
@@ -54,7 +54,8 @@ close, as compiled code:
   `MediaCodec` (H.264 and HEVC video; AAC, MP3, FLAC and Opus audio, Opus with up to 8 channels), audio effects and the
   Visualizer;
 - started and bound services and broadcasts inside the app;
-- Play Asset Delivery and Play Feature Delivery packs that were imported with the app.
+- Play Asset Delivery and Play Feature Delivery packs that were imported with the app, also for apps that ship the
+  older single Play Core library.
 
 **Speed.** Native code runs directly on the CPU, with small costs for the rewritten instructions. In the parity
 benchmark (see [BENCHMARKS.md](BENCHMARKS.md)), a Godot test game reaches parity with its native iOS build in all
@@ -92,14 +93,15 @@ Only what the project has evidence for is stated as working; "untested" means th
   renderer) and reaches parity with its native iOS build.
 - **Unity with IL2CPP:** the Unity test APK imports and starts on the iPhone, also with IL2CPP libraries whose atomic
   loops use `x18` (ADR-0020); the native path, ES 3.1 and Vulkan are in place. A large Unity game can still run out
-  of memory on the iPhone sooner than on Android: depth and multisample buffers take more graphics memory under Metal,
-  which is being worked on.
-- **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono builds for Android are
-  32-bit only [inferred].
+  of memory on the iPhone sooner than on Android: depth buffers and multisampled framebuffers take more graphics
+  memory under Metal. A multisampled window's samples take none of their own, and textures that were idle are kept as
+  compressed copies when memory gets short.
+- **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono games bring no
+  ahead-of-time compiled code; the import recognizes them and Get Info lists them as needing a JIT.
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
   starts in the Simulator with its picture and sound, and Minato's Ren'Py memory test game plays 15 minutes on the
-  iPhone with at most 850 MB. Ren'Py versions built on Python 2.7 stop at the start, where ctypes asks libffi for
-  executable memory; trampolines in Minato's own signed code are in work (ADR-0072).
+  iPhone with at most 850 MB. Ren'Py versions built on Python 2.7 get past ctypes' callbacks, which need
+  executable memory, through trampolines in Minato's own signed code (ADR-0072); no game of that kind is confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
 - **libGDX:** an open-source libGDX game draws with OpenGL ES 2 on the Mac, plays its Ogg Vorbis music through
   MediaPlayer and keeps running, also after a trip to the background; the iPhone is not confirmed yet. Its Java code
@@ -114,8 +116,9 @@ Only what the project has evidence for is stated as working; "untested" means th
   the compiler off (ADR-0071). An open-source LÖVE game runs on the Mac with its compiler off; the iPhone is not
   confirmed yet. A LuaJIT linked into the app without its exports keeps its compiler, which iOS refuses.
 - **Kivy (python-for-android):** imports; Get Info names it. Starting one is not checked yet.
-- **.NET, Xamarin, MAUI, MonoGame:** Get Info names the runtime. Mono's JIT can be switched to its interpreter for apps
-  built with ahead-of-time code (ADR-0071, planned); CoreCLR apps are not covered.
+- **.NET, Xamarin, MAUI, MonoGame:** Get Info names the runtime. Minato switches Mono to its interpreter when an app
+  built with ahead-of-time code starts it (ADR-0071); this is built and tested with a stand-in for Mono, and no real
+  .NET app is confirmed yet. CoreCLR apps are not covered.
 - **Cordova, Capacitor, HTML5 games:** they are a WebView, which shows its pages inside the app. An open-source
   Capacitor app that asked for Android's SDK extension versions no longer stops at that question.
 
@@ -152,24 +155,27 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 
 - System services that answer null: many are in, this release added the game, lock screen, USB, download, usage stats,
   storage stats, restrictions, search, biometric, device policy, wallpaper, launcher apps, media session, media router,
-  Bluetooth, subscription, Telecom, carrier configuration, NFC, MIDI, media projection and role managers, which answer
-  as a phone without that hardware or those permissions does; some of Android 15's service types are still missing.
+  Bluetooth, subscription, Telecom, carrier configuration, NFC, MIDI, media projection and role managers and the rest
+  of Android 15's 88 public system services, which answer as a phone without that hardware or those permissions does;
+  a check asks for each of the 88 names and compares the answers with Android 15's.
   The text services manager is there and says no spell checker is enabled: a spell checker session is never opened,
   where Android hands one out.
   The service discovery manager reports a discovery as started and finds nothing, and advertises nothing, as Minato has
   no multicast; Wi-Fi Direct answers every action with an error; the IMS managers are there and answer as a phone
   without IMS does.
-- Networking: sockets, DNS, the INTERNET permission and the real network (Wi-Fi state, connectivity changes) are in;
-  a sitting on the iPhone has not confirmed all of it.
+- Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
+  connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone.
+  Multicast and service discovery are not in.
 - Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
   the app suspended or after it ends; a job the app keeps across restarts comes back at its next start.
+  WorkManager (androidx.work 2.12.0) logs what Android 15 logs and finds its waiting work again after a restart.
 - Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's inset
   work. Game controllers reach apps as Android 15's standard pad; rumble, a PlayStation pad's touchpad and its extra
   keys are not passed on. A mouse or trackpad reaches apps where iOS gives a pointer; on the iPhone iOS offers a mouse
   only through AssistiveTouch, which turns it into taps, so apps see touches there.
 - Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg Vorbis
-  and Opus), `MediaExtractor` (also Ogg Opus) and `MediaCodec` for H.264, HEVC, AAC, MP3, FLAC and Opus (up to 8
-  channels) are in. `MediaCodec` and `MediaExtractor` have no Vorbis yet. The Equalizer, Bass Boost, Virtualizer and
+  and Opus), `MediaExtractor` (also Ogg Opus and Ogg Vorbis) and `MediaCodec` for H.264, HEVC, AAC, MP3, FLAC, Vorbis
+  and Opus (up to 8 channels) are in. The Equalizer, Bass Boost, Virtualizer and
   Loudness Enhancer change the sound of the `AudioTrack` and AAudio streams of their audio session (session 0: the
   whole mix, which `SoundPool` takes part in) as an approximation of Android's effect bundle, not bit for bit;
   `MediaPlayer` plays through them too, when the tap can take its audio (32-bit float, up to 8 channels, an audio track
@@ -186,16 +192,18 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 - Device features and permissions: sensors, location, the microphone and the camera work. For each app Minato asks
   first, then iOS asks once for Minato, and a no stays a no after the second time, as on Android. The camera works
   through Android's Camera API; Camera2 and CameraX are not in yet.
-- Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added 32
-  more, and the ones still missing are rare in apps. The text classifier answers as a phone without its model does, and
-  Linkify finds web and e-mail addresses and phone numbers.
+- Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added
+  more of them, among them Formatter, SearchView, Proxy, PhoneNumberUtils, VideoView, the local sockets and the
+  provider contracts for the calendar, the call log and voicemail, and the ones still missing are rare in apps. The
+  text classifier answers as a phone without its model does, and Linkify finds web and e-mail addresses and phone
+  numbers.
 
 ## What does not work yet
 
 In plain terms, as a user meets it:
 
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.
-- The microphone, the camera, location and notifications are new and not yet checked on the iPhone.
+- The microphone, the camera and location are new and not yet checked on the iPhone.
 - Jobs, alarms and notifications work only while the app runs: nothing runs while iOS has the app suspended.
 - A notification's tap while Minato is closed opens the app at the notification's screen with its content intent's
   extras, Bundles, arrays and Parcelables included, unless they hold binders or file descriptors or come to more than
