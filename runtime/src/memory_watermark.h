@@ -97,4 +97,13 @@ std::size_t graphics_line(bool warning, char *out, std::size_t size);
 /// restores the real lookup (and clears the cache). Lets a test model a symbol that appears only after a first call.
 void set_graphics_lookup_for_test(GraphicsLookupFn lookup);
 
+/// Builds "I/apkrt   : angle <stats>[ warn]\n" from libGLESv2's ANGLEMetalParkingLine (ADR-0075, 0017 texture parking:
+/// "park n=... parks=... restores=..."), the same way graphics_line builds the gl line and with the same
+/// dlsym/_dyld lookup and caching. Returns the length, or 0 when the symbol is absent (a library without 0017, or ANGLE
+/// not loaded yet) or it would not fit. log_instrument writes it right after the gl line.
+std::size_t parking_line(bool warning, char *out, std::size_t size);
+
+/// Test seam (tests only): the parking_line counterpart of set_graphics_lookup_for_test.
+void set_parking_lookup_for_test(GraphicsLookupFn lookup);
+
 }  // namespace apkrt::memory

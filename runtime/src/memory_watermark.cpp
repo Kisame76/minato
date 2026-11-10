@@ -30,6 +30,8 @@ std::atomic<bool> warning_seen{false};  // a memory-pressure warning has come, a
 
 std::atomic<GraphicsLineFn> graphics_cached{nullptr};         // the once-found symbol; cached atomically, never a miss
 std::atomic<GraphicsLookupFn> graphics_test_lookup{nullptr};  // a test lookup; nullptr -> use the real resolver
+std::atomic<GraphicsLineFn> parking_cached{nullptr};          // the 0017 parking symbol, cached the same way
+std::atomic<GraphicsLookupFn> parking_test_lookup{nullptr};   // its test lookup; nullptr -> use the real resolver
 
 constexpr std::size_t value_width = 20;  // the digits of 2^64 - 1: a value is right-justified in this many columns,
                                          // space padded, so every block is the same block_size bytes (the pwrite slot)
@@ -93,11 +95,11 @@ void ensure_sources() {
     });
 }
 
-/// Finds ANGLEMetalMemoryLine the real way: dlsym(RTLD_DEFAULT) first; else the loaded libGLESv2 image (ANGLE loads it
-/// RTLD_LOCAL, which RTLD_DEFAULT cannot see) reopened RTLD_NOLOAD, then dlsym its handle. Null until ANGLE loads.
-GraphicsLineFn resolve_graphics_symbol() {
-    if (void *direct = ::dlsym(RTLD_DEFAULT, "ANGLEMetalMemoryLine"))
-        return reinterpret_cast<GraphicsLineFn>(direct);
+/// Finds a libGLESv2 export (ANGLEMetalMemoryLine, ANGLEMetalParkingLine) the real way: dlsym(RTLD_DEFAULT) first; else
+/// the loaded libGLESv2 image (ANGLE loads it RTLD_LOCAL, which RTLD_DEFAULT cannot see) reopened RTLD_NOLOAD, then
+/// dlsym its handle. Null until ANGLE loads (and always for a library without the symbol).
+GraphicsLineFn resolve_symbol(const char *symbol) {
+    if (void *direct = ::dlsym(RTLD_DEFAULT, symbol)) return reinterpret_cast<GraphicsLineFn>(direct);
     constexpr std::string_view suffix = "/libGLESv2.framework/libGLESv2";
     const std::uint32_t count = ::_dyld_image_count();
     for (std::uint32_t index = 0; index < count; index++) {
@@ -107,19 +109,27 @@ GraphicsLineFn resolve_graphics_symbol() {
         if (path.size() < suffix.size() || path.substr(path.size() - suffix.size()) != suffix) continue;
         void *handle = ::dlopen(name, RTLD_LAZY | RTLD_NOLOAD | RTLD_LOCAL);
         if (handle == nullptr) continue;
-        if (void *symbol = ::dlsym(handle, "ANGLEMetalMemoryLine")) return reinterpret_cast<GraphicsLineFn>(symbol);
+        if (void *found = ::dlsym(handle, symbol)) return reinterpret_cast<GraphicsLineFn>(found);
     }
     return nullptr;
 }
 
-/// ANGLEMetalMemoryLine for the gl line: the injected test lookup, else resolve_graphics_symbol. A hit is cached and
+/// The symbol for a line: the injected test lookup, else resolve_symbol(symbol). A hit is cached in `cached` and
 /// returned ever after; a miss is NOT cached, so each call retries (1 Hz, cheap) until ANGLE has loaded the symbol.
-GraphicsLineFn graphics_line_source() {
-    if (GraphicsLineFn found = graphics_cached.load(std::memory_order_relaxed)) return found;
-    const GraphicsLookupFn lookup = graphics_test_lookup.load(std::memory_order_relaxed);
-    const GraphicsLineFn found = lookup != nullptr ? lookup() : resolve_graphics_symbol();
-    if (found != nullptr) graphics_cached.store(found, std::memory_order_relaxed);  // cache a hit only; retry a miss
+GraphicsLineFn line_source(std::atomic<GraphicsLineFn> &cached, std::atomic<GraphicsLookupFn> &test_lookup,
+                           const char *symbol) {
+    if (GraphicsLineFn found = cached.load(std::memory_order_relaxed)) return found;
+    const GraphicsLookupFn lookup = test_lookup.load(std::memory_order_relaxed);
+    const GraphicsLineFn found = lookup != nullptr ? lookup() : resolve_symbol(symbol);
+    if (found != nullptr) cached.store(found, std::memory_order_relaxed);  // cache a hit only; retry a miss
     return found;
+}
+
+GraphicsLineFn graphics_line_source() {
+    return line_source(graphics_cached, graphics_test_lookup, "ANGLEMetalMemoryLine");
+}
+GraphicsLineFn parking_line_source() {
+    return line_source(parking_cached, parking_test_lookup, "ANGLEMetalParkingLine");
 }
 
 }  // namespace
@@ -238,6 +248,9 @@ void log_instrument(bool warning) {
     char gl[256];
     const std::size_t gl_length = graphics_line(warning, gl, sizeof gl);  // the ANGLE/Metal line, when 0015 is present
     if (gl_length > 0) static_cast<void>(::write(STDERR_FILENO, gl, gl_length));
+    char park[256];
+    const std::size_t park_length = parking_line(warning, park, sizeof park);  // the 0017 texture-parking line
+    if (park_length > 0) static_cast<void>(::write(STDERR_FILENO, park, park_length));
 }
 
 std::size_t graphics_line(bool warning, char *out, std::size_t size) {
@@ -256,6 +269,24 @@ std::size_t graphics_line(bool warning, char *out, std::size_t size) {
 void set_graphics_lookup_for_test(GraphicsLookupFn lookup) {
     graphics_test_lookup.store(lookup, std::memory_order_relaxed);
     graphics_cached.store(nullptr, std::memory_order_relaxed);  // clear the cache so each test starts fresh
+}
+
+std::size_t parking_line(bool warning, char *out, std::size_t size) {
+    const GraphicsLineFn fn = parking_line_source();
+    if (fn == nullptr) return 0;  // no ANGLEMetalParkingLine (a library without 0017, or ANGLE not loaded yet)
+    char stats[192];
+    stats[0] = '\0';
+    int written = fn(stats, sizeof stats);
+    if (written <= 0) return 0;
+    if (static_cast<std::size_t>(written) > sizeof stats) written = static_cast<int>(sizeof stats);
+    const int length = std::snprintf(out, size, "I/apkrt   : angle %.*s%s\n", written, stats, warning ? " warn" : "");
+    if (length < 0 || static_cast<std::size_t>(length) >= size) return 0;
+    return static_cast<std::size_t>(length);
+}
+
+void set_parking_lookup_for_test(GraphicsLookupFn lookup) {
+    parking_test_lookup.store(lookup, std::memory_order_relaxed);
+    parking_cached.store(nullptr, std::memory_order_relaxed);
 }
 
 }  // namespace apkrt::memory

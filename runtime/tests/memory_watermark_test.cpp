@@ -216,6 +216,49 @@ TEST(graphics_line_retries_until_the_symbol_appears_then_caches_it) {
     memory::set_graphics_lookup_for_test(nullptr);
 }
 
+/// A stand-in for libGLESv2's ANGLEMetalParkingLine (ADR-0075, 0017), so the test needs no real ANGLE: a fixed line.
+int fake_parking_line(char *line, std::size_t size) {
+    static const char stats[] = "park n=3 raw=12 packed=4 kept=8 pending=0 parks=10 aborts=1 restores=7 "
+                                "restore_p50=2 restore_p99=9 lzfse=5";
+    const std::size_t length = sizeof stats - 1;
+    if (length >= size) return 0;
+    std::memcpy(line, stats, length + 1);
+    return static_cast<int>(length);
+}
+
+memory::GraphicsLineFn present_parking_lookup() { return fake_parking_line; }
+memory::GraphicsLineFn absent_parking_lookup() { return nullptr; }
+
+int g_parking_calls = 0;  // for flaky_parking_lookup: nullptr first, the symbol second, nullptr after
+memory::GraphicsLineFn flaky_parking_lookup() { return g_parking_calls++ == 1 ? fake_parking_line : nullptr; }
+
+TEST(parking_line_wraps_the_angle_stats_when_the_symbol_is_present) {
+    memory::set_parking_lookup_for_test(present_parking_lookup);
+    char out[256];
+    const std::size_t length = memory::parking_line(true, out, sizeof out);
+    CHECK(std::string(out, length) ==
+          "I/apkrt   : angle park n=3 raw=12 packed=4 kept=8 pending=0 parks=10 aborts=1 restores=7 "
+          "restore_p50=2 restore_p99=9 lzfse=5 warn\n");
+    memory::set_parking_lookup_for_test(nullptr);
+}
+
+TEST(parking_line_is_empty_without_the_symbol) {
+    memory::set_parking_lookup_for_test(absent_parking_lookup);  // a library without 0017: the symbol never resolves
+    char out[256];
+    CHECK(memory::parking_line(false, out, sizeof out) == 0);
+    memory::set_parking_lookup_for_test(nullptr);
+}
+
+TEST(parking_line_retries_until_the_symbol_appears_then_caches_it) {
+    g_parking_calls = 0;
+    memory::set_parking_lookup_for_test(flaky_parking_lookup);
+    char out[256];
+    CHECK(memory::parking_line(false, out, sizeof out) == 0);  // call 0: lookup misses -> no line
+    CHECK(memory::parking_line(false, out, sizeof out) > 0);   // call 1: symbol appears -> line, pointer cached
+    CHECK(memory::parking_line(false, out, sizeof out) > 0);   // call 2: lookup would miss, but the cache answers
+    memory::set_parking_lookup_for_test(nullptr);
+}
+
 }  // namespace
 
 int main() { return apk::testing::run_all(); }
