@@ -101,6 +101,8 @@
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
 #   EDGE_SWIPE_SIM set: the edge deferral round (edge-back-test-landscape, two swipes up from the bottom edge) runs in
 #              the Simulator too, where iOS gives the first swipe in landscape to the system for every app
+#   EDGE_CONTROL set: after it, the same swipes over Minato's bare control view controller (EdgeControl), a note
+#              whether the control kept the first swipe (Minato's cause) or lost it too (iOS's)
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
 #   MINUTES    how long renpy-memory-test plays and is sampled, 15 by default; the app runs only with
@@ -1876,6 +1878,21 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
     fi
     end_start $app 1
   done
+  # The control (EDGE_CONTROL=1, the lead's experiment of 2026-11-10): the runner launches Minato as a bare UIKit view
+  # controller in landscape with the same deferral and no session (EdgeControl), and swipes it the same way. Only
+  # notes: a control that loses the first swipe too says it is iOS's own behaviour; one that keeps it, Minato's.
+  if [[ -n "${EDGE_CONTROL:-}" ]]; then
+    terminate
+    uitest testSwipeUpFromBottomTwice edge-control 0 control > "$WORK/edge-control-swipes.out" ||
+      runner_fail "  edge control: the runner's swipes failed"
+    cat "$WORK/edge-control-swipes.out"
+    if grep -q "the first swipe: Minato in front" "$WORK/edge-control-swipes.out"; then
+      echo "note    edge control: the bare view controller kept the first swipe: the cause is Minato's"
+    elif grep -q "the first swipe: Minato left the front" "$WORK/edge-control-swipes.out"; then
+      echo "note    edge control: the bare view controller lost the first swipe too: iOS's own behaviour"
+    fi
+    terminate
+  fi
 fi
 
 # An app's request to remove an app (ADR-0077, APKRT_REQUEST_UNINSTALL): uninstall-test asks three ways to remove an

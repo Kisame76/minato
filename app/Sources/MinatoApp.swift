@@ -24,6 +24,12 @@ struct MinatoApp: App {
         }
         #endif
         #if DEBUG
+        // device-regressions entry 3's control (EdgeControl): a bare view controller in landscape, nothing else.
+        if EdgeControl.isRequested {
+            AppDelegate.orientations = .landscape
+            mode = .library(nil)
+            return
+        }
         // A fixture or ART test (FixtureRunner) touches neither the launch request nor the library: its program
         // starts once the launch has finished, in an empty scene.
         if FixtureRunner.startAfterLaunchIfRequested() {
@@ -77,6 +83,18 @@ struct MinatoApp: App {
     }
 
     @ViewBuilder private var modeView: some View {
+        #if DEBUG
+        if EdgeControl.isRequested {
+            EdgeControl.Placeholder()
+        } else {
+            chosenView
+        }
+        #else
+        chosenView
+        #endif
+    }
+
+    @ViewBuilder private var chosenView: some View {
         switch mode {
         case .gameMode(let entry):
             GameModeView(entry: entry)

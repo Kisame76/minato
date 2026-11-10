@@ -146,9 +146,17 @@ final class NotificationTapUITests: XCTestCase {
     /// Game mode defers every edge (defersSystemGestures, GameModeView): iOS gives the first swipe to the app and
     /// shows the home indicator, and only a second swipe right after it goes to the system (device-regressions entry
     /// 3, the landscape edge's "popup"; java-start-check's edge-swipe round). Notes say where each swipe went.
+    /// TEST_RUNNER_MINATO_ARG "control": the runner first launches Minato as the control of entry 3 (EdgeControl, a
+    /// bare UIKit view controller with the same deferral, no session), notes the touches it got, and ends it after.
     func testSwipeUpFromBottomTwice() {
         continueAfterFailure = false
         let minato = minato
+        let control = ProcessInfo.processInfo.environment["MINATO_ARG"] == "control"
+        if control {
+            minato.launchEnvironment["MINATO_EDGE_CONTROL"] = "1"
+            minato.launch()
+        }
+        defer { if control { minato.terminate() } }
         XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front")
         // A window in landscape: the device turns too, as the user holds it (the Simulator's stays upright).
         if minato.frame.width > minato.frame.height, XCUIDevice.shared.orientation != .landscapeLeft {
@@ -164,6 +172,7 @@ final class NotificationTapUITests: XCTestCase {
             return
         }
         print("MINATO-UITEST the first swipe: Minato in front")
+        if control { print("MINATO-UITEST \(minato.otherElements["edge-control"].label)") }
         swipeUpFromBottom(of: minato)
         let left = waitUntil(5) { minato.state != .runningForeground }
         print("MINATO-UITEST the second swipe: Minato \(left ? "left the front" : "in front")")
