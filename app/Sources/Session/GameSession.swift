@@ -136,6 +136,10 @@ final class GameSession {
 
     nonisolated static let hintShownKey = "sessionMenuHintShown"
     nonisolated static let showsFPSKey = "sessionShowsFPS"
+    /// Settings' Frame Rate Limit: 120, 60 or 30, absent or 0 for the screen's highest.
+    nonisolated static let frameRateLimitKey = "frameRateLimit"
+    /// The global limit this session started with, 0 for none (read once, at the start).
+    private var frameRateLimit = 0
 
     init(entry: LibraryEntry) {
         self.entry = entry
@@ -460,6 +464,7 @@ final class GameSession {
             return couldNotStart(failure)
         }
         frameClock?.setUnlock(Float(start.frameRateUnlock))
+        frameClock?.setLimit(Float(frameRateLimit))
         #if DEBUG
         SessionCheck.guestStarts()
         #endif
@@ -589,15 +594,26 @@ final class GameSession {
         // The user's choices for this app (ADR-0065, ADR-0066).
         start.apply(AppProfile.load(for: entry.id, in: paths), screenMaximum: screenMaximum)
         #endif
+        #if BENCHMARK
+        // A benchmark run keeps its own fixed setup.
+        frameRateLimit = 0
+        #else
+        frameRateLimit = FramePacing.limit(stored: UserDefaults.standard.integer(forKey: Self.frameRateLimitKey),
+                                           screenMaximum: screenMaximum)
+        #endif
+        let displayRate = FramePacing.displayRate(screenMaximum: Float(screenMaximum), limit: Float(frameRateLimit),
+                                                  unlock: Float(start.frameRateUnlock))
         #if DEBUG
         SessionCheck.event("profile device \(start.deviceProfile ?? "default") unlock \(start.frameRateUnlock)")
+        SessionCheck.event("frame rate limit \(frameRateLimit) unlock \(start.frameRateUnlock) display "
+            + "\(Int(displayRate)) screen \(screenMaximum)")
         #endif
         // Android's locale is the first preferred language, with the region's settings where it names none.
         let language = Locale(identifier: Locale.preferredLanguages.first ?? "en")
         let configuration = GuestConfiguration(
             scale: Double(scale), width: Int32(windowPixels.width.rounded()), height: Int32(windowPixels.height.rounded()),
             dark: UITraitCollection.current.userInterfaceStyle == .dark,
-            refreshRate: Int32(screenMaximum),
+            refreshRate: Int32(displayRate),
             languageCode: language.language.languageCode?.identifier,
             regionCode: language.region?.identifier ?? Locale.current.region?.identifier)
         return (start, configuration)

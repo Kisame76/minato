@@ -38,13 +38,36 @@ public struct FrameRateRange: Sendable, Equatable {
 public enum FramePacing {
     public static let minimumRate: Float = 60
     public static let maximumRate: Float = 120
+    /// The global frame rate limit's steps (Settings > Apps > Frame Rate Limit): divisors of 120 only, as ADR-0066's.
+    public static let limits = [120, 60, 30]
 
     /// The range for the rate `ANativeWindow_setFrameRate` prefers, 0 for none: 60 to 120 Hz, preferring
     /// the rate clamped into that range, or 120 Hz without one. With the app's FPS unlock (ADR-0066 decision 3), 0 for
-    /// none, it prefers at least the unlock, so that a guest asking a lower rate cannot hold the link below it.
-    public static func range(preferred rate: Float, unlock: Float = 0) -> FrameRateRange {
-        let preferred = rate.isFinite && rate > 0 ? min(max(rate, minimumRate), maximumRate) : maximumRate
-        return FrameRateRange(minimum: minimumRate, maximum: maximumRate,
-                              preferred: max(preferred, min(unlock, maximumRate)))
+    /// none, it prefers at least the unlock, so that a guest asking a lower rate cannot hold the link below it. The
+    /// global limit, 0 for none, is the range's maximum (and its minimum where it is lower than 60); an unlock above
+    /// it wins, as the user's choice for that app.
+    public static func range(preferred rate: Float, unlock: Float = 0, limit: Float = 0) -> FrameRateRange {
+        let maximum = limit > 0 ? min(max(limit, unlock), maximumRate) : maximumRate
+        let minimum = min(minimumRate, maximum)
+        let asked = rate.isFinite && rate > 0 ? rate : maximumRate
+        let preferred = min(max(asked, minimum), maximum)
+        return FrameRateRange(minimum: minimum, maximum: maximum, preferred: max(preferred, min(unlock, maximum)))
+    }
+
+    /// The display's refresh rate the guest sees (its configuration, Display.getRefreshRate): the screen's highest, at
+    /// most the limit, or the unlock where that is higher, as Android's apps see 60 with Smooth Display off.
+    public static func displayRate(screenMaximum: Float, limit: Float, unlock: Float) -> Float {
+        limit > 0 ? min(screenMaximum, max(limit, unlock)) : screenMaximum
+    }
+
+    /// The steps Settings offers: those the screen shows (UIScreen.maximumFramesPerSecond), at least 30.
+    public static func limitSteps(screenMaximum: Int) -> [Int] {
+        let shown = limits.filter { $0 <= screenMaximum }
+        return shown.isEmpty ? [limits.last!] : shown
+    }
+
+    /// The limit of the stored choice, 0 for none: only a step below the screen's highest limits anything.
+    public static func limit(stored: Int, screenMaximum: Int) -> Int {
+        limits.contains(stored) && stored < screenMaximum ? stored : 0
     }
 }

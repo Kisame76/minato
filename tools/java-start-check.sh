@@ -214,7 +214,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "ime-outside-test io.github.kisame76.minato.test.imeoutside"
       "edge-back-test-landscape io.github.kisame76.minato.test.edgeback"
       "uninstall-test io.github.kisame76.minato.test.uninstall"
-      "uninstall-noperm-test io.github.kisame76.minato.test.uninstallnoperm")
+      "uninstall-noperm-test io.github.kisame76.minato.test.uninstallnoperm"
+      "vsync-test io.github.kisame76.minato.test.vsync")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -484,7 +485,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents window-trace footprint-log pick-allow install-allow install-deny keyboard-views end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents window-trace footprint-log pick-allow install-allow install-deny keyboard-views frame-rate-limit end events"
 # The notification taps of the notify-tap-test rounds.
 REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
 REQUESTS+=" notification-repost"
@@ -697,6 +698,8 @@ begin_start() {
   if [[ "$app" == uninstall-test ]]; then
     [[ $round == 1 ]] && echo yes > "$CHECK/install-deny" || echo yes > "$CHECK/install-allow"
   fi
+  # The frame rate limit round's step, stored as Settings' choice at each launch (FRAME_RATE_LIMIT, set by the round).
+  [[ -z "${FRAME_RATE_LIMIT:-}" ]] || echo "$FRAME_RATE_LIMIT" > "$CHECK/frame-rate-limit"
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
@@ -1801,6 +1804,63 @@ if wanted notify-tap-test; then
     fail "  notify-tap-test's first lines differ from Android 15's"
     diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /' || true
   fi
+fi
+
+# The global frame rate limit (Settings > Apps > Frame Rate Limit: 120, 60 or 30 fps, the screen's highest by
+# default). Start 1 with 30, which the request frame-rate-limit stores as the user's pick at each launch: game mode
+# logs the limit and the display rate the guest gets, the frame clock ticks 33.3 ms apart, and vsync-test's display
+# mode is at 30 Hz with its frame callbacks about 33 ms apart. Start 2 with 0 (none): the screen's highest again, so
+# the stored choice is none after the round.
+if wanted vsync-test; then
+  for start in 1 2; do
+    limit=30
+    [[ $start == 1 ]] || limit=0
+    FRAME_RATE_LIMIT=$limit
+    if begin_start vsync-test io.github.kisame76.minato.test.vsync "$start"; then
+      fetch_events
+      line=$(grep -o -E "frame rate limit [0-9]+ unlock .*" "$EVENTS" | tail -n 1 || true)
+      if [[ -n "$line" ]]; then
+        line=${line#frame rate limit }
+        screen=${line##* screen }
+        rate=$limit
+        [[ $limit != 0 ]] || rate=$screen
+        if [[ "$line" == "$limit unlock 0 display $rate screen $screen" ]]; then
+          ok "  limit $limit: the guest's display rate is $rate (the screen's highest $screen)"
+        else
+          failed_line "limit $limit: \"$line\", not \"$limit unlock 0 display $rate screen $screen\"" \
+            "vsync-test-$start"
+        fi
+        want=$(awk -v r="$rate" 'BEGIN { printf "%.2f", 1000 / r }')
+        if await_event "frames 120 interval [0-9.]+/[0-9.]+/[0-9.]+ .*" 30; then
+          median=$(echo "$EVENT" | sed -E 's/.*interval [0-9.]+\/([0-9.]+)\/.*/\1/')
+          if awk -v m="$median" -v w="$want" 'BEGIN { exit !(m > w * 0.9 && m < w * 1.1) }'; then
+            ok "  limit $limit: the frame clock's ticks $median ms apart (1/$rate s: $want)"
+          else
+            failed_line "limit $limit: the frame clock's ticks $median ms apart, not $want" "vsync-test-$start"
+          fi
+        else
+          failed_line "limit $limit: no frames line" "vsync-test-$start"
+        fi
+        if await_line guest-log '^I/vsync-test: done$' 60; then
+          mode=$(grep -E "^I/vsync-test-device: display 0: " "$CHECK/guest-log" | head -n 1 || true)
+          apart=$(grep -E "^I/vsync-test-device: frames " "$CHECK/guest-log" | head -n 1 |
+            sed -E 's/.*frames ([0-9]+) and ([0-9]+) us apart/\1 \2/' || true)
+          if [[ "$mode" == *" at $rate.0]"* || "$mode" == *" at $rate.0,"* ]]; then
+            ok "  limit $limit: vsync-test's display mode is at $rate Hz"
+          else
+            failed_line "limit $limit: vsync-test's display mode: ${mode#*: }, not at $rate Hz" "vsync-test-$start"
+          fi
+          echo "note    vsync-test's frame callbacks ${apart:-?} us apart"
+        else
+          failed_line "limit $limit: vsync-test did not finish" "vsync-test-$start"
+        fi
+      else
+        failed_line "no frame rate limit line at the start" "vsync-test-$start"
+      fi
+    fi
+    end_start vsync-test "$start"
+  done
+  FRAME_RATE_LIMIT=""
 fi
 
 # A tap outside the text field while the keyboard is up (ime-outside-test; ADR-0068 a, amended 2026-11-10): for each

@@ -1,5 +1,6 @@
 import APKLibrary
 import APKRuntime
+import APKSession
 import APKSigning
 import SwiftUI
 import UniformTypeIdentifiers
@@ -10,6 +11,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(SigningCoordinator.self) private var signing
     @AppStorage(GameSession.showsFPSKey) private var showsFPS = false
+    @AppStorage(GameSession.frameRateLimitKey) private var frameRateLimit = 0
     @State private var showsWelcome = false
 
     var body: some View {
@@ -41,10 +43,17 @@ struct SettingsView: View {
                 }
                 Section {
                     Toggle("Show FPS", isOn: $showsFPS)
+                    Picker("Frame Rate Limit", selection: limitChoice) {
+                        ForEach(limitSteps, id: \.self) { step in
+                            Text("\(step) fps").tag(step)
+                        }
+                    }
                 } header: {
                     Text("Apps")
                 } footer: {
-                    Text("Shows the frame rate while an app runs. The app’s menu turns it on and off too.")
+                    Text("Shows the frame rate while an app runs. The app’s menu turns it on and off too. The "
+                         + "frame rate limit applies from an app’s next start; a frame rate chosen on an app’s page "
+                         + "goes above it.")
                 }
                 Section {
                     NavigationLink("Storage") { StorageView() }
@@ -62,6 +71,25 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .sheet(isPresented: $showsWelcome) { WelcomeView() }
         }
+    }
+
+    /// The screen's highest frame rate, which is no limit (the default).
+    private var screenMaximum: Int {
+        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.maximumFramesPerSecond ?? 60
+    }
+
+    /// The steps of 120, 60 and 30 fps that the screen shows.
+    private var limitSteps: [Int] { FramePacing.limitSteps(screenMaximum: screenMaximum) }
+
+    /// The stored limit as a step, the highest step for none; the highest step is stored as none.
+    private var limitChoice: Binding<Int> {
+        let steps = limitSteps
+        return Binding(get: {
+            let limit = FramePacing.limit(stored: frameRateLimit, screenMaximum: screenMaximum)
+            return limit > 0 ? limit : steps[0]
+        }, set: { step in
+            frameRateLimit = step == steps[0] ? 0 : step
+        })
     }
 
     private var status: String {

@@ -5,15 +5,17 @@ import QuartzCore
 
 /// The frame clock (ADR-0036, decision 2): a CADisplayLink on a host thread of its own, never the main
 /// thread, so SwiftUI's work does not delay its ticks. It ticks only while the gate is open, 60 to 120 times
-/// a second, preferring 120 or the rate the guest asks for, and at least the app's FPS unlock (ADR-0066 decision 3).
+/// a second, preferring 120 or the rate the guest asks for, and at least the app's FPS unlock (ADR-0066 decision 3); at
+/// most the global frame rate limit of Settings, unless the unlock is higher.
 @MainActor
 final class DisplayLinkClock {
     /// The link and its run loop are only touched on the clock's thread; the other threads hand it work.
     nonisolated(unsafe) private let link: CADisplayLink
     nonisolated(unsafe) private let runLoop: CFRunLoop
-    /// The guest's rate and the app's unlock, 0 for none; only touched on the clock's thread.
+    /// The guest's rate, the app's unlock and the global limit, 0 for none; only touched on the clock's thread.
     nonisolated(unsafe) private var preferred: Float = 0
     nonisolated(unsafe) private var unlock: Float = 0
+    nonisolated(unsafe) private var limit: Float = 0
     private var isRunning = false
 
     init(sink: FrameTickSink) {
@@ -63,9 +65,18 @@ final class DisplayLinkClock {
         }
     }
 
+    /// The global frame rate limit for this session, 0 for none, set before the program starts.
+    func setLimit(_ rate: Float) {
+        perform {
+            self.limit = rate
+            self.applyRange()
+        }
+    }
+
     /// On the clock's thread.
     nonisolated private func applyRange() {
-        link.preferredFrameRateRange = Self.caRange(FramePacing.range(preferred: preferred, unlock: unlock))
+        let range = FramePacing.range(preferred: preferred, unlock: unlock, limit: limit)
+        link.preferredFrameRateRange = Self.caRange(range)
     }
 
     nonisolated private func perform(_ work: @escaping @Sendable () -> Void) {

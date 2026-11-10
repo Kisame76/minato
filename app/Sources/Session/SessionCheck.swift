@@ -19,6 +19,9 @@ import UIKit
 ///            (1 when it names none), which ends the process.
 ///   orientation  "landscape" or "portrait": game mode holds that instead of the app's own.
 ///   unanswered   the next restart's first request goes unanswered, so it times out; the file is removed.
+///   frame-rate-limit  a step, 120, 60 or 30 (0 for the screen's highest): each process stores it as Settings' Frame
+///            Rate Limit at its launch, as the user's pick does, and logs "frame rate limit stored <n>"; the file
+///            stays.
 ///   forget-hint  the next process forgets that game mode showed its hint and that the FPS label is on, as
 ///            before the first session, and removes the file.
 ///   crash    an exit status: game mode ends at its start as the runtime ends a program, reporting that
@@ -272,6 +275,10 @@ enum SessionCheck {
 
     /// The mode chosen at launch, and the seconds since the launch request was written.
     static func processStarted(_ mode: LaunchMode, request: LaunchRequest?) {
+        if let text = text(of: "frame-rate-limit"), let limit = Int(text) {
+            UserDefaults.standard.set(limit, forKey: GameSession.frameRateLimitKey)
+            event("frame rate limit stored \(limit)")
+        }
         if requested("forget-hint") {
             UserDefaults.standard.removeObject(forKey: GameSession.hintShownKey)
             UserDefaults.standard.removeObject(forKey: GameSession.showsFPSKey)
