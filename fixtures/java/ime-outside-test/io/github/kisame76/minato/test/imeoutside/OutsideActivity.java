@@ -5,6 +5,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
@@ -29,15 +30,17 @@ import android.widget.FrameLayout;
  * <li>"sdl": a view that asks for no extract UI and is a text editor, as SDL2's DummyEdit.
  * </ul>
  * Each field takes the focus and asks for the keyboard; once its ime inset is there it logs "<kind> shown", and the
- * driver taps at a fifth of the window's height, in its middle, away from every field. Twelve seconds later it logs
- * "<kind> after the tap: keyboard <up>, game touched <yes>, focus <kept>", hides the keyboard and goes on. The run ends
- * with "done".
+ * driver taps at a fifth of the window's height, in its middle, away from every field. Two seconds after the game's
+ * first touch or the keyboard's hide, whichever comes first (or a minute without either), it logs "<kind> after the
+ * tap: keyboard <up>, game touched <yes>, focus <kept>", hides the keyboard and goes on. The run ends with "done".
  */
 public class OutsideActivity extends Activity {
     private static final String TAG = "ime-outside-test";
     private static final String[] KINDS = {"plain", "cocos", "godot", "flutter", "sdl"};
-    /** From a field's keyboard to its line: room for a test runner's tap in Minato (tools/java-start-check.sh). */
-    private static final long AFTER_MS = 12000;
+    /** How long a field waits for the tap at most: room for a test runner's start under load in Minato. */
+    private static final long WAIT_MS = 60000;
+    /** From the tap's first sign to the field's line. */
+    private static final long SETTLE_MS = 2000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private FrameLayout mRoot;
     private boolean mImeUp;
@@ -159,12 +162,21 @@ public class OutsideActivity extends Activity {
     private void waitForKeyboard(String kind, int tries) {
         if (mImeUp) {
             Log.i(TAG, kind + " shown");
-            mHandler.postDelayed(() -> after(kind), AFTER_MS);
+            waitForTap(kind, SystemClock.uptimeMillis());
         } else if (tries < 40) {
             mHandler.postDelayed(() -> waitForKeyboard(kind, tries + 1), 250);
         } else {
             Log.i(TAG, kind + " no keyboard");
             next();
+        }
+    }
+
+    /** The game's first touch or the keyboard's hide, then the line SETTLE_MS later; WAIT_MS at most. */
+    private void waitForTap(String kind, long since) {
+        if (mTouched || !mImeUp || SystemClock.uptimeMillis() - since >= WAIT_MS) {
+            mHandler.postDelayed(() -> after(kind), SETTLE_MS);
+        } else {
+            mHandler.postDelayed(() -> waitForTap(kind, since), 100);
         }
     }
 

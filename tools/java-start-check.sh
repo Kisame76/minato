@@ -1671,17 +1671,18 @@ fi
 # of its five kinds of field the MinatoUITests runner taps above the field once the keyboard is up. Minato hides the
 # keyboard (the user's wish), except for SDL's field, and the game gets the tap as on Android 15: "game touched true"
 # for every kind, the keyboard up only for "sdl". Android's log, fixtures/expected/ime-outside-test.logcat, has the
-# keyboard up for every kind. The runner is built before the start: its build would outlast a kind's twelve seconds.
+# keyboard up for every kind. The runner is built before the start; the app waits for the tap, not a fixed time.
 if [[ "$ON_DEVICE" == no ]] && wanted ime-outside-test && uitests_build; then
   if begin_start ime-outside-test io.github.kisame76.minato.test.imeoutside 1; then
     for kind in plain cocos godot flutter sdl; do
-      if ! await_line guest-log "^I/ime-outside-test: $kind shown$" 60; then
+      # A kind whose tap never came waits a minute (the app's WAIT_MS) before the next one shows.
+      if ! await_line guest-log "^I/ime-outside-test: $kind shown$" 90; then
         failed_line "no keyboard for $kind" ime-outside-test-1
         break
       fi
       uitest testTapOutsideField "$kind" || fail "  the runner did not tap outside $kind"
     done
-    await_line guest-log "^I/ime-outside-test: done$" 60 || true
+    await_line guest-log "^I/ime-outside-test: done$" 90 || true
     for kind in plain cocos godot flutter sdl; do
       keyboard=true
       [[ "$kind" == sdl ]] || keyboard=false
