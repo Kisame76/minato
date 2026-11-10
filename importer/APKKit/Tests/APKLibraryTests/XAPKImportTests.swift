@@ -221,6 +221,27 @@ struct XAPKImportTests {
         #expect(!sandbox.exists(unit))
     }
 
+    @Test func anOBBThatDoesNotFitTheFreeSpaceRefusesItsXAPKWithTheReasonAndLeavesNothingBehind() async throws {
+        // The free space is asked for each stage on its own: the APKs fit, the 1 MiB OBB behind them does not.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths, availableSpace: { _ in 512 << 10 })
+        let name = Self.name("main", 1)
+        let unit = try Self.unit(obbs: [(name, Data(count: 1 << 20))], in: sandbox.paths)
+
+        let entry = try #require(try await library.importUnit(unit).first?.entry)
+
+        #expect(entry.id == "file:game.xapk")
+        #expect(entry.refusal?.contains("free space") == true)
+        #expect(!sandbox.exists(Self.obbFolder(sandbox.paths)))
+        // Nothing of the half-made import stays next to the unit.
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: sandbox.paths.incoming.path)) ?? []
+        #expect(left.filter { $0.hasPrefix(".") || $0.hasSuffix(".partial") } == [])
+        #expect(await library.entries.contains { $0.id == Self.package } == false)
+        // The refused XAPK is a tile with its reason, like any refused file; its unit is gone, the pick is to be repeated.
+        #expect(!sandbox.exists(unit))
+    }
+
     @Test func theXAPKsNamesGoOnOneOfItsEntries() async throws {
         // Review: copied onto each entry of an XAPK with many apps, they made library.json grow with every
         // store.
