@@ -196,6 +196,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "ime-pan-test io.github.kisame76.minato.test.imepan" "ime-pan-test-34 io.github.kisame76.minato.test.imepan34"
       "native-jni-ime-test io.github.kisame76.minato.test.nativejniime"
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete"
+      "ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn"
       "install-flow-test io.github.kisame76.minato.test.installflow"
       "ime-outside-test io.github.kisame76.minato.test.imeoutside"
       "edge-back-test-landscape io.github.kisame76.minato.test.edgeback")
@@ -434,7 +435,7 @@ terminate() {
   fi
 }
 # Every request of app/Sources/Session/SessionCheck.swift, and the events, as tools/session-check.sh lists them.
-REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents window-trace footprint-log pick-allow install-allow end events"
+REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-failed tone fps no-guest guest-log extra-session turn-library turn-session audio-disconnect status-bar no-compile ping menu continue window-crc window-dump window-by-drawables window-by-contents window-trace footprint-log pick-allow install-allow keyboard-views end events"
 # The notification taps of the notify-tap-test rounds.
 REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
 REQUESTS+=" notification-repost"
@@ -681,6 +682,20 @@ failed_line() {
   screenshot "$2"
   sed 's/^/      | /' "$EVENTS"
   tail -n 40 "$CHECK/guest-log" 2>/dev/null | sed 's/^/      | /' || true
+}
+# The keyboard bar's views on screen in Minato's windows (SessionCheck's keyboard-views), asked for $1 seconds from
+# now, into VIEWS: "<class> <x>,<y> <width>x<height>" each, "none", or "no answer".
+VIEWS=""
+keyboard_views() {
+  sleep "$1"
+  request keyboard-views
+  if await_event "keyboard views .*" 10; then VIEWS=${EVENT#*keyboard views }; else VIEWS="no answer"; fi
+}
+# The bar's views once the keyboard went ($1 the label, $2 the app and start for failed_line): none may stay.
+no_keyboard_views() {
+  keyboard_views 1.5
+  if [[ "$VIEWS" == none ]]; then ok "  $1: nothing of the bar stayed on screen"; else
+    failed_line "$1: the bar's views stayed on screen: $VIEWS" "$2"; fi
 }
 
 # One start of app $1 with package $2, the $3rd: the tap, game mode, the app's lines up to its last one, and Minato's
@@ -2477,6 +2492,7 @@ PY
         await_event 'keyboard show\(' 20 && uitests_build && uitest testKeyboardHide 2; then
       if await_event 'keyboard hide key' 10 && await_event 'keyboard dismissed' 10; then
         ok "  the bar's hide key put the SDL field's keyboard away"
+        no_keyboard_views "the hide key" ime-surrounding-test-delete-2
       else
         failed_line "the bar's hide key did not put the keyboard away" ime-surrounding-test-delete-2
       fi
@@ -2488,6 +2504,32 @@ PY
   # On the iPhone the runner goes again (the runner only).
   [[ "$ON_DEVICE" != yes ]] ||
     on_device uninstall app --device "$DEVICE_ID" io.github.kisame76.minato.uitests.xctrunner >/dev/null 2>&1 || true
+fi
+
+# A piece of the keyboard bar's glass that stays after the keyboard goes (device-regressions entry 2, reported in an
+# engine's name field): SessionCheck's keyboard-views lists the bar's views on screen in Minato's windows. While the
+# keyboard is up the list must have the bar (it sees where the bar lives); after ime-surrounding-test-return hides
+# the keyboard at the Return the runner types, as Ren'Py's name field does, nothing of it may stay. The hide key's
+# round above asks the same after its hide.
+if wanted ime-surrounding-test-return && uitests_build; then
+  if begin_start ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn 1; then
+    if await_line guest-log '^I/ime-surrounding-test-return: showSoftInput true$' 120 &&
+        await_event 'keyboard show\(' 20; then
+      keyboard_views 1
+      if [[ "$VIEWS" == *KeyboardBarView* ]]; then ok "  the bar is on screen while the keyboard is up: $VIEWS"; else
+        failed_line "the list has no bar while the keyboard is up: $VIEWS" ime-surrounding-test-return-1; fi
+      if uitest testKeyboardReturn 1 && await_event 'keyboard hide' 15; then
+        ok "  the Return hid the keyboard"
+        no_keyboard_views "the Return" ime-surrounding-test-return-1
+      else
+        failed_line "the Return did not hide the keyboard" ime-surrounding-test-return-1
+      fi
+      await_line guest-log '^I/ime-surrounding-test-return: done$' 15 || true
+    else
+      failed_line "no keyboard for the Return" ime-surrounding-test-return-1
+    fi
+  fi
+  end_start ime-surrounding-test-return 1
 fi
 
 # IME: ime-test (ADR-0068 step 2c) starts with its field focused and asks for the keyboard; UIKit's must come, and the

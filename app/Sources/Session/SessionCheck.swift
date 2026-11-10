@@ -59,6 +59,11 @@ import UIKit
 ///   menu-hold  the same poll opens game mode's menu and leaves it open, logs "menu held"; the file goes. A menu that
 ///            is open when Minato goes to the background stays open over the paused app at the return, and `menu`
 ///            closes it (Continue), as the resume round's leave with the menu open does.
+///   keyboard-views  the same poll logs "keyboard views <views>", the keyboard bar's views that are on screen in any
+///            of the app's windows: each visible KeyboardBarView and each other visible glass (UIVisualEffectView), by
+///            class and frame in screen points, or "none"; the file goes. Never the bar's text. While the keyboard is
+///            up the bar is there; once it went, none may stay (device-regressions entry 2, a piece of the bar's glass
+///            left behind).
 ///   continue  the menu that waits over the app at a return from the background (ADR-0032 decision 7, the menu's
 ///            pause) chooses Continue after the seconds the file names (1 when it names none) and logs "menu
 ///            continued"; the file stays for every return.
@@ -535,6 +540,11 @@ enum SessionCheck {
                     try? await Task.sleep(for: .seconds(0.5))
                     session.closeMenu()
                 }
+                if requested("keyboard-views") {
+                    try? FileManager.default.removeItem(at: folder.appending(path: "keyboard-views"))
+                    let views = keyboardViews()
+                    event("keyboard views \(views.isEmpty ? "none" : views.joined(separator: ", "))")
+                }
                 if requested("menu-hold") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "menu-hold"))
                     session.openMenu()
@@ -784,6 +794,30 @@ enum SessionCheck {
             + "scale \(host?.layer.contentsScale ?? 0)/\(screen.nativeScale) orientation \(scene.effectiveGeometry.interfaceOrientation.rawValue) "
             + "statusBarHidden \(scene.statusBarManager?.isStatusBarHidden ?? false) homeIndicatorHidden \(homeIndicator) "
             + "deferredEdges \(edges.rawValue)")
+    }
+
+    /// The keyboard bar's views on screen in the app's windows, "<class> <x>,<y> <width>x<height>" in screen points:
+    /// a visible KeyboardBarView (its own glass and keys go with it) and any other visible glass.
+    @MainActor
+    private static func keyboardViews() -> [String] {
+        var found: [String] = []
+        func visit(_ view: UIView, in window: UIWindow) {
+            guard !view.isHidden, view.alpha > 0.01 else { return }
+            let bar = view is KeyboardBarView
+            if bar || view is UIVisualEffectView {
+                let frame = window.convert(view.convert(view.bounds, to: window), to: window.screen.coordinateSpace)
+                if !frame.isEmpty, frame.intersects(window.screen.bounds) {
+                    found.append("\(type(of: view)) \(Int(frame.minX)),\(Int(frame.minY)) "
+                        + "\(Int(frame.width))x\(Int(frame.height))")
+                    if bar { return }
+                }
+            }
+            for subview in view.subviews { visit(subview, in: window) }
+        }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows where !window.isHidden && window.alpha > 0.01 { visit(window, in: window) }
+        }
+        return found
     }
 
     /// The view controller UIKit asks, following the children a controller hands the question to.

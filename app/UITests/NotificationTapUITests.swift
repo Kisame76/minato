@@ -81,6 +81,27 @@ final class NotificationTapUITests: XCTestCase {
         print("MINATO-UITEST tapped the keyboard's delete key")
     }
 
+    /// UIKit's keyboard over Minato's session: its keys h, i and Return tapped, as Android 15's reference types them
+    /// (ime-surrounding-test-return, which hides the keyboard at Return as Ren'Py's name field does). Its keys, not
+    /// typeText: the session's text view is no element XCTest can give the focus.
+    func testKeyboardReturn() {
+        continueAfterFailure = false
+        let keyboard = minato.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no keyboard over Minato")
+        for letter in ["h", "i"] {
+            let key = keyboard.keys[letter]
+            XCTAssertTrue(key.waitForExistence(timeout: 5), "the keyboard has no key \(letter)")
+            key.tap()
+        }
+        let labels = ["return", "Return", "Zeilenumbruch", "Eingabe"]
+        let predicate = NSPredicate(format: "identifier ==[c] 'Return' OR label IN %@", labels)
+        let button = keyboard.buttons.matching(predicate).firstMatch
+        let enter = button.waitForExistence(timeout: 2) ? button : keyboard.keys.matching(predicate).firstMatch
+        XCTAssertTrue(enter.exists, "the keyboard has no return key")
+        enter.tap()
+        print("MINATO-UITEST tapped h, i and Return on the keyboard")
+    }
+
     /// The bar's key that hides the keyboard (KeyboardBarView, "Hide Keyboard"), tapped once it is there.
     func testKeyboardHide() {
         continueAfterFailure = false
