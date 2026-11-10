@@ -1063,8 +1063,9 @@ public actor Library {
     }
 
     /// A unit's file as an APK, as a container's APKs taken out into ".<file>.contents/" by ADR-0049's extraction, or
-    /// as the reason Minato refuses it. Errors that are no container's, such as a full disk, stop the import, and the
-    /// unit waits.
+    /// as the reason Minato refuses it. Too little free space for a container is its refusal ("It needs X of free
+    /// space, and Y are free"), with nothing left behind; the original stays where it came from, to pick again. Errors
+    /// that are no container's stop the import, and the unit waits.
     ///
     /// An XAPK's OBBs are taken out after its APKs, into ".<file>.obbs/", and only those of a package one of its APKs
     /// names (the review): an XAPK never brings an OBB for another app, and the others are named before
