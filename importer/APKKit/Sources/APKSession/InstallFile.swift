@@ -41,6 +41,17 @@ public enum InstallFile {
                        package: String(decoding: parts[1], as: UTF8.self))
     }
 
+    /// The most APKs a set may hold.
+    public static let maxSetFiles = 64
+
+    /// A session's paths, the request's first part split at U+001F (base.apk first); one path for a plain APK; nil for
+    /// an empty one or more than `maxSetFiles`.
+    public static func paths(of path: String) -> [String]? {
+        let parts = Array(path.utf8).split(separator: 0x1F, omittingEmptySubsequences: false)
+        guard parts.count <= maxSetFiles, parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+        return parts.map { String(decoding: $0, as: UTF8.self) }
+    }
+
     /// The components of guest `path` below the app's own data folder, /data/user/0/<package> or /data/data/<package>;
     /// nil for a path elsewhere, the folder itself, or one with an empty, "." or ".." component. By bytes, as the
     /// kernel reads the path.

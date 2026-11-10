@@ -93,4 +93,40 @@ struct InstallCheckTests {
         guard case .refused = await library.checkForInstall(older) else { Issue.record("older accepted"); return }
         #expect(await library.checkForInstall(same) == .acceptable(package: "org.example.game", label: "Sample Game"))
     }
+
+    /// A set an installer session holds (base.apk and split_*.apk, as SAI hands them over): checked as the import takes a
+    /// unit of them, its base with the splits Minato would choose (ADR-0048); nothing in the library changes.
+    @Test func aSplitSetIsCheckedAsTheImportWouldTakeIt() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let base = try sandbox.file(SplitAPK.make(manifestSplitRequired: true), named: "base.apk")
+        let arm64 = try sandbox.file(SetImportTests.arm64, named: "split_config.arm64_v8a.apk")
+        let xxhdpi = try sandbox.file(SetImportTests.xxhdpi, named: "split_config.xxhdpi.apk")
+
+        guard case .acceptable(package: SplitAPK.package, _) = await library.checkForInstall([base, arm64, xxhdpi]) else {
+            Issue.record("the set was refused")
+            return
+        }
+        // The base alone needs its splits; one file is the plain APK's check.
+        #expect(await library.checkForInstall([base]) == .refused("needs split APKs"))
+        #expect(await library.entries.isEmpty)
+    }
+
+    @Test func aSetWithoutItsBaseOrWithAnotherAppsSplitIsRefused() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let base = try sandbox.file(SetImportTests.base, named: "base.apk")
+        let arm64 = try sandbox.file(SetImportTests.arm64, named: "split_config.arm64_v8a.apk")
+        let foreign = try sandbox.file(SplitAPK.make(package: "org.example.other", split: "config.xxhdpi"),
+                                       named: "split_config.xxhdpi.apk")
+
+        for set in [[arm64], [base, foreign], [base, arm64, arm64]] {
+            guard case .refused = await library.checkForInstall(set) else {
+                Issue.record("accepted: \(set.map(\.lastPathComponent))")
+                continue
+            }
+        }
+    }
 }

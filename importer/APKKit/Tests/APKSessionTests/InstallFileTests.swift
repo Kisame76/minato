@@ -18,6 +18,18 @@ struct InstallFileTests {
         }
     }
 
+    /// A session's set: its paths joined by U+001F, base.apk first; one path for a plain APK.
+    @Test func aSetsPathsAreSplitAtTheUnitSeparator() {
+        #expect(InstallFile.paths(of: "/data/data/p/a.apk") == ["/data/data/p/a.apk"])
+        #expect(InstallFile.paths(of: "/data/data/p/base.apk\u{1F}/data/data/p/split_x.apk")
+            == ["/data/data/p/base.apk", "/data/data/p/split_x.apk"])
+        for text in ["\u{1F}/data/data/p/a.apk", "/data/data/p/a.apk\u{1F}", "a\u{1F}\u{1F}b"] {
+            #expect(InstallFile.paths(of: text) == nil, "\(text.debugDescription)")
+        }
+        #expect(InstallFile.paths(of: Array(repeating: "a", count: InstallFile.maxSetFiles + 1)
+            .joined(separator: "\u{1F}")) == nil)
+    }
+
     @Test func onlyAPathBelowTheAppsOwnDataFolderMaps() {
         let p = Self.package
         #expect(InstallFile.components(of: "/data/user/0/\(p)/cache/install/1.apk", package: p)

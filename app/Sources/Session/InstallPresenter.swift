@@ -11,7 +11,8 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "inst
 /// app's profile (AppProfile.installSources), which the next start hands the runtime. A handed-over APK is taken only
 /// from the app's own data folder (InstallFile), checked as the import would check it (Library.checkForInstall) and,
 /// after the user's yes, taken into the library's incoming folder, which the library installs at its next start, as
-/// "Open with" during a session does (ADR-0018). The answers: granted or denied; ready, failed or cancelled.
+/// "Open with" during a session does (ADR-0018); a session's set of APKs (base.apk and split_*.apk) likewise, as one
+/// unit, which the library installs as one app (ADR-0048). The answers: granted or denied; ready, failed or cancelled.
 @MainActor
 final class InstallPresenter {
     enum Request {
@@ -95,8 +96,15 @@ final class InstallPresenter {
 
     private func confirm(_ id: UInt64, text: String) {
         guard let request = InstallFile.parse(text), request.package == package, let dataFolder, let paths,
-              let components = InstallFile.components(of: request.path, package: package) else {
+              let guestPaths = InstallFile.paths(of: request.path) else {
             return refuse(id, "the request does not name a file of the app's own data")
+        }
+        let sets = guestPaths.compactMap { InstallFile.components(of: $0, package: package) }
+        // Each file under its own name in one folder, which the library takes as APKs by their extension; two of the
+        // same name are no set Android takes either.
+        let names = sets.map { $0.last!.lowercased().hasSuffix(".apk") ? $0.last! : $0.last! + ".apk" }
+        guard sets.count == guestPaths.count, Set(names).count == names.count else {
+            return refuse(id, "the request does not name files of the app's own data")
         }
         // Without the user's grant Android's installer blocks the app and the user goes back: RESULT_CANCELED, as the
         // framework's own check answers.
@@ -104,7 +112,8 @@ final class InstallPresenter {
             log.error("install \(id): the app may not install apps")
             return finish(id, .cancelled, removing: nil)
         }
-        let copy = FileManager.default.temporaryDirectory.appending(path: "\(Self.copyPrefix)\(UUID().uuidString).apk")
+        let copy = FileManager.default.temporaryDirectory.appending(path: "\(Self.copyPrefix)\(UUID().uuidString)",
+                                                                    directoryHint: .isDirectory)
         // The room the copy may take: what the volume has free for it less a reserve; a larger APK fails as on an
         // Android device without the room (INSTALL_FAILED_INSUFFICIENT_STORAGE).
         let free = (try? FileManager.default.temporaryDirectory
@@ -114,11 +123,18 @@ final class InstallPresenter {
         Task {
             let check: Result<InstallCheck, Error> = await Task.detached {
                 do {
-                    try InstallFile.copy(components, below: dataFolder, to: copy, limit: limit)
+                    try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+                    var room = limit
+                    for (components, name) in zip(sets, names) {
+                        let file = copy.appending(path: name)
+                        try InstallFile.copy(components, below: dataFolder, to: file, limit: room)
+                        let size = try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int
+                        room -= Int64(size ?? 0)
+                    }
                     // The import's own checks, as the library uses them (LibraryModel.useChecks).
                     let library = try Library(paths: paths)
                     await LibraryModel.useChecks(in: library, guest: Bundle.main.bundleURL.appending(path: "Guest"))
-                    return .success(await library.checkForInstall(copy))
+                    return .success(await library.checkForInstall(names.map { copy.appending(path: $0) }))
                 } catch {
                     return .failure(error)
                 }
@@ -137,7 +153,7 @@ final class InstallPresenter {
                     guard install else { return finish(id, .cancelled, removing: copy) }
                     Task {
                         do {
-                            _ = try await Library(paths: paths).adopt(copy)
+                            _ = try await Library(paths: paths).adopt(names.map { copy.appending(path: $0) })
                             finish(id, .ready, removing: copy)
                         } catch {
                             refuse(id, "the library did not take it: \(error)", removing: copy)

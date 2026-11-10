@@ -1838,6 +1838,60 @@ extension Library {
                              signer: report.signature.signer ?? SignerIdentity(current: []),
                              signerProven: report.signature.check == .verified,
                              signatureFailed: report.signature.check?.isFailure == true)
+        return finishCheck(report, new, archives: [nil: archive])
+    }
+
+    /// A set an installer session holds (base.apk and split_*.apk): checked as the import takes a unit of them
+    /// (ADR-0048), the base with the splits Minato would choose, then as one APK is (`checkForInstall(_:)`). One file
+    /// is the plain APK's check.
+    public func checkForInstall(_ urls: [URL]) -> InstallCheck {
+        guard urls.count > 1 else { return urls.first.map(checkForInstall) ?? .refused("no APK") }
+        var group: [SetMember] = []
+        var archives: [String: ZipArchive] = [:]
+        for url in urls {
+            guard let archive = try? ZipArchive(url: url), let size = try? Self.sourceFile(for: url).size,
+                  let sha256 = try? Self.sha256(of: url, size: size, progress: { _ in }),
+                  let member = try? SetMember.read(archive, fileName: url.lastPathComponent, sha256: sha256)
+            else { return .refused("not a readable APK: \(url.lastPathComponent)") }
+            guard archives.updateValue(archive, forKey: url.lastPathComponent) == nil else {
+                return .refused("two files named \(url.lastPathComponent)")
+            }
+            group.append(member)
+        }
+        let set: CheckedSet
+        switch SetChecks.check(group) {
+        case .success(let checked): set = checked
+        case .failure(let refusal): return .refused(refusal.reason)
+        }
+        guard let base = set.base else { return .refused("a split without its base APK") }
+        guard Self.isSafePackageName(base.packageName) else { return .refused("unsafe package name") }
+        switch base.signature.check {
+        case .failed: return .refused("its signature failed")
+        case .unsigned: return .refused("unsigned")
+        default: break
+        }
+        let choice = SplitSelector.choose(set, for: device)
+        if let reason = choice.incompatibility { return .refused("incompatible: \(reason)") }
+        guard let (report, _) = try? SetAnalysis.analyze(set, choice: choice, preferredLanguages: preferredLanguages,
+                                                         archive: { archives[$0.fileName]! })
+        else { return .refused("the set could not be read") }
+        switch report.compatibility.status {
+        case .ready: break
+        case .needsSplits: return .refused("needs split APKs")
+        case .incompatible: return .refused("incompatible")
+        }
+        let installing = [base] + choice.chosen
+        guard let digest = choice.chosen.isEmpty ? base.sha256
+            : try? SetDigest.of(installing.map { ($0.splitName, $0.sha256) }) else { return .refused("unreadable") }
+        let new = AppVersion(set: set, state: .ready, sha256: digest)
+        return finishCheck(report, new, archives: Dictionary(uniqueKeysWithValues: installing.map {
+            ($0.splitName, archives[$0.fileName]!)
+        }))
+    }
+
+    /// The checks a plain APK and a set share: the update against the installed app and the APKs waiting in incoming/,
+    /// then the native code as the import extracts it.
+    private func finishCheck(_ report: APKReport, _ new: AppVersion, archives: [String?: ZipArchive]) -> InstallCheck {
         let installed = entries.first { $0.id == report.packageName }.flatMap(version(of:))
         for baseline in [installed] + waitingVersions(of: report.packageName) {
             switch UpdatePolicy.decide(installed: baseline, new: new) {
@@ -1856,7 +1910,7 @@ extension Library {
         defer { try? FileManager.default.removeItem(at: scratch) }
         do {
             try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-            _ = try installNativeCode(of: report, from: [nil: archive], into: scratch, signing: nil)
+            _ = try installNativeCode(of: report, from: archives, into: scratch, signing: nil)
         } catch let refused as RefusedLibrary {
             let all = ([refused] + refused.also).map { "\($0.library): \($0.reason)" }.joined(separator: "; ")
             return .refused("a library cannot load: \(all)")

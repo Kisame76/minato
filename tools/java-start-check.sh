@@ -206,6 +206,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn"
       "install-flow-test io.github.kisame76.minato.test.installflow"
       "install-session-flow-test io.github.kisame76.minato.test.installsessionflow"
+      "install-set-flow-test io.github.kisame76.minato.test.installsetflow"
       "ime-outside-test io.github.kisame76.minato.test.imeoutside"
       "edge-back-test-landscape io.github.kisame76.minato.test.edgeback")
 JAVA_TEST=${JAVA_TEST:-}
@@ -384,6 +385,11 @@ for app in "${APPS[@]}"; do
     vk-ahb-test|window-formats-test|gles-procs-test) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test|renpy-stay-test) ;;
     renpy-memory-test) BUILD_ONLY=1 tools/renpy-memory.sh ;;
+    # Their assets are splits-test's set (build/splits-test/set/).
+    install-set-test|install-set-flow-test)
+      tools/build-splits-test.sh splits-test >/dev/null
+      tools/build-java-test-app.sh "${app%% *}" >/dev/null
+      ;;
     *) tools/build-java-test-app.sh "${app%% *}" >/dev/null ;;
   esac
 done
@@ -510,7 +516,9 @@ remove_test_apps() {
     "${SUPPORT:?}/incoming/pad-test-apks" "${SUPPORT:?}/incoming/pad-test-apks.partial"
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
-  for app in "${APPS[@]}"; do echo "${app#* }"; done > "$CHECK/end"
+  { for app in "${APPS[@]}"; do echo "${app#* }"; done
+    # The set install-set-flow-test hands over is splits-test's app, which the library took from it.
+    ! wanted install-set-flow-test || echo io.github.kisame76.minato.test.splits; } > "$CHECK/end"
   send_requests
   launch || true
   for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
@@ -650,6 +658,10 @@ begin_start() {
   # The session flow's third start (the user declines the install) has the install alert answer Cancel.
   if [[ "$app" == install-session-flow-test ]]; then
     [[ $round == 3 ]] && echo yes > "$CHECK/install-deny" || echo yes > "$CHECK/install-allow"
+  fi
+  # The set flow's second start (the user declines the set) the same.
+  if [[ "$app" == install-set-flow-test ]]; then
+    [[ $round == 2 ]] && echo yes > "$CHECK/install-deny" || echo yes > "$CHECK/install-allow"
   fi
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
@@ -1888,6 +1900,55 @@ if wanted install-session-flow-test; then
       fi
     fi
     end_start install-session-flow-test "$round"
+    fetch_events
+    grep -E " install (sources )?[0-9]+ " "$EVENTS" | sed 's/^/      | /' || true
+  done
+fi
+
+# A split set through a PackageInstaller session (install-set-flow-test, splits-test's base, arm64, en and feature APKs
+# in one session): Minato's host takes the set's paths, checks them as the import takes a unit (ADR-0048) and, after
+# the install alert's Install, hands them to the library as one unit; the sender gets STATUS_SUCCESS, and the
+# library's next start (round 2's) has splits-test's app with its splits. Round 2, with the grant from round 1's
+# profile, declines the install: cancelled, STATUS_FAILURE_ABORTED.
+if wanted install-set-flow-test; then
+  setflow="io.github.kisame76.minato.test.installsetflow"
+  set_app="io.github.kisame76.minato.test.splits"
+  [[ "$ON_DEVICE" == yes ]] || rm -f "$SUPPORT/data/$setflow/profile.json"
+  for round in 1 2; do
+    if begin_start install-set-flow-test "$setflow" "$round"; then
+      if await_line guest-log "^I/install-set-flow-test: done$" 120; then
+        log="$CHECK/guest-log"
+        if [[ $round == 2 ]]; then
+          if grep -q "^I/install-set-flow-test: confirm result: cancelled$" "$log" &&
+              grep -q "^I/install-set-flow-test: final status: 3$" "$log"; then
+            ok "  the user's Cancel ended the set's session with STATUS_FAILURE_ABORTED"
+          else
+            fail "  the declined set did not end with ABORTED"
+          fi
+          # Round 2's library start installed round 1's set as one entry of splits-test's app with its splits.
+          fetch "$SUPPORT_REL/library.json" || true
+          splits=$(python3 - "$SUPPORT/library.json" "$set_app" 2>/dev/null <<'PY' || echo none
+import json
+import sys
+entry = {e["id"]: e for e in json.load(open(sys.argv[1]))["entries"]}.get(sys.argv[2])
+print("none" if entry is None else len(entry.get("splits") or []))
+PY
+)
+          if [[ "$splits" =~ ^[1-9][0-9]*$ ]]; then ok "  the library has the set as one app with $splits splits"; else
+            fail "  the library has no entry with splits for the set's app: $splits"; fi
+        elif grep -q "^I/install-set-flow-test: status: pending user action$" "$log" &&
+            grep -q "^I/install-set-flow-test: confirm result: ok$" "$log" &&
+            grep -q "^I/install-set-flow-test: final status: 0$" "$log"; then
+          ok "  the session's set went to the library, STATUS_SUCCESS"
+        else
+          ended=$(sed -n -E 's/^I\/install-set-flow-test: (final status|confirm result): //p' "$log" | tr '\n' ' ')
+          fail "  the set's session ended: $ended"
+        fi
+      else
+        failed_line "no done" "install-set-flow-test-$round"
+      fi
+    fi
+    end_start install-set-flow-test "$round"
     fetch_events
     grep -E " install (sources )?[0-9]+ " "$EVENTS" | sed 's/^/      | /' || true
   done
