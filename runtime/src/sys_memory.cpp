@@ -55,8 +55,11 @@ void forget_shared(std::uint64_t begin, std::uint64_t end) {
     shared_mappings = std::move(kept);
 }
 
+void forget_partial(std::uint64_t begin, std::uint64_t end);  // defined below, next to the sub-page unmap tracking
+
 /// mremap moved [from, from + old_length) to `to` with `new_length`: the shared mappings go with their pages, as
-/// proc::remap's names do.
+/// proc::remap's names do, and both ranges' per-host-page piece tracking is dropped -- the move re-maps those whole
+/// host pages, so any sub-page unmap recorded there (partial_pages) is stale.
 void move_shared(std::uint64_t from, std::uint64_t old_length, std::uint64_t to, std::uint64_t new_length) {
     const std::uint64_t kept = std::min(old_length, new_length);
     std::vector<SharedMapping> moved;
@@ -66,6 +69,8 @@ void move_shared(std::uint64_t from, std::uint64_t old_length, std::uint64_t to,
     }
     forget_shared(from, from + old_length);
     forget_shared(to, to + new_length);
+    forget_partial(from, from + old_length);
+    forget_partial(to, to + new_length);
     shared_mappings.insert(shared_mappings.end(), moved.begin(), moved.end());
 }
 
@@ -125,6 +130,49 @@ HostRange to_host_range(std::uint64_t address, std::uint64_t length) {
     }
     return {address, length};
 }
+
+/// Guest 4 KiB-granularity munmap on 16 KiB host pages (ADR-0007): a program that hard-codes 4096 (Mono and il2cpp
+/// memory pools) unmaps a 4 KiB piece of a larger mapping. Darwin's munmap needs a 16 KiB-aligned address, and a piece
+/// below a host page shares that page with neighbours that stay mapped, so it cannot be unmapped on its own. sys_munmap
+/// unmaps the whole host pages a range covers, and for a partially-unmapped host page records which 4 KiB sub-pages the
+/// guest no longer has; when a host page's last live sub-page goes, the page is unmapped for real, so an allocator that
+/// frees in 4 KiB steps does not leak. `unmapped` has one bit per 4 KiB sub-page. Apart from one another; under
+/// memory_lock.
+constexpr std::uint64_t sub_page_size = 4096;
+struct PartialPage {
+    std::uint64_t base = 0;      // host-page-aligned
+    std::uint32_t unmapped = 0;  // bit i set: the i-th 4 KiB sub-page of the host page is unmapped
+};
+std::vector<PartialPage> partial_pages;
+
+/// Every 4 KiB sub-page of a host page: the mask that means the whole page is unmapped.
+std::uint32_t full_sub_mask() { return (std::uint32_t{1} << (vm_page_size / sub_page_size)) - 1; }
+
+/// The bits for the 4 KiB sub-pages that [lo, hi) touches within the host page at `base` (lo, hi inside the page).
+std::uint32_t sub_mask(std::uint64_t base, std::uint64_t lo, std::uint64_t hi) {
+    std::uint32_t mask = 0;
+    for (std::uint64_t at = lo & ~(sub_page_size - 1); at < hi; at += sub_page_size) {
+        mask |= std::uint32_t{1} << ((at - base) / sub_page_size);
+    }
+    return mask;
+}
+
+PartialPage *partial_page_at(std::uint64_t base) {
+    for (auto &page : partial_pages) {
+        if (page.base == base) return &page;
+    }
+    return nullptr;
+}
+
+/// Drops the partial-page records whose host page lies in [begin, end) (host-page-aligned): those pages are gone.
+void forget_partial(std::uint64_t begin, std::uint64_t end) {
+    std::erase_if(partial_pages, [&](const PartialPage &page) { return page.base >= begin && page.base < end; });
+}
+
+/// A guest 4 KiB-granularity unmap of [lo, hi) inside the single host page `host_page` (never the whole page): the
+/// piece's bits are marked unmapped and, if private, zeroed so a reuse reads zero; when the page's last sub-page goes
+/// it is unmapped for real. Defined by the memory helpers below. Returns 0 or -errno. Under memory_lock.
+long partial_unmap(std::uint64_t host_page, std::uint64_t lo, std::uint64_t hi);
 
 /// Writes `line` to the session log once per process (the first caller wins), only when MINATO_LOADER_LOG is set, as
 /// the loader's scudo line and session.cpp's trim-footprint line are: a real session (RuntimeSession.swift) sets it, so
@@ -243,6 +291,7 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
     proc::unmap(begin, end);
     forget_shared(begin, end);
     forget_offset(begin, end);
+    forget_partial(begin, end);  // the fresh mapping makes these whole host pages live: drop any stale piece tracking
     if (description) proc::map_file(begin, end, fd, offset, type != linux_map::private_);
     if (counted) shared_mappings.push_back({begin, end, memfd_file->inode});
     if (delta != 0) {
@@ -267,14 +316,29 @@ long sys_munmap(const apkrt_syscall_frame &frame, std::uint64_t address, std::ui
     }
     // An emulated 4 KiB-offset file mapping's guest address is not host-page-aligned: act on the real host range.
     const HostRange host = to_host_range(address, length);
-    const long result = result_or_error(::munmap(as_pointer<void>(host.address), host.length));
-    if (result == 0) {
-        const auto end = host.address + ((host.length + vm_page_size - 1) & ~std::uint64_t{vm_page_size - 1});
-        proc::unmap(host.address, end);
-        forget_shared(host.address, end);
-        forget_offset(host.address, end);
+    const std::uint64_t page = vm_page_size;
+    const std::uint64_t begin = host.address, end = host.address + host.length;
+    if (end <= begin) return 0;
+    // The whole host pages the range fully contains come off in one munmap (fast for a big free); a partial piece of
+    // a host page the range only touches is emulated (partial_unmap: it shares the page with a neighbour that stays).
+    const std::uint64_t whole_begin = (begin + page - 1) & ~(page - 1);
+    const std::uint64_t whole_end = end & ~(page - 1);
+    if ((begin & (page - 1)) != 0) {  // partial head, inside the first host page
+        if (const long error = partial_unmap(begin & ~(page - 1), begin, std::min(whole_begin, end)); error != 0) {
+            return error;
+        }
     }
-    return result;
+    if (whole_end > whole_begin) {
+        if (::munmap(as_pointer<void>(whole_begin), whole_end - whole_begin) != 0) return -to_linux_errno(errno);
+        proc::unmap(whole_begin, whole_end);
+        forget_shared(whole_begin, whole_end);
+        forget_offset(whole_begin, whole_end);
+        forget_partial(whole_begin, whole_end);
+    }
+    if ((end & (page - 1)) != 0 && whole_end >= whole_begin && end > whole_end) {  // partial tail, its own host page
+        if (const long error = partial_unmap(whole_end, whole_end, end); error != 0) return error;
+    }
+    return 0;
 }
 
 namespace memory {
@@ -635,6 +699,43 @@ long remap_private_file(std::uint64_t begin, std::uint64_t stop, vm_prot_t prote
                              MAP_FIXED | MAP_PRIVATE, fd, static_cast<off_t>(file_offset));
     ::close(fd);
     return got == MAP_FAILED ? advise_keep(begin, stop) : 0;
+}
+
+/// A guest 4 KiB-granularity unmap of [lo, hi) inside the single host page `host_page`, never the whole page (forward-
+/// declared above). Rounds [lo, hi) up to whole 4 KiB sub-pages (Linux rounds a munmap length up to a page),
+/// zeroes a private piece so a later reuse reads zero as Linux's fresh page does (never a shared piece: others see it),
+/// forgets the runtime's records for it, and marks its sub-pages unmapped. When the host page's last live sub-page is
+/// gone the page is unmapped for real, so an allocator that frees in 4 KiB steps does not leak. Under memory_lock.
+long partial_unmap(std::uint64_t host_page, std::uint64_t lo, std::uint64_t hi) {
+    const std::uint64_t piece_end = (hi + sub_page_size - 1) & ~(sub_page_size - 1);
+    if (!shared_mapping_overlaps(lo, piece_end)) {
+        vm_address_t query = static_cast<vm_address_t>(lo);
+        vm_size_t size = 0;
+        natural_t depth = 0;
+        vm_region_submap_short_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+        if (::vm_region_recurse_64(::mach_task_self(), &query, &size, &depth,
+                                   reinterpret_cast<vm_region_recurse_info_t>(&info), &count) == KERN_SUCCESS &&
+            query <= lo && info.inheritance != VM_INHERIT_SHARE) {
+            ::madvise(as_pointer<void>(lo), static_cast<std::size_t>(piece_end - lo), MADV_ZERO);  // best effort
+        }
+    }
+    proc::unmap(lo, piece_end);
+    forget_shared(lo, piece_end);
+    forget_offset(lo, piece_end);
+    PartialPage *page = partial_page_at(host_page);
+    if (page == nullptr) {
+        partial_pages.push_back({.base = host_page, .unmapped = 0});
+        page = &partial_pages.back();
+    }
+    page->unmapped |= sub_mask(host_page, lo, piece_end);
+    if (page->unmapped != full_sub_mask()) return 0;  // the page still has a live sub-page: keep it mapped
+    const long result = result_or_error(::munmap(as_pointer<void>(host_page), vm_page_size));
+    proc::unmap(host_page, host_page + vm_page_size);
+    forget_shared(host_page, host_page + vm_page_size);
+    forget_offset(host_page, host_page + vm_page_size);
+    forget_partial(host_page, host_page + vm_page_size);
+    return result;
 }
 
 /// MADV_DONTNEED over [begin, end): on Linux the pages are freed -- private anonymous read back as zero (allocators

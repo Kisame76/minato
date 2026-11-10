@@ -55,6 +55,15 @@ add_executable(files-test suite/files-test.c)
 add_executable(memory-churn-test suite/memory-churn-test.c)
 # memory-release-test: the other ways to give memory back (MADV_REMOVE, mremap, a GC reservation) and to hold it.
 add_executable(memory-release-test suite/memory-release-test.c)
+# memory-munmap-piece-test: a munmap of a 4 KiB piece (a program that hardcodes 4096, as Mono/il2cpp pools do) out of a
+# 64 KiB mapping; on 16 KiB host pages it must still return 0 and leave the neighbours readable (ADR-0007).
+add_executable(memory-munmap-piece-test suite/memory-munmap-piece-test.c)
+# memory-munmap-fill-test: freeing a region in 4 KiB steps returns the memory on 16 KiB pages too (ADR-0007: a host
+# page is unmapped once its last 4 KiB piece goes), so the resident size falls.
+add_executable(memory-munmap-fill-test suite/memory-munmap-fill-test.c)
+# memory-munmap-remap-test: a fresh mapping over a host page whose pieces were partly unmapped resets the per-page
+# piece tracking, so unmapping the one old live piece does not drop the fresh mapping (ADR-0007).
+add_executable(memory-munmap-remap-test suite/memory-munmap-remap-test.c)
 # memory-private-file-test: a written MAP_PRIVATE file mapping advised away with MADV_DONTNEED reads the file's bytes
 # again, not the written ones (ADR-0007: the loader re-maps the file; Linux drops the private copies).
 add_executable(memory-private-file-test suite/memory-private-file-test.c)
