@@ -176,10 +176,11 @@ void forget_partial(std::uint64_t begin, std::uint64_t end) {
 /// memory_lock.
 long partial_unmap(std::uint64_t host_page, std::uint64_t lo, std::uint64_t hi);
 
-/// Places an anonymous MAP_FIXED / MAP_FIXED_NOREPLACE whose [address, address+length) is not whole host pages
-/// (ADR-0007, the sub-page mmap mirror of partial_unmap). Defined by the memory helpers below. Returns the guest
-/// address or -errno. Under memory_lock.
-long place_subpage_anon(std::uint64_t address, std::uint64_t length, int protection, bool noreplace);
+/// Places an anonymous (guest_fd < 0) or MAP_PRIVATE FILE MAP_FIXED / MAP_FIXED_NOREPLACE whose [address,
+/// address+length) is not whole host pages (ADR-0007, the sub-page mmap mirror of partial_unmap). Defined by the memory
+/// helpers below. Returns the guest address or -errno. Under memory_lock.
+long place_subpage(std::uint64_t address, std::uint64_t length, int protection, bool noreplace, int guest_fd,
+                   int host_fd, std::uint64_t file_offset);
 
 /// Writes `line` to the session log once per process (the first caller wins), only when MINATO_LOADER_LOG is set, as
 /// the loader's scudo line and session.cpp's trim-footprint line are: a real session (RuntimeSession.swift) sets it, so
@@ -196,6 +197,7 @@ std::atomic_flag zero_subpage_skipped_logged = ATOMIC_FLAG_INIT;  // a sub-page 
 std::atomic_flag subpage_guard_widened_logged = ATOMIC_FLAG_INIT;  // a sub-page map widened a PROT_NONE neighbour
 std::atomic_flag subpage_exec_refused_logged = ATOMIC_FLAG_INIT;    // sub-page map refused into an exec page
 std::atomic_flag subpage_shared_refused_logged = ATOMIC_FLAG_INIT;  // sub-page map refused into a shared page
+std::atomic_flag subpage_shared_file_refused_logged = ATOMIC_FLAG_INIT;  // a sub-page MAP_SHARED file map refused
 
 // Linux mmap flags (include/uapi/asm-generic/mman*.h) and protections.
 namespace linux_map {
@@ -283,13 +285,20 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
         offset -= delta;
         length += delta;
     }
-    // An anonymous MAP_FIXED / MAP_FIXED_NOREPLACE that does not cover whole host pages (a 4 KiB-granularity guest
-    // placing a piece, as Mono/il2cpp pools reuse a freed block): Darwin cannot mmap a sub-page, so place it in the
-    // host page a neighbour keeps alive (ADR-0007). A file mapping at such an address keeps the plain ::mmap EINVAL.
-    if ((flags & linux_map::anonymous) && (flags & (linux_map::fixed | linux_map::fixed_noreplace)) && length != 0 &&
+    // A MAP_FIXED / MAP_FIXED_NOREPLACE not covering whole host pages (a 4 KiB-granularity guest placing a piece, as
+    // Mono/il2cpp pools reuse a freed block): Darwin cannot mmap a sub-page, so place it in the host page a
+    // neighbour keeps alive (ADR-0007). Anonymous and MAP_PRIVATE file (copied in) are placed; a MAP_SHARED file is
+    // refused (a private copy would silently lose the shared writes).
+    if ((flags & (linux_map::fixed | linux_map::fixed_noreplace)) && length != 0 &&
         (((address | (address + length)) & (page - 1)) != 0)) {
         const bool noreplace = (flags & linux_map::fixed_noreplace) && !(flags & linux_map::fixed);
-        return place_subpage_anon(address, length, protection, noreplace);
+        if (flags & linux_map::anonymous) return place_subpage(address, length, protection, noreplace, -1, -1, 0);
+        if (type != linux_map::private_) {
+            static const char line[] = "E/apkrt: sub-page MAP_SHARED file mapping refused\n";
+            log_once(subpage_shared_file_refused_logged, line, sizeof line - 1);
+            return -linux_errno::einval;
+        }
+        return place_subpage(address, length, protection, noreplace, fd, host_fd, offset);
     }
     void *const wanted = reinterpret_cast<void *>(static_cast<std::uintptr_t>(address));
     void *const result = ::mmap(wanted, length, protection, host_flags, host_fd, static_cast<off_t>(offset));
@@ -858,7 +867,37 @@ bool subpage_range_free(std::uint64_t begin, std::uint64_t end) {
     return true;
 }
 
-long place_subpage_anon(std::uint64_t address, std::uint64_t length, int protection, bool noreplace) {
+/// Fills the sub-host-page slice [lo, hi) with host_fd's bytes from `base_offset` (a private copy -- a sub-page file
+/// piece cannot point at the pager while a neighbour shares its host page), zero past EOF, byte-precisely under a brief
+/// write window per touched host page (as zero_anon does; the slice is the guest's own memory). Under memory_lock.
+long copy_file_slice(std::uint64_t lo, std::uint64_t hi, int host_fd, std::uint64_t base_offset) {
+    const std::uint64_t page = vm_page_size;
+    for (std::uint64_t p = lo & ~(page - 1); p < hi; p += page) {
+        const std::uint64_t a = std::max(lo, p), b = std::min(hi, p + page);
+        const int prot = inspect(p, p + page).protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE);
+        const bool temp = (prot & VM_PROT_WRITE) == 0;
+        if (temp && ::vm_protect(::mach_task_self(), static_cast<vm_address_t>(p), page, FALSE,
+                                 prot | VM_PROT_WRITE) != KERN_SUCCESS) {
+            return -linux_errno::enomem;
+        }
+        std::size_t done = 0;
+        while (done < b - a) {
+            const ssize_t got = ::pread(host_fd, as_pointer<char>(a) + done, static_cast<std::size_t>(b - a - done),
+                                        static_cast<off_t>(base_offset + (a - lo) + done));
+            if (got <= 0) break;
+            done += static_cast<std::size_t>(got);
+        }
+        std::memset(as_pointer<char>(a) + done, 0, static_cast<std::size_t>(b - a) - done);  // zero past EOF, as mmap
+        if (temp) ::vm_protect(::mach_task_self(), static_cast<vm_address_t>(p), page, FALSE, prot);
+    }
+    return 0;
+}
+
+/// Places an anonymous MAP_FIXED / MAP_FIXED_NOREPLACE (guest_fd < 0) or a MAP_PRIVATE FILE one that does not cover
+/// whole host pages. guest_fd / host_fd / file_offset describe the file (the slice is copied in and recorded as a file
+/// mapping); for anon they are -1 / -1 / 0. Returns the guest address or -errno. Under memory_lock.
+long place_subpage(std::uint64_t address, std::uint64_t length, int protection, bool noreplace, int guest_fd,
+                   int host_fd, std::uint64_t file_offset) {
     const std::uint64_t page = vm_page_size;
     if (protection & PROT_EXEC) return -linux_errno::einval;  // W^X (ADR-0002): EXEC is never combined into a host page
     if (length == 0 || address + length < address) return -linux_errno::einval;
@@ -911,11 +950,19 @@ long place_subpage_anon(std::uint64_t address, std::uint64_t length, int protect
             }
         } else {  // a neighbour keeps the host page alive: place the piece inside it
             if (const long error = widen_page_protection(p, rw); error != 0) return error;
-            if (const long error = zero_anon(lo, hi); error != 0) return error;  // byte-precise, keeps the neighbours
-            proc::unmap(lo, hi);  // the piece is the guest's anonymous mapping now (proc tracks only file records)
+            if (guest_fd < 0) {  // a file piece is filled by copy_file_slice below instead of zeroed
+                if (const long error = zero_anon(lo, hi); error != 0) return error;  // byte-precise, keeps neighbours
+            }
+            proc::unmap(lo, hi);  // clear any old record; the piece becomes the guest's anon (or file, below) mapping
             forget_shared(lo, hi);
             forget_offset(lo, hi);
             clear_partial_bits(p, lo, hi);  // the piece is live again
+        }
+        if (guest_fd >= 0) {  // a MAP_PRIVATE file piece: copy the file's bytes over the (present) slice, record it
+            if (const long error = copy_file_slice(lo, hi, host_fd, file_offset + (lo - address)); error != 0) {
+                return error;
+            }
+            proc::map_file(lo, hi, guest_fd, file_offset + (lo - address), false);
         }
     }
     return static_cast<long>(address);

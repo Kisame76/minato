@@ -76,6 +76,9 @@ add_executable(memory-mmap-noreplace-test suite/memory-mmap-noreplace-test.c)
 # memory-mmap-shared-neighbour-test: a sub-page anon MAP_FIXED must refuse a shared host page, not memset into the
 # shared object (ADR-0007); only the memfd's kept bytes are printed, so it matches Android.
 add_executable(memory-mmap-shared-neighbour-test suite/memory-mmap-shared-neighbour-test.c)
+# memory-mmap-file-piece-test: a MAP_PRIVATE file sub-page into a live host page reads the file's bytes (copied in),
+# leaving the neighbours (ADR-0007: the sub-page file mirror of the anon placement).
+add_executable(memory-mmap-file-piece-test suite/memory-mmap-file-piece-test.c)
 # memory-private-file-test: a written MAP_PRIVATE file mapping advised away with MADV_DONTNEED reads the file's bytes
 # again, not the written ones (ADR-0007: the loader re-maps the file; Linux drops the private copies).
 add_executable(memory-private-file-test suite/memory-private-file-test.c)

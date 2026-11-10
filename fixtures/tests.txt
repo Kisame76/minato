@@ -45,6 +45,7 @@ memory-dontneed-piece-test system
 memory-mmap-reuse-test system
 memory-mmap-noreplace-test system
 memory-mmap-shared-neighbour-test system
+memory-mmap-file-piece-test system
 memory-private-file-test system
 memory-private-file-rename-test system
 memory-private-file-split-test system
