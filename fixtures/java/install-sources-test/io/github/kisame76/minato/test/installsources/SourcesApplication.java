@@ -38,6 +38,18 @@ public class SourcesApplication extends Application {
         Log.i(TAG, "install intent resolves: " + (packages.resolveActivity(install, 0) != null));
         final Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(apk, TYPE);
         Log.i(TAG, "view intent resolves: " + (packages.resolveActivity(view, 0) != null));
+        // No type on the intent: Android asks the provider of the content URI for it.
+        final Intent untyped = new Intent(Intent.ACTION_VIEW, apk);
+        Log.i(TAG, "view intent without a type resolves: " + (packages.resolveActivity(untyped, 0) != null));
+        // The type of a URI that no provider serves is null, and asking for it never throws.
+        String unserved;
+        try {
+            final Intent other = new Intent(Intent.ACTION_VIEW, Uri.parse("content://com.example.nobody.serves/file"));
+            unserved = String.valueOf(packages.resolveActivity(other, 0) != null);
+        } catch (RuntimeException e) {
+            unserved = "threw " + e.getClass().getName();
+        }
+        Log.i(TAG, "view intent for an unserved authority resolves: " + unserved);
         Log.i(TAG, "done");
     }
 }

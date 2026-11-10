@@ -1667,7 +1667,8 @@ public final class ActivityThread {
                 && InstallSourcesActivity.handles(intent);
         // An APK handed over (ACTION_INSTALL_PACKAGE, ACTION_VIEW) goes to the activity that has the host confirm it.
         final boolean confirm = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
-                && !sources && InstallConfirmActivity.handles(intent);
+                && !sources && InstallConfirmActivity.handles(intent, currentApplication() != null
+                        ? currentApplication().getContentResolver() : null);
         ActivityInfo info = pickerKind != PickerIntents.NONE
                 ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
                 : open ? OpenIntents.activityInfo(mPackage.applicationInfo(0))

@@ -2,4 +2,6 @@ I/install-sources-test: canRequestPackageInstalls: false
 I/install-sources-test: settings page resolves: true
 I/install-sources-test: install intent resolves: true
 I/install-sources-test: view intent resolves: true
+I/install-sources-test: view intent without a type resolves: true
+I/install-sources-test: view intent for an unserved authority resolves: false
 I/install-sources-test: done

@@ -6,6 +6,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Method;
 
 /**
@@ -17,6 +19,8 @@ import java.lang.reflect.Method;
 public class DeniedActivity extends Activity {
     private static final String TAG = "install-denied-test";
     private static final String TYPE = "application/vnd.android.package-archive";
+
+    private File mStale;
 
     private static int asked() {
         try {
@@ -34,6 +38,14 @@ public class DeniedActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Log.i(TAG, "canRequestPackageInstalls: " + getPackageManager().canRequestPackageInstalls());
+        // A copy an earlier installer activity left behind (Minato's: cache/install); the next one clears it.
+        mStale = new File(getCacheDir(), "install/999.apk");
+        mStale.getParentFile().mkdirs();
+        try {
+            mStale.createNewFile();
+        } catch (IOException e) {
+            Log.w(TAG, "no stale file: " + e);
+        }
         final Uri apk = Uri.parse("content://" + getPackageName() + ".files/app.apk");
         startActivityForResult(new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(apk, TYPE), 7);
     }
@@ -42,6 +54,7 @@ public class DeniedActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         Log.i(TAG, "result: " + (requestCode == 7 ? resultCode : -99));
         Log.i(TAG + "-device", "asked the host for the right: " + asked());
+        Log.i(TAG + "-device", "stale copy cleared: " + !mStale.exists());
         Log.i(TAG, "done");
     }
 }

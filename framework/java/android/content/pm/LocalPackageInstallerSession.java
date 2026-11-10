@@ -1,18 +1,24 @@
 /*
  * One session of the app's package installer (LocalPackageInstaller, the Unity test APK resolve list, batch E): its files in a
  * folder of its own, written through a FileBridge as PackageInstallerSession's openWrite does, listed, read back and
- * removed. commit installs nothing and answers nothing: an IntentSender needs a PendingIntent (ADR-0045 step d3), and
- * the app cannot make one yet; the session stays as Android's stays until the user confirms the prompt. Every other
+ * removed. commit answers the committer's IntentSender as a caller that is no privileged installer gets it: a broken
+ * APK STATUS_FAILURE_INVALID at once, a valid one STATUS_PENDING_USER_ACTION with the confirm intent, which
+ * InstallConfirmActivity answers by having the host install the file; its end is STATUS_SUCCESS, STATUS_FAILURE or
+ * STATUS_FAILURE_ABORTED, and the session goes. Every other
  * call of the session's interface (multi-package, staged, data loaders, checksums, pre-approval) logs once.
  */
 package android.content.pm;
 
+import android.app.ActivityThread;
+import android.content.Intent;
+import android.content.IntentSender;
 import android.content.pm.PackageInstaller.SessionInfo;
 import android.os.FileBridge;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+import android.util.Log;
 import com.android.minato.services.Unwritten;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -20,6 +26,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.zip.ZipFile;
 
 final class LocalPackageInstallerSession extends IPackageInstallerSession.Default {
     private final LocalPackageInstaller mInstaller;
@@ -29,6 +36,7 @@ final class LocalPackageInstallerSession extends IPackageInstallerSession.Defaul
     private float mClientProgress;
     private boolean mSealed;
     private boolean mDestroyed;
+    private IntentSender mStatusReceiver;
 
     LocalPackageInstallerSession(LocalPackageInstaller installer, SessionInfo info, File dir) {
         mInstaller = installer;
@@ -169,8 +177,84 @@ final class LocalPackageInstallerSession extends IPackageInstallerSession.Defaul
 
     @Override
     public void commit(android.content.IntentSender statusReceiver, boolean forTransferred) {
-        Unwritten.log("android.content.pm.IPackageInstallerSession.commit (no in-app installs yet; ADR-0045 step d3)",
-                null);
+        final File apk;
+        synchronized (mLock) {
+            if (mDestroyed) {
+                throw new SecurityException("Caller has no access to session " + mInfo.sessionId);
+            }
+            mSealed = true;
+            mInfo.sealed = true;
+            mStatusReceiver = statusReceiver;
+            apk = stagedApk();
+        }
+        // A session with several files is a split set (base.apk and split_*.apk), which the host cannot take yet: it is
+        // refused with a message that names it, and logged so that the gap report shows it.
+        final File[] files = mDir.listFiles(File::isFile);
+        if (files != null && files.length > 1) {
+            Unwritten.log("android.content.pm.IPackageInstallerSession.commit (a session with several files: a split "
+                    + "set, " + files.length + " files; the host takes one APK)", null);
+            report(PackageInstaller.STATUS_FAILURE_INCOMPATIBLE,
+                    "Split sets are not supported yet: the session holds " + files.length + " files", null);
+            return;
+        }
+        // As Android's session: what is not an APK is refused at once, before any question to the user.
+        if (apk == null || !isApk(apk)) {
+            report(PackageInstaller.STATUS_FAILURE_INVALID, "Failed to parse " + (apk != null ? apk : mDir), null);
+            return;
+        }
+        // A caller that is not a privileged installer is asked to confirm: the status carries the activity to start.
+        final Intent confirm = new Intent(PackageInstaller.ACTION_CONFIRM_INSTALL)
+                .putExtra(PackageInstaller.EXTRA_SESSION_ID, mInfo.sessionId);
+        report(PackageInstaller.STATUS_PENDING_USER_ACTION, "Pending user action", confirm);
+    }
+
+    /** The APK the session holds: its only file, or null when it holds none or several (a split set). */
+    File stagedApk() {
+        final File[] files = mDir.listFiles(File::isFile);
+        return files != null && files.length == 1 ? files[0] : null;
+    }
+
+    /**
+     * The user's answer, from the host: 0 installed, 1 failed, 2 cancelled. It ends the session with the status
+     * Android's sender gets: STATUS_SUCCESS, STATUS_FAILURE, STATUS_FAILURE_ABORTED.
+     */
+    void installed(int result) {
+        report(result == 0 ? PackageInstaller.STATUS_SUCCESS
+                : result == 2 ? PackageInstaller.STATUS_FAILURE_ABORTED : PackageInstaller.STATUS_FAILURE,
+                result == 0 ? "Installation succeeded" : result == 2 ? "Installation canceled by user"
+                : "Installation failed", null);
+        abandon();
+    }
+
+    private static boolean isApk(File file) {
+        try (ZipFile zip = new ZipFile(file)) {
+            return zip.getEntry("AndroidManifest.xml") != null;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** Sends one status to the committer's IntentSender, with the extras Android's carries. */
+    private void report(int status, String message, Intent confirm) {
+        final IntentSender receiver;
+        synchronized (mLock) {
+            receiver = mStatusReceiver;
+        }
+        if (receiver == null) {
+            return;
+        }
+        final Intent fill = new Intent()
+                .putExtra(PackageInstaller.EXTRA_STATUS, status)
+                .putExtra(PackageInstaller.EXTRA_STATUS_MESSAGE, message)
+                .putExtra(PackageInstaller.EXTRA_SESSION_ID, mInfo.sessionId);
+        if (confirm != null) {
+            fill.putExtra(Intent.EXTRA_INTENT, confirm);
+        }
+        try {
+            receiver.sendIntent(ActivityThread.currentApplication(), 0, fill, null, null);
+        } catch (IntentSender.SendIntentException e) {
+            Log.w("PackageInstaller", "The status receiver of session " + mInfo.sessionId + " is gone: " + e);
+        }
     }
 
     @Override

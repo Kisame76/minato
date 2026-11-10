@@ -1,0 +1,3 @@
+I/install-session-test: case 1 status: 4
+I/install-session-test: case 2 status: -1, confirm intent: android.content.pm.action.CONFIRM_INSTALL
+I/install-session-test: done

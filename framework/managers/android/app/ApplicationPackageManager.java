@@ -566,7 +566,7 @@ class ApplicationPackageManager {
         }
         // An APK handed over resolves to Android's package installer when the app has no component for it.
         if (kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty() && picker == PickerIntents.NONE
-                && InstallConfirmActivity.handles(intent)) {
+                && InstallConfirmActivity.handles(intent, app != null ? app.getContentResolver() : null)) {
             found = new ArrayList<>(found);
             found.add(InstallConfirmActivity.resolveInfo());
         }

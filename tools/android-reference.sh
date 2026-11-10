@@ -675,6 +675,7 @@ run_app() {
       | batch-f-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \
+      | install-session-test \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
       | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test | batch-g-test | media-browser-test | biometric-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity

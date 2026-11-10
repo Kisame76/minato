@@ -28,4 +28,5 @@ output=$(python3 framework/tests/java_app_run.py install-denied-test \
   build/framework-native/app_process64 build/framework/framework.jar build/framework-res/framework-res \
   build/install-denied-test/install-denied-test.apk fixtures/expected/install-denied-test.logcat 1290x2796@3,en-US) || { echo "$output"; exit 1; }
 echo "$output"
+grep -q 'stale copy cleared: true' <<<"$output" || { echo "FAIL: a stale copy in cache/install was not cleared"; exit 1; }
 grep -q 'asked the host for the right: 1' <<<"$output" || { echo "FAIL: the host was not asked for the right exactly once"; exit 1; }
