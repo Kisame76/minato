@@ -90,13 +90,46 @@ final class NotificationTapUITests: XCTestCase {
         print("MINATO-UITEST tapped the bar's Hide Keyboard key")
     }
 
-    /// A tap outside the guest's text field while UIKit's keyboard is up: at a fifth of Minato's window's height, in its
-    /// middle (ime-outside-test, whose fields lie lower).
+    /// A tap outside the guest's text field while UIKit's keyboard is up: at a fifth of Minato's window's height, in
+    /// its middle (ime-outside-test, whose fields lie lower).
     func testTapOutsideField() {
         continueAfterFailure = false
         XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front")
         minato.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
         print("MINATO-UITEST tapped outside the field")
+    }
+
+    /// Two swipes up from the bottom edge of Minato's window, as the user leaves a full-screen app for the Home Screen.
+    /// Game mode defers every edge (defersSystemGestures, GameModeView): iOS gives the first swipe to the app and
+    /// shows the home indicator, and only a second swipe right after it goes to the system (device-regressions entry
+    /// 3, the landscape edge's "popup"; java-start-check's edge-swipe round). Notes say where each swipe went.
+    func testSwipeUpFromBottomTwice() {
+        continueAfterFailure = false
+        let minato = minato
+        XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front")
+        // A window in landscape: the device turns too, as the user holds it (the Simulator's stays upright).
+        if minato.frame.width > minato.frame.height, XCUIDevice.shared.orientation != .landscapeLeft {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            sleep(2)
+        }
+        print("MINATO-UITEST window \(Int(minato.frame.width))x\(Int(minato.frame.height)) points, device "
+              + "orientation \(XCUIDevice.shared.orientation.rawValue)")
+        defer { XCUIDevice.shared.orientation = .portrait }
+        swipeUpFromBottom(of: minato)
+        if waitUntil(2, { minato.state != .runningForeground }) {
+            print("MINATO-UITEST the first swipe: Minato left the front")
+            return
+        }
+        print("MINATO-UITEST the first swipe: Minato in front")
+        swipeUpFromBottom(of: minato)
+        let left = waitUntil(5) { minato.state != .runningForeground }
+        print("MINATO-UITEST the second swipe: Minato \(left ? "left the front" : "in front")")
+    }
+
+    /// A swipe up from the very bottom edge of `app`'s window, across its lower half.
+    private func swipeUpFromBottom(of app: XCUIApplication) {
+        let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.999))
+        bottom.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
     }
 
     /// iOS's alert for Minato's request, such as the notifications prompt of a Simulator that never answered it, is

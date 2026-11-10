@@ -99,6 +99,8 @@
 #              points times the screen's scale) and the four touches to make, and waits for its "done". Its lines
 #              must be Android 15's, whose touches tools/android-reference.sh plays from the same points.
 #   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
+#   EDGE_SWIPE_SIM set: the edge deferral round (edge-back-test-landscape, two swipes up from the bottom edge) runs in
+#              the Simulator too, where iOS gives the first swipe in landscape to the system for every app
 #   ONLY       the apps to start, by name and space separated, such as ONLY=java-test for a sitting with java-test
 #              alone; java-test or a Godot APK among them runs in the Simulator too
 #   MINUTES    how long renpy-memory-test plays and is sampled, 15 by default; the app runs only with
@@ -195,7 +197,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "native-jni-ime-test io.github.kisame76.minato.test.nativejniime"
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete"
       "install-flow-test io.github.kisame76.minato.test.installflow"
-      "ime-outside-test io.github.kisame76.minato.test.imeoutside")
+      "ime-outside-test io.github.kisame76.minato.test.imeoutside"
+      "edge-back-test-landscape io.github.kisame76.minato.test.edgeback")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -1668,6 +1671,49 @@ if [[ "$ON_DEVICE" == no ]] && wanted ime-outside-test && uitests_build; then
     done
   fi
   end_start ime-outside-test 1
+fi
+
+# Edge deferral (device-regressions entry 3, the landscape edge's "popup"): game mode defers every screen edge, so iOS
+# gives a swipe up from the bottom edge to the app first and only a second one right after it to the system, which
+# puts Minato in the background; the menu that the return shows (ADR-0032 decision 7) goes by the check's Continue.
+# The MinatoUITests runner swipes twice over edge-back-test-landscape, with the device turned; its pad logs each
+# touch. On the iPhone only: the Simulator (iOS 27.2) gives the first swipe in landscape to the system for every app,
+# a bare SwiftUI or UIKit one with the same deferral too (upright it defers, edge-back-test as well), so there it says
+# nothing about Minato. EDGE_SWIPE_SIM=1 runs it in the Simulator all the same.
+if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted edge-back-test-landscape &&
+    uitests_build; then
+  for app in edge-back-test-landscape; do
+    if begin_start $app io.github.kisame76.minato.test.edgeback 1 && await_line guest-log "^I/$app: ready$" 60; then
+      sleep 1
+      downs=$(grep -c "^I/$app: touch: down$" "$CHECK/guest-log" || true)
+      uitest testSwipeUpFromBottomTwice $app > "$WORK/$app-swipes.out" || fail "  $app: the runner's swipes failed"
+      cat "$WORK/$app-swipes.out"
+      # What the window asked of the system: deferredEdges 15 is every edge.
+      grep -o -E "orientation [0-9]+ statusBarHidden .*" "$EVENTS" | head -n 1 | sed 's/^/      | /' || true
+      fetch "$CHECK_REL/guest-log" || true
+      grep -E "^I/$app-device: touch: " "$CHECK/guest-log" | sed 's/^/      | /' || true
+      if grep -q "the first swipe: Minato in front" "$WORK/$app-swipes.out"; then
+        ok "  $app: the first swipe up from the bottom edge kept Minato in front"
+      else
+        fail "  $app: the first swipe up from the bottom edge went to the system"
+      fi
+      if (( $(grep -c "^I/$app: touch: down$" "$CHECK/guest-log" || true) > downs )); then
+        ok "  $app: the app got the first swipe"
+      else
+        fail "  $app: the first swipe did not reach the app"
+      fi
+      if grep -q -E "the (first|second) swipe: Minato left the front" "$WORK/$app-swipes.out"; then
+        grep -q "the second swipe: Minato left the front" "$WORK/$app-swipes.out" &&
+          ok "  $app: the second swipe went to the system"
+        launch
+        if await_event "menu continued" 20; then ok "  $app: back in front, the return's menu went by Continue"
+        else failed_line "$app: no menu at the return" "$app-1"; fi
+      else
+        fail "  $app: the second swipe did not put Minato in the background"
+      fi
+    fi
+    end_start $app 1
+  done
 fi
 
 # An app installer in Minato (APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL): install-flow-test
