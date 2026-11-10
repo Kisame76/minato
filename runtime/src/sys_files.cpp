@@ -558,6 +558,17 @@ std::optional<std::string> guest_absolute(int directory, std::uint64_t address) 
     return vfs::absolute(guest, guest.starts_with('/') ? "/" : vfs::working_directory());
 }
 
+/// A HostPath for a guest path the runtime computed itself -- the target of a /proc link it serves -- with
+/// links followed, so a followed stat or access of /proc/self/{exe,cwd,root} answers the target as a direct
+/// call would.
+HostPath host_from_guest(const std::string &guest_path) {
+    auto guest = vfs::absolute(guest_path, "/", true);
+    auto location = vfs::locate(guest);
+    if (!location) return {.error = -linux_errno::enoent, .guest = guest};
+    if (location->below_a_file) return {.error = -linux_errno::enotdir};
+    return {.directory = location->folder, .path = std::move(location->path), .guest = std::move(guest)};
+}
+
 /// Darwin's *at() flag for AT_SYMLINK_NOFOLLOW.
 int host_at_flags(int linux_flags) {
     return (linux_flags & linux_at_symlink_nofollow) ? AT_SYMLINK_NOFOLLOW : 0;
@@ -897,6 +908,26 @@ long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
             if ((mode & 07) == 0) return 0;  // F_OK: the name is there
             return (mode & 07 & ~((entry->mode >> 6) & 07)) == 0 ? 0 : -linux_errno::eacces;
         }
+        if ((flags & linux_at_symlink_nofollow) == 0) {  // a followed /proc symlink: the target's access
+            if (const auto fd = proc::descriptor_entry(*absolute)) {  // fd/<n> -> the open descriptor
+                const auto held = descriptors::get(*fd);
+                if (!held) return -linux_errno::enoent;
+                if ((mode & 07) == 0) return 0;  // F_OK: the descriptor is open
+                struct stat status;
+                if (::fstat(held->host(), &status) != 0) return -to_linux_errno(errno);
+                return (mode & 07 & ~((status.st_mode >> 6) & 07)) == 0 ? 0 : -linux_errno::eacces;
+            }
+            if (const auto target = proc::symlink_path(*absolute)) {  // exe, cwd, root -> the target
+                const HostPath via = host_from_guest(*target);
+                if (via.error != 0) return via.error;
+                const auto status = entry_at(via, true);
+                if (!status) return -to_linux_errno(errno);
+                if ((mode & 07) == 0) return 0;  // F_OK: the target is there
+                if ((mode & 02) != 0 && read_only(via.guest) &&
+                    (S_ISREG(status->st_mode) || S_ISDIR(status->st_mode))) return -linux_errno::erofs;
+                return (mode & 07 & ~granted(status->st_mode, owner_at(via))) == 0 ? 0 : -linux_errno::eacces;
+            }
+        }
     }
     const auto host = resolve(directory, path);
     if (host.error != 0) {
@@ -944,6 +975,19 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
             if (entry->type == proc::StatEntry::Type::absent) return -linux_errno::enoent;
             *as_pointer<LinuxStat>(buffer) = proc_stat(*entry, *absolute);
             return 0;
+        }
+        if (follow) {  // a followed /proc symlink answers its target, as the kernel re-walks it
+            if (const auto fd = proc::descriptor_entry(*absolute)) {  // fd/<n> -> fstat the descriptor
+                return descriptors::get(*fd) ? sys_fstat(*fd, buffer) : -linux_errno::enoent;
+            }
+            if (const auto target = proc::symlink_path(*absolute)) {  // exe, cwd, root -> stat the target
+                const HostPath via = host_from_guest(*target);
+                if (via.error != 0) return via.error;
+                const auto status = entry_at(via, true);
+                if (!status) return -to_linux_errno(errno);
+                *as_pointer<LinuxStat>(buffer) = to_linux_stat(*status, owner_at(via));
+                return 0;
+            }
         }
     }
     const auto host = resolve(directory, path, follow);

@@ -1,8 +1,8 @@
 // access() and stat()/lstat() on the /proc names the runtime serves (proc.cpp) and the directories /proc,
 // /proc/self and /proc/self/task, printed the same way on Android and on Minato (ADR-0033 decision 8). Mono's
 // mini_init does access("/proc/self/maps", F_OK), and root checks probe /proc, so the answers must be Android's.
-// What this does not cover, and so does not probe: following a /proc symlink (stat and access follow exe, cwd,
-// root and fd/<n> to their targets, which differ per host); /proc's own link count (the process count, per system).
+// The symlinks exe, cwd, root and fd/<n> are shown by lstat, and -- since stat and access follow them -- also
+// (cwd and fd) stat()ed and compared with the target reached directly, so the line is the same on both.
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -48,7 +48,30 @@ static void probe(const char *path, unsigned flags) {
     printf("\n");
 }
 
+// Whether stat(path), which follows it, names the same file (device and inode) as `direct`, with the type; so a
+// followed /proc link answers the target's stat, as it does on Android.
+static void follows(const char *path, const char *direct) {
+    struct stat a, b;
+    if (stat(path, &a) != 0) {
+        printf("%s follows: %s\n", path, acc(-1));
+        return;
+    }
+    if (stat(direct, &b) != 0) {
+        printf("%s follows: the target is %s\n", path, acc(-1));
+        return;
+    }
+    const int same = a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+    printf("%s follows: %s (%s)\n", path, same ? "same file" : "different file", type_of(a.st_mode));
+}
+
 int main(void) {
+    // A regular file at a fixed descriptor number for the fd/<n> probes; unlinked, so it leaves nothing behind.
+    int fd = open("proc-access-fd", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (fd >= 0 && fd != 7) {
+        dup2(fd, 7);
+        close(fd);
+    }
+    unlink("proc-access-fd");
     // The regular files: they exist, are readable, and are reg/0444 with one link.
     const char *regs[] = {"/proc/cpuinfo",      "/proc/meminfo",     "/proc/self/stat",
                           "/proc/self/maps",    "/proc/self/smaps",  "/proc/self/cmdline"};
@@ -58,18 +81,24 @@ int main(void) {
     probe("/proc", WANT_ACCESS | WANT_LSTAT | WANT_STAT | NO_NLINK);
     probe("/proc/self", WANT_ACCESS | WANT_LSTAT | WANT_STAT);
     probe("/proc/self/task", WANT_ACCESS | WANT_LSTAT | WANT_STAT);
-    // The symlinks the runtime serves, by lstat alone (following them is out of scope). A file descriptor link
-    // sits at a fixed number so the output does not depend on which descriptor the open returns.
+    // The symlinks the runtime serves, by lstat.
     probe("/proc/self/exe", WANT_LSTAT);
     probe("/proc/self/cwd", WANT_LSTAT);
     probe("/proc/self/root", WANT_LSTAT);
-    int fd = open("/dev/null", O_RDWR);
-    if (fd >= 0 && fd != 7) {
-        dup2(fd, 7);
-        close(fd);
-    }
     probe("/proc/self/fd/7", WANT_LSTAT);
     // A name under /proc the runtime does not serve: absent here, as it is on Android for a name that is not there.
     probe("/proc/self/not-a-real-entry", WANT_ACCESS | WANT_LSTAT | WANT_STAT);
+    // Followed symlinks: stat answers the target, compared with the target reached directly. Only cwd and the
+    // descriptor are checked here: this test harness mounts no "/" and the executable is not a plain file in it, so
+    // their targets are unreachable on the Mac though they are real on the device; cwd exercises the same code path.
+    follows("/proc/self/cwd", ".");
+    // fd/7 follows to the descriptor: compare with fstat of it.
+    struct stat a, b;
+    if (stat("/proc/self/fd/7", &a) == 0 && fstat(7, &b) == 0) {
+        const int same = a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+        printf("/proc/self/fd/7 follows: %s (%s)\n", same ? "same file" : "different file", type_of(a.st_mode));
+    } else {
+        printf("/proc/self/fd/7 follows: %s\n", acc(-1));
+    }
     return 0;
 }

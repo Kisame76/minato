@@ -12,3 +12,5 @@
 /proc/self/root: lstat=lnk/0777/1
 /proc/self/fd/7: lstat=lnk/0700/1
 /proc/self/not-a-real-entry: F_OK=ENOENT R_OK=ENOENT lstat=ENOENT stat=ENOENT
+/proc/self/cwd follows: same file (dir)
+/proc/self/fd/7 follows: same file (reg)

@@ -835,6 +835,12 @@ std::optional<StatEntry> stat_entry(std::string_view path, bool follow) {
     return StatEntry{};  // an entry under the process directory the runtime does not serve (status, environ, ...)
 }
 
+std::optional<std::string> symlink_path(std::string_view path) {
+    const auto entry = own_entry(path);
+    if (!entry) return std::nullopt;
+    return process_link(*entry);  // exe, cwd, root; nullopt for fd/<n> and the other entries
+}
+
 long sysinfo(std::uint64_t address) {
     // Linux's struct sysinfo on 64 bits, as do_sysinfo fills it: memory in bytes (mem_unit 1), as /proc/meminfo has
     // it, the loads in 1/65536 (SI_LOAD_SHIFT), the time since boot (CLOCK_BOOTTIME: Darwin's CLOCK_MONOTONIC counts

@@ -89,6 +89,11 @@ struct StatEntry {
 };
 std::optional<StatEntry> stat_entry(std::string_view path, bool follow);
 
+/// The guest path a served link of /proc/self (or /proc/<pid>) points to, for a stat or access that follows it:
+/// exe -> the executable, cwd -> the working directory, root -> "/". Nullopt for fd/<n> (use descriptor_entry
+/// and fstat the descriptor) and for every path that is not one of exe, cwd, root.
+std::optional<std::string> symlink_path(std::string_view path);
+
 /// sysinfo(2): Linux's struct sysinfo at `address`, with the memory /proc/meminfo shows. 0, or -EFAULT for NULL.
 long sysinfo(std::uint64_t address);
 
