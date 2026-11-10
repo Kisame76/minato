@@ -3452,6 +3452,16 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     else
       echo "note  renpy-memory-test: no ping answered, so no frame rate"
     fi
+    # Grafik's ANGLE parking line (the runtime's memory watermark line of the guest log): parks, restores, present
+    # times. Without it, the guest log's line counts tell why: no mem lines = the log is stale or cut short, mem lines
+    # but no gl line = libGLESv2's line symbols did not resolve, mem lines that stop early = the sampler stalled.
+    fetch "$CHECK_REL/guest-log" || true
+    park=$(grep "angle park " "$CHECK/guest-log" 2>/dev/null | tail -n 1 || true)
+    if [[ -n "$park" ]]; then echo "note  $park"; else
+      count() { grep -c "$1" "$CHECK/guest-log" 2>/dev/null || true; }
+      echo "note  renpy-memory-test: no angle park line in the guest log (guest log: $(count '') lines," \
+        "$(count '^I/apkrt   : mem ') mem, $(count '^I/apkrt   : gl ') gl, $(count 'angle park ') park)"
+    fi
   fi
   end_start renpy-memory-test 1
   # An empty file is no guest environment (the script cannot delete in the iPhone's container).
