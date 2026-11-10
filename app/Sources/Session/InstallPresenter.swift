@@ -87,7 +87,7 @@ final class InstallPresenter {
                 do {
                     try profile.save(for: package, in: paths)
                 } catch {
-                    log.error("the install grant was not saved: \(error.localizedDescription, privacy: .public)")
+                    log.error("the install grant was not saved: \(error.localizedDescription, privacy: .private)")
                 }
             }
             answerSources(id, allowed)
@@ -189,7 +189,7 @@ final class InstallPresenter {
     }
 
     private func refuse(_ id: UInt64, _ why: String, removing copy: URL? = nil) {
-        log.error("install \(id) failed: \(why, privacy: .public)")
+        log.error("install \(id) failed: \(why, privacy: .private)")
         #if DEBUG
         SessionCheck.event("install \(id) refused: \(why)")
         #endif
@@ -245,7 +245,8 @@ final class InstallPresenter {
     }
 
     private func finishUninstall(_ id: UInt64, _ outcome: UninstallOutcome, why: String? = nil) {
-        if let why { log.error("uninstall \(id) failed: \(why, privacy: .public)") }
+        // A library error can name a container path or one of the user's apps: private, the outcome public.
+        if let why { log.error("uninstall \(id) failed: \(why, privacy: .private)") }
         log.info("uninstall \(id): \(String(describing: outcome), privacy: .public)")
         #if DEBUG
         SessionCheck.event("uninstall \(id) \(outcome)\(why.map { ": \($0)" } ?? "")")
