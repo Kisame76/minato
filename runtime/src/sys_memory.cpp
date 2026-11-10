@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -185,6 +186,7 @@ void log_once(std::atomic_flag &written, const char *line, std::size_t length) {
 }
 std::atomic_flag offset_emulated_logged = ATOMIC_FLAG_INIT;
 std::atomic_flag fixed_offset_refused_logged = ATOMIC_FLAG_INIT;
+std::atomic_flag zero_subpage_skipped_logged = ATOMIC_FLAG_INIT;  // a sub-page zero was skipped (executable page)
 
 // Linux mmap flags (include/uapi/asm-generic/mman*.h) and protections.
 namespace linux_map {
@@ -628,13 +630,30 @@ bool shared_mapping_overlaps(std::uint64_t begin, std::uint64_t end) {
     return false;
 }
 
-/// Zeroes the private-anonymous sub-host-page remainder [at, stop) in place with MADV_ZERO, as Linux zeroes a 4 KiB
-/// sub-range of a 16 KiB page; the range is known private anonymous, so MADV_ZERO applies. Its footprint stays (below
-/// one host page an end), unlike Linux, but the remainder is tiny. Under memory_lock.
+/// Zeroes the private-anonymous sub-host-page range [at, stop) byte-precisely, as Linux zeroes a 4 KiB sub-range of a
+/// 16 KiB page. NOT MADV_ZERO: Darwin's MADV_ZERO rounds to the whole 16 KiB host page and would wipe a live neighbour
+/// 4 KiB piece sharing it. memset needs write access, so each host page the range touches is made writable just for the
+/// memset and its protection restored after (the range is the guest's own private memory). An executable page cannot
+/// get a write window on iOS (W^X, code signing): there the zero is skipped (logged once), never a crash -- an
+/// executable private-anon sub-page is pathological and the loader's code is whole-page anyway. Footprint stays (a
+/// sub-page range cannot be freed), unlike Linux, but the range is tiny. Under memory_lock.
 long zero_anon(std::uint64_t at, std::uint64_t stop) {
-    if (at >= stop) return 0;
-    if (::madvise(as_pointer<void>(at), static_cast<std::size_t>(stop - at), MADV_ZERO) != 0) {
-        return -to_linux_errno(errno);
+    const std::uint64_t page = vm_page_size;
+    for (std::uint64_t p = at & ~(page - 1); p < stop; p += page) {
+        const std::uint64_t lo = std::max(at, p), hi = std::min(stop, p + page);
+        const int prot = inspect(p, p + page).protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE);
+        const bool temp = (prot & VM_PROT_WRITE) == 0;
+        // An executable page gets no write window on iOS (W^X, code signing); if even a plain +WRITE is refused the
+        // page cannot be zeroed either. Skip it (logged once), never crash.
+        if ((prot & VM_PROT_EXECUTE) ||
+            (temp && ::vm_protect(::mach_task_self(), static_cast<vm_address_t>(p), page, FALSE,
+                                  prot | VM_PROT_WRITE) != KERN_SUCCESS)) {
+            static const char line[] = "E/apkrt: sub-page zero skipped (no write window for this page)\n";
+            log_once(zero_subpage_skipped_logged, line, sizeof line - 1);
+            continue;
+        }
+        std::memset(as_pointer<void>(lo), 0, static_cast<std::size_t>(hi - lo));
+        if (temp) ::vm_protect(::mach_task_self(), static_cast<vm_address_t>(p), page, FALSE, prot);
     }
     return 0;
 }
@@ -702,24 +721,13 @@ long remap_private_file(std::uint64_t begin, std::uint64_t stop, vm_prot_t prote
 }
 
 /// A guest 4 KiB-granularity unmap of [lo, hi) inside the single host page `host_page`, never the whole page (forward-
-/// declared above). Rounds [lo, hi) up to whole 4 KiB sub-pages (Linux rounds a munmap length up to a page),
-/// zeroes a private piece so a later reuse reads zero as Linux's fresh page does (never a shared piece: others see it),
-/// forgets the runtime's records for it, and marks its sub-pages unmapped. When the host page's last live sub-page is
-/// gone the page is unmapped for real, so an allocator that frees in 4 KiB steps does not leak. Under memory_lock.
+/// declared above). Rounds [lo, hi) up to whole 4 KiB sub-pages (Linux rounds a munmap length up), forgets the
+/// runtime's records for the piece, and marks its sub-pages unmapped. It does NOT zero the piece (MADV_ZERO would round
+/// to the whole 16 KiB host page and wipe a live neighbour): the piece is gone from the guest's view, and a later
+/// re-map of it gives a fresh zero page. When the host page's last live sub-page goes the page is unmapped for real, so
+/// an allocator that frees in 4 KiB steps does not leak. Under memory_lock.
 long partial_unmap(std::uint64_t host_page, std::uint64_t lo, std::uint64_t hi) {
     const std::uint64_t piece_end = (hi + sub_page_size - 1) & ~(sub_page_size - 1);
-    if (!shared_mapping_overlaps(lo, piece_end)) {
-        vm_address_t query = static_cast<vm_address_t>(lo);
-        vm_size_t size = 0;
-        natural_t depth = 0;
-        vm_region_submap_short_info_data_64_t info{};
-        mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
-        if (::vm_region_recurse_64(::mach_task_self(), &query, &size, &depth,
-                                   reinterpret_cast<vm_region_recurse_info_t>(&info), &count) == KERN_SUCCESS &&
-            query <= lo && info.inheritance != VM_INHERIT_SHARE) {
-            ::madvise(as_pointer<void>(lo), static_cast<std::size_t>(piece_end - lo), MADV_ZERO);  // best effort
-        }
-    }
     proc::unmap(lo, piece_end);
     forget_shared(lo, piece_end);
     forget_offset(lo, piece_end);

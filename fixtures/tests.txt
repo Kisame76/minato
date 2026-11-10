@@ -40,6 +40,8 @@ memory-release-test system
 memory-munmap-piece-test system
 memory-munmap-fill-test system
 memory-munmap-remap-test system
+memory-munmap-keep-test system
+memory-dontneed-piece-test system
 memory-private-file-test system
 memory-private-file-rename-test system
 memory-private-file-split-test system

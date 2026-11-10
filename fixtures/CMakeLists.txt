@@ -64,6 +64,10 @@ add_executable(memory-munmap-fill-test suite/memory-munmap-fill-test.c)
 # memory-munmap-remap-test: a fresh mapping over a host page whose pieces were partly unmapped resets the per-page
 # piece tracking, so unmapping the one old live piece does not drop the fresh mapping (ADR-0007).
 add_executable(memory-munmap-remap-test suite/memory-munmap-remap-test.c)
+# memory-munmap-keep-test / memory-dontneed-piece-test: a munmap or MADV_DONTNEED of a 4 KiB piece inside a 16 KiB host
+# page must leave the live neighbours' bytes untouched (byte-precise, not MADV_ZERO which rounds to the host page).
+add_executable(memory-munmap-keep-test suite/memory-munmap-keep-test.c)
+add_executable(memory-dontneed-piece-test suite/memory-dontneed-piece-test.c)
 # memory-private-file-test: a written MAP_PRIVATE file mapping advised away with MADV_DONTNEED reads the file's bytes
 # again, not the written ones (ADR-0007: the loader re-maps the file; Linux drops the private copies).
 add_executable(memory-private-file-test suite/memory-private-file-test.c)
