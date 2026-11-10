@@ -1501,16 +1501,34 @@ uitests_build() {
   fi
   [[ "$uitests_built" == yes ]]
 }
+# Set once the runner could not start, because iOS's UI automation is off or the screen is locked (the iPhone's
+# Settings > Developer > Enable UI Automation), or because its build is older than the device's iOS: uitest's one FAIL
+# line says which, later runner tests are not tried, and the rounds that need the runner leave out their own FAIL
+# lines (runner_fail, runner_failed_line).
+RUNNER_DOWN=""
+runner_fail() { [[ -n "$RUNNER_DOWN" ]] || fail "$1"; }
+runner_failed_line() { [[ -n "$RUNNER_DOWN" ]] || failed_line "$@"; }
 # Runs the runner's test $1 against this run's Simulator or iPhone, with TEST_RUNNER_MINATO_WAIT=$3 seconds (for a
 # banner or an alert); prints its notes, and its failure, false when it failed.
 uitest() {
   local run
+  [[ -z "$RUNNER_DOWN" ]] || return 1
   run=$(ls "$UITESTS"/Build/Products/*.xctestrun | head -n 1)
   if TEST_RUNNER_MINATO_WAIT=${3:-0} xcodebuild test-without-building -xctestrun "$run" \
       -destination "id=${DEVICE_UDID:-${SIM_UDID:-}}" \
       -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1; then
     grep -o "MINATO-UITEST .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
     return 0
+  fi
+  if grep -q -E "enabling automation mode|Failed to initialize for UI testing" "$WORK/uitest-$1-$2.log"; then
+    RUNNER_DOWN=yes
+    fail "  the iPhone's UI automation is off or the screen is locked (Settings > Developer > Enable UI Automation)"
+    return 1
+  fi
+  if grep -q -E "needs to be updated|muss aktualisiert werden" "$WORK/uitest-$1-$2.log"; then
+    RUNNER_DOWN=yes
+    fail "  the runner's build is stale: delete $UITESTS and run again"
+    return 1
   fi
   grep -E "error: |XCTAssert|Failing tests" "$WORK/uitest-$1-$2.log" | head -n 3 | sed 's/^/      | /' || true
   return 1
@@ -1730,7 +1748,8 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
     if begin_start $app io.github.kisame76.minato.test.edgeback 1 && await_line guest-log "^I/$app: ready$" 60; then
       sleep 1
       downs=$(grep -c "^I/$app: touch: down$" "$CHECK/guest-log" || true)
-      uitest testSwipeUpFromBottomTwice $app > "$WORK/$app-swipes.out" || fail "  $app: the runner's swipes failed"
+      uitest testSwipeUpFromBottomTwice $app > "$WORK/$app-swipes.out" ||
+        runner_fail "  $app: the runner's swipes failed"
       cat "$WORK/$app-swipes.out"
       # What the window asked of the system: deferredEdges 15 is every edge.
       grep -o -E "orientation [0-9]+ statusBarHidden .*" "$EVENTS" | head -n 1 | sed 's/^/      | /' || true
@@ -1739,12 +1758,12 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
       if grep -q "the first swipe: Minato in front" "$WORK/$app-swipes.out"; then
         ok "  $app: the first swipe up from the bottom edge kept Minato in front"
       else
-        fail "  $app: the first swipe up from the bottom edge went to the system"
+        runner_fail "  $app: the first swipe up from the bottom edge went to the system"
       fi
       if (( $(grep -c "^I/$app: touch: down$" "$CHECK/guest-log" || true) > downs )); then
         ok "  $app: the app got the first swipe"
       else
-        fail "  $app: the first swipe did not reach the app"
+        runner_fail "  $app: the first swipe did not reach the app"
       fi
       if grep -q -E "the (first|second) swipe: Minato left the front" "$WORK/$app-swipes.out"; then
         grep -q "the second swipe: Minato left the front" "$WORK/$app-swipes.out" &&
@@ -1753,7 +1772,7 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
         if await_event "menu continued" 20; then ok "  $app: back in front, the return's menu went by Continue"
         else failed_line "$app: no menu at the return" "$app-1"; fi
       else
-        fail "  $app: the second swipe did not put Minato in the background"
+        runner_fail "  $app: the second swipe did not put Minato in the background"
       fi
     fi
     end_start $app 1
@@ -1939,14 +1958,14 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
       repost_request 8
       send_requests
       if [[ "$state" == game-background ]] && ! uitest testGoHome "$round"; then
-        fail "  $label: Minato did not go to the background"
+        runner_fail "  $label: Minato did not go to the background"
       fi
       # TapActivity opens a second time. Through Notification Center the first drag from the top edge may open
       # Minato's menu (game mode defers the edge), which pauses the app: its line after the tap then says so.
       if uitest testTapNotification "$round" "$(banner_wait 30)" && opened_again; then
         ok "  $label: TapActivity opened again in the running app"
       else
-        failed_line "$label: no second opening" "notify-tap-test-$round"
+        runner_failed_line "$label: no second opening" "notify-tap-test-$round"
       fi
       sleep 1
       end_start notify-tap-test "$round"
@@ -1965,13 +1984,13 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
       fail "  $label: the notification was not handed to iOS again"
     [[ "$state" != cold ]] || terminate
     if [[ "$state" == background ]] && ! uitest testGoHome "$round"; then
-      fail "  $label: Minato did not go to the background"
+      runner_fail "  $label: Minato did not go to the background"
     fi
     if uitest testTapNotification "$round" "$(banner_wait 40)" &&
         await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 60; then
       ok "  $label: TapActivity opened"
     else
-      failed_line "$label: no TapActivity after the tap" "notify-tap-test-$round"
+      runner_failed_line "$label: no TapActivity after the tap" "notify-tap-test-$round"
     fi
     sleep 2
     end_start notify-tap-test "$((round + 1))"
@@ -2534,11 +2553,13 @@ if wanted ime-surrounding-test-delete && { uitests_build || [[ "$uitests_built" 
         failed_line "the delete key in the empty field reached nothing" ime-surrounding-test-delete-1
       fi
     else
-      failed_line "no keyboard to tap the delete key on" ime-surrounding-test-delete-1
+      runner_failed_line "no keyboard to tap the delete key on" ime-surrounding-test-delete-1
     fi
   fi
   end_start ime-surrounding-test-delete 1
-  python3 - "$WORK/ime-surrounding-test-delete-1.log" fixtures/expected/ime-surrounding-test-delete.logcat <<'PY' ||
+  # Without the runner's delete key the log cannot be Android's: the runner's one line said why.
+  if [[ -z "$RUNNER_DOWN" ]]; then
+    python3 - "$WORK/ime-surrounding-test-delete-1.log" fixtures/expected/ime-surrounding-test-delete.logcat <<'PY' ||
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
@@ -2548,7 +2569,8 @@ log, expected = sys.argv[1:]
 compare_log("ime-surrounding-test-delete",
             subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected, {})
 PY
-    failures=$((failures + 1))
+      failures=$((failures + 1))
+  fi
   # The bar's hide key (the user's bug of 2026-11-05): an SDL field keeps the keyboard at a tap outside, as on Android
   # 15, so the bar has Apple's key that hides it; the runner taps it, and Minato hides the keyboard as at the user's
   # own hide, which the guest hears of.
@@ -2562,7 +2584,7 @@ PY
         failed_line "the bar's hide key did not put the keyboard away" ime-surrounding-test-delete-2
       fi
     else
-      failed_line "no Hide Keyboard key over the SDL field's keyboard" ime-surrounding-test-delete-2
+      runner_failed_line "no Hide Keyboard key over the SDL field's keyboard" ime-surrounding-test-delete-2
     fi
   fi
   end_start ime-surrounding-test-delete 2
@@ -2587,7 +2609,7 @@ if wanted ime-surrounding-test-return && uitests_build; then
         ok "  the Return hid the keyboard"
         no_keyboard_views "the Return" ime-surrounding-test-return-1
       else
-        failed_line "the Return did not hide the keyboard" ime-surrounding-test-return-1
+        runner_failed_line "the Return did not hide the keyboard" ime-surrounding-test-return-1
       fi
       await_line guest-log '^I/ime-surrounding-test-return: done$' 15 || true
     else
