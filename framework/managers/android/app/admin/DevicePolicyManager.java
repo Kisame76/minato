@@ -21,6 +21,12 @@ class DevicePolicyManager {
             long directoryId, Intent originalIntent) {
     }
 
+    /** @hide CalendarContract's: an event shown in a managed profile, which no user of Minato's has: nothing starts. */
+    public boolean startViewCalendarEventInManagedProfile(long eventId, long startMs, long endMs, boolean allDay,
+            int flags) {
+        return false;
+    }
+
     /** @hide DeviceAdminReceiver's. */
     public static @interface OperationSafetyReason {
     }

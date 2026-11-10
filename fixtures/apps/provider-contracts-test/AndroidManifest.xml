@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The provider contracts test (group 2 of the framework breadth, provider-contracts-test): the Application class
+     loads each type of assets/types.txt, logs its shape, and asks the ContentResolver for the contracts' URIs, in an
+     app that holds no permission, without a window. The launcher activity is the framework's own android.app.Activity,
+     as in api-breadth-test. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.providercontracts" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="provider-contracts-test"
+      android:name="io.github.kisame76.minato.test.providercontracts.ContractsApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

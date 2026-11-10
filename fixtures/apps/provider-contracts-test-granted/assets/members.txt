@@ -1,0 +1,393 @@
+# The public API members of the types of types.txt (fields by name, methods by name and number of parameters), from Android 15's core API: the shape digest takes only these, since Android hides members of its own that are not API from reflection and Minato does not.
+android.provider.BlockedNumberContract F AUTHORITY
+android.provider.BlockedNumberContract M canCurrentUserBlockNumbers 1
+android.provider.BlockedNumberContract M isBlocked 2
+android.provider.BlockedNumberContract M unblock 2
+android.provider.BlockedNumberContract$BlockedNumbers F COLUMN_E164_NUMBER
+android.provider.BlockedNumberContract$BlockedNumbers F COLUMN_ID
+android.provider.BlockedNumberContract$BlockedNumbers F COLUMN_ORIGINAL_NUMBER
+android.provider.BlockedNumberContract$BlockedNumbers F CONTENT_ITEM_TYPE
+android.provider.BlockedNumberContract$BlockedNumbers F CONTENT_TYPE
+android.provider.Browser F EXTRA_APPLICATION_ID
+android.provider.Browser F EXTRA_CREATE_NEW_TAB
+android.provider.Browser F EXTRA_HEADERS
+android.provider.Browser F INITIAL_ZOOM_LEVEL
+android.provider.Browser M sendString 2
+android.provider.CalendarContract F ACCOUNT_TYPE_LOCAL
+android.provider.CalendarContract F ACTION_EVENT_REMINDER
+android.provider.CalendarContract F ACTION_HANDLE_CUSTOM_EVENT
+android.provider.CalendarContract F ACTION_VIEW_MANAGED_PROFILE_CALENDAR_EVENT
+android.provider.CalendarContract F AUTHORITY
+android.provider.CalendarContract F CALLER_IS_SYNCADAPTER
+android.provider.CalendarContract F EXTRA_CUSTOM_APP_URI
+android.provider.CalendarContract F EXTRA_EVENT_ALL_DAY
+android.provider.CalendarContract F EXTRA_EVENT_BEGIN_TIME
+android.provider.CalendarContract F EXTRA_EVENT_END_TIME
+android.provider.CalendarContract F EXTRA_EVENT_ID
+android.provider.CalendarContract M startViewCalendarEventInManagedProfile 6
+android.provider.CalendarContract$Attendees M query 3
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_EMAIL
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_IDENTITY
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_ID_NAMESPACE
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_NAME
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_RELATIONSHIP
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_STATUS
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_STATUS_ACCEPTED
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_STATUS_DECLINED
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_STATUS_INVITED
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_STATUS_NONE
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_STATUS_TENTATIVE
+android.provider.CalendarContract$AttendeesColumns F ATTENDEE_TYPE
+android.provider.CalendarContract$AttendeesColumns F EVENT_ID
+android.provider.CalendarContract$AttendeesColumns F RELATIONSHIP_ATTENDEE
+android.provider.CalendarContract$AttendeesColumns F RELATIONSHIP_NONE
+android.provider.CalendarContract$AttendeesColumns F RELATIONSHIP_ORGANIZER
+android.provider.CalendarContract$AttendeesColumns F RELATIONSHIP_PERFORMER
+android.provider.CalendarContract$AttendeesColumns F RELATIONSHIP_SPEAKER
+android.provider.CalendarContract$AttendeesColumns F TYPE_NONE
+android.provider.CalendarContract$AttendeesColumns F TYPE_OPTIONAL
+android.provider.CalendarContract$AttendeesColumns F TYPE_REQUIRED
+android.provider.CalendarContract$AttendeesColumns F TYPE_RESOURCE
+android.provider.CalendarContract$CalendarAlertsColumns F ALARM_TIME
+android.provider.CalendarContract$CalendarAlertsColumns F BEGIN
+android.provider.CalendarContract$CalendarAlertsColumns F CREATION_TIME
+android.provider.CalendarContract$CalendarAlertsColumns F DEFAULT_SORT_ORDER
+android.provider.CalendarContract$CalendarAlertsColumns F END
+android.provider.CalendarContract$CalendarAlertsColumns F EVENT_ID
+android.provider.CalendarContract$CalendarAlertsColumns F MINUTES
+android.provider.CalendarContract$CalendarAlertsColumns F NOTIFY_TIME
+android.provider.CalendarContract$CalendarAlertsColumns F RECEIVED_TIME
+android.provider.CalendarContract$CalendarAlertsColumns F STATE
+android.provider.CalendarContract$CalendarAlertsColumns F STATE_DISMISSED
+android.provider.CalendarContract$CalendarAlertsColumns F STATE_FIRED
+android.provider.CalendarContract$CalendarAlertsColumns F STATE_SCHEDULED
+android.provider.CalendarContract$CalendarCache F KEY_TIMEZONE_INSTANCES
+android.provider.CalendarContract$CalendarCache F KEY_TIMEZONE_INSTANCES_PREVIOUS
+android.provider.CalendarContract$CalendarCache F KEY_TIMEZONE_TYPE
+android.provider.CalendarContract$CalendarCache F TIMEZONE_TYPE_AUTO
+android.provider.CalendarContract$CalendarCache F TIMEZONE_TYPE_HOME
+android.provider.CalendarContract$CalendarCacheColumns F KEY
+android.provider.CalendarContract$CalendarCacheColumns F VALUE
+android.provider.CalendarContract$CalendarColumns F ALLOWED_ATTENDEE_TYPES
+android.provider.CalendarContract$CalendarColumns F ALLOWED_AVAILABILITY
+android.provider.CalendarContract$CalendarColumns F ALLOWED_REMINDERS
+android.provider.CalendarContract$CalendarColumns F CALENDAR_ACCESS_LEVEL
+android.provider.CalendarContract$CalendarColumns F CALENDAR_COLOR
+android.provider.CalendarContract$CalendarColumns F CALENDAR_COLOR_KEY
+android.provider.CalendarContract$CalendarColumns F CALENDAR_DISPLAY_NAME
+android.provider.CalendarContract$CalendarColumns F CALENDAR_TIME_ZONE
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_CONTRIBUTOR
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_EDITOR
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_FREEBUSY
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_NONE
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_OVERRIDE
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_OWNER
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_READ
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_RESPOND
+android.provider.CalendarContract$CalendarColumns F CAL_ACCESS_ROOT
+android.provider.CalendarContract$CalendarColumns F CAN_MODIFY_TIME_ZONE
+android.provider.CalendarContract$CalendarColumns F CAN_ORGANIZER_RESPOND
+android.provider.CalendarContract$CalendarColumns F IS_PRIMARY
+android.provider.CalendarContract$CalendarColumns F MAX_REMINDERS
+android.provider.CalendarContract$CalendarColumns F OWNER_ACCOUNT
+android.provider.CalendarContract$CalendarColumns F SYNC_EVENTS
+android.provider.CalendarContract$CalendarColumns F VISIBLE
+android.provider.CalendarContract$CalendarEntity M newEntityIterator 1
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC1
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC10
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC2
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC3
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC4
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC5
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC6
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC7
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC8
+android.provider.CalendarContract$CalendarSyncColumns F CAL_SYNC9
+android.provider.CalendarContract$Calendars F CALENDAR_LOCATION
+android.provider.CalendarContract$Calendars F DEFAULT_SORT_ORDER
+android.provider.CalendarContract$Calendars F NAME
+android.provider.CalendarContract$ColorsColumns F COLOR
+android.provider.CalendarContract$ColorsColumns F COLOR_KEY
+android.provider.CalendarContract$ColorsColumns F COLOR_TYPE
+android.provider.CalendarContract$ColorsColumns F TYPE_CALENDAR
+android.provider.CalendarContract$ColorsColumns F TYPE_EVENT
+android.provider.CalendarContract$EventDays M query 4
+android.provider.CalendarContract$EventDaysColumns F ENDDAY
+android.provider.CalendarContract$EventDaysColumns F STARTDAY
+android.provider.CalendarContract$EventsColumns F ACCESS_CONFIDENTIAL
+android.provider.CalendarContract$EventsColumns F ACCESS_DEFAULT
+android.provider.CalendarContract$EventsColumns F ACCESS_LEVEL
+android.provider.CalendarContract$EventsColumns F ACCESS_PRIVATE
+android.provider.CalendarContract$EventsColumns F ACCESS_PUBLIC
+android.provider.CalendarContract$EventsColumns F ALL_DAY
+android.provider.CalendarContract$EventsColumns F AVAILABILITY
+android.provider.CalendarContract$EventsColumns F AVAILABILITY_BUSY
+android.provider.CalendarContract$EventsColumns F AVAILABILITY_FREE
+android.provider.CalendarContract$EventsColumns F AVAILABILITY_TENTATIVE
+android.provider.CalendarContract$EventsColumns F CALENDAR_ID
+android.provider.CalendarContract$EventsColumns F CAN_INVITE_OTHERS
+android.provider.CalendarContract$EventsColumns F CUSTOM_APP_PACKAGE
+android.provider.CalendarContract$EventsColumns F CUSTOM_APP_URI
+android.provider.CalendarContract$EventsColumns F DESCRIPTION
+android.provider.CalendarContract$EventsColumns F DISPLAY_COLOR
+android.provider.CalendarContract$EventsColumns F DTEND
+android.provider.CalendarContract$EventsColumns F DTSTART
+android.provider.CalendarContract$EventsColumns F DURATION
+android.provider.CalendarContract$EventsColumns F EVENT_COLOR
+android.provider.CalendarContract$EventsColumns F EVENT_COLOR_KEY
+android.provider.CalendarContract$EventsColumns F EVENT_END_TIMEZONE
+android.provider.CalendarContract$EventsColumns F EVENT_LOCATION
+android.provider.CalendarContract$EventsColumns F EVENT_TIMEZONE
+android.provider.CalendarContract$EventsColumns F EXDATE
+android.provider.CalendarContract$EventsColumns F EXRULE
+android.provider.CalendarContract$EventsColumns F GUESTS_CAN_INVITE_OTHERS
+android.provider.CalendarContract$EventsColumns F GUESTS_CAN_MODIFY
+android.provider.CalendarContract$EventsColumns F GUESTS_CAN_SEE_GUESTS
+android.provider.CalendarContract$EventsColumns F HAS_ALARM
+android.provider.CalendarContract$EventsColumns F HAS_ATTENDEE_DATA
+android.provider.CalendarContract$EventsColumns F HAS_EXTENDED_PROPERTIES
+android.provider.CalendarContract$EventsColumns F IS_ORGANIZER
+android.provider.CalendarContract$EventsColumns F LAST_DATE
+android.provider.CalendarContract$EventsColumns F LAST_SYNCED
+android.provider.CalendarContract$EventsColumns F ORGANIZER
+android.provider.CalendarContract$EventsColumns F ORIGINAL_ALL_DAY
+android.provider.CalendarContract$EventsColumns F ORIGINAL_ID
+android.provider.CalendarContract$EventsColumns F ORIGINAL_INSTANCE_TIME
+android.provider.CalendarContract$EventsColumns F ORIGINAL_SYNC_ID
+android.provider.CalendarContract$EventsColumns F RDATE
+android.provider.CalendarContract$EventsColumns F RRULE
+android.provider.CalendarContract$EventsColumns F SELF_ATTENDEE_STATUS
+android.provider.CalendarContract$EventsColumns F STATUS
+android.provider.CalendarContract$EventsColumns F STATUS_CANCELED
+android.provider.CalendarContract$EventsColumns F STATUS_CONFIRMED
+android.provider.CalendarContract$EventsColumns F STATUS_TENTATIVE
+android.provider.CalendarContract$EventsColumns F SYNC_DATA1
+android.provider.CalendarContract$EventsColumns F SYNC_DATA10
+android.provider.CalendarContract$EventsColumns F SYNC_DATA2
+android.provider.CalendarContract$EventsColumns F SYNC_DATA3
+android.provider.CalendarContract$EventsColumns F SYNC_DATA4
+android.provider.CalendarContract$EventsColumns F SYNC_DATA5
+android.provider.CalendarContract$EventsColumns F SYNC_DATA6
+android.provider.CalendarContract$EventsColumns F SYNC_DATA7
+android.provider.CalendarContract$EventsColumns F SYNC_DATA8
+android.provider.CalendarContract$EventsColumns F SYNC_DATA9
+android.provider.CalendarContract$EventsColumns F TITLE
+android.provider.CalendarContract$EventsColumns F UID_2445
+android.provider.CalendarContract$EventsEntity M newEntityIterator 2
+android.provider.CalendarContract$ExtendedPropertiesColumns F EVENT_ID
+android.provider.CalendarContract$ExtendedPropertiesColumns F NAME
+android.provider.CalendarContract$ExtendedPropertiesColumns F VALUE
+android.provider.CalendarContract$Instances F BEGIN
+android.provider.CalendarContract$Instances F END
+android.provider.CalendarContract$Instances F END_DAY
+android.provider.CalendarContract$Instances F END_MINUTE
+android.provider.CalendarContract$Instances F EVENT_ID
+android.provider.CalendarContract$Instances F START_DAY
+android.provider.CalendarContract$Instances F START_MINUTE
+android.provider.CalendarContract$Instances M query 4
+android.provider.CalendarContract$Instances M query 5
+android.provider.CalendarContract$Reminders M query 3
+android.provider.CalendarContract$RemindersColumns F EVENT_ID
+android.provider.CalendarContract$RemindersColumns F METHOD
+android.provider.CalendarContract$RemindersColumns F METHOD_ALARM
+android.provider.CalendarContract$RemindersColumns F METHOD_ALERT
+android.provider.CalendarContract$RemindersColumns F METHOD_DEFAULT
+android.provider.CalendarContract$RemindersColumns F METHOD_EMAIL
+android.provider.CalendarContract$RemindersColumns F METHOD_SMS
+android.provider.CalendarContract$RemindersColumns F MINUTES
+android.provider.CalendarContract$RemindersColumns F MINUTES_DEFAULT
+android.provider.CalendarContract$SyncColumns F ACCOUNT_NAME
+android.provider.CalendarContract$SyncColumns F ACCOUNT_TYPE
+android.provider.CalendarContract$SyncColumns F CAN_PARTIALLY_UPDATE
+android.provider.CalendarContract$SyncColumns F DELETED
+android.provider.CalendarContract$SyncColumns F DIRTY
+android.provider.CalendarContract$SyncColumns F MUTATORS
+android.provider.CalendarContract$SyncColumns F _SYNC_ID
+android.provider.CallLog F AUTHORITY
+android.provider.CallLog$Calls F ANSWERED_EXTERNALLY_TYPE
+android.provider.CallLog$Calls F ASSERTED_DISPLAY_NAME
+android.provider.CallLog$Calls F AUTO_MISSED_EMERGENCY_CALL
+android.provider.CallLog$Calls F AUTO_MISSED_MAXIMUM_DIALING
+android.provider.CallLog$Calls F AUTO_MISSED_MAXIMUM_RINGING
+android.provider.CallLog$Calls F BLOCKED_TYPE
+android.provider.CallLog$Calls F BLOCK_REASON
+android.provider.CallLog$Calls F BLOCK_REASON_BLOCKED_NUMBER
+android.provider.CallLog$Calls F BLOCK_REASON_CALL_SCREENING_SERVICE
+android.provider.CallLog$Calls F BLOCK_REASON_DIRECT_TO_VOICEMAIL
+android.provider.CallLog$Calls F BLOCK_REASON_NOT_BLOCKED
+android.provider.CallLog$Calls F BLOCK_REASON_NOT_IN_CONTACTS
+android.provider.CallLog$Calls F BLOCK_REASON_PAY_PHONE
+android.provider.CallLog$Calls F BLOCK_REASON_RESTRICTED_NUMBER
+android.provider.CallLog$Calls F BLOCK_REASON_UNKNOWN_NUMBER
+android.provider.CallLog$Calls F CACHED_FORMATTED_NUMBER
+android.provider.CallLog$Calls F CACHED_LOOKUP_URI
+android.provider.CallLog$Calls F CACHED_MATCHED_NUMBER
+android.provider.CallLog$Calls F CACHED_NAME
+android.provider.CallLog$Calls F CACHED_NORMALIZED_NUMBER
+android.provider.CallLog$Calls F CACHED_NUMBER_LABEL
+android.provider.CallLog$Calls F CACHED_NUMBER_TYPE
+android.provider.CallLog$Calls F CACHED_PHOTO_ID
+android.provider.CallLog$Calls F CACHED_PHOTO_URI
+android.provider.CallLog$Calls F CALL_SCREENING_APP_NAME
+android.provider.CallLog$Calls F CALL_SCREENING_COMPONENT_NAME
+android.provider.CallLog$Calls F COMPOSER_PHOTO_URI
+android.provider.CallLog$Calls F CONTENT_ITEM_TYPE
+android.provider.CallLog$Calls F CONTENT_TYPE
+android.provider.CallLog$Calls F COUNTRY_ISO
+android.provider.CallLog$Calls F DATA_USAGE
+android.provider.CallLog$Calls F DATE
+android.provider.CallLog$Calls F DEFAULT_SORT_ORDER
+android.provider.CallLog$Calls F DURATION
+android.provider.CallLog$Calls F EXTRA_CALL_TYPE_FILTER
+android.provider.CallLog$Calls F FEATURES
+android.provider.CallLog$Calls F FEATURES_ASSISTED_DIALING_USED
+android.provider.CallLog$Calls F FEATURES_HD_CALL
+android.provider.CallLog$Calls F FEATURES_PULLED_EXTERNALLY
+android.provider.CallLog$Calls F FEATURES_RTT
+android.provider.CallLog$Calls F FEATURES_VIDEO
+android.provider.CallLog$Calls F FEATURES_VOLTE
+android.provider.CallLog$Calls F FEATURES_WIFI
+android.provider.CallLog$Calls F GEOCODED_LOCATION
+android.provider.CallLog$Calls F INCOMING_TYPE
+android.provider.CallLog$Calls F IS_BUSINESS_CALL
+android.provider.CallLog$Calls F IS_READ
+android.provider.CallLog$Calls F LAST_MODIFIED
+android.provider.CallLog$Calls F LIMIT_PARAM_KEY
+android.provider.CallLog$Calls F LOCATION
+android.provider.CallLog$Calls F MISSED_REASON
+android.provider.CallLog$Calls F MISSED_REASON_NOT_MISSED
+android.provider.CallLog$Calls F MISSED_TYPE
+android.provider.CallLog$Calls F NEW
+android.provider.CallLog$Calls F NUMBER
+android.provider.CallLog$Calls F NUMBER_PRESENTATION
+android.provider.CallLog$Calls F OFFSET_PARAM_KEY
+android.provider.CallLog$Calls F OUTGOING_TYPE
+android.provider.CallLog$Calls F PHONE_ACCOUNT_COMPONENT_NAME
+android.provider.CallLog$Calls F PHONE_ACCOUNT_ID
+android.provider.CallLog$Calls F POST_DIAL_DIGITS
+android.provider.CallLog$Calls F PRESENTATION_ALLOWED
+android.provider.CallLog$Calls F PRESENTATION_PAYPHONE
+android.provider.CallLog$Calls F PRESENTATION_RESTRICTED
+android.provider.CallLog$Calls F PRESENTATION_UNAVAILABLE
+android.provider.CallLog$Calls F PRESENTATION_UNKNOWN
+android.provider.CallLog$Calls F PRIORITY
+android.provider.CallLog$Calls F PRIORITY_NORMAL
+android.provider.CallLog$Calls F PRIORITY_URGENT
+android.provider.CallLog$Calls F REJECTED_TYPE
+android.provider.CallLog$Calls F SUBJECT
+android.provider.CallLog$Calls F TRANSCRIPTION
+android.provider.CallLog$Calls F TYPE
+android.provider.CallLog$Calls F USER_MISSED_CALL_FILTERS_TIMEOUT
+android.provider.CallLog$Calls F USER_MISSED_CALL_SCREENING_SERVICE_SILENCED
+android.provider.CallLog$Calls F USER_MISSED_DND_MODE
+android.provider.CallLog$Calls F USER_MISSED_LOW_RING_VOLUME
+android.provider.CallLog$Calls F USER_MISSED_NO_ANSWER
+android.provider.CallLog$Calls F USER_MISSED_NO_VIBRATE
+android.provider.CallLog$Calls F USER_MISSED_SHORT_RING
+android.provider.CallLog$Calls F VIA_NUMBER
+android.provider.CallLog$Calls F VOICEMAIL_TYPE
+android.provider.CallLog$Calls F VOICEMAIL_URI
+android.provider.CallLog$Calls M getLastOutgoingCall 1
+android.provider.CallLog$Locations F AUTHORITY
+android.provider.CallLog$Locations F CONTENT_ITEM_TYPE
+android.provider.CallLog$Locations F CONTENT_TYPE
+android.provider.CallLog$Locations F LATITUDE
+android.provider.CallLog$Locations F LONGITUDE
+android.provider.E2eeContactKeysManager F VERIFICATION_STATE_UNVERIFIED
+android.provider.E2eeContactKeysManager F VERIFICATION_STATE_VERIFICATION_FAILED
+android.provider.E2eeContactKeysManager F VERIFICATION_STATE_VERIFIED
+android.provider.E2eeContactKeysManager M getAllE2eeContactKeys 1
+android.provider.E2eeContactKeysManager M getAllE2eeSelfKeys 0
+android.provider.E2eeContactKeysManager M getE2eeContactKey 3
+android.provider.E2eeContactKeysManager M getE2eeSelfKey 2
+android.provider.E2eeContactKeysManager M getMaxKeySizeBytes 0
+android.provider.E2eeContactKeysManager M getOwnerE2eeContactKeys 1
+android.provider.E2eeContactKeysManager M getOwnerE2eeSelfKeys 0
+android.provider.E2eeContactKeysManager M removeE2eeContactKey 3
+android.provider.E2eeContactKeysManager M removeE2eeSelfKey 2
+android.provider.E2eeContactKeysManager M updateE2eeContactKeyLocalVerificationState 4
+android.provider.E2eeContactKeysManager M updateE2eeContactKeyRemoteVerificationState 4
+android.provider.E2eeContactKeysManager M updateE2eeSelfKeyRemoteVerificationState 3
+android.provider.E2eeContactKeysManager M updateOrInsertE2eeContactKey 4
+android.provider.E2eeContactKeysManager M updateOrInsertE2eeSelfKey 3
+android.provider.E2eeContactKeysManager$E2eeContactKey M describeContents 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getAccountId 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getDeviceId 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getDisplayName 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getEmailAddress 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getKeyValue 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getLocalVerificationState 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getOwnerPackageName 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getPhoneNumber 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getRemoteVerificationState 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M getTimeUpdated 0
+android.provider.E2eeContactKeysManager$E2eeContactKey M writeToParcel 2
+android.provider.E2eeContactKeysManager$E2eeSelfKey M describeContents 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M getAccountId 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M getDeviceId 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M getKeyValue 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M getOwnerPackageName 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M getRemoteVerificationState 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M getTimeUpdated 0
+android.provider.E2eeContactKeysManager$E2eeSelfKey M writeToParcel 2
+android.provider.VoicemailContract F ACTION_FETCH_VOICEMAIL
+android.provider.VoicemailContract F ACTION_NEW_VOICEMAIL
+android.provider.VoicemailContract F ACTION_SYNC_VOICEMAIL
+android.provider.VoicemailContract F AUTHORITY
+android.provider.VoicemailContract F EXTRA_PHONE_ACCOUNT_HANDLE
+android.provider.VoicemailContract F EXTRA_SELF_CHANGE
+android.provider.VoicemailContract F PARAM_KEY_SOURCE_PACKAGE
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE_CAN_BE_CONFIGURED
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE_CONFIGURING
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE_DISABLED
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE_FAILED
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE_NOT_CONFIGURED
+android.provider.VoicemailContract$Status F CONFIGURATION_STATE_OK
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_BAD_CONFIGURATION
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_COMMUNICATION_ERROR
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_NO_CONNECTION
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_NO_CONNECTION_CELLULAR_REQUIRED
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_OK
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_SERVER_CONNECTION_ERROR
+android.provider.VoicemailContract$Status F DATA_CHANNEL_STATE_SERVER_ERROR
+android.provider.VoicemailContract$Status F DIR_TYPE
+android.provider.VoicemailContract$Status F ITEM_TYPE
+android.provider.VoicemailContract$Status F NOTIFICATION_CHANNEL_STATE
+android.provider.VoicemailContract$Status F NOTIFICATION_CHANNEL_STATE_MESSAGE_WAITING
+android.provider.VoicemailContract$Status F NOTIFICATION_CHANNEL_STATE_NO_CONNECTION
+android.provider.VoicemailContract$Status F NOTIFICATION_CHANNEL_STATE_OK
+android.provider.VoicemailContract$Status F PHONE_ACCOUNT_COMPONENT_NAME
+android.provider.VoicemailContract$Status F PHONE_ACCOUNT_ID
+android.provider.VoicemailContract$Status F QUOTA_OCCUPIED
+android.provider.VoicemailContract$Status F QUOTA_TOTAL
+android.provider.VoicemailContract$Status F QUOTA_UNAVAILABLE
+android.provider.VoicemailContract$Status F SETTINGS_URI
+android.provider.VoicemailContract$Status F SOURCE_PACKAGE
+android.provider.VoicemailContract$Status F SOURCE_TYPE
+android.provider.VoicemailContract$Status F VOICEMAIL_ACCESS_URI
+android.provider.VoicemailContract$Status M buildSourceUri 1
+android.provider.VoicemailContract$Voicemails F ARCHIVED
+android.provider.VoicemailContract$Voicemails F BACKED_UP
+android.provider.VoicemailContract$Voicemails F DATE
+android.provider.VoicemailContract$Voicemails F DELETED
+android.provider.VoicemailContract$Voicemails F DIRTY
+android.provider.VoicemailContract$Voicemails F DIRTY_RETAIN
+android.provider.VoicemailContract$Voicemails F DIR_TYPE
+android.provider.VoicemailContract$Voicemails F DURATION
+android.provider.VoicemailContract$Voicemails F HAS_CONTENT
+android.provider.VoicemailContract$Voicemails F IS_OMTP_VOICEMAIL
+android.provider.VoicemailContract$Voicemails F IS_READ
+android.provider.VoicemailContract$Voicemails F ITEM_TYPE
+android.provider.VoicemailContract$Voicemails F LAST_MODIFIED
+android.provider.VoicemailContract$Voicemails F MIME_TYPE
+android.provider.VoicemailContract$Voicemails F NEW
+android.provider.VoicemailContract$Voicemails F NUMBER
+android.provider.VoicemailContract$Voicemails F PHONE_ACCOUNT_COMPONENT_NAME
+android.provider.VoicemailContract$Voicemails F PHONE_ACCOUNT_ID
+android.provider.VoicemailContract$Voicemails F RESTORED
+android.provider.VoicemailContract$Voicemails F SOURCE_DATA
+android.provider.VoicemailContract$Voicemails F SOURCE_PACKAGE
+android.provider.VoicemailContract$Voicemails F TRANSCRIPTION
+android.provider.VoicemailContract$Voicemails M buildSourceUri 1

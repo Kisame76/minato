@@ -1,0 +1,55 @@
+I/provider-contracts-test-granted: android.provider.BlockedNumberContract: loads, 1 fields, 3 methods, digest c19492d52ff3
+I/provider-contracts-test-granted: android.provider.BlockedNumberContract$BlockedNumbers: loads, 5 fields, 0 methods, digest 12bd85d15eb9
+I/provider-contracts-test-granted: android.provider.Browser: loads, 4 fields, 1 methods, digest 3f0804b35dc4
+I/provider-contracts-test-granted: android.provider.CalendarContract: loads, 11 fields, 1 methods, digest e8a82058ddd3
+I/provider-contracts-test-granted: android.provider.CalendarContract$Attendees: loads, 0 fields, 1 methods, digest 89512505f175
+I/provider-contracts-test-granted: android.provider.CalendarContract$AttendeesColumns: loads, 22 fields, 0 methods, digest 08184f833b34
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarAlerts: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarAlertsColumns: loads, 13 fields, 0 methods, digest 4b3e67251beb
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarCache: loads, 5 fields, 0 methods, digest bb6715f27cb9
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarCacheColumns: loads, 2 fields, 0 methods, digest 537a758cbdc2
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarColumns: loads, 24 fields, 0 methods, digest d7fe0106f273
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarEntity: loads, 0 fields, 1 methods, digest df2e9670ae93
+I/provider-contracts-test-granted: android.provider.CalendarContract$CalendarSyncColumns: loads, 10 fields, 0 methods, digest 9923f3918b32
+I/provider-contracts-test-granted: android.provider.CalendarContract$Calendars: loads, 3 fields, 0 methods, digest c77a78551e11
+I/provider-contracts-test-granted: android.provider.CalendarContract$Colors: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test-granted: android.provider.CalendarContract$ColorsColumns: loads, 5 fields, 0 methods, digest b51244e01212
+I/provider-contracts-test-granted: android.provider.CalendarContract$EventDays: loads, 0 fields, 1 methods, digest 1d72e80ea0c8
+I/provider-contracts-test-granted: android.provider.CalendarContract$EventDaysColumns: loads, 2 fields, 0 methods, digest 6567fec595e6
+I/provider-contracts-test-granted: android.provider.CalendarContract$Events: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test-granted: android.provider.CalendarContract$EventsColumns: loads, 59 fields, 0 methods, digest 9a52bd85007d
+I/provider-contracts-test-granted: android.provider.CalendarContract$EventsEntity: loads, 0 fields, 2 methods, digest 07975e6da2d9
+I/provider-contracts-test-granted: android.provider.CalendarContract$ExtendedProperties: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test-granted: android.provider.CalendarContract$ExtendedPropertiesColumns: loads, 3 fields, 0 methods, digest 4e8570b83f44
+I/provider-contracts-test-granted: android.provider.CalendarContract$Instances: loads, 7 fields, 2 methods, digest dbc79036fd14
+I/provider-contracts-test-granted: android.provider.CalendarContract$Reminders: loads, 0 fields, 1 methods, digest 89512505f175
+I/provider-contracts-test-granted: android.provider.CalendarContract$RemindersColumns: loads, 9 fields, 0 methods, digest d2b2f38ac290
+I/provider-contracts-test-granted: android.provider.CalendarContract$SyncColumns: loads, 7 fields, 0 methods, digest 05525c4cafcf
+I/provider-contracts-test-granted: android.provider.CalendarContract$SyncState: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test-granted: android.provider.CallLog: loads, 1 fields, 0 methods, digest e740b08016a4
+I/provider-contracts-test-granted: android.provider.CallLog$Calls: loads, 83 fields, 1 methods, digest c0ec5dccc308
+I/provider-contracts-test-granted: android.provider.CallLog$Locations: loads, 5 fields, 0 methods, digest f49583189b8e
+I/provider-contracts-test-granted: android.provider.E2eeContactKeysManager: loads, 3 fields, 14 methods, digest 57fcd50d97a1
+I/provider-contracts-test-granted: android.provider.E2eeContactKeysManager$E2eeContactKey: loads, 0 fields, 6 methods, digest 6226bcbd8b34
+I/provider-contracts-test-granted: android.provider.E2eeContactKeysManager$E2eeSelfKey: loads, 0 fields, 2 methods, digest b9cb5b7c99c8
+I/provider-contracts-test-granted: android.provider.VoicemailContract: loads, 7 fields, 0 methods, digest 9d84a299c625
+I/provider-contracts-test-granted: android.provider.VoicemailContract$Status: loads, 30 fields, 1 methods, digest e32b6909f712
+I/provider-contracts-test-granted: android.provider.VoicemailContract$Voicemails: loads, 22 fields, 1 methods, digest 9daee63beb79
+I/provider-contracts-test-granted: query calendars: cursor, 0 rows, 35 columns, digest 6474269da0df
+I/provider-contracts-test-granted: query events: cursor, 0 rows, 79 columns, digest e6dcd09189fc
+I/provider-contracts-test-granted: query attendees: cursor, 0 rows, 49 columns, digest db49c8628ba5
+I/provider-contracts-test-granted: query reminders: cursor, 0 rows, 4 columns, digest f478b1ddc593
+I/provider-contracts-test-granted: query instances: cursor, 0 rows, 63 columns, digest 4e0630e57e26
+I/provider-contracts-test-granted: query call log: cursor, 0 rows, 43 columns, digest 20688808c1b2
+I/provider-contracts-test-granted: query voicemails: java.lang.SecurityException: Provider io.github.kisame76.minato.test.providercontractsgranted does not have com.android.voicemail.permission.WRITE_VOICEMAIL permission.
+I/provider-contracts-test-granted: Please set query parameter 'source_package' in the URI.
+I/provider-contracts-test-granted: URI: content://com.android.voicemail/voicemail
+I/provider-contracts-test-granted: query voicemail status: java.lang.SecurityException: Provider io.github.kisame76.minato.test.providercontractsgranted does not have com.android.voicemail.permission.WRITE_VOICEMAIL permission.
+I/provider-contracts-test-granted: Please set query parameter 'source_package' in the URI.
+I/provider-contracts-test-granted: URI: content://com.android.voicemail/status
+I/provider-contracts-test-granted: query bookmarks: null
+I/provider-contracts-test-granted: query blocked numbers: java.lang.SecurityException: Caller must be system, default dialer or default SMS app
+I/provider-contracts-test-granted: can block numbers: true
+I/provider-contracts-test-granted: is blocked: java.lang.SecurityException: Caller must be system, default dialer or default SMS app
+I/provider-contracts-test-granted: insert event without values: null
+I/provider-contracts-test-granted: done

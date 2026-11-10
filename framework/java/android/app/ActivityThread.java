@@ -683,6 +683,12 @@ public final class ActivityThread {
                 provider = mMediaProvider;
             }
         }
+        if (provider == null && android.provider.LocalContractProvider.serves(auth)) {
+            // The provider contracts' providers (Calendar, call log, voicemail, blocked numbers), empty, which refuse
+            // an app without their permission as ActivityManagerService does; asked for at every acquire.
+            Context application = c.getApplicationContext();
+            provider = android.provider.LocalContractProvider.acquire(application != null ? application : c, auth);
+        }
         if (provider == null) {
             Slog.e(TAG, "Failed to find provider info for " + auth);
             return null;

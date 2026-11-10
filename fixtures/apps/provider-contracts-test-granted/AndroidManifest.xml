@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The twin of provider-contracts-test (provider-contracts-test-granted), from its sources: it asks for the calendar, call
+     log and voicemail permissions, which the harness grants before the start (tools/android-reference.sh), and its label
+     is the tag of its log lines, as in the other twins. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.providercontractsgranted" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.READ_CALENDAR"/>
+  <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
+  <uses-permission android:name="android.permission.READ_CALL_LOG"/>
+  <uses-permission android:name="android.permission.WRITE_CALL_LOG"/>
+  <uses-permission android:name="com.android.voicemail.permission.ADD_VOICEMAIL"/>
+  <application android:label="provider-contracts-test-granted"
+      android:name="io.github.kisame76.minato.test.providercontracts.ContractsApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

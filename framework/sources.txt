@@ -3044,3 +3044,15 @@ frameworks_base/core/java/android/hardware/fingerprint/FingerprintEnrollOptions.
 frameworks_base/core/java/android/hardware/fingerprint/FingerprintEnrollOptions.aidl
 frameworks_base/core/java/android/hardware/biometrics/PromptVerticalListContentView.java
 connectivity_java/framework-t/src/android/net/nsd/NsdServiceInfo.java
+
+# The provider contracts (group 2 of the framework breadth; provider-contracts-test): Browser, CalendarContract, CallLog,
+# VoicemailContract, BlockedNumberContract and E2eeContactKeysManager, with what they name that is not here.
+frameworks_base/core/java/android/provider/Browser.java
+frameworks_base/core/java/android/provider/BrowserContract.java
+frameworks_base/core/java/android/provider/CalendarContract.java
+frameworks_base/core/java/android/text/format/TimeMigrationUtils.java
+frameworks_base/core/java/android/provider/E2eeContactKeysManager.java
+frameworks_base/core/java/android/provider/VoicemailContract.java
+frameworks_base_types/telecomm/java/android/telecom/Voicemail.java
+frameworks_base/core/java/android/provider/CallLog.java
+frameworks_base/core/java/android/provider/BlockedNumberContract.java

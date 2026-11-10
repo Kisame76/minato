@@ -773,6 +773,13 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=60
       ;;
+    # provider-contracts-test and its twin provider-contracts-test-granted (the provider contracts, group 2 of the
+    # framework breadth), from the same sources: the twin gets the calendar, call log and voicemail permissions before
+    # the start. The Application logs and ends with "done".
+    provider-contracts-test | provider-contracts-test-granted)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=120
+      ;;
     # mic-test and its twin mic-test-granted (ADR-0064), from the same sources: the twin gets RECORD_AUDIO before the
     # start.
     mic-test | mic-test-granted)
@@ -1426,6 +1433,13 @@ run_app() {
   if [[ "$app" == mic-test-granted || "$app" == audio-input-test-granted ||
         "$app" == visualizer-test-granted || "$app" == audiofx-response-test ]]; then
     run pm grant "$package" android.permission.RECORD_AUDIO
+  fi
+  if [[ "$app" == provider-contracts-test-granted ]]; then
+    # The twin's calendar, call log and voicemail permissions, which no host group grants on Minato.
+    for permission in android.permission.READ_CALENDAR android.permission.WRITE_CALENDAR \
+      android.permission.READ_CALL_LOG android.permission.WRITE_CALL_LOG com.android.voicemail.permission.ADD_VOICEMAIL; do
+      run pm grant "$package" "$permission"
+    done
   fi
   if [[ "$app" == camera-characteristics-test-granted || "$app" == camera-legacy-test ||
         "$app" == camera-preview-test || "$app" == camera-picture-test ]]; then

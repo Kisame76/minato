@@ -1,0 +1,51 @@
+I/provider-contracts-test: android.provider.BlockedNumberContract: loads, 1 fields, 3 methods, digest c19492d52ff3
+I/provider-contracts-test: android.provider.BlockedNumberContract$BlockedNumbers: loads, 5 fields, 0 methods, digest 12bd85d15eb9
+I/provider-contracts-test: android.provider.Browser: loads, 4 fields, 1 methods, digest 3f0804b35dc4
+I/provider-contracts-test: android.provider.CalendarContract: loads, 11 fields, 1 methods, digest e8a82058ddd3
+I/provider-contracts-test: android.provider.CalendarContract$Attendees: loads, 0 fields, 1 methods, digest 89512505f175
+I/provider-contracts-test: android.provider.CalendarContract$AttendeesColumns: loads, 22 fields, 0 methods, digest 08184f833b34
+I/provider-contracts-test: android.provider.CalendarContract$CalendarAlerts: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test: android.provider.CalendarContract$CalendarAlertsColumns: loads, 13 fields, 0 methods, digest 4b3e67251beb
+I/provider-contracts-test: android.provider.CalendarContract$CalendarCache: loads, 5 fields, 0 methods, digest bb6715f27cb9
+I/provider-contracts-test: android.provider.CalendarContract$CalendarCacheColumns: loads, 2 fields, 0 methods, digest 537a758cbdc2
+I/provider-contracts-test: android.provider.CalendarContract$CalendarColumns: loads, 24 fields, 0 methods, digest d7fe0106f273
+I/provider-contracts-test: android.provider.CalendarContract$CalendarEntity: loads, 0 fields, 1 methods, digest df2e9670ae93
+I/provider-contracts-test: android.provider.CalendarContract$CalendarSyncColumns: loads, 10 fields, 0 methods, digest 9923f3918b32
+I/provider-contracts-test: android.provider.CalendarContract$Calendars: loads, 3 fields, 0 methods, digest c77a78551e11
+I/provider-contracts-test: android.provider.CalendarContract$Colors: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test: android.provider.CalendarContract$ColorsColumns: loads, 5 fields, 0 methods, digest b51244e01212
+I/provider-contracts-test: android.provider.CalendarContract$EventDays: loads, 0 fields, 1 methods, digest 1d72e80ea0c8
+I/provider-contracts-test: android.provider.CalendarContract$EventDaysColumns: loads, 2 fields, 0 methods, digest 6567fec595e6
+I/provider-contracts-test: android.provider.CalendarContract$Events: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test: android.provider.CalendarContract$EventsColumns: loads, 59 fields, 0 methods, digest 9a52bd85007d
+I/provider-contracts-test: android.provider.CalendarContract$EventsEntity: loads, 0 fields, 2 methods, digest 07975e6da2d9
+I/provider-contracts-test: android.provider.CalendarContract$ExtendedProperties: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test: android.provider.CalendarContract$ExtendedPropertiesColumns: loads, 3 fields, 0 methods, digest 4e8570b83f44
+I/provider-contracts-test: android.provider.CalendarContract$Instances: loads, 7 fields, 2 methods, digest dbc79036fd14
+I/provider-contracts-test: android.provider.CalendarContract$Reminders: loads, 0 fields, 1 methods, digest 89512505f175
+I/provider-contracts-test: android.provider.CalendarContract$RemindersColumns: loads, 9 fields, 0 methods, digest d2b2f38ac290
+I/provider-contracts-test: android.provider.CalendarContract$SyncColumns: loads, 7 fields, 0 methods, digest 05525c4cafcf
+I/provider-contracts-test: android.provider.CalendarContract$SyncState: loads, 0 fields, 0 methods, digest e3b0c44298fc
+I/provider-contracts-test: android.provider.CallLog: loads, 1 fields, 0 methods, digest e740b08016a4
+I/provider-contracts-test: android.provider.CallLog$Calls: loads, 83 fields, 1 methods, digest c0ec5dccc308
+I/provider-contracts-test: android.provider.CallLog$Locations: loads, 5 fields, 0 methods, digest f49583189b8e
+I/provider-contracts-test: android.provider.E2eeContactKeysManager: loads, 3 fields, 14 methods, digest 57fcd50d97a1
+I/provider-contracts-test: android.provider.E2eeContactKeysManager$E2eeContactKey: loads, 0 fields, 6 methods, digest 6226bcbd8b34
+I/provider-contracts-test: android.provider.E2eeContactKeysManager$E2eeSelfKey: loads, 0 fields, 2 methods, digest b9cb5b7c99c8
+I/provider-contracts-test: android.provider.VoicemailContract: loads, 7 fields, 0 methods, digest 9d84a299c625
+I/provider-contracts-test: android.provider.VoicemailContract$Status: loads, 30 fields, 1 methods, digest e32b6909f712
+I/provider-contracts-test: android.provider.VoicemailContract$Voicemails: loads, 22 fields, 1 methods, digest 9daee63beb79
+I/provider-contracts-test: query calendars: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.calendar.CalendarProvider2 from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALENDAR or android.permission.WRITE_CALENDAR
+I/provider-contracts-test: query events: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.calendar.CalendarProvider2 from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALENDAR or android.permission.WRITE_CALENDAR
+I/provider-contracts-test: query attendees: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.calendar.CalendarProvider2 from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALENDAR or android.permission.WRITE_CALENDAR
+I/provider-contracts-test: query reminders: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.calendar.CalendarProvider2 from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALENDAR or android.permission.WRITE_CALENDAR
+I/provider-contracts-test: query instances: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.calendar.CalendarProvider2 from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALENDAR or android.permission.WRITE_CALENDAR
+I/provider-contracts-test: query call log: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.contacts.CallLogProvider from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALL_LOG or android.permission.WRITE_CALL_LOG
+I/provider-contracts-test: query voicemails: java.lang.SecurityException: Permission Denial: reading com.android.providers.contacts.VoicemailContentProvider uri content://com.android.voicemail/voicemail from pid=N, uid=N requires com.android.voicemail.permission.ADD_VOICEMAIL, or grantUriPermission()
+I/provider-contracts-test: query voicemail status: java.lang.SecurityException: Permission Denial: reading com.android.providers.contacts.VoicemailContentProvider uri content://com.android.voicemail/status from pid=N, uid=N requires com.android.voicemail.permission.ADD_VOICEMAIL, or grantUriPermission()
+I/provider-contracts-test: query bookmarks: null
+I/provider-contracts-test: query blocked numbers: java.lang.SecurityException: Caller must be system, default dialer or default SMS app
+I/provider-contracts-test: can block numbers: true
+I/provider-contracts-test: is blocked: java.lang.SecurityException: Caller must be system, default dialer or default SMS app
+I/provider-contracts-test: insert event without values: java.lang.SecurityException: Permission Denial: opening provider com.android.providers.calendar.CalendarProvider2 from ProcessRecord{} (pid=N, uid=N) requires android.permission.READ_CALENDAR or android.permission.WRITE_CALENDAR
+I/provider-contracts-test: done
