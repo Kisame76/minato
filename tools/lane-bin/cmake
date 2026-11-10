@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# PATH shim for tools/check-lanes.sh. A check configures and builds the Mac harness (build/native/macos-app) before it
+# runs, and checks that run side by side would run Ninja in that one folder together. With MINATO_PREPARED=1 this shim
+# answers such a call at once when tools/check-prepare.sh built the folder from the tree as it is now (the stamp
+# native-macos-app, tools/prepared-stamp.py); every other call, and every call without a matching stamp, goes to the
+# real cmake.
+here="$(cd "$(dirname "$0")" && pwd)"
+if [[ "${MINATO_PREPARED:-}" == 1 ]]; then
+  for arg in "$@"; do
+    if [[ "$arg" == build/native/macos-app ]]; then
+      root="$(cd "$here/../.." && pwd)"
+      if (cd "$root" && python3 tools/prepared-stamp.py check native-macos-app build/native/macos-app/runtime/apk-run \
+          CMakeLists.txt CMakePresets.json runtime importer graphics third_party/sources.json); then
+        exit 0
+      fi
+      break
+    fi
+  done
+fi
+PATH="${PATH//$here:/}" exec cmake "$@"

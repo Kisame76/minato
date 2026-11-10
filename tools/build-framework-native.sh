@@ -14,7 +14,29 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# MINATO_PREPARED=1: return at once when nothing this script reads has changed since the build that wrote
+# build/prepared/framework-native.stamp (tools/prepared-stamp.py); else build as always.
+# Everything this script and framework/CMakeLists.txt read: our sources (content); the pinned AOSP source folders the
+# CMake files name, the prebuilt ART, hwui and bionic libraries, the NDK and the compilers (size and time).
 NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/30.0.16248370}"
+PREPARED_INPUTS=(framework/native framework/CMakeLists.txt runtime/include third_party/sources.json
+  tools/build-framework-native.sh tools/prefix-map-flags.sh tools/aapt2/soong.cmake
+  --stat build/hwui/lib build/art/lib build/bionic/lib/liblog.so tools/aapt2 "$NDK/source.properties"
+  "$NDK/build/cmake/android.toolchain.cmake" "$(command -v cmake || true)" "$(command -v ninja || true)")
+while IFS= read -r dir; do PREPARED_INPUTS+=("build/sources/$dir"); done < <(
+  grep -ho 'SOURCES}/[A-Za-z0-9_-]*\|build/sources/[A-Za-z0-9_-]*' framework/CMakeLists.txt tools/aapt2/soong.cmake \
+    tools/aapt2/CMakeLists.txt | sed -e 's|.*SOURCES}/||' -e 's|.*build/sources/||' | grep . | sort -u)
+if [[ "${MINATO_PRINT_INPUTS:-}" == 1 ]]; then  # for tools/tests/prepared_stamp_test.py
+  printf '%s\n' "${PREPARED_INPUTS[@]}"
+  exit 0
+fi
+if python3 tools/prepared-stamp.py check framework-native build/framework-native/libandroid_runtime.so \
+    "${PREPARED_INPUTS[@]}"; then
+  echo "build-framework-native: prepared, inputs unchanged (build/framework-native)"
+  exit 0
+fi
+PREPARED_DIGEST=$(python3 tools/prepared-stamp.py compute "${PREPARED_INPUTS[@]}")
+
 if [[ ! -f "$NDK/build/cmake/android.toolchain.cmake" ]]; then
   echo "No Android NDK at $NDK. Set ANDROID_NDK to its folder." >&2
   exit 1
@@ -53,4 +75,5 @@ cmake -S framework -B build/framework-native -G Ninja \
   -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/framework-native -j 6
+python3 tools/prepared-stamp.py write framework-native "$PREPARED_DIGEST"
 echo "build-framework-native: build/framework-native"

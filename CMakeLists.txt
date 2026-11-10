@@ -147,4 +147,8 @@ if(APK_HOST_BUILD)
   # release commit (tools/check-guest-fresh.py, tools/release.sh).
   add_test(NAME release.guest_fresh
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/guest-fresh-test.py")
+  # The prepared mode of the check builds (MINATO_PREPARED=1): the stamp tool, and that each group of inputs the
+  # framework build steps declare changes the digest (tools/prepared-stamp.py).
+  add_test(NAME tools.prepared_stamp
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/prepared_stamp_test.py")
 endif()

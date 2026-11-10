@@ -36,6 +36,34 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# MINATO_PREPARED=1 (a lead check that built once): return at once when nothing this script reads has changed since the
+# build that wrote build/prepared/framework.stamp; else build as always (tools/prepared-stamp.py). The stamp's digest
+# is taken before the build and written after it, so an input changed meanwhile leaves a stamp that does not match.
+# Everything this script reads. A missed input would hand a later check a stale framework.jar, so the list follows the
+# script: our sources and tools (content), the pinned AOSP sources it takes (framework/sources.txt, the aconfig
+# declarations, the api files, mime and phone number data; size and time), the tools and build outputs it consumes.
+SOURCE_DIRS=(frameworks_base frameworks_base_api frameworks_base_graphics frameworks_base_hwui frameworks_base_types
+  location_java location_api libcore icu build_release modules_utils connectivity_api connectivity_t_api wifi_api
+  bluetooth_api nfc_api permission_api mime_support mime_map libphonenumber hardware_interfaces_vibrator
+  frameworks_av_media_aidl)
+PREPARED_INPUTS=(framework/java framework/managers framework/patches framework/stubs framework/aidl-imports
+  framework/sources.txt third_party/sources.json tools/build-framework.sh tools/aconfig-flags.py tools/appopsgen.py
+  tools/compatgen.py tools/event-log-tags.py tools/swap-dir.py tools/managergen
+  fixtures/java/gapscan-test/io/github/kisame76/minato/test/gapscan/GapScan.java
+  --stat build/art/java/all-classes.jar build/art/boot_jars.json build/framework-res/java
+  build/framework-res/feature-flags.txt build/aidl/aidl build/sources/r8/r8.jar build/tools/jdk-17)
+while IFS= read -r dir; do PREPARED_INPUTS+=("build/sources/$dir"); done < <(
+  { printf '%s\n' "${SOURCE_DIRS[@]}"; sed -e 's/#.*//' -e 's|/.*||' -e '/^[[:space:]]*$/d' framework/sources.txt; } | sort -u)
+if [[ "${MINATO_PRINT_INPUTS:-}" == 1 ]]; then  # for tools/tests/prepared_stamp_test.py
+  printf '%s\n' "${PREPARED_INPUTS[@]}"
+  exit 0
+fi
+if python3 tools/prepared-stamp.py check framework build/framework/framework.jar "${PREPARED_INPUTS[@]}"; then
+  echo "build-framework: prepared, inputs unchanged (build/framework/framework.jar)"
+  exit 0
+fi
+PREPARED_DIGEST=$(python3 tools/prepared-stamp.py compute "${PREPARED_INPUTS[@]}")
+
 JDK=$PWD/$(echo build/tools/jdk-17/*/Contents/Home)
 R8=build/sources/r8/r8.jar
 BOOT_CLASSES=build/art/java/all-classes.jar
@@ -404,4 +432,5 @@ os.replace(path + ".tmp", path)
 PY
 python3 tools/swap-dir.py "$OUT" "$FINAL"
 trap - EXIT
+python3 tools/prepared-stamp.py write framework "$PREPARED_DIGEST"
 echo "build-framework: $FINAL/framework.jar ($(wc -c <"$FINAL/framework.jar" | tr -d ' ') bytes)"

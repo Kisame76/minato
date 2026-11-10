@@ -77,6 +77,15 @@ compares the result with Android 15's expected lines. They run in one of three p
 Each script's header comment says what it checks, what it needs first and which options it takes. Scripts that
 need a download skip with a message when it is missing; none downloads anything by itself.
 
+**Many checks in one go.** Every Mac-harness check rebuilds the framework first, and that takes over a minute even
+when nothing changed. `tools/check-lanes.sh [-j 3] [-o DIR] tools/a-check.sh tools/b-check.sh ...` builds once
+(`tools/check-prepare.sh`) and then runs the checks in parallel lanes with `MINATO_PREPARED=1`, which makes
+`tools/build-framework.sh`, `tools/build-framework-native.sh` and the macOS app's cmake return at once while their
+inputs are unchanged (`tools/prepared-stamp.py`; a changed input builds again). It prints each check's result and time,
+and keeps every log in `DIR/<name>.out`. Eight checks took 1170 s one after another and 24 to 29 s in three lanes. Never
+put a check into a lane that uses the Android emulator, the Simulator or the iPhone (one shared slot), or two checks
+that build the same test app. Run alone, a check behaves as before.
+
 ### The fixture suite on the iPhone
 
 ```bash
