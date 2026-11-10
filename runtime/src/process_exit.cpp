@@ -44,6 +44,10 @@ constexpr std::size_t crash_record_capacity = 1024;
 char crash_record[crash_record_capacity];
 std::size_t crash_record_length = 0;              // set before crash_record_present, read after it
 std::atomic<bool> crash_record_present{false};
+// One claim for the shared slot: whichever builder (note_self_kill or note_signal) wins fills crash_record; the rest
+// return at once, so the record is never overwritten or written by two at the same time (e.g. a self-kill's SIGABRT
+// then delivered fatal to note_signal, or a self-kill racing a fault on another thread). The first cause stands.
+std::atomic_flag crash_record_claimed = ATOMIC_FLAG_INIT;
 
 /// Writes `status` and a newline to the report descriptor, once; only with write(), because the
 /// caller may be a signal handler.
@@ -170,6 +174,18 @@ void append_decimal(char *buffer, std::size_t capacity, std::size_t &at, long va
         digits[count++] = static_cast<char>('0' + rest % 10);
         rest /= 10;
     } while (rest != 0);
+    while (count > 0 && at < capacity) buffer[at++] = digits[--count];
+}
+
+/// Appends `value` as lowercase hex (no "0x" prefix) to buf[at..cap), advancing `at`. Signal-safe.
+void append_hex(char *buffer, std::size_t capacity, std::size_t &at, std::uint64_t value) {
+    char digits[16];  // as many as 2^64 - 1 has in hex
+    int count = 0;
+    do {
+        const auto nibble = static_cast<int>(value & 0xf);
+        digits[count++] = static_cast<char>(nibble < 10 ? '0' + nibble : 'a' + nibble - 10);
+        value >>= 4;
+    } while (value != 0);
     while (count > 0 && at < capacity) buffer[at++] = digits[--count];
 }
 
@@ -305,10 +321,10 @@ void killed() {
 }
 
 void note_self_kill(int signal, std::uint64_t caller_fp) {
-    // Serialize racing self-kills (two threads SIGKILL at once): the first builds the record, the rest return at once,
-    // so no one writes the shared buffer under another. crash_record_present then tells report_status it is ready.
-    static std::atomic_flag building;
-    if (building.test_and_set(std::memory_order_relaxed)) return;  // the first self-kill's record stands
+    // One claim across both record builders (self-kill and fatal signal): the first fills crash_record, the rest return
+    // at once, so no one writes the shared buffer under another. crash_record_present then tells report_status it is
+    // ready.
+    if (crash_record_claimed.test_and_set(std::memory_order_relaxed)) return;  // the first cause's record stands
     // The loaded guest images, so a caller frame names <library>+<guest offset> under the privacy mask; taken here in
     // the syscall's normal context, where allocation is allowed. The sonames point into `mapped`, which outlives the
     // backtrace, and write_backtrace copies the names it keeps into crash_record.
@@ -330,6 +346,33 @@ void note_self_kill(int signal, std::uint64_t caller_fp) {
     append_text(crash_record, crash_record_capacity, at, signal_name(signal));
     append_text(crash_record, crash_record_capacity, at, ")\n");
     crash::write_backtrace(crash_record, crash_record_capacity, at, caller_fp, 8, resolve_in_mapped_objects, &objects);
+    crash_record_length = at;
+    crash_record_present.store(true, std::memory_order_release);
+}
+
+void note_signal(int signal, int code, std::uint64_t fault_address, std::uint64_t pc, std::uint64_t lr,
+                 std::uint64_t fp) {
+    // The fatal-signal record, built at the point the handler is about to die_by. ASYNC-SIGNAL-SAFE: no allocation and
+    // no lock -- resolve_registered reads the lock-free module registry, so a frame still names <library>+<guest
+    // offset> under the privacy mask without dl's allocating object list. The first cause wins the shared slot (a prior
+    // self-kill's record is NOT overwritten by the delivered fatal signal); a racing one returns. report_status appends
+    // the stash after the bare 128 + signal number.
+    if (crash_record_claimed.test_and_set(std::memory_order_relaxed)) return;
+    std::size_t at = 0;
+    append_text(crash_record, crash_record_capacity, at, "signal: ");
+    append_decimal(crash_record, crash_record_capacity, at, signal);
+    append_text(crash_record, crash_record_capacity, at, " (");
+    append_text(crash_record, crash_record_capacity, at, signal_name(signal));
+    append_text(crash_record, crash_record_capacity, at, ")\ncode: ");
+    append_decimal(crash_record, crash_record_capacity, at, code);
+    append_text(crash_record, crash_record_capacity, at, "\nfault: 0x");
+    append_hex(crash_record, crash_record_capacity, at, fault_address);
+    append_text(crash_record, crash_record_capacity, at, "\npc: ");
+    crash::format_frame(crash_record, crash_record_capacity, at, pc, crash::resolve_registered(pc, nullptr));
+    append_text(crash_record, crash_record_capacity, at, "\nlr: ");
+    crash::format_frame(crash_record, crash_record_capacity, at, lr, crash::resolve_registered(lr, nullptr));
+    append_text(crash_record, crash_record_capacity, at, "\n");
+    crash::write_backtrace(crash_record, crash_record_capacity, at, fp, 8, crash::resolve_registered, nullptr);
     crash_record_length = at;
     crash_record_present.store(true, std::memory_order_release);
 }

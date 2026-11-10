@@ -59,6 +59,19 @@ void report_death_by(int signal);
 /// only a write(). A second call (another thread racing to self-kill) is ignored: the first record stands.
 void note_self_kill(int signal, std::uint64_t caller_fp);
 
+/// A crash names its cause (ADR-0032 decision 8), the fatal-signal half: at the terminal point of a guest fatal signal
+/// -- after ART's fault manager and every guest handler have declined (signals.cpp, right before die_by) -- records a
+/// bounded, ASYNC-SIGNAL-SAFE record: "signal: <N> (<name>)", "code: <C>", "fault: 0x<addr>", "pc: <frame>", "lr:
+/// <frame>", then up to 8 "#<n> <frame>" of the guest frame-pointer chain from `frame_pointer`. A
+/// frame is "<library>+0x<offset>" (guest vaddr) for a listed engine/Android/Minato library, "app library N+..." for
+/// any other (privacy), "0x<addr>" for an address in no module (crash_report.h). `code` is the Linux si_code and
+/// `fault_address` the faulting address (both 0 for a non-fault terminating signal through deliver_pending). Uses only
+/// the lock-free module registry (register_module) and a fault-safe backtrace, so no allocation and no lock the
+/// faulting thread may hold; report_status appends it after the bare 128 + signal number. The first cause recorded
+/// wins (it shares the self-kill record's slot: a process dies of one cause).
+void note_signal(int signal, int code, std::uint64_t fault_address, std::uint64_t pc, std::uint64_t lr,
+                 std::uint64_t frame_pointer);
+
 /// For an app's log, the guest's callers of exit_group with a `status` other than 0, which no Android log names, so
 /// that an app that ends itself with an error status shows where (a Python SystemExit is Py_Exit's exit): one line,
 /// "W/apkrt   : exit_group(<status>) from <symbol>+<offset> (<image>) <- ...", up to `limit` frames up the guest's

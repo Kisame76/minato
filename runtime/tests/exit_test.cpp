@@ -151,6 +151,52 @@ TEST(a_self_kill_names_its_cause_after_the_status) {
     CHECK(ended.report.find("\n#0 ") != std::string::npos);
 }
 
+TEST(a_fatal_signal_names_its_cause_after_the_status) {
+    // The whole fatal class: at the terminal point of a fatal signal the runtime records signal + code + fault address,
+    // the pc and lr, and the frame-pointer backtrace, after the bare 128 + signal (ADR-0032 d8). note_signal is the
+    // builder the signal handler calls; here each signal is driven directly (the handler wiring and the device crash
+    // fixtures are the end-to-end layer). The frames resolve against no module here, so each is a bare address.
+    struct Case {
+        int signal;
+        const char *name;  // bionic's name, as process_exit.cpp's signal_name gives it
+    };
+    const Case cases[] = {
+        {11, "Segmentation fault"}, {7, "Bus error"},         {4, "Illegal instruction"},
+        {8, "Floating point exception"}, {6, "Aborted"},
+    };
+    for (const Case &c : cases) {
+        const auto ended = in_child([&](int report) {
+            apkrt_report_exit_status(report);
+            apkrt::process::note_signal(c.signal, 1 /* code */, 0 /* fault address */, 0xAAAA /* pc */, 0xBBBB /* lr */,
+                                        reinterpret_cast<std::uint64_t>(__builtin_frame_address(0)));
+            apkrt::process::report_death_by(c.signal);
+            apkrt::process::exit(0);  // ends the child; report_status already took the descriptor
+        });
+        const std::string number = std::to_string(128 + c.signal) + "\n";
+        CHECK(ended.report.starts_with(number));
+        CHECK(ended.report.find("signal: " + std::to_string(c.signal) + " (" + c.name + ")") != std::string::npos);
+        CHECK(ended.report.find("\npc: ") != std::string::npos);
+        CHECK(ended.report.find("\nlr: ") != std::string::npos);
+        CHECK(ended.report.find("\n#0 ") != std::string::npos);
+    }
+}
+
+TEST(the_first_crash_cause_wins_the_shared_slot) {
+    // note_self_kill and note_signal fill the same record slot; the first to claim it stands. So a self-kill (abort ->
+    // kill(self, SIGABRT)) whose fatal SIGABRT is then delivered to note_signal at die_by keeps the self-kill cause --
+    // note_signal must not overwrite it with the less useful handler pc, and two builders never write the slot at once.
+    const auto fp = reinterpret_cast<std::uint64_t>(__builtin_frame_address(0));
+    const auto ended = in_child([fp](int report) {
+        apkrt_report_exit_status(report);
+        apkrt::process::note_self_kill(6 /* SIGABRT */, fp);
+        apkrt::process::note_signal(6, 0, 0, 0xAAAA, 0xBBBB, fp);  // the delivered fatal signal, after the self-kill
+        apkrt::process::report_death_by(6);
+        apkrt::process::exit(0);
+    });
+    CHECK(ended.report.find("killed itself with signal 6") != std::string::npos);  // the self-kill record stands
+    CHECK(ended.report.find("\npc: ") == std::string::npos);                       // note_signal did not overwrite it
+}
+
 TEST(without_a_report_descriptor_the_process_just_ends) {
     const auto ended = in_child([](int) { apkrt::process::exit(7); });
     CHECK(WIFEXITED(ended.status) && WEXITSTATUS(ended.status) == 7);
