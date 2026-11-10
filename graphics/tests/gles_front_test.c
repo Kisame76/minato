@@ -442,8 +442,11 @@ static void window_surfaces(EGLDisplay display, EGLConfig config, EGLContext con
         const EGLBoolean timed = set_time != NULL && set_time(display, surface, cases[index].time);
         frame(1.0f);
         eglSwapBuffers(display, surface);
+        /* Metal hands the time once the command buffer is scheduled, which a loaded Mac delays: wait up to 10 s by
+           the clock (2000 sleeps of 1 ms gave up after about 2 s, and a run under ctest -j3 printed 0 ns). */
         uint64_t at = 0;
-        for (int tries = 0; tries < 2000 && (at = minato_test(MINATO_TEST_PRESENTED_AT, 0, 0, 0)) == 0; tries++) {
+        const uint64_t until = now_ns() + 10000000000ull;
+        while ((at = minato_test(MINATO_TEST_PRESENTED_AT, 0, 0, 0)) == 0 && now_ns() < until) {
             usleep(1000);
         }
         char where[48];
