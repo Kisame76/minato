@@ -9,7 +9,12 @@
    - MoltenVK's presented handler still runs for the drawable not shown, once MoltenVK lets it go as it acquires that
      image again for the sixth: MoltenVK keeps 6 past timings, ID 3's after ID 5's, while
      vkGetPastPresentationTimingGOOGLE gives the app 5, IDs 1, 2, 4, 5 and 6 with the times they asked for, as Android
-     leaves a dropped frame out. */
+     leaves a dropped frame out.
+   - Three more presents, IDs 7 to 9 at 2.06 to 2.08 s, are not shown either: their acquires let the drawables of IDs 4
+     to 6 go, so those presented handlers run even when Core Animation never reports their drawables shown, which a
+     windowless layer's drawables in a starved process may never be (with taskpolicy -c maintenance about half the
+     runs, under a loaded Mac's whole ctest now and then); MoltenVK keeps the last three drawables, and with them their
+     timings, until the swapchain goes. */
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
@@ -18,6 +23,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "test_control.h"
@@ -95,6 +101,12 @@ static void setup(void) {
     check("vkCreateSwapchainKHR", vkCreateSwapchainKHR(device, &swapchain_info, NULL, &swapchain));
 }
 
+static uint64_t now_ns(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000000ull + (uint64_t)now.tv_nsec;
+}
+
 /* One frame: an image acquired, made presentable and presented with ID `id` asked for at `time`. */
 static VkResult frame(uint32_t id, uint64_t time) {
     uint32_t index = 0, count = 8;
@@ -137,20 +149,29 @@ int main(void) {
     minato_test(MINATO_TEST_VSYNC_GRID, 1000000000, 10000000, 0);
     printf("the present at 2.02 s to drop: %s\n",
            minato_test(MINATO_TEST_DROP, 2020000000, 0, 0) == 1 ? "noted" : "refused");
+    int noted = 1;
+    for (uint64_t time = 2060000000; time <= 2080000000; time += 10000000) {
+        noted &= minato_test(MINATO_TEST_DROP, time, 0, 0) == 1;
+    }
+    printf("the presents at 2.06 to 2.08 s to drop: %s\n", noted ? "noted" : "refused");
     minato_test(MINATO_TEST_PRESENTED_AT, 1, 0, 0);
     printf("presents:");
-    for (uint32_t id = 1; id <= 6; id++) {
+    for (uint32_t id = 1; id <= 9; id++) {
         printf(" %d", frame(id, 2000000000 + (id - 1) * 10000000ull));
         usleep(50000);
     }
     printf("\n");
     check("vkQueueWaitIdle", vkQueueWaitIdle(queue));
 
-    /* The five drawables shown, and time for a sixth that must not come and for the presented handlers. */
-    for (int tries = 0; tries < 2000 && minato_test(MINATO_TEST_PRESENTED_NTH, 4, 0, 0) == 0; tries++) {
+    /* The five drawables shown and the six presented handlers, by the monotonic clock (sleeps of 1 ms can each take
+       much longer on a loaded Mac), and time for a sixth drawable that must not come. */
+    const uint64_t until = now_ns() + 10000000000ull;
+    uint32_t kept = 0;
+    while (now_ns() < until && (minato_test(MINATO_TEST_PRESENTED_NTH, 4, 0, 0) == 0 ||
+                                (past(device, swapchain, &kept, NULL), kept < 6))) {
         usleep(1000);
     }
-    usleep(300000);
+    usleep(100000);
     printf("Core Animation got:\n");
     for (uint64_t index = 0; index < 8; index++) {
         const uint64_t how = minato_test(MINATO_TEST_PRESENTED_NTH, index, 0, 0);
@@ -163,7 +184,8 @@ int main(void) {
             printf("  at %llu ns\n", (unsigned long long)how);
         }
     }
-    uint32_t kept = 0, given = 8;
+    uint32_t given = 8;
+    kept = 0;
     VkPastPresentationTimingGOOGLE timings[8];
     check("vkGetPastPresentationTimingGOOGLE", past(device, swapchain, &kept, NULL));
     const VkResult result = past(device, swapchain, &given, timings);
