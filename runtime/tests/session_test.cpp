@@ -960,6 +960,8 @@ TEST(install_requests_reach_the_handler_with_their_id_and_text) {
     CHECK(seen[0].type == APKRT_REQUEST_ASK_INSTALL_SOURCES && seen[0].argument == 31 && seen[0].text == ask);
     CHECK(seen[1].type == APKRT_REQUEST_CONFIRM_INSTALL && seen[1].argument == 32 && seen[1].text == confirm);
     CHECK(seen[1].thread == ::pthread_self() && seen[1].runtime_signal_blocked);
+    CHECK(apkrt_session_post(APKRT_EVENT_INSTALL_SOURCES_RESULT, 31, 0, 0) != 0);  // the answers free the IDs
+    CHECK(apkrt_session_post(APKRT_EVENT_INSTALL_RESULT, 32, 2, 0) != 0);
 }
 
 // The host splits the text at its newline, so the runtime refuses any other shape, an ID of 0 and a text past the
@@ -969,6 +971,8 @@ TEST(a_malformed_install_request_is_refused_before_the_host_sees_it) {
     const auto both = [](const std::string &text, std::uint64_t id = 9) {
         const long ask = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_ASK_INSTALL_SOURCES, address(text.c_str()), id);
         const long confirm = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_CONFIRM_INSTALL, address(text.c_str()), id);
+        if (ask == 0) apkrt_session_post(APKRT_EVENT_INSTALL_SOURCES_RESULT, id, 0, 0);
+        if (confirm == 0) apkrt_session_post(APKRT_EVENT_INSTALL_RESULT, id, 2, 0);
         return ask == confirm ? ask : -9999;
     };
     CHECK(both("a\nb") == 0);
@@ -983,6 +987,32 @@ TEST(a_malformed_install_request_is_refused_before_the_host_sees_it) {
     CHECK(both(std::string(4096, 'p') + "\n" + std::string(256, 'q')) == -einval);  // past the limit
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_CONFIRM_INSTALL, 0, 9) == -efault);  // no text
     CHECK(take_requests().empty());
+}
+
+// As picks: an ID waits once, and at most four requests of each kind wait; the answer frees the ID. The question's
+// and the install's IDs are counted apart, as the framework numbers them apart.
+TEST(install_requests_are_unique_and_limited) {
+    take_requests();
+    const auto request = [](std::uint32_t type, std::uint64_t id) {
+        return call(APKRT_NR_SESSION_REQUEST, type, address("a\nb"), id);
+    };
+    for (const std::uint32_t type : {APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL}) {
+        const std::uint32_t answer = type == APKRT_REQUEST_CONFIRM_INSTALL ? APKRT_EVENT_INSTALL_RESULT
+                                                                             : APKRT_EVENT_INSTALL_SOURCES_RESULT;
+        for (std::uint64_t id = 1; id <= 4; ++id) CHECK(request(type, id) == 0);
+        CHECK(request(type, 2) == -eexist);  // waits already
+        CHECK(request(type, 5) == -ebusy);   // four wait
+        CHECK(apkrt_session_post(answer, 2, 0, 0) != 0);
+        CHECK(request(type, 2) == 0);        // the answer freed it
+        for (std::uint64_t id = 1; id <= 4; ++id) apkrt_session_post(answer, id, 0, 0);
+    }
+    // One kind's waiting IDs do not hold the other's.
+    CHECK(request(APKRT_REQUEST_ASK_INSTALL_SOURCES, 7) == 0);
+    CHECK(request(APKRT_REQUEST_CONFIRM_INSTALL, 7) == 0);
+    apkrt_session_post(APKRT_EVENT_INSTALL_SOURCES_RESULT, 7, 0, 0);
+    apkrt_session_post(APKRT_EVENT_INSTALL_RESULT, 7, 2, 0);
+    apkrt::install_sources::reset();
+    take_requests();
 }
 
 // The host's answer to the question records the grant, as apkrt_set_install_sources does before the start, so a

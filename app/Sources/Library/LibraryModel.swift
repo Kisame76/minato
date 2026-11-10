@@ -267,7 +267,7 @@ final class LibraryModel {
     /// The import's checks of native libraries (ADR-0055 a2 to a4): the converter's check mode, and the guest's public
     /// libraries and export table as tools/embed-guest-system.sh embeds them. A list that is missing or no list leaves
     /// its check out, as the library does without it. Off the main actor: the export table is a megabyte.
-    nonisolated private static func useChecks(in library: Library, guest: URL) async {
+    nonisolated static func useChecks(in library: Library, guest: URL) async {
         let etc = guest.appending(path: "system/etc")
         func list(_ name: String) -> String? {
             do {

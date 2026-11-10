@@ -1801,13 +1801,16 @@ public enum InstallCheck: Sendable, Equatable {
 extension Library {
     /// Checks an APK an app hands to Android's package installer before Minato answers it: Android answers RESULT_OK
     /// only once the app is installed, so a file the import would not run (not an APK, an unsafe package name, a
-    /// failed or missing signature, 32-bit only, needing splits) is refused now, and so is an update that Android's
-    /// installer fails where the library would ask (an older version, another signer). Nothing in the library
-    /// changes.
+    /// failed or missing signature, 32-bit only, needing splits, a library of the start path that cannot load, with
+    /// the checks this library uses) is refused now, and so is an update that Android's installer fails where the
+    /// library would ask (an older version, another signer), against the installed app and against the APKs that wait
+    /// in incoming/ for the library's next start. Nothing in the library changes.
     public func checkForInstall(_ url: URL) -> InstallCheck {
+        let archive: ZipArchive
         let report: APKReport
         do {
-            report = try APKAnalyzer.analyze(ZipArchive(url: url), preferredLanguages: preferredLanguages)
+            archive = try ZipArchive(url: url)
+            report = try APKAnalyzer.analyze(archive, preferredLanguages: preferredLanguages)
         } catch {
             return .refused("not a readable APK: \(error)")
         }
@@ -1830,14 +1833,49 @@ extension Library {
                              signerProven: report.signature.check == .verified,
                              signatureFailed: report.signature.check?.isFailure == true)
         let installed = entries.first { $0.id == report.packageName }.flatMap(version(of:))
-        switch UpdatePolicy.decide(installed: installed, new: new) {
-        case .install, .update, .reinstall, .unchanged:
-            return .acceptable(package: report.packageName, label: report.label)
-        case .reject(let state):
-            return .refused("the library keeps the installed version (\(state))")
-        case .ask(let warnings):
-            let names = warnings.map { "\($0)" }.sorted().joined(separator: ", ")
-            return .refused("Android's installer fails it: \(names)")
+        for baseline in [installed] + waitingVersions(of: report.packageName) {
+            switch UpdatePolicy.decide(installed: baseline, new: new) {
+            case .install, .update, .reinstall, .unchanged:
+                continue
+            case .reject(let state):
+                return .refused("the library keeps the installed version (\(state))")
+            case .ask(let warnings):
+                let names = warnings.map { "\($0)" }.sorted().joined(separator: ", ")
+                return .refused("Android's installer fails it: \(names)")
+            }
+        }
+        // The native code as the import extracts and checks it, into a folder that goes again (ADR-0055).
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("install-check-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        do {
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            _ = try installNativeCode(of: report, from: [nil: archive], into: scratch, signing: nil)
+        } catch let refused as RefusedLibrary {
+            let all = ([refused] + refused.also).map { "\($0.library): \($0.reason)" }.joined(separator: "; ")
+            return .refused("a library cannot load: \(all)")
+        } catch {
+            return .refused("its native code could not be checked: \(error)")
+        }
+        return .acceptable(package: report.packageName, label: report.label)
+    }
+
+    /// The versions of `package` among the APKs in incoming/ that the library installs at its next start.
+    private func waitingVersions(of package: String) -> [AppVersion?] {
+        let units = (try? FileManager.default.contentsOfDirectory(at: paths.incoming, includingPropertiesForKeys: nil))
+            ?? []
+        return units.filter { $0.pathExtension != "partial" }.flatMap { unit in
+            ((try? Self.files(inUnit: unit)) ?? []).filter { $0.pathExtension.lowercased() == "apk" }
+        }.compactMap { file -> AppVersion? in
+            guard let archive = try? ZipArchive(url: file),
+                  let report = try? APKAnalyzer.analyze(archive, preferredLanguages: preferredLanguages),
+                  report.packageName == package,
+                  let size = try? Self.sourceFile(for: file).size,
+                  let digest = try? hash(file, size: size, progress: { _ in }) else { return nil }
+            return AppVersion(state: .ready, versionCode: report.versionCode, sha256: digest,
+                              signer: report.signature.signer ?? SignerIdentity(current: []),
+                              signerProven: report.signature.check == .verified,
+                              signatureFailed: report.signature.check?.isFailure == true)
         }
     }
 }

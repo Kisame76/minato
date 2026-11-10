@@ -845,6 +845,20 @@ long permission_cancel(std::uint64_t id) {
 // text at its one newline, so the runtime checks the shape whole first, as a pick's. The longest text is a Linux path
 // of PATH_MAX (4096 with its NUL) and a package name of 255 characters, with the newline and the NUL.
 constexpr std::size_t install_text_limit = 4095 + 1 + 255 + 1;
+constexpr std::size_t install_live_limit = 4;  // requests of one kind that wait for their answer at once
+
+// The question's and the install's requests that wait for their answer, each kind apart, as the framework numbers
+// them apart; the handler lock and the tables' own lock as a pick's.
+std::recursive_mutex install_handler_lock;
+std::mutex install_lock;
+WaitingIds<install_live_limit> live_install_sources;
+WaitingIds<install_live_limit> live_installs;
+
+/// Forgets the question (`sources`) or install request `id`; whether it was waiting.
+bool install_done(bool sources, std::uint64_t id) {
+    const std::lock_guard<std::mutex> hold(install_lock);
+    return (sources ? live_install_sources : live_installs).remove(id);
+}
 
 /// Whether `text` is "<first>\n<second>", both parts non-empty and no other newline.
 bool valid_install(std::string_view text) {
@@ -856,7 +870,8 @@ bool valid_install(std::string_view text) {
 /// APKRT_REQUEST_ASK_INSTALL_SOURCES or APKRT_REQUEST_CONFIRM_INSTALL (`type`): the text at `address` read through a
 /// checked copy, checked whole, and handed to the host's request handler with the ID; the host answers once with
 /// APKRT_EVENT_INSTALL_SOURCES_RESULT or APKRT_EVENT_INSTALL_RESULT. 0, or -EFAULT without text or when it cannot be
-/// read, -EINVAL for an ID of 0, a text of install_text_limit bytes or more, or one that valid_install refuses.
+/// read, -EINVAL for an ID of 0, a text of install_text_limit bytes or more, or one that valid_install refuses, -EEXIST
+/// for an ID of its kind that waits, -EBUSY when install_live_limit requests of its kind wait.
 long install_request(int type, std::uint64_t address, std::uint64_t id) {
     if (address == 0) return -linux_errno::efault;
     if (id == 0) return -linux_errno::einval;
@@ -865,6 +880,14 @@ long install_request(int type, std::uint64_t address, std::uint64_t id) {
     if (length < 0) return length;
     if (length >= static_cast<long>(install_text_limit)) return -linux_errno::einval;
     if (!valid_install(std::string_view(text.data(), static_cast<std::size_t>(length)))) return -linux_errno::einval;
+    const std::lock_guard<std::recursive_mutex> handler(install_handler_lock);
+    {
+        const std::lock_guard<std::mutex> hold(install_lock);
+        auto &live = type == APKRT_REQUEST_ASK_INSTALL_SOURCES ? live_install_sources : live_installs;
+        if (live.contains(id)) return -linux_errno::eexist;
+        if (live.full()) return -linux_errno::ebusy;
+        live.add(id);
+    }
     report(type, id, text.data());
     return 0;
 }
@@ -1419,7 +1442,11 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
     if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);
     if (type == APKRT_EVENT_PERMISSION_RESULT) permission_done(a0);
     // The answer to an app installer's question records the grant, as apkrt_set_install_sources does at the start.
-    if (type == APKRT_EVENT_INSTALL_SOURCES_RESULT) apkrt::install_sources::set(a1 != 0);
+    if (type == APKRT_EVENT_INSTALL_SOURCES_RESULT) {
+        install_done(true, a0);
+        apkrt::install_sources::set(a1 != 0);
+    }
+    if (type == APKRT_EVENT_INSTALL_RESULT) install_done(false, a0);
     const std::lock_guard<std::mutex> hold(lock);
     if (broken || ended) return 0;
     const apkrt_event record{type, posted + 1, {a0, a1, a2}};

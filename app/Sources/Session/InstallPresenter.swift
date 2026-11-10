@@ -98,12 +98,27 @@ final class InstallPresenter {
               let components = InstallFile.components(of: request.path, package: package) else {
             return refuse(id, "the request does not name a file of the app's own data")
         }
-        let copy = FileManager.default.temporaryDirectory.appending(path: "install-\(UUID().uuidString).apk")
+        // Without the user's grant Android's installer blocks the app and the user goes back: RESULT_CANCELED, as the
+        // framework's own check answers.
+        guard AppProfile.load(for: package, in: paths).installSources == true else {
+            log.error("install \(id): the app may not install apps")
+            return finish(id, .cancelled, removing: nil)
+        }
+        let copy = FileManager.default.temporaryDirectory.appending(path: "\(Self.copyPrefix)\(UUID().uuidString).apk")
+        // The room the copy may take: what the volume has free for it less a reserve; a larger APK fails as on an
+        // Android device without the room (INSTALL_FAILED_INSUFFICIENT_STORAGE).
+        let free = (try? FileManager.default.temporaryDirectory
+            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage) ?? 0
+        let limit = max(0, free - Self.reserve)
         Task {
             let check: Result<InstallCheck, Error> = await Task.detached {
                 do {
-                    try InstallFile.copy(components, below: dataFolder, to: copy)
-                    return .success(try await Library(paths: paths).checkForInstall(copy))
+                    try InstallFile.copy(components, below: dataFolder, to: copy, limit: limit)
+                    // The import's own checks, as the library uses them (LibraryModel.useChecks).
+                    let library = try Library(paths: paths)
+                    await LibraryModel.useChecks(in: library, guest: Bundle.main.bundleURL.appending(path: "Guest"))
+                    return .success(await library.checkForInstall(copy))
                 } catch {
                     return .failure(error)
                 }
@@ -130,6 +145,19 @@ final class InstallPresenter {
                     }
                 }
             }
+        }
+    }
+
+    /// The copies' names in the temporary folder, and the room a copy leaves free.
+    nonisolated private static let copyPrefix = "install-"
+    private static let reserve: Int64 = 512 << 20
+
+    /// The copies a game mode that ended halfway left behind, and the install checks' folders; at each launch.
+    nonisolated static func removeLeftovers() {
+        let folder = FileManager.default.temporaryDirectory
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        where name.hasPrefix(copyPrefix) {
+            try? FileManager.default.removeItem(at: folder.appending(path: name))
         }
     }
 

@@ -23,6 +23,7 @@ struct InstallFileTests {
         #expect(InstallFile.components(of: "/data/user/0/\(p)/cache/install/1.apk", package: p)
             == ["cache", "install", "1.apk"])
         #expect(InstallFile.components(of: "/data/data/\(p)/files/a.apk", package: p) == ["files", "a.apk"])
+        #expect(InstallFile.components(of: "/data/data/\(p)/s\u{0600}/x.apk", package: p) == ["s\u{0600}", "x.apk"])
         for path in [
             "/data/user/0/other.app/cache/1.apk",   // another app's
             "/data/user/0/\(p)x/cache/1.apk",       // a package name that starts with this one
@@ -33,6 +34,11 @@ struct InstallFileTests {
             "/data/user/0/\(p)//cache/1.apk",
             "/storage/emulated/0/Download/1.apk",   // shared storage: not the app's own data
             "data/user/0/\(p)/cache/1.apk",
+            // A mark that joins the slash after it into one grapheme cluster (U+0600 prepends, U+0301 combines with
+            // the slash before it): split by characters, "/" and ".." hide inside one component; split by bytes, not.
+            "/data/data/\(p)/a\u{0600}/../../other.app/x.apk",
+            "/data/data/\(p)/cache/\u{0301}../../other.app/x.apk",
+            "/data/data/\(p)/cache/x\u{0000}.apk",
         ] {
             #expect(InstallFile.components(of: path, package: p) == nil, "\(path)")
         }
@@ -61,9 +67,27 @@ struct InstallFileTests {
         defer { folders.remove() }
         let target = folders.root.appending(path: "copy.apk")
 
-        try InstallFile.copy(["cache", "install", "1.apk"], below: folders.data, to: target)
+        try InstallFile.copy(["cache", "install", "1.apk"], below: folders.data, to: target, limit: 3)
 
         #expect(try Data(contentsOf: target) == Data("apk".utf8))
+    }
+
+    /// A file larger than the limit (the room the copy may take) is refused before a byte is copied, and a component
+    /// that is no single name is refused whatever the caller passes.
+    @Test func aFileOverTheLimitOrANameWithASlashIsRefused() throws {
+        let folders = try Folders()
+        defer { folders.remove() }
+        let target = folders.root.appending(path: "copy.apk")
+
+        #expect(throws: InstallFile.Failure.tooLarge(3)) {
+            try InstallFile.copy(["cache", "install", "1.apk"], below: folders.data, to: target, limit: 2)
+        }
+        for components in [["cache/install", "1.apk"], ["cache", "..", "cache", "install", "1.apk"], ["."], []] {
+            #expect(throws: InstallFile.Failure.self, "\(components)") {
+                try InstallFile.copy(components, below: folders.data, to: target, limit: 1 << 20)
+            }
+        }
+        #expect(!FileManager.default.fileExists(atPath: target.path))
     }
 
     @Test func noLinkLeadsOutAndOnlyARegularFileIsTaken() throws {
@@ -79,7 +103,7 @@ struct InstallFileTests {
                            ["cache", "fifo"], ["cache", "missing.apk"]] {
             let target = folders.root.appending(path: "copy-\(components.joined(separator: "-"))")
             #expect(throws: InstallFile.Failure.self, "\(components)") {
-                try InstallFile.copy(components, below: folders.data, to: target)
+                try InstallFile.copy(components, below: folders.data, to: target, limit: 1 << 20)
             }
             #expect(!files.fileExists(atPath: target.path), "\(components)")
         }

@@ -104,6 +104,8 @@ struct MinatoApp: App {
         }
         // A session that crashed or that iOS ended left its raw log: its last lines are kept now (ADR-0070).
         try? SessionLog(folder: paths.sessionLogDirectory).keepLeftovers()
+        // An app installer's copy that a game mode ending halfway left in the temporary folder.
+        InstallPresenter.removeLeftovers()
         if let request {
             let seconds = Date.now.timeIntervalSince(request.time)
             let chosen = switch mode {
