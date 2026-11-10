@@ -23,8 +23,9 @@ import android.view.inputmethod.InputMethodManager;
  * hideSoftInputFromWindow), as Ren'Py's name field does at Return, and ends with "done" 2 s later. Its twin
  * ime-surrounding-test-delete waits for one edit only, the keyboard's delete key in the empty field, which Android's
  * keyboard still sends as deleteSurroundingText(1, 0), and ends with "done" 1 s after it. Its twin
- * ime-surrounding-test-hide hides the keyboard by itself (hideSoftInputFromWindow) 3 s after its showSoftInput, as an
- * SDL game does when it ends its text input, and ends with "done" 2 s later.
+ * ime-surrounding-test-hide hides the keyboard by itself (hideSoftInputFromWindow) 15 s after its showSoftInput, as an
+ * SDL game does when it ends its text input, and ends with "done" 2 s later: the 15 s give a check on the iPhone time
+ * to look at the keyboard while it is up.
  */
 public class SurroundingActivity extends Activity {
     static final String RETURN_PACKAGE = "io.github.kisame76.minato.test.imesurroundingreturn";
@@ -36,7 +37,7 @@ public class SurroundingActivity extends Activity {
     /** The twin that hides the keyboard by itself, and how long after its showSoftInput. */
     private boolean mHides;
     private boolean mHidden;
-    private static final long HIDE_AFTER_MS = 3000;
+    private static final long HIDE_AFTER_MS = 15000;
     private int mEditsWanted = 3;
     private static final long TIMEOUT_MS = 12000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
@@ -148,7 +149,7 @@ public class SurroundingActivity extends Activity {
                 mHandler.postDelayed(this::finishRun, 2000);
             }, HIDE_AFTER_MS);
         }
-        mHandler.postDelayed(this::finishRun, TIMEOUT_MS);
+        mHandler.postDelayed(this::finishRun, mHides ? HIDE_AFTER_MS + 5000 : TIMEOUT_MS);
     }
 
     private void finishRun() {

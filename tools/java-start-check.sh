@@ -436,6 +436,39 @@ REQUEST="$SUPPORT/launch-request.json"
 # The app that comes to the front for java-test's Home.
 AWAY=com.apple.Preferences
 
+# How many lines of file $2 match the extended regex $1, 0 when the file is missing (a fetch that failed): grep -c
+# prints nothing then, which is a syntax error in (( )).
+count_lines() {
+  local n
+  n=$(grep -c -E "$1" "$2" 2>/dev/null) || true
+  echo "${n:-0}"
+}
+# A line with the time of day, for the rounds that look for what stalls the iPhone's copies: STAMPS=yes, which the
+# NOTIFY_REAL rounds set, or the caller's for the whole run. A copy of 10 s or more has its line always. The lines go
+# to the script's own stderr (3), never into what a caller captures (the ready check parses field's output), and name
+# a local file by its path in the work folder only.
+STAMPS=${STAMPS:-}
+stamp() { [[ -z "$STAMPS" ]] || echo "note    $(date +%H:%M:%S) $*" >&3; }
+copy_stamp() {
+  if [[ -n "$STAMPS" ]] || (( SECONDS - $2 >= 10 )); then
+    echo "note    copy $1 $3-$(date +%H:%M:%S) ($((SECONDS - $2)) s) attempt $4: $5" >&3
+  fi
+}
+# The tail of devicectl's own log for a copy that hit the deadline and was killed, so a device run shows
+# where its file service stalled, not only that it did. Device identifiers are masked; the copy only ever
+# touches our own session-check files, so those paths may stay. Called only on a hang, which goes to a FAIL.
+copy_trace_tail() {
+  [[ -s "$1" ]] || return 0
+  local uuid='[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}'
+  local ecid='[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}'
+  local masked
+  masked=$(tail -n 6 "$1" | sed -E "s/$uuid/<id>/g; s/$ecid/<id>/g")
+  [[ -n "${DEVICE_ID:-}" ]] && masked=${masked//$DEVICE_ID/<device>}
+  [[ -n "${DEVICE_UDID:-}" ]] && masked=${masked//$DEVICE_UDID/<device>}
+  [[ -n "$masked" ]] || return 0
+  echo "note    devicectl's last log before the killed copy, where its file service stalled:" >&3
+  sed 's/^/note    | /' <<< "$masked" >&3
+}
 devicectl_copy() {
   local direction=$1
   shift
@@ -444,10 +477,17 @@ devicectl_copy() {
   # devicectl has hung for minutes on the phone (seen twice in a row), which would make the check wait and then go
   # red for the wrong reason, so the copy runs with a deadline the way the tools bound things without a GNU timeout:
   # in the background, killed if it outlasts the deadline. One retry; if it hangs both times, a red names the cause.
-  local limit=${DEVICECTL_COPY_TIMEOUT_S:-90} attempt hung=no status
+  local limit=${DEVICECTL_COPY_TIMEOUT_S:-90} attempt hung=no status shown=${2:-}
+  shown=${shown#"$WORK"/}
+  # devicectl's own log of this copy, named so restore()'s *.log/*.out sweep into LOGS skips it; read back on
+  # a hang (which then goes to a FAIL) to show where the file service stalled, device identifiers masked out.
+  local trace="$WORK/devicectl-copy-trace"
   for attempt in 1 2; do
+    local from started=$SECONDS
+    from=$(date +%H:%M:%S)
+    : > "$trace"
     xcrun devicectl device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
-      --domain-identifier "$BUNDLE_ID" -q "$@" >/dev/null 2>&1 &
+      --domain-identifier "$BUNDLE_ID" --verbose --log-output "$trace" "$@" >/dev/null 2>&1 &
     local pid=$!
     local end=$((SECONDS + limit))
     while kill -0 "$pid" 2>/dev/null && (( SECONDS < end )); do sleep 0.2; done
@@ -456,9 +496,12 @@ devicectl_copy() {
       kill "$pid" 2>/dev/null
       wait "$pid" 2>/dev/null
       hung=yes
+      copy_stamp "$direction ${shown:-}" "$started" "$from" "$attempt" "hung, killed"
+      copy_trace_tail "$trace"
     else
       wait "$pid"
       status=$?
+      copy_stamp "$direction ${shown:-}" "$started" "$from" "$attempt" "exit $status"
       [[ $status -eq 0 ]] && return 0
       hung=no
     fi
@@ -489,16 +532,27 @@ REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-fa
 # The notification taps of the notify-tap-test rounds.
 REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
 REQUESTS+=" notification-repost"
-# On the iPhone: the requests as the script has them, events included, go into the app's folder. A request the script
-# does not have goes as an empty file, which the app takes for none: devicectl cannot delete a file.
+# On the iPhone: the requests as the script has them go into the app's folder. A request the script does not have goes
+# as an empty file, which the app takes for none: devicectl cannot delete a file. The events go only after the script
+# emptied them for a new start (reset_events): sent at any other time, the copy the script holds would replace the
+# iPhone's file and drop the lines that came after it was fetched.
+EVENTS_RESET=""
+reset_events() {
+  : > "$EVENTS"
+  seen=0
+  EVENTS_RESET=yes
+  EVENTS_SHORTER=""
+}
 send_requests() {
   [[ "$ON_DEVICE" == yes ]] || return 0
   rm -rf "$WORK/sent"
   mkdir "$WORK/sent"
   for name in $REQUESTS; do
+    [[ "$name" != events || -n "$EVENTS_RESET" ]] || continue
     if [[ -f "$CHECK/$name" ]]; then cp "$CHECK/$name" "$WORK/sent/"; else : > "$WORK/sent/$name"; fi
   done
-  devicectl_copy to --source "$WORK/sent" --destination "$CHECK_REL"
+  devicectl_copy to --source "$WORK/sent" --destination "$CHECK_REL" || return 1
+  EVENTS_RESET=""
 }
 # On the iPhone: the folder as the app has it, without the requests it took or emptied. False when there is none.
 fetch_requests() {
@@ -510,9 +564,23 @@ fetch_requests() {
   rm -rf "$CHECK"
   mv "$WORK/fetched" "$CHECK"
 }
+# Between two resets the iPhone's file only grows, so a copy that comes back shorter than the one held (pass 4's
+# ime-surrounding-test-hide: no events at all under its FAIL) is not taken, with one line per start.
+EVENTS_SHORTER=""
 fetch_events() {
   [[ "$ON_DEVICE" == yes ]] || return 0
-  if devicectl_copy from --source "$CHECK_REL/events" --destination "$WORK/events"; then mv "$WORK/events" "$EVENTS"; fi
+  rm -f "$WORK/events"
+  devicectl_copy from --source "$CHECK_REL/events" --destination "$WORK/events" || return 0
+  local held got
+  held=$(wc -c < "$EVENTS" 2>/dev/null || echo 0)
+  got=$(wc -c < "$WORK/events" 2>/dev/null || echo 0)
+  if (( got < held )); then
+    [[ -n "$EVENTS_SHORTER" ]] ||
+      echo "note    the iPhone's events came back shorter ($((got)) < $((held)) bytes): the longer kept" >&3
+    EVENTS_SHORTER=yes
+    return 0
+  fi
+  mv "$WORK/events" "$EVENTS" 2>/dev/null || true
 }
 # Whether the container has the file $1, a path in it; on the iPhone it is fetched.
 fetch() {
@@ -677,8 +745,7 @@ begin_start() {
   [[ "$ON_DEVICE" == yes ]] || rm -f "$REQUEST"
   : > "$WORK/$app-$round.log"
   : > "$WORK/$app-$round.out"
-  : > "$EVENTS"
-  seen=0
+  reset_events
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
@@ -1100,7 +1167,7 @@ terminate
 rm -rf "$CHECK"
 mkdir -p "$CHECK"
 [[ "$ON_DEVICE" == yes ]] || rm -f "$REQUEST"
-: > "$EVENTS"
+reset_events
 for app in "${APPS[@]}"; do
   # packs-test's and pad-test's sets come as unit folders of their own (pick_set), as the library takes only APKs
   # lying flat here.
@@ -1245,7 +1312,7 @@ await_second() {
   local end=$((SECONDS + $2))
   while (( SECONDS < end )); do
     fetch "$CHECK_REL/guest-log" || true
-    (( $(grep -c -E "$1" "$CHECK/guest-log" 2>/dev/null || true) >= 2 )) && return 0
+    (( $(count_lines "$1" "$CHECK/guest-log") >= 2 )) && return 0
     sleep 0.2
   done
   return 1
@@ -1541,7 +1608,7 @@ if [[ "$ON_DEVICE" == no ]] && { wanted permission-request-test-fine || wanted l
     run_one permission-request-test-fine io.github.kisame76.minato.test.permreqfine
     fetch_events
     # The app asks the host once: its second request finds both permissions granted, as on Android.
-    answers=$(grep -c -E " permission [0-9]+ group 1 outcome 1$" "$EVENTS" || true)
+    answers=$(count_lines " permission [0-9]+ group 1 outcome 1$" "$EVENTS")
     if [[ "$answers" == 1 ]]; then
       ok "  the host granted the location request fine"
     else
@@ -1568,7 +1635,7 @@ if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-camera; then
   run_one permission-request-test-camera io.github.kisame76.minato.test.permreqcamera
   fetch_events
   # The app asks the host once: its second request finds CAMERA granted, as on Android.
-  answers=$(grep -c -E " permission [0-9]+ group 3 outcome 1$" "$EVENTS" || true)
+  answers=$(count_lines " permission [0-9]+ group 3 outcome 1$" "$EVENTS")
   if [[ "$answers" == 1 ]]; then
     ok "  the host granted the camera request"
   else
@@ -1585,9 +1652,13 @@ uitests_build() {
     local destination="generic/platform=iOS Simulator"
     [[ "$ON_DEVICE" != yes ]] || destination="generic/platform=iOS"
     # The project as project.yml has it now, with the runner's target and the team that signs it (tools/gen.sh).
+    # Xcode asks Apple (the signed-in account) only when a profile is about to run out; the Simulator needs none.
+    local runner_signing=""
+    [[ "$ON_DEVICE" != yes ]] || runner_signing=$(tools/provisioning-updates.sh io.github.kisame76.minato \
+      io.github.kisame76.minato.uitests.xctrunner)
     if tools/gen.sh > "$WORK/uitests-build.log" 2>&1 &&
         xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
-        -derivedDataPath "$UITESTS" -allowProvisioningUpdates -quiet >> "$WORK/uitests-build.log" 2>&1; then
+        -derivedDataPath "$UITESTS" $runner_signing -quiet >> "$WORK/uitests-build.log" 2>&1; then
       uitests_built=yes
     elif grep -q -E "No Accounts|No Account for Team|requires a development team" "$WORK/uitests-build.log"; then
       # Xcode signs the runner for the iPhone with the account signed in to it; without one its rounds cannot run.
@@ -1616,9 +1687,13 @@ uitest() {
   local run
   [[ -z "$RUNNER_DOWN" ]] || return 1
   run=$(ls "$UITESTS"/Build/Products/*.xctestrun | head -n 1)
-  if TEST_RUNNER_MINATO_WAIT=${3:-0} TEST_RUNNER_MINATO_ARG=${4:-} xcodebuild test-without-building -xctestrun "$run" \
+  local started=$SECONDS status=0
+  stamp "uitest $1 $2 begins"
+  TEST_RUNNER_MINATO_WAIT=${3:-0} TEST_RUNNER_MINATO_ARG=${4:-} xcodebuild test-without-building -xctestrun "$run" \
       -destination "id=${DEVICE_UDID:-${SIM_UDID:-}}" \
-      -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1; then
+      -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1 || status=$?
+  stamp "uitest $1 $2 ends: exit $status after $((SECONDS - started)) s"
+  if [[ $status == 0 ]]; then
     grep -o "MINATO-UITEST .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
     return 0
   fi
@@ -1658,7 +1733,7 @@ if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-notifications; the
   fi
   fetch_events
   # The app asks the host once: its second request finds POST_NOTIFICATIONS granted, as on Android.
-  answers=$(grep -c -E " permission [0-9]+ group 4 outcome 1$" "$EVENTS" 2>/dev/null || true)
+  answers=$(count_lines " permission [0-9]+ group 4 outcome 1$" "$EVENTS")
   if [[ ! -f "$EVENTS" ]]; then
     # Minato's session-check folder went during the round: another check on this Simulator, or Minato reinstalled.
     fail "  no events from Minato (another check on this Simulator?)"
@@ -1686,8 +1761,8 @@ if [[ "$ON_DEVICE" == no ]] && { wanted notify-test || wanted notify-test-grante
       > "$SUPPORT/data/io.github.kisame76.minato.test.notifygranted/permissions.json"
     run_one notify-test-granted io.github.kisame76.minato.test.notifygranted
     fetch_events
-    posts=$(grep -c -E " notification posted " "$EVENTS" || true)
-    cancels=$(grep -c -E " notification cancelled " "$EVENTS" || true)
+    posts=$(count_lines " notification posted " "$EVENTS")
+    cancels=$(count_lines " notification cancelled " "$EVENTS")
     if [[ "$posts" == 3 && "$cancels" == 1 ]]; then
       ok "  the host posted 3 notifications and cancelled 1"
     else
@@ -1713,7 +1788,7 @@ save_response() {
   mkdir -p "$CHECK"
   echo yes > "$CHECK/no-compile"
   echo io.github.kisame76.minato.test.notifytap > "$CHECK/notification-response-save"
-  : > "$EVENTS"
+  reset_events
   send_requests
   launch
   if await_line events " notification response saved$" 20; then ok "  $1: the tap's response is kept"; else
@@ -1790,10 +1865,10 @@ if wanted notify-tap-test; then
   fi
   end_start notify-tap-test 1
   fetch_events
-  posts=$(grep -c -E " notification posted tap\|3 " "$EVENTS" 2>/dev/null || true)
+  posts=$(count_lines " notification posted tap\|3 " "$EVENTS")
   if [[ "$posts" == 1 ]]; then ok "  the host got the post of the Application's onCreate"; else
     fail "  the host got ${posts:-0} posts of the Application's onCreate, not 1"; fi
-  on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" 2>/dev/null || true)
+  on_main=$(count_lines " notification response completed on the main thread true$" "$EVENTS")
   if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the tap's response on the main thread"; else
     fail "  the delegate completed the tap's response on the main thread ${on_main:-0} times, not once"; fi
   # A start that failed has no lines: the comparison fails, the check goes on.
@@ -1904,19 +1979,21 @@ if [[ "$ON_DEVICE" == no ]] && wanted ime-outside-test && uitests_build; then
   end_start ime-outside-test 1
 fi
 
-# Edge deferral (device-regressions entry 3, the landscape edge's "popup"): game mode defers every screen edge, so iOS
-# gives a swipe up from the bottom edge to the app first and only a second one right after it to the system, which
-# puts Minato in the background; the menu that the return shows (ADR-0032 decision 7) goes by the check's Continue.
-# The MinatoUITests runner swipes twice over edge-back-test-landscape, with the device turned; its pad logs each
-# touch. On the iPhone only: the Simulator (iOS 27.2) gives the first swipe in landscape to the system for every app,
-# a bare SwiftUI or UIKit one with the same deferral too (upright it defers, edge-back-test as well), so there it says
-# nothing about Minato. EDGE_SWIPE_SIM=1 runs it in the Simulator all the same.
+# Edge deferral (device-regressions entry 3, the landscape edge's "popup"): game mode defers every screen edge. In
+# landscape iOS gives the first swipe up from the bottom edge to the system all the same, on the iPhone (iOS 27.2,
+# pass 5) as in the Simulator, for Minato's bare control view controller too (EDGE_CONTROL): a known iOS limit, a note,
+# not a failure. What Minato owes is Android's when the system takes a gesture: the app's touch down arrives and is
+# cancelled (ACTION_CANCEL, never left pressed), and the return's menu (ADR-0032 decision 7) goes by the check's
+# Continue. The MinatoUITests runner swipes twice over edge-back-test-landscape, with the device turned; its pad logs
+# each touch. A first swipe that stays with the app (iOS changed) is an ok. On the iPhone only; EDGE_SWIPE_SIM=1 runs
+# it in the Simulator all the same.
 if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted edge-back-test-landscape &&
     uitests_build; then
   for app in edge-back-test-landscape; do
     if begin_start $app io.github.kisame76.minato.test.edgeback 1 && await_line guest-log "^I/$app: ready$" 60; then
       sleep 1
-      downs=$(grep -c "^I/$app: touch: down$" "$CHECK/guest-log" || true)
+      downs=$(count_lines "^I/$app: touch: down$" "$CHECK/guest-log")
+      cancels=$(count_lines "^I/$app: touch: cancel$" "$CHECK/guest-log")
       uitest testSwipeUpFromBottomTwice $app > "$WORK/$app-swipes.out" ||
         runner_fail "  $app: the runner's swipes failed"
       cat "$WORK/$app-swipes.out"
@@ -1926,17 +2003,22 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
       grep -E "^I/$app-device: touch: " "$CHECK/guest-log" | sed 's/^/      | /' || true
       if grep -q "the first swipe: Minato in front" "$WORK/$app-swipes.out"; then
         ok "  $app: the first swipe up from the bottom edge kept Minato in front"
-      else
-        runner_fail "  $app: the first swipe up from the bottom edge went to the system"
+      elif grep -q "the first swipe: Minato left the front" "$WORK/$app-swipes.out"; then
+        echo "note    $app: the first swipe went to the system (iOS in landscape, a known limit: entry 3)"
       fi
-      if (( $(grep -c "^I/$app: touch: down$" "$CHECK/guest-log" || true) > downs )); then
-        ok "  $app: the app got the first swipe"
+      if (( $(count_lines "^I/$app: touch: down$" "$CHECK/guest-log") > downs )); then
+        ok "  $app: the app got the first swipe's touch down"
       else
         runner_fail "  $app: the first swipe did not reach the app"
       fi
+      if grep -q "the first swipe: Minato left the front" "$WORK/$app-swipes.out"; then
+        if (( $(count_lines "^I/$app: touch: cancel$" "$CHECK/guest-log") > cancels )); then
+          ok "  $app: the system's swipe cancelled the app's touch"
+        else
+          runner_fail "  $app: the system took the swipe, but the app's touch was not cancelled"
+        fi
+      fi
       if grep -q -E "the (first|second) swipe: Minato left the front" "$WORK/$app-swipes.out"; then
-        grep -q "the second swipe: Minato left the front" "$WORK/$app-swipes.out" &&
-          ok "  $app: the second swipe went to the system"
         launch
         if await_event "menu continued" 20; then ok "  $app: back in front, the return's menu went by Continue"
         else failed_line "$app: no menu at the return" "$app-1"; fi
@@ -1990,9 +2072,9 @@ if wanted uninstall-test; then
       failed_line "no done: an uninstall request went unanswered" uninstall-test-1
     fi
     fetch_events
-    absent=$(grep -c -E " uninstall [0-9]+ failed: not in the library$" "$EVENTS" || true)
-    alerts=$(grep -c -E " uninstall alert io\.github\.kisame76\.minato\.test\.uninstall$" "$EVENTS" || true)
-    declined=$(grep -c -E " uninstall [0-9]+ cancelled$" "$EVENTS" || true)
+    absent=$(count_lines " uninstall [0-9]+ failed: not in the library$" "$EVENTS")
+    alerts=$(count_lines " uninstall alert io\.github\.kisame76\.minato\.test\.uninstall$" "$EVENTS")
+    declined=$(count_lines " uninstall [0-9]+ cancelled$" "$EVENTS")
     if [[ "$absent" == 2 && "$alerts" == 2 && "$declined" == 2 ]]; then
       ok "  the absent app failed twice without an alert; the app's own removal asked twice, declined twice"
     else
@@ -2185,7 +2267,7 @@ if wanted notify-tap-test; then
   echo yes > "$CHECK/no-compile"
   echo yes > "$CHECK/guest-log"
   echo io.github.kisame76.minato.test.notifytap > "$CHECK/notification-cold-tap"
-  : > "$EVENTS"
+  reset_events
   send_requests
   launch
   if await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 120; then
@@ -2203,7 +2285,7 @@ if wanted notify-tap-test; then
   fetch_events
   tap_precondition "the cold tap"
   game_mode_came "the cold tap"
-  on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
+  on_main=$(count_lines " notification response completed on the main thread true$" "$EVENTS")
   if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the cold tap's response on the main thread"; else
     fail "  the delegate completed the cold tap's response on the main thread $on_main times, not once"; fi
 fi
@@ -2249,6 +2331,9 @@ fi
 # the free team's limit of 3 apps on a device, stops these rounds with its own line.
 if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
   echo "== notify-tap-test, the user's tap through Notification Center"
+  # Each runner call and each copy of the iPhone with the time of day (pass 4: copies hung in these rounds only).
+  stamps_before=$STAMPS
+  STAMPS=yes
   real_ready=yes
   uitests_build || real_ready=no
   if [[ "$real_ready" == yes && "$ON_DEVICE" == yes ]]; then
@@ -2266,8 +2351,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
     echo yes > "$CHECK/no-compile"
     echo yes > "$CHECK/guest-log"
     echo yes > "$CHECK/continue"
-    : > "$EVENTS"
-    seen=0
+    reset_events
     send_requests
   }
   # In the Simulator, notification-repost: Minato hands notify-tap-test's notification to iOS again, delivered $1 s
@@ -2283,7 +2367,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
     local end=$((SECONDS + 30))
     while (( SECONDS < end )); do
       fetch "$CHECK_REL/guest-log" || true
-      (( $(grep -c "^I/notify-tap-test: opened by the tap: room 7$" "$CHECK/guest-log" 2>/dev/null) >= 2 )) && return 0
+      (( $(count_lines "^I/notify-tap-test: opened by the tap: room 7$" "$CHECK/guest-log") >= 2 )) && return 0
       sleep 0.5
     done
     return 1
@@ -2319,7 +2403,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
       sleep 1
       end_start notify-tap-test "$round"
       fetch_events
-      on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
+      on_main=$(count_lines " notification response completed on the main thread true$" "$EVENTS")
       if [[ "$on_main" == 1 ]]; then ok "  $label: the delegate completed on the main thread"; else
         fail "  $label: the delegate completed on the main thread $on_main times, not once"; fi
       return
@@ -2362,6 +2446,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
     on_device uninstall app --device "$DEVICE_ID" io.github.kisame76.minato.uitests.xctrunner >/dev/null 2>&1 &&
       ok "  the UI test runner is removed again" || fail "  the UI test runner was not removed"
   fi
+  STAMPS=$stamps_before
 fi
 
 run_one asset-ndk-test io.github.kisame76.minato.test.assetndk
@@ -2451,6 +2536,8 @@ if wanted lan-test; then
       fi
       if [[ -z "$was" ]]; then
         runner_fail "  the runner could not read Minato's Local Network switch"
+        # What the runner saw (counts and kinds of elements, no names): uitest printed it into the file.
+        [[ -n "$RUNNER_DOWN" ]] || sed 's/^/      | /' "$WORK/lan-read.out"
       else
         echo "note    Minato's Local Network switch was $was"
         if uitest testLocalNetworkSetting lan-off 0 off > /dev/null; then
@@ -3123,17 +3210,24 @@ if wanted starting-window-test; then
 fi
 
 # The same glass check without the MinatoUITests runner, so that it runs on an iPhone whose UI automation is off:
-# ime-surrounding-test-hide hides the keyboard by itself 3 s after it came (hideSoftInputFromWindow, as an SDL game
+# ime-surrounding-test-hide hides the keyboard by itself 15 s after it came (hideSoftInputFromWindow, as an SDL game
 # ends its text input), the user's real path of a guest-initiated hide. The bar must be in the list while the keyboard
-# is up and nothing of it may stay after the hide; the app's log must be Android 15's.
+# is up and nothing of it may stay after the hide; the app's log must be Android 15's. Its field is empty, as SDL's
+# DummyEdit, so the bar holds 0 units. The 15 s leave the iPhone's copies time to ask for the views before the hide
+# (pass 6: with 3 s they were asked after it); an answer that came after the hide all the same says so.
 if wanted ime-surrounding-test-hide; then
   if begin_start ime-surrounding-test-hide io.github.kisame76.minato.test.imesurroundinghide 1; then
     if await_line guest-log '^I/ime-surrounding-test-hide: showSoftInput true$' 120 &&
         await_event 'keyboard show\(' 20; then
       keyboard_views 1
-      if [[ "$VIEWS" == *KeyboardBarView* ]]; then ok "  the bar is on screen while the keyboard is up: $VIEWS"; else
+      if [[ "$VIEWS" == *KeyboardBarView* ]]; then ok "  the bar is on screen while the keyboard is up: $VIEWS"
+      elif awk '/^[0-9.]+ [0-9]+ keyboard hide/ { hidden = 1 } hidden && /^[0-9.]+ [0-9]+ keyboard views / { late = 1 }
+          END { exit !late }' "$EVENTS"; then
+        failed_line "the views were asked after the app's own hide, too late to tell: $VIEWS" \
+          ime-surrounding-test-hide-1
+      else
         failed_line "the list has no bar while the keyboard is up: $VIEWS" ime-surrounding-test-hide-1; fi
-      if await_event 'keyboard hide' 15; then
+      if await_event 'keyboard hide' 25; then
         ok "  the app's own hide reached Minato"
         no_keyboard_views "the app's own hide" ime-surrounding-test-hide-1
       else
@@ -3387,6 +3481,32 @@ if wanted renpy-splash-test && listed renpy-splash-test; then
     fail "  renpy-splash-test: no Interface start in the log"
   fi
 fi
+# The runtime's 1 Hz memory picture (memory_watermark.h) from a round's guest log $1, kept in $WORK past the run.
+# Printed as "note  mem ..." lines (the instrument's numbers, no paths): the first sample, the one with the
+# highest foot=, every memory-warning sample, and the last; de-duplicated when those pick the same line.
+mem_notes() {
+  [[ -s "$1" ]] || return 0
+  awk '
+    function emit(s,   k) {
+      for (k = 1; k <= nseen; k++) if (seen[k] == s) return
+      seen[++nseen] = s; print "note  " s
+    }
+    /^I\/apkrt *: mem foot=/ {
+      s = $0; sub(/^I\/apkrt *: /, "", s)
+      if (first == "") first = s
+      last = s
+      f = s; sub(/^mem foot=/, "", f); sub(/[^0-9].*/, "", f)
+      if (f + 0 > peakv) { peakv = f + 0; peak = s }
+      if (s ~ / warn$/) warn[++nw] = s
+    }
+    END {
+      if (first == "") exit 0
+      emit(first); emit(peak)
+      for (i = 1; i <= nw; i++) emit(warn[i])
+      emit(last)
+    }
+  ' "$1"
+}
 # Minato's Ren'Py memory game for MINUTES: the footprint over time and the memory warnings it got. The game says more
 # scenes than MINUTES can play, so the sitting ends it, not the game; each warning reaches the guest as one onLowMemory
 # once it has started (Lifecycle's memoryWarning), so the two counts are the warnings since the guest's start.
@@ -3472,6 +3592,9 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     fi
   fi
   end_start renpy-memory-test 1
+  # The guest log's 1 Hz memory picture, which $WORK keeps while the on-device folder is cleaned up: the
+  # first sample, the highest foot=, every warning sample and the last, so a run shows the "other" split.
+  mem_notes "$WORK/renpy-memory-test-1.log"
   # An empty file is no guest environment (the script cannot delete in the iPhone's container).
   if [[ "$ON_DEVICE" == yes ]]; then
     : > "$WORK/guest-environment"

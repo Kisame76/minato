@@ -213,36 +213,26 @@ final class NotificationTapUITests: XCTestCase {
         print("MINATO-UITEST answered an alert \(allow ? "Allow" : "Don't Allow")")
     }
 
-    /// Minato's own Local Network switch in Settings (Settings > Minato > Local Network, which iOS lists once a guest
-    /// connected into the local network; the Simulator has no such switch): TEST_RUNNER_MINATO_ARG "read" prints its
-    /// state, "on" or "off" sets it and prints the state before and after. It opens Minato's page through Settings >
-    /// Apps and touches nothing else; Settings goes again at the end. The check reads the state first and sets it back
-    /// at its end.
+    /// Minato's own Local Network switch in Settings (the Simulator has no such switch): TEST_RUNNER_MINATO_ARG "read"
+    /// prints its state, "on" or "off" sets it and prints the state before and after. Two ways to it, the first that
+    /// finds a switch wins: Settings > Apps > Minato (its page), then Settings > Privacy & Security > Local Network
+    /// (a list of apps, each with a switch, long, so it is scrolled). When neither shows it, the failure says what the
+    /// runner saw as counts and kinds of elements only, never a name. Settings goes again at the end. The check reads
+    /// the state first and sets it back at its end.
     func testLocalNetworkSetting() {
         continueAfterFailure = false
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-        settings.launch()
+        var seen: [String] = []
+        var found = switchOnAppsPage(settings, &seen)
+        if found == nil {
+            settings.terminate()
+            found = switchInPrivacyList(settings, &seen)
+        }
         defer { settings.terminate() }
-        // Settings > Apps lists every app, with a search field of its own (Settings' main search does not index them);
-        // its rows are buttons.
-        let row = { (label: String) in
-            settings.buttons.matching(NSPredicate(format: "label ==[c] %@", label)).firstMatch
+        guard let toggle = found else {
+            XCTFail("Minato's Local Network switch was not found; saw: " + seen.joined(separator: "; "))
+            return
         }
-        let apps = row("Apps")
-        for _ in 0..<6 where !apps.waitForExistence(timeout: 1) { settings.swipeUp() }
-        XCTAssertTrue(apps.exists, "Settings has no Apps row")
-        apps.tap()
-        let search = settings.searchFields.firstMatch
-        if search.waitForExistence(timeout: 5) {
-            search.tap()
-            search.typeText("Minato")
-        }
-        let page = row("Minato")
-        XCTAssertTrue(page.waitForExistence(timeout: 10), "Settings' Apps list has no Minato")
-        page.tap()
-        let labels = ["Local Network", "Lokales Netzwerk"]
-        let toggle = settings.switches.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Minato's settings page has no Local Network switch")
         let isOn = { (toggle.value as? String) == "1" }
         print("MINATO-UITEST local network was \(isOn() ? "on" : "off")")
         let want = ProcessInfo.processInfo.environment["MINATO_ARG"]
@@ -251,6 +241,80 @@ final class NotificationTapUITests: XCTestCase {
             XCTAssertTrue(waitUntil(5) { isOn() == (want == "on") }, "the switch did not turn \(want ?? "")")
         }
         print("MINATO-UITEST local network is \(isOn() ? "on" : "off")")
+    }
+
+    /// Counts and kinds of what a Settings screen shows: no label, no value, no name.
+    private func census(_ app: XCUIApplication) -> String {
+        "buttons \(app.buttons.count), switches \(app.switches.count), cells \(app.cells.count), static texts "
+            + "\(app.staticTexts.count), tables \(app.tables.count), search fields \(app.searchFields.count)"
+    }
+
+    private func settingsRow(_ app: XCUIApplication, _ labels: [String]) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label IN[c] %@", labels)).firstMatch
+    }
+
+    /// Scrolls up to `tries` times until the element is on screen.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, tries: Int = 10) -> Bool {
+        for _ in 0..<tries {
+            if element.waitForExistence(timeout: 1) && element.isHittable { return true }
+            app.swipeUp()
+        }
+        return element.exists
+    }
+
+    private func appSwitch(_ app: XCUIApplication, _ names: [String]) -> XCUIElement {
+        app.switches.matching(NSPredicate(format: "label IN[c] %@", names)).firstMatch
+    }
+
+    private func switchOnAppsPage(_ settings: XCUIApplication, _ seen: inout [String]) -> XCUIElement? {
+        settings.launch()
+        let apps = settingsRow(settings, ["Apps"])
+        guard reveal(apps, in: settings) else {
+            seen.append("Settings has no Apps row (\(census(settings)))")
+            return nil
+        }
+        apps.tap()
+        let search = settings.searchFields.firstMatch
+        if search.waitForExistence(timeout: 5) {
+            search.tap()
+            search.typeText("Minato")
+        }
+        let page = settingsRow(settings, ["Minato"])
+        guard page.waitForExistence(timeout: 10) else {
+            seen.append("the Apps list has no Minato row (\(census(settings)))")
+            return nil
+        }
+        page.tap()
+        // The row's label differs by language and iOS version, and the page can be long: match by a part of the name.
+        let toggle = settings.switches.matching(NSPredicate(
+            format: "label CONTAINS[c] 'Local' OR label CONTAINS[c] 'Netzwerk'")).firstMatch
+        guard reveal(toggle, in: settings) else {
+            seen.append("Minato's page has no Local Network switch (\(census(settings)))")
+            return nil
+        }
+        return toggle
+    }
+
+    private func switchInPrivacyList(_ settings: XCUIApplication, _ seen: inout [String]) -> XCUIElement? {
+        settings.launch()
+        let privacy = settingsRow(settings, ["Privacy & Security", "Datenschutz & Sicherheit"])
+        guard reveal(privacy, in: settings) else {
+            seen.append("Settings has no Privacy & Security row (\(census(settings)))")
+            return nil
+        }
+        privacy.tap()
+        let local = settingsRow(settings, ["Local Network", "Lokales Netzwerk"])
+        guard reveal(local, in: settings) else {
+            seen.append("Privacy & Security has no Local Network row (\(census(settings)))")
+            return nil
+        }
+        local.tap()
+        let toggle = appSwitch(settings, ["Minato"])
+        guard reveal(toggle, in: settings, tries: 15) else {
+            seen.append("the Local Network list has no Minato switch (\(census(settings)))")
+            return nil
+        }
+        return toggle
     }
 
     /// An alert of SpringBoard's that is still up goes, by its first button (a prompt's "Don't Allow"), with a note:

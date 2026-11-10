@@ -242,4 +242,7 @@ signatures. A crash names its cause when the app returns to the library.
 - No telephony, NFC, USB host or classic Bluetooth, and no multicast or broadcast networking.
 - Memory: at most about 5 GB for an app when Minato has the `increased-memory-limit` entitlement, about 2.5 GB
   without it, which is the case for a free account through SideStore (ADR-0012).
+- In landscape the first swipe up from the bottom edge goes Home: iOS does not hold it back for any app. The app
+  gets the touch and then a cancel, as on Android when the system takes a gesture; back in Minato, its menu
+  waits over the app.
 - Signed code only: every native library must be converted and signed at import, which takes time once per version.

@@ -68,15 +68,15 @@ if ! status=$(ask_app -signingCertificateStatus); then
   echo "The app did not say whether it has a signing certificate." >&2
   exit 1
 fi
-read -r state team expires <<<"$status"
+read -r state _ expires <<<"$status"
 case "$state" in
   current)
     if [[ "$FORCE" == 0 ]]; then
-      echo "Signing certificate: in the app (team $team, valid until $expires)"
+      echo "Signing certificate: in the app (valid until $expires)"
       exit 0
     fi
     echo "Signing certificate: handing it over again (--force)" ;;
-  other) echo "Signing certificate: the app has another one (team $team, valid until $expires); handing over the current one" ;;
+  other) echo "Signing certificate: the app has another one (valid until $expires); handing over the current one" ;;
   none) echo "Signing certificate: none in the app yet; handing it over" ;;
   *)
     echo "The app answered \"$status\" about its signing certificate." >&2
@@ -111,5 +111,5 @@ if [[ "$outcome" != imported ]]; then
   echo "Not handed over: $details" >&2
   exit 1
 fi
-read -r team expires <<<"$details"
-echo "Signing certificate: handed over; the iPhone accepts code signed with it (team $team, valid until $expires)"
+read -r _ expires <<<"$details"
+echo "Signing certificate: handed over; the iPhone accepts code signed with it (valid until $expires)"
