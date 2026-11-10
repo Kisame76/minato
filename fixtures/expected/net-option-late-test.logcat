@@ -1,0 +1,3 @@
+I/net-option-late-test: end of the stream: -1
+I/net-option-late-test: options after both ends shut their output: no delay true, keep alive true, linger 3
+I/net-option-late-test: done

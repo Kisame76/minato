@@ -4479,6 +4479,50 @@ TEST(an_inet_socketpair_is_checked_as_a_socket_before_it_is_refused) {
     CHECK(call(nr_socketpair, {af_inet, 5, 0, address(nullptr)}) == -esocktnosupport_);  // SOCK_SEQPACKET
 }
 
+// Socket options set after the connection has closed (net-option-late): the peer closed and this end did SHUT_WR, so
+// the socket neither sends nor receives. Linux keeps TCP_NODELAY, SO_KEEPALIVE and SO_LINGER on it and reads them back;
+// Darwin refuses setsockopt on such a socket (EINVAL), so the runtime remembers them and answers from its own record.
+TEST(socket_options_set_after_the_connection_closed_are_kept_as_on_linux) {
+    constexpr std::uint64_t ipproto_tcp = 6, tcp_nodelay = 1, so_keepalive = 9, so_linger = 13, shut_wr = 1;
+    const auto server = call(nr_socket, {af_inet, sock_stream, 0});
+    CHECK(server >= 0);
+    LinuxInetName name{static_cast<std::uint16_t>(af_inet), 0, 0x0100'007f, {}};  // 127.0.0.1, an ephemeral port
+    CHECK(call(nr_bind, {unsigned_of(server), address(&name), sizeof name}) == 0);
+    std::uint32_t length = sizeof name;
+    CHECK(call(nr_getsockname, {unsigned_of(server), address(&name), address(&length)}) == 0);
+    CHECK(call(nr_listen, {unsigned_of(server), 1}) == 0);
+    const auto client = call(nr_socket, {af_inet, sock_stream, 0});
+    CHECK(call(nr_connect, {unsigned_of(client), address(&name), sizeof name}) == 0);
+    const auto accepted = call(nr_accept4, {unsigned_of(server), 0, 0, 0});
+    CHECK(accepted >= 0);
+    call(nr_close, {unsigned_of(accepted)});  // the peer closes its end; this end reads the end of the stream next
+    char byte = 0;
+    CHECK(call(nr_read, {unsigned_of(client), address(&byte), 1}) == 0);
+    CHECK(call(nr_shutdown, {unsigned_of(client), shut_wr}) == 0);  // and shuts its own sending side down too
+
+    const int one = 1;
+    const struct { int on, seconds; } linger{1, 3};  // Linux struct linger: l_onoff, l_linger
+    CHECK(call(nr_setsockopt, {unsigned_of(client), ipproto_tcp, tcp_nodelay, address(&one), sizeof one}) == 0);
+    CHECK(call(nr_setsockopt, {unsigned_of(client), sol_socket, so_keepalive, address(&one), sizeof one}) == 0);
+    CHECK(call(nr_setsockopt, {unsigned_of(client), sol_socket, so_linger, address(&linger), sizeof linger}) == 0);
+
+    int nodelay = -1, keepalive = -1;
+    struct { int on, seconds; } back{-1, -1};
+    std::uint32_t room = sizeof nodelay;
+    CHECK(call(nr_getsockopt, {unsigned_of(client), ipproto_tcp, tcp_nodelay, address(&nodelay), address(&room)}) == 0);
+    room = sizeof keepalive;
+    CHECK(call(nr_getsockopt,
+               {unsigned_of(client), sol_socket, so_keepalive, address(&keepalive), address(&room)}) == 0);
+    room = sizeof back;
+    CHECK(call(nr_getsockopt, {unsigned_of(client), sol_socket, so_linger, address(&back), address(&room)}) == 0);
+    CHECK(nodelay == 1);  // all three read back as Linux keeps them, not Darwin's refused defaults
+    CHECK(keepalive == 1);
+    CHECK(back.on == 1 && back.seconds == 3);
+
+    call(nr_close, {unsigned_of(client)});
+    call(nr_close, {unsigned_of(server)});
+}
+
 // A loopback UDP datagram longer than Darwin's net.inet.udp.maxdgram, 9,216 bytes, the host socket's send buffer:
 // Linux takes up to 65,507 bytes over IPv4 and 65,527 over IPv6 whatever SO_SNDBUF says, and queues one into an empty
 // receive queue whatever SO_RCVBUF says (ADR-0054 step c2).

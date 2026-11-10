@@ -676,6 +676,7 @@ run_app() {
       | batch-f-test \
       | services-f-test \
       | net-io-test \
+      | net-option-late-test \
       | lan-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \

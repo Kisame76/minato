@@ -1529,6 +1529,26 @@ int host_int(Socket &socket, int level, int name, bool boolean) {
     return boolean ? value != 0 : value;
 }
 
+/// net-option-late: Darwin refuses setsockopt with EINVAL once a connection has closed, where Linux keeps the option.
+/// Remembers a boolean option the host refused so the getter reads it back; clears the record when the host took it,
+/// so an open socket stays host-authoritative. Returns 0 for a taken or remembered option, the host error otherwise.
+long remember_late(Socket &socket, long host_result, bool &set, bool &value, bool on) {
+    if (host_result != 0 && host_result != -linux_errno::einval) return host_result;
+    const std::lock_guard lock(socket.mutex);
+    set = host_result == -linux_errno::einval;  // the host refused it: Linux keeps it, so we do
+    value = on;
+    return 0;
+}
+
+/// The boolean to report for such an option: the remembered value if a set was refused and kept, else the host's.
+int late_bool(Socket &socket, const bool &set, const bool &value, int level, int name) {
+    {
+        const std::lock_guard lock(socket.mutex);
+        if (set) return value ? 1 : 0;
+    }
+    return host_int(socket, level, name, true);
+}
+
 /// sock_set_timeout: Linux's struct timeval in jiffies, rounded up; none for 0, at once for a negative time.
 long set_timeout(std::atomic<std::int64_t> &timeout, std::uint64_t value, std::uint32_t length) {
     LinuxTimeval time;
@@ -1579,7 +1599,14 @@ long set_socket_level(Socket &socket, int name, std::uint64_t value, std::uint32
             linger guest;
             if (length < sizeof guest) return -linux_errno::einval;
             std::memcpy(&guest, sys::as_pointer<void>(value), sizeof guest);
-            return sys::result_or_error(::setsockopt(socket.host(), SOL_SOCKET, SO_LINGER_SEC, &guest, sizeof guest));
+            const long result =
+                sys::result_or_error(::setsockopt(socket.host(), SOL_SOCKET, SO_LINGER_SEC, &guest, sizeof guest));
+            if (result != 0 && result != -linux_errno::einval) return result;  // net-option-late, as the booleans
+            const std::lock_guard lock(socket.mutex);
+            socket.late_linger_set = result == -linux_errno::einval;
+            socket.late_linger_on = guest.l_onoff != 0;
+            socket.late_linger_seconds = guest.l_linger;
+            return 0;
         }
         case so_bindtodevice:
         case so_mark:
@@ -1593,7 +1620,9 @@ long set_socket_level(Socket &socket, int name, std::uint64_t value, std::uint32
         case so_debug: return number != 0 ? -linux_errno::eacces : set_host_int(socket, SOL_SOCKET, SO_DEBUG, 0);
         case so_reuseaddr: return set_host_int(socket, SOL_SOCKET, SO_REUSEADDR, number != 0);
         case so_reuseport: return set_host_int(socket, SOL_SOCKET, SO_REUSEPORT, number != 0);
-        case so_keepalive: return set_host_int(socket, SOL_SOCKET, SO_KEEPALIVE, number != 0);
+        case so_keepalive:
+            return remember_late(socket, set_host_int(socket, SOL_SOCKET, SO_KEEPALIVE, number != 0),
+                                 socket.late_keepalive_set, socket.late_keepalive, number != 0);
         case so_dontroute: return set_host_int(socket, SOL_SOCKET, SO_DONTROUTE, number != 0);
         case so_broadcast: return set_host_int(socket, SOL_SOCKET, SO_BROADCAST, number != 0);
         case so_oobinline: return set_host_int(socket, SOL_SOCKET, SO_OOBINLINE, number != 0);
@@ -1658,7 +1687,9 @@ long get_socket_level(Socket &socket, int name, std::uint64_t value, std::uint64
         }
         case so_reuseaddr: return put_int(host_int(socket, SOL_SOCKET, SO_REUSEADDR, true), value, length_address);
         case so_reuseport: return put_int(host_int(socket, SOL_SOCKET, SO_REUSEPORT, true), value, length_address);
-        case so_keepalive: return put_int(host_int(socket, SOL_SOCKET, SO_KEEPALIVE, true), value, length_address);
+        case so_keepalive:
+            return put_int(late_bool(socket, socket.late_keepalive_set, socket.late_keepalive, SOL_SOCKET,
+                                     SO_KEEPALIVE), value, length_address);
         case so_dontroute: return put_int(host_int(socket, SOL_SOCKET, SO_DONTROUTE, true), value, length_address);
         case so_broadcast: return put_int(host_int(socket, SOL_SOCKET, SO_BROADCAST, true), value, length_address);
         case so_oobinline: return put_int(host_int(socket, SOL_SOCKET, SO_OOBINLINE, true), value, length_address);
@@ -1687,10 +1718,19 @@ long get_socket_level(Socket &socket, int name, std::uint64_t value, std::uint64
             return put_whole(&time, sizeof time, value, length_address);
         }
         case so_linger: {
-            linger host{};
-            socklen_t size = sizeof host;
-            ::getsockopt(socket.host(), SOL_SOCKET, SO_LINGER_SEC, &host, &size);
-            linger guest{host.l_onoff != 0, host.l_linger};
+            linger guest{};
+            bool shadowed;  // net-option-late: a set the host refused on a closed socket, kept as Linux keeps it
+            {
+                const std::lock_guard lock(socket.mutex);
+                shadowed = socket.late_linger_set;
+                if (shadowed) guest = {socket.late_linger_on, socket.late_linger_seconds};
+            }
+            if (!shadowed) {
+                linger host{};
+                socklen_t size = sizeof host;
+                ::getsockopt(socket.host(), SOL_SOCKET, SO_LINGER_SEC, &host, &size);
+                guest = {host.l_onoff != 0, host.l_linger};
+            }
             std::int32_t room;
             std::memcpy(&room, sys::as_pointer<void>(length_address), sizeof room);
             if (room < 0) return -linux_errno::einval;
@@ -1749,7 +1789,9 @@ long set_tcp_level(Socket &socket, int name, std::uint64_t value, std::uint32_t 
         return 0L;
     };
     switch (name) {
-        case tcp_nodelay: return set_host_int(socket, IPPROTO_TCP, TCP_NODELAY, number != 0);
+        case tcp_nodelay:
+            return remember_late(socket, set_host_int(socket, IPPROTO_TCP, TCP_NODELAY, number != 0),
+                                 socket.late_nodelay_set, socket.late_nodelay, number != 0);
         case tcp_maxseg: return set_host_int(socket, IPPROTO_TCP, TCP_MAXSEG, number);
         case tcp_cork: return set_host_int(socket, IPPROTO_TCP, TCP_NOPUSH, number != 0);
         case tcp_keepidle:
@@ -1780,7 +1822,9 @@ long get_tcp_level(Socket &socket, int name, std::uint64_t value, std::uint64_t 
         return put_int(kept_option(socket, which), value, length_address);
     };
     switch (name) {
-        case tcp_nodelay: return put_int(host_int(socket, IPPROTO_TCP, TCP_NODELAY, true), value, length_address);
+        case tcp_nodelay:
+            return put_int(late_bool(socket, socket.late_nodelay_set, socket.late_nodelay, IPPROTO_TCP,
+                                     TCP_NODELAY), value, length_address);
         case tcp_maxseg: return put_int(host_int(socket, IPPROTO_TCP, TCP_MAXSEG, false), value, length_address);
         case tcp_cork: return put_int(host_int(socket, IPPROTO_TCP, TCP_NOPUSH, true), value, length_address);
         case tcp_keepidle: return put_int(host_int(socket, IPPROTO_TCP, TCP_KEEPALIVE, false), value, length_address);

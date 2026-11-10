@@ -73,6 +73,13 @@ public:
     bool multicast_all = true; // IP_MULTICAST_ALL
     int receive_buffer = 0, send_buffer = 0;  // what SO_RCVBUF and SO_SNDBUF were set to, 0 for not set
     int kept[8] = {};          // options Linux takes that change nothing here (sys_sockets.cpp, kept_options)
+    /// net-option-late: TCP_NODELAY, SO_KEEPALIVE and SO_LINGER that Darwin refuses to set once the connection has
+    /// closed (EINVAL) but Linux keeps. A refused set is remembered here and read back; `*_set` is cleared when Darwin
+    /// takes the option, so an open socket stays host-authoritative.
+    bool late_nodelay_set = false, late_nodelay = false;
+    bool late_keepalive_set = false, late_keepalive = false;
+    bool late_linger_set = false, late_linger_on = false;
+    int late_linger_seconds = 0;
 
     std::shared_ptr<SeqpacketPair> pair;  // a SOCK_SEQPACKET socketpair's, else none; set before the socket is shared
     int side = 0;

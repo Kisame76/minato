@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of socket options set after both ends have shut down their sending side (net-option-late-test; the
+     compatibility plan's networking gap): TCP_NODELAY, SO_KEEPALIVE and SO_LINGER set on a connected socket whose peer
+     sent its FIN and whose own output is shut stay as set on Android, and the getters read them back. Loopback only.
+     The launcher activity is the framework's own android.app.Activity, so that `am start` starts the process on
+     Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.netoptionlate" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <application android:label="net-option-late-test"
+      android:name="io.github.kisame76.minato.test.netoptionlate.NetOptionLateApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
