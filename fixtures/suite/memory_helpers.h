@@ -69,6 +69,7 @@ static inline const char *name_of(int error) {
     case EPERM: return "EPERM";
     case EACCES: return "EACCES";
     case EBADF: return "EBADF";
+    case EEXIST: return "EEXIST";
     default: return "other";
     }
 }

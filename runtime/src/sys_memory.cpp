@@ -171,9 +171,15 @@ void forget_partial(std::uint64_t begin, std::uint64_t end) {
 }
 
 /// A guest 4 KiB-granularity unmap of [lo, hi) inside the single host page `host_page` (never the whole page): the
-/// piece's bits are marked unmapped and, if private, zeroed so a reuse reads zero; when the page's last sub-page goes
-/// it is unmapped for real. Defined by the memory helpers below. Returns 0 or -errno. Under memory_lock.
+/// piece's bits are marked unmapped (it is not zeroed on unmap; a re-map of it gives a fresh zero page); when the
+/// page's last sub-page goes it is unmapped for real. Defined by the memory helpers below. Returns 0 or -errno. Under
+/// memory_lock.
 long partial_unmap(std::uint64_t host_page, std::uint64_t lo, std::uint64_t hi);
+
+/// Places an anonymous MAP_FIXED / MAP_FIXED_NOREPLACE whose [address, address+length) is not whole host pages
+/// (ADR-0007, the sub-page mmap mirror of partial_unmap). Defined by the memory helpers below. Returns the guest
+/// address or -errno. Under memory_lock.
+long place_subpage_anon(std::uint64_t address, std::uint64_t length, int protection, bool noreplace);
 
 /// Writes `line` to the session log once per process (the first caller wins), only when MINATO_LOADER_LOG is set, as
 /// the loader's scudo line and session.cpp's trim-footprint line are: a real session (RuntimeSession.swift) sets it, so
@@ -187,6 +193,9 @@ void log_once(std::atomic_flag &written, const char *line, std::size_t length) {
 std::atomic_flag offset_emulated_logged = ATOMIC_FLAG_INIT;
 std::atomic_flag fixed_offset_refused_logged = ATOMIC_FLAG_INIT;
 std::atomic_flag zero_subpage_skipped_logged = ATOMIC_FLAG_INIT;  // a sub-page zero was skipped (executable page)
+std::atomic_flag subpage_guard_widened_logged = ATOMIC_FLAG_INIT;  // a sub-page map widened a PROT_NONE neighbour
+std::atomic_flag subpage_exec_refused_logged = ATOMIC_FLAG_INIT;    // sub-page map refused into an exec page
+std::atomic_flag subpage_shared_refused_logged = ATOMIC_FLAG_INIT;  // sub-page map refused into a shared page
 
 // Linux mmap flags (include/uapi/asm-generic/mman*.h) and protections.
 namespace linux_map {
@@ -273,6 +282,14 @@ long sys_mmap(std::uint64_t address, std::uint64_t length, int protection, int f
         if (length > ~std::uint64_t{0} - delta) return -linux_errno::enomem;
         offset -= delta;
         length += delta;
+    }
+    // An anonymous MAP_FIXED / MAP_FIXED_NOREPLACE that does not cover whole host pages (a 4 KiB-granularity guest
+    // placing a piece, as Mono/il2cpp pools reuse a freed block): Darwin cannot mmap a sub-page, so place it in the
+    // host page a neighbour keeps alive (ADR-0007). A file mapping at such an address keeps the plain ::mmap EINVAL.
+    if ((flags & linux_map::anonymous) && (flags & (linux_map::fixed | linux_map::fixed_noreplace)) && length != 0 &&
+        (((address | (address + length)) & (page - 1)) != 0)) {
+        const bool noreplace = (flags & linux_map::fixed_noreplace) && !(flags & linux_map::fixed);
+        return place_subpage_anon(address, length, protection, noreplace);
     }
     void *const wanted = reinterpret_cast<void *>(static_cast<std::uintptr_t>(address));
     void *const result = ::mmap(wanted, length, protection, host_flags, host_fd, static_cast<off_t>(offset));
@@ -798,6 +815,110 @@ long dont_need(std::uint64_t begin, std::uint64_t end) {
         at = region_end;
     }
     return 0;
+}
+
+/// Clears exactly the 4 KiB sub-pages [lo, hi) of host page `host_page` from the piece tracking -- a fresh mapping made
+/// them live again. If no forgotten piece is left, the page's record goes. Under memory_lock.
+void clear_partial_bits(std::uint64_t host_page, std::uint64_t lo, std::uint64_t hi) {
+    PartialPage *page = partial_page_at(host_page);
+    if (page == nullptr) return;
+    page->unmapped &= ~sub_mask(host_page, lo, hi);
+    if (page->unmapped == 0) forget_partial(host_page, host_page + vm_page_size);
+}
+
+/// Raises host page `host_page` to include `rw`: a Darwin host page carries one protection, so the page takes the most
+/// permissive R/W of its live pieces and a neighbour may end up more permissive than Linux (never less). Logs once when
+/// a PROT_NONE neighbour (a guest's 4 KiB guard page) is widened. Returns 0 or -errno. Under memory_lock.
+long widen_page_protection(std::uint64_t host_page, int rw) {
+    const int current = inspect(host_page, host_page + vm_page_size).protection & (VM_PROT_READ | VM_PROT_WRITE);
+    const int wanted = current | (rw & (VM_PROT_READ | VM_PROT_WRITE));
+    if (wanted == current) return 0;
+    if (current == VM_PROT_NONE) {
+        static const char line[] = "I/apkrt: a sub-page map widens a PROT_NONE neighbour sharing its 16K host page\n";
+        log_once(subpage_guard_widened_logged, line, sizeof line - 1);
+    }
+    if (::vm_protect(::mach_task_self(), static_cast<vm_address_t>(host_page), vm_page_size, FALSE, wanted) !=
+        KERN_SUCCESS) {
+        return -linux_errno::enomem;
+    }
+    return 0;
+}
+
+/// Whether every 4 KiB sub-page in [begin, end) is free from the guest's view (MAP_FIXED_NOREPLACE reads this, not the
+/// host): a sub-page is free when its host page is unmapped, or the piece tracking marks it unmapped. A live mapping
+/// (host-mapped and not a forgotten piece -- anonymous or file) is occupied. Under memory_lock.
+bool subpage_range_free(std::uint64_t begin, std::uint64_t end) {
+    const std::uint64_t page = vm_page_size;
+    for (std::uint64_t at = begin & ~(sub_page_size - 1); at < end; at += sub_page_size) {
+        const std::uint64_t host_page = at & ~(page - 1);
+        if (!inspect(host_page, host_page + page).mapped) continue;  // the whole host page is free
+        const PartialPage *partial = partial_page_at(host_page);
+        if (partial == nullptr || (partial->unmapped & sub_mask(host_page, at, at + sub_page_size)) == 0) return false;
+    }
+    return true;
+}
+
+long place_subpage_anon(std::uint64_t address, std::uint64_t length, int protection, bool noreplace) {
+    const std::uint64_t page = vm_page_size;
+    if (protection & PROT_EXEC) return -linux_errno::einval;  // W^X (ADR-0002): EXEC is never combined into a host page
+    if (length == 0 || address + length < address) return -linux_errno::einval;
+    const std::uint64_t end = address + length;
+    // Pre-pass before any change (so a refusal leaves the whole range untouched): a partial piece in a LIVE host page
+    // is placed by memset in place, which an executable page (the write window would drop a code neighbour's EXECUTE)
+    // and a shared page (the memset would write into the file / shared object, not a private copy as Linux gives)
+    // cannot take -- refuse both (EINVAL, logged once). A whole-page or free-page slice is a clean fresh mapping.
+    for (std::uint64_t p = address & ~(page - 1); p < end; p += page) {
+        const std::uint64_t lo = std::max(address, p), hi = std::min(end, p + page);
+        if (lo == p && hi == p + page) continue;  // a whole-page slice: a clean MAP_FIXED replace, no neighbour
+        vm_address_t query = static_cast<vm_address_t>(p);
+        vm_size_t size = 0;
+        natural_t depth = 0;
+        vm_region_submap_short_info_data_64_t info{};
+        mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+        if (::vm_region_recurse_64(::mach_task_self(), &query, &size, &depth,
+                                   reinterpret_cast<vm_region_recurse_info_t>(&info), &count) != KERN_SUCCESS ||
+            query > p) {
+            continue;  // the host page is free: the placement maps it fresh
+        }
+        if (info.protection & VM_PROT_EXECUTE) {
+            static const char line[] = "E/apkrt: sub-page map refused into an executable host page\n";
+            log_once(subpage_exec_refused_logged, line, sizeof line - 1);
+            return -linux_errno::einval;
+        }
+        if (info.inheritance == VM_INHERIT_SHARE || shared_mapping_overlaps(p, p + page)) {
+            static const char line[] = "E/apkrt: sub-page map refused into a shared host page\n";
+            log_once(subpage_shared_refused_logged, line, sizeof line - 1);
+            return -linux_errno::einval;
+        }
+    }
+    if (noreplace && !subpage_range_free(address, end)) return -linux_errno::eexist;
+    const int rw = protection & (PROT_READ | PROT_WRITE);
+    for (std::uint64_t p = address & ~(page - 1); p < end; p += page) {
+        const std::uint64_t lo = std::max(address, p), hi = std::min(end, p + page);
+        if ((lo == p && hi == p + page) || !inspect(p, p + page).mapped) {  // whole page, or a free page: map it fresh
+            if (::mmap(as_pointer<void>(p), page, rw, MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0) == MAP_FAILED) {
+                return -to_linux_errno(errno);
+            }
+            proc::unmap(p, p + page);
+            forget_shared(p, p + page);
+            forget_offset(p, p + page);
+            forget_partial(p, p + page);
+            // A partial piece of a page that was free over-maps the rest of the page: mark that remainder unmapped so
+            // the records show only the guest's piece as mapped (NOREPLACE and a later unmap see the rest free).
+            if (lo != p || hi != p + page) {
+                const std::uint32_t remainder = full_sub_mask() & ~sub_mask(p, lo, hi);
+                if (remainder != 0) partial_pages.push_back({.base = p, .unmapped = remainder});
+            }
+        } else {  // a neighbour keeps the host page alive: place the piece inside it
+            if (const long error = widen_page_protection(p, rw); error != 0) return error;
+            if (const long error = zero_anon(lo, hi); error != 0) return error;  // byte-precise, keeps the neighbours
+            proc::unmap(lo, hi);  // the piece is the guest's anonymous mapping now (proc tracks only file records)
+            forget_shared(lo, hi);
+            forget_offset(lo, hi);
+            clear_partial_bits(p, lo, hi);  // the piece is live again
+        }
+    }
+    return static_cast<long>(address);
 }
 
 }  // namespace

@@ -160,6 +160,29 @@ TEST(mmap_fixed_noreplace_does_not_replace) {
     CHECK(call(nr_munmap, {taken, page}) == 0);
 }
 
+TEST(subpage_fixed_refuses_an_executable_host_page_and_keeps_execute) {
+    // A guest cannot make memory executable (mmap_never_hands_out_executable_memory), but the loader's converted code
+    // shares a 16 KiB host page with data (page4k). A sub-page anonymous MAP_FIXED into a freed piece of such a page
+    // must be REFUSED, never placed: placing it would widen the one-per-page Darwin protection and drop the code's
+    // VM_PROT_EXECUTE, so the next call into it faults. Set an executable host page up at the host level (the guest
+    // path refuses PROT_EXEC), forget a 4 KiB piece of it, and try a sub-page anon MAP_FIXED there.
+    const auto address = map_anonymous_pages(1);
+    CHECK(::vm_protect(::mach_task_self(), static_cast<vm_address_t>(address), page, FALSE,
+                       VM_PROT_READ | VM_PROT_EXECUTE) == KERN_SUCCESS);
+    CHECK(call(nr_munmap, {address + 4096, 4096}) == 0);  // forget a 4 KiB piece; the host page stays executable
+    CHECK(call(nr_mmap, {address + 4096, 4096, prot_read | prot_write, map_private | map_anonymous | map_fixed,
+                         ~0ull, 0}) == -einval);  // refused, not placed
+    vm_address_t query = static_cast<vm_address_t>(address);
+    vm_size_t size = 0;
+    natural_t depth = 0;
+    vm_region_submap_short_info_data_64_t info{};
+    mach_msg_type_number_t count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+    CHECK(::vm_region_recurse_64(::mach_task_self(), &query, &size, &depth,
+                                 reinterpret_cast<vm_region_recurse_info_t>(&info), &count) == KERN_SUCCESS);
+    CHECK(query <= address && (info.protection & VM_PROT_EXECUTE) != 0);  // the page kept its EXECUTE
+    CHECK(call(nr_munmap, {address, page}) == 0);
+}
+
 TEST(madvise_dontneed_reads_back_as_zero) {
     // Linux guarantees zero pages after MADV_DONTNEED on private anonymous memory; allocators rely
     // on it. Darwin's MADV_DONTNEED keeps the contents.

@@ -68,6 +68,14 @@ add_executable(memory-munmap-remap-test suite/memory-munmap-remap-test.c)
 # page must leave the live neighbours' bytes untouched (byte-precise, not MADV_ZERO which rounds to the host page).
 add_executable(memory-munmap-keep-test suite/memory-munmap-keep-test.c)
 add_executable(memory-dontneed-piece-test suite/memory-dontneed-piece-test.c)
+# memory-mmap-reuse-test / memory-mmap-noreplace-test: a 4 KiB MAP_FIXED|ANON (or MAP_FIXED_NOREPLACE) back into a piece
+# freed inside a live host page gets a fresh zero page / is seen free by the records (ADR-0007: the sub-page placement
+# mirror of the munmap side).
+add_executable(memory-mmap-reuse-test suite/memory-mmap-reuse-test.c)
+add_executable(memory-mmap-noreplace-test suite/memory-mmap-noreplace-test.c)
+# memory-mmap-shared-neighbour-test: a sub-page anon MAP_FIXED must refuse a shared host page, not memset into the
+# shared object (ADR-0007); only the memfd's kept bytes are printed, so it matches Android.
+add_executable(memory-mmap-shared-neighbour-test suite/memory-mmap-shared-neighbour-test.c)
 # memory-private-file-test: a written MAP_PRIVATE file mapping advised away with MADV_DONTNEED reads the file's bytes
 # again, not the written ones (ADR-0007: the loader re-maps the file; Linux drops the private copies).
 add_executable(memory-private-file-test suite/memory-private-file-test.c)

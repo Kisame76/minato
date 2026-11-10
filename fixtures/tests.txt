@@ -42,6 +42,9 @@ memory-munmap-fill-test system
 memory-munmap-remap-test system
 memory-munmap-keep-test system
 memory-dontneed-piece-test system
+memory-mmap-reuse-test system
+memory-mmap-noreplace-test system
+memory-mmap-shared-neighbour-test system
 memory-private-file-test system
 memory-private-file-rename-test system
 memory-private-file-split-test system
