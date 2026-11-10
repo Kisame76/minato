@@ -44,6 +44,8 @@ public final class InstallConfirmActivity extends Activity {
 
     private long mId;
     private File mFile;
+    /** The files the host installs: the one copy, or a session's APKs, base first. */
+    private java.util.List<File> mFiles = java.util.Collections.emptyList();
     /** The session this confirms (PackageInstaller), or -1 for an APK handed over by an intent. */
     private int mSession = -1;
     private boolean mReported;
@@ -147,18 +149,34 @@ public final class InstallConfirmActivity extends Activity {
         }
     }
 
+    /**
+     * The text of the host's request: the paths of the APKs, joined by the unit separator (U+001F) when there are
+     * several, a newline, and the package of the installer.
+     */
+    private String requestText() {
+        final StringBuilder text = new StringBuilder();
+        for (File file : mFiles) {
+            if (text.length() > 0) {
+                text.append('\u001f');
+            }
+            text.append(file.getPath());
+        }
+        return text.append('\n').append(getPackageName()).toString();
+    }
+
     /** Copies the APK below the cache folder and has the host confirm it. */
     private void confirm() {
         mId = sNextId.getAndIncrement();
         if (mSession >= 0) {
-            mFile = LocalPackageInstaller.sessionApk(mSession);
-            if (mFile == null) {
+            mFiles = LocalPackageInstaller.sessionApks(mSession);
+            if (mFiles.isEmpty()) {
                 end(RESULT_FIRST_USER);
                 return;
             }
         } else {
             final Uri data = getIntent().getData();
             mFile = new File(getCacheDir(), "install/" + mId + ".apk");
+            mFiles = java.util.Collections.singletonList(mFile);
             try (InputStream in = getContentResolver().openInputStream(data)) {
                 if (in == null) {
                     throw new IOException("no stream for " + data);
@@ -172,7 +190,7 @@ public final class InstallConfirmActivity extends Activity {
             }
         }
         sWaiting.put(mId, this);
-        final int error = ActivityThread.requestConfirmInstall(mId, mFile.getPath() + "\n" + getPackageName());
+        final int error = ActivityThread.requestConfirmInstall(mId, requestText());
         if (error != 0) {
             if (error != -EOPNOTSUPP) {
                 Log.w(TAG, "The host refused the request: " + error);

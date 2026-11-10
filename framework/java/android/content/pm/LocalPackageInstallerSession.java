@@ -177,7 +177,7 @@ final class LocalPackageInstallerSession extends IPackageInstallerSession.Defaul
 
     @Override
     public void commit(android.content.IntentSender statusReceiver, boolean forTransferred) {
-        final File apk;
+        final List<File> apks;
         synchronized (mLock) {
             if (mDestroyed) {
                 throw new SecurityException("Caller has no access to session " + mInfo.sessionId);
@@ -185,21 +185,17 @@ final class LocalPackageInstallerSession extends IPackageInstallerSession.Defaul
             mSealed = true;
             mInfo.sealed = true;
             mStatusReceiver = statusReceiver;
-            apk = stagedApk();
+            apks = stagedApks();
         }
-        // A session with several files is a split set (base.apk and split_*.apk), which the host cannot take yet: it is
-        // refused with a message that names it, and logged so that the gap report shows it.
-        final File[] files = mDir.listFiles(File::isFile);
-        if (files != null && files.length > 1) {
-            Unwritten.log("android.content.pm.IPackageInstallerSession.commit (a session with several files: a split "
-                    + "set, " + files.length + " files; the host takes one APK)", null);
-            report(PackageInstaller.STATUS_FAILURE_INCOMPATIBLE,
-                    "Split sets are not supported yet: the session holds " + files.length + " files", null);
-            return;
+        // As Android's session: what is not an APK, in a set as alone, is refused at once, before any question.
+        for (File apk : apks) {
+            if (!isApk(apk)) {
+                report(PackageInstaller.STATUS_FAILURE_INVALID, "Failed to parse " + apk, null);
+                return;
+            }
         }
-        // As Android's session: what is not an APK is refused at once, before any question to the user.
-        if (apk == null || !isApk(apk)) {
-            report(PackageInstaller.STATUS_FAILURE_INVALID, "Failed to parse " + (apk != null ? apk : mDir), null);
+        if (apks.isEmpty()) {
+            report(PackageInstaller.STATUS_FAILURE_INVALID, "Failed to parse " + mDir, null);
             return;
         }
         // A caller that is not a privileged installer is asked to confirm: the status carries the activity to start.
@@ -208,10 +204,24 @@ final class LocalPackageInstallerSession extends IPackageInstallerSession.Defaul
         report(PackageInstaller.STATUS_PENDING_USER_ACTION, "Pending user action", confirm);
     }
 
-    /** The APK the session holds: its only file, or null when it holds none or several (a split set). */
-    File stagedApk() {
+    /**
+     * The APKs the session holds, base.apk first and the rest by name: one for a plain app, several for a split set
+     * (base.apk and split_*.apk, as an installer such as SAI hands them over).
+     */
+    List<File> stagedApks() {
         final File[] files = mDir.listFiles(File::isFile);
-        return files != null && files.length == 1 ? files[0] : null;
+        final List<File> apks = new ArrayList<>();
+        if (files != null) {
+            Arrays.sort(files);
+            for (File file : files) {
+                if (file.getName().equals("base.apk")) {
+                    apks.add(0, file);
+                } else {
+                    apks.add(file);
+                }
+            }
+        }
+        return apks;
     }
 
     /**

@@ -76,17 +76,17 @@ public final class LocalPackageInstaller extends IPackageInstaller.Default {
         }
     }
 
-    /** The APK of the app's session `sessionId`, for the activity that has the host confirm it; null if none. */
-    public static java.io.File sessionApk(int sessionId) {
+    /** The APKs of the app's session `sessionId`, base first, for the activity that has the host confirm them. */
+    public static java.util.List<java.io.File> sessionApks(int sessionId) {
         final LocalPackageInstaller installer = sInstance;
         if (installer == null) {
-            return null;
+            return java.util.Collections.emptyList();
         }
         final LocalPackageInstallerSession session;
         synchronized (installer.mLock) {
             session = installer.mSessions.get(sessionId);
         }
-        return session != null ? session.stagedApk() : null;
+        return session != null ? session.stagedApks() : java.util.Collections.emptyList();
     }
 
     /** The user's answer for the session (0 installed, 1 failed, 2 cancelled), which sends its final status. */

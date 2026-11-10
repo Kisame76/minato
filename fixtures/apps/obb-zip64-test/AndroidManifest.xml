@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A Zip64 expansion file (obb-zip64-test): an app opens a main OBB that is a Zip64 archive of stored entries, as the
+     APK Expansion Zip Library's files are, with a 4 GiB entry and a small one behind it, and reads both. The OBB is
+     sparse and made by tools/make-sparse-zip64-obb.py, never kept in the repo; the launcher activity is the framework's
+     own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.obbzip64" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="obb-zip64-test" android:name="io.github.kisame76.minato.test.obbzip64.ZipApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

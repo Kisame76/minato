@@ -67,12 +67,12 @@ public class SessionApplication extends Application {
         new Handler(Looper.getMainLooper()).post(() -> install(1));
     }
 
-    /** Minato's: whether the APK of the session lies below the app's data folder (reflection; Android has none). */
+    /** Minato's: whether the APKs of the session lie below the app's data folder (reflection; Android has none). */
     private boolean insideDataFolder(int sessionId) {
         try {
-            final java.io.File apk = (java.io.File) Class.forName("android.content.pm.LocalPackageInstaller")
-                    .getMethod("sessionApk", int.class).invoke(null, sessionId);
-            return apk != null && apk.getPath().startsWith(getDataDir().getPath());
+            final java.util.List<?> apks = (java.util.List<?>) Class.forName("android.content.pm.LocalPackageInstaller")
+                    .getMethod("sessionApks", int.class).invoke(null, sessionId);
+            return !apks.isEmpty() && ((java.io.File) apks.get(0)).getPath().startsWith(getDataDir().getPath());
         } catch (ReflectiveOperationException | RuntimeException e) {
             return false;
         }

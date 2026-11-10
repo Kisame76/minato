@@ -28,8 +28,8 @@ output=$(python3 framework/tests/java_app_run.py --lifecycle start install-sessi
   build/install-session-test/install-session-test.apk fixtures/expected/install-session-test.logcat 1290x2796@3,en-US) || { echo "$output"; exit 1; }
 echo "$output"
 # Minato's own lines, shown as device lines (Android has no counterpart): the session folder lies in the data folder,
-# a session with two files is refused (STATUS_FAILURE_INCOMPATIBLE = 7), and a confirm that ends without the host's
+# a set with a broken split is refused as one APK would be (STATUS_FAILURE_INVALID = 4), and a confirm that ends without the host's
 # answer reports STATUS_FAILURE_ABORTED (3) to the sender.
-for line in 'session folder inside the data folder: true' 'case 3 status: 7' 'confirm ended: status 3'; do
+for line in 'session folder inside the data folder: true' 'case 3 status: 4' 'confirm ended: status 3'; do
   grep -q "$line" <<<"$output" || { echo "FAIL: no device line \"$line\""; exit 1; }
 done

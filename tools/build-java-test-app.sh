@@ -89,6 +89,19 @@ fi
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$OUT/dex" $(find "$OUT/classes" -name '*.class' | sort)
 assets=()
 [[ ! -d "fixtures/apps/$APP/assets" ]] || assets=(--assets "fixtures/apps/$APP/assets")
+# install-set-test and install-set-flow-test hand a split set of splits-test to a PackageInstaller session: the set's APKs (base, the feature
+# split and the arm64 and language config splits) are its assets, taken from tools/build-splits-test.sh's output.
+if [[ "$APP" == install-set-test || "$APP" == install-set-flow-test ]]; then
+  for apk in base.apk split_config.arm64_v8a.apk split_config.en.apk split_feature.apk; do
+    if [[ ! -f "build/splits-test/set/$apk" ]]; then
+      echo "build-java-test-app: no build/splits-test/set/$apk (tools/build-splits-test.sh)" >&2
+      exit 1
+    fi
+  done
+  mkdir -p "$OUT/set-assets"
+  cp build/splits-test/set/*.apk "$OUT/set-assets/"
+  assets=(--assets "$OUT/set-assets")
+fi
 # An app with a jni folder gets its C and C++ files as its JNI library, lib<app>.so in lib/arm64-v8a, built with the
 # NDK's clang at API 29 (D8's --min-api); jni/link.txt names the NDK libraries it links, one per line, each kept as
 # NEEDED.

@@ -680,6 +680,8 @@ run_app() {
       | install-sources-test \
       | install-session-test \
       | obb-large-test \
+      | obb-zip64-test \
+      | install-set-test \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
       | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test | batch-g-test | media-browser-test | biometric-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
@@ -1431,6 +1433,15 @@ run_app() {
     device push "$obb" "/sdcard/Android/obb/$package/" >/dev/null
     rm -rf "${large:?}"
   fi
+  if [[ "$app" == obb-zip64-test ]]; then
+    # Its Zip64 OBB (tools/make-sparse-zip64-obb.py, more than 4 GiB) is pushed in full into its OBB folder, and removed
+    # again after the run (the cleanup below).
+    large=$(mktemp -d)
+    obb=$(tools/make-sparse-zip64-obb.py "$large")
+    run mkdir -p "/sdcard/Android/obb/${package:?}"
+    device push "$obb" "/sdcard/Android/obb/$package/" >/dev/null
+    rm -rf "${large:?}"
+  fi
   if [[ "$app" == obb-test ]]; then
     # ADR-0049 test 8: its main and patch OBBs in its OBB folder before the start, as a user or a store puts them there.
     run mkdir -p "/sdcard/Android/obb/${package:?}"
@@ -2072,6 +2083,7 @@ run_app() {
   fi
   [[ "$app" != obb-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
   [[ "$app" != obb-large-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
+  [[ "$app" != obb-zip64-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
   if [[ "$app" == canvas-test ]]; then
     # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
     device exec-out run-as "$package" cat cache/canvas-test.rgba | gzip -n -9 >"$RESULTS/$app.rgba.gz"

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An app installer that hands a split set to one PackageInstaller session, as SAI does, in Minato (the host's
+     alerts, tools/java-start-check.sh): the four APKs of splits-test (tools/build-splits-test.sh, packed into this
+     app's assets by tools/build-java-test-app.sh). It asks on the settings page for unknown app sources whether it may
+     install apps, commits the set, starts the confirm intent the status carries, and gets STATUS_SUCCESS once the host
+     has taken the set over into the library. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.installsetflow" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.installsetflow.SetFlowActivity"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -205,6 +205,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete"
       "ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn"
       "install-flow-test io.github.kisame76.minato.test.installflow"
+      "install-session-flow-test io.github.kisame76.minato.test.installsessionflow"
       "ime-outside-test io.github.kisame76.minato.test.imeoutside"
       "edge-back-test-landscape io.github.kisame76.minato.test.edgeback")
 JAVA_TEST=${JAVA_TEST:-}
@@ -215,6 +216,10 @@ ONLY=${ONLY:-}
 APPS+=("obb-test io.github.kisame76.minato.test.obb")
 # packs-test comes as a bundletool .apks, which this check imports in the Simulator only, as it does obb-test's OBB.
 [[ "$ON_DEVICE" == yes ]] || APPS+=("packs-test io.github.kisame76.minato.test.packs")
+# obb-large-test comes as an .xapk with an OBB of more than 2 GiB (tools/make-large-xapk.py), a unit of its own that the
+# library inflates into the app: opt-in (LARGE_XAPK=1), as it needs 2.2 GB of room in the app's data folder, which the
+# run removes again with the app.
+[[ -z "${LARGE_XAPK:-}" ]] || APPS+=("obb-large-test io.github.kisame76.minato.test.obblarge")
 APPS+=("splits-test io.github.kisame76.minato.test.splits")
 # Ren'Py's splashscreen that calls a screen at once (ADR-0055), from tools/renpy-splash-build.sh, which this check
 # does not make: Interface start comes early, which game mode's turn to landscape must not catch without a window.
@@ -642,6 +647,10 @@ begin_start() {
   [[ "$app" != documents-tree-test ]] || echo yes > "$CHECK/pick-allow"
   # An app installer's alerts answer Allow and Install by themselves, as the user's taps do.
   [[ "$app" != install-flow-test ]] || echo yes > "$CHECK/install-allow"
+  # The session flow's third start (the user declines the install) has the install alert answer Cancel.
+  if [[ "$app" == install-session-flow-test ]]; then
+    [[ $round == 3 ]] && echo yes > "$CHECK/install-deny" || echo yes > "$CHECK/install-allow"
+  fi
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
@@ -1020,7 +1029,7 @@ mkdir -p "$CHECK"
 for app in "${APPS[@]}"; do
   # packs-test's and pad-test's sets come as unit folders of their own (pick_set), as the library takes only APKs
   # lying flat here.
-  case "${app%% *}" in packs-test|pad-test|splits-test|isolated-splits-test) continue ;; esac
+  case "${app%% *}" in packs-test|pad-test|splits-test|isolated-splits-test|obb-large-test) continue ;; esac
   if [[ "$ON_DEVICE" == yes ]]; then
     devicectl_copy to --source "$(apk "${app%% *}")" --destination "$SUPPORT_REL/incoming/${app%% *}.apk"
   else
@@ -1061,11 +1070,28 @@ if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then pick_set packs-test; fi
 if listed pad-test; then pick_set pad-test; fi
 if listed splits-test; then pick_set splits-test; fi
 if listed isolated-splits-test; then pick_set isolated-splits-test; fi
+# obb-large-test's .xapk (an APK and a main OBB of 2 GiB and 128 MiB, a few MiB packed), a unit folder that appears whole.
+pick_large_xapk() {
+  rm -rf "$WORK/unit-obb-large" && mkdir -p "$WORK/unit-obb-large"
+  python3 tools/make-large-xapk.py "$(apk obb-large-test)" "$WORK/unit-obb-large/obb-large-test.xapk"
+  LARGE_XAPK_START=$SECONDS
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy to --source "$WORK/unit-obb-large" --destination "$SUPPORT_REL/incoming/obb-large-test-xapk"
+    return
+  fi
+  local unit="${SUPPORT:?}/incoming/obb-large-test-xapk"
+  mkdir "$unit.partial"
+  cp "$WORK/unit-obb-large/obb-large-test.xapk" "$unit.partial/"
+  mv "$unit.partial" "$unit"
+}
+if listed obb-large-test; then pick_large_xapk; fi
 send_requests
 launch
 for app in "${APPS[@]}"; do
   package=${app#* }
   end=$((SECONDS + 60))
+  # The inflation of obb-large-test's 2.2 GB OBB takes longer than the other apps' imports.
+  [[ "${app%% *}" != obb-large-test ]] || end=$((SECONDS + 600))
   while (( SECONDS < end )); do
     [[ "$(field state "$package")" == "{'ready': {}}" ]] && break
     sleep 0.2
@@ -1819,6 +1845,54 @@ if wanted install-flow-test; then
   done
 fi
 
+# An app installer through a PackageInstaller session in Minato (the same alerts as install-flow-test): without the
+# grant the settings page asks, Minato's alert answers Allow; the app writes its own APK into a session, commits it,
+# starts the confirm intent of the pending status, Minato's install alert answers Install, and the session's sender
+# gets STATUS_SUCCESS once the library has the app. The second start has the grant from the start.
+if wanted install-session-flow-test; then
+  sessionflow="io.github.kisame76.minato.test.installsessionflow"
+  [[ "$ON_DEVICE" == yes ]] || rm -f "$SUPPORT/data/$sessionflow/profile.json"
+  for round in 1 2 3; do
+    if begin_start install-session-flow-test "$sessionflow" "$round"; then
+      if await_line guest-log "^I/install-session-flow-test: done$" 120; then
+        log="$CHECK/guest-log"
+        if [[ $round == 1 ]]; then
+          if grep -q "^I/install-session-flow-test: canRequestPackageInstalls after the settings page: true$" "$log"; then
+            ok "  Minato's alert allowed the app to install apps"
+          else
+            fail "  no grant after the settings page for unknown app sources"
+          fi
+        elif grep -q "^I/install-session-flow-test: canRequestPackageInstalls: true$" "$log"; then
+          ok "  start $round has the grant from the start"
+        else
+          fail "  the second start has no grant: the app's profile did not keep it"
+        fi
+        if [[ $round == 3 ]]; then
+          # The user declines the install: the confirm ends cancelled and the sender gets STATUS_FAILURE_ABORTED.
+          if grep -q "^I/install-session-flow-test: confirm result: cancelled$" "$log" &&
+              grep -q "^I/install-session-flow-test: final status: 3$" "$log"; then
+            ok "  the user's Cancel ended the session with STATUS_FAILURE_ABORTED"
+          else
+            fail "  the declined install did not end with ABORTED"
+          fi
+        elif grep -q "^I/install-session-flow-test: status: pending user action$" "$log" &&
+            grep -q "^I/install-session-flow-test: confirm result: ok$" "$log" &&
+            grep -q "^I/install-session-flow-test: final status: 0$" "$log"; then
+          ok "  the session's APK went to the library, STATUS_SUCCESS"
+        else
+          ended=$(sed -n -E 's/^I\/install-session-flow-test: (final status|confirm result): //p' "$log" | tr '\n' ' ')
+          fail "  the session ended: $ended"
+        fi
+      else
+        failed_line "no done" "install-session-flow-test-$round"
+      fi
+    fi
+    end_start install-session-flow-test "$round"
+    fetch_events
+    grep -E " install (sources )?[0-9]+ " "$EVENTS" | sed 's/^/      | /' || true
+  done
+fi
+
 # ADR-0074 decision 4's cold tap: once notify-tap-test has run and its notification is delivered,
 # Minato starts and session-check's notification-cold-tap taps it as it launches, before the library has its entries,
 # as didReceive comes when the tap launched Minato: the tap waits for the library, which checks the stored content
@@ -2190,6 +2264,12 @@ if wanted obb-test; then
   for _ in $(seq 1 100); do fetch "$obb_rel" && break; sleep 0.2; done
   if [[ -f "$obb" ]]; then ok "obb-test's OBB is in its OBB folder"; else fail "no OBB in obb-test's OBB folder"; fi
   run_one obb-test io.github.kisame76.minato.test.obb
+fi
+if wanted obb-large-test && listed obb-large-test; then
+  # The import inflated the 2.2 GB OBB into the app's OBB folder before the app was ready: the time from the unit's
+  # arrival is shown, and the app reads the file at offsets beyond 2^31 (fixtures/expected/obb-large-test.logcat).
+  echo "  obb-large-test: ready $((SECONDS - ${LARGE_XAPK_START:-SECONDS})) s after the .xapk arrived (a run's time, the device is shared)"
+  run_one obb-large-test io.github.kisame76.minato.test.obblarge
 fi
 if wanted packs-test && [[ "$ON_DEVICE" == no ]]; then
   # Its fast-follow and on-demand pack slices, which the library keeps from its set (ADR-0049 f) and the start lays out

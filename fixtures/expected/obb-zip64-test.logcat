@@ -1,0 +1,6 @@
+I/obb-zip64-test: size 4295033194
+I/obb-zip64-test: entry big.bin size 4295032832 compressed 4295032832 method 0
+I/obb-zip64-test: entry after.txt size 20 compressed 20 method 0
+I/obb-zip64-test: after.txt: after the big entry
+I/obb-zip64-test: big.bin skipped 4295032824, tail: THE-TAIL
+I/obb-zip64-test: done
