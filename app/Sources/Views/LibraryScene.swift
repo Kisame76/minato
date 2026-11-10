@@ -53,6 +53,9 @@ struct LibraryScene: View {
             .sheet(item: $reporting) { report in
                 ReportSheet(report: report)
             }
+            #if DEBUG
+            .preferredColorScheme(Self.checkAppearance)
+            #endif
             // Finish imports that were interrupted, e.g. because the app was closed while installing, and
             // check the signing certificate, which a store may have changed while the app was away.
             .onChange(of: scenePhase, initial: true) { _, phase in
@@ -70,6 +73,18 @@ struct LibraryScene: View {
                 }
             }
     }
+
+    #if DEBUG
+    /// For TabSwipeUITests: MINATO_APPEARANCE=light or dark in the launch environment holds the library in that
+    /// appearance whatever the device's is, so that a black page means no page also on an iPhone in dark mode.
+    private static var checkAppearance: ColorScheme? {
+        switch ProcessInfo.processInfo.environment["MINATO_APPEARANCE"] {
+        case "light": .light
+        case "dark": .dark
+        default: nil
+        }
+    }
+    #endif
 
     /// Whether the alert names an app to report (ADR-0070): one that is not ready, or that quit unexpectedly.
     private func reportsApp(_ problem: LaunchMode.Problem) -> Bool {

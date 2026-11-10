@@ -3,11 +3,16 @@ import XCTest
 /// The swipe between Home, Library and Settings (RootView's SwipeTabBarController), as the user swipes: fast and
 /// slow, back and forth, let go before half the way, and right after a tab was tapped. After each swipe the page must
 /// be whole: the selected tab's page in the window's place, and not black (the user's bug of 2026-11-06: sometimes
-/// a black page after a swipe: no page in the window). tools/tab-swipe-check.sh runs it; in the Simulator it sets the
-/// light appearance, where a page is never black, and TEST_RUNNER_MINATO_LIGHT=1 counts black pages too.
+/// a black page after a swipe: no page in the window). tools/tab-swipe-check.sh runs it. Minato starts in the light
+/// appearance (its Debug build's MINATO_APPEARANCE), where a page is never black, also on an iPhone in dark mode, where
+/// an empty page is black by itself; so a black page counts everywhere.
 @MainActor
 final class TabSwipeUITests: XCTestCase {
-    private let minato = XCUIApplication(bundleIdentifier: "io.github.kisame76.minato")
+    private let minato: XCUIApplication = {
+        let minato = XCUIApplication(bundleIdentifier: "io.github.kisame76.minato")
+        minato.launchEnvironment["MINATO_APPEARANCE"] = "light"
+        return minato
+    }()
     private let tabs = ["Home", "Library", "Settings"]
     private var broken = 0
 
@@ -121,8 +126,7 @@ final class TabSwipeUITests: XCTestCase {
         let line = "\(name): tab \(selected), page placed \(placed) (\(bars.map { Int($0.minX) })), black "
             + String(format: "%.2f then %.2f", early, settled)
         print("MINATO-UITEST \(line)")
-        let light = ProcessInfo.processInfo.environment["MINATO_LIGHT"] != "0"
-        if selected != expected || !placed || (light && settled > 0.5) {
+        if selected != expected || !placed || settled > 0.5 {
             broken += 1
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = name
