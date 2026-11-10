@@ -777,6 +777,18 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
         std::fprintf(stderr, "apk-run: back at root\n");
         return;
     }
+    if (type == APKRT_REQUEST_ASK_INSTALL_SOURCES || type == APKRT_REQUEST_CONFIRM_INSTALL) {
+        // The model of an app installer's questions to the user: nobody is here to say yes, so the right to install is
+        // denied and an install is cancelled, at once, as a user who declines would; the guest ends its request with
+        // that answer instead of waiting for a host that is not there.
+        const bool ask = type == APKRT_REQUEST_ASK_INSTALL_SOURCES;
+        std::fprintf(stderr, "apk-run: install %s %llu: %s -> %s\n", ask ? "sources" : "confirm",
+                     static_cast<unsigned long long>(argument), one_line(text != nullptr ? text : "").c_str(),
+                     ask ? "denied" : "cancelled");
+        apkrt_session_post(ask ? APKRT_EVENT_INSTALL_SOURCES_RESULT : APKRT_EVENT_INSTALL_RESULT, argument,
+                           ask ? 0 : 2, 0);
+        return;
+    }
     if (type != APKRT_REQUEST_FINISH) return;
     std::lock_guard<std::mutex> hold(finishing.lock);
     finishing.finish = true;
