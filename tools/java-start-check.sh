@@ -305,6 +305,15 @@ if [[ -n "${PIXELS:-}" ]]; then
     ONLY="views-test dialog-test second-windows-test activity-flow-test window-formats-test views-test-landscape"
 fi
 # Whether app $1 starts in this run: each one, or ONLY's, which must be the check's.
+# notify-test-granted and notify-tap-test need iOS's answer for Minato's notifications, granted: the host passes a
+# stored grant on only while iOS gives it. In the Simulator only permission-request-test-notifications' round gets
+# that answer (its runner answers iOS's prompt), so ONLY takes it along; a Simulator or a Minato install that never
+# answered would fail them with "posted: enabled false".
+if [[ "$ON_DEVICE" == no && -n "${ONLY// /}" && " $ONLY " != *" permission-request-test-notifications "* ]] &&
+    [[ " $ONLY " == *" notify-tap-test "* || " $ONLY " == *" notify-test-granted "* ]]; then
+  ONLY="permission-request-test-notifications $ONLY"
+  echo "note    ONLY takes permission-request-test-notifications along, for iOS's notifications answer"
+fi
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
   names=" ${APPS[*]%% *} "
