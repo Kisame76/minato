@@ -264,6 +264,25 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.app.AutomaticZenRule \
   --class android.service.notification.Condition \
   --class android.view.translation.ViewTranslationRequest \
+  --class android.app.blob.BlobStoreManager --class android.os.BugreportManager \
+  --class android.companion.CompanionDeviceManager --class android.credentials.CredentialManager \
+  --class android.content.pm.CrossProfileApps --class android.view.displayhash.DisplayHashManager \
+  --class android.content.pm.verify.domain.DomainVerificationManager --class android.security.FileIntegrityManager \
+  --class android.content.om.OverlayManager --class android.app.people.PeopleManager \
+  --class android.companion.virtual.VirtualDeviceManager \
+  --class android.credentials.CredentialDescription \
+  --class android.credentials.GetCredentialException --class android.credentials.PrepareGetCredentialResponse \
+  --class android.credentials.RegisterCredentialDescriptionRequest \
+  --class android.credentials.UnregisterCredentialDescriptionRequest \
+  --class android.content.om.OverlayInfo --class android.content.om.OverlayManagerTransaction \
+  --class android.view.displayhash.DisplayHash --class android.view.displayhash.VerifiedDisplayHash \
+  --class android.companion.AssociationInfo --class android.companion.AssociationRequest \
+  --class android.companion.CompanionException --class android.companion.DeviceNotAssociatedException \
+  --class android.companion.ObservingDevicePresenceRequest \
+  --class android.content.pm.verify.domain.DomainVerificationUserState \
+  --class android.companion.virtual.VirtualDevice \
+  --class android.companion.AssociatedDevice --class android.companion.DeviceFilter \
+  --class android.content.om.FabricatedOverlay --class android.content.om.OverlayIdentifier \
   --placeholder android.view.SurfaceControl \
   --placeholder android.view.WindowId \
   --placeholder android.window.InputTransferToken \
@@ -287,9 +306,11 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.drm.DrmStore --class android.drm.DrmSupportInfo --class android.drm.DrmUtils \
   --class android.drm.ProcessedData \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
+  --class android.net.wifi.ScanResult \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
   --class android.net.NetworkRequest --class android.net.LinkProperties \
+  --class android.net.MacAddress \
   --api "$SOURCES/connectivity_t_api/framework-t/api/current.txt" --class android.net.TrafficStats \
   --class android.app.usage.NetworkStatsManager \
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \

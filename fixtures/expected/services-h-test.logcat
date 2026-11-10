@@ -1,0 +1,24 @@
+I/services-h-test: BlobStoreManager by name: true, by class: true, same: true
+I/services-h-test: BlobStoreManager.getLeasedBlobs(): size 0
+I/services-h-test: BlobStoreManager.getRemainingLeaseQuotaBytes(): 314572800
+I/services-h-test: BugreportManager by name: true, by class: true, same: true
+I/services-h-test: CompanionDeviceManager by name: true, by class: true, same: true
+I/services-h-test: CompanionDeviceManager.getAllAssociations(): throws java.lang.SecurityException
+I/services-h-test: CompanionDeviceManager.getAssociations(): size 0
+I/services-h-test: CompanionDeviceManager.getMyAssociations(): size 0
+I/services-h-test: CredentialManager by name: true, by class: true, same: true
+I/services-h-test: CrossProfileApps by name: true, by class: true, same: true
+I/services-h-test: CrossProfileApps.canInteractAcrossProfiles(): false
+I/services-h-test: CrossProfileApps.canRequestInteractAcrossProfiles(): false
+I/services-h-test: CrossProfileApps.getTargetUserProfiles(): size 0
+I/services-h-test: DisplayHashManager by name: true, by class: true, same: true
+I/services-h-test: DisplayHashManager.getSupportedHashAlgorithms(): size 1
+I/services-h-test: DomainVerificationManager by name: true, by class: true, same: true
+I/services-h-test: FileIntegrityManager by name: true, by class: true, same: true
+I/services-h-test: FileIntegrityManager.isApkVeritySupported(): true
+I/services-h-test: OverlayManager by name: true, by class: true, same: true
+I/services-h-test: PeopleManager by name: true, by class: true, same: true
+I/services-h-test: VirtualDeviceManager by name: true, by class: true, same: true
+I/services-h-test: VirtualDeviceManager.getAllPersistentDeviceIds(): size 0
+I/services-h-test: VirtualDeviceManager.getVirtualDevices(): size 0
+I/services-h-test: done

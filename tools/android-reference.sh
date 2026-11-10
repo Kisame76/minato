@@ -247,6 +247,7 @@ fi
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
     || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test \
+    || "$app" == services-h-test \
     || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == services-f-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test || "$app" == jobs-alarms-run-test || "$app" == job-constraints-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
@@ -686,6 +687,7 @@ run_app() {
       | obb-zip64-test \
       | install-set-test \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
+      | services-h-test \
       | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test | batch-g-test | media-browser-test | biometric-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       mask=yes

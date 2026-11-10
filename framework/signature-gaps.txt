@@ -19,9 +19,6 @@ android.app.IUiAutomationConnection <- android.app.Instrumentation  # gap: not t
 android.app.LocalActivityManager <- android.widget.TabHost  # gap: not taken: it pulls android.app.servertransaction (ClientTransaction and the activity lifecycle items), a package of its own
 android.app.ProfilerInfo <- android.app.IActivityTaskManager, android.app.LocalActivityTaskManager  # gap: not taken: its proto message ProfilerInfoProto is generated from frameworks/base's .proto files, which no step generates yet
 android.app.UiAutomation <- android.app.Instrumentation  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
-android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
-android.companion.virtual.VirtualDeviceManager$VirtualDeviceListener <- android.hardware.SystemSensorManager  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
-android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # gap: not taken: its constructor calls android.content.om.OverlayIdentifier's, which our copy lacks, and it needs CriticalOverlayInfo; no overlay manager exists on Minato
 android.content.pm.IPackageManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
 android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
@@ -29,7 +26,6 @@ android.media.projection.IMediaProjection <- android.hardware.display.DisplaySer
 android.net.IpConfiguration <- android.net.wifi.WifiConfiguration  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.metrics.LogMaker <- android.service.notification.StatusBarNotification  # gap: not taken: its field constants come from MetricsProto, a generated proto class
 android.net.IpSecTransform <- android.net.IpSecManager  # gap: IPsec transforms not taken yet; Minato has no IPsec service
-android.net.MacAddress <- android.net.wifi.SoftApConfiguration, android.net.wifi.WifiConfiguration, android.net.wifi.WifiInfo, android.net.wifi.WifiNetworkSpecifier, android.net.wifi.WifiNetworkSuggestion  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.WifiEnterpriseConfig <- android.net.wifi.WifiConfiguration, android.net.wifi.WifiNetworkSpecifier, android.net.wifi.WifiNetworkSuggestion  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.hotspot2.pps.Credential <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.hotspot2.pps.HomeSp <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
@@ -53,7 +49,6 @@ android.view.SurfaceSession <- android.view.SurfaceControl  # gap: a placeholder
 android.view.ViewFrameInfo <- android.view.ViewRootImpl  # gap: not taken: it reads InputEvent.INVALID_INPUT_EVENT_ID, which our InputEvent lacks
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.view.displayhash.DisplayHash <- android.view.displayhash.DisplayHashResultCallback  # gap: display hashes not taken yet
 android.view.textservice.SpellCheckerInfo <- android.view.textservice.SpellCheckerSession, android.view.textservice.TextServicesManager  # gap: not taken: its constructor of SpellCheckerSubtype does not match ours; with SpellCheckerSubtype
 android.view.textservice.SpellCheckerSubtype <- android.view.textservice.TextServicesManager  # gap: not taken: it needs SubtypeLocaleUtils of the input method service; Minato has no spell checker service
 android.view.translation.TranslationRequestValue <- android.view.translation.ViewTranslationRequest  # gap: translation requests' values not taken yet

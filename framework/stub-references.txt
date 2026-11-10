@@ -42,7 +42,6 @@ android.os.storage.IStorageManager$Stub <- android.os.StrictMode  # gap: StrictM
 android.view.InsetsSourceControl <- android.content.res.CompatibilityInfo  # stays: CompatibilityInfo's Translator, which scales windows in size compatibility mode, as our ViewRootImpl never does
 
 # Drawables and graphics.
-android.content.om.OverlayInfo <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
 com.android.internal.content.om.OverlayManagerImpl <- android.content.res.loader.ResourcesProvider  # stays: ResourcesProvider.loadOverlay, for fabricated overlays, which need the overlay manager
 
 # Text layout: TextView's step (M4 step 10).
@@ -83,8 +82,6 @@ android.view.SurfaceSession <- android.view.View  # ADR-0041 a): surfaces
 android.view.ViewFrameInfo <- android.view.View  # M4 step 10: drawing's frame info
 android.view.animation.ClipRectAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
 android.view.animation.ExtendAnimation <- android.view.animation.AnimationUtils  # M4 step 10: view animations, which drawing shows
-android.credentials.GetCredentialException <- android.view.View  # gap: Credential Manager requests
-android.view.displayhash.DisplayHash <- android.view.View  # gap: display hashes
 
 # Step c2c3: the activity and its window. AOSP's Activity, Instrumentation, ActivityClient, Window and their
 # helpers name the stubs below; the local controller is IActivityClientController's Default class, so its Stub's
@@ -103,7 +100,6 @@ android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activit
 
 # ADR-0045, the start's local services: the sensors, whose natives report none, so nothing that needs a
 # sensor runs.
-android.companion.virtual.VirtualDeviceManager <- android.hardware.SystemSensorManager  # stays: a virtual device's context, which Minato has none of: ContextImpl's device is the default one
 
 # GLES from Java (ADR-0041 a)): opengl/java's three packages. A window surface takes a SurfaceView's or a
 # Surface's window (ADR-0043 c4); a SurfaceTexture needs libgui, and a native fence EGL_ANDROID_native_fence_sync,
@@ -137,7 +133,6 @@ com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # ga
 
 # ADR-0045's text to speech (gap 13b): what only an engine or a virtual device reaches, which Minato has
 # none of.
-android.companion.virtual.VirtualDeviceManager <- android.speech.tts.TextToSpeech  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
 
 # ADR-0043 step d), text: TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
@@ -180,7 +175,6 @@ android.service.notification.INotificationListener$Stub <- android.app.INotifica
 android.app.admin.DevicePolicyResourcesManager <- android.app.Notification  # stays: a work profile's badge (Builder.getProfileBadgeDrawable), which user 0 never has
 android.media.IAudioService <- android.media.PlayerBase  # stays: a player's calls to the audio service, which Minato has none of: the patched getService throws RemoteException first, which each caller takes (ADR-0060 e2e1)
 com.android.internal.app.IAppOpsService <- android.media.PlayerBase  # stays: baseRelease's stopWatchingMode, under mAppOps != null, a field PlayerBase never assigns at android-15.0.0_r1
-android.companion.virtual.VirtualDeviceManager <- android.media.PlayerBase  # stays: a virtual device's audio session, which Minato has none of: ContextImpl's device is the default one
 android.os.vibrator.persistence.VibrationXmlParser <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file reads
 android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.NotificationChannel  # stays: a channel's XML, which only the system's policy file writes
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
@@ -197,7 +191,6 @@ android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard
 # The legacy Camera without the audio and app ops services it asks for.
 android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
-android.companion.virtual.VirtualDeviceManager <- android.hardware.Camera  # stays: the camera policy of a virtual device's context, which Minato has none of
 android.media.IAudioService <- android.hardware.Camera  # stays: the shutter sound's check after an OP_PLAY_AUDIO change, which the patched Camera never watches
 android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutter sound's check after an OP_PLAY_AUDIO change, which the patched Camera never watches
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops binder, which the patched constructor no longer asks for

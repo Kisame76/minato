@@ -274,7 +274,30 @@ final class SystemServiceRegistry {
         // only).
         cached(Context.WALLPAPER_SERVICE, WallpaperManager.class, ctx -> new WallpaperManager(ctx.getOuterContext()));
         cached(Context.LAUNCHER_APPS_SERVICE, LauncherApps.class, ctx -> new LauncherApps(ctx.getOuterContext()));
-    }
+            // Services bundle B (service inventory): managers that answer as a phone without the function does.
+        cached(Context.BLOB_STORE_SERVICE, android.app.blob.BlobStoreManager.class,
+                ctx -> new android.app.blob.BlobStoreManager(ctx.getOuterContext()));
+        cached(Context.BUGREPORT_SERVICE, android.os.BugreportManager.class,
+                ctx -> new android.os.BugreportManager(ctx.getOuterContext()));
+        cached(Context.COMPANION_DEVICE_SERVICE, android.companion.CompanionDeviceManager.class,
+                ctx -> new android.companion.CompanionDeviceManager(ctx.getOuterContext()));
+        cached(Context.CREDENTIAL_SERVICE, android.credentials.CredentialManager.class,
+                ctx -> new android.credentials.CredentialManager(ctx.getOuterContext()));
+        cached(Context.CROSS_PROFILE_APPS_SERVICE, android.content.pm.CrossProfileApps.class,
+                ctx -> new android.content.pm.CrossProfileApps(ctx.getOuterContext()));
+        cached(Context.DISPLAY_HASH_SERVICE, android.view.displayhash.DisplayHashManager.class,
+                ctx -> new android.view.displayhash.DisplayHashManager(ctx.getOuterContext()));
+        cached(Context.DOMAIN_VERIFICATION_SERVICE, android.content.pm.verify.domain.DomainVerificationManager.class,
+                ctx -> new android.content.pm.verify.domain.DomainVerificationManager(ctx.getOuterContext()));
+        cached(Context.FILE_INTEGRITY_SERVICE, android.security.FileIntegrityManager.class,
+                ctx -> new android.security.FileIntegrityManager(ctx.getOuterContext()));
+        cached(Context.OVERLAY_SERVICE, android.content.om.OverlayManager.class,
+                ctx -> new android.content.om.OverlayManager(ctx.getOuterContext()));
+        cached(Context.PEOPLE_SERVICE, android.app.people.PeopleManager.class,
+                ctx -> new android.app.people.PeopleManager(ctx.getOuterContext()));
+        cached(Context.VIRTUAL_DEVICE_SERVICE, android.companion.virtual.VirtualDeviceManager.class,
+                ctx -> new android.companion.virtual.VirtualDeviceManager(ctx.getOuterContext()));
+}
 
     private SystemServiceRegistry() {
     }
