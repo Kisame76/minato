@@ -45,7 +45,7 @@ using namespace std::chrono_literals;
 constexpr std::uint64_t nr_fcntl = 25, nr_read = 63;
 constexpr std::uint64_t f_getfd = 1, f_setfl = 4, fd_cloexec = 1, o_nonblock = 04000;
 constexpr long enoent = 2, eagain = 11, enomem = 12, eacces = 13, efault = 14, ebusy = 16, eexist = 17, einval = 22,
-               enospc = 28, eopnotsupp = 95;
+               enospc = 28, eopnotsupp = 95, ealready = 114;
 
 template <typename T>
 std::uint64_t address(T *pointer) {
@@ -737,6 +737,27 @@ TEST(a_malformed_permission_request_is_refused_before_the_host_sees_it) {
     CHECK(ask("") == -einval);        // empty
     CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_PERMISSION, address("1\t1"), 0) == -einval);  // ID 0
     CHECK(take_requests().empty());   // nothing malformed reached the host
+}
+
+TEST(a_starting_window_request_validates_the_colours_and_forwards_them_packed_once) {
+    take_requests();
+    const auto ask = [](std::uint64_t a0, std::uint64_t a1) {
+        return call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_STARTING_WINDOW, a0, a1);
+    };
+    CHECK(ask(0x00FAFAFA, 0) == -einval);           // a splash that is not opaque (alpha != 0xFF)
+    CHECK(ask(0xFFFAFAFA, 0x00112233) == -einval);  // an icon background that is not opaque
+    CHECK(ask(0x1FFFAFAFAull, 0) == -einval);       // a colour above 32 bits
+    CHECK(take_requests().empty());                 // none reached the host
+    // A valid request (opaque splash, opaque icon) is forwarded once, packed (a1 << 32) | a0, with no text.
+    CHECK(ask(0xFFFAFAFA, 0xFF112233) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 1);
+    if (seen.size() != 1) return;
+    CHECK(seen[0].type == APKRT_REQUEST_STARTING_WINDOW);
+    CHECK(seen[0].argument == ((0xFF112233ull << 32) | 0xFFFAFAFAull));
+    CHECK(!seen[0].had_text);
+    CHECK(ask(0xFF2E7D32, 0) == -ealready);  // only once per process
+    CHECK(take_requests().empty());          // the second did not reach the host
 }
 
 TEST(permission_requests_are_unique_and_limited) {

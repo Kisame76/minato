@@ -789,6 +789,15 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
                            ask ? 0 : 2, 0);
         return;
     }
+    if (type == APKRT_REQUEST_STARTING_WINDOW) {
+        // ADR-0076: the runtime packed the two colours as (a1 << 32) | a0; print the splash and the icon background in
+        // #RRGGBB (no alpha), "none" when a1 is 0, as the Mac check (tools/starting-window-check.sh) compares.
+        const unsigned splash = static_cast<unsigned>(argument) & 0xFFFFFFu;
+        const unsigned icon = static_cast<unsigned>(argument >> 32);
+        if (icon == 0) std::fprintf(stderr, "apk-run: starting window request: #%06X icon none\n", splash);
+        else std::fprintf(stderr, "apk-run: starting window request: #%06X icon #%06X\n", splash, icon & 0xFFFFFFu);
+        return;
+    }
     if (type != APKRT_REQUEST_FINISH) return;
     std::lock_guard<std::mutex> hold(finishing.lock);
     finishing.finish = true;

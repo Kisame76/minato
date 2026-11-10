@@ -534,6 +534,10 @@ enum apkrt_request_type {
     APKRT_REQUEST_CONFIRM_INSTALL,      // guest only (an app installer): a0 the address of NUL text "<path>\n<package>"
                                         // (the APK path and the requesting package), a1 the request's ID. The host
                                         // shows the package installer and answers once with APKRT_EVENT_INSTALL_RESULT
+    APKRT_REQUEST_STARTING_WINDOW,      // guest only (ADR-0076): a0 the splash colour 0xFFRRGGBB (opaque), a1 the icon
+                                        // background colour (0 = none, else 0xFFRRGGBB). The runtime refuses -EINVAL a
+                                        // non-opaque a0 or an a1 that is neither 0 nor opaque, and forwards a valid one
+                                        // once (-EALREADY after) to the host as argument (a1 << 32) | a0; no answer
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)

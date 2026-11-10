@@ -274,7 +274,7 @@ void set_graphics_lookup_for_test(GraphicsLookupFn lookup) {
 std::size_t parking_line(bool warning, char *out, std::size_t size) {
     const GraphicsLineFn fn = parking_line_source();
     if (fn == nullptr) return 0;  // no ANGLEMetalParkingLine (a library without 0017, or ANGLE not loaded yet)
-    char stats[192];
+    char stats[256];  // 0018 appends four fields; a ~200-char line must fit here, or the line is dropped
     stats[0] = '\0';
     int written = fn(stats, sizeof stats);
     if (written <= 0) return 0;

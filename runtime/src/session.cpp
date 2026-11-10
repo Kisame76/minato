@@ -1338,6 +1338,18 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             // Guest only: fire-and-forget; a0, the SCREEN_ORIENTATION value, is the notification's argument.
             report(APKRT_REQUEST_ORIENTATION, a0, nullptr);
             return 0;
+        case APKRT_REQUEST_STARTING_WINDOW: {
+            // Guest only (ADR-0076): a0 splash 0xFFRRGGBB, a1 icon bg (0 or 0xFFRRGGBB). A colour
+            // that is not opaque (alpha != 0xFF) or does not fit in 32 bits is refused, so the host only ever gets
+            // valid colours. A valid request is forwarded once, packed as (a1 << 32) | a0 (both 32-bit); no answer, a
+            // second one is -EALREADY. Validate before claiming the once-slot, so a bad request can be retried.
+            const auto opaque = [](std::uint64_t colour) { return (colour >> 32) == 0 && (colour >> 24) == 0xFF; };
+            if (!opaque(a0) || (a1 != 0 && !opaque(a1))) return -linux_errno::einval;
+            static std::atomic_flag asked = ATOMIC_FLAG_INIT;
+            if (asked.test_and_set(std::memory_order_relaxed)) return -linux_errno::ealready;
+            report(APKRT_REQUEST_STARTING_WINDOW, (a1 << 32) | (a0 & 0xFFFFFFFF), nullptr);
+            return 0;
+        }
         default:
             return -linux_errno::einval;
     }
