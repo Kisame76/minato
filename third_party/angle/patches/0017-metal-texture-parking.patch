@@ -1,0 +1,1449 @@
+Park textures that were not used for a while as a lossless packed CPU copy near the memory limit (Minato, patch 0017).
+
+Why: an app may hold more textures than the iPhone lets a process keep. A visual novel engine pins a whole
+full-screen frame sequence (Ren'Py's image cache never evicts what the running interaction uses), several GB on a
+device that kills the process far earlier; Android holds the same frames, and nothing the app reads could make it
+hold fewer (ADR-0075). Near the limit (os_proc_available_memory below 1 GiB; MINATO_ANGLE_PARK_LIMIT_MB on the Mac
+for tests) the Metal backend reads back 2D color textures that were not used for 500 ms, packs them on background
+workers (row delta filter, then LZ4 in 1 MiB chunks; LZFSE later for textures that stay packed) and drops their
+GPU storage. The next use restores them bit for bit before the draw; the packed copy is kept until the texture is
+written, so parking it again costs nothing. Textures ever bound as a framebuffer attachment, shader image, EGL
+image or pbuffer are never parked. A use only counts up; the frame end turns counts into times, so an app far
+from the limit pays a branch per entry point. ANGLEMetalParkingLine reports the counters (MINATO_ANGLE_PARK_REPORT
+prints them at the first park, the first restore and the exit); MINATO_ANGLE_PARK_STRESS parks every texture that
+may be parked at every frame end, for checks.
+Test: graphics/tests/angle_texture_parking.mm (240 full-screen textures of picture-like content in a cycle stay
+below a limit 0.3 GiB under what they need, every frame reads back what was uploaded, no frame stalls).
+Upstream: no (Minato's memory policy).
+diff --git a/src/libANGLE/renderer/metal/BUILD.gn b/src/libANGLE/renderer/metal/BUILD.gn
+index 8e4c836..90a37e2 100644
+--- a/src/libANGLE/renderer/metal/BUILD.gn
++++ b/src/libANGLE/renderer/metal/BUILD.gn
+@@ -183,6 +183,8 @@ angle_source_set("angle_metal_backend") {
+       "IOSurface.framework",
+       "QuartzCore.framework",
+     ]
++    # Texture parking packs idle textures with the system's compression library.
++    libs += [ "compression" ]
+     if (is_mac) {
+       frameworks += [ "Cocoa.framework" ]
+     }
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.h b/src/libANGLE/renderer/metal/ContextMtl.h
+index 56ebd55..02124fe 100644
+--- a/src/libANGLE/renderer/metal/ContextMtl.h
++++ b/src/libANGLE/renderer/metal/ContextMtl.h
+@@ -285,6 +285,8 @@ class ContextMtl : public ContextImpl, public mtl::Context
+     void invalidateDefaultAttribute(size_t attribIndex);
+     void invalidateDefaultAttributes(const gl::AttributesMask &dirtyMask);
+     void invalidateCurrentTextures();
++    // The serial of the command buffer that commands encoded now go into (texture parking, Minato).
++    uint64_t parkingCommandSerial() const { return mCmdBuffer.getQueueSerial(); }
+     void invalidateDriverUniforms();
+     void invalidateRenderPipeline();
+ 
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.mm b/src/libANGLE/renderer/metal/ContextMtl.mm
+index 0bd4044..492832c 100644
+--- a/src/libANGLE/renderer/metal/ContextMtl.mm
++++ b/src/libANGLE/renderer/metal/ContextMtl.mm
+@@ -32,6 +32,7 @@
+ #include "libANGLE/renderer/metal/ShaderMtl.h"
+ #include "libANGLE/renderer/metal/SyncMtl.h"
+ #include "libANGLE/renderer/metal/TextureMtl.h"
++#include "libANGLE/renderer/metal/mtl_texture_parking.h"
+ #include "libANGLE/renderer/metal/TransformFeedbackMtl.h"
+ #include "libANGLE/renderer/metal/VertexArrayMtl.h"
+ #include "libANGLE/renderer/metal/mtl_command_buffer.h"
+@@ -251,11 +252,13 @@ GLint GetOwnershipIdentity(const egl::AttributeMap &attribs)
+     // extension to synchronize with ANGLE's Metal backend, if
+     // needed. This is typically required if two MTLDevices are
+     // operating on the same IOSurface.
++    ANGLE_TRY(mtl::TextureParking::Get().tick(context));
+     flushCommandBuffer(mtl::NoWait);
+     return checkCommandBufferError();
+ }
+ angle::Result ContextMtl::finish(const gl::Context *context)
+ {
++    ANGLE_TRY(mtl::TextureParking::Get().tick(context));
+     ANGLE_TRY(finishCommandBuffer());
+     return checkCommandBufferError();
+ }
+@@ -1466,7 +1469,9 @@ GLint GetOwnershipIdentity(const egl::AttributeMap &attribs)
+ // Texture creation
+ TextureImpl *ContextMtl::createTexture(const gl::TextureState &state)
+ {
+-    return new TextureMtl(state);
++    TextureMtl *texture = new TextureMtl(state);
++    texture->setParkingOwner(getState().getShareGroup());
++    return texture;
+ }
+ 
+ // Renderbuffer creation
+@@ -1812,6 +1817,9 @@ GLint GetOwnershipIdentity(const egl::AttributeMap &attribs)
+                          id<CAMetalDrawable> presentationDrawable,
+                          std::optional<CFTimeInterval> presentationTime)
+ {
++    // The end of a frame: park idle textures when memory runs low (texture parking, Minato). An error is
++    // already recorded on the context.
++    (void)mtl::TextureParking::Get().tick(context);
+     ensureCommandBufferReady();
+ 
+     FramebufferMtl *currentframebuffer = mtl::GetImpl(getState().getDrawFramebuffer());
+diff --git a/src/libANGLE/renderer/metal/TextureMtl.h b/src/libANGLE/renderer/metal/TextureMtl.h
+index 446f81d..837a780 100644
+--- a/src/libANGLE/renderer/metal/TextureMtl.h
++++ b/src/libANGLE/renderer/metal/TextureMtl.h
+@@ -19,6 +19,7 @@
+ #include "libANGLE/renderer/metal/mtl_command_buffer.h"
+ #include "libANGLE/renderer/metal/mtl_context_device.h"
+ #include "libANGLE/renderer/metal/mtl_resources.h"
++#include "libANGLE/renderer/metal/mtl_texture_parking.h"
+ #include "libANGLE/renderer/renderer_utils.h"
+ namespace rx
+ {
+@@ -181,6 +182,9 @@ class TextureMtl : public TextureImpl
+                                int textureSlotIndex,
+                                int samplerSlotIndex);
+ 
++    // The share group whose contexts may park this texture (texture parking, Minato).
++    void setParkingOwner(const void *owner);
++
+     angle::Result bindToShaderImage(const gl::Context *context,
+                                     mtl::RenderCommandEncoder *cmdEncoder,
+                                     gl::ShaderType shaderType,
+@@ -344,6 +348,27 @@ class TextureMtl : public TextureImpl
+                                              const mtl::Format &format) const;
+     bool isImmutableOrPBuffer() const;
+ 
++    // Texture parking (Minato, mtl_texture_parking.h).
++    friend class mtl::TextureParking;
++    // Every use of the texture: stamps it and brings a parked texture back first.
++    angle::Result restoreIfParked(const gl::Context *context, mtl::ParkUse use = mtl::ParkUse::Write);
++    angle::Result restoreParked(const gl::Context *context);
++    // The bytes a park would free, or 0 when the texture may not be parked now.
++    size_t parkingCandidateBytes(uint64_t nowMs, uint64_t minIdleMs, size_t minBytes) const;
++    // Encodes the readback of every level into a shared buffer.
++    angle::Result beginPark(const gl::Context *context);
++    // Drops the GPU storage once the packed copy is complete; the next use restores it.
++    angle::Result dropParkedStorage(const gl::Context *context);
++    std::shared_ptr<mtl::ParkJob> mParkJob;
++    const void *mParkOwner     = nullptr;
++    uint64_t mParkLastUseMs    = 0;
++    uint64_t mParkUseCount     = 0;
++    // The use count at the last frame end: when it moved, the texture was used in that frame.
++    uint64_t mParkSeenUseCount = 0;
++    uint64_t mParkRetryAfterMs = 0;
++    bool mParked               = false;
++    bool mNeverPark            = false;
++
+     egl::Surface *mBoundSurface = nullptr;
+     class NativeTextureWrapper;
+     class NativeTextureWrapperWithViewSupport;
+diff --git a/src/libANGLE/renderer/metal/TextureMtl.mm b/src/libANGLE/renderer/metal/TextureMtl.mm
+index fb4cef9..ce23520 100644
+--- a/src/libANGLE/renderer/metal/TextureMtl.mm
++++ b/src/libANGLE/renderer/metal/TextureMtl.mm
+@@ -10,6 +10,7 @@
+ #include "libANGLE/renderer/metal/TextureMtl.h"
+ 
+ #include <algorithm>
++#include <chrono>
+ #include <initializer_list>
+ 
+ #include "common/Color.h"
+@@ -855,16 +856,181 @@ uint32_t height(GLuint glLevel) const
+ };
+ 
+ // TextureMtl implementation
+-TextureMtl::TextureMtl(const gl::TextureState &state) : TextureImpl(state) {}
++TextureMtl::TextureMtl(const gl::TextureState &state) : TextureImpl(state)
++{
++    mParkLastUseMs = mtl::TextureParking::NowMs();
++}
+ 
+-TextureMtl::~TextureMtl() = default;
++void TextureMtl::setParkingOwner(const void *owner)
++{
++    // Registered only now, with its owner set, so that no other thread's tick reads a half-made texture.
++    mParkOwner = owner;
++    mtl::TextureParking::Get().add(this);
++}
++
++TextureMtl::~TextureMtl()
++{
++    mtl::TextureParking::Get().remove(this);
++    if (mParkJob)
++    {
++        mtl::TextureParking::Get().orphan(std::move(mParkJob));
++    }
++}
+ 
+ void TextureMtl::onDestroy(const gl::Context *context)
+ {
++    if (mParkJob)
++    {
++        mtl::TextureParking::Get().orphan(std::move(mParkJob));
++        mParked = false;
++    }
+     deallocateNativeStorage(/*keepImages=*/false);
+     mBoundSurface = nullptr;
+ }
+ 
++angle::Result TextureMtl::restoreIfParked(const gl::Context *context, mtl::ParkUse use)
++{
++    // A use only counts; the frame end turns the count into a time (texture parking).
++    ++mParkUseCount;
++    if (mParked)
++    {
++        ANGLE_TRY(restoreParked(context));
++    }
++    if (use == mtl::ParkUse::Write && mParkJob && mParkJob->kept)
++    {
++        // The packed copy no longer matches what is about to be written.
++        mtl::TextureParking::Get().orphan(std::move(mParkJob));
++    }
++    return angle::Result::Continue;
++}
++
++angle::Result TextureMtl::restoreParked(const gl::Context *context)
++{
++    const auto start           = std::chrono::steady_clock::now();
++    const mtl::ParkJob *job    = mParkJob.get();
++    mParked                    = false;
++    ContextMtl *contextMtl     = mtl::GetImpl(context);
++
++    mtl::BufferRef staging;
++    ANGLE_TRY(mtl::Buffer::MakeBufferWithStorageMode(contextMtl, MTLStorageModeShared, job->rawSize,
++                                                     &staging));
++    const bool unpacked =
++        mtl::UnpackParkedTexture(*job, static_cast<uint8_t *>([staging->get() contents]));
++    ANGLE_CHECK(contextMtl, unpacked, gl::err::kInternalError, GL_OUT_OF_MEMORY);
++    ANGLE_TRY(createNativeStorage(context, gl::TextureType::_2D, job->mips, 0, job->size, job->format));
++    const mtl::TextureRef &texture = mNativeTextureStorage->getNativeTexture();
++    mtl::BlitCommandEncoder *blit =
++        GetBlitCommandEncoderForResources(contextMtl, {staging.get(), texture.get()});
++    for (uint32_t level = 0; level < job->mips; ++level)
++    {
++        const mtl::ParkedLevel &parked = job->levels[level];
++        blit->copyBufferToTexture(staging, parked.offset, parked.bytesPerRow,
++                                  parked.bytesPerRow * parked.height,
++                                  MTLSizeMake(parked.width, parked.height, 1), texture, 0,
++                                  mtl::MipmapNativeLevel(level), MTLOriginMake(0, 0, 0),
++                                  MTLBlitOptionNone);
++    }
++    // Kept until the texture is written: parking it again then only drops the storage.
++    mParkJob->kept = true;
++    const double milliseconds =
++        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++    mtl::TextureParking::Get().noteRestore(milliseconds);
++    return angle::Result::Continue;
++}
++
++size_t TextureMtl::parkingCandidateBytes(uint64_t nowMs, uint64_t minIdleMs, size_t minBytes) const
++{
++    if (mParked || (mParkJob && !mParkJob->kept) || mNeverPark || !mNativeTextureStorage || mBoundSurface ||
++        nowMs < mParkRetryAfterMs || nowMs - mParkLastUseMs < minIdleMs)
++    {
++        return 0;
++    }
++    if (mState.getType() != gl::TextureType::_2D || mState.hasBeenBoundAsImage() ||
++        mState.hasBeenBoundAsAttachment() || mState.hasBeenBoundAsSourceOfEglImage() ||
++        mState.isExternalMemoryTexture() || mState.isInternalIncompleteTexture() ||
++        mState.hasProtectedContent())
++    {
++        return 0;
++    }
++    const angle::Format &format = mNativeTextureStorage->getFormat().actualAngleFormat();
++    const mtl::TextureRef &texture = mNativeTextureStorage->getNativeTexture();
++    if (format.isBlock || format.hasDepthOrStencilBits() || format.pixelBytes == 0 ||
++        texture->arrayLength() != 1 || texture->samples() > 1 ||
++        texture->get().storageMode == MTLStorageModeMemoryless)
++    {
++        return 0;
++    }
++    size_t bytes = 0;
++    for (uint32_t level = 0; level < texture->mipmapLevels(); ++level)
++    {
++        bytes += static_cast<size_t>(texture->width(mtl::MipmapNativeLevel(level))) *
++                 texture->height(mtl::MipmapNativeLevel(level)) * format.pixelBytes;
++    }
++    return bytes >= minBytes ? bytes : 0;
++}
++
++angle::Result TextureMtl::beginPark(const gl::Context *context)
++{
++    ContextMtl *contextMtl         = mtl::GetImpl(context);
++    const mtl::TextureRef &texture = mNativeTextureStorage->getNativeTexture();
++    auto job                       = std::make_shared<mtl::ParkJob>();
++    job->format                    = mNativeTextureStorage->getFormat();
++    job->mips                      = texture->mipmapLevels();
++    job->size     = gl::Extents(static_cast<int>(texture->widthAt0()),
++                                static_cast<int>(texture->heightAt0()), 1);
++    job->useCount = mParkUseCount;
++    const size_t pixelBytes = job->format.actualAngleFormat().pixelBytes;
++    size_t offset           = 0;
++    for (uint32_t level = 0; level < job->mips; ++level)
++    {
++        mtl::ParkedLevel parked;
++        parked.width       = texture->width(mtl::MipmapNativeLevel(level));
++        parked.height      = texture->height(mtl::MipmapNativeLevel(level));
++        parked.bytesPerRow = parked.width * pixelBytes;
++        parked.offset      = offset;
++        offset += parked.bytesPerRow * parked.height;
++        job->levels.push_back(parked);
++    }
++    job->rawSize = offset;
++    ANGLE_TRY(mtl::Buffer::MakeBufferWithStorageMode(contextMtl, MTLStorageModeShared, offset,
++                                                     &job->readback));
++    mtl::BlitCommandEncoder *blit =
++        GetBlitCommandEncoderForResources(contextMtl, {texture.get(), job->readback.get()});
++    for (uint32_t level = 0; level < job->mips; ++level)
++    {
++        const mtl::ParkedLevel &parked = job->levels[level];
++        blit->copyTextureToBuffer(texture, 0, mtl::MipmapNativeLevel(level), MTLOriginMake(0, 0, 0),
++                                  MTLSizeMake(parked.width, parked.height, 1), job->readback,
++                                  parked.offset, parked.bytesPerRow,
++                                  parked.bytesPerRow * parked.height, MTLBlitOptionNone);
++    }
++    job->serial = contextMtl->parkingCommandSerial();
++    mParkJob    = std::move(job);
++    return angle::Result::Continue;
++}
++
++angle::Result TextureMtl::dropParkedStorage(const gl::Context *context)
++{
++    // The image definitions keep their formats; their images are views of the storage and go with it.
++    std::map<int, gl::TexLevelArray<ImageDefinitionMtl>> definitions = std::move(mTexImageDefs);
++    deallocateNativeStorage(/*keepImages=*/false, /*keepSamplerStateAndFormat=*/true);
++    for (auto &face : definitions)
++    {
++        for (ImageDefinitionMtl &definition : face.second)
++        {
++            definition.image = nullptr;
++        }
++    }
++    mTexImageDefs  = std::move(definitions);
++    mParked        = true;
++    mParkJob->kept = false;
++    // The front end syncs the texture before its next use, which restores it; this context's bound textures
++    // are bound again.
++    onStateChange(angle::SubjectMessage::DirtyBitsFlagged);
++    mtl::GetImpl(context)->invalidateCurrentTextures();
++    return angle::Result::Continue;
++}
++
+ void TextureMtl::deallocateNativeStorage(bool keepImages, bool keepSamplerStateAndFormat)
+ {
+ 
+@@ -935,6 +1101,7 @@ uint32_t height(GLuint glLevel) const
+                                                      bool keepImages,
+                                                      ImageMipLevels mipLevels)
+ {
++    ANGLE_TRY(restoreIfParked(context, mtl::ParkUse::Read));
+     auto clearImagesAssociatedWithStorage = [&]() {
+         ASSERT(mNativeTextureStorage);
+         GLuint mips      = mNativeTextureStorage->mipmapLevels();
+@@ -1459,6 +1626,8 @@ uint32_t height(GLuint glLevel) const
+                                    gl::Buffer *unpackBuffer,
+                                    const uint8_t *pixels)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(mtl::TextureParking::Get().tickFromUpload(context));
+     const gl::InternalFormat &dstFormatInfo = gl::GetInternalFormatInfo(internalFormat, type);
+ 
+     return setImageImpl(context, index, dstFormatInfo, size, format, type, unpack, unpackBuffer,
+@@ -1474,6 +1643,8 @@ uint32_t height(GLuint glLevel) const
+                                       gl::Buffer *unpackBuffer,
+                                       const uint8_t *pixels)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(mtl::TextureParking::Get().tickFromUpload(context));
+     const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(format, type);
+ 
+     return setSubImageImpl(context, index, area, formatInfo, type, unpack, unpackBuffer, pixels);
+@@ -1487,6 +1658,8 @@ uint32_t height(GLuint glLevel) const
+                                              size_t imageSize,
+                                              const uint8_t *pixels)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(mtl::TextureParking::Get().tickFromUpload(context));
+     const gl::InternalFormat &formatInfo = gl::GetSizedInternalFormatInfo(internalFormat);
+     const gl::State &glState             = context->getState();
+     gl::Buffer *unpackBuffer             = glState.getTargetBuffer(gl::BufferBinding::PixelUnpack);
+@@ -1503,6 +1676,8 @@ uint32_t height(GLuint glLevel) const
+                                                 size_t imageSize,
+                                                 const uint8_t *pixels)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(mtl::TextureParking::Get().tickFromUpload(context));
+     const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(format, GL_UNSIGNED_BYTE);
+ 
+     const gl::State &glState = context->getState();
+@@ -1518,6 +1693,7 @@ uint32_t height(GLuint glLevel) const
+                                     GLenum internalFormat,
+                                     gl::Framebuffer *source)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     gl::Extents newImageSize(sourceArea.width, sourceArea.height, 1);
+     const gl::InternalFormat &internalFormatInfo =
+         gl::GetInternalFormatInfo(internalFormat, GL_UNSIGNED_BYTE);
+@@ -1559,6 +1735,7 @@ uint32_t height(GLuint glLevel) const
+                                        const gl::Rectangle &sourceArea,
+                                        gl::Framebuffer *source)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     const gl::InternalFormat &currentFormat = *mState.getImageDesc(index).format.info;
+     FramebufferMtl *srcFramebufferMtl       = mtl::GetImpl(source);
+     RenderTargetMtl *colorReadRT            = srcFramebufferMtl->getColorReadRenderTarget(context);
+@@ -1576,6 +1753,8 @@ uint32_t height(GLuint glLevel) const
+                                       bool unpackUnmultiplyAlpha,
+                                       const gl::Texture *source)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(const_cast<TextureMtl *>(mtl::GetImpl(source))->restoreIfParked(context, mtl::ParkUse::Read));
+     const gl::ImageDesc &sourceImageDesc = source->getTextureState().getImageDesc(
+         NonCubeTextureTypeToTarget(source->getType()), sourceLevel.get());
+     const gl::InternalFormat &internalFormatInfo = gl::GetInternalFormatInfo(internalFormat, type);
+@@ -1606,6 +1785,8 @@ uint32_t height(GLuint glLevel) const
+                                          bool unpackUnmultiplyAlpha,
+                                          const gl::Texture *source)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(const_cast<TextureMtl *>(mtl::GetImpl(source))->restoreIfParked(context, mtl::ParkUse::Read));
+     const gl::InternalFormat &currentFormat = *mState.getImageDesc(index).format.info;
+ 
+     return copySubTextureImpl(context, index, destOffset, currentFormat, sourceLevel.get(),
+@@ -1616,6 +1797,8 @@ uint32_t height(GLuint glLevel) const
+ angle::Result TextureMtl::copyCompressedTexture(const gl::Context *context,
+                                                 const gl::Texture *source)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(const_cast<TextureMtl *>(mtl::GetImpl(source))->restoreIfParked(context, mtl::ParkUse::Read));
+     UNIMPLEMENTED();
+ 
+     return angle::Result::Stop;
+@@ -1627,6 +1810,8 @@ uint32_t height(GLuint glLevel) const
+                                      GLenum internalFormat,
+                                      const gl::Extents &size)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    ANGLE_TRY(mtl::TextureParking::Get().tickFromUpload(context));
+     ContextMtl *contextMtl               = mtl::GetImpl(context);
+     const gl::InternalFormat &formatInfo = gl::GetSizedInternalFormatInfo(internalFormat);
+     angle::FormatID angleFormatId =
+@@ -1647,6 +1832,8 @@ uint32_t height(GLuint glLevel) const
+                                                    GLbitfield usageFlags,
+                                                    const void *imageCreateInfoPNext)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    mNeverPark = true;
+     UNIMPLEMENTED();
+ 
+     return angle::Result::Stop;
+@@ -1659,6 +1846,7 @@ uint32_t height(GLuint glLevel) const
+                                                 const gl::Extents &size,
+                                                 bool fixedSampleLocations)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     ContextMtl *contextMtl               = mtl::GetImpl(context);
+     const gl::InternalFormat &formatInfo = gl::GetSizedInternalFormatInfo(internalFormat);
+     angle::FormatID angleFormatId =
+@@ -1672,6 +1860,8 @@ uint32_t height(GLuint glLevel) const
+                                             gl::TextureType type,
+                                             egl::Image *image)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    mNeverPark = true;
+     deallocateNativeStorage(/*keepImages=*/false);
+ 
+     ContextMtl *contextMtl = mtl::GetImpl(context);
+@@ -1708,12 +1898,15 @@ uint32_t height(GLuint glLevel) const
+                                            egl::Stream *stream,
+                                            const egl::Stream::GLTextureDescription &desc)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    mNeverPark = true;
+     UNIMPLEMENTED();
+     return angle::Result::Stop;
+ }
+ 
+ angle::Result TextureMtl::generateMipmap(const gl::Context *context)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     // glGenerateMipmap needs the full mip chain allocated, expanding the storage if it was
+     // previously allocated with only the specified levels.
+     ANGLE_TRY(ensureNativeStorageCreated(context, /*keepImages=*/false,
+@@ -1853,11 +2046,14 @@ uint32_t height(GLuint glLevel) const
+ 
+ angle::Result TextureMtl::setBaseLevel(const gl::Context *context, GLuint baseLevel)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     return onBaseMaxLevelsChanged(context);
+ }
+ 
+ angle::Result TextureMtl::bindTexImage(const gl::Context *context, egl::Surface *surface)
+ {
++    ANGLE_TRY(restoreIfParked(context));
++    mNeverPark = true;
+     deallocateNativeStorage(/*keepImages=*/false);
+ 
+     mBoundSurface         = surface;
+@@ -1879,6 +2075,7 @@ uint32_t height(GLuint glLevel) const
+ 
+ angle::Result TextureMtl::releaseTexImage(const gl::Context *context)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     deallocateNativeStorage(/*keepImages=*/false);
+     mBoundSurface = nullptr;
+     return angle::Result::Continue;
+@@ -1890,6 +2087,7 @@ uint32_t height(GLuint glLevel) const
+                                                     GLsizei samples,
+                                                     FramebufferAttachmentRenderTarget **rtOut)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     ANGLE_TRY(
+         ensureNativeStorageCreated(context, /*keepImages=*/true, ImageMipLevels::EnabledLevels));
+ 
+@@ -1908,6 +2106,10 @@ uint32_t height(GLuint glLevel) const
+                                     const gl::Texture::DirtyBits &dirtyBits,
+                                     gl::Command source)
+ {
++    // Base and max level changes reshape the storage; the rest only changes how it is sampled.
++    const bool reshapes = dirtyBits.test(gl::Texture::DIRTY_BIT_BASE_LEVEL) ||
++                          dirtyBits.test(gl::Texture::DIRTY_BIT_MAX_LEVEL);
++    ANGLE_TRY(restoreIfParked(context, reshapes ? mtl::ParkUse::Write : mtl::ParkUse::Read));
+     ContextMtl *contextMtl = mtl::GetImpl(context);
+     for (size_t dirtyBit : dirtyBits)
+     {
+@@ -1966,6 +2168,8 @@ uint32_t height(GLuint glLevel) const
+                                        int textureSlotIndex,
+                                        int samplerSlotIndex)
+ {
++    // A use only counts; the frame end turns the count into a time (texture parking).
++    ++mParkUseCount;
+     ASSERT(mNativeTextureStorage);
+     ASSERT(mViewFromBaseToMaxLevel);
+ 
+@@ -2059,6 +2263,7 @@ uint32_t height(GLuint glLevel) const
+                                             int layer,
+                                             GLenum format)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     ASSERT(mNativeTextureStorage);
+     ASSERT(mState.getImmutableFormat());
+     ASSERT(0 <= level && static_cast<uint32_t>(level) < mState.getImmutableLevels());
+@@ -2655,6 +2860,7 @@ uint32_t height(GLuint glLevel) const
+                                              GLenum binding,
+                                              const gl::ImageIndex &index)
+ {
++    ANGLE_TRY(restoreIfParked(context));
+     if (index.isLayered())
+     {
+         // InitializeTextureContents is only able to initialize one layer at a time.
+diff --git a/src/libANGLE/renderer/metal/metal_backend.gni b/src/libANGLE/renderer/metal/metal_backend.gni
+index fe8fc73..114e986 100644
+--- a/src/libANGLE/renderer/metal/metal_backend.gni
++++ b/src/libANGLE/renderer/metal/metal_backend.gni
+@@ -78,6 +78,8 @@ metal_backend_sources = [
+   "mtl_resources.mm",
+   "mtl_state_cache.h",
+   "mtl_state_cache.mm",
++  "mtl_texture_parking.h",
++  "mtl_texture_parking.mm",
+   "mtl_utils.h",
+   "mtl_utils.mm",
+   "renderermtl_utils.cpp",
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.h b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+new file mode 100644
+index 0000000..3962610
+--- /dev/null
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -0,0 +1,177 @@
++//
++// Copyright 2026 The ANGLE Project Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++//
++// mtl_texture_parking.h:
++//    Texture parking (Minato): near the process's memory limit, textures that were not used for a while are kept
++//    as a lossless compressed CPU copy and restored on their next use, so that an app that holds more textures
++//    than the device's memory allows keeps running with identical output.
++//
++
++#ifndef LIBANGLE_RENDERER_METAL_MTL_TEXTURE_PARKING_H_
++#define LIBANGLE_RENDERER_METAL_MTL_TEXTURE_PARKING_H_
++
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <mutex>
++#include <vector>
++
++#include "libANGLE/Error.h"
++#include "libANGLE/angletypes.h"
++#include "libANGLE/renderer/metal/mtl_format_utils.h"
++#include "libANGLE/renderer/metal/mtl_resources.h"
++
++namespace gl
++{
++class Context;
++}  // namespace gl
++
++namespace rx
++{
++class TextureMtl;
++
++namespace mtl
++{
++
++// One level of a parked texture inside the readback buffer and the packed bytes.
++struct ParkedLevel
++{
++    uint32_t width       = 0;
++    uint32_t height      = 0;
++    size_t bytesPerRow   = 0;
++    size_t offset        = 0;
++};
++
++enum class ParkCodec : uint8_t
++{
++    LZ4,
++    LZFSE,
++};
++
++// The packed bytes are independent chunks of 1 MiB of the filtered readback, so that a restore decodes them on
++// several cores at once.
++struct PackedChunk
++{
++    size_t rawOffset    = 0;
++    size_t rawSize      = 0;
++    size_t packedOffset = 0;
++    size_t packedSize   = 0;
++};
++
++// A texture on its way to (or in) the parked state. The context thread owns every field except the ones the
++// background worker fills before it sets |state| to Packed or Failed.
++struct ParkJob
++{
++    enum State : int
++    {
++        Reading,     // the readback blit is encoded; waits for its command buffer
++        Packing,     // a background worker filters and compresses the readback
++        Packed,      // |packed| holds the texture; the context thread may drop the storage
++        Failed,      // did not compress well enough; the texture stays as it is
++    };
++
++    BufferRef readback;
++    uint64_t serial = 0;
++    size_t rawSize  = 0;
++    std::vector<ParkedLevel> levels;
++    Format format;
++    gl::Extents size;
++    uint32_t mips          = 0;
++    uint64_t useCount      = 0;
++    uint64_t parkedAtMs    = 0;
++    std::atomic<int> state{Reading};
++
++    ParkCodec codec = ParkCodec::LZ4;
++    std::vector<uint8_t> packed;
++    std::vector<PackedChunk> chunks;
++
++    // Second pass: LZFSE for textures that stay parked.
++    std::atomic<int> repackState{0};  // 0 none, 1 running, 2 done, 3 failed, 4 taken
++    std::vector<uint8_t> repacked;
++    std::vector<PackedChunk> repackedChunks;
++
++    // Context-thread bookkeeping: what this job still counts in TextureParking.
++    bool countsPacking   = false;
++    bool countsRepacking = false;
++    // The texture was restored and not written since: |packed| still equals it, so parking it again only drops
++    // the GPU storage.
++    bool kept = false;
++    // Packed in the stress mode: kept even when packing saves nothing.
++    bool stress = false;
++};
++
++// How an entry point uses a texture: a write makes a kept packed copy stale.
++enum class ParkUse : uint8_t
++{
++    Read,
++    Write,
++};
++
++// Decodes a packed job into |out| (rawSize bytes) and undoes the row filter.
++bool UnpackParkedTexture(const ParkJob &job, uint8_t *out);
++
++// The process-wide registry of parkable textures and the policy that decides when to park.
++class TextureParking
++{
++  public:
++    static TextureParking &Get();
++
++    void add(TextureMtl *texture);
++    void remove(TextureMtl *texture);
++
++    // Called on a context's thread at the end of a frame (present, glFlush, glFinish).
++    angle::Result tick(const gl::Context *context);
++    // Called by texture uploads: a tick when the last one is more than a frame ago.
++    angle::Result tickFromUpload(const gl::Context *context);
++
++    void noteRestore(double milliseconds);
++    // A job the texture no longer needs (destroyed, or written after a restore): dropped once no worker uses it.
++    void orphan(std::shared_ptr<ParkJob> job);
++    int line(char *buffer, size_t size);
++
++    static uint64_t NowMs();
++
++  private:
++    TextureParking();
++
++    // Bytes the process may still allocate before the limit, or 0 when unknown (no parking then).
++    uint64_t availableBytes();
++    void dispatchPack(std::shared_ptr<ParkJob> job);
++    void dispatchRepack(std::shared_ptr<ParkJob> job);
++    // Releases what a job no longer needs: its worker slot, its readback buffer.
++    void settle(ParkJob *job);
++    // Moves the owner's jobs on: starts packs, takes packed ones (dropping the GPU storage), aborts used ones.
++    angle::Result advance(const gl::Context *context, const void *owner, uint64_t now, bool packHere);
++    angle::Result parkAll(const gl::Context *context, const void *owner, uint64_t now);
++    void reportFirst(uint64_t count);
++
++    std::recursive_mutex mMutex;
++    std::vector<TextureMtl *> mTextures;
++    std::vector<std::shared_ptr<ParkJob>> mOrphans;
++    uint64_t mLastTickMs  = 0;
++    bool mActive          = false;
++    uint64_t mLimitBytes  = 0;
++    bool mLimitRead       = false;
++    bool mStress          = false;
++    int mPacking          = 0;
++    int mRepacking        = 0;
++    size_t mPendingBytes  = 0;
++
++    // Statistics for the counters line.
++    uint64_t mParks        = 0;
++    uint64_t mAborts       = 0;
++    uint64_t mRestores     = 0;
++    uint64_t mRepacks      = 0;
++    std::vector<float> mRestoreMs;
++    size_t mRestoreNext = 0;
++
++    friend class ::rx::TextureMtl;
++};
++
++}  // namespace mtl
++}  // namespace rx
++
++#endif  // LIBANGLE_RENDERER_METAL_MTL_TEXTURE_PARKING_H_
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.mm b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+new file mode 100644
+index 0000000..d048166
+--- /dev/null
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -0,0 +1,706 @@
++//
++// Copyright 2026 The ANGLE Project Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++//
++// mtl_texture_parking.mm:
++//    Texture parking (Minato): see mtl_texture_parking.h.
++//
++
++#ifdef UNSAFE_BUFFERS_BUILD
++#    pragma allow_unsafe_buffers
++#endif
++
++#include "libANGLE/renderer/metal/mtl_texture_parking.h"
++
++#include <TargetConditionals.h>
++#include <compression.h>
++#include <export.h>
++#include <dispatch/dispatch.h>
++#include <mach/mach.h>
++#include <mach/mach_time.h>
++#if TARGET_OS_IPHONE
++#    include <os/proc.h>
++#endif
++
++#include <algorithm>
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <thread>
++#include <utility>
++
++#include "libANGLE/Context.h"
++#include "libANGLE/renderer/metal/ContextMtl.h"
++#include "libANGLE/renderer/metal/DisplayMtl.h"
++#include "libANGLE/renderer/metal/TextureMtl.h"
++
++namespace rx
++{
++namespace mtl
++{
++namespace
++{
++
++constexpr uint64_t kMiB = 1024 * 1024;
++
++// When to park (ADR-0075). The process may still allocate |available| bytes before jetsam kills it.
++// Start below 1 GiB: a visual novel's frame sequence grew ~0.95 GB/s in our reproduction and a park takes a
++// frame plus one LZ4 encode, so 1 GiB is about one second of headroom at that rate.
++constexpr uint64_t kStartBelow = 1024 * kMiB;
++// Stop at 1.5 GiB: 512 MiB of hysteresis (~64 full-screen frames), so that parking does not toggle every frame
++// while an app creates and deletes textures in the same second.
++constexpr uint64_t kStopAt = 1536 * kMiB;
++// Below 384 MiB (~0.4 s at that rate) textures idle for two frames qualify too.
++constexpr uint64_t kEmergencyBelow = 384 * kMiB;
++// Below 128 MiB (~0.13 s, a few frames before a kill) the asynchronous parks are too late: the frame waits for
++// them, as a stall is better than a kill.
++constexpr uint64_t kStallBelow = 128 * kMiB;
++constexpr size_t kStallBudget   = 32 * kMiB;
++// Uploads tick too (an app may load for seconds before its first frame), at most this often.
++constexpr uint64_t kUploadTickMs = 16;
++constexpr uint64_t kIdleMs          = 500;
++constexpr uint64_t kEmergencyIdleMs = 33;
++// The readbacks count toward the footprint until they are packed; never more than this at once.
++constexpr size_t kPendingCap = 64 * kMiB;
++constexpr int kPackWorkers   = 2;
++// Textures packed this long ago are packed again with LZFSE on more workers: about twice as small as LZ4 on real
++// art and still restored within a frame, but ten times slower to pack, so only once per texture; two workers keep
++// up with an engine that cycles a few hundred frames.
++constexpr int kRepackWorkers      = 2;
++constexpr uint64_t kRepackAfterMs = 1000;
++// A pack must save at least an eighth, or the texture stays on the GPU (and is not tried again for 10 s).
++constexpr size_t kMinSavingShift = 3;
++constexpr uint64_t kRetryAfterMs = 10000;
++// Smaller textures are not worth the readback: a full-screen frame is 8 MiB, a 256 x 256 one 256 KiB.
++constexpr size_t kMinBytes = 256 * 1024;
++constexpr size_t kRestoreSamples = 512;
++
++compression_algorithm Algorithm(ParkCodec codec)
++{
++    return codec == ParkCodec::LZ4 ? COMPRESSION_LZ4 : COMPRESSION_LZFSE;
++}
++
++// Each row minus the row above, per byte: picture content becomes small values that compress 1.2-1.6x better.
++void FilterUp(uint8_t *bytes, const std::vector<ParkedLevel> &levels)
++{
++    for (const ParkedLevel &level : levels)
++    {
++        for (size_t y = level.height; y-- > 1;)
++        {
++            uint8_t *row         = bytes + level.offset + y * level.bytesPerRow;
++            const uint8_t *above = row - level.bytesPerRow;
++            for (size_t x = 0; x < level.bytesPerRow; ++x)
++            {
++                row[x] = static_cast<uint8_t>(row[x] - above[x]);
++            }
++        }
++    }
++}
++
++void UnfilterUp(uint8_t *bytes, const std::vector<ParkedLevel> &levels)
++{
++    for (const ParkedLevel &level : levels)
++    {
++        for (size_t y = 1; y < level.height; ++y)
++        {
++            uint8_t *row         = bytes + level.offset + y * level.bytesPerRow;
++            const uint8_t *above = row - level.bytesPerRow;
++            for (size_t x = 0; x < level.bytesPerRow; ++x)
++            {
++                row[x] = static_cast<uint8_t>(row[x] + above[x]);
++            }
++        }
++    }
++}
++
++constexpr size_t kChunkBytes = 1024 * 1024;
++
++// Packs |size| bytes as independent chunks; fails when the result would not save an eighth.
++bool Encode(const uint8_t *source,
++            size_t size,
++            ParkCodec codec,
++            bool anySaving,
++            std::vector<uint8_t> *out,
++            std::vector<PackedChunk> *chunks)
++{
++    // The stress mode parks whatever it can, even when packing does not save anything.
++    const size_t limit = anySaving ? size + size / 2 + 4096 : size - (size >> kMinSavingShift);
++    std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[limit]);
++    if (!buffer)
++    {
++        return false;
++    }
++    std::vector<PackedChunk> parts;
++    size_t written = 0;
++    for (size_t offset = 0; offset < size; offset += kChunkBytes)
++    {
++        PackedChunk chunk;
++        chunk.rawOffset    = offset;
++        chunk.rawSize      = std::min(kChunkBytes, size - offset);
++        chunk.packedOffset = written;
++        chunk.packedSize   = compression_encode_buffer(buffer.get() + written, limit - written,
++                                                       source + offset, chunk.rawSize, nullptr,
++                                                       Algorithm(codec));
++        if (chunk.packedSize == 0)
++        {
++            return false;
++        }
++        written += chunk.packedSize;
++        parts.push_back(chunk);
++    }
++    out->assign(buffer.get(), buffer.get() + written);
++    *chunks = std::move(parts);
++    return true;
++}
++
++// Decodes every chunk into |out|, on several cores when |parallel| is set.
++bool Decode(const std::vector<uint8_t> &packed,
++            const std::vector<PackedChunk> &chunks,
++            ParkCodec codec,
++            uint8_t *out,
++            bool parallel)
++{
++    const uint8_t *source         = packed.data();
++    const PackedChunk *parts      = chunks.data();
++    const compression_algorithm a = Algorithm(codec);
++    std::atomic<size_t> failures{0};
++    std::atomic<size_t> *failed   = &failures;
++    auto one                      = ^(size_t index) {
++      const PackedChunk &chunk = parts[index];
++      if (compression_decode_buffer(out + chunk.rawOffset, chunk.rawSize, source + chunk.packedOffset,
++                                    chunk.packedSize, nullptr, a) != chunk.rawSize)
++      {
++          failed->fetch_add(1);
++      }
++    };
++    if (parallel)
++    {
++        dispatch_apply(chunks.size(), DISPATCH_APPLY_AUTO, one);
++    }
++    else
++    {
++        for (size_t index = 0; index < chunks.size(); ++index)
++        {
++            one(index);
++        }
++    }
++    return failures.load() == 0;
++}
++
++void Pack(ParkJob *job)
++{
++    uint8_t *bytes = static_cast<uint8_t *>([job->readback->get() contents]);
++    FilterUp(bytes, job->levels);
++    const bool packed = Encode(bytes, job->rawSize, ParkCodec::LZ4, job->stress, &job->packed, &job->chunks);
++    job->state.store(packed ? ParkJob::Packed : ParkJob::Failed, std::memory_order_release);
++}
++
++void Repack(ParkJob *job)
++{
++    std::unique_ptr<uint8_t[]> raw(new (std::nothrow) uint8_t[job->rawSize]);
++    bool ok = raw != nullptr &&
++              Decode(job->packed, job->chunks, job->codec, raw.get(), /*parallel=*/false) &&
++              Encode(raw.get(), job->rawSize, ParkCodec::LZFSE, false, &job->repacked, &job->repackedChunks) &&
++              job->repacked.size() < job->packed.size();
++    job->repackState.store(ok ? 2 : 3, std::memory_order_release);
++}
++
++uint64_t Footprint()
++{
++    task_vm_info_data_t info       = {};
++    mach_msg_type_number_t count   = TASK_VM_INFO_COUNT;
++    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) !=
++        KERN_SUCCESS)
++    {
++        return 0;
++    }
++    return info.phys_footprint;
++}
++
++// Packs free memory the process may soon need, so they must not starve behind background work; repacks only save
++// more and may wait.
++dispatch_queue_t PackQueue()
++{
++    static dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0);
++    return queue;
++}
++
++dispatch_queue_t RepackQueue()
++{
++    static dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
++    return queue;
++}
++
++}  // namespace
++
++bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
++{
++    if (!Decode(job.packed, job.chunks, job.codec, out, /*parallel=*/true))
++    {
++        return false;
++    }
++    UnfilterUp(out, job.levels);
++    return true;
++}
++
++TextureParking &TextureParking::Get()
++{
++    static TextureParking *parking = [] {
++        TextureParking *created = new TextureParking();
++        // MINATO_ANGLE_PARK_REPORT: the counters line on stderr when the process exits (checks and device runs).
++        if (getenv("MINATO_ANGLE_PARK_REPORT") != nullptr)
++        {
++            atexit([] {
++                char line[256];
++                if (TextureParking::Get().line(line, sizeof(line)) > 0)
++                {
++                    fprintf(stderr, "angle %s\n", line);
++                }
++            });
++        }
++        return created;
++    }();
++    return *parking;
++}
++
++TextureParking::TextureParking() : mRestoreMs(kRestoreSamples, 0.0f) {}
++
++uint64_t TextureParking::NowMs()
++{
++    static mach_timebase_info_data_t timebase = [] {
++        mach_timebase_info_data_t info = {};
++        mach_timebase_info(&info);
++        return info;
++    }();
++    return mach_absolute_time() * timebase.numer / timebase.denom / 1000000;
++}
++
++void TextureParking::add(TextureMtl *texture)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    mTextures.push_back(texture);
++}
++
++void TextureParking::remove(TextureMtl *texture)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    auto found = std::find(mTextures.begin(), mTextures.end(), texture);
++    if (found != mTextures.end())
++    {
++        *found = mTextures.back();
++        mTextures.pop_back();
++    }
++}
++
++void TextureParking::orphan(std::shared_ptr<ParkJob> job)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    if (job->countsPacking || job->countsRepacking || job->readback)
++    {
++        mOrphans.push_back(std::move(job));
++    }
++}
++
++void TextureParking::settle(ParkJob *job)
++{
++    if (job->countsPacking && job->state.load(std::memory_order_acquire) != ParkJob::Packing)
++    {
++        job->countsPacking = false;
++        mPacking -= 1;
++    }
++    if (job->countsRepacking && job->repackState.load(std::memory_order_acquire) != 1)
++    {
++        job->countsRepacking = false;
++        mRepacking -= 1;
++    }
++    if (job->readback && !job->countsPacking)
++    {
++        job->readback = nullptr;
++        mPendingBytes -= job->rawSize;
++    }
++}
++
++// MINATO_ANGLE_PARK_REPORT: the counters on stderr at the first park and the first restore too, for processes that
++// end with _exit.
++void TextureParking::reportFirst(uint64_t count)
++{
++    if (count == 1 && getenv("MINATO_ANGLE_PARK_REPORT") != nullptr)
++    {
++        char buffer[256];
++        if (line(buffer, sizeof(buffer)) > 0)
++        {
++            fprintf(stderr, "angle %s\n", buffer);
++        }
++    }
++}
++
++uint64_t TextureParking::availableBytes()
++{
++    if (!mLimitRead)
++    {
++        mLimitRead        = true;
++        mStress           = getenv("MINATO_ANGLE_PARK_STRESS") != nullptr;
++        const char *limit = getenv("MINATO_ANGLE_PARK_LIMIT_MB");
++        if (limit != nullptr && atoll(limit) > 0)
++        {
++            mLimitBytes = static_cast<uint64_t>(atoll(limit)) * kMiB;
++        }
++    }
++    if (mLimitBytes != 0)
++    {
++        const uint64_t footprint = Footprint();
++        return footprint < mLimitBytes ? mLimitBytes - footprint : 1;
++    }
++#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
++    return os_proc_available_memory();
++#else
++    return 0;
++#endif
++}
++
++void TextureParking::dispatchPack(std::shared_ptr<ParkJob> job)
++{
++    job->state.store(ParkJob::Packing, std::memory_order_relaxed);
++    job->countsPacking = true;
++    mPacking += 1;
++    dispatch_async(PackQueue(), ^{
++      Pack(job.get());
++    });
++}
++
++void TextureParking::dispatchRepack(std::shared_ptr<ParkJob> job)
++{
++    job->repackState.store(1, std::memory_order_relaxed);
++    job->countsRepacking = true;
++    mRepacking += 1;
++    dispatch_async(RepackQueue(), ^{
++      Repack(job.get());
++    });
++}
++
++angle::Result TextureParking::advance(const gl::Context *context,
++                                      const void *owner,
++                                      uint64_t now,
++                                      bool packHere)
++{
++    ContextMtl *contextMtl = GetImpl(context);
++    CommandQueue &queue    = contextMtl->getDisplay()->cmdQueue();
++
++    if (packHere)
++    {
++        // The frame waits: pack every finished readback now, on all cores.
++        std::vector<ParkJob *> ready;
++        for (TextureMtl *texture : mTextures)
++        {
++            ParkJob *job = texture->mParkJob.get();
++            if (texture->mParkOwner == owner && job != nullptr && !texture->mParked && !job->kept &&
++                job->state.load(std::memory_order_acquire) == ParkJob::Reading &&
++                texture->mParkUseCount == job->useCount && queue.isSerialCompleted(job->serial))
++            {
++                ready.push_back(job);
++            }
++        }
++        ParkJob *const *jobs = ready.data();
++        dispatch_apply(ready.size(), DISPATCH_APPLY_AUTO, ^(size_t index) {
++          Pack(jobs[index]);
++        });
++    }
++
++    for (size_t index = 0; index < mOrphans.size();)
++    {
++        settle(mOrphans[index].get());
++        ParkJob *job = mOrphans[index].get();
++        if (!job->countsPacking && !job->countsRepacking && !job->readback)
++        {
++            mOrphans[index] = std::move(mOrphans.back());
++            mOrphans.pop_back();
++            continue;
++        }
++        ++index;
++    }
++
++    for (TextureMtl *texture : mTextures)
++    {
++        if (texture->mParkOwner != owner)
++        {
++            continue;
++        }
++        if (texture->mParkUseCount != texture->mParkSeenUseCount)
++        {
++            texture->mParkSeenUseCount = texture->mParkUseCount;
++            texture->mParkLastUseMs    = now;
++        }
++        if (!texture->mParkJob)
++        {
++            continue;
++        }
++        std::shared_ptr<ParkJob> &job = texture->mParkJob;
++        if (texture->mParked || job->kept)
++        {
++            settle(job.get());
++            const int repack = job->repackState.load(std::memory_order_acquire);
++            if (repack == 2)
++            {
++                job->packed.swap(job->repacked);
++                job->chunks.swap(job->repackedChunks);
++                job->repacked       = std::vector<uint8_t>();
++                job->repackedChunks = std::vector<PackedChunk>();
++                job->codec    = ParkCodec::LZFSE;
++                mRepacks += 1;
++                job->repackState.store(4, std::memory_order_relaxed);
++            }
++            else if (repack == 0 && job->codec == ParkCodec::LZ4 && mRepacking < kRepackWorkers &&
++                     now - job->parkedAtMs >= kRepackAfterMs)
++            {
++                dispatchRepack(job);
++            }
++            continue;
++        }
++
++        if (job->state.load(std::memory_order_acquire) == ParkJob::Reading)
++        {
++            if (texture->mParkUseCount != job->useCount)
++            {
++                settle(job.get());
++                job = nullptr;
++                mAborts += 1;
++                continue;
++            }
++            if (!queue.isSerialCompleted(job->serial))
++            {
++                continue;
++            }
++            if (packHere)
++            {
++                Pack(job.get());
++            }
++            else if (mPacking < kPackWorkers)
++            {
++                dispatchPack(job);
++                continue;
++            }
++            else
++            {
++                continue;
++            }
++        }
++        if (packHere)
++        {
++            while (job->state.load(std::memory_order_acquire) == ParkJob::Packing)
++            {
++                std::this_thread::sleep_for(std::chrono::milliseconds(1));
++            }
++        }
++
++        const int state = job->state.load(std::memory_order_acquire);
++        if (state == ParkJob::Packing)
++        {
++            continue;
++        }
++        settle(job.get());
++        if (state == ParkJob::Failed || texture->mParkUseCount != job->useCount)
++        {
++            if (state == ParkJob::Failed)
++            {
++                texture->mParkRetryAfterMs = now + kRetryAfterMs;
++            }
++            job = nullptr;
++            mAborts += 1;
++            continue;
++        }
++        job->parkedAtMs = now;
++        mParks += 1;
++        ANGLE_TRY(texture->dropParkedStorage(context));
++        reportFirst(mParks);
++    }
++    return angle::Result::Continue;
++}
++
++angle::Result TextureParking::tickFromUpload(const gl::Context *context)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    if (NowMs() - mLastTickMs < kUploadTickMs)
++    {
++        return angle::Result::Continue;
++    }
++    return tick(context);
++}
++
++angle::Result TextureParking::tick(const gl::Context *context)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    const uint64_t now = NowMs();
++    mLastTickMs        = now;
++    const void *owner  = context->getState().getShareGroup();
++    const uint64_t available = availableBytes();
++    if (available == 0 && !mStress && mParks == 0 && mPendingBytes == 0)
++    {
++        // No limit known (the Mac without MINATO_ANGLE_PARK_LIMIT_MB) and nothing ever parked: nothing to do.
++        return angle::Result::Continue;
++    }
++    ANGLE_TRY(advance(context, owner, now, /*packHere=*/false));
++
++    if (mStress)
++    {
++        // MINATO_ANGLE_PARK_STRESS (checks only): every frame end parks every texture that may be parked at all,
++        // of any size and idle for any time, so that a whole test suite runs through parks and restores.
++        return parkAll(context, owner, now);
++    }
++    if (available == 0)
++    {
++        return angle::Result::Continue;
++    }
++    if (available < kStartBelow)
++    {
++        mActive = true;
++    }
++    else if (available >= kStopAt)
++    {
++        mActive = false;
++    }
++    if (!mActive)
++    {
++        return angle::Result::Continue;
++    }
++
++    const bool emergency = available < kEmergencyBelow;
++    const uint64_t idle  = emergency ? kEmergencyIdleMs : kIdleMs;
++    // Readbacks count toward the footprint until packed: in the emergency band a quarter of what is left. In the
++    // stall band they are packed within this frame end, so a fixed budget lets parking go on even at the limit.
++    const size_t cap = available < kStallBelow ? kStallBudget
++                       : emergency             ? std::min<size_t>(kPendingCap, available / 4)
++                                               : kPendingCap;
++    // What the parks on their way will free: LZ4 saves a third of real art, often more.
++    uint64_t expected = mPendingBytes / 3;
++
++    std::vector<std::pair<uint64_t, TextureMtl *>> candidates;
++    for (TextureMtl *texture : mTextures)
++    {
++        if (texture->mParkOwner == owner && texture->parkingCandidateBytes(now, idle, kMinBytes) != 0)
++        {
++            candidates.emplace_back(texture->mParkLastUseMs, texture);
++        }
++    }
++    std::sort(candidates.begin(), candidates.end(),
++              [](const auto &a, const auto &b) { return a.first < b.first; });
++    bool started = false;
++    for (const auto &candidate : candidates)
++    {
++        TextureMtl *texture = candidate.second;
++        const size_t bytes  = texture->parkingCandidateBytes(now, idle, kMinBytes);
++        if (available + expected >= kStopAt)
++        {
++            break;
++        }
++        if (texture->mParkJob && texture->mParkJob->kept)
++        {
++            // Restored and unchanged since: its packed copy is current, so only the GPU storage goes.
++            expected += bytes;
++            mParks += 1;
++            ANGLE_TRY(texture->dropParkedStorage(context));
++            continue;
++        }
++        if (mPendingBytes + bytes > cap)
++        {
++            continue;
++        }
++        ANGLE_TRY(texture->beginPark(context));
++        mPendingBytes += bytes;
++        expected += bytes / 3;
++        started = true;
++    }
++
++    if (started && available >= kStallBelow)
++    {
++        // The readbacks run once their command buffer is committed; an app that loads for seconds without a frame
++        // end would leave them waiting.
++        GetImpl(context)->flushCommandBuffer(mtl::NoWait);
++    }
++    if (available < kStallBelow && (started || mPendingBytes != 0))
++    {
++        ANGLE_TRY(GetImpl(context)->finishCommandBuffer());
++        ANGLE_TRY(advance(context, owner, now, /*packHere=*/true));
++    }
++    return angle::Result::Continue;
++}
++
++angle::Result TextureParking::parkAll(const gl::Context *context, const void *owner, uint64_t now)
++{
++    for (TextureMtl *texture : mTextures)
++    {
++        if (texture->mParkOwner != owner || texture->parkingCandidateBytes(now, 0, 1) == 0)
++        {
++            continue;
++        }
++        if (texture->mParkJob && texture->mParkJob->kept)
++        {
++            mParks += 1;
++            ANGLE_TRY(texture->dropParkedStorage(context));
++            continue;
++        }
++        if (mPendingBytes < kPendingCap)
++        {
++            ANGLE_TRY(texture->beginPark(context));
++            texture->mParkJob->stress = true;
++            mPendingBytes += texture->mParkJob->rawSize;
++        }
++    }
++    return angle::Result::Continue;
++}
++
++void TextureParking::noteRestore(double milliseconds)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    mRestores += 1;
++    mRestoreMs[mRestoreNext % kRestoreSamples] = static_cast<float>(milliseconds);
++    mRestoreNext += 1;
++    reportFirst(mRestores);
++}
++
++int TextureParking::line(char *buffer, size_t size)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    const size_t samples = std::min(mRestoreNext, kRestoreSamples);
++    std::vector<float> sorted(mRestoreMs.begin(), mRestoreMs.begin() + static_cast<ptrdiff_t>(samples));
++    std::sort(sorted.begin(), sorted.end());
++    auto at = [&sorted](double share) {
++        return sorted.empty() ? 0.0
++                              : static_cast<double>(sorted[static_cast<size_t>(
++                                    share * static_cast<double>(sorted.size() - 1) + 0.5)]);
++    };
++    uint64_t parked = 0, raw = 0, packed = 0, kept = 0;
++    for (TextureMtl *texture : mTextures)
++    {
++        if (texture->mParkJob && texture->mParked)
++        {
++            parked += 1;
++            raw += texture->mParkJob->rawSize;
++            packed += texture->mParkJob->packed.size();
++        }
++        else if (texture->mParkJob && texture->mParkJob->kept)
++        {
++            kept += texture->mParkJob->packed.size();
++        }
++    }
++    const int length = snprintf(
++        buffer, size,
++        "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
++        "restore_p50=%.1f restore_p99=%.1f lzfse=%llu",
++        static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
++        static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
++        static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
++        static_cast<unsigned long long>(mAborts), static_cast<unsigned long long>(mRestores), at(0.5),
++        at(0.99), static_cast<unsigned long long>(mRepacks));
++    return length > 0 && static_cast<size_t>(length) < size ? length : 0;
++}
++
++}  // namespace mtl
++}  // namespace rx
++
++// "park n=<parked> raw=<MiB> packed=<MiB> kept=<MiB> pending=<MiB> parks=<n> aborts=<n> restores=<n> restore_p50=<ms>
++// restore_p99=<ms> lzfse=<n>"; returns the length, or 0 when it does not fit.
++extern "C" ANGLE_EXPORT int ANGLEMetalParkingLine(char *line, size_t size)
++{
++    return rx::mtl::TextureParking::Get().line(line, size);
++}

@@ -19,8 +19,12 @@ set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^s
 # EGL_ANDROID_presentation_time on Metal (patch 0005, ADR-0041 decision 11). rgb_configs: RGB888 configs
 # without alpha on Metal, GLSurfaceView's default (patch 0006, ADR-0043 c4). external_images: samplerExternalOES and
 # GL_TEXTURE_EXTERNAL_OES on Metal (patch 0010, ADR-0058 b)).
+# memory_counters: what ANGLE holds in Metal, by class (patch 0015). window_msaa: a 4x window's samples
+# stay on the GPU's tiles (memoryless, patch 0016). texture_parking: idle textures as a packed CPU copy
+# near the memory limit, restored bit for bit (patch 0017, ADR-0075).
 enable_language(OBJCXX)
-foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs external_images)
+foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs external_images memory_counters
+  window_msaa texture_parking)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)
@@ -35,6 +39,10 @@ foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs exter
   endif()
   set_tests_properties(graphics.angle_${test} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
 endforeach()
+# texture_parking holds 2 GiB and measures frame times: alone, with time for a loaded Mac.
+if(TEST graphics.angle_texture_parking)
+  set_tests_properties(graphics.angle_texture_parking PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+endif()
 
 # ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.
 if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")

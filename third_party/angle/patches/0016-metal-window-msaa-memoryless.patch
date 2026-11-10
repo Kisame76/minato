@@ -1,0 +1,39 @@
+Keep a multisampled window surface's samples on the GPU's tiles only (Minato, patch 0016).
+
+Why: an EGL window surface with EGL_SAMPLES 4 got a multisample color texture in private memory, four times the
+window's size (55 MiB at 1290 x 2796), on top of the drawable it resolves into. An Android tiler keeps an EGL
+surface's samples in its tile memory and writes only the resolved frame. On Apple GPUs a memoryless texture does
+the same: when ANGLE resolves at the end of each render pass (allowMultisampleStoreAndResolve), the window's
+multisample color is memoryless, and a render pass that loads gets the resolved color back into its samples, as
+FramebufferMtl::unresolveIfNeeded already does for EXT_multisampled_render_to_texture.
+Test: graphics/tests/angle_window_msaa.mm (a 4x window keeps what a frame drew before it left the window for a
+framebuffer object and came back, and patch 0015's counters show its multisample color as memoryless).
+Upstream: could go upstream.
+diff --git a/src/libANGLE/renderer/metal/SurfaceMtl.mm b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+--- a/src/libANGLE/renderer/metal/SurfaceMtl.mm
++++ b/src/libANGLE/renderer/metal/SurfaceMtl.mm
+@@ -346,9 +346,21 @@
+     {
+         mAutoResolveMSColorTexture =
+             contextMtl->getDisplay()->getFeatures().allowMultisampleStoreAndResolve.enabled;
+-        ANGLE_TRY(CreateOrResizeTexture(context, mColorFormat, size.width, size.height, mSamples,
+-                                        /** renderTargetOnly */ mAutoResolveMSColorTexture,
+-                                        &mMSColorTexture));
++        if (mAutoResolveMSColorTexture)
++        {
++            // Minato (patch 0016): the samples live on the GPU's tiles only, as an Android tiler keeps an
++            // EGL surface's; each render pass resolves into the drawable, and one that loads gets the
++            // resolved color back into its samples (FramebufferMtl::unresolveIfNeeded).
++            mMSColorTexture = nullptr;
++            ANGLE_TRY(mtl::Texture::MakeMemoryLess2DMSTexture(contextMtl, mColorFormat, size.width,
++                                                              size.height, mSamples,
++                                                              &mMSColorTexture));
++        }
++        else
++        {
++            ANGLE_TRY(CreateOrResizeTexture(context, mColorFormat, size.width, size.height, mSamples,
++                                            /** renderTargetOnly */ false, &mMSColorTexture));
++        }
+ 
+         if (mAutoResolveMSColorTexture)
+         {

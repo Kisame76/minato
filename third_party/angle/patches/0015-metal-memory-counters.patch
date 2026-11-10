@@ -1,0 +1,353 @@
+Count what ANGLE holds in Metal, by class, for an embedder's memory line (Minato, patch 0015).
+
+Why: an app's process on the iPhone held about 2.3 GB of memory tagged as graphics and 1.6 GB more that no ledger
+named, and nothing said which GL objects held it. Metal resources in private storage (depth/stencil, multisample
+render targets) count outside the graphics ledger. Every texture and buffer the context's device makes now gets an
+associated object that counts it by class (compressed, color, depth/stencil, multisample, memoryless textures;
+shared and private buffers) with its allocatedSize until Metal frees it, so a resource a command buffer still holds
+after its delete counts until it is really gone. The buffer manager's free list and the device's
+currentAllocatedSize come with it. ANGLEMetalMemoryCounters gives the values, ANGLEMetalMemoryLine one line
+without allocating.
+Test: graphics/tests/angle_memory_counters.mm (an RGBA8 and an ETC2 texture, a DEPTH24_STENCIL8 and a 4x
+renderbuffer and a buffer each count in their class, the renderbuffers as private, and the texture classes come back
+after the deletes).
+Upstream: not planned (an embedder's diagnostic).
+diff --git a/src/libANGLE/renderer/metal/mtl_buffer_manager.h b/src/libANGLE/renderer/metal/mtl_buffer_manager.h
+--- a/src/libANGLE/renderer/metal/mtl_buffer_manager.h
++++ b/src/libANGLE/renderer/metal/mtl_buffer_manager.h
+@@ -58,6 +58,7 @@
+ {
+   public:
+     BufferManager();
++    ~BufferManager();
+ 
+     static constexpr size_t kMaxStagingBufferSize = 1024 * 1024;
+ #if TARGET_OS_OSX || TARGET_OS_MACCATALYST
+diff --git a/src/libANGLE/renderer/metal/mtl_buffer_manager.mm b/src/libANGLE/renderer/metal/mtl_buffer_manager.mm
+--- a/src/libANGLE/renderer/metal/mtl_buffer_manager.mm
++++ b/src/libANGLE/renderer/metal/mtl_buffer_manager.mm
+@@ -12,6 +12,7 @@
+ 
+ #include "libANGLE/renderer/metal/ContextMtl.h"
+ #include "libANGLE/renderer/metal/DisplayMtl.h"
++#include "libANGLE/renderer/metal/mtl_context_device.h"
+ 
+ namespace rx
+ {
+@@ -35,6 +36,17 @@
+ 
+ BufferManager::BufferManager() {}
+ 
++BufferManager::~BufferManager()
++{
++    for (int i = 0; i < kNumCachedStorageModes; ++i)
++    {
++        for (const auto &entry : ANGLE_UNSAFE_TODO(mFreeBuffers[i]))
++        {
++            NoteBufferPoolFree(-1, -static_cast<int64_t>(entry.first));
++        }
++    }
++}
++
+ void BufferManager::freeUnusedBuffers(ContextMtl *contextMtl)
+ {
+     // Scan for the first buffer still in use.
+@@ -56,6 +68,7 @@
+     ASSERT(cacheIndex < kNumCachedStorageModes);
+     ANGLE_UNSAFE_TODO(
+         mFreeBuffers[cacheIndex].insert(BufferMap::value_type(bufferRef->size(), bufferRef)));
++    NoteBufferPoolFree(1, static_cast<int64_t>(bufferRef->size()));
+ }
+ 
+ void BufferManager::returnBuffer(ContextMtl *contextMtl, BufferRef &bufferRef)
+@@ -134,6 +147,7 @@
+                 (mCommandBufferCommits - iter->second->getNumCommandBufferCommitsAtLastUse() >=
+                  kCommandBufferCommitsBetweenGC))
+             {
++                NoteBufferPoolFree(-1, -static_cast<int64_t>(iter->first));
+                 iter = map.erase(iter);
+             }
+             else
+@@ -202,6 +216,7 @@
+         if (iter != freeBuffers.end())
+         {
+             bufferRef = iter->second;
++            NoteBufferPoolFree(-1, -static_cast<int64_t>(iter->first));
+             freeBuffers.erase(iter);
+             bufferRef->setNumContextSwitchesAtLastUse(mContextSwitches);
+             bufferRef->setNumCommandBufferCommitsAtLastUse(mCommandBufferCommits);
+diff --git a/src/libANGLE/renderer/metal/mtl_context_device.h b/src/libANGLE/renderer/metal/mtl_context_device.h
+--- a/src/libANGLE/renderer/metal/mtl_context_device.h
++++ b/src/libANGLE/renderer/metal/mtl_context_device.h
+@@ -66,6 +66,9 @@
+ #endif
+ };
+ 
++// Minato (patch 0015): the buffer manager's free list, for ANGLEMetalMemoryCounters.
++void NoteBufferPoolFree(int64_t countChange, int64_t bytesChange);
++
+ }  // namespace mtl
+ }  // namespace rx
+ 
+diff --git a/src/libANGLE/renderer/metal/mtl_context_device.mm b/src/libANGLE/renderer/metal/mtl_context_device.mm
+--- a/src/libANGLE/renderer/metal/mtl_context_device.mm
++++ b/src/libANGLE/renderer/metal/mtl_context_device.mm
+@@ -12,6 +12,221 @@
+ #    include "libANGLE/renderer/metal/mtl_resource_spi.h"
+ #endif
+ 
++#include <export.h>
++#include <objc/runtime.h>
++#include <array>
++#include <atomic>
++#include <cstdio>
++
++#include "common/unsafe_buffers.h"
++
++// Minato (patch 0015): what ANGLE holds in Metal, for an embedder's memory line. Every texture and
++// buffer the device makes gets an associated object that counts it by class until Metal frees it,
++// so a resource a command buffer still holds after its delete counts until it is really gone.
++namespace
++{
++enum MemoryClass : int
++{
++    kCompressed,
++    kColor,
++    kDepthStencil,
++    kMultisample,
++    kMemoryless,
++    kBufferShared,
++    kBufferPrivate,
++    kMemoryClasses
++};
++std::array<std::atomic<uint64_t>, kMemoryClasses> gCount;
++std::array<std::atomic<uint64_t>, kMemoryClasses> gBytes;
++std::atomic<uint64_t> gTexturePrivateBytes{0};
++std::atomic<int64_t> gPoolFreeCount{0};
++std::atomic<int64_t> gPoolFreeBytes{0};
++std::atomic<void *> gDevice{nullptr};
++char gTrackerKey;
++
++int TextureClass(id<MTLTexture> texture)
++{
++    if (texture.storageMode == MTLStorageModeMemoryless)
++    {
++        return kMemoryless;
++    }
++    if (texture.textureType == MTLTextureType2DMultisample ||
++        texture.textureType == MTLTextureType2DMultisampleArray)
++    {
++        return kMultisample;
++    }
++    switch (texture.pixelFormat)
++    {
++        case MTLPixelFormatDepth16Unorm:
++        case MTLPixelFormatDepth32Float:
++        case MTLPixelFormatStencil8:
++        case MTLPixelFormatDepth32Float_Stencil8:
++        case MTLPixelFormatX32_Stencil8:
++#if TARGET_OS_OSX || TARGET_OS_MACCATALYST
++        case MTLPixelFormatDepth24Unorm_Stencil8:
++        case MTLPixelFormatX24_Stencil8:
++#endif
++            return kDepthStencil;
++        default:
++            break;
++    }
++    // BC, PVRTC, EAC/ETC2 and ASTC (LDR and HDR) lie in these ranges of MTLPixelFormat.
++    const NSUInteger format = texture.pixelFormat;
++    return (format >= 130 && format <= 153) || (format >= 160 && format <= 235) ? kCompressed : kColor;
++}
++
++void RememberDevice(id<MTLDevice> device)
++{
++    void *expected = nullptr;
++    if (device != nil && gDevice.load(std::memory_order_acquire) == nullptr &&
++        gDevice.compare_exchange_strong(expected, (__bridge void *)device))
++    {
++        [device retain];
++    }
++}
++}  // namespace
++
++@interface MinatoANGLEMemoryTracker : NSObject
++{
++    int _memoryClass;
++    uint64_t _bytes;
++    BOOL _privateTexture;
++}
++@end
++
++@implementation MinatoANGLEMemoryTracker
++- (instancetype)initWithClass:(int)memoryClass bytes:(uint64_t)bytes privateTexture:(BOOL)privateTexture
++{
++    if ((self = [super init]))
++    {
++        _memoryClass    = memoryClass;
++        _bytes          = bytes;
++        _privateTexture = privateTexture;
++        gCount[memoryClass].fetch_add(1, std::memory_order_relaxed);
++        gBytes[memoryClass].fetch_add(bytes, std::memory_order_relaxed);
++        if (privateTexture)
++        {
++            gTexturePrivateBytes.fetch_add(bytes, std::memory_order_relaxed);
++        }
++    }
++    return self;
++}
++
++- (void)dealloc
++{
++    gCount[_memoryClass].fetch_sub(1, std::memory_order_relaxed);
++    gBytes[_memoryClass].fetch_sub(_bytes, std::memory_order_relaxed);
++    if (_privateTexture)
++    {
++        gTexturePrivateBytes.fetch_sub(_bytes, std::memory_order_relaxed);
++    }
++    [super dealloc];
++}
++@end
++
++namespace
++{
++void Track(id object, int memoryClass, uint64_t bytes, BOOL privateTexture)
++{
++    if (object == nil)
++    {
++        return;
++    }
++    MinatoANGLEMemoryTracker *tracker =
++        [[MinatoANGLEMemoryTracker alloc] initWithClass:memoryClass
++                                                  bytes:bytes
++                                         privateTexture:privateTexture];
++    objc_setAssociatedObject(object, &gTrackerKey, tracker, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
++    [tracker release];
++}
++
++void TrackTexture(id<MTLDevice> device, id<MTLTexture> texture)
++{
++    RememberDevice(device);
++    if (texture != nil)
++    {
++        Track(texture, TextureClass(texture), texture.allocatedSize,
++              texture.storageMode == MTLStorageModePrivate);
++    }
++}
++
++void TrackBuffer(id<MTLDevice> device, id<MTLBuffer> buffer)
++{
++    RememberDevice(device);
++    if (buffer != nil)
++    {
++        Track(buffer, buffer.storageMode == MTLStorageModePrivate ? kBufferPrivate : kBufferShared,
++              buffer.allocatedSize, NO);
++    }
++}
++
++uint64_t Load(const std::atomic<uint64_t> &value)
++{
++    return value.load(std::memory_order_relaxed);
++}
++
++uint64_t LoadSigned(const std::atomic<int64_t> &value)
++{
++    const int64_t loaded = value.load(std::memory_order_relaxed);
++    return loaded > 0 ? static_cast<uint64_t>(loaded) : 0;
++}
++}  // namespace
++
++// The counters in this order, appended to and never reordered: for each class (compressed, color,
++// depth/stencil, multisample and memoryless textures, shared and private buffers) its count and
++// bytes (values 0 to 13), the textures' private and shared bytes (14, 15), the buffer manager's
++// free buffers and their bytes (16, 17), and the device's currentAllocatedSize (18). Writes at most
++// `count` values and returns how many there are.
++extern "C" ANGLE_EXPORT size_t ANGLEMetalMemoryCounters(uint64_t *values, size_t count)
++{
++    std::array<uint64_t, 19> all = {};
++    uint64_t textureBytes = 0;
++    for (int k = 0; k < kMemoryClasses; ++k)
++    {
++        all[2 * k]     = Load(gCount[k]);
++        all[2 * k + 1] = Load(gBytes[k]);
++        if (k <= kMemoryless)
++        {
++            textureBytes += all[2 * k + 1];
++        }
++    }
++    all[14] = Load(gTexturePrivateBytes);
++    all[15] = textureBytes > all[14] ? textureBytes - all[14] : 0;
++    all[16] = LoadSigned(gPoolFreeCount);
++    all[17] = LoadSigned(gPoolFreeBytes);
++    id<MTLDevice> device = (__bridge id<MTLDevice>)gDevice.load(std::memory_order_acquire);
++    all[18]              = device != nil ? device.currentAllocatedSize : 0;
++    for (size_t k = 0; values != nullptr && k < count && k < all.size(); ++k)
++    {
++        ANGLE_UNSAFE_TODO(values[k] = all[k]);
++    }
++    return all.size();
++}
++
++// The counters as one line, sizes in MiB: "gl tex=<n>/<MiB> priv=.. shared=.. comp=<n>/.. color=<n>/..
++// depth=<n>/.. msaa=<n>/.. mless=<n> buf=<n>/.. bufpriv=.. pool=<n>/.. mtl=..". Returns its length,
++// or 0 if it does not fit in `size` bytes (the terminating zero included). No allocation.
++extern "C" ANGLE_EXPORT int ANGLEMetalMemoryLine(char *line, size_t size)
++{
++    std::array<uint64_t, 19> v = {};
++    ANGLEMetalMemoryCounters(v.data(), v.size());
++    const uint64_t mib = 1024 * 1024;
++    const unsigned long long textures = v[0] + v[2] + v[4] + v[6] + v[8];
++    const unsigned long long buffers  = v[10] + v[12];
++    const int length = ANGLE_UNSAFE_TODO(std::snprintf(
++        line, size,
++        "gl tex=%llu/%llu priv=%llu shared=%llu comp=%llu/%llu color=%llu/%llu depth=%llu/%llu "
++        "msaa=%llu/%llu mless=%llu buf=%llu/%llu bufpriv=%llu pool=%llu/%llu mtl=%llu",
++        textures, (unsigned long long)((v[14] + v[15]) / mib), (unsigned long long)(v[14] / mib),
++        (unsigned long long)(v[15] / mib), (unsigned long long)v[0], (unsigned long long)(v[1] / mib),
++        (unsigned long long)v[2], (unsigned long long)(v[3] / mib), (unsigned long long)v[4],
++        (unsigned long long)(v[5] / mib), (unsigned long long)v[6], (unsigned long long)(v[7] / mib),
++        (unsigned long long)v[8], buffers, (unsigned long long)((v[11] + v[13]) / mib),
++        (unsigned long long)(v[13] / mib), (unsigned long long)v[16], (unsigned long long)(v[17] / mib),
++        (unsigned long long)(v[18] / mib)));
++    return length > 0 && static_cast<size_t>(length) < size ? length : 0;
++}
++
+ namespace rx
+ {
+ namespace mtl
+@@ -62,6 +277,7 @@
+ 
+     auto resource = angle::adoptObjCPtr([get() newTextureWithDescriptor:descriptor]);
+     setOwnerWithIdentity(resource);
++    TrackTexture(get(), resource.get());
+     return resource;
+ }
+ 
+@@ -80,6 +296,7 @@
+ {
+     auto resource = angle::adoptObjCPtr([get() newBufferWithLength:length options:options]);
+     setOwnerWithIdentity(resource);
++    TrackBuffer(get(), resource.get());
+     return resource;
+ }
+ 
+@@ -91,6 +308,7 @@
+                                                            length:length
+                                                           options:options]);
+     setOwnerWithIdentity(resource);
++    TrackBuffer(get(), resource.get());
+     return resource;
+ }
+ 
+@@ -132,6 +350,12 @@
+ #endif
+ }
+ 
++void NoteBufferPoolFree(int64_t countChange, int64_t bytesChange)
++{
++    gPoolFreeCount.fetch_add(countChange, std::memory_order_relaxed);
++    gPoolFreeBytes.fetch_add(bytesChange, std::memory_order_relaxed);
++}
++
+ bool ContextDevice::hasUnifiedMemory() const
+ {
+     return [get() hasUnifiedMemory];
