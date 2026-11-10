@@ -2847,12 +2847,30 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     # 15 s in and still said "played for 5 min").
     lines=0
     changed=$SECONDS
+    # The frame rate: the session's ping answers with the frames its windows have presented so far, so each answer
+    # gives the rate since the one before (texture parking restores a frame of a cycled sequence per shown frame).
+    rates=()
+    presents=-1
+    pinged=$SECONDS
     while (( SECONDS < end )); do
       sleep 20
       fetch_events
       if tail -n +$((seen + 1)) "$EVENTS" | grep -E '^[0-9.]+ [0-9]+ (could not start|program ended) ' >/dev/null; then
         ended=yes
         break
+      fi
+      request ping
+      EVENT=""
+      await_event "pong presents [0-9]+ scene .*|could not start .*|program ended .*" 10 || true
+      if [[ "$EVENT" =~ (could\ not\ start|program\ ended) ]]; then
+        ended=yes
+        break
+      elif [[ "$EVENT" =~ pong\ presents\ ([0-9]+) ]]; then
+        if (( presents >= 0 && SECONDS > pinged )); then
+          rates+=($(( (BASH_REMATCH[1] - presents) / (SECONDS - pinged) )))
+        fi
+        presents=${BASH_REMATCH[1]}
+        pinged=$SECONDS
       fi
       # A failed fetch (the iPhone's copy) says nothing: the container stays readable after a kill.
       if fetch "$CHECK_REL/footprint-log"; then
@@ -2873,6 +2891,13 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     else
       [[ -z "$killed" ]] || echo "$killed"
       ok "  played for $minutes min"
+    fi
+    if (( ${#rates[@]} > 0 )); then
+      sorted=($(printf '%s\n' "${rates[@]}" | sort -n))
+      echo "csv,renpy_fps_min,renpy_fps_median,renpy_fps_last"
+      echo "csv,${sorted[0]},${sorted[$(( ${#sorted[@]} / 2 ))]},${rates[$(( ${#rates[@]} - 1 ))]}"
+    else
+      echo "note  renpy-memory-test: no ping answered, so no frame rate"
     fi
   fi
   end_start renpy-memory-test 1
