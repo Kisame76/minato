@@ -434,8 +434,32 @@ AWAY=com.apple.Preferences
 devicectl_copy() {
   local direction=$1
   shift
-  on_device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
-    --domain-identifier "$BUNDLE_ID" -q "$@" >/dev/null 2>&1
+  # A lost device aborts the whole check, as on_device does; keep that guard before the timed copy.
+  python3 tools/require-device.py "$DEVICE_ID" 2>&3 || exit 1
+  # devicectl has hung for minutes on the phone (seen twice in a row), which would make the check wait and then go
+  # red for the wrong reason, so the copy runs with a deadline the way the tools bound things without a GNU timeout:
+  # in the background, killed if it outlasts the deadline. One retry; if it hangs both times, a red names the cause.
+  local limit=${DEVICECTL_COPY_TIMEOUT_S:-90} attempt hung=no status
+  for attempt in 1 2; do
+    xcrun devicectl device copy "$direction" --device "$DEVICE_ID" --domain-type appDataContainer \
+      --domain-identifier "$BUNDLE_ID" -q "$@" >/dev/null 2>&1 &
+    local pid=$!
+    local end=$((SECONDS + limit))
+    while kill -0 "$pid" 2>/dev/null && (( SECONDS < end )); do sleep 0.2; done
+    if kill -0 "$pid" 2>/dev/null; then
+      pkill -P "$pid" 2>/dev/null  # a child devicectl, if xcrun forked one, so the hung copy does not outlive us
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      hung=yes
+    else
+      wait "$pid"
+      status=$?
+      [[ $status -eq 0 ]] && return 0
+      hung=no
+    fi
+  done
+  [[ $hung == yes ]] && fail "devicectl copy $direction hung: no response within ${limit}s, retried once"
+  return 1
 }
 # Starts app $1, Minato when none, or brings it to the front when it runs.
 launch() {
