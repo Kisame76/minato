@@ -1,0 +1,10 @@
+I/uninstall-noperm-test: holds REQUEST_DELETE_PACKAGES: false
+I/uninstall-noperm-test: resolves ACTION_DELETE: true
+I/uninstall-noperm-test: resolves ACTION_UNINSTALL_PACKAGE: true
+I/uninstall-noperm-test: uninstall package: result 1, install result no data
+I/uninstall-noperm-test: delete: result 1, no data
+I/uninstall-noperm-test: installer uninstall: java.lang.SecurityException
+I/uninstall-noperm-test: self asks
+I/uninstall-noperm-test: self uninstall package: result 1, install result no data
+I/uninstall-noperm-test: self delete: result 1, install result no data
+I/uninstall-noperm-test: done

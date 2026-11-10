@@ -10,9 +10,15 @@
  */
 package android.content.pm;
 
+import android.app.ActivityThread;
+import android.content.Intent;
+import android.content.IntentSender;
 import android.content.pm.PackageInstaller.SessionInfo;
 import android.content.pm.PackageInstaller.SessionParams;
+import android.net.Uri;
 import android.os.Parcel;
+import android.util.Log;
+import com.android.internal.minato.install.UninstallActivity;
 import android.util.SparseArray;
 import com.android.minato.services.Unwritten;
 import java.io.File;
@@ -101,6 +107,67 @@ public final class LocalPackageInstaller extends IPackageInstaller.Default {
         }
         if (session != null) {
             session.installed(result);
+        }
+    }
+
+    /** The status receivers of PackageInstaller.uninstall that wait for the user, by the ID in the confirm intent. */
+    private static final SparseArray<IntentSender> sUninstalls = new SparseArray<>();
+    private static int sNextUninstall = 1;
+
+    /**
+     * PackageInstaller.uninstall as an app without the right to delete packages gets it: a SecurityException without
+     * REQUEST_DELETE_PACKAGES; otherwise STATUS_PENDING_USER_ACTION with the intent that asks the user
+     * (ACTION_UNINSTALL_PACKAGE, answered by UninstallActivity), and the final status once it ends.
+     */
+    @Override
+    @SuppressWarnings("deprecation") // ACTION_UNINSTALL_PACKAGE is the action Android's own status intent carries
+    public void uninstall(VersionedPackage versionedPackage, String callerPackageName, int flags,
+            IntentSender statusReceiver, int userId) {
+        if (!ActivityThread.permissionGranted("android.permission.REQUEST_DELETE_PACKAGES")) {
+            throw new SecurityException("Neither user " + android.os.Process.myUid() + " nor current process has "
+                    + "android.permission.DELETE_PACKAGES.");
+        }
+        final int id;
+        synchronized (sUninstalls) {
+            id = sNextUninstall++;
+            sUninstalls.put(id, statusReceiver);
+        }
+        final Intent ask = new Intent(Intent.ACTION_UNINSTALL_PACKAGE,
+                Uri.fromParts("package", versionedPackage.getPackageName(), null))
+                .putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                .putExtra(UninstallActivity.EXTRA_CALLBACK_ID, id);
+        sendUninstallStatus(statusReceiver, PackageInstaller.STATUS_PENDING_USER_ACTION, "Pending user action",
+                versionedPackage.getPackageName(), ask);
+    }
+
+    /** The user's answer for the uninstall `id` (0 removed, 1 failed, 2 cancelled): its final status. */
+    public static void uninstallResult(int id, String packageName, int result) {
+        final IntentSender receiver;
+        synchronized (sUninstalls) {
+            receiver = sUninstalls.get(id);
+            sUninstalls.remove(id);
+        }
+        if (receiver != null) {
+            sendUninstallStatus(receiver, result == 0 ? PackageInstaller.STATUS_SUCCESS
+                    : result == 2 ? PackageInstaller.STATUS_FAILURE_ABORTED : PackageInstaller.STATUS_FAILURE,
+                    result == 0 ? "Succeeded" : result == 2 ? "Uninstall canceled by user" : "Failed",
+                    packageName, null);
+        }
+    }
+
+    private static void sendUninstallStatus(IntentSender receiver, int status, String message, String packageName,
+            Intent ask) {
+        final Intent fill = new Intent()
+                .putExtra(PackageInstaller.EXTRA_STATUS, status)
+                .putExtra(PackageInstaller.EXTRA_STATUS_MESSAGE, message)
+                .putExtra(PackageInstaller.EXTRA_PACKAGE_NAME, packageName);
+        if (ask != null) {
+            fill.putExtra(Intent.EXTRA_INTENT, ask);
+        }
+        try {
+            receiver.sendIntent(ActivityThread.currentApplication(), 0, fill, null, null);
+        } catch (IntentSender.SendIntentException e) {
+            Log.w("PackageInstaller", "The status receiver of an uninstall is gone: " + e);
         }
     }
 

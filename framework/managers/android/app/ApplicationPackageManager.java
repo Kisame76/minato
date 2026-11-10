@@ -40,6 +40,7 @@ import android.util.Log;
 import com.android.externalstorage.ExternalStorageProvider;
 import com.android.internal.minato.install.InstallConfirmActivity;
 import com.android.internal.minato.install.InstallSourcesActivity;
+import com.android.internal.minato.install.UninstallActivity;
 import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.minato.pm.SystemFeatures;
@@ -569,6 +570,12 @@ class ApplicationPackageManager {
                 && InstallConfirmActivity.handles(intent, app != null ? app.getContentResolver() : null)) {
             found = new ArrayList<>(found);
             found.add(InstallConfirmActivity.resolveInfo());
+        }
+        // A request to remove a package resolves to Android's package installer when the app has no component for it.
+        if (kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty() && picker == PickerIntents.NONE
+                && UninstallActivity.handles(intent)) {
+            found = new ArrayList<>(found);
+            found.add(UninstallActivity.resolveInfo());
         }
         // The links, mail, calls, texts, maps and shares of ADR-0062 resolve to the phone's app that iOS stands in for.
         if (kind == ManifestPackage.QUERY_ACTIVITIES && found.isEmpty() && picker == PickerIntents.NONE

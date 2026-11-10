@@ -122,6 +122,7 @@ import com.android.internal.minato.open.OpenIntents;
 import com.android.internal.minato.open.SystemOpenActivity;
 import com.android.internal.minato.install.InstallConfirmActivity;
 import com.android.internal.minato.install.InstallSourcesActivity;
+import com.android.internal.minato.install.UninstallActivity;
 import com.android.internal.minato.permissions.SystemPermissionActivity;
 import android.location.LocalLocationManager;
 import com.android.internal.minato.picker.PickerIntents;
@@ -1315,6 +1316,7 @@ public final class ActivityThread {
     private static final int EVENT_NOTIFICATION_TAP = 35;
     private static final int EVENT_INSTALL_SOURCES_RESULT = 36;
     private static final int EVENT_INSTALL_RESULT = 37;
+    private static final int EVENT_UNINSTALL_RESULT = 38;
     private static final int REQUEST_FINISH = 1;
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
@@ -1605,6 +1607,9 @@ public final class ActivityThread {
             case EVENT_INSTALL_SOURCES_RESULT:
                 InstallSourcesActivity.onResult(event[2], (int) event[3]);
                 break;
+            case EVENT_UNINSTALL_RESULT:
+                UninstallActivity.onResult(event[2], (int) event[3]);
+                break;
             case EVENT_PERMISSION_RESULT:
                 SystemPermissionActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
@@ -1711,16 +1716,20 @@ public final class ActivityThread {
         final boolean confirm = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
                 && !sources && InstallConfirmActivity.handles(intent, currentApplication() != null
                         ? currentApplication().getContentResolver() : null);
+        // ACTION_DELETE and ACTION_UNINSTALL_PACKAGE of a package go to the activity that has the host ask the user.
+        final boolean uninstall = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
+                && !sources && !confirm && UninstallActivity.handles(intent);
         ActivityInfo info = pickerKind != PickerIntents.NONE
                 ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
                 : open ? OpenIntents.activityInfo(mPackage.applicationInfo(0))
                 : permissions ? SystemPermissionActivity.activityInfo(mPackage.applicationInfo(0))
                 : sources ? InstallSourcesActivity.activityInfo(mPackage.applicationInfo(0))
                 : confirm ? InstallConfirmActivity.activityInfo(mPackage.applicationInfo(0))
+                : uninstall ? UninstallActivity.activityInfo(mPackage.applicationInfo(0))
                 : component != null
                 ? mPackage.activityInfo(component, PackageManager.GET_SHARED_LIBRARY_FILES, false) : null;
         final int result = component == null && pickerKind == PickerIntents.NONE && !open && !permissions && !sources
-                && !confirm
+                && !confirm && !uninstall
                 ? ActivityManager.START_INTENT_NOT_RESOLVED
                 : info == null ? ActivityManager.START_CLASS_NOT_FOUND : ActivityManager.START_SUCCESS;
         if (info != null) {
@@ -1729,7 +1738,7 @@ public final class ActivityThread {
             return result;
         }
         final Intent started = new Intent(intent);
-        if (pickerKind != PickerIntents.NONE || open || permissions || sources || confirm) {
+        if (pickerKind != PickerIntents.NONE || open || permissions || sources || confirm || uninstall) {
             started.setComponent(new ComponentName(info.packageName, info.name));
         }
         sMainThreadHandler.post(() -> addTransaction(
@@ -2803,6 +2812,18 @@ public final class ActivityThread {
         return nativeSessionRequestConfirmInstall(id, text.getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * @hide UninstallActivity's: the request `id` with its text "<target>\n<asking package>" for the host, which
+     * answers with UNINSTALL_RESULT; 0, or a negative errno, -EOPNOTSUPP without a session.
+     */
+    public static int requestUninstall(long id, String text) {
+        final ActivityThread thread = sCurrentActivityThread;
+        if (thread == null || thread.mSessionEvents == null) {
+            return -EOPNOTSUPP;
+        }
+        return nativeSessionRequestUninstall(id, text.getBytes(StandardCharsets.UTF_8));
+    }
+
     /** @hide SystemPermissionActivity's: whether the app holds the permission now, as checkSelfPermission answers. */
     public static boolean permissionGranted(String permission) {
         final ActivityThread thread = sCurrentActivityThread;
@@ -3227,6 +3248,7 @@ public final class ActivityThread {
     private static native int nativeSessionRequestPermission(long id, byte[] text);
 
     private static native int nativeSessionRequestAskInstallSources(long id, byte[] text);
+    private static native int nativeSessionRequestUninstall(long id, byte[] text);
 
     private static native int nativeSessionRequestConfirmInstall(long id, byte[] text);
 

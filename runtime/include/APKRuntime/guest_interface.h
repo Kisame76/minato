@@ -345,6 +345,8 @@ enum apkrt_event_type {
                                           // canRequestPackageInstalls() state from a1, as it does for PICK_RESULT
     APKRT_EVENT_INSTALL_RESULT,           // answer to APKRT_REQUEST_CONFIRM_INSTALL: a0 the request's ID; a1 the
                                           // outcome 0 ready, 1 failed, 2 cancelled
+    APKRT_EVENT_UNINSTALL_RESULT,         // answer to APKRT_REQUEST_UNINSTALL: a0 the request's ID; a1 the outcome 0
+                                          // removed, 1 failed (also: no such app), 2 cancelled
 };
 
 /// The phases of APKRT_EVENT_BACK's a0 (ADR-0041 decision 10), from Android's OnBackAnimationCallback and
@@ -538,6 +540,11 @@ enum apkrt_request_type {
                                         // background colour (0 = none, else 0xFFRRGGBB). The runtime refuses -EINVAL a
                                         // non-opaque a0 or an a1 that is neither 0 nor opaque, and forwards a valid one
                                         // once (-EALREADY after) to the host as argument (a1 << 32) | a0; no answer
+    APKRT_REQUEST_UNINSTALL,            // guest only (an app asking to remove an app): a0 the address of NUL text
+                                        // "<target package>\n<asking package>", a1 the request's ID. The guest sends
+                                        // this only for an app that holds REQUEST_DELETE_PACKAGES; the host names the
+                                        // target to the user, who decides, and answers once with
+                                        // APKRT_EVENT_UNINSTALL_RESULT. Never a silent removal
 };
 
 // MARK: - Permissions (ADR-0063 location, ADR-0064 microphone)

@@ -1004,6 +1004,11 @@ run_app() {
     result-chain-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ActivityA
       ;;
+    # uninstall-test, uninstall-noperm-test: an app asks to uninstall an absent app (with and without
+    # REQUEST_DELETE_PACKAGES); the launcher is UninstallActivity and the log ends with "done".
+    uninstall-test|uninstall-noperm-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.UninstallActivity limit=60
+      ;;
     activity-flow-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SplashActivity
       ;;
@@ -1666,6 +1671,28 @@ run_app() {
       edge_swipe 6 $((h / 2 + 150)) 120 $((h - 300)) 300 || return 1
       sleep 1.5 && run input tap $((w / 2)) $((h / 2)) || return 1
     fi
+  fi
+  if [[ "$app" == uninstall-test ]]; then
+    # Android answers an absent package with its "App not found" dialog (tap OK) and the app's own package with
+    # "Do you want to uninstall this app?" (tap CANCEL, never OK): each request waits for its tap.
+    wait_for "$app" "ACTION_UNINSTALL_PACKAGE" 20 || return 1
+    local round bounds
+    for round in 1 2 3 4 5 6 7 8 9 10; do
+      sleep 4
+      ! run logcat -d -s "$app:I" | grep -q ': done' || break
+      run uiautomator dump /sdcard/u.xml >/dev/null 2>&1 || true
+      run cat /sdcard/u.xml > "$RESULTS/$app-ui.xml" 2>/dev/null || true
+      bounds=$(python3 - "$RESULTS/$app-ui.xml" <<'PY'
+import re, sys
+s = open(sys.argv[1]).read()
+button = "button1" if "App not found" in s else "button2" if "Do you want to uninstall this app?" in s else ""
+m = re.search(r'resource-id="android:id/%s"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"' % button, s) if button else None
+if m:
+    print((int(m[1]) + int(m[3])) // 2, (int(m[2]) + int(m[4])) // 2)
+PY
+)
+      [[ -z "$bounds" ]] || run input tap $bounds
+    done
   fi
   if [[ "$app" == action-bar-menu-test ]]; then
     # The keys of tools/action-bar-menu-check.sh's lifecycle, a second and a half apart: MENU, DOWN, ENTER, then, after

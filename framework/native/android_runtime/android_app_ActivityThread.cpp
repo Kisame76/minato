@@ -306,6 +306,23 @@ jint SessionRequestAskInstallSources(JNIEnv *env, jclass, jlong id, jbyteArray t
                    : 0;
 }
 
+// APKRT_REQUEST_UNINSTALL (an app asking to remove an app): the text "<target>\n<asking package>" by address and the
+// request ID; 0, or the negative errno. The host answers with APKRT_EVENT_UNINSTALL_RESULT.
+jint SessionRequestUninstall(JNIEnv *env, jclass, jlong id, jbyteArray text) {
+    if (text == nullptr) return -EINVAL;
+    const jsize length = env->GetArrayLength(text);
+    std::vector<char> bytes(static_cast<size_t>(length) + 1, '\0');
+    env->GetByteArrayRegion(text, 0, length, reinterpret_cast<jbyte *>(bytes.data()));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return -EFAULT;
+    }
+    return syscall(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_UNINSTALL, reinterpret_cast<uintptr_t>(bytes.data()),
+                   static_cast<uint64_t>(id)) < 0
+                   ? -errno
+                   : 0;
+}
+
 // APKRT_REQUEST_CONFIRM_INSTALL (an app installer): the text "<path>\n<package>" by address and the request ID; 0, or
 // the negative errno. The host answers with APKRT_EVENT_INSTALL_RESULT.
 jint SessionRequestConfirmInstall(JNIEnv *env, jclass, jlong id, jbyteArray text) {
@@ -481,6 +498,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeSessionRequestPermission", "(J[B)I", reinterpret_cast<void *>(SessionRequestPermission)},
         {"nativeSessionRequestPermissionCancel", "(J)I", reinterpret_cast<void *>(SessionRequestPermissionCancel)},
         {"nativeSessionRequestAskInstallSources", "(J[B)I", reinterpret_cast<void *>(SessionRequestAskInstallSources)},
+        {"nativeSessionRequestUninstall", "(J[B)I", reinterpret_cast<void *>(SessionRequestUninstall)},
         {"nativeSessionRequestConfirmInstall", "(J[B)I", reinterpret_cast<void *>(SessionRequestConfirmInstall)},
         {"nativeSessionRequestIme", "(J[B)I", reinterpret_cast<void *>(SessionRequestIme)},
         {"nativeLocationStart", "(II)I", reinterpret_cast<void *>(LocationStart)},

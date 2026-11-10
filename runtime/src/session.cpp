@@ -853,6 +853,7 @@ std::recursive_mutex install_handler_lock;
 std::mutex install_lock;
 WaitingIds<install_live_limit> live_install_sources;
 WaitingIds<install_live_limit> live_installs;
+WaitingIds<install_live_limit> live_uninstalls;  // APKRT_REQUEST_UNINSTALL's, a text of the same shape
 
 /// Forgets the question (`sources`) or install request `id`; whether it was waiting.
 bool install_done(bool sources, std::uint64_t id) {
@@ -883,7 +884,9 @@ long install_request(int type, std::uint64_t address, std::uint64_t id) {
     const std::lock_guard<std::recursive_mutex> handler(install_handler_lock);
     {
         const std::lock_guard<std::mutex> hold(install_lock);
-        auto &live = type == APKRT_REQUEST_ASK_INSTALL_SOURCES ? live_install_sources : live_installs;
+        auto &live = type == APKRT_REQUEST_ASK_INSTALL_SOURCES ? live_install_sources
+                     : type == APKRT_REQUEST_UNINSTALL         ? live_uninstalls
+                                                               : live_installs;
         if (live.contains(id)) return -linux_errno::eexist;
         if (live.full()) return -linux_errno::ebusy;
         live.add(id);
@@ -1324,6 +1327,7 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return permission_cancel(a0);
         case APKRT_REQUEST_ASK_INSTALL_SOURCES:
         case APKRT_REQUEST_CONFIRM_INSTALL:
+        case APKRT_REQUEST_UNINSTALL:
             return install_request(static_cast<int>(type), a0, a1);
         case APKRT_REQUEST_IME:
             return ime(a0, a1);
@@ -1459,6 +1463,10 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
         apkrt::install_sources::set(a1 != 0);
     }
     if (type == APKRT_EVENT_INSTALL_RESULT) install_done(false, a0);
+    if (type == APKRT_EVENT_UNINSTALL_RESULT) {
+        const std::lock_guard<std::mutex> done(install_lock);
+        live_uninstalls.remove(a0);
+    }
     const std::lock_guard<std::mutex> hold(lock);
     if (broken || ended) return 0;
     const apkrt_event record{type, posted + 1, {a0, a1, a2}};

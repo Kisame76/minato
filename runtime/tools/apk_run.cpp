@@ -789,6 +789,19 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
                            ask ? 0 : 2, 0);
         return;
     }
+    if (type == APKRT_REQUEST_UNINSTALL) {
+        // The model of the host's side: no other app is installed here, so a target that is not the asking app itself
+        // is not found (failed, as Android's "App not found"), and for the asking app itself nobody is here to say
+        // yes: the removal is cancelled at once, as a user who declines would. The guest ends its request with that
+        // answer instead of waiting for a host that is not there.
+        const std::string_view asked = text != nullptr ? text : "";
+        const std::size_t newline = asked.find('\n');
+        const bool self = newline != std::string_view::npos && asked.substr(0, newline) == asked.substr(newline + 1);
+        std::fprintf(stderr, "apk-run: uninstall %llu: %s -> %s\n", static_cast<unsigned long long>(argument),
+                     one_line(text != nullptr ? text : "").c_str(), self ? "cancelled" : "not found");
+        apkrt_session_post(APKRT_EVENT_UNINSTALL_RESULT, argument, self ? 2 : 1, 0);
+        return;
+    }
     if (type == APKRT_REQUEST_STARTING_WINDOW) {
         // ADR-0076: the runtime packed the two colours as (a1 << 32) | a0; print the splash and the icon background in
         // #RRGGBB (no alpha), "none" when a1 is 0, as the Mac check (tools/starting-window-check.sh) compares.

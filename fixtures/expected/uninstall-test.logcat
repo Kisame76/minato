@@ -1,0 +1,10 @@
+I/uninstall-test: holds REQUEST_DELETE_PACKAGES: true
+I/uninstall-test: resolves ACTION_DELETE: true
+I/uninstall-test: resolves ACTION_UNINSTALL_PACKAGE: true
+I/uninstall-test: uninstall package: result 1, install result no data
+I/uninstall-test: delete: result 1, no data
+I/uninstall-test: installer status: -1, package io.github.kisame76.absent
+I/uninstall-test: self asks
+I/uninstall-test: self uninstall package: result 0, install result no data
+I/uninstall-test: self delete: result 0, install result no data
+I/uninstall-test: done
