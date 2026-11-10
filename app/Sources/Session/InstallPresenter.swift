@@ -214,12 +214,13 @@ final class InstallPresenter {
         top.present(alert, animated: true)
         #if DEBUG
         SessionCheck.event(event)
-        if SessionCheck.allowsInstalls {
+        if SessionCheck.allowsInstalls || SessionCheck.deniesInstalls {
+            let choice = SessionCheck.allowsInstalls
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak alert] in
                 guard let alert, !once else { return }
-                SessionCheck.event("install alert answered \(yes)")
+                SessionCheck.event("install alert answered \(choice ? yes : no)")
                 alert.presentingViewController?.dismiss(animated: true)
-                end(true)
+                end(choice)
             }
         }
         #endif

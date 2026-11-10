@@ -84,6 +84,8 @@ import UIKit
 ///            as the user's tap does, and logs "pick allowed"; the file stays for every alert.
 ///   install-allow  an app installer's alerts, whether it may install apps and the install, choose Allow and
 ///            Install by themselves 1 s after they are up and log "install alert answered <key>".
+///   install-deny  the same alerts choose their other button (Don't Allow, Cancel) by themselves, as the user's
+///            refusal, and log the same line with that key; install-allow wins where both are there.
 ///   pad      the same poll connects a hidden GCVirtualController and plays tools/gamepad-check.sh's steps on it
 ///            (ADR-0068 decision 5): each button down for 60 ms, then the sticks, triggers and d-pad, each back to
 ///            rest, then disconnects it; it logs "virtual pad lacks <element>" for each button a touch controller
@@ -140,6 +142,9 @@ enum SessionCheck {
 
     /// Whether an app installer's alerts (whether it may install apps, and the install) answer yes by themselves.
     static var allowsInstalls: Bool { requested("install-allow") }
+
+    /// Whether they answer no by themselves (the user's refusal).
+    static var deniesInstalls: Bool { requested("install-deny") }
 
     /// How long compile mode waits before dex2oat starts; 0 without the request.
     static var compileHold: Double { text(of: "compile-hold").flatMap(Double.init) ?? 0 }
