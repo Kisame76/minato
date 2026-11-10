@@ -1,6 +1,7 @@
 import APKFormats
 import APKKit
 import APKTestSupport
+import CryptoKit
 import Foundation
 import Synchronization
 import Testing
@@ -332,5 +333,57 @@ struct OBBImportTests {
         #expect(await library.appsForOBBs() == [])
         let results = try await library.importUnit(Sets.unit([Self.name("main", 1): Self.data("main 1")], in: sandbox.paths))
         #expect(results.first?.installedOBBs.map(\.fileName) == [Self.name("main", 1)])
+    }
+
+    // MARK: - A big expansion file
+
+    /// The streamed SHA-256 of the file at `url`, in 16 MiB parts, as a hex string.
+    static func streamedDigest(_ url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let part = try handle.read(upToCount: 16 << 20), !part.isEmpty { hasher.update(data: part) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    @Test func aSparseOBBOfMoreThanTwoGiBIsCheckedAndMovedWithoutSpaceForAllItsBytes() async throws {
+        // Games keep their data in one expansion file of 1 to 4 GiB. The unit's file is sparse (a few KiB on disk), so
+        // the test costs no space; it checks that the size, the digest and the move survive offsets beyond 2^31 and
+        // that the app's copy does not need the room of its length.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        _ = try await Self.install(library, sandbox)
+        let size: UInt64 = (1 << 31) + (128 << 20)
+        let name = Self.name("main", 5)
+        let unit = try Sets.unit([:], in: sandbox.paths)
+        let source = unit.appendingPathComponent(name)
+        let handle = try FileHandle(forWritingTo: {
+            FileManager.default.createFile(atPath: source.path, contents: nil)
+            return source
+        }())
+        try handle.truncate(atOffset: size)
+        try handle.seek(toOffset: (1 << 31) - 4)
+        try handle.write(contentsOf: Data("SPANNING".utf8))
+        try handle.close()
+        let digest = try Self.streamedDigest(source)
+
+        let results = try await library.importUnit(unit)
+
+        let installed = Self.obbFolder(sandbox.paths).appendingPathComponent(name)
+        let attributes = try FileManager.default.attributesOfItem(atPath: installed.path)
+        #expect((attributes[.size] as? NSNumber)?.uint64Value == size)
+        let expected = PackageFile(fileName: name, splitName: nil, size: size, sha256: digest)
+        #expect(results.first?.installedOBBs == [expected])
+        #expect(try Self.streamedDigest(installed) == digest)
+        var status = stat()
+        #expect(stat(installed.path, &status) == 0)
+        // Blocks of 512 bytes: far below the length, as the source's were.
+        #expect(UInt64(status.st_blocks) * 512 < size / 8)
+        #expect(!sandbox.exists(unit))
+        let probe = try FileHandle(forReadingFrom: installed)
+        defer { try? probe.close() }
+        try probe.seek(toOffset: (1 << 31) - 4)
+        #expect(try probe.read(upToCount: 8) == Data("SPANNING".utf8))
     }
 }

@@ -1,0 +1,10 @@
+I/obb-large-test: size 2281701376 (134217728 above 2 GiB)
+I/obb-large-test: start: FIRST-08
+I/obb-large-test: spanning 2 GiB: SPANNING
+I/obb-large-test: end: THE-END!, pointer true
+I/obb-large-test: stream skipped 2147487744: ABOVE2G!
+I/obb-large-test: channel read above 2 GiB: ABOVE2G!
+I/obb-large-test: mapped across 2 GiB: SPANNING
+I/obb-large-test: mapped from 2 GiB: ABOVE2G!
+I/obb-large-test: free space known: true
+I/obb-large-test: done

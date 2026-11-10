@@ -678,6 +678,7 @@ run_app() {
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \
       | install-session-test \
+      | obb-large-test \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
       | text-classifier-test | links-answers-test | services-b-test | services-c-test | accessibility-answers-test | bluetooth-gatt-test | services-e-test | activity-options-test | batch-g-test | media-browser-test | biometric-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
@@ -1420,6 +1421,15 @@ run_app() {
     # getAllCellInfo answers its list where f4d-cells-test gets a SecurityException.
     run pm grant "$package" android.permission.ACCESS_FINE_LOCATION
   fi
+  if [[ "$app" == obb-large-test ]]; then
+    # Its OBB of more than 2 GiB (tools/make-sparse-obb.py) is pushed in full into its OBB folder, and removed again
+    # after the run (the cleanup below).
+    large=$(mktemp -d)
+    obb=$(tools/make-sparse-obb.py "$large")
+    run mkdir -p "/sdcard/Android/obb/${package:?}"
+    device push "$obb" "/sdcard/Android/obb/$package/" >/dev/null
+    rm -rf "${large:?}"
+  fi
   if [[ "$app" == obb-test ]]; then
     # ADR-0049 test 8: its main and patch OBBs in its OBB folder before the start, as a user or a store puts them there.
     run mkdir -p "/sdcard/Android/obb/${package:?}"
@@ -2048,6 +2058,7 @@ run_app() {
     app_lines InputMethodManager | grep -i soft >>"$RESULTS/$app-reference.logcat" || true
   fi
   [[ "$app" != obb-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
+  [[ "$app" != obb-large-test ]] || run rm -rf "/sdcard/Android/obb/${package:?}"
   if [[ "$app" == canvas-test ]]; then
     # The raw pixels it wrote into java.io.tmpdir, its cache folder, before the uninstall takes them.
     device exec-out run-as "$package" cat cache/canvas-test.rgba | gzip -n -9 >"$RESULTS/$app.rgba.gz"
