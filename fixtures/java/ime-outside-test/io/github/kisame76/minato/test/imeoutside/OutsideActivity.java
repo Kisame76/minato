@@ -40,7 +40,7 @@ public class OutsideActivity extends Activity {
     /** How long a field waits for the tap at most: room for a test runner's start under load in Minato. */
     private static final long WAIT_MS = 60000;
     /** From the tap's first sign to the field's line. */
-    private static final long SETTLE_MS = 2000;
+    private static final long SETTLE_MS = 4000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private FrameLayout mRoot;
     private boolean mImeUp;

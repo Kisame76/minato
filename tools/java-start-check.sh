@@ -715,12 +715,38 @@ failed_line() {
   tail -n 40 "$CHECK/guest-log" 2>/dev/null | sed 's/^/      | /' || true
 }
 # The keyboard bar's views on screen in Minato's windows (SessionCheck's keyboard-views), asked for $1 seconds from
-# now, into VIEWS: "<class> <x>,<y> <width>x<height>" each, "none", or "no answer".
+# now, into VIEWS: "<class> <x>,<y> <width>x<height>" each, "none", or "no answer"; FOCUS: yes while the session's
+# text view holds the keyboard, else no.
 VIEWS=""
+FOCUS=""
 keyboard_views() {
   sleep "$1"
   request keyboard-views
-  if await_event "keyboard views .*" 10; then VIEWS=${EVENT#*keyboard views }; else VIEWS="no answer"; fi
+  if await_event "keyboard views .* focus (yes|no)" 10; then
+    VIEWS=${EVENT#*keyboard views }
+    FOCUS=${VIEWS##* focus }
+    VIEWS=${VIEWS% focus *}
+  else
+    VIEWS="no answer"
+    FOCUS=""
+  fi
+}
+# After the step $1 (start $2 for failed_line), asked $3 seconds later (2 by default): without the focus nothing of
+# the bar may be on screen (the red of device-regressions entry 2). Whether the keyboard stayed is UIKit's or the
+# step's choice, not the bug: both are ok lines.
+bar_with_focus() {
+  keyboard_views "${3:-2}"
+  if [[ "$FOCUS" == no && "$VIEWS" != none ]]; then
+    failed_line "$1: the bar's views are on screen without the keyboard: $VIEWS" "$2"
+  elif [[ "$FOCUS" == yes && "$VIEWS" == *KeyboardBarView* ]]; then
+    ok "  $1: the keyboard is up with its bar"
+  elif [[ "$FOCUS" == yes ]]; then
+    ok "  $1: the keyboard is up, without a bar for this field"
+  elif [[ "$FOCUS" == no ]]; then
+    ok "  $1: the keyboard and its bar went together"
+  else
+    failed_line "$1: no answer to keyboard-views" "$2"
+  fi
 }
 # The bar's views once the keyboard went ($1 the label, $2 the app and start for failed_line): none may stay.
 no_keyboard_views() {
@@ -1759,6 +1785,8 @@ if [[ "$ON_DEVICE" == no ]] && wanted ime-outside-test && uitests_build; then
         break
       fi
       uitest testTapOutsideField "$kind" || fail "  the runner did not tap outside $kind"
+      # The bar after the tap, before the next kind's keyboard (the app's next field comes 4 s after the tap).
+      bar_with_focus "the tap outside $kind" ime-outside-test-1 1
     done
     await_line guest-log "^I/ime-outside-test: done$" 90 || true
     for kind in plain cocos godot flutter sdl; do
@@ -2796,6 +2824,58 @@ if wanted ime-surrounding-test-return && uitests_build; then
     fi
   fi
   end_start ime-surrounding-test-return 1
+  # Start 2: the keyboard stays up through the three-finger menu (open, Continue), a trip to the background and back
+  # (the return's menu goes by the check's Continue) and a turn to landscape and back; after each step the bar must
+  # not stay on screen without the keyboard, and after the Return nothing of it may stay.
+  if begin_start ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn 2; then
+    if await_line guest-log '^I/ime-surrounding-test-return: showSoftInput true$' 120 &&
+        await_event 'keyboard show\(' 20; then
+      bar_with_focus "the keyboard up" ime-surrounding-test-return-2
+      request menu
+      if await_event "menu opened" 15; then bar_with_focus "the menu and its Continue" ime-surrounding-test-return-2
+      else failed_line "the menu did not open" ime-surrounding-test-return-2; fi
+      launch "$AWAY"
+      sleep 3
+      launch
+      if await_event "menu continued" 15; then bar_with_focus "a trip to the background" ime-surrounding-test-return-2
+      else failed_line "no Continue at the return" ime-surrounding-test-return-2; fi
+      if uitest testTurn 2-landscape 0 landscape; then
+        bar_with_focus "a turn to landscape" ime-surrounding-test-return-2
+        uitest testTurn 2-portrait 0 portrait || fail "  the runner did not turn the device back"
+        bar_with_focus "the turn back" ime-surrounding-test-return-2
+      else
+        runner_failed_line "the runner did not turn the device" ime-surrounding-test-return-2
+      fi
+      if [[ "$FOCUS" == yes ]]; then
+        if uitest testKeyboardReturn 2 && await_event 'keyboard hide' 15; then
+          ok "  the Return after them hid the keyboard"
+          no_keyboard_views "the Return after them" ime-surrounding-test-return-2
+        else
+          runner_failed_line "the Return after them did not hide the keyboard" ime-surrounding-test-return-2
+        fi
+      fi
+    else
+      failed_line "no keyboard for the steps" ime-surrounding-test-return-2
+    fi
+  fi
+  end_start ime-surrounding-test-return 2
+  # Start 3: the edge back with the keyboard up, the BACK key's on Android 15 (tools/edge-back-check.sh): the keyboard
+  # goes, and nothing of the bar may stay.
+  if begin_start ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn 3; then
+    if await_line guest-log '^I/ime-surrounding-test-return: showSoftInput true$' 120 &&
+        await_event 'keyboard show\(' 20; then
+      bar_with_focus "the keyboard up" ime-surrounding-test-return-3 1
+      if uitest testSwipeFromLeftEdge 3 && await_event 'keyboard (hide|dismissed)' 15; then
+        ok "  the edge back hid the keyboard"
+        no_keyboard_views "the edge back" ime-surrounding-test-return-3
+      else
+        runner_failed_line "the edge back did not hide the keyboard" ime-surrounding-test-return-3
+      fi
+    else
+      failed_line "no keyboard for the edge back" ime-surrounding-test-return-3
+    fi
+  fi
+  end_start ime-surrounding-test-return 3
 fi
 
 # ADR-0076's starting window, the host's view over the session until the starting activity's first frame:

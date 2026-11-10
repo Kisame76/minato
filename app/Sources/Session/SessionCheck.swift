@@ -63,7 +63,8 @@ import UIKit
 ///            of the app's windows: each visible KeyboardBarView and each other visible glass (UIVisualEffectView), by
 ///            class and frame in screen points, or "none"; the file goes. Never the bar's text. While the keyboard is
 ///            up the bar is there; once it went, none may stay (device-regressions entry 2, a piece of the bar's glass
-///            left behind).
+///            left behind). The event ends with " focus yes" or " focus no": whether the session's text view holds
+///            the keyboard (is the first responder), so that a bar without it shows as left behind.
 ///   continue  the menu that waits over the app at a return from the background (ADR-0032 decision 7, the menu's
 ///            pause) chooses Continue after the seconds the file names (1 when it names none) and logs "menu
 ///            continued"; the file stays for every return.
@@ -548,7 +549,8 @@ enum SessionCheck {
                 if requested("keyboard-views") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "keyboard-views"))
                     let views = keyboardViews()
-                    event("keyboard views \(views.isEmpty ? "none" : views.joined(separator: ", "))")
+                    event("keyboard views \(views.isEmpty ? "none" : views.joined(separator: ", ")) "
+                        + "focus \(keyboardFocus() ? "yes" : "no")")
                 }
                 if requested("menu-hold") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "menu-hold"))
@@ -823,6 +825,18 @@ enum SessionCheck {
             for window in scene.windows where !window.isHidden && window.alpha > 0.01 { visit(window, in: window) }
         }
         return found
+    }
+
+    /// Whether a session's text view (SoftKeyboardView) is the first responder, which holds UIKit's keyboard.
+    @MainActor
+    private static func keyboardFocus() -> Bool {
+        func holds(_ view: UIView) -> Bool {
+            if view is SoftKeyboardView, view.isFirstResponder { return true }
+            return view.subviews.contains(where: holds)
+        }
+        return UIApplication.shared.connectedScenes.contains { scene in
+            (scene as? UIWindowScene)?.windows.contains(where: holds) ?? false
+        }
     }
 
     /// The view controller UIKit asks, following the children a controller hands the question to.

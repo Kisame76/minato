@@ -120,6 +120,28 @@ final class NotificationTapUITests: XCTestCase {
         print("MINATO-UITEST tapped outside the field")
     }
 
+    /// A swipe in from the left edge of Minato's window, above the keyboard: the guest's edge back (ADR-0041 decision
+    /// 10), which hides the keyboard as Android 15's BACK does (the keyboard glass round of tools/java-start-check.sh).
+    func testSwipeFromLeftEdge() {
+        continueAfterFailure = false
+        XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front")
+        let start = minato.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.35))
+            .withOffset(CGVector(dx: 2, dy: 0))
+        let end = minato.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.35))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        print("MINATO-UITEST swiped in from the left edge")
+    }
+
+    /// The device turns as the user turns it: TEST_RUNNER_MINATO_ARG "landscape" (left) or "portrait", with the app in
+    /// front (the keyboard glass round of tools/java-start-check.sh, the keyboard up through the turn).
+    func testTurn() {
+        continueAfterFailure = false
+        XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front")
+        let landscape = ProcessInfo.processInfo.environment["MINATO_ARG"] == "landscape"
+        XCUIDevice.shared.orientation = landscape ? .landscapeLeft : .portrait
+        print("MINATO-UITEST turned the device to \(landscape ? "landscape" : "portrait")")
+    }
+
     /// Two swipes up from the bottom edge of Minato's window, as the user leaves a full-screen app for the Home Screen.
     /// Game mode defers every edge (defersSystemGestures, GameModeView): iOS gives the first swipe to the app and
     /// shows the home indicator, and only a second swipe right after it goes to the system (device-regressions entry
