@@ -283,6 +283,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.companion.virtual.VirtualDevice \
   --class android.companion.AssociatedDevice --class android.companion.DeviceFilter \
   --class android.content.om.FabricatedOverlay --class android.content.om.OverlayIdentifier \
+  --class android.net.VpnManager --class android.net.PlatformVpnProfile \
   --placeholder android.view.SurfaceControl \
   --placeholder android.view.WindowId \
   --placeholder android.window.InputTransferToken \
@@ -310,8 +311,11 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
   --class android.net.NetworkRequest --class android.net.LinkProperties \
+  --class android.net.ConnectivityDiagnosticsManager \
   --class android.net.MacAddress \
   --api "$SOURCES/connectivity_t_api/framework-t/api/current.txt" --class android.net.TrafficStats \
+  --class android.net.IpSecTransform --class android.net.IpSecAlgorithm \
+  --class android.net.IpSecTransformState \
   --class android.app.usage.NetworkStatsManager --class android.app.usage.NetworkStats \
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
   --class android.bluetooth.BluetoothAdapter \

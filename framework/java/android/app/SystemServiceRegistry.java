@@ -23,6 +23,9 @@ import android.appwidget.AppWidgetManager;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.pm.ShortcutManager;
+import android.net.ConnectivityDiagnosticsManager;
+import android.net.IpSecManager;
+import android.net.VpnManager;
 import android.content.res.Resources;
 import android.hardware.SystemSensorManager;
 import android.hardware.camera2.CameraManager;
@@ -297,6 +300,11 @@ final class SystemServiceRegistry {
                 ctx -> new android.app.people.PeopleManager(ctx.getOuterContext()));
         cached(Context.VIRTUAL_DEVICE_SERVICE, android.companion.virtual.VirtualDeviceManager.class,
                 ctx -> new android.companion.virtual.VirtualDeviceManager(ctx.getOuterContext()));
+        // Services bundle C part 1 (service inventory): the IPsec, VPN management and connectivity diagnostics managers.
+        cached(Context.IPSEC_SERVICE, IpSecManager.class, ctx -> new IpSecManager(ctx.getOuterContext()));
+        cached(Context.VPN_MANAGEMENT_SERVICE, VpnManager.class, ctx -> new VpnManager(ctx.getOuterContext()));
+        cached(Context.CONNECTIVITY_DIAGNOSTICS_SERVICE, ConnectivityDiagnosticsManager.class,
+                ctx -> new ConnectivityDiagnosticsManager(ctx.getOuterContext()));
 }
 
     private SystemServiceRegistry() {
