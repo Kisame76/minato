@@ -39,9 +39,16 @@ foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs exter
   endif()
   set_tests_properties(graphics.angle_${test} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
 endforeach()
-# texture_parking holds 2 GiB and measures frame times: alone, with time for a loaded Mac.
+# texture_parking holds 2 GiB and measures frame times: alone, with time for a loaded Mac. Its --warning-band run
+# puts the limit as far off as the iPhone's and prints the least memory left (patch 0018).
 if(TEST graphics.angle_texture_parking)
   set_tests_properties(graphics.angle_texture_parking PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+endif()
+if(TARGET angle-texture-parking)
+  add_test(NAME graphics.angle_texture_parking_band
+    COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" --warning-band)
+  set_tests_properties(graphics.angle_texture_parking_band PROPERTIES
+    RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:")
 endif()
 
 # ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.

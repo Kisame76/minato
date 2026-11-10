@@ -1,0 +1,195 @@
+Texture parking keeps more headroom and reports what the device leaves and how often it presents (Minato, patch 0018).
+
+Why: on an iPhone 15 Pro Max a visual novel's frame sequence held at 4.6-5.2 GB of a ~6 GB limit with patch 0017,
+alive for the whole run but with a memory warning nearly every 2 s: 0017 started parking below 1 GiB available, where
+the device already warns (from about 5.0 GB on in the run without parking). Parking now starts below 1.5 GiB and stops
+at 2 GiB (ADR-0075's 512 MiB hysteresis kept); a cycled sequence costs the same restores per shown frame either way.
+ANGLEMetalParkingLine gains " avail_min=<MiB> avail_last=<MiB> present_p50=<ms> present_p99=<ms>": the least and the
+last memory the process could still allocate at a frame end (0 when unknown), and the time between the last 512
+presents of a window, so that a device run shows the headroom and the frame rate the restores leave.
+Test: graphics/tests/angle_texture_parking.mm presents through a window surface now (ANGLE presents only a window
+drawn into since its last swap): the line's fields, the presents' interval at 1/60 s; --warning-band measures the
+least memory left with a device-like limit.
+Upstream: no (Minato's memory policy).
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.mm b/src/libANGLE/renderer/metal/ContextMtl.mm
+index 492832c6..a9ace94a 100644
+--- a/src/libANGLE/renderer/metal/ContextMtl.mm
++++ b/src/libANGLE/renderer/metal/ContextMtl.mm
+@@ -1819,6 +1819,7 @@ GLint GetOwnershipIdentity(const egl::AttributeMap &attribs)
+ {
+     // The end of a frame: park idle textures when memory runs low (texture parking, Minato). An error is
+     // already recorded on the context.
++    mtl::TextureParking::Get().notePresent();
+     (void)mtl::TextureParking::Get().tick(context);
+     ensureCommandBufferReady();
+ 
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.h b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+index 39626101..2d0d7552 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.h
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -13,6 +13,7 @@
+ #define LIBANGLE_RENDERER_METAL_MTL_TEXTURE_PARKING_H_
+ 
+ #include <atomic>
++#include <chrono>
+ #include <cstddef>
+ #include <cstdint>
+ #include <memory>
+@@ -128,6 +129,8 @@ class TextureParking
+     angle::Result tickFromUpload(const gl::Context *context);
+ 
+     void noteRestore(double milliseconds);
++    // Called at every present of a window, for the counters line's intervals between presents.
++    void notePresent();
+     // A job the texture no longer needs (destroyed, or written after a restore): dropped once no worker uses it.
+     void orphan(std::shared_ptr<ParkJob> job);
+     int line(char *buffer, size_t size);
+@@ -167,6 +170,12 @@ class TextureParking
+     uint64_t mRepacks      = 0;
+     std::vector<float> mRestoreMs;
+     size_t mRestoreNext = 0;
++    std::vector<float> mPresentMs;
++    size_t mPresentNext = 0;
++    bool mPresented     = false;
++    std::chrono::steady_clock::time_point mLastPresent;
++    uint64_t mAvailableMin  = UINT64_MAX;
++    uint64_t mAvailableLast = 0;
+ 
+     friend class ::rx::TextureMtl;
+ };
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.mm b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+index d0481661..cb0cb607 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -45,12 +45,14 @@
+ constexpr uint64_t kMiB = 1024 * 1024;
+ 
+ // When to park (ADR-0075). The process may still allocate |available| bytes before jetsam kills it.
+-// Start below 1 GiB: a visual novel's frame sequence grew ~0.95 GB/s in our reproduction and a park takes a
+-// frame plus one LZ4 encode, so 1 GiB is about one second of headroom at that rate.
+-constexpr uint64_t kStartBelow = 1024 * kMiB;
+-// Stop at 1.5 GiB: 512 MiB of hysteresis (~64 full-screen frames), so that parking does not toggle every frame
++// Start below 1.5 GiB: the iPhone sends memory warnings from about 1 GiB available on (a visual novel's frame
++// sequence on an iPhone 15 Pro Max: warnings from 5.0 GB of a ~6 GB limit), so the process stays above that, and a
++// sequence that grows ~0.95 GB/s (our reproduction) still has about a second before the warnings. Parking a frame
++// sequence that cycles costs the same restores per shown frame whatever the threshold.
++constexpr uint64_t kStartBelow = 1536 * kMiB;
++// Stop at 2 GiB: 512 MiB of hysteresis (~64 full-screen frames), so that parking does not toggle every frame
+ // while an app creates and deletes textures in the same second.
+-constexpr uint64_t kStopAt = 1536 * kMiB;
++constexpr uint64_t kStopAt = 2048 * kMiB;
+ // Below 384 MiB (~0.4 s at that rate) textures idle for two frames qualify too.
+ constexpr uint64_t kEmergencyBelow = 384 * kMiB;
+ // Below 128 MiB (~0.13 s, a few frames before a kill) the asynchronous parks are too late: the frame waits for
+@@ -75,6 +77,8 @@
+ // Smaller textures are not worth the readback: a full-screen frame is 8 MiB, a 256 x 256 one 256 KiB.
+ constexpr size_t kMinBytes = 256 * 1024;
+ constexpr size_t kRestoreSamples = 512;
++// The intervals between presents the counters line takes its percentiles of.
++constexpr size_t kPresentSamples = 512;
+ 
+ compression_algorithm Algorithm(ParkCodec codec)
+ {
+@@ -264,7 +268,7 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     return *parking;
+ }
+ 
+-TextureParking::TextureParking() : mRestoreMs(kRestoreSamples, 0.0f) {}
++TextureParking::TextureParking() : mRestoreMs(kRestoreSamples, 0.0f), mPresentMs(kPresentSamples, 0.0f) {}
+ 
+ uint64_t TextureParking::NowMs()
+ {
+@@ -327,7 +331,7 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+ {
+     if (count == 1 && getenv("MINATO_ANGLE_PARK_REPORT") != nullptr)
+     {
+-        char buffer[256];
++        char buffer[320];
+         if (line(buffer, sizeof(buffer)) > 0)
+         {
+             fprintf(stderr, "angle %s\n", buffer);
+@@ -551,6 +555,8 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     {
+         return angle::Result::Continue;
+     }
++    mAvailableMin  = std::min(mAvailableMin, available);
++    mAvailableLast = available;
+     if (available < kStartBelow)
+     {
+         mActive = true;
+@@ -649,6 +655,20 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     return angle::Result::Continue;
+ }
+ 
++void TextureParking::notePresent()
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    const auto now = std::chrono::steady_clock::now();
++    if (mPresented)
++    {
++        mPresentMs[mPresentNext % kPresentSamples] =
++            std::chrono::duration<float, std::milli>(now - mLastPresent).count();
++        mPresentNext += 1;
++    }
++    mPresented   = true;
++    mLastPresent = now;
++}
++
+ void TextureParking::noteRestore(double milliseconds)
+ {
+     std::lock_guard<std::recursive_mutex> lock(mMutex);
+@@ -661,14 +681,20 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+ int TextureParking::line(char *buffer, size_t size)
+ {
+     std::lock_guard<std::recursive_mutex> lock(mMutex);
+-    const size_t samples = std::min(mRestoreNext, kRestoreSamples);
+-    std::vector<float> sorted(mRestoreMs.begin(), mRestoreMs.begin() + static_cast<ptrdiff_t>(samples));
+-    std::sort(sorted.begin(), sorted.end());
+-    auto at = [&sorted](double share) {
++    auto sortedOf = [](const std::vector<float> &ring, size_t next, size_t capacity) {
++        const size_t samples = std::min(next, capacity);
++        std::vector<float> sorted(ring.begin(), ring.begin() + static_cast<ptrdiff_t>(samples));
++        std::sort(sorted.begin(), sorted.end());
++        return sorted;
++    };
++    auto at = [](const std::vector<float> &sorted, double share) {
+         return sorted.empty() ? 0.0
+                               : static_cast<double>(sorted[static_cast<size_t>(
+                                     share * static_cast<double>(sorted.size() - 1) + 0.5)]);
+     };
++    const std::vector<float> restores = sortedOf(mRestoreMs, mRestoreNext, kRestoreSamples);
++    const std::vector<float> presents = sortedOf(mPresentMs, mPresentNext, kPresentSamples);
++    const uint64_t availableMin = mAvailableMin == UINT64_MAX ? 0 : mAvailableMin;
+     uint64_t parked = 0, raw = 0, packed = 0, kept = 0;
+     for (TextureMtl *texture : mTextures)
+     {
+@@ -686,12 +712,15 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     const int length = snprintf(
+         buffer, size,
+         "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
+-        "restore_p50=%.1f restore_p99=%.1f lzfse=%llu",
++        "restore_p50=%.1f restore_p99=%.1f lzfse=%llu avail_min=%llu avail_last=%llu present_p50=%.1f "
++        "present_p99=%.1f",
+         static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
+         static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
+         static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
+-        static_cast<unsigned long long>(mAborts), static_cast<unsigned long long>(mRestores), at(0.5),
+-        at(0.99), static_cast<unsigned long long>(mRepacks));
++        static_cast<unsigned long long>(mAborts), static_cast<unsigned long long>(mRestores), at(restores, 0.5),
++        at(restores, 0.99), static_cast<unsigned long long>(mRepacks),
++        static_cast<unsigned long long>(availableMin / kMiB), static_cast<unsigned long long>(mAvailableLast / kMiB),
++        at(presents, 0.5), at(presents, 0.99));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 
+@@ -699,7 +728,9 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+ }  // namespace rx
+ 
+ // "park n=<parked> raw=<MiB> packed=<MiB> kept=<MiB> pending=<MiB> parks=<n> aborts=<n> restores=<n> restore_p50=<ms>
+-// restore_p99=<ms> lzfse=<n>"; returns the length, or 0 when it does not fit.
++// restore_p99=<ms> lzfse=<n> avail_min=<MiB> avail_last=<MiB> present_p50=<ms> present_p99=<ms>": the least and the
++// last memory the process could still allocate at a frame end (0 when unknown), and the time between the last 512
++// presents; returns the length, or 0 when it does not fit.
+ extern "C" ANGLE_EXPORT int ANGLEMetalParkingLine(char *line, size_t size)
+ {
+     return rx::mtl::TextureParking::Get().line(line, size);
