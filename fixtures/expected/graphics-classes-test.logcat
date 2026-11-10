@@ -1,0 +1,12 @@
+I/graphics-classes-test: BitmapRegionDecoder: 8x8
+I/graphics-classes-test: BitmapRegionDecoder region (4,0)-(8,4): 4x4, pixels right true
+I/graphics-classes-test: BitmapRegionDecoder region (0,4)-(8,8) at inSampleSize 2: 4x2, pixels right true
+I/graphics-classes-test: BitmapRegionDecoder recycled true
+I/graphics-classes-test: Gainmap: has gainmap true, ratio max 4.0, display ratio 4.0, contents 4x4
+I/graphics-classes-test: Gainmap: a copy has gainmap true
+I/graphics-classes-test: AnimatedImageDrawable: drawable AnimatedImageDrawable, 2x2
+I/graphics-classes-test: AnimatedImageDrawable: repeat count -1, first frame FFFF0000, running false
+I/graphics-classes-test: AnimatedImageDrawable: running after start true, after stop false
+I/graphics-classes-test: Mesh: made true
+I/graphics-classes-test: Mesh: java.lang.RuntimeException
+I/graphics-classes-test: done

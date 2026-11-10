@@ -1,0 +1,99 @@
+hwui's BitmapRegionDecoder, Gainmap, AnimatedImageDrawable, Mesh and MeshSpecification registered on the host flavor,
+as Android registers them (ADR-0043 a2's open item: compiled but unregistered classes).
+
+The host flavor compiles jni/BitmapRegionDecoder.cpp, jni/Gainmap.cpp, jni/AnimatedImageDrawable.cpp,
+jni/MeshSpecification.cpp and jni/android_graphics_Mesh.cpp, but LayoutlibLoader's map does not name them, so an app
+that decodes a region of an image (tiled image viewers), reads a photo's HDR gain map, shows an animated GIF or WebP
+through ImageDecoder's drawable, or draws a custom mesh got an UnsatisfiedLinkError. All five draw on a CPU canvas.
+So the map and the list of patch 0006 gain them, in the device's gRegJNI order. HardwareRendererObserver and
+HardwareBufferRenderer stay out: they belong to hwui's GPU pipeline, which the host flavor does not run.
+
+--- a/frameworks/base/libs/hwui/apex/LayoutlibLoader.cpp
++++ b/frameworks/base/libs/hwui/apex/LayoutlibLoader.cpp
+@@ -28,6 +28,7 @@
+ 
+ extern int register_android_graphics_Bitmap(JNIEnv*);
+ extern int register_android_graphics_BitmapFactory(JNIEnv*);
++extern int register_android_graphics_BitmapRegionDecoder(JNIEnv*);
+ extern int register_android_graphics_ByteBufferStreamAdaptor(JNIEnv* env);
+ extern int register_android_graphics_Camera(JNIEnv* env);
+ extern int register_android_graphics_CreateJavaOutputStreamAdaptor(JNIEnv* env);
+@@ -41,6 +42,7 @@
+ extern int register_android_graphics_RenderEffect(JNIEnv* env);
+ extern int register_android_graphics_Typeface(JNIEnv* env);
+ extern int register_android_graphics_YuvImage(JNIEnv* env);
++extern int register_android_graphics_drawable_AnimatedImageDrawable(JNIEnv* env);
+ extern int register_android_graphics_Movie(JNIEnv* env);
+ 
+ namespace android {
+@@ -52,7 +54,10 @@
+ extern int register_android_graphics_ColorSpace(JNIEnv* env);
+ extern int register_android_graphics_DrawFilter(JNIEnv* env);
+ extern int register_android_graphics_FontFamily(JNIEnv* env);
++extern int register_android_graphics_Gainmap(JNIEnv* env);
+ extern int register_android_graphics_Matrix(JNIEnv* env);
++extern int register_android_graphics_Mesh(JNIEnv* env);
++extern int register_android_graphics_MeshSpecification(JNIEnv* env);
+ extern int register_android_graphics_Paint(JNIEnv* env);
+ extern int register_android_graphics_Path(JNIEnv* env);
+ extern int register_android_graphics_PathIterator(JNIEnv* env);
+@@ -85,6 +90,8 @@
+ static const std::unordered_map<std::string, RegJNIRec> gRegJNIMap = {
+         {"android.graphics.Bitmap", REG_JNI(register_android_graphics_Bitmap)},
+         {"android.graphics.BitmapFactory", REG_JNI(register_android_graphics_BitmapFactory)},
++        {"android.graphics.BitmapRegionDecoder",
++         REG_JNI(register_android_graphics_BitmapRegionDecoder)},
+         {"android.graphics.ByteBufferStreamAdaptor",
+          REG_JNI(register_android_graphics_ByteBufferStreamAdaptor)},
+         {"android.graphics.Camera", REG_JNI(register_android_graphics_Camera)},
+@@ -97,11 +104,14 @@
+          REG_JNI(register_android_graphics_CreateJavaOutputStreamAdaptor)},
+         {"android.graphics.DrawFilter", REG_JNI(register_android_graphics_DrawFilter)},
+         {"android.graphics.FontFamily", REG_JNI(register_android_graphics_FontFamily)},
++        {"android.graphics.Gainmap", REG_JNI(register_android_graphics_Gainmap)},
+         {"android.graphics.Graphics", REG_JNI(register_android_graphics_Graphics)},
+         {"android.graphics.ImageDecoder", REG_JNI(register_android_graphics_ImageDecoder)},
+         {"android.graphics.Interpolator", REG_JNI(register_android_graphics_Interpolator)},
+         {"android.graphics.MaskFilter", REG_JNI(register_android_graphics_MaskFilter)},
+         {"android.graphics.Matrix", REG_JNI(register_android_graphics_Matrix)},
++        {"android.graphics.Mesh", REG_JNI(register_android_graphics_Mesh)},
++        {"android.graphics.MeshSpecification", REG_JNI(register_android_graphics_MeshSpecification)},
+         {"android.graphics.NinePatch", REG_JNI(register_android_graphics_NinePatch)},
+         {"android.graphics.Paint", REG_JNI(register_android_graphics_Paint)},
+         {"android.graphics.Path", REG_JNI(register_android_graphics_Path)},
+@@ -122,6 +132,8 @@
+          REG_JNI(register_android_graphics_animation_NativeInterpolatorFactory)},
+         {"android.graphics.animation.RenderNodeAnimator",
+          REG_JNI(register_android_graphics_animation_RenderNodeAnimator)},
++        {"android.graphics.drawable.AnimatedImageDrawable",
++         REG_JNI(register_android_graphics_drawable_AnimatedImageDrawable)},
+         {"android.graphics.drawable.AnimatedVectorDrawable",
+          REG_JNI(register_android_graphics_drawable_AnimatedVectorDrawable)},
+         {"android.graphics.drawable.VectorDrawable",
+@@ -173,6 +185,7 @@
+             "android.graphics.Graphics",
+             "android.graphics.Bitmap",
+             "android.graphics.BitmapFactory",
++            "android.graphics.BitmapRegionDecoder",
+             "android.graphics.ByteBufferStreamAdaptor",
+             "android.graphics.Camera",
+             "android.graphics.CreateJavaOutputStreamAdaptor",
+@@ -180,7 +193,9 @@
+             "android.graphics.ColorFilter",
+             "android.graphics.DrawFilter",
+             "android.graphics.FontFamily",
++            "android.graphics.Gainmap",
+             "android.graphics.ImageDecoder",
++            "android.graphics.drawable.AnimatedImageDrawable",
+             "android.graphics.Interpolator",
+             "android.graphics.MaskFilter",
+             "android.graphics.Matrix",
+@@ -208,6 +223,8 @@
+             "android.graphics.text.LineBreaker",
+             "android.graphics.text.TextRunShaper",
+             "android.graphics.text.GraphemeBreak",
++            "android.graphics.MeshSpecification",
++            "android.graphics.Mesh",
+             "android.util.PathParser",
+             "android.graphics.RenderNode",
+             "android.graphics.RecordingCanvas",
