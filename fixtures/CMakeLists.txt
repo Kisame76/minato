@@ -55,6 +55,14 @@ add_executable(files-test suite/files-test.c)
 add_executable(memory-churn-test suite/memory-churn-test.c)
 # memory-release-test: the other ways to give memory back (MADV_REMOVE, mremap, a GC reservation) and to hold it.
 add_executable(memory-release-test suite/memory-release-test.c)
+# memory-private-file-test: a written MAP_PRIVATE file mapping advised away with MADV_DONTNEED reads the file's bytes
+# again, not the written ones (ADR-0007: the loader re-maps the file; Linux drops the private copies).
+add_executable(memory-private-file-test suite/memory-private-file-test.c)
+# memory-private-file-rename-test: the re-map must never show a different file when the path is replaced under the
+# mapping (an inode guard; ADR-0007). memory-private-file-split-test: it picks the right record when an anonymous
+# MAP_FIXED has replaced the middle of the file mapping (no stale record over it).
+add_executable(memory-private-file-rename-test suite/memory-private-file-rename-test.c)
+add_executable(memory-private-file-split-test suite/memory-private-file-split-test.c)
 # Without builtins, so that clang does not fold the math calls at compile time.
 add_executable(math-test suite/math-test.c)
 # scudo-region-test: one size class must hold more than the old 64 MiB region (ADR-0035 amendment, RegionSizeLog 27).

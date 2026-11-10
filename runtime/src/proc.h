@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace apkrt::proc {
@@ -40,6 +41,21 @@ void unmap(std::uint64_t begin, std::uint64_t end);
 /// which sys_madvise's MADV_DONTNEED trusts over the host VM's view (a written MAP_PRIVATE file gets an anonymous
 /// shadow, so the host reports no pager there).
 bool range_is_file_backed(std::uint64_t begin, std::uint64_t end);
+
+/// A file mapping map_file recorded: its range, the file offset at `begin`, the guest path to reopen it by, and the
+/// device and inode it had then. What sys_madvise's MADV_DONTNEED needs to re-map a written MAP_PRIVATE file to the
+/// file's bytes (Linux drops the copies), and to tell that the reopened path is still the same file.
+struct MappedFile {
+    std::uint64_t begin = 0, end = 0, offset = 0;
+    std::string path;
+    std::uint32_t major = 0, minor = 0;
+    std::uint64_t inode = 0;
+};
+
+/// The file mapping map_file recorded that covers `address`, or nullopt. Records never overlap -- map_file forgets the
+/// range before it inserts, and sys_mmap unmaps a range before it records one over it -- so at most one covers an
+/// address. Under the proc mutex.
+std::optional<MappedFile> file_mapping_at(std::uint64_t address);
 
 /// mremap moved [from, from + old_length) to `to` with `new_length`: the names go with the pages they name, the
 /// part past `new_length` loses its names, and what lay at the target before is replaced.

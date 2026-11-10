@@ -696,6 +696,19 @@ bool range_is_file_backed(std::uint64_t begin, std::uint64_t end) {
     return false;
 }
 
+std::optional<MappedFile> file_mapping_at(std::uint64_t address) {
+    auto &current = state();
+    const std::lock_guard lock(current.mutex);
+    for (const auto &mapping : current.files) {
+        if (mapping.begin <= address && address < mapping.end) {
+            return MappedFile{.begin = mapping.begin, .end = mapping.end, .offset = mapping.offset,
+                              .path = mapping.path, .major = mapping.major, .minor = mapping.minor,
+                              .inode = mapping.inode};
+        }
+    }
+    return std::nullopt;
+}
+
 void remap(std::uint64_t from, std::uint64_t old_length, std::uint64_t to, std::uint64_t new_length) {
     auto &current = state();
     const std::lock_guard lock(current.mutex);

@@ -5,9 +5,12 @@
 #include "proc.h"
 #include "syscalls.h"
 #include "threads.h"
+#include "vfs.h"
 
+#include <fcntl.h>
 #include <mach/mach.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -17,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace apkrt::sys {
@@ -593,14 +597,56 @@ bool replace_anon(std::uint64_t at, std::uint64_t stop, vm_prot_t protection) {
     return got != MAP_FAILED;
 }
 
+/// Re-maps the whole host pages [begin, stop) of a written private file mapping to the file's bytes, as Linux's
+/// MADV_DONTNEED does by dropping the private copies: reopen the file by the guest path proc recorded (file_mapping_at
+/// + vfs::locate, read-only, with RESOLVE_BENEATH so no link or ".." leads out of the mount) and map it
+/// MAP_FIXED | MAP_PRIVATE at the matching offset, so the next read shows the file and the private copies' footprint
+/// falls. Any step that cannot be done -- no record, the record does not cover the range, an unaligned offset, locate
+/// or open or mmap fails -- keeps Darwin's MADV_DONTNEED (advise_keep), which keeps the written bytes: safe, never a
+/// crash and never a read of another file. [begin, stop) are whole host pages. Under memory_lock.
+long remap_private_file(std::uint64_t begin, std::uint64_t stop, vm_prot_t protection) {
+    const auto mapping = proc::file_mapping_at(begin);
+    if (!mapping || mapping->begin > begin || mapping->end < stop) return advise_keep(begin, stop);
+    const std::uint64_t file_offset = mapping->offset + (begin - mapping->begin);
+    if ((file_offset & (vm_page_size - 1)) != 0) return advise_keep(begin, stop);
+    const auto location = vfs::locate(mapping->path);
+    if (!location) return advise_keep(begin, stop);
+    const int flags = O_RDONLY | O_CLOEXEC | (location->folder == AT_FDCWD ? 0 : O_RESOLVE_BENEATH);
+    const int fd = ::openat(location->folder, location->path.c_str(), flags);
+    if (fd < 0) return advise_keep(begin, stop);
+    // The path may name a different file now (renamed, replaced, unlinked+recreated since the mmap); Linux keeps
+    // showing the mapped inode, so re-map only when the reopened file is still the recorded one, else keep what is
+    // written -- never a foreign file's bytes. map_file split the device into Linux's major/minor the same way.
+    struct stat status {};
+    if (::fstat(fd, &status) != 0) {
+        ::close(fd);
+        return advise_keep(begin, stop);
+    }
+    const std::uint32_t major = (static_cast<std::uint32_t>(status.st_dev) >> 24) & 0xff;
+    const std::uint32_t minor = static_cast<std::uint32_t>(status.st_dev) & 0xff'ffff;
+    const bool same = mapping->major == major && mapping->minor == minor &&
+                      mapping->inode == static_cast<std::uint64_t>(status.st_ino);
+    if (!same) {
+        ::close(fd);
+        return advise_keep(begin, stop);
+    }
+    const int prot = protection & (VM_PROT_READ | VM_PROT_WRITE);
+    void *const got = ::mmap(as_pointer<void>(begin), static_cast<std::size_t>(stop - begin), prot,
+                             MAP_FIXED | MAP_PRIVATE, fd, static_cast<off_t>(file_offset));
+    ::close(fd);
+    return got == MAP_FAILED ? advise_keep(begin, stop) : 0;
+}
+
 /// MADV_DONTNEED over [begin, end): on Linux the pages are freed -- private anonymous read back as zero (allocators
 /// Scudo relies on it), a private file's copies drop, and resident size and footprint fall. On Darwin neither
 /// MADV_ZERO nor MADV_DONTNEED frees the physical pages: they stay in phys_footprint (the iOS jetsam metric), so an
 /// allocator's releaseToOS or a GC would never shrink the process (ADR-0007 change, 2026-11-07). So for every whole
 /// host page that is private and anonymous, replace it with a fresh anonymous mapping: the pages go and the next touch
 /// reads zero, as on Linux. A sub-host-page end of such a range (a guest that keeps 4 KiB pages: Linux zeroes a 4 KiB
-/// sub-range of a 16 KiB page) is zeroed in place. A file or a shared mapping keeps Darwin's MADV_DONTNEED, which keeps
-/// its data. Classification uses the inheritance and the runtime's own records, NOT share_mode: XNU leaves a private
+/// sub-range of a 16 KiB page) is zeroed in place. A written private FILE mapping re-maps the file over its whole pages
+/// (remap_private_file), so the next read shows the file's bytes, as Linux's dropping of the private copies does; its
+/// sub-page ends and a shared mapping keep Darwin's MADV_DONTNEED, which keeps their data. Classification uses the
+/// inheritance and the runtime's own records, NOT share_mode: XNU leaves a private
 /// mapping moved by mremap (vm_remap) as SM_TRUESHARED, so share_mode would wrongly keep it. A mapping counts as shared
 /// on VM_INHERIT_SHARE (which MAP_SHARED sets and move_pages preserves across a move) or the runtime's own shared
 /// record (a memfd's or ashmem's pages); file-backed is the runtime's own map_file record, not the host's pager,
@@ -620,8 +666,11 @@ long dont_need(std::uint64_t begin, std::uint64_t end) {
         }
         const std::uint64_t region_end = std::min<std::uint64_t>(end, query + size);
         const bool shared = info.inheritance == VM_INHERIT_SHARE || shared_mapping_overlaps(at, region_end);
-        const bool replaceable = !info.is_submap && info.user_tag == 0 && !shared &&
-                                 !proc::range_is_file_backed(at, region_end);
+        const bool file = proc::range_is_file_backed(at, region_end);
+        const bool guest_private = !info.is_submap && info.user_tag == 0 && !shared;
+        const bool replaceable = guest_private && !file;         // a private anonymous mapping
+        // Not executable: the remap masks to R|W and would drop EXECUTE, so an exec region keeps advise_keep instead.
+        const bool remappable_file = guest_private && file && (info.protection & VM_PROT_EXECUTE) == 0;
         const std::uint64_t whole_begin = (at + page - 1) & ~(page - 1);
         const std::uint64_t whole_end = region_end & ~(page - 1);
         if (replaceable && whole_end > whole_begin) {
@@ -630,7 +679,11 @@ long dont_need(std::uint64_t begin, std::uint64_t end) {
             if (const long error = zero_anon(whole_end, region_end); error != 0) return error;  // sub-page tail
         } else if (replaceable) {  // a private anonymous region below one whole host page: zero it in place
             if (const long error = zero_anon(at, region_end); error != 0) return error;
-        } else if (const long error = advise_keep(at, region_end); error != 0) {  // a file or a shared mapping
+        } else if (remappable_file && whole_end > whole_begin) {  // re-map whole pages to the file, keep any sub-page
+            if (const long error = remap_private_file(whole_begin, whole_end, info.protection)) return error;
+            if (const long error = advise_keep(at, whole_begin); error != 0) return error;        // sub-page head
+            if (const long error = advise_keep(whole_end, region_end); error != 0) return error;  // sub-page tail
+        } else if (const long error = advise_keep(at, region_end); error != 0) {  // shared, submap, or sub-page file
             return error;
         }
         at = region_end;

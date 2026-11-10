@@ -37,6 +37,9 @@ ctr-el0-test system
 files-test system
 memory-churn-test system
 memory-release-test system
+memory-private-file-test system
+memory-private-file-rename-test system
+memory-private-file-split-test system
 math-test system
 log-test system
 thread-test system
