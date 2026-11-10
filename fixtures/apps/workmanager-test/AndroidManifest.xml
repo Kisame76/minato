@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A WorkManager test app (tools/build-workmanager-test.sh): androidx.work 2.12.0 with its closure, built by the
+     fetched libraries (tools/fetch-workmanager-libraries.py), asks WorkManager for one-time, failing, constrained,
+     chained, periodic, delayed and expedited work, and cancels some. What the libraries' own manifests declare is
+     merged in by hand below, as an app's build merges it: work-runtime's provider, service and receivers, androidx.core's
+     component factory and permission, profileinstaller's receiver, room's invalidation service. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.workmanager" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.WAKE_LOCK"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <!-- androidx.core 1.12.0's, for the receivers it registers not exported. -->
+  <permission android:name="io.github.kisame76.minato.test.workmanager.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+      android:protectionLevel="signature"/>
+  <uses-permission android:name="io.github.kisame76.minato.test.workmanager.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
+  <application android:label="workmanager-test" android:appComponentFactory="androidx.core.app.CoreComponentFactory">
+    <activity android:name="io.github.kisame76.minato.test.workmanager.WorkActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <!-- work-runtime 2.12.0's and profileinstaller 1.3.0's initializers, run by androidx.startup's provider. -->
+    <provider android:name="androidx.startup.InitializationProvider"
+        android:authorities="io.github.kisame76.minato.test.workmanager.androidx-startup" android:exported="false">
+      <meta-data android:name="androidx.work.WorkManagerInitializer" android:value="androidx.startup"/>
+      <meta-data android:name="androidx.profileinstaller.ProfileInstallerInitializer" android:value="androidx.startup"/>
+    </provider>
+    <service android:name="androidx.work.impl.background.systemjob.SystemJobService" android:directBootAware="false"
+        android:enabled="@bool/enable_system_job_service_default" android:exported="true"
+        android:permission="android.permission.BIND_JOB_SERVICE"/>
+    <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:directBootAware="false"
+        android:enabled="@bool/enable_system_foreground_service_default" android:exported="false"/>
+    <receiver android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver"
+        android:directBootAware="false" android:enabled="true" android:exported="false"/>
+    <receiver android:name="androidx.work.impl.background.systemalarm.RescheduleReceiver"
+        android:directBootAware="false" android:enabled="false" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.diagnostics.DiagnosticsReceiver" android:directBootAware="false"
+        android:enabled="true" android:exported="true" android:permission="android.permission.DUMP">
+      <intent-filter>
+        <action android:name="androidx.work.diagnostics.REQUEST_DIAGNOSTICS"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.profileinstaller.ProfileInstallReceiver" android:directBootAware="false"
+        android:enabled="true" android:exported="true" android:permission="android.permission.DUMP">
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.SKIP_FILE"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.SAVE_PROFILE"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION"/>
+      </intent-filter>
+    </receiver>
+    <service android:name="androidx.room.MultiInstanceInvalidationService" android:directBootAware="true"
+        android:exported="false"/>
+  </application>
+</manifest>

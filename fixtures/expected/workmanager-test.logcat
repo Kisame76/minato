@@ -1,0 +1,50 @@
+I/workmanager-test: instance: true
+I/workmanager-test: restart: kept work none
+I/workmanager-test: worker count ran, n 1, main thread false, attempt 0
+I/workmanager-test: one-time: SUCCEEDED, out ran:1
+I/workmanager-test: worker fail ran
+I/workmanager-test: failing: FAILED
+I/workmanager-test: constraint device idle: ENQUEUED
+I/workmanager-test: constraint device idle, cancelled: CANCELLED
+I/workmanager-test: worker count ran, n 2, main thread false, attempt 0
+I/workmanager-test: constraint network: SUCCEEDED
+I/workmanager-test: worker count ran, n 3, main thread false, attempt 0
+I/workmanager-test: constraint battery and storage not low: SUCCEEDED
+I/workmanager-test: worker count ran, n 4, main thread false, attempt 0
+I/workmanager-test: worker echo ran, input out ran:4
+I/workmanager-test: chain: first SUCCEEDED, second SUCCEEDED, echo echo:ran:4
+I/workmanager-test: worker count ran, n 5, main thread false, attempt 0
+I/workmanager-test: periodic: first run 1, state ENQUEUED
+I/workmanager-test: periodic, cancelled: CANCELLED
+I/workmanager-test: delayed: ENQUEUED
+I/workmanager-test: delayed, cancelled: CANCELLED
+I/workmanager-test: worker count ran, n 6, main thread false, attempt 0
+I/workmanager-test: tags: 1 tagged, SUCCEEDED, tags true
+I/workmanager-test: worker count ran, n 7, main thread false, attempt 0
+I/workmanager-test: expedited: SUCCEEDED
+I/workmanager-test: done
+I/workmanager-test: instance: true
+I/workmanager-test: restart: kept work 1, ENQUEUED
+I/workmanager-test: worker count ran, n 1, main thread false, attempt 0
+I/workmanager-test: one-time: SUCCEEDED, out ran:1
+I/workmanager-test: worker fail ran
+I/workmanager-test: failing: FAILED
+I/workmanager-test: constraint device idle: ENQUEUED
+I/workmanager-test: constraint device idle, cancelled: CANCELLED
+I/workmanager-test: worker count ran, n 2, main thread false, attempt 0
+I/workmanager-test: constraint network: SUCCEEDED
+I/workmanager-test: worker count ran, n 3, main thread false, attempt 0
+I/workmanager-test: constraint battery and storage not low: SUCCEEDED
+I/workmanager-test: worker count ran, n 4, main thread false, attempt 0
+I/workmanager-test: worker echo ran, input out ran:4
+I/workmanager-test: chain: first SUCCEEDED, second SUCCEEDED, echo echo:ran:4
+I/workmanager-test: worker count ran, n 5, main thread false, attempt 0
+I/workmanager-test: periodic: first run 1, state ENQUEUED
+I/workmanager-test: periodic, cancelled: CANCELLED
+I/workmanager-test: delayed: ENQUEUED
+I/workmanager-test: delayed, cancelled: CANCELLED
+I/workmanager-test: worker count ran, n 6, main thread false, attempt 0
+I/workmanager-test: tags: 2 tagged, SUCCEEDED, tags true
+I/workmanager-test: worker count ran, n 7, main thread false, attempt 0
+I/workmanager-test: expedited: SUCCEEDED
+I/workmanager-test: done

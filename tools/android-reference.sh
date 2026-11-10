@@ -643,7 +643,7 @@ run_godot() {
 run_app() {
   [[ "$app" != godot-bench-* ]] || { run_godot; return; }
   local apk="$APKS/$app.apk" manifest="fixtures/apps/$app/AndroidManifest.xml" build=tools/build-fixtures.sh
-  local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity mask=
+  local last="android_main returns" limit=30 package activity activity_class=android.app.NativeActivity mask= relaunch=
   local tag="$app"
   # A tag whose lines are the app's too (a WebView's console messages, under chromium, without its other lines);
   # empty: none.
@@ -782,6 +782,14 @@ run_app() {
     # pad-test (ADR-0050 test 3): its activity asks for its two packs, each within 30 s, and ends with "done".
     pad-test)
       apk="build/$app/$app-local.apks" build=tools/build-pad-test.sh last=done activity_class=.PadActivity limit=90
+      ;;
+    # workmanager-test: androidx.work 2.12.0 asks for one-time, failing, constrained, chained, periodic, delayed and
+    # expedited work, cancels some, and ends with "done"; its process is killed in the background and started again,
+    # so that the second start finds the work the first one kept (relaunch=kill; relaunch=stop is a force-stop; either
+    # makes a fixture end twice with "done"; tools/build-workmanager-test.sh).
+    workmanager-test)
+      apk="build/$app/$app.apk" build=tools/build-workmanager-test.sh last=done activity_class=.WorkActivity limit=240
+      relaunch=kill
       ;;
     # pad-test-core: the same app built against the monolithic play:core 1.10.3 alone (build-pad-test.sh --core).
     pad-test-core)
@@ -2128,11 +2136,11 @@ PY
     done
   fi
   if [[ "$app" == context-test || "$app" == persisted-job-test || "$app" == locale-persist-test \
-    || "$app" == program-binary-test ]]; then
+    || "$app" == program-binary-test || -n "$relaunch" ]]; then
     wait_for "$app" done || return 1
     # The process of persisted-job-test and locale-persist-test is killed in the background: a force-stop would cancel
     # the jobs and clear the app's languages.
-    if [[ "$app" == persisted-job-test || "$app" == locale-persist-test ]]; then
+    if [[ "$app" == persisted-job-test || "$app" == locale-persist-test || "$relaunch" == kill ]]; then
       run input keyevent KEYCODE_HOME
       sleep 1
       run am kill "$package"
