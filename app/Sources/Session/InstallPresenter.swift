@@ -13,11 +13,16 @@ private let log = Logger(subsystem: "io.github.kisame76.minato", category: "inst
 /// after the user's yes, taken into the library's incoming folder, which the library installs at its next start, as
 /// "Open with" during a session does (ADR-0018); a session's set of APKs (base.apk and split_*.apk) likewise, as one
 /// unit, which the library installs as one app (ADR-0048). The answers: granted or denied; ready, failed or cancelled.
+/// An app's request to remove an app (APKRT_REQUEST_UNINSTALL, ADR-0077) names the target by its package: an app of the
+/// library goes only after the user's yes in Minato's alert, by the library's own Delete (LibraryModel.remove); one
+/// that is not there fails at once. The asking app is this session's, never the request's text; when it removed itself,
+/// its session ends after the answer.
 @MainActor
 final class InstallPresenter {
     enum Request {
         case askSources(id: UInt64, text: String)
         case confirm(id: UInt64, text: String)
+        case uninstall(id: UInt64, text: String)
     }
 
     private let package: String
@@ -26,18 +31,23 @@ final class InstallPresenter {
     private let paths: LibraryPaths?
     private let sourcesAnswered: (UInt64, Bool) -> Void
     private let installAnswered: (UInt64, InstallOutcome) -> Void
+    private let uninstallAnswered: (UInt64, UninstallOutcome) -> Void
+    private let removedItself: () -> Void
     private var waiting: [Request] = []
     private var busy = false
 
     init(package: String, appName: String, dataFolder: URL?, paths: LibraryPaths?,
          sourcesAnswered: @escaping (UInt64, Bool) -> Void,
-         installAnswered: @escaping (UInt64, InstallOutcome) -> Void) {
+         installAnswered: @escaping (UInt64, InstallOutcome) -> Void,
+         uninstallAnswered: @escaping (UInt64, UninstallOutcome) -> Void, removedItself: @escaping () -> Void) {
         self.package = package
         self.appName = appName
         self.dataFolder = dataFolder
         self.paths = paths
         self.sourcesAnswered = sourcesAnswered
         self.installAnswered = installAnswered
+        self.uninstallAnswered = uninstallAnswered
+        self.removedItself = removedItself
     }
 
     func requested(_ request: Request) {
@@ -51,6 +61,7 @@ final class InstallPresenter {
         switch waiting.removeFirst() {
         case .askSources(let id, let text): askSources(id, text: text)
         case .confirm(let id, let text): confirm(id, text: text)
+        case .uninstall(let id, let text): uninstall(id, text: text)
         }
     }
 
@@ -195,23 +206,73 @@ final class InstallPresenter {
         done()
     }
 
+    // MARK: - An app's request to remove an app
+
+    private func uninstall(_ id: UInt64, text: String) {
+        guard let paths, let target = UninstallRequest.target(of: text) else {
+            return finishUninstall(id, .failed, why: "the request names no app")
+        }
+        Task {
+            let library: Library
+            do {
+                library = try Library(paths: paths)
+            } catch {
+                return finishUninstall(id, .failed, why: "the library did not open: \(error)")
+            }
+            guard let entry = await library.entries.first(where: { $0.id == target }) else {
+                return finishUninstall(id, .failed, why: "not in the library")
+            }
+            let name = AlertName.plain(entry.displayName).map { "“\($0)”" } ?? "this app"
+            // Another app's request says who asks; an app that asks to go itself needs no name twice.
+            let from = AlertName.plain(appName).map { "“\($0)”" } ?? "This app"
+            let asking = target == package ? "" : "\(from) wants to delete it. "
+            let message = asking + "Its installed files and app data will be deleted. The original APK is kept."
+            alert(title: "Delete \(name)?", message: message, no: "Cancel", yes: "Delete", destructive: true,
+                  event: "uninstall alert \(entry.id)") { [weak self] yes in
+                guard let self else { return }
+                guard yes else { return finishUninstall(id, .cancelled) }
+                Task {
+                    do {
+                        try await LibraryModel.remove(entry, from: library, paths: paths)
+                    } catch {
+                        return self.finishUninstall(id, .failed, why: "the library did not remove it: \(error)")
+                    }
+                    self.finishUninstall(id, .removed)
+                    if target == self.package { self.removedItself() }
+                }
+            }
+        }
+    }
+
+    private func finishUninstall(_ id: UInt64, _ outcome: UninstallOutcome, why: String? = nil) {
+        if let why { log.error("uninstall \(id) failed: \(why, privacy: .public)") }
+        log.info("uninstall \(id): \(String(describing: outcome), privacy: .public)")
+        #if DEBUG
+        SessionCheck.event("uninstall \(id) \(outcome)\(why.map { ": \($0)" } ?? "")")
+        #endif
+        uninstallAnswered(id, outcome)
+        done()
+    }
+
     // MARK: - Minato's alert
 
     /// Minato's alert in its turn over game mode (SheetTurns), once the scene is active, as the permission alert waits
     /// for the app's return; `answered` gets the user's choice.
-    private func alert(title: String, message: String, no: String, yes: String, event: String,
-                       answered: @escaping (Bool) -> Void) {
+    private func alert(title: String, message: String, no: String, yes: String, destructive: Bool = false,
+                       event: String, answered: @escaping (Bool) -> Void) {
         SheetTurns.shared.take(self) { [weak self] in
-            self?.show(title: title, message: message, no: no, yes: yes, event: event, answered: answered)
+            self?.show(title: title, message: message, no: no, yes: yes, destructive: destructive, event: event,
+                       answered: answered)
         }
     }
 
-    private func show(title: String, message: String, no: String, yes: String, event: String,
+    private func show(title: String, message: String, no: String, yes: String, destructive: Bool, event: String,
                       answered: @escaping (Bool) -> Void) {
         guard UIApplication.shared.applicationState == .active, let top = OpenPresenter.topController(),
               top.presentedViewController == nil else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.show(title: title, message: message, no: no, yes: yes, event: event, answered: answered)
+                self?.show(title: title, message: message, no: no, yes: yes, destructive: destructive, event: event,
+                           answered: answered)
             }
             return
         }
@@ -224,9 +285,10 @@ final class InstallPresenter {
         }
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: no, style: .cancel) { _ in end(false) })
-        let action = UIAlertAction(title: yes, style: .default) { _ in end(true) }
+        let action = UIAlertAction(title: yes, style: destructive ? .destructive : .default) { _ in end(true) }
         alert.addAction(action)
-        alert.preferredAction = action
+        // A destructive choice is never the one Return takes, as in Apple's own delete alerts.
+        if !destructive { alert.preferredAction = action }
         top.present(alert, animated: true)
         #if DEBUG
         SessionCheck.event(event)

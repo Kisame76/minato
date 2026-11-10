@@ -934,6 +934,28 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
     }
 
+    /// ADR-0077: an uninstall request's answer goes to the guest once, as long as the session runs, and not after its
+    /// end (an asking app waits for it, as for Android's uninstaller).
+    @Test func anUninstallAnswerIsPostedWhileTheSessionRuns() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        bridge.uninstallAnswered(id: 3, .removed, host: host)
+        bridge.uninstallAnswered(id: 4, .failed, host: host)
+        bridge.uninstallAnswered(id: 5, .cancelled, host: host)
+        #expect(host.take() == [.post(.uninstallResult(id: 3, outcome: .removed)),
+                                .post(.uninstallResult(id: 4, outcome: .failed)),
+                                .post(.uninstallResult(id: 5, outcome: .cancelled))])
+        #expect(UninstallOutcome.removed.rawValue == 0 && UninstallOutcome.failed.rawValue == 1
+                && UninstallOutcome.cancelled.rawValue == 2)
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        _ = bridge.finished(second, result: 0, host: host)
+        _ = host.take()
+        bridge.uninstallAnswered(id: 6, .removed, host: host)
+        #expect(host.take() == [])
+    }
+
     /// ADR-0068 step 2d: the keyboard's cover goes to the guest when it changes, as long as the session runs; UIKit's
     /// repeats of the same frame post nothing.
     @Test func theKeyboardsCoverIsPostedWhenItChanges() throws {

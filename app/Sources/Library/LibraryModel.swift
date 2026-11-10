@@ -541,20 +541,25 @@ final class LibraryModel {
         guard let library else { return }
         for entry in entries {
             do {
-                try await library.remove(id: entry.id)
+                try await Self.remove(entry, from: library, paths: paths)
             } catch {
                 errorMessage = "“\(entry.displayName)” could not be deleted: \(error.localizedDescription)"
-                continue
             }
-            // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7).
-            if !entry.id.hasPrefix("file:") { await removeWebData(of: entry) }
-            if let paths { ClosedItselfStore(folder: paths.applicationSupport).forget(package: entry.id) }
-            // The app's notifications go with it (ADR-0074 decision 4).
-            NotificationHost.shared.removeAll(package: entry.id)
         }
         self.entries = await library.entries
         favorites = await library.favorites
         lastOpened = await library.lastOpened
+    }
+
+    /// One app's removal with what goes with it: the user's Delete, and an app's request to remove an app, which the
+    /// user confirmed (ADR-0077), take the same way.
+    static func remove(_ entry: LibraryEntry, from library: Library, paths: LibraryPaths?) async throws {
+        try await library.remove(id: entry.id)
+        // Its WebViews' data goes with it, as on Android (ADR-0056 decision 7).
+        if !entry.id.hasPrefix("file:") { await removeWebData(of: entry) }
+        if let paths { ClosedItselfStore(folder: paths.applicationSupport).forget(package: entry.id) }
+        // The app's notifications go with it (ADR-0074 decision 4).
+        NotificationHost.shared.removeAll(package: entry.id)
     }
 
     /// The seconds after which the app closed itself at its last start, for Get Info's footer; nil when it did not.
@@ -592,7 +597,7 @@ final class LibraryModel {
             return
         }
         guard !entry.id.hasPrefix("file:") else { return }
-        await removeWebData(of: entry)
+        await Self.removeWebData(of: entry)
         if let paths {
             LastSessionStore(folder: paths.applicationSupport).forget(package: entry.id)
             ClosedItselfStore(folder: paths.applicationSupport).forget(package: entry.id)
@@ -626,7 +631,7 @@ final class LibraryModel {
     /// handlers: their async forms run on a worker, and the removal crashed on WebKit's IO queue (RunLoop::dispatch)
     /// in a process that had made no web view yet. The default store sets up WebKit in the process first; an app that
     /// never showed a WebView has no store, and none is asked to go.
-    private func removeWebData(of entry: LibraryEntry) async {
+    private static func removeWebData(of entry: LibraryEntry) async {
         let id = WebDataStore.identifier(forPackage: entry.id)
         _ = WKWebsiteDataStore.default()
         let stores = await withCheckedContinuation { done in

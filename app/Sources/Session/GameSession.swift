@@ -65,7 +65,9 @@ final class GameSession {
         dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data"),
         paths: try? LibraryPaths.standard(),
         sourcesAnswered: { [weak self] id, granted in self?.installSourcesAnswered(id, granted) },
-        installAnswered: { [weak self] id, outcome in self?.installAnswered(id, outcome) })
+        installAnswered: { [weak self] id, outcome in self?.installAnswered(id, outcome) },
+        uninstallAnswered: { [weak self] id, outcome in self?.uninstallAnswered(id, outcome) },
+        removedItself: { [weak self] in self?.removedItself() })
     /// The guest's permission requests (ADR-0063 decision 2), over game mode; iOS's answer for notifications is read
     /// ahead, as it comes only through a callback (ADR-0074).
     @ObservationIgnored private lazy var permissions = PermissionPresenter(
@@ -982,6 +984,8 @@ final class GameSession {
             installs.requested(.askSources(id: id, text: text))
         case .confirmInstall(let id, let text):
             installs.requested(.confirm(id: id, text: text))
+        case .uninstall(let id, let text):
+            installs.requested(.uninstall(id: id, text: text))
         case .startingWindow(let splash, let iconBackground):
             startingWindowSent(splash: splash, iconBackground: iconBackground)
         }
@@ -1108,6 +1112,22 @@ final class GameSession {
         let wasBroken = bridge.isBroken
         let handled = bridge.installAnswered(id: id, outcome, host: host)
         if !wasBroken, bridge.isBroken { report(handled) }
+    }
+
+    private func uninstallAnswered(_ id: UInt64, _ outcome: UninstallOutcome) {
+        let wasBroken = bridge.isBroken
+        let handled = bridge.uninstallAnswered(id: id, outcome, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
+    }
+
+    /// The app removed itself with the user's yes (ADR-0077): as Android stops a package it removes, the session ends
+    /// at once, without the app's own teardown, which would write into the data folder that just went.
+    private func removedItself() {
+        #if DEBUG
+        SessionCheck.event("uninstall removed the app itself")
+        #endif
+        quitAsked = true
+        restart(after: .lifecycleEnded)
     }
 
     /// UIKit's keyboard covers `pixels` of the session's view (ADR-0068 step 2d): every window's ime() inset.

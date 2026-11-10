@@ -67,6 +67,18 @@ public enum SessionEvent: Sendable, Equatable {
     case installSourcesResult(id: UInt64, granted: Bool)
     /// The answer to an app installer's handed-over APK, APKRT_EVENT_INSTALL_RESULT.
     case installResult(id: UInt64, outcome: InstallOutcome)
+    /// The answer to an app's request to remove an app, APKRT_EVENT_UNINSTALL_RESULT (ADR-0077).
+    case uninstallResult(id: UInt64, outcome: UninstallOutcome)
+}
+
+/// APKRT_EVENT_UNINSTALL_RESULT's outcome (ADR-0077).
+public enum UninstallOutcome: UInt64, Sendable, Equatable {
+    /// The user confirmed, and the library removed the app.
+    case removed = 0
+    /// No such app in the library, or its removal failed.
+    case failed = 1
+    /// The user declined.
+    case cancelled = 2
 }
 
 /// APKRT_EVENT_INSTALL_RESULT's outcome, as Android's package installer ends.
@@ -134,6 +146,8 @@ public enum SessionRequest: Sendable, Equatable {
     /// An app installer hands over an APK (APKRT_REQUEST_CONFIRM_INSTALL): "<path>\n<package>", the guest's path of
     /// the copy below its cache folder and the requesting package.
     case confirmInstall(id: UInt64, text: String)
+    /// An app asks to remove an app (APKRT_REQUEST_UNINSTALL, ADR-0077): "<target package>\n<asking package>".
+    case uninstall(id: UInt64, text: String)
     /// The starting window's colours the guest framework computed from the starting activity's theme
     /// (APKRT_REQUEST_STARTING_WINDOW, ADR-0076): the splash colour and the icon's background colour, each 0xAARRGGBB,
     /// the latter 0 for none; the host keeps them for the next start.
@@ -530,6 +544,13 @@ public struct SessionBridge: Sendable {
     @discardableResult
     public mutating func installAnswered(id: UInt64, _ outcome: InstallOutcome, host: SessionHost) -> Handled {
         if !isBroken, !lifecycle.hasEnded { _ = posted(.installResult(id: id, outcome: outcome), host: host) }
+        return Handled()
+    }
+
+    /// The answer to uninstall request `id`, posted unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func uninstallAnswered(id: UInt64, _ outcome: UninstallOutcome, host: SessionHost) -> Handled {
+        if !isBroken, !lifecycle.hasEnded { _ = posted(.uninstallResult(id: id, outcome: outcome), host: host) }
         return Handled()
     }
 

@@ -83,8 +83,9 @@ import UIKit
 ///            the file (step f's screenshots compare with it).
 ///   pick-allow  a save's or a folder's alert (ADR-0057 step d) chooses Save or Allow by itself 1 s after it is up,
 ///            as the user's tap does, and logs "pick allowed"; the file stays for every alert.
-///   install-allow  an app installer's alerts, whether it may install apps and the install, choose Allow and
-///            Install by themselves 1 s after they are up and log "install alert answered <key>".
+///   install-allow  an app installer's alerts, whether it may install apps and the install, and the alert for an
+///            app's request to remove an app (ADR-0077) choose Allow, Install and Delete by themselves 1 s after they
+///            are up and log "install alert answered <key>".
 ///   install-deny  the same alerts choose their other button (Don't Allow, Cancel) by themselves, as the user's
 ///            refusal, and log the same line with that key; install-allow wins where both are there.
 ///   pad      the same poll connects a hidden GCVirtualController and plays tools/gamepad-check.sh's steps on it

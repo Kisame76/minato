@@ -210,7 +210,9 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "install-set-flow-test io.github.kisame76.minato.test.installsetflow"
       "starting-window-test io.github.kisame76.minato.test.startingwindow"
       "ime-outside-test io.github.kisame76.minato.test.imeoutside"
-      "edge-back-test-landscape io.github.kisame76.minato.test.edgeback")
+      "edge-back-test-landscape io.github.kisame76.minato.test.edgeback"
+      "uninstall-test io.github.kisame76.minato.test.uninstall"
+      "uninstall-noperm-test io.github.kisame76.minato.test.uninstallnoperm")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -688,6 +690,10 @@ begin_start() {
   # The set flow's second start (the user declines the set) the same.
   if [[ "$app" == install-set-flow-test ]]; then
     [[ $round == 2 ]] && echo yes > "$CHECK/install-deny" || echo yes > "$CHECK/install-allow"
+  fi
+  # An app's request to remove an app (ADR-0077): the first start's alerts decline, the second's confirm.
+  if [[ "$app" == uninstall-test ]]; then
+    [[ $round == 1 ]] && echo yes > "$CHECK/install-deny" || echo yes > "$CHECK/install-allow"
   fi
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
@@ -1870,6 +1876,74 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
     fi
     end_start $app 1
   done
+fi
+
+# An app's request to remove an app (ADR-0077, APKRT_REQUEST_UNINSTALL): uninstall-test asks three ways to remove an
+# absent app: the two intents reach Minato, which answers failed at once without an alert (PackageInstaller.uninstall
+# answers STATUS_PENDING_USER_ACTION by itself, as Android does); then it asks twice to remove itself. Start 1: Minato's
+# alert names the app and the check's Cancel declines both times, so its log is Android 15's (where the reference
+# declines too). Start 2: Delete confirms the first one: the library removes the app and the session ends at once,
+# back in the library without it. uninstall-noperm-test lacks REQUEST_DELETE_PACKAGES: the framework refuses it as
+# Android does, and Minato is never asked. Without the host's answer the requests wait and no "done" comes.
+same_as_android() {
+  python3 - "$1" "$WORK/$1-$2.log" "fixtures/expected/$1.logcat" <<'PY' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+app, log, expected = sys.argv[1:]
+compare_log(app, subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected,
+            {})
+PY
+}
+if wanted uninstall-test; then
+  if begin_start uninstall-test io.github.kisame76.minato.test.uninstall 1; then
+    if await_line guest-log '^I/uninstall-test: done$' 120; then
+      ok "  done, $(seconds "$TAP" "$SEEN") s after the tap"
+    else
+      failed_line "no done: an uninstall request went unanswered" uninstall-test-1
+    fi
+    fetch_events
+    absent=$(grep -c -E " uninstall [0-9]+ failed: not in the library$" "$EVENTS" || true)
+    alerts=$(grep -c -E " uninstall alert io\.github\.kisame76\.minato\.test\.uninstall$" "$EVENTS" || true)
+    declined=$(grep -c -E " uninstall [0-9]+ cancelled$" "$EVENTS" || true)
+    if [[ "$absent" == 2 && "$alerts" == 2 && "$declined" == 2 ]]; then
+      ok "  the absent app failed twice without an alert; the app's own removal asked twice, declined twice"
+    else
+      fail "  absent app failed $absent times (2), alerts $alerts (2), declined $declined (2)"
+    fi
+  fi
+  end_start uninstall-test 1
+  same_as_android uninstall-test 1
+  if begin_start uninstall-test io.github.kisame76.minato.test.uninstall 2; then
+    if await_event "uninstall [0-9]+ removed" 120 && await_event "uninstall removed the app itself" 10; then
+      ok "  Delete removed the app itself"
+      if await_event "process library.*" 30 &&
+          [[ "$(field state io.github.kisame76.minato.test.uninstall)" == None ]]; then
+        ok "  its session ended, the library has it no more"
+      else
+        failed_line "the library still has the app, or no library came" uninstall-test-2
+      fi
+    else
+      failed_line "Delete did not remove the app" uninstall-test-2
+    fi
+  fi
+  end_start uninstall-test 2
+fi
+if wanted uninstall-noperm-test; then
+  if begin_start uninstall-noperm-test io.github.kisame76.minato.test.uninstallnoperm 1; then
+    if await_line guest-log '^I/uninstall-noperm-test: done$' 120; then
+      ok "  done, $(seconds "$TAP" "$SEEN") s after the tap"
+    else
+      failed_line "no done" uninstall-noperm-test-1
+    fi
+    fetch_events
+    if grep -q -E " uninstall " "$EVENTS"; then fail "  Minato was asked for an app without the permission"
+    else ok "  Minato was never asked"; fi
+  fi
+  end_start uninstall-noperm-test 1
+  same_as_android uninstall-noperm-test 1
 fi
 
 # An app installer in Minato (APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL): install-flow-test

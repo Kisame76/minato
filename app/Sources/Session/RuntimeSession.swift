@@ -282,6 +282,7 @@ final class RuntimeSessionHost: SessionHost {
         case .barInsets(let top, let bottom): (APKRT_EVENT_BAR_INSETS, UInt64(max(top, 0)), UInt64(max(bottom, 0)), 0)
         case .installSourcesResult(let id, let granted): (APKRT_EVENT_INSTALL_SOURCES_RESULT, id, granted ? 1 : 0, 0)
         case .installResult(let id, let outcome): (APKRT_EVENT_INSTALL_RESULT, id, outcome.rawValue, 0)
+        case .uninstallResult(let id, let outcome): (APKRT_EVENT_UNINSTALL_RESULT, id, outcome.rawValue, 0)
         }
     }
 
@@ -455,6 +456,8 @@ final class RuntimeSessionHost: SessionHost {
             .askInstallSources(id: argument, text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_CONFIRM_INSTALL.rawValue:
             .confirmInstall(id: argument, text: text.map { String(cString: $0) } ?? "")
+        // ADR-0077: answered as failed without a text.
+        case APKRT_REQUEST_UNINSTALL.rawValue: .uninstall(id: argument, text: text.map { String(cString: $0) } ?? "")
         // a0, the splash colour, in the low 32 bits, a1, the icon's background colour, in the high ones (ADR-0076).
         case APKRT_REQUEST_STARTING_WINDOW.rawValue: SessionRequest.startingWindow(packed: argument)
         default: nil
