@@ -1437,7 +1437,8 @@ run_app() {
   if [[ "$app" == provider-contracts-test-granted ]]; then
     # The twin's calendar, call log and voicemail permissions, which no host group grants on Minato.
     for permission in android.permission.READ_CALENDAR android.permission.WRITE_CALENDAR \
-      android.permission.READ_CALL_LOG android.permission.WRITE_CALL_LOG com.android.voicemail.permission.ADD_VOICEMAIL; do
+      android.permission.READ_CALL_LOG android.permission.WRITE_CALL_LOG \
+      com.android.voicemail.permission.ADD_VOICEMAIL; do
       run pm grant "$package" "$permission"
     done
   fi

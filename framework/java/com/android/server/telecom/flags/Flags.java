@@ -1,8 +1,8 @@
 /*
- * Our aconfig flags of Telecom (package com.android.server.telecom.flags), whose declarations are not among the fetched
- * sources: the names that CallLog's and Context's @FlaggedApi give and the one flag CallLog's AddCallParams reads. business_call_composer
- * is ENABLED, READ_ONLY in build_release's ap3a set [verified: build_release/aconfig/ap3a/
- * com.android.server.telecom.flags/business_call_composer_flag_values.textproto].
+ * Our aconfig flags of Telecom (package com.android.server.telecom.flags), whose declarations are not among the
+ * fetched sources: the names that CallLog's and Context's @FlaggedApi give and the one flag CallLog's AddCallParams
+ * reads. business_call_composer is ENABLED, READ_ONLY in build_release's ap3a set [verified: build_release/aconfig/
+ * ap3a/com.android.server.telecom.flags/business_call_composer_flag_values.textproto].
  */
 package com.android.server.telecom.flags;
 

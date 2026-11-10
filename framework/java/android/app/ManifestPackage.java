@@ -117,6 +117,28 @@ final class ManifestPackage {
     private static final int SPLIT_ALWAYS = 10001;
     private static final String POLICY_TAG = "PermissionPolicy";
 
+    /**
+     * Permissions that the Mac harness grants to a test app (MINATO_TEST_GRANTS, names separated by commas, set by
+     * apk-run's --env on the Mac only): the calendar, call log and voicemail ones, which Minato denies every app until
+     * a real data step exists, so that provider-contracts-test-granted pins the providers' answers to a holder.
+     * GuestStart on the iPhone never sets it (tools/test-grants-check.sh fails on any mention in app/, importer/ and
+     * graphics/). Read once, when this class loads at the process's start, before any app code runs: an app that sets
+     * the variable itself later grants itself nothing. Only a permission that the manifest requests is granted.
+     */
+    private static final java.util.Set<String> TEST_GRANTS = testGrants(System.getenv("MINATO_TEST_GRANTS"));
+
+    private static java.util.Set<String> testGrants(String names) {
+        java.util.Set<String> set = new java.util.HashSet<>();
+        if (names != null) {
+            for (String name : names.split(",")) {
+                if (!name.trim().isEmpty()) {
+                    set.add(name.trim());
+                }
+            }
+        }
+        return java.util.Collections.unmodifiableSet(set);
+    }
+
     /** The platform's permissions by name, read once on first use. */
     private static Map<String, PermissionInfo> sPlatformPermissions;
     /** framework-res's permission groups by name, read with its permissions. */
@@ -2282,6 +2304,9 @@ final class ManifestPackage {
      * splits pass on. Each denial is logged once, and a grant that departs from Android once per app.
      */
     boolean granted(String permission) {
+        if (TEST_GRANTS.contains(permission) && mRequestedPermissions.contains(permission)) {
+            return true;
+        }
         PermissionPolicy.Decision decision = PermissionPolicy.decide(policyApp(), permission);
         if (decision.grant == PermissionPolicy.Grant.ASK_HOST) {
             return answers().granted(permission);
