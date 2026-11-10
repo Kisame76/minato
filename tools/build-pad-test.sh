@@ -17,8 +17,12 @@
 # Needs tools/fetch-play-libraries.py --fetch (on request, after accepting the libraries' terms), bundletool
 # (tools/fetch-bundletool.py), the JDK and D8 of tools/fetch-sources.py --set art, tools/build-art.sh's boot classes,
 # tools/build-framework.sh's output, tools/build-aapt2.sh and tools/build-framework-res.sh.
-# Usage: tools/build-pad-test.sh [--key <folder>]
-#   --key  make-apk's key folder, default ~/.android/minato-debug-key, which tools/make-apk.sh makes on first use
+# Usage: tools/build-pad-test.sh [--core] [--key <folder>]
+#   --core  pad-test-core, the same app built against the monolithic play:core 1.10.3 alone
+#           (tools/fetch-play-libraries.py --set core), which older apps ship in place of asset-delivery and
+#           feature-delivery: its manifest is fixtures/apps/pad-test-core's, its sources pad-test's with Play Core's
+#           own Task, and its res/, extra module and packs are pad-test's; the output is build/pad-test-core/
+#   --key   make-apk's key folder, default ~/.android/minato-debug-key, which tools/make-apk.sh makes on first use
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,12 +31,24 @@ die() {
   exit 1
 }
 key=$HOME/.android/minato-debug-key
+APP=pad-test
+SET=()
+if [[ "${1:-}" == --core ]]; then
+  APP=pad-test-core
+  SET=(--set core)
+  shift
+fi
 if [[ $# -eq 2 && "$1" == --key ]]; then
   key=$2
 elif [[ $# -ne 0 ]]; then
-  die "usage: tools/build-pad-test.sh [--key <folder>]"
+  die "usage: tools/build-pad-test.sh [--core] [--key <folder>]"
 fi
-LIBRARIES=$(/usr/bin/python3 tools/fetch-play-libraries.py 2>/dev/null) \
+SRC=pad-test
+# The AARs of one set: the two sets never share a classpath, as play:core holds the packages of the other libraries.
+AARS=()
+LIST=(/usr/bin/python3 tools/fetch-play-libraries.py ${SET[@]+"${SET[@]}"} --list)
+while IFS= read -r aar; do AARS+=("$aar"); done < <("${LIST[@]}" 2>/dev/null) || true
+[[ ${#AARS[@]} -gt 0 ]] \
   || die "no Play libraries, or not the pinned ones: tools/fetch-play-libraries.py says what to do"
 JAR=$(/usr/bin/python3 tools/fetch-bundletool.py 2>/dev/null) \
   || die "bundletool differs from its pin or is missing (tools/fetch-bundletool.py)"
@@ -51,7 +67,6 @@ FRAMEWORK_RES=build/framework-res/framework-res.apk
 [[ -f "$key/key.der" && -f "$key/certificate.der" ]] \
   || die "no key.der and certificate.der in $key: tools/make-apk.sh makes them on first use"
 
-APP=pad-test
 OUT=build/$APP
 PACKAGE=io.github.kisame76.minato.test.pad
 work=""
@@ -67,7 +82,7 @@ chmod 700 "$work"
 classpath=()
 resources=()
 packages=()
-for aar in "$LIBRARIES"/*.aar; do
+for aar in "${AARS[@]}"; do
   name=$(basename "$aar" .aar)
   mkdir -p "$work/aar/$name"
   unzip -q "$aar" -d "$work/aar/$name"
@@ -88,15 +103,27 @@ extra=()
 if [[ ${#packages[@]} -gt 0 ]]; then
   extra=(--extra-packages "$(IFS=:; echo "${packages[*]}")")
 fi
-"$AAPT2" compile --dir "fixtures/apps/$APP/res" -o "$work/app-res.zip"
+"$AAPT2" compile --dir "fixtures/apps/$SRC/res" -o "$work/app-res.zip"
 resources+=("$work/app-res.zip")
 "$AAPT2" link --proto-format -o "$work/base-linked.apk" -I "$FRAMEWORK_RES" --emit-ids "$work/ids.txt" \
   --manifest "fixtures/apps/$APP/AndroidManifest.xml" --java "$work/gen" ${extra[@]+"${extra[@]}"} \
   ${resources[@]+"${resources[@]}"}
+# The app's sources; play:core has its own Task, where the newer libraries use Google Play services', and lacks the
+# asset pack constants REQUIRES_USER_CONFIRMATION (status), CONFIRMATION_NOT_REQUIRED and UNRECOGNIZED_INSTALLATION.
+mkdir -p "$work/sources"
+cp -R "fixtures/java/$SRC/." "$work/sources/"
+if [[ "$APP" == pad-test-core ]]; then
+  /usr/bin/sed -i '' 's/com\.google\.android\.gms\.tasks\.Task/com.google.android.play.core.tasks.Task/' \
+    $(find "$work/sources" -name '*.java')
+  /usr/bin/sed -i '' 's/TAG = "pad-test"/TAG = "pad-test-core"/' $(find "$work/sources" -name '*.java')
+  /usr/bin/sed -i '' -e '/AssetPackStatus\.REQUIRES_USER_CONFIRMATION/d' \
+    -e '/AssetPackErrorCode\.CONFIRMATION_NOT_REQUIRED/d' \
+    -e '/AssetPackErrorCode\.UNRECOGNIZED_INSTALLATION/d' $(find "$work/sources" -name '*.java')
+fi
 # -Xlint:-options: the notes about source 8 on a newer JDK.
 "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" \
   -classpath "$FRAMEWORK_CLASSES:$STUBS:$libraries_classpath" -d "$work/classes" \
-  $(find "fixtures/java/$APP" "$work/gen" -name '*.java' | sort)
+  $(find "$work/sources" "$work/gen" -name '*.java' | sort)
 "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
   --lib "$FRAMEWORK_CLASSES" --lib "$STUBS" --output "$work/dex" \
   $(find "$work/classes" -name '*.class' | sort) "${classpath[@]}"
@@ -108,12 +135,12 @@ CLANG="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang"
 [[ -x "$CLANG" ]] || die "no Android NDK at $NDK: set ANDROID_NDK to its folder"
 mkdir -p "$work/lib"
 "$CLANG" --target=aarch64-linux-android29 -shared -fPIC -O2 -Wall -Werror -Wl,-z,max-page-size=16384 \
-  -Wl,--no-undefined -o "$work/lib/libextra_native.so" "fixtures/java/$APP-extra/jni/extra_native.c"
+  -Wl,--no-undefined -o "$work/lib/libextra_native.so" "fixtures/java/$SRC-extra/jni/extra_native.c"
 
 # The feature module's code, a class of its own that the base does not hold, in a dex of its own.
 mkdir -p "$work/classes-extra" "$work/dex-extra"
 "$JDK/bin/javac" -source 8 -target 8 -Xlint:-options -bootclasspath "$BOOT_CLASSES" -d "$work/classes-extra" \
-  $(find "fixtures/java/$APP-extra" -name '*.java' | sort)
+  $(find "fixtures/java/$SRC-extra" -name '*.java' | sort)
 "$JDK/bin/java" -cp "$R8" com.android.tools.r8.D8 --release --min-api 29 --lib "$BOOT_CLASSES" \
   --output "$work/dex-extra" $(find "$work/classes-extra" -name '*.class' | sort)
 
@@ -135,7 +162,7 @@ done
 # The module's title is the base's string, with the id the base gave it, which bundletool looks up in the base.
 "$AAPT2" link --proto-format -o "$work/extra-linked.apk" -I "$FRAMEWORK_RES" --auto-add-overlay \
   --stable-ids "$work/ids.txt" -R "$work/app-res.zip" \
-  --manifest "fixtures/apps/$APP/extra/AndroidManifest.xml" --min-sdk-version 29 --target-sdk-version 35
+  --manifest "fixtures/apps/$SRC/extra/AndroidManifest.xml" --min-sdk-version 29 --target-sdk-version 35
 /usr/bin/python3 - "$work" <<'EOF'
 import os
 import sys

@@ -59,27 +59,41 @@ for app in packs-test packs-test-own; do
 done
 
 # Test 3: pad-test asks Google's asset-delivery for its two packs, whose slices from its default set lie in
-# local_testing, from its activity in a session, as fetch() wants the app in the foreground.
-if libraries=$(/usr/bin/python3 tools/fetch-play-libraries.py 2>&1); then
-  tools/build-pad-test.sh >/dev/null
-  # SplitCompat verifies a split's signature against the app's own (SPLITCOMPAT_VERIFICATION_ERROR otherwise), so the
-  # app starts with its signers.json, as the library writes it at import.
-  swift build --package-path importer/APKKit --product apk-inspect >/dev/null
-  inspect="$(swift build --package-path importer/APKKit --show-bin-path)/apk-inspect"
-  slices=(--apk-inspect "$inspect")
-  for slice in build/pad-test/slices/*.apk; do slices+=(--packs "$slice"); done
-  # The module's splits are the set's own (ADR-0049 a2: an on-demand feature module installs as splits), beside the
-  # base, and lie in local_testing too (ADR-0050 c2b), as the library's start lays them out.
-  for slice in build/pad-test/slices/extra-*.apk; do slices+=(--split "$slice"); done
-  echo "pad-test, packs:"
-  python3 framework/tests/java_app_run.py "${slices[@]}" pad-test io.github.kisame76.minato.test.pad \
-    io.github.kisame76.minato.test.pad.PadApplication build/art build/bionic/lib build/bionic/system build/hwui/lib \
-    build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
-    "$NATIVE/runtime/apk-run" build/packs-check/pad-test build/framework-native/app_process64 \
-    build/framework/framework.jar build/framework-res/framework-res build/pad-test/base-master.apk \
-    fixtures/expected/pad-test.logcat 1290x2796@3,en-US || status=1
-else
-  echo "skipped: pad-test: no Play libraries (tools/fetch-play-libraries.py --fetch, on request):"
-  echo "$libraries" | sed 's/^/  /'
-fi
+# local_testing, from its activity in a session, as fetch() wants the app in the foreground. pad-test-core is the same
+# app built against the monolithic play:core 1.10.3, which older apps ship (build-pad-test.sh --core), with its own
+# library set, expected log and tag.
+swift_built=""
+for app in pad-test pad-test-core; do
+  set_option=()
+  build_option=()
+  if [[ "$app" == pad-test-core ]]; then
+    set_option=(--set core)
+    build_option=(--core)
+  fi
+  if libraries=$(/usr/bin/python3 tools/fetch-play-libraries.py ${set_option[@]+"${set_option[@]}"} 2>&1); then
+    tools/build-pad-test.sh ${build_option[@]+"${build_option[@]}"} >/dev/null
+    # SplitCompat verifies a split's signature against the app's own (SPLITCOMPAT_VERIFICATION_ERROR otherwise), so the
+    # app starts with its signers.json, as the library writes it at import.
+    if [[ -z "$swift_built" ]]; then
+      swift build --package-path importer/APKKit --product apk-inspect >/dev/null
+      swift_built=yes
+    fi
+    inspect="$(swift build --package-path importer/APKKit --show-bin-path)/apk-inspect"
+    slices=(--apk-inspect "$inspect")
+    for slice in build/$app/slices/*.apk; do slices+=(--packs "$slice"); done
+    # The module's splits are the set's own (ADR-0049 a2: an on-demand feature module installs as splits), beside the
+    # base, and lie in local_testing too (ADR-0050 c2b), as the library's start lays them out.
+    for slice in build/$app/slices/extra-*.apk; do slices+=(--split "$slice"); done
+    echo "$app, packs:"
+    python3 framework/tests/java_app_run.py "${slices[@]}" "$app" io.github.kisame76.minato.test.pad \
+      io.github.kisame76.minato.test.pad.PadApplication build/art build/bionic/lib build/bionic/system build/hwui/lib \
+      build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \
+      "$NATIVE/runtime/apk-run" build/packs-check/$app build/framework-native/app_process64 \
+      build/framework/framework.jar build/framework-res/framework-res build/$app/base-master.apk \
+      fixtures/expected/$app.logcat 1290x2796@3,en-US || status=1
+  else
+    echo "skipped: $app: no Play libraries (tools/fetch-play-libraries.py ${set_option[*]-} --fetch, on request):"
+    echo "$libraries" | sed 's/^/  /'
+  fi
+done
 exit "$status"

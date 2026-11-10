@@ -1492,7 +1492,7 @@
     ]
   },
   "play-libraries": {
-    "comment": "Google's Play libraries for ADR-0050's pad-test (test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with the libraries their POMs name, without AndroidX, as AARs from Google's Maven, fetched by tools/fetch-play-libraries.py on 2026-10-07, after accepting the libraries' terms, into ~/.android/minato-play-libraries/, outside the repository, and checked against the SHA-256 that Google's Maven states beside each AAR. They only build pad-test on this Mac: never committed and never in the app (Non-Goals), and a black box, as nothing reads their classes. tools/fetch-sources.py does not read this entry.",
+    "comment": "Google's Play libraries for ADR-0050's pad-test (test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with the libraries their POMs name, without AndroidX, as AARs from Google's Maven, fetched by tools/fetch-play-libraries.py on 2026-10-07 (play:core 1.10.3, set core: on 2026-11-10), after accepting the libraries' terms, into ~/.android/minato-play-libraries/, outside the repository, and checked against the SHA-256 that Google's Maven states beside each AAR. They only build pad-test on this Mac: never committed and never in the app (Non-Goals), and a black box, as nothing reads their classes. tools/fetch-sources.py does not read this entry.",
     "license": "Play Core Software Development Kit Terms of Service, with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common); Android Software Development Kit License (play-services-basement, play-services-tasks)",
     "assets": [
       {
@@ -1524,6 +1524,13 @@
         "url": "https://dl.google.com/dl/android/maven2/com/google/android/gms/play-services-tasks/18.1.0/play-services-tasks-18.1.0.aar",
         "bytes": 96788,
         "sha256": "d60575eae39350e6234858bc9d7d775375707ae82a684e6caf7f3e41a12e25a2"
+      },
+      {
+        "name": "core-1.10.3.aar",
+        "set": "core",
+        "url": "https://dl.google.com/dl/android/maven2/com/google/android/play/core/1.10.3/core-1.10.3.aar",
+        "bytes": 450140,
+        "sha256": "d3e404065b077cc86f58b787c44ebda6cf1ff691e5e954c4b09d6e6c9d0fa562"
       }
     ]
   },

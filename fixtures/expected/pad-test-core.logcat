@@ -1,0 +1,24 @@
+I/pad-test-core: splitcompat install: true
+I/pad-test-core: filesDir /data/user/0/io.github.kisame76.minato.test.pad/files, canonical /data/data/io.github.kisame76.minato.test.pad/files
+I/pad-test-core: dataDir /data/user/0/io.github.kisame76.minato.test.pad, applicationInfo dataDir /data/user/0/io.github.kisame76.minato.test.pad
+I/pad-test-core: /data/data's folder of the app exists true, canonical /data/data/io.github.kisame76.minato.test.pad
+I/pad-test-core: fastfollow before: status NOT_INSTALLED, errorCode NO_ERROR, location none
+I/pad-test-core: ondemand before: status NOT_INSTALLED, errorCode NO_ERROR, location none
+I/pad-test-core: fastfollow fetch: status PENDING, errorCode NO_ERROR
+I/pad-test-core: fastfollow states: in order true, an error false, last status COMPLETED, errorCode NO_ERROR
+I/pad-test-core: fastfollow location storage STORAGE_FILES, assetsPath /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/fastfollow/1/1/assets, path /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/fastfollow/1/1
+I/pad-test-core: fastfollow assets [fastfollow.txt], fastfollow.txt: Minato pad-test, the fastfollow pack.
+I/pad-test-core: ondemand fetch: status PENDING, errorCode NO_ERROR
+I/pad-test-core: ondemand states: in order true, an error false, last status COMPLETED, errorCode NO_ERROR
+I/pad-test-core: ondemand location storage STORAGE_FILES, assetsPath /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/ondemand/1/1/assets, path /data/data/io.github.kisame76.minato.test.pad/files/assetpacks/ondemand/1/1
+I/pad-test-core: ondemand assets [ondemand.txt], ondemand.txt: Minato pad-test, the ondemand pack.
+I/pad-test-core: fastfollow after: status COMPLETED, errorCode NO_ERROR
+I/pad-test-core: ondemand after: status COMPLETED, errorCode NO_ERROR
+I/pad-test-core: nopack fetch: failed, com.google.android.play.core.common.LocalTestingException
+I/pad-test-core: locations [fastfollow, ondemand]
+I/pad-test-core: extra request: started
+I/pad-test-core: extra states: in order true, an error false, last status INSTALLED, errorCode NO_ERROR
+I/pad-test-core: installed modules after [extra]
+I/pad-test-core: extra class: the on-demand module answers
+I/pad-test-core: extra library: the on-demand module's library answers
+I/pad-test-core: done

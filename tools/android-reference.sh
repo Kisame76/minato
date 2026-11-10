@@ -783,6 +783,11 @@ run_app() {
     pad-test)
       apk="build/$app/$app-local.apks" build=tools/build-pad-test.sh last=done activity_class=.PadActivity limit=90
       ;;
+    # pad-test-core: the same app built against the monolithic play:core 1.10.3 alone (build-pad-test.sh --core).
+    pad-test-core)
+      apk="build/$app/$app-local.apks" build="tools/build-pad-test.sh --core" last=done activity_class=.PadActivity
+      limit=150
+      ;;
     # splits-test (ADR-0048 c)): a bundletool set that install-apks installs, whose Application logs and ends with "done".
     splits-test)
       apk="build/$app/$app.apks" build=tools/build-splits-test.sh last=done activity_class=android.app.Activity
@@ -1365,7 +1370,8 @@ run_app() {
   package=$(sed -n 's/.*package="\([^"]*\)".*/\1/p' "$manifest" | head -n 1)
   activity="$package/$activity_class"
   device uninstall "$package" >/dev/null 2>&1 || true
-  if [[ "$app" == pad-test || "$app" == splits-test || "$app" == isolated-splits-test || -n "${APK_SET:-}" ]]; then
+  if [[ "$app" == pad-test || "$app" == pad-test-core || "$app" == splits-test
+      || "$app" == isolated-splits-test || -n "${APK_SET:-}" ]]; then
     # A local-testing set: install-apks installs the base and pushes the base's language splits and the packs' slices
     # into local_testing; it lists each push, so its output goes to a file, shown when it fails. splits-test's set is
     # installed as the device's splits.

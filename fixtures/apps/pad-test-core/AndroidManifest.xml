@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ADR-0050's test 3 with the monolithic play:core 1.10.3 (pad-test-core), which older apps ship in place of
+     asset-delivery and feature-delivery: pad-test's app built by tools/build-pad-test.sh with its core option. What play:core's own
+     manifest declares is merged in by hand below, as an app's build merges it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.pad" android:versionCode="1" android:versionName="1.0">
+  <!-- play:core 1.10.3 registers a receiver without RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED, which Android 14 and later
+       refuse an app that targets them (measured on Android 15 at 35: SecurityException in registerListener), so an app
+       that ships it runs with a target of 33 or less. -->
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/>
+  <!-- play:core 1.10.3's, for its foreground extraction service. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <application android:label="pad-test" android:name="io.github.kisame76.minato.test.pad.PadApplication">
+    <activity android:name="io.github.kisame76.minato.test.pad.PadActivity" android:exported="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <!-- play:core 1.10.3's services and activities, which only Play's own service enables. -->
+    <service android:name="com.google.android.play.core.assetpacks.AssetPackExtractionService"
+        android:enabled="false" android:exported="true">
+      <meta-data android:name="com.google.android.play.core.assetpacks.versionCode" android:value="11003"/>
+    </service>
+    <service android:name="com.google.android.play.core.assetpacks.ExtractionForegroundService"
+        android:enabled="false" android:exported="false"/>
+    <activity android:name="com.google.android.play.core.common.PlayCoreDialogWrapperActivity"
+        android:exported="false" android:stateNotNeeded="true" android:theme="@style/Theme.PlayCore.Transparent"/>
+  </application>
+</manifest>

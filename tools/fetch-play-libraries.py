@@ -8,6 +8,8 @@ box: javac, D8 and aapt2 take them, and nothing reads their classes.
 Usage: tools/fetch-play-libraries.py [--folder <folder>]          check the AARs and print their folder
        tools/fetch-play-libraries.py [--folder <folder>] --fetch  fetch the missing ones (network), then check them
        tools/fetch-play-libraries.py --self-test                  check the script's guards (no network)
+  --set core  the set of play:core 1.10.3, which older apps ship in place of asset-delivery and feature-delivery
+              (pad-test-core); the sets never share a classpath, so --list prints one set's AARs, one path per line
   --folder  where the AARs lie, default ~/.android/minato-play-libraries, a private folder outside the repository
 
 Each AAR must have the pinned size and the SHA-256 that Google's Maven states beside it; a fetch writes a temporary file
@@ -28,10 +30,12 @@ MANIFEST = os.path.join(ROOT, "third_party", "sources.json")
 MAVEN = "https://dl.google.com/dl/android/maven2/"
 
 
-def pins(manifest=MANIFEST):
-    """The pinned AARs: name, url, bytes and sha256 each."""
+def pins(manifest=MANIFEST, library_set=None):
+    """The pinned AARs of one set: name, url, bytes and sha256 each. The default set, pad-test's asset-delivery and
+    feature-delivery, is the entries without a "set"; the set "core" is the monolithic Play Core of older apps."""
     with open(manifest) as handle:
-        assets = json.load(handle)["play-libraries"]["assets"]
+        assets = [asset for asset in json.load(handle)["play-libraries"]["assets"]
+                  if asset.get("set") == library_set]
     names = [asset["name"] for asset in assets]
     if not assets or len(set(names)) != len(names):
         raise SystemExit("fetch-play-libraries: the pins must name each AAR once")
@@ -148,6 +152,7 @@ def self_test():
     assert sorted(asset["name"] for asset in real) == [
         "asset-delivery-2.2.2.aar", "core-common-2.0.3.aar", "feature-delivery-2.1.0.aar",
         "play-services-basement-18.3.0.aar", "play-services-tasks-18.1.0.aar"]
+    assert [asset["name"] for asset in pins(library_set="core")] == ["core-1.10.3.aar"]
     print("fetch-play-libraries: self-test passed")
 
 
@@ -156,6 +161,8 @@ def main():
     parser.add_argument("--folder", default=FOLDER)
     parser.add_argument("--fetch", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--set", dest="library_set", choices=["core"], default=None)
+    parser.add_argument("--list", action="store_true")
     options = parser.parse_args()
     if options.self_test:
         self_test()
@@ -165,7 +172,7 @@ def main():
         print(f"fetch-play-libraries: {folder} lies in the repository; the libraries must stay outside it",
               file=sys.stderr)
         sys.exit(1)
-    assets = pins()
+    assets = pins(library_set=options.library_set)
     if options.fetch:
         private(folder)
         for asset in assets:
@@ -178,7 +185,10 @@ def main():
         print(f"fetch-play-libraries: {reason}", file=sys.stderr)
     if reasons:
         sys.exit(1)
-    print(folder)
+    if options.list:
+        print("\n".join(os.path.join(folder, asset["name"]) for asset in assets))
+    else:
+        print(folder)
 
 
 if __name__ == "__main__":
