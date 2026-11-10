@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three activities in a chain, each started for a result: A starts B, B starts C, C ends at once with a result, B
+     answers A from inside its own onActivityResult (the common finish() there), and A gets B's result. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.resultchain" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.resultchain.ChainApplication">
+    <activity android:name="io.github.kisame76.minato.test.resultchain.ActivityA" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.resultchain.ActivityB"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+    <activity android:name="io.github.kisame76.minato.test.resultchain.ActivityC"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+  </application>
+</manifest>

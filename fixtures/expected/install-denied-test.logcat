@@ -1,0 +1,3 @@
+I/install-denied-test: canRequestPackageInstalls: false
+I/install-denied-test: result: 0
+I/install-denied-test: done

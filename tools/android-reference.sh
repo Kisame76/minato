@@ -984,6 +984,10 @@ run_app() {
       ;;
     # activity-flow-test (ADR-0039 step b3.5b2-1): its launcher, SplashActivity, starts the app's other activities in
     # turn, and its log ends with "done" once the last of them has finished.
+    # result-chain-test: three activities in a chain of results; its launcher is ActivityA, and the log ends with "done".
+    result-chain-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ActivityA
+      ;;
     activity-flow-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SplashActivity
       ;;

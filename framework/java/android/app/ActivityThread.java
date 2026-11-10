@@ -2068,6 +2068,14 @@ public final class ActivityThread {
             if (next != null) {
                 resumeRecord(next);
             }
+        } else if (mPendingStarts.get() == 0 && finishing(topRecord())) {
+            // The top was finished before this call and has not gone yet (an activity that finishes in onCreate stays
+            // in the task until the idle pass), so the ones finished now were not the top by position, but the top
+            // that is not finishing is uncovered all the same: it resumes, with the result that waits for it.
+            ActivityClientRecord next = topLiveRecord();
+            if (next != null && next.state != ON_RESUME) {
+                resumeRecord(next);
+            }
         }
         sendResultsToResumed();
         scheduleIdle();

@@ -33,7 +33,13 @@ public final class InstallSourcesActivity extends Activity {
     /** The activities waiting for the host's answer, by request ID; the main thread's. */
     private static final Map<Long, InstallSourcesActivity> sWaiting = new HashMap<>();
 
+    private static int sAsked;
     private long mId;
+
+    /** How many times the page asked the host (for tests, read by reflection). */
+    static int asked() {
+        return sAsked;
+    }
 
     /** Whether `intent` is the settings page for unknown app sources, which names no component. */
     public static boolean handles(Intent intent) {
@@ -81,6 +87,7 @@ public final class InstallSourcesActivity extends Activity {
             finish();
             return;
         }
+        sAsked++;
         final String label = String.valueOf(getApplicationInfo().loadLabel(getPackageManager()));
         mId = sNextId.getAndIncrement();
         sWaiting.put(mId, this);

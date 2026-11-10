@@ -8,6 +8,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.Log;
 
 import java.io.File;
@@ -78,14 +79,38 @@ public final class InstallConfirmActivity extends Activity {
         return info;
     }
 
+    private static final int ASK_FOR_THE_RIGHT = 1;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        final Uri data = getIntent().getData();
-        if (data == null || !ActivityThread.installSources()) {
+        if (getIntent().getData() == null) {
             end(RESULT_CANCELED);
+        } else if (!ActivityThread.installSources()) {
+            // As Android's installer: without the right to install apps it sends the user to the settings page for the
+            // app (its "unknown sources" dialog) and goes on once the right is given.
+            startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getPackageName())), ASK_FOR_THE_RIGHT);
+        } else {
+            confirm();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != ASK_FOR_THE_RIGHT) {
             return;
         }
+        if (ActivityThread.installSources()) {
+            confirm();
+        } else {
+            end(RESULT_CANCELED);
+        }
+    }
+
+    /** Copies the APK below the cache folder and has the host confirm it. */
+    private void confirm() {
+        final Uri data = getIntent().getData();
         mId = sNextId.getAndIncrement();
         mFile = new File(getCacheDir(), "install/" + mId + ".apk");
         try (InputStream in = getContentResolver().openInputStream(data)) {

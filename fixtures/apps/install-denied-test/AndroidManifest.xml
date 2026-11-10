@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An app that hands an APK to the installer without the right to install apps: the installer does not install, it
+     asks for the right first (Android: its "unknown sources" dialog with a button to the settings page), and the app
+     gets RESULT_CANCELED when the right is not given. There is no Android reference of the dialog's own flow, so the
+     check reads a device line besides the expected log. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.installdenied" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.installdenied.DeniedApplication">
+    <activity android:name="io.github.kisame76.minato.test.installdenied.DeniedActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
