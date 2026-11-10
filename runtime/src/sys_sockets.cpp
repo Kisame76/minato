@@ -1789,9 +1789,13 @@ long set_tcp_level(Socket &socket, int name, std::uint64_t value, std::uint32_t 
         return 0L;
     };
     switch (name) {
-        case tcp_nodelay:
-            return remember_late(socket, set_host_int(socket, IPPROTO_TCP, TCP_NODELAY, number != 0),
-                                 socket.late_nodelay_set, socket.late_nodelay, number != 0);
+        case tcp_nodelay: {
+            const long result = set_host_int(socket, IPPROTO_TCP, TCP_NODELAY, number != 0);
+            // Only a real TCP socket's EINVAL means the connection closed (net-option-late); on another socket type
+            // Linux rejects TCP_NODELAY, so keep the host's error there rather than remembering a set.
+            if (socket.protocol != ipproto_tcp) return result;
+            return remember_late(socket, result, socket.late_nodelay_set, socket.late_nodelay, number != 0);
+        }
         case tcp_maxseg: return set_host_int(socket, IPPROTO_TCP, TCP_MAXSEG, number);
         case tcp_cork: return set_host_int(socket, IPPROTO_TCP, TCP_NOPUSH, number != 0);
         case tcp_keepidle:
