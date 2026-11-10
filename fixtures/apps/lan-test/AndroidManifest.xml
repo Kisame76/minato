@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of an app talking to another device on the same network (lan-test; the compatibility plan's networking
+     gap): a TCP echo, an HTTP request and a UDP echo against tools/lan-server.py on the machine next to it, and a
+     connection to an address nobody answers as the control. The server's address comes from the environment entry
+     MINATO_LAN_HOST at run time (10.0.2.2, the emulator's name for its host, without it); no address is in the
+     repository or in the log. Clear text is permitted for this test. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.lan" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <application android:label="lan-test" android:networkSecurityConfig="@xml/network_security_config"
+      android:name="io.github.kisame76.minato.test.lan.LanApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

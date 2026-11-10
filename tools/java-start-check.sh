@@ -187,6 +187,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "network-security-test io.github.kisame76.minato.test.networksecurity"
       "network-security-config-test io.github.kisame76.minato.test.networksecurityconfig"
       "wifi-state-test io.github.kisame76.minato.test.wifistate"
+      "lan-test io.github.kisame76.minato.test.lan"
+      "net-io-test io.github.kisame76.minato.test.netio"
       "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
       "gamepad-test io.github.kisame76.minato.test.gamepad"
       "permission-request-test-fine io.github.kisame76.minato.test.permreqfine"
@@ -2035,6 +2037,39 @@ run_one network-request-test io.github.kisame76.minato.test.networkrequest
 run_one network-security-test io.github.kisame76.minato.test.networksecurity
 run_one network-security-config-test io.github.kisame76.minato.test.networksecurityconfig
 run_one wifi-state-test io.github.kisame76.minato.test.wifistate
+run_one net-io-test io.github.kisame76.minato.test.netio
+# Another device on the network (the networking gap): tools/lan-server.py on this Mac is the other device, for this app
+# only. On the iPhone it listens on the Mac's Wi-Fi address (the phone must be on the same network) and iOS asks the user
+# for the local network permission at the first connection; in the Simulator it is the loopback. The address goes to the
+# app through tmp/guest-environment and is never printed, logged or kept.
+if wanted lan-test; then
+  lan_host=127.0.0.1
+  if [[ "$ON_DEVICE" == yes ]]; then
+    lan_host=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+  fi
+  if [[ -z "$lan_host" ]]; then
+    fail "lan-test needs the Mac on Wi-Fi: no address to serve on"
+  else
+    python3 tools/lan-server.py --bind "$lan_host" --seconds 120 >/dev/null 2>&1 &
+    lan_server=$!
+    sleep 1
+    echo "MINATO_LAN_HOST=$lan_host" > "$WORK/guest-environment"
+    if [[ "$ON_DEVICE" == yes ]]; then
+      devicectl_copy to --source "$WORK/guest-environment" --destination "tmp/guest-environment"
+    else
+      cp "$WORK/guest-environment" "$CONTAINER/tmp/guest-environment"
+    fi
+    run_one lan-test io.github.kisame76.minato.test.lan
+    kill "$lan_server" 2>/dev/null || true
+    if [[ "$ON_DEVICE" == yes ]]; then
+      : > "$WORK/guest-environment"
+      devicectl_copy to --source "$WORK/guest-environment" --destination "tmp/guest-environment" || true
+    else
+      rm -f "$CONTAINER/tmp/guest-environment"
+    fi
+    rm -f "$WORK/guest-environment"
+  fi
+fi
 # The package installer for an app without install rights, and the exit reasons (the Unity test APK resolve list, batch E).
 run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 # android.media's DRM, codec list, retriever, extractor, image reader and TV input manager without the hardware.

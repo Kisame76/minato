@@ -1,0 +1,5 @@
+I/lan-test: tcp echo: ping
+I/lan-test: http get: 200 hello
+I/lan-test: udp echo: dgram
+I/lan-test: control ended with an exception: true
+I/lan-test: done

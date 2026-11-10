@@ -675,6 +675,7 @@ run_app() {
       | gms-absent-test \
       | batch-f-test \
       | net-io-test \
+      | lan-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \
       | install-session-test \
@@ -1464,6 +1465,13 @@ run_app() {
     device push "fixtures/apps/$app/files/known.txt" /sdcard/Download/ >/dev/null
     device push "fixtures/apps/$app/files/data.bin" /sdcard/Download/ >/dev/null
   fi
+  if [[ "$app" == lan-test ]]; then
+    # The Mac's tools/lan-server.py is the other device: it ends at the app's "bye" or after 90 s, and the emulator
+    # reaches the Mac as 10.0.2.2, which the app takes without MINATO_LAN_HOST.
+    python3 tools/lan-server.py --seconds 90 >/dev/null 2>&1 &
+    lan_server=$!
+    sleep 1
+  fi
   if [[ "$app" == services-test ]]; then
     # Gap 1's batch 2: the notification service keeps an uninstalled app's channels in its policy file when the
     # emulator stops before it writes the removal, and gives them back at the next install, which gets the same uid;
@@ -1749,6 +1757,11 @@ run_app() {
       $pick tap "~Add" 20 && wait_for "$app" done 60; } || picks=failed
     run rm -f /sdcard/Pictures/red.jpg /sdcard/Pictures/blue.jpg
     [[ "$picks" == ok ]] || return 1
+  fi
+  if [[ "$app" == lan-test ]]; then
+    # The server has done its part once the app says it is done; it ends at the app's "bye", this makes sure.
+    wait_for "$app" done 60 || true
+    kill "${lan_server:?}" 2>/dev/null || true
   fi
   if [[ "$app" == native-ime-test || "$app" == native-jni-ime-test ]]; then
     # ADR-0068 step 2e: KEYCODE_B and KEYCODE_DEL a second apart once the soft keyboard's part is done, as the host
