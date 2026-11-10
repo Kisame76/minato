@@ -800,6 +800,41 @@ std::optional<int> descriptor_entry(std::string_view path) {
     return fd;
 }
 
+std::optional<StatEntry> stat_entry(std::string_view path, bool follow) {
+    using Type = StatEntry::Type;
+    constexpr std::string_view proc = "/proc";
+    if (path != proc && !path.starts_with("/proc/")) return std::nullopt;  // the host answers non-/proc paths
+    const StatEntry regular{Type::regular, 0444, 1};
+    const StatEntry link_rwx{Type::symlink, 0777, 1};  // exe, cwd, root, and /proc/self by lstat
+    const StatEntry link_fd{Type::symlink, 0700, 1};   // /proc/<pid>/fd/<n>
+    const auto directory = [](std::uint32_t nlink) { return StatEntry{Type::directory, 0555, nlink}; };
+    // /proc: a directory. Its link count on Linux is the process count (per system, 376 on the AVD); the runtime
+    // shows one process, so a small structural count, which no caller reads and the fixture does not assert.
+    if (path == proc) return directory(3);
+    if (path == "/proc/cpuinfo" || path == "/proc/meminfo") return regular;
+    const auto entry = own_entry(path);  // the part under /proc/self/ or /proc/<pid>/, else nullopt
+    if (!entry) {
+        // /proc/self and /proc/<pid> themselves. /proc/self is a symlink to the pid unless followed; the process
+        // directory counts two plus its subdirectories (task, fd, fdinfo, map_files, ns, net, attr) on Linux 6.6.
+        if (path == "/proc/self") return follow ? directory(9) : link_rwx;
+        if (path == std::format("/proc/{}", ::getpid())) return directory(9);
+        return StatEntry{};  // another /proc path the runtime does not serve
+    }
+    if (*entry == "stat" || *entry == "maps" || *entry == "smaps" || *entry == "cmdline") return regular;
+    if (*entry == "task") {
+        long threads = 0;
+        apkrt::threads::for_each([&](apkrt::threads::GuestThread &) { ++threads; });
+        return directory(static_cast<std::uint32_t>(2 + std::max(threads, 1L)));  // two plus the guest's threads
+    }
+    if (*entry == "exe" || *entry == "cwd" || *entry == "root") return follow ? std::nullopt : std::optional(link_rwx);
+    if (entry->starts_with("fd/")) {
+        if (follow) return std::nullopt;  // the host resolves a descriptor link's target; lstat names it here
+        const auto fd = descriptor_entry(path);
+        return fd && descriptors::get(*fd) ? std::optional(link_fd) : std::optional(StatEntry{});
+    }
+    return StatEntry{};  // an entry under the process directory the runtime does not serve (status, environ, ...)
+}
+
 long sysinfo(std::uint64_t address) {
     // Linux's struct sysinfo on 64 bits, as do_sysinfo fills it: memory in bytes (mem_unit 1), as /proc/meminfo has
     // it, the loads in 1/65536 (SI_LOAD_SHIFT), the time since boot (CLOCK_BOOTTIME: Darwin's CLOCK_MONOTONIC counts

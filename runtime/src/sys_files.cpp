@@ -430,6 +430,23 @@ LinuxStat anonymous_inode() {
     return result;
 }
 
+/// The LinuxStat for a /proc entry proc::stat_entry named: its type and Android's permission bits and link
+/// count, owned as android_owner has /proc (the process). procfs regular files report size 0, as here.
+LinuxStat proc_stat(const proc::StatEntry &entry, std::string_view path) {
+    using Type = proc::StatEntry::Type;
+    LinuxStat result{};
+    const std::uint32_t type = entry.type == Type::directory ? S_IFDIR
+                             : entry.type == Type::symlink   ? S_IFLNK
+                                                             : S_IFREG;
+    result.mode = type | entry.mode;
+    result.nlink = entry.nlink;
+    result.blksize = 4096;
+    const Owner owner = android_owner(path);
+    result.uid = owner.uid;
+    result.gid = owner.gid;
+    return result;
+}
+
 }  // namespace
 
 long sys_fstat(int fd, std::uint64_t buffer) {
@@ -872,6 +889,15 @@ long sys_close(int fd) {
 }
 
 long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
+    // The /proc names the runtime serves and the directories /proc, /proc/self, /proc/self/task; a name under
+    // /proc it does not serve is ENOENT, as for open(). The process is the owner, so grant by the owner bits.
+    if (const auto absolute = guest_absolute(directory, path)) {
+        if (const auto entry = proc::stat_entry(*absolute, (flags & linux_at_symlink_nofollow) == 0)) {
+            if (entry->type == proc::StatEntry::Type::absent) return -linux_errno::enoent;
+            if ((mode & 07) == 0) return 0;  // F_OK: the name is there
+            return (mode & 07 & ~((entry->mode >> 6) & 07)) == 0 ? 0 : -linux_errno::eacces;
+        }
+    }
     const auto host = resolve(directory, path);
     if (host.error != 0) {
         // A virtual parent directory of the app's storage (e.g. /storage/emulated/0): without this exists() is false
@@ -910,7 +936,17 @@ long sys_newfstatat(int directory, std::uint64_t path, std::uint64_t buffer, int
     // Since Linux 6.11 the path may be NULL along with AT_EMPTY_PATH.
     const bool empty = path == 0 || *as_pointer<const char>(path) == '\0';
     if (empty && (flags & linux_at_empty_path)) return sys_fstat(directory, buffer);
-    const auto host = resolve(directory, path, (flags & linux_at_symlink_nofollow) == 0);
+    // The /proc names the runtime serves and the directories /proc, /proc/self, /proc/self/task, with
+    // Android's type, mode and link count; a name under /proc it does not serve is ENOENT, as for open().
+    const bool follow = (flags & linux_at_symlink_nofollow) == 0;
+    if (const auto absolute = guest_absolute(directory, path)) {
+        if (const auto entry = proc::stat_entry(*absolute, follow)) {
+            if (entry->type == proc::StatEntry::Type::absent) return -linux_errno::enoent;
+            *as_pointer<LinuxStat>(buffer) = proc_stat(*entry, *absolute);
+            return 0;
+        }
+    }
+    const auto host = resolve(directory, path, follow);
     if (host.error != 0) {
         // A parent directory of the app's storage mounts, such as /storage/emulated/0: no mount covers it, but the
         // guest sees it as a directory, as Android does, so stat, lstat and canonicalization (getCanonicalFile, hence

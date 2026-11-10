@@ -1,0 +1,14 @@
+/proc/cpuinfo: F_OK=ok R_OK=ok lstat=reg/0444/1 stat=reg/0444/1
+/proc/meminfo: F_OK=ok R_OK=ok lstat=reg/0444/1 stat=reg/0444/1
+/proc/self/stat: F_OK=ok R_OK=ok lstat=reg/0444/1 stat=reg/0444/1
+/proc/self/maps: F_OK=ok R_OK=ok lstat=reg/0444/1 stat=reg/0444/1
+/proc/self/smaps: F_OK=ok R_OK=ok lstat=reg/0444/1 stat=reg/0444/1
+/proc/self/cmdline: F_OK=ok R_OK=ok lstat=reg/0444/1 stat=reg/0444/1
+/proc: F_OK=ok R_OK=ok lstat=dir/0555 stat=dir/0555
+/proc/self: F_OK=ok R_OK=ok lstat=lnk/0777/1 stat=dir/0555/9
+/proc/self/task: F_OK=ok R_OK=ok lstat=dir/0555/3 stat=dir/0555/3
+/proc/self/exe: lstat=lnk/0777/1
+/proc/self/cwd: lstat=lnk/0777/1
+/proc/self/root: lstat=lnk/0777/1
+/proc/self/fd/7: lstat=lnk/0700/1
+/proc/self/not-a-real-entry: F_OK=ENOENT R_OK=ENOENT lstat=ENOENT stat=ENOENT

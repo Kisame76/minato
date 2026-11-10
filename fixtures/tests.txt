@@ -129,6 +129,8 @@ cacerts-test system
 sendfile-test system
 # The links exe, cwd and root of /proc/self (the Unity test APK probe: Unity and FMOD read exe and cwd).
 proc-links-test system
+# access() and stat()/lstat() on the /proc names the runtime serves and /proc, /proc/self, /proc/self/task.
+proc-access-test system
 # libandroid's sensor manager and an event queue without sensors (the Unity test APK probe: Unity's start).
 sensors-test system
 # The property area the runtime gives every program (ADR-0039 decisions 4 and 9): its values are ours, and the

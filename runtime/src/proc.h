@@ -74,6 +74,21 @@ std::optional<long> read_link(std::string_view path, char *buffer, std::size_t s
 /// nullopt for every other path.
 std::optional<int> descriptor_entry(std::string_view path);
 
+/// For access() and stat()/lstat(): what Android 15 shows for a path under /proc that the runtime serves (the
+/// names open() and read_link() serve) or one of the directories /proc, /proc/self and /proc/self/task -- its
+/// file type, permission bits and link count. `absent` marks a /proc path the runtime does not serve, which
+/// access and stat answer with ENOENT, so those names behave as they do for open(). `follow` is false for lstat
+/// and true for stat: /proc/self is a symlink by lstat and the process directory by stat. Nullopt for a path
+/// that is not under /proc, which the host file system answers; also for a followed symlink (exe, cwd, root,
+/// fd/<n>), whose target the host resolves and which only lstat names here.
+struct StatEntry {
+    enum class Type { absent, regular, directory, symlink };
+    Type type = Type::absent;
+    std::uint32_t mode = 0;  // the permission bits; the type bits come from `type`
+    std::uint32_t nlink = 1;
+};
+std::optional<StatEntry> stat_entry(std::string_view path, bool follow);
+
 /// sysinfo(2): Linux's struct sysinfo at `address`, with the memory /proc/meminfo shows. 0, or -EFAULT for NULL.
 long sysinfo(std::uint64_t address);
 

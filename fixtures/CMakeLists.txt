@@ -287,6 +287,8 @@ add_executable(cacerts-test suite/cacerts-test.c)
 add_executable(sendfile-test suite/sendfile-test.c)
 # proc-links-test: the links exe, cwd and root of /proc/self and /proc/<pid>.
 add_executable(proc-links-test suite/proc-links-test.c)
+# proc-access-test: access() and stat()/lstat() on the /proc names the runtime serves and the directories.
+add_executable(proc-access-test suite/proc-access-test.c)
 # sensors-test: libandroid's sensor manager and an event queue without sensors.
 add_executable(sensors-test suite/sensors-test.c)
 target_link_libraries(sensors-test PRIVATE android)
