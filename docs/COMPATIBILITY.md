@@ -155,7 +155,9 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   Bluetooth, subscription, Telecom, carrier configuration, NFC, MIDI, media projection and role managers, which answer
   as a phone without that hardware or those permissions does; some of Android 15's service types are still missing.
 - Networking: sockets, DNS, the INTERNET permission and the real network (Wi-Fi state, connectivity changes) are in;
-  a sitting on the iPhone has not confirmed all of it.
+  a sitting on the iPhone has not confirmed all of it. Known difference: a TCP option (no delay, keep alive, linger)
+  set on a socket after the app has shut down its own sending side does not stay, where Android keeps it; set before
+  the first write, as apps do, they work.
 - Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
   the app suspended or after it ends; a job the app keeps across restarts comes back at its next start.
 - Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's inset

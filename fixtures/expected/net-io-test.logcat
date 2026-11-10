@@ -1,0 +1,22 @@
+I/net-io-test: main thread connect: android.os.NetworkOnMainThreadException
+I/net-io-test: tcp connected: true loopback true local loopback true
+I/net-io-test: tcp options: no delay true, keep alive true, linger 3, buffers positive true
+I/net-io-test: tcp reply: pong
+I/net-io-test: tcp server heard: ping, then -1
+I/net-io-test: tcp output shut: true
+I/net-io-test: tcp read after the server closed: -1
+I/net-io-test: tcp refused: java.net.ConnectException
+I/net-io-test: udp received: dgram from loopback true
+I/net-io-test: udp second receive: java.net.SocketTimeoutException
+I/net-io-test: dns localhost: loopback true, all true
+I/net-io-test: dns literal v4: 192.0.2.7
+I/net-io-test: dns literal v6: 2001:db8::1
+I/net-io-test: dns loopback v4: true
+I/net-io-test: dns local host name not empty: true
+I/net-io-test: dns invalid: java.net.UnknownHostException
+I/net-io-test: http get: 200 OK, X-Test yes, type text/plain, length 5, body hello
+I/net-io-test: http post: 200, body echo:name=x
+I/net-io-test: http missing: 404 Not Found
+I/net-io-test: http missing input stream: java.io.FileNotFoundException
+I/net-io-test: http missing error stream: gone
+I/net-io-test: done

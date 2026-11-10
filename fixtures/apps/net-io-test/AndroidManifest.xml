@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of what an app does with sockets and plain HTTP on the device itself (its network security config permits clear text to 127.0.0.1) (net-io-test; the compatibility
+     plan's networking gap): TCP and UDP over the loopback, name lookups that need no server, and HttpURLConnection
+     against a server of the app's own. Nothing leaves the device, so the log is the same on any network. The launcher
+     activity is the framework's own android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.netio" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <application android:label="net-io-test" android:networkSecurityConfig="@xml/network_security_config"
+      android:name="io.github.kisame76.minato.test.netio.NetIoApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

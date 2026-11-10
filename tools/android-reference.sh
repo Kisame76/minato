@@ -674,6 +674,7 @@ run_app() {
       | location-manager-test \
       | gms-absent-test \
       | batch-f-test \
+      | net-io-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \
       | install-session-test \

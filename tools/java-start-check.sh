@@ -182,6 +182,11 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "webview-test io.github.kisame76.minato.test.webview"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "storage-space-test io.github.kisame76.minato.test.storagespace"
+      "network-test io.github.kisame76.minato.test.network"
+      "network-request-test io.github.kisame76.minato.test.networkrequest"
+      "network-security-test io.github.kisame76.minato.test.networksecurity"
+      "network-security-config-test io.github.kisame76.minato.test.networksecurityconfig"
+      "wifi-state-test io.github.kisame76.minato.test.wifistate"
       "orientation-request-test io.github.kisame76.minato.test.orientationrequest"
       "gamepad-test io.github.kisame76.minato.test.gamepad"
       "permission-request-test-fine io.github.kisame76.minato.test.permreqfine"
@@ -2021,6 +2026,15 @@ run_one sqlite-test io.github.kisame76.minato.test.sqlite
 # Time zones (the compatibility plan's gap 21): the tzdata module's files, and libcore's, java.time's and ICU's zones;
 # the device's zone is only shown.
 run_one timezone-test io.github.kisame76.minato.test.timezone
+# The network the host reports (ADR-0054 step d): the Mac's or the iPhone's path, Wi-Fi up and mobile data off as on
+# apk-runner-35 with its mobile data off (fixtures/expected/<app>.logcat, the Mac's tools/network-check.sh and the others
+# of its kind); the device must be online over Wi-Fi (or Ethernet on the Mac). cellular-network-test plays a cellular
+# path and stays with the Mac's check.
+run_one network-test io.github.kisame76.minato.test.network
+run_one network-request-test io.github.kisame76.minato.test.networkrequest
+run_one network-security-test io.github.kisame76.minato.test.networksecurity
+run_one network-security-config-test io.github.kisame76.minato.test.networksecurityconfig
+run_one wifi-state-test io.github.kisame76.minato.test.wifistate
 # The package installer for an app without install rights, and the exit reasons (the Unity test APK resolve list, batch E).
 run_one package-installer-test io.github.kisame76.minato.test.packageinstaller
 # android.media's DRM, codec list, retriever, extractor, image reader and TV input manager without the hardware.
