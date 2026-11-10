@@ -60,6 +60,13 @@ public enum FramePacing {
         limit > 0 ? min(screenMaximum, max(limit, unlock)) : screenMaximum
     }
 
+    /// The rate graphics/host holds an app's presents to (ADR-0078 decision 4, minato_graphics_set_frame_rate_limit),
+    /// for apps that present without pacing: the limit, 0 for none, or none where the unlock is at or above it
+    /// (decision 2).
+    public static func presentLimit(limit: Float, unlock: Float) -> Int {
+        limit > 0 && unlock < limit ? Int(limit) : 0
+    }
+
     /// The steps Settings offers: those the screen shows (UIScreen.maximumFramesPerSecond), at least 30.
     public static func limitSteps(screenMaximum: Int) -> [Int] {
         let shown = limits.filter { $0 <= screenMaximum }

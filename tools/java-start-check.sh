@@ -1809,8 +1809,9 @@ fi
 # The global frame rate limit (Settings > Apps > Frame Rate Limit: 120, 60 or 30 fps, the screen's highest by
 # default). Start 1 with 30, which the request frame-rate-limit stores as the user's pick at each launch: game mode
 # logs the limit and the display rate the guest gets, the frame clock ticks 33.3 ms apart, and vsync-test's display
-# mode is at 30 Hz with its frame callbacks about 33 ms apart. Start 2 with 0 (none): the screen's highest again, so
-# the stored choice is none after the round.
+# mode is at 30 Hz with its frame callbacks about 33 ms apart; graphics/host holds presents to the limit too, for apps
+# that present without pacing (ADR-0078 decision 4: "present limit 30 result 0"). Start 2 with 0 (none): the screen's
+# highest again and no present limit, so the stored choice is none after the round.
 if wanted vsync-test; then
   for start in 1 2; do
     limit=30
@@ -1828,6 +1829,13 @@ if wanted vsync-test; then
           ok "  limit $limit: the guest's display rate is $rate (the screen's highest $screen)"
         else
           failed_line "limit $limit: \"$line\", not \"$limit unlock 0 display $rate screen $screen\"" \
+            "vsync-test-$start"
+        fi
+        present=$(grep -o -E "present limit -?[0-9]+ result -?[0-9]+" "$EVENTS" | tail -n 1 || true)
+        if [[ "$present" == "present limit $limit result 0" ]]; then
+          ok "  limit $limit: graphics/host holds presents to $limit (0 = none)"
+        else
+          failed_line "limit $limit: \"${present:-no present limit line}\", not \"present limit $limit result 0\"" \
             "vsync-test-$start"
         fi
         want=$(awk -v r="$rate" 'BEGIN { printf "%.2f", 1000 / r }')

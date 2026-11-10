@@ -465,6 +465,12 @@ final class GameSession {
         }
         frameClock?.setUnlock(Float(start.frameRateUnlock))
         frameClock?.setLimit(Float(frameRateLimit))
+        // Apps that present without pacing are held to the limit at their presents (ADR-0078 decision 4).
+        let presentLimit = FramePacing.presentLimit(limit: Float(frameRateLimit), unlock: Float(start.frameRateUnlock))
+        let presentLimitSet = minato_graphics_set_frame_rate_limit(Int32(presentLimit))
+        #if DEBUG
+        SessionCheck.event("present limit \(presentLimit) result \(presentLimitSet)")
+        #endif
         #if DEBUG
         SessionCheck.guestStarts()
         #endif

@@ -109,4 +109,16 @@ struct FramePacingTests {
         #expect(FramePacing.limit(stored: 45, screenMaximum: 120) == 0)
         #expect(FramePacing.limit(stored: -1, screenMaximum: 120) == 0)
     }
+
+    /// The limit graphics/host holds presents to, for apps that present without pacing (ADR-0078 decision 4): the
+    /// global limit, or none where the app's FPS unlock is at or above it (decision 2).
+    @Test func thePresentLimitIsTheLimitUnlessTheUnlockWins() {
+        #expect(FramePacing.presentLimit(limit: 30, unlock: 0) == 30)
+        #expect(FramePacing.presentLimit(limit: 60, unlock: 0) == 60)
+        #expect(FramePacing.presentLimit(limit: 0, unlock: 0) == 0)
+        #expect(FramePacing.presentLimit(limit: 0, unlock: 120) == 0)
+        #expect(FramePacing.presentLimit(limit: 30, unlock: 20) == 30)
+        #expect(FramePacing.presentLimit(limit: 30, unlock: 30) == 0)
+        #expect(FramePacing.presentLimit(limit: 60, unlock: 120) == 0)
+    }
 }
