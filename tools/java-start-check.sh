@@ -664,7 +664,7 @@ begin_start() {
   # The game mode process truncates the guest log's files when it takes the request.
   if ! await_event "process gameMode $package.*" 60 || ! await_event "guest log on" 60; then
     fail "  no game mode after the tap"
-    sed 's/^/      | /' "$EVENTS"
+    sed 's/^/      | /' "$EVENTS" 2>/dev/null || true
     screenshot "$app-$round"
     return 1
   fi
@@ -680,7 +680,7 @@ end_start() {
 failed_line() {
   fail "  $1"
   screenshot "$2"
-  sed 's/^/      | /' "$EVENTS"
+  sed 's/^/      | /' "$EVENTS" 2>/dev/null || true
   tail -n 40 "$CHECK/guest-log" 2>/dev/null | sed 's/^/      | /' || true
 }
 # The keyboard bar's views on screen in Minato's windows (SessionCheck's keyboard-views), asked for $1 seconds from
@@ -790,7 +790,7 @@ run_media_bench() {
     fi
   fi
   end_start media-bench-test 1
-  grep -E "^I/media-bench-test: " "$WORK/media-bench-test-1.log" | sed 's/^/note  /'
+  grep -E "^I/media-bench-test: " "$WORK/media-bench-test-1.log" | sed 's/^/note  /' || true
   if grep -q -E "^I/media-bench-test: (failed|.*no codec)" "$WORK/media-bench-test-1.log" ||
      grep -q -E "^I/media-bench-test: background .*images in the last 3 s no" "$WORK/media-bench-test-1.log"; then
     failures=$((failures + 1))
@@ -1122,7 +1122,7 @@ pixels_checkpoint() {
   else
     fail "  $name: the screen differs from the windows' buffers"
   fi
-  sed 's/^/      | /' "$dir/compare.txt"
+  sed 's/^/      | /' "$dir/compare.txt" 2>/dev/null || true
 }
 # Home and the return: back once the menu's Continue came, which starts the app again as Android does.
 pixels_return() {
@@ -1504,7 +1504,7 @@ uitest() {
     grep -o "MINATO-UITEST .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
     return 0
   fi
-  grep -E "error: |XCTAssert|Failing tests" "$WORK/uitest-$1-$2.log" | head -n 3 | sed 's/^/      | /'
+  grep -E "error: |XCTAssert|Failing tests" "$WORK/uitest-$1-$2.log" | head -n 3 | sed 's/^/      | /' || true
   return 1
 }
 
@@ -1530,8 +1530,11 @@ if [[ "$ON_DEVICE" == no ]] && wanted permission-request-test-notifications; the
   fi
   fetch_events
   # The app asks the host once: its second request finds POST_NOTIFICATIONS granted, as on Android.
-  answers=$(grep -c -E " permission [0-9]+ group 4 outcome 1$" "$EVENTS" || true)
-  if [[ "$answers" == 1 ]]; then
+  answers=$(grep -c -E " permission [0-9]+ group 4 outcome 1$" "$EVENTS" 2>/dev/null || true)
+  if [[ ! -f "$EVENTS" ]]; then
+    # Minato's session-check folder went during the round: another check on this Simulator, or Minato reinstalled.
+    fail "  no events from Minato (another check on this Simulator?)"
+  elif [[ "$answers" == 1 ]]; then
     ok "  the host granted the notifications request"
   else
     fail "  the host granted $answers notifications requests, not 1"
@@ -1569,6 +1572,7 @@ fi
 # or "none": a restart that iOS answers while it still brings Minato to the front starts no process (measured on the
 # iPhone), so game mode must be active within seconds of it.
 active_after_restart() {
+  [[ -f "$EVENTS" ]] || { echo none; return 0; }
   awk '$3 == "restart" && ($4 == "workspace" || $4 == "ownURL") { at = $1 }
     $3 == "process" && $4 == "gameMode" { game = $2 }
     game != "" && $2 == game && $3 == "scene" && $4 == "didActivate" && !done { printf "%.1f\n", $1 - at; done = 1 }
@@ -1593,8 +1597,8 @@ save_response() {
 tap_precondition() {
   grep -E " (notification (tap|cold tap|foreground tap|launch)|restart|exit|process|launched|scene) " "$EVENTS" |
     sed 's/^/      ev /' || true
-  local verdict
-  verdict=$(awk '$3 == "notification" && $4 == "tap" && $5 == "state" { tap = $6; tapper = $2 }
+  local verdict="not met: no events"
+  [[ ! -f "$EVENTS" ]] || verdict=$(awk '$3 == "notification" && $4 == "tap" && $5 == "state" { tap = $6; tapper = $2 }
     tap != "" && !seen && $3 == "restart" && $4 == "waits" { verdict = "met: tap at " tap ", restart waited"; seen = 1 }
     tap != "" && !seen && $3 == "restart" && $4 == "state" {
       verdict = ($5 == "active" ? "not met" : "met") ": tap at " tap ", restart at " $5; seen = 1 }
@@ -1605,8 +1609,14 @@ tap_precondition() {
     END { if (tap == "") print "not met: no tap"; else if (seen) print verdict; else if (way != "") print way
       else print "not met: no restart" }' \
     "$EVENTS")
-  if [[ "$verdict" == met:* && "$verdict" != *"tap at active"* ]]; then ok "  $1: precondition $verdict"; else
-    fail "  $1: precondition $verdict (the round does not stand for the user's tap)"; fi
+  if [[ "$verdict" == met:* && "$verdict" != *"tap at active"* ]]; then
+    ok "  $1: precondition $verdict"
+  elif [[ "$ON_DEVICE" == yes ]]; then
+    fail "  $1: precondition $verdict (the round does not stand for the user's tap)"
+  else
+    # The Simulator restarts too fast for the old bug's state: a note there, the iPhone's round decides.
+    echo "note      $1: precondition $verdict (in the Simulator; the iPhone's round stands for the user's tap)"
+  fi
 }
 game_mode_came() {
   local seconds
@@ -1652,18 +1662,19 @@ if wanted notify-tap-test; then
   fi
   end_start notify-tap-test 1
   fetch_events
-  posts=$(grep -c -E " notification posted tap\|3 " "$EVENTS" || true)
+  posts=$(grep -c -E " notification posted tap\|3 " "$EVENTS" 2>/dev/null || true)
   if [[ "$posts" == 1 ]]; then ok "  the host got the post of the Application's onCreate"; else
-    fail "  the host got $posts posts of the Application's onCreate, not 1"; fi
-  on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" || true)
+    fail "  the host got ${posts:-0} posts of the Application's onCreate, not 1"; fi
+  on_main=$(grep -c -E " notification response completed on the main thread true$" "$EVENTS" 2>/dev/null || true)
   if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the tap's response on the main thread"; else
-    fail "  the delegate completed the tap's response on the main thread $on_main times, not once"; fi
-  grep -E "^I/notify-tap-test: " "$WORK/notify-tap-test-1.log" | head -n 5 > "$WORK/notify-tap-test-head.log"
+    fail "  the delegate completed the tap's response on the main thread ${on_main:-0} times, not once"; fi
+  # A start that failed has no lines: the comparison fails, the check goes on.
+  grep -E "^I/notify-tap-test: " "$WORK/notify-tap-test-1.log" | head -n 5 > "$WORK/notify-tap-test-head.log" || true
   if cmp -s "$WORK/notify-tap-test-head.log" fixtures/expected/notify-tap-test.logcat; then
     ok "  notify-tap-test's first 5 lines are Android 15's"
   else
     fail "  notify-tap-test's first lines differ from Android 15's"
-    diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /'
+    diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /' || true
   fi
 fi
 
@@ -1868,7 +1879,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
     runner=$(ls -d "$UITESTS"/Build/Products/Debug-iphoneos/MinatoUITests-Runner.app 2>/dev/null)
     if ! on_device install app --device "$DEVICE_ID" "$runner" > "$WORK/uitests-install.log" 2>&1; then
       fail "  the UI test runner was not installed (the free team's limit of 3 apps on a device?):"
-      grep -i -m 3 "error\|limit\|maximum" "$WORK/uitests-install.log" | sed 's/^/      | /'
+      grep -i -m 3 "error\|limit\|maximum" "$WORK/uitests-install.log" | sed 's/^/      | /' || true
       real_ready=no
     fi
   fi
@@ -1992,7 +2003,7 @@ run_one strictmode-test io.github.kisame76.minato.test.strictmode
 if wanted activity-flow-test; then
   run_one activity-flow-test io.github.kisame76.minato.test.activityflow
   fetch_events
-  opacity=$(sed -n -E 's/^[0-9.]+ [0-9]+ layer opaque ([01])$/\1/p' "$EVENTS" | tr -d '\n')
+  opacity=$(sed -n -E 's/^[0-9.]+ [0-9]+ layer opaque ([01])$/\1/p' "$EVENTS" 2>/dev/null | tr -d '\n' || true)
   if [[ "$opacity" == 10101 ]]; then
     ok "  the layer: opaque, not under Second's and Third's windows, opaque again under Main's after each"
   else
@@ -2446,7 +2457,7 @@ if wanted native-jni-ime-test; then
     await_line guest-log '^I/native-jni-ime-test: showSoftInput\(decorView, SHOW_FORCED\) again: ' 60 || true
   fi
   end_start native-jni-ime-test 1
-  got=$(grep '^I/native-jni-ime-test: ' "$WORK/native-jni-ime-test-1.log" | sed -n '2,13p')
+  got=$(grep '^I/native-jni-ime-test: ' "$WORK/native-jni-ime-test-1.log" | sed -n '2,13p' || true)
   if [[ "$got" == "$(sed -n '2,13p' fixtures/expected/native-jni-ime-test.logcat)" ]]; then
     ok "  native-jni-ime-test's JNI answers are Android 15's, 12 lines"
   else
@@ -2755,7 +2766,7 @@ if wanted renpy-splash-test && listed renpy-splash-test; then
   cp "$seen_log" "$WORK/renpy-splash-test-1.log"
   if grep -q "Could not set video mode\|Could not fetch native window" "$seen_log"; then
     fail "  renpy-splash-test: SDL had no window at Interface start"
-    grep -E "native window|video mode|Interface start" "$seen_log" | head -n 5 | sed 's/^/      | /'
+    grep -E "native window|video mode|Interface start" "$seen_log" | head -n 5 | sed 's/^/      | /' || true
   elif grep -q "Interface start took" "$seen_log"; then
     ok "  renpy-splash-test: set_mode got its window ($(grep -m1 'Interface start took' "$seen_log" | sed 's/.*took //'))"
   else
