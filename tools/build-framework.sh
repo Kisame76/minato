@@ -256,6 +256,11 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.view.translation.TranslationCapability \
   --class android.media.RemoteControlClient \
   --class android.media.RemoteController \
+  --class android.telephony.ims.ImsManager --class android.telephony.ims.ImsMmTelManager \
+  --class android.telephony.ims.ImsRcsManager --class android.telephony.ims.ProvisioningManager \
+  --class android.telephony.ims.RcsUceAdapter --class android.telephony.ims.ImsStateCallback \
+  --class android.telephony.ims.RegistrationManager --class android.telephony.ims.feature.MmTelFeature \
+  --class android.telephony.ims.ImsRegistrationAttributes --class android.telephony.ims.SipDetails \
   --class android.os.PerformanceHintManager --class android.os.health.SystemHealthManager \
   --class android.os.HardwarePropertiesManager --class android.app.StatusBarManager \
   --class android.service.notification.ZenDeviceEffects \
@@ -307,6 +312,11 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.drm.DrmStore --class android.drm.DrmSupportInfo --class android.drm.DrmUtils \
   --class android.drm.ProcessedData \
   --api "$SOURCES/wifi_api/framework/api/current.txt" --class android.net.wifi.WifiManager \
+  --class android.net.wifi.p2p.WifiP2pManager --class android.net.wifi.p2p.WifiP2pConfig \
+  --class android.net.wifi.p2p.WifiP2pDevice --class android.net.wifi.p2p.WifiP2pDeviceList \
+  --class android.net.wifi.p2p.WifiP2pDiscoveryConfig --class android.net.wifi.p2p.WifiP2pGroup \
+  --class android.net.wifi.p2p.WifiP2pInfo --class android.net.wifi.p2p.WifiP2pWfdInfo \
+  --class android.net.wifi.p2p.nsd.WifiP2pServiceInfo --class android.net.wifi.p2p.nsd.WifiP2pServiceRequest \
   --class android.net.wifi.ScanResult \
   --api "$SOURCES/connectivity_api/framework/api/current.txt" --class android.net.ConnectivityManager \
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
@@ -317,6 +327,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.net.IpSecTransform --class android.net.IpSecAlgorithm \
   --class android.net.IpSecTransformState \
   --class android.app.usage.NetworkStatsManager --class android.app.usage.NetworkStats \
+  --class android.net.nsd.NsdManager --class android.net.nsd.DiscoveryRequest \
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
   --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \

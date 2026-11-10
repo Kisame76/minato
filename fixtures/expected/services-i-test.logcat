@@ -1,0 +1,12 @@
+I/services-i-test: nsd manager: true
+I/services-i-test: nsd discovery events: [started _minatotest._tcp]
+I/services-i-test: nsd stop events: [stopped _minatotest._tcp]
+I/services-i-test: nsd registration events: []
+I/services-i-test: nsd unregistration events: [unregistered]
+I/services-i-test: wifi p2p manager: true
+I/services-i-test: wifi p2p channel: true
+I/services-i-test: wifi p2p discover peers: [failure 0]
+I/services-i-test: ims manager: true
+I/services-i-test: ims mmtel manager: true
+I/services-i-test: ims rcs manager: true
+I/services-i-test: done

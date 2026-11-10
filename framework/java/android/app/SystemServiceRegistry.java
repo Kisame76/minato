@@ -153,6 +153,20 @@ final class SystemServiceRegistry {
                 ctx -> new android.app.StatusBarManager(ctx.getOuterContext()));
         cached(Context.TEXT_SERVICES_MANAGER_SERVICE, android.view.textservice.TextServicesManager.class,
                 ctx -> new android.view.textservice.TextServicesManager());
+        // Services bundle C, part 2 (service-inventory): local network, Wi-Fi Direct and IMS, as a phone without the
+        // hardware.
+        cached(Context.NSD_SERVICE, android.net.nsd.NsdManager.class, ctx -> {
+            if (ctx.checkSelfPermission(android.Manifest.permission.INTERNET)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                throw new SecurityException("Neither user " + android.os.Process.myUid()
+                        + " nor current process has android.permission.INTERNET.");
+            }
+            return new android.net.nsd.NsdManager(ctx.getOuterContext());
+        });
+        cached(Context.WIFI_P2P_SERVICE, android.net.wifi.p2p.WifiP2pManager.class,
+                ctx -> new android.net.wifi.p2p.WifiP2pManager());
+        cached(Context.TELEPHONY_IMS_SERVICE, android.telephony.ims.ImsManager.class,
+                ctx -> new android.telephony.ims.ImsManager(ctx.getOuterContext()));
         // The process's manager, without an input method (ADR-0043 step d)), as the tag's forContext.
         register(Context.INPUT_METHOD_SERVICE, InputMethodManager.class, false,
                 ctx -> InputMethodManager.forContext(ctx.getOuterContext()));

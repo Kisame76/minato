@@ -156,6 +156,9 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   as a phone without that hardware or those permissions does; some of Android 15's service types are still missing.
   The text services manager is there and says no spell checker is enabled: a spell checker session is never opened,
   where Android hands one out.
+  The service discovery manager reports a discovery as started and finds nothing, and advertises nothing, as Minato has
+  no multicast; Wi-Fi Direct answers every action with an error; the IMS managers are there and answer as a phone
+  without IMS does.
 - Networking: sockets, DNS, the INTERNET permission and the real network (Wi-Fi state, connectivity changes) are in;
   a sitting on the iPhone has not confirmed all of it.
 - Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
