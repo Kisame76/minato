@@ -1137,7 +1137,19 @@ struct Preloaded {
     std::vector<Library *> added;
 };
 
+/// Whether the program links libc, as every normal Android process does. A libc-less program (the raw dynamic M2
+/// fixtures) is not one linker64 would inject an LD_PRELOAD library into usefully: a switch library needs libc, and
+/// only the program's own libc is in a library's lookup scope (lookup_scope), not one a preload pulls in, so the
+/// preload's libc imports (__cxa_finalize) would not resolve and the program would not link.
+bool program_links_libc(Library &program) {
+    for (auto *library : local_group(program)) {
+        if (library->object.name == "libc.so") return true;
+    }
+    return false;
+}
+
 std::optional<Preloaded> preload_optional(State &state, Library &program, bool &missed, std::string_view name) {
+    if (!program_links_libc(program)) return std::nullopt;  // no libc in scope for the preload's own imports
     auto located = locate(state, *program.ns, name, &program, true, missed);
     if (located.loaded != nullptr || !located.found) return std::nullopt;
     auto &library = load_library(state, name, std::move(*located.found), *located.space);

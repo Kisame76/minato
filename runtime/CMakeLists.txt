@@ -373,6 +373,21 @@ if(APK_HOST_BUILD)
       -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
   set_tests_properties(runtime.boringssl PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
+  # A libc-less program must not get an LD_PRELOAD switch library injected (dl.cpp preload_optional). The raw dynamic
+  # fixture raw-dyn with libminato-luajit.so in the system's libraries, as on the device: without the libc guard the
+  # switch library's libc import (__cxa_finalize) has nothing in scope (lookup_scope) and linker64 fails with CANNOT
+  # LINK; with the guard the preload is skipped and raw-dyn prints its line. Needs the bionic build and the fixtures.
+  set(switch_preload_libraries libminato-luajit libc libdl ld-android)
+  list(TRANSFORM switch_preload_libraries REPLACE "(.+)" "${APK_BIONIC_DIR}/\\1.so")
+  add_test(NAME runtime.raw_dyn_no_switch_preload
+    COMMAND ${CMAKE_COMMAND} -D CONVERT=$<TARGET_FILE:apk-convert> -D RUN=$<TARGET_FILE:apk-run>
+      -D FIXTURE=${APK_FIXTURES_DIR}/raw-dyn "-D LIBRARIES=${APK_FIXTURES_DIR}/libraw-dyn.so"
+      "-D SYSTEM_LIBRARIES=${switch_preload_libraries}" -D TEST=raw-dyn-no-switch-preload
+      -D WORK=${CMAKE_CURRENT_BINARY_DIR}/raw_dyn_switch_runs -D SYSTEM=${APK_GUEST_SYSTEM_DIR}
+      -D EXPECTED_OUTPUT=${PROJECT_SOURCE_DIR}/fixtures/expected/raw-dyn.out
+      -P ${PROJECT_SOURCE_DIR}/tools/run-fixture.cmake)
+  set_tests_properties(runtime.raw_dyn_no_switch_preload PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
+
   # The guest builds plan their trees when CMake configures them (tools/bionic-plan.py, tools/art-plan.py,
   # tools/hwui-plan.py): a change to the planner or a module it imports, or a file that comes into the overlay folder
   # or leaves it, configures them again. Skipped while no build is configured and up to date.
