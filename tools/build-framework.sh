@@ -256,6 +256,8 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.view.translation.TranslationCapability \
   --class android.media.RemoteControlClient \
   --class android.media.RemoteController \
+  --class android.os.PerformanceHintManager --class android.os.health.SystemHealthManager \
+  --class android.os.HardwarePropertiesManager --class android.app.StatusBarManager \
   --class android.service.notification.ZenDeviceEffects \
   --class android.telephony.CellLocation \
   --class android.view.inputmethod.ConnectionlessHandwritingCallback \
@@ -289,6 +291,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.net.Network --class android.net.NetworkCapabilities --class android.net.NetworkInfo \
   --class android.net.NetworkRequest --class android.net.LinkProperties \
   --api "$SOURCES/connectivity_t_api/framework-t/api/current.txt" --class android.net.TrafficStats \
+  --class android.app.usage.NetworkStatsManager \
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
   --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \

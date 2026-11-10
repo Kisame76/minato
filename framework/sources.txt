@@ -2335,6 +2335,7 @@ frameworks_base/core/java/android/app/WallpaperInfo.java
 frameworks_base/core/java/android/inputmethodservice/Keyboard.java
 frameworks_base/core/java/android/os/health/HealthKeys.java
 frameworks_base/core/java/android/os/health/HealthStats.java
+frameworks_base/core/java/android/os/health/HealthStatsWriter.java
 frameworks_base/core/java/android/os/health/PackageHealthStats.java
 frameworks_base/core/java/android/os/health/PidHealthStats.java
 frameworks_base/core/java/android/os/health/ProcessHealthStats.java

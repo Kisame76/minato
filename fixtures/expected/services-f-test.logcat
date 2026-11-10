@@ -1,0 +1,14 @@
+I/services-f-test: performance hint manager: true
+I/services-f-test: performance hint preferred rate: positive
+I/services-f-test: performance hint session: true
+I/services-f-test: performance hint session used and closed
+I/services-f-test: system health manager: true
+I/services-f-test: system health my snapshot: true, uid snapshot data type UidHealthStats
+I/services-f-test: hardware properties manager: true
+I/services-f-test: hardware properties cpu usages: java.lang.SecurityException
+I/services-f-test: hardware properties temperatures: java.lang.SecurityException
+I/services-f-test: network stats manager: true
+I/services-f-test: network stats summary: java.lang.SecurityException
+I/services-f-test: status bar manager: true
+I/services-f-test: text services manager: true
+I/services-f-test: done

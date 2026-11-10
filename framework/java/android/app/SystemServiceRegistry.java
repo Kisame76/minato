@@ -137,6 +137,19 @@ final class SystemServiceRegistry {
         cached(Context.STORAGE_STATS_SERVICE, StorageStatsManager.class,
                 ctx -> new StorageStatsManager((Context) (Object) ctx));
         cached(Context.APP_OPS_SERVICE, AppOpsManager.class, ctx -> new AppOpsManager((Context) (Object) ctx));
+        // Services bundle A (service-inventory): the answers of a phone without the hardware or the permissions.
+        cached(Context.PERFORMANCE_HINT_SERVICE, android.os.PerformanceHintManager.class,
+                ctx -> new android.os.PerformanceHintManager());
+        cached(Context.SYSTEM_HEALTH_SERVICE, android.os.health.SystemHealthManager.class,
+                ctx -> new android.os.health.SystemHealthManager());
+        cached(Context.HARDWARE_PROPERTIES_SERVICE, android.os.HardwarePropertiesManager.class,
+                ctx -> new android.os.HardwarePropertiesManager(ctx.getOuterContext()));
+        cached(Context.NETWORK_STATS_SERVICE, android.app.usage.NetworkStatsManager.class,
+                ctx -> new android.app.usage.NetworkStatsManager(ctx.getOuterContext()));
+        cached(Context.STATUS_BAR_SERVICE, android.app.StatusBarManager.class,
+                ctx -> new android.app.StatusBarManager(ctx.getOuterContext()));
+        cached(Context.TEXT_SERVICES_MANAGER_SERVICE, android.view.textservice.TextServicesManager.class,
+                ctx -> new android.view.textservice.TextServicesManager());
         // The process's manager, without an input method (ADR-0043 step d)), as the tag's forContext.
         register(Context.INPUT_METHOD_SERVICE, InputMethodManager.class, false,
                 ctx -> InputMethodManager.forContext(ctx.getOuterContext()));

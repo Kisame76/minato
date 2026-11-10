@@ -247,7 +247,7 @@ fi
 # absent (ADR-0045 decision 4); the microphone stays.
 if [[ -n "$features" || "$app" == package-manager-test || "$app" == package-manager-legacy-test \
     || "$app" == services-test || "$app" == input-service-test || "$app" == webview-camera-test \
-    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test || "$app" == jobs-alarms-run-test || "$app" == job-constraints-test ]]; then
+    || "$app" == services-b-test || "$app" == services-c-test || "$app" == bluetooth-gatt-test || "$app" == services-e-test || "$app" == activity-options-test || "$app" == services-f-test || "$app" == batch-g-test || "$app" == media-browser-test || "$app" == biometric-test || "$app" == jobs-alarms-run-test || "$app" == job-constraints-test ]]; then
   AVD=apk-runner-35-bare
   avd_display=""
   for key in hw.gsmModem hw.gps hw.accelerometer hw.accelerometer_uncalibrated hw.gyroscope hw.sensors.light \
@@ -674,6 +674,7 @@ run_app() {
       | location-manager-test \
       | gms-absent-test \
       | batch-f-test \
+      | services-f-test \
       | net-io-test \
       | lan-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
