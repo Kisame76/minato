@@ -1004,6 +1004,12 @@ run_app() {
     result-chain-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ActivityA
       ;;
+    # install-reason-test: an app hands the installer APKs that cannot be installed over it (not an APK, another key,
+    # an older version); the launcher is ReasonActivity and the log ends with "done".
+    install-reason-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done limit=300 \
+        activity_class=.ReasonActivity
+      ;;
     # uninstall-test, uninstall-noperm-test: an app asks to uninstall an absent app (with and without
     # REQUEST_DELETE_PACKAGES); the launcher is UninstallActivity and the log ends with "done".
     uninstall-test|uninstall-noperm-test)
@@ -1531,6 +1537,10 @@ run_app() {
     run dumpsys battery set ac 1 >/dev/null && run dumpsys battery set status 2 >/dev/null &&
       run dumpsys battery set level 100 >/dev/null || return 1
   fi
+  if [[ "$app" == install-reason-test ]]; then
+    # The app may install apps (the user's "Install unknown apps" switch for it).
+    run appops set "$package" REQUEST_INSTALL_PACKAGES allow >/dev/null || return 1
+  fi
   run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   if [[ "$app" == enter-test-15 || "$app" == webview-bridge-test-16 ]]; then
     # Android 15 asks to review the permissions of a fresh app of target SDK below 23 (ReviewPermissionsActivity),
@@ -1671,6 +1681,34 @@ run_app() {
       edge_swipe 6 $((h / 2 + 150)) 120 $((h - 300)) 300 || return 1
       sleep 1.5 && run input tap $((w / 2)) $((h / 2)) || return 1
     fi
+  fi
+  if [[ "$app" == install-reason-test ]]; then
+    # Every dialog of the installer, whatever its question (install or update, then why not), is answered with its
+    # first button (OK, Update, Install), as a user who goes on; only the last of the four APKs can be installed. What each
+    # dialog said is kept in $RESULTS/$app-ui.txt.
+    local round bounds
+    : > "$RESULTS/$app-ui.txt"
+    for round in $(seq 1 70); do
+      sleep 4
+      ! run logcat -d -s "$app:I" | grep -q ': done' || break
+      run uiautomator dump /sdcard/u.xml >/dev/null 2>&1 || true
+      run cat /sdcard/u.xml > "$RESULTS/$app-ui.xml" 2>/dev/null || true
+      bounds=$(python3 - "$RESULTS/$app-ui.xml" "$RESULTS/$app-ui.txt" "$round" <<'PY'
+import re, sys
+s = open(sys.argv[1]).read()
+texts = re.findall(r'text="([^"]+)"', s)
+buttons = re.findall(r'resource-id="android:id/button1"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s)
+if "packageinstaller" in s and buttons:
+    with open(sys.argv[2], "a") as log:
+        log.write("%s: %s\n" % (sys.argv[3], " | ".join(texts)))
+    m = buttons[0]
+    print((int(m[0]) + int(m[2])) // 2, (int(m[1]) + int(m[3])) // 2)
+PY
+)
+      [[ -z "$bounds" ]] || run input tap $bounds
+    done
+    # The package that installed is not the test's own: it goes again.
+    device uninstall "$package.third" >/dev/null 2>&1 || true
   fi
   if [[ "$app" == uninstall-test ]]; then
     # Android answers an absent package with its "App not found" dialog (tap OK) and the app's own package with

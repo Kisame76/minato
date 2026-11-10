@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An app that hands the installer APKs that cannot be installed over it, by an intent and by a session: a file that
+     is no APK, the app itself signed with another key, and the app itself in an older version. The installer says why
+     (EXTRA_INSTALL_RESULT, and the session statuses). Version 2, so that the older variant is a downgrade. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.installreason" android:versionCode="2" android:versionName="2.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <application android:label="@string/app_name" android:name="io.github.kisame76.minato.test.installreason.ReasonApplication">
+    <provider android:name="io.github.kisame76.minato.test.installreason.ReasonProvider" android:authorities="io.github.kisame76.minato.test.installreason.files" android:exported="false"
+        android:grantUriPermissions="true"/>
+    <activity android:name="io.github.kisame76.minato.test.installreason.ReasonActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

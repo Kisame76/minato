@@ -344,7 +344,10 @@ enum apkrt_event_type {
                                           // request's ID; a1 1 granted / 0 denied. The framework overwrites its own
                                           // canRequestPackageInstalls() state from a1, as it does for PICK_RESULT
     APKRT_EVENT_INSTALL_RESULT,           // answer to APKRT_REQUEST_CONFIRM_INSTALL: a0 the request's ID; a1 the
-                                          // outcome 0 ready, 1 failed, 2 cancelled
+                                          // outcome 0 ready, 1 failed, 2 cancelled; a2 for a failure its reason: 0
+                                          // none, 1 invalid APK, 2 conflict (another signer), 3 downgrade, 4 storage,
+                                          // 5 the device cannot run it. The framework answers the installer with
+                                          // Android's codes for it
     APKRT_EVENT_UNINSTALL_RESULT,         // answer to APKRT_REQUEST_UNINSTALL: a0 the request's ID; a1 the outcome 0
                                           // removed, 1 failed (also: no such app), 2 cancelled
 };

@@ -102,6 +102,20 @@ if [[ "$APP" == install-set-test || "$APP" == install-set-flow-test ]]; then
   cp build/splits-test/set/*.apk "$OUT/set-assets/"
   assets=(--assets "$OUT/set-assets")
 fi
+# install-reason-test hands the installer three APKs that cannot be installed over it, as its assets: junk.apk (no
+# APK), older.apk (its package in version 1, the app itself is 2: a downgrade) and other.apk (its package signed with
+# another key than the app's); third.apk is another package, which installs. The variants have a manifest and no code.
+if [[ "$APP" == install-reason-test ]]; then
+  mkdir -p "$OUT/reason-assets"
+  printf 'This is not an APK.\n' > "$OUT/reason-assets/junk.apk"
+  tools/make-apk.sh --manifest "fixtures/apps/$APP/variants/older/AndroidManifest.xml" \
+    --out "$OUT/reason-assets/older.apk" >/dev/null
+  tools/make-apk.sh --manifest "fixtures/apps/$APP/variants/third/AndroidManifest.xml" \
+    --out "$OUT/reason-assets/third.apk" >/dev/null
+  tools/make-apk.sh --manifest "fixtures/apps/$APP/variants/other/AndroidManifest.xml" --key "build/$APP-other-key" \
+    --out "$OUT/reason-assets/other.apk" >/dev/null
+  assets=(--assets "$OUT/reason-assets")
+fi
 # An app with a jni folder gets its C and C++ files as its JNI library, lib<app>.so in lib/arm64-v8a, built with the
 # NDK's clang at API 29 (D8's --min-api); jni/link.txt names the NDK libraries it links, one per line, each kept as
 # NEEDED.

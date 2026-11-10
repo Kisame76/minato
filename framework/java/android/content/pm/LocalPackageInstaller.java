@@ -95,8 +95,11 @@ public final class LocalPackageInstaller extends IPackageInstaller.Default {
         return session != null ? session.stagedApks() : java.util.Collections.emptyList();
     }
 
-    /** The user's answer for the session (0 installed, 1 failed, 2 cancelled), which sends its final status. */
-    public static void sessionResult(int sessionId, int result) {
+    /**
+     * The user's answer for the session (0 installed, 1 failed, 2 cancelled) and, for a failure, why (0 none,
+     * 1 invalid, 2 conflict, 3 downgrade, 4 storage, 5 incompatible), which send its final status.
+     */
+    public static void sessionResult(int sessionId, int result, int reason) {
         final LocalPackageInstaller installer = sInstance;
         final LocalPackageInstallerSession session;
         if (installer == null) {
@@ -106,7 +109,7 @@ public final class LocalPackageInstaller extends IPackageInstaller.Default {
             session = installer.mSessions.get(sessionId);
         }
         if (session != null) {
-            session.installed(result);
+            session.installed(result, reason);
         }
     }
 

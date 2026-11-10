@@ -225,12 +225,32 @@ final class LocalPackageInstallerSession extends IPackageInstallerSession.Defaul
     }
 
     /**
-     * The user's answer, from the host: 0 installed, 1 failed, 2 cancelled. It ends the session with the status
-     * Android's sender gets: STATUS_SUCCESS, STATUS_FAILURE, STATUS_FAILURE_ABORTED.
+     * The user's answer, from the host: 0 installed, 1 failed, 2 cancelled, and for a failure why (0 none, 1 invalid,
+     * 2 conflict, 3 downgrade, 4 storage, 5 incompatible). It ends the session with the status Android's sender gets:
+     * STATUS_SUCCESS, STATUS_FAILURE_ABORTED, or the failure's (STATUS_FAILURE, _INVALID, _CONFLICT, _STORAGE,
+     * _INCOMPATIBLE).
      */
-    void installed(int result) {
+    void installed(int result, int reason) {
+        final int failure;
+        switch (reason) {
+            case 1:
+            case 3:
+                failure = PackageInstaller.STATUS_FAILURE_INVALID;
+                break;
+            case 2:
+                failure = PackageInstaller.STATUS_FAILURE_CONFLICT;
+                break;
+            case 4:
+                failure = PackageInstaller.STATUS_FAILURE_STORAGE;
+                break;
+            case 5:
+                failure = PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+                break;
+            default:
+                failure = PackageInstaller.STATUS_FAILURE;
+        }
         report(result == 0 ? PackageInstaller.STATUS_SUCCESS
-                : result == 2 ? PackageInstaller.STATUS_FAILURE_ABORTED : PackageInstaller.STATUS_FAILURE,
+                : result == 2 ? PackageInstaller.STATUS_FAILURE_ABORTED : failure,
                 result == 0 ? "Installation succeeded" : result == 2 ? "Installation canceled by user"
                 : "Installation failed", null);
         abandon();

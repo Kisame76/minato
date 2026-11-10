@@ -781,12 +781,26 @@ void on_request(void *, int type, std::uint64_t argument, const char *text) {
         // The model of an app installer's questions to the user: nobody is here to say yes, so the right to install is
         // denied and an install is cancelled, at once, as a user who declines would; the guest ends its request with
         // that answer instead of waiting for a host that is not there.
+        // APK_RUN_INSTALL_SOURCES=allow models a user who grants the right (a test of what the installer says once it
+        // goes on); without it the right is denied. APK_RUN_INSTALL_ANSWER models the host's answer to a confirm
+        // request: "ready" (the app is in the library), "failed:<reason>" (the library refused it, the reason as
+        // APKRT_EVENT_INSTALL_RESULT's a2); without it the user cancels.
         const bool ask = type == APKRT_REQUEST_ASK_INSTALL_SOURCES;
+        const char *allow = std::getenv("APK_RUN_INSTALL_SOURCES");
+        const bool granted = allow != nullptr && std::strcmp(allow, "allow") == 0;
+        const char *answer = std::getenv("APK_RUN_INSTALL_ANSWER");
+        std::uint64_t outcome = 2, reason = 0;
+        if (answer != nullptr && std::strcmp(answer, "ready") == 0) outcome = 0;
+        if (answer != nullptr && std::strncmp(answer, "failed:", 7) == 0) {
+            outcome = 1;
+            reason = std::strtoull(answer + 7, nullptr, 10);
+        }
         std::fprintf(stderr, "apk-run: install %s %llu: %s -> %s\n", ask ? "sources" : "confirm",
                      static_cast<unsigned long long>(argument), one_line(text != nullptr ? text : "").c_str(),
-                     ask ? "denied" : "cancelled");
+                     ask ? (granted ? "allowed" : "denied")
+                         : (outcome == 0 ? "ready" : outcome == 1 ? "failed" : "cancelled"));
         apkrt_session_post(ask ? APKRT_EVENT_INSTALL_SOURCES_RESULT : APKRT_EVENT_INSTALL_RESULT, argument,
-                           ask ? 0 : 2, 0);
+                           ask ? (granted ? 1 : 0) : outcome, ask ? 0 : reason);
         return;
     }
     if (type == APKRT_REQUEST_UNINSTALL) {

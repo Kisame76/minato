@@ -1602,7 +1602,7 @@ public final class ActivityThread {
                 SystemOpenActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
             case EVENT_INSTALL_RESULT:
-                InstallConfirmActivity.onResult(event[2], (int) event[3]);
+                InstallConfirmActivity.onResult(event[2], (int) event[3], (int) event[4]);
                 break;
             case EVENT_INSTALL_SOURCES_RESULT:
                 InstallSourcesActivity.onResult(event[2], (int) event[3]);

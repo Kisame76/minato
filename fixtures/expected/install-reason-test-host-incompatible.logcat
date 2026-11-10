@@ -1,0 +1,12 @@
+I/install-reason-test: junk intent: result 1, install result -2
+I/install-reason-test: junk session: status 4
+I/install-reason-test: other intent: result 1, install result -7
+I/install-reason-test: other session: pending
+I/install-reason-test: other session: status 5
+I/install-reason-test: older intent: result 1, install result -25
+I/install-reason-test: older session: pending
+I/install-reason-test: older session: status 4
+I/install-reason-test: third intent: result 1, install result -113
+I/install-reason-test: third session: pending
+I/install-reason-test: third session: status 7
+I/install-reason-test: done
