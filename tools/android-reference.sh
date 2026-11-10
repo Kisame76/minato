@@ -1190,6 +1190,12 @@ run_app() {
     ime-engines-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.EnginesActivity
       ;;
+    # ime-outside-test (a tap outside the text field while the keyboard is up): five kinds of field in turn with the
+    # image's own keyboard, each logging whether the keyboard stays and the game under it gets the tap; ends with
+    # "done".
+    ime-outside-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.OutsideActivity
+      ;;
     # ime-surrounding-test-delete (an SDL field's delete key with nothing before the cursor): the image's own keyboard,
     # its delete key tapped once the keyboard is up; ends with "done" 1 s after the edit.
     ime-surrounding-test-delete)
@@ -1548,6 +1554,17 @@ run_app() {
     run svc wifi enable >/dev/null
     run dumpsys battery reset >/dev/null
     [[ "$stepped" == yes ]] || return 1
+  fi
+  if [[ "$app" == ime-outside-test ]]; then
+    # For each field, 1.5 s after its keyboard is up, a tap at a fifth of the display's height in its middle, away from
+    # every field, in the display's turned coordinates.
+    local size kind
+    size=$(run dumpsys window displays | tr -d '\r' |
+      awk '!found && match($0, /cur=[0-9]+x[0-9]+/) { print substr($0, RSTART + 4, RLENGTH - 4); found = 1 }')
+    for kind in plain cocos godot flutter sdl; do
+      { wait_for "$app" "$kind shown" 60 && sleep 1.5 && run input tap $((${size%x*} / 2)) $((${size#*x} / 5)); } ||
+        return 1
+    done
   fi
   if [[ "$app" == ime-surrounding-test-delete ]]; then
     # LatinIME's delete key, 2 s after the keyboard comes, where apk-runner-35's portrait keyboard has it (1080 x 1440

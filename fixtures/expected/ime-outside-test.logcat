@@ -1,0 +1,12 @@
+I/ime-outside-test: ready
+I/ime-outside-test: plain shown
+I/ime-outside-test: plain after the tap: keyboard true, game touched true, focus true
+I/ime-outside-test: cocos shown
+I/ime-outside-test: cocos after the tap: keyboard true, game touched true, focus true
+I/ime-outside-test: godot shown
+I/ime-outside-test: godot after the tap: keyboard true, game touched true, focus true
+I/ime-outside-test: flutter shown
+I/ime-outside-test: flutter after the tap: keyboard true, game touched true, focus true
+I/ime-outside-test: sdl shown
+I/ime-outside-test: sdl after the tap: keyboard true, game touched true, focus true
+I/ime-outside-test: done

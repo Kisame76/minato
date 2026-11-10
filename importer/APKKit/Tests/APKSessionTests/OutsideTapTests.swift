@@ -3,8 +3,8 @@ import Testing
 
 /// A tap outside the focused field hides the keyboard (ADR-0068 a, a named departure: Android never does): only a tap,
 /// within the slop and with one finger, while the keyboard is up; at once outside a field the guest placed, and without
-/// one only after the grace, unless the guest asks to show the keyboard in between. The tap that hides never reaches
-/// the guest: a one-finger touch waits while the keyboard is up until it is known.
+/// one only after the grace, unless the guest asks to show the keyboard in between. A one-finger touch waits while the
+/// keyboard is up until it is known; the tap that hides then reaches the guest too, as on Android.
 @Suite struct OutsideTapTests {
     static let field = FieldRect(left: 0, top: 100, right: 400, bottom: 160)
 
@@ -160,20 +160,20 @@ import Testing
         return tap.release()
     }
 
-    @Test func theTapThatHidesNeverReachesTheGuest() {
-        // A game that asks for its keyboard on every touch would show it again at once.
+    /// The tap that hides reaches the guest too once it is known, its down and its up in order, as Android gives a
+    /// game the tap outside its field (ime-outside-test: the game is touched, for every kind of field), so that an
+    /// engine that closes its field at a tap elsewhere (Godot's LineEdit, Cocos2d-x's EditBox) does.
+    @Test func theTapThatHidesReachesTheGuestToo() {
         var placed = OutsideTap()
         placed.field = Self.field
-        var unplaced = OutsideTap()
+        let unplaced = OutsideTap()
         for tap in [placed, unplaced] {
             var tap = tap
             let down = Self.pass(&tap, Self.callback(.began, 1, 200, 400))
             #expect(down.isEmpty)
             let up = Self.pass(&tap, Self.callback(.ended, 1, 202, 401))
-            #expect(up.isEmpty)
+            #expect(up == [Self.callback(.began, 1, 200, 400), Self.callback(.ended, 1, 202, 401)])
         }
-        _ = unplaced.touched(.began, [Self.change(1, 200, 400)], keyboardShown: true)
-        #expect(unplaced.release().isEmpty)
     }
 
     @Test func aTouchThatIsNoTapGoesOutLateInOrder() {

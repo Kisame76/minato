@@ -90,6 +90,15 @@ final class NotificationTapUITests: XCTestCase {
         print("MINATO-UITEST tapped the bar's Hide Keyboard key")
     }
 
+    /// A tap outside the guest's text field while UIKit's keyboard is up: at a fifth of Minato's window's height, in its
+    /// middle (ime-outside-test, whose fields lie lower).
+    func testTapOutsideField() {
+        continueAfterFailure = false
+        XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front")
+        minato.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        print("MINATO-UITEST tapped outside the field")
+    }
+
     /// iOS's alert for Minato's request, such as the notifications prompt of a Simulator that never answered it, is
     /// answered Allow within TEST_RUNNER_MINATO_WAIT seconds, 90 by default (its button that allows, in English or
     /// German).

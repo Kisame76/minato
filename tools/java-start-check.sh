@@ -194,7 +194,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "ime-pan-test io.github.kisame76.minato.test.imepan" "ime-pan-test-34 io.github.kisame76.minato.test.imepan34"
       "native-jni-ime-test io.github.kisame76.minato.test.nativejniime"
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete"
-      "install-flow-test io.github.kisame76.minato.test.installflow")
+      "install-flow-test io.github.kisame76.minato.test.installflow"
+      "ime-outside-test io.github.kisame76.minato.test.imeoutside")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -1637,6 +1638,36 @@ if wanted notify-tap-test; then
     fail "  notify-tap-test's first lines differ from Android 15's"
     diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /'
   fi
+fi
+
+# A tap outside the text field while the keyboard is up (ime-outside-test; ADR-0068 a, amended 2026-11-10): for each
+# of its five kinds of field the MinatoUITests runner taps above the field once the keyboard is up. Minato hides the
+# keyboard (the user's wish), except for SDL's field, and the game gets the tap as on Android 15: "game touched true"
+# for every kind, the keyboard up only for "sdl". Android's log, fixtures/expected/ime-outside-test.logcat, has the
+# keyboard up for every kind. The runner is built before the start: its build would outlast a kind's twelve seconds.
+if [[ "$ON_DEVICE" == no ]] && wanted ime-outside-test && uitests_build; then
+  if begin_start ime-outside-test io.github.kisame76.minato.test.imeoutside 1; then
+    for kind in plain cocos godot flutter sdl; do
+      if ! await_line guest-log "^I/ime-outside-test: $kind shown$" 60; then
+        failed_line "no keyboard for $kind" ime-outside-test-1
+        break
+      fi
+      uitest testTapOutsideField "$kind" || fail "  the runner did not tap outside $kind"
+    done
+    await_line guest-log "^I/ime-outside-test: done$" 60 || true
+    for kind in plain cocos godot flutter sdl; do
+      keyboard=true
+      [[ "$kind" == sdl ]] || keyboard=false
+      want="I/ime-outside-test: $kind after the tap: keyboard $keyboard, game touched true, focus true"
+      if grep -q -x -F "$want" "$CHECK/guest-log"; then
+        ok "  $kind: the game got the tap, the keyboard $([[ $keyboard == true ]] && echo stayed || echo went)"
+      else
+        fail "  $kind: $(grep -E "^I/ime-outside-test: $kind after the tap" "$CHECK/guest-log" | head -n 1 |
+          sed 's/^I\/ime-outside-test: //'), not \"${want#I/ime-outside-test: $kind after the tap: }\""
+      fi
+    done
+  fi
+  end_start ime-outside-test 1
 fi
 
 # An app installer in Minato (APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL): install-flow-test

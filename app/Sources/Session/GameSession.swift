@@ -803,7 +803,7 @@ final class GameSession {
         // SDL's field keeps the keyboard at a tap outside, as on Android 15, and the tap goes to the game.
         outsideTap.keepsKeyboard = softKeyboard.keepsKeyboardAtOutsideTap
         let decision = outsideTap.touched(phase, changes, keyboardShown: softKeyboard.isShown)
-        // A touch that may put the keyboard away waits in outsideTap; the tap that does never reaches the guest.
+        // A touch that may put the keyboard away waits in outsideTap until it is known, then reaches the guest.
         for callback in outsideTap.release() { post(touches.translate(callback.phase, callback.changes)) }
         switch decision {
         case .none:
@@ -818,8 +818,8 @@ final class GameSession {
         }
     }
 
-    /// A tap outside the field (ADR-0068 a): UIKit's keyboard goes as by the user's hide, which the guest hears of; the
-    /// tap itself does not reach it.
+    /// A tap outside the field (ADR-0068 a): UIKit's keyboard goes as by the user's hide, which the guest hears of after
+    /// the tap itself, as on Android.
     private func hideForTap() {
         #if DEBUG
         SessionCheck.event("keyboard tapped away")

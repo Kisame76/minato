@@ -21,11 +21,11 @@ public struct FieldRect: Sendable, Equatable {
 /// Android never hides it so. Only a tap counts: one finger, while the keyboard is up, that ends within the slop of
 /// where it began; a drag or a scroll keeps the keyboard, as iOS apps do while a chat scrolls. Outside a field the
 /// guest placed it hides at once, on the field nothing happens. Without a field (an engine that draws its own) the
-/// hide waits for the end of the touch and the grace, and a show from the guest in between cancels it. The tap that
-/// hides never reaches the guest, as a tap that puts iOS's keyboard away acts on nothing: an engine that asks for its
-/// keyboard on every touch (SDL's text input) would show it again at once. So while the keyboard is up a one-finger
-/// touch outside the placed field waits until it is known; a drag, a second finger or a tap that keeps the keyboard
-/// goes out late, in order.
+/// hide waits for the end of the touch and the grace, and a show from the guest in between cancels it. While the
+/// keyboard is up a one-finger touch outside the placed field waits until it is known; then it goes out late, in order,
+/// also the tap that hides, as Android gives the game a tap outside its field and an engine closes its field at it
+/// (Godot's LineEdit, Cocos2d-x's EditBox; ime-outside-test; ADR-0068 a, amended 2026-11-10). SDL's field, which asks
+/// for its keyboard on every touch, keeps it (`keepsKeyboard`).
 public struct OutsideTap: Sendable {
     /// How far a tap may move, in points, as UIKit's tap recognizer allows.
     public static let slop = 10.0
@@ -127,7 +127,7 @@ public struct OutsideTap: Sendable {
                 pending = nextToken
                 decision = .hideAfterGrace(nextToken)
             }
-            if decision == .none { send(callback) } else { held = nil }
+            send(callback)
             return decision
         }
     }
