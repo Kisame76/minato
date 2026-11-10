@@ -595,6 +595,20 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     int compared = 0;
     std::uint64_t counter = 0, counter_before = 0;
 
+    // range_covered(from, to): true when every runnable island word whose site lies in [from, to) is already in
+    // `covered`. Each retry section below runs its passes until this holds for its own range or six passes are spent,
+    // so a step lost under single-stepping load is retried without a fixed repeat count (ADR-0020 X7).
+    const auto range_covered = [&](std::uint64_t from, std::uint64_t to) {
+        for (const auto &island : loaded.islands) {
+            const auto site = loaded.header + island.site - loaded.image;
+            if (!(site >= from && site < to)) continue;
+            for (unsigned word = 0; word < island.words; ++word) {
+                if (runs(island, word) && !covered.contains({&island, word})) return false;
+            }
+        }
+        return true;
+    };
+
     // run(): single instructions, a conditional branch taken both ways, an LL/SC window with x18 as
     // the value it stores, and the jump table with each index. Pass 1: the window runs free. Pass 2:
     // its first visit is stepped up to the store-exclusive, which then fails; the loop runs the
@@ -656,133 +670,147 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
 
     // exit_loop(): the compare-and-swap that stores x18 and the one whose branch leaves the window, through an exit pad
     // (ADR-0020 X7), every word of the island stepped, the pad's two words included: wherever the thread stops, leave()
-    // must give the state the guest passes through, and in a pad the leaving branch's target.
-    // Each pass of the three loops below runs three times: a thread that is single-stepped can lose a step under load, and
-    // the check at the end wants every island word stepped once at least.
-    for (const unsigned stepped_visits : {0u, 1u, 0u, 1u, 0u, 1u}) {
-        for (const bool differs : {false, true}) {
-            if (differs && stepped_visits == 1) continue;  // no store-exclusive on that path: one pass is enough
-            std::uint64_t cell_value = 0;
-            std::uint64_t inputs[3] = {};
-            const auto result = step_and_compare(
-                exit_loop_at,
-                [&] {
-                    cell_value = 41;
-                    inputs[0] = 77;  // the new value, in x18
-                    inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
-                    inputs[2] = differs ? 40 : 41;
-                    return reinterpret_cast<std::uint64_t>(inputs);
-                },
-                // Single-stepping clears the monitor, so a pass that stores runs its window free (see free_run); the pass
-                // that leaves before its store-exclusive has none to fail and is stepped whole.
-                differs ? std::vector<apkrt::testing::FreeRun>{}
-                        : std::vector{free_run(loaded.island_at(exit_window_at), stepped_visits)},
-                covered, compared);
-            CHECK(result == 41);
-            CHECK(cell_value == (differs ? 41u : 77u));
-        }
-    }
-
-    // entry_loop(): the same loop entered from outside at its store-exclusive (ADR-0020 X7), every word of the island and of
-    // its entry pad stepped: wherever the thread stops in the pad, leave() gives the guest at the branch from outside.
-    for (const bool entered : {false, true, false, true, false, true}) {
-        for (const bool differs : {false, true}) {
-            for (const unsigned stepped_visits : {0u, 1u}) {
-                if (differs && stepped_visits == 1) continue;
+    // must give the state the guest passes through, and in a pad the leaving branch's target. Up to six passes,
+    // stopping as soon as range_covered says the exit_loop range was fully stepped (a step may be lost under load).
+    for (int pass = 0; pass < 6; ++pass) {
+        for (const unsigned stepped_visits : {0u, 1u}) {
+            for (const bool differs : {false, true}) {
+                if (differs && stepped_visits == 1) continue;  // no store-exclusive on that path: one pass is enough
                 std::uint64_t cell_value = 0;
-                std::uint64_t inputs[4] = {};
+                std::uint64_t inputs[3] = {};
                 const auto result = step_and_compare(
-                    entry_loop_at,
+                    exit_loop_at,
                     [&] {
                         cell_value = 41;
-                        inputs[0] = 77;
+                        inputs[0] = 77;  // the new value, in x18
                         inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
                         inputs[2] = differs ? 40 : 41;
-                        inputs[3] = entered ? 1 : 0;
                         return reinterpret_cast<std::uint64_t>(inputs);
                     },
+                    // Single-stepping clears the monitor, so a pass that stores runs its window free (see free_run);
+                    // the pass that leaves before its store-exclusive has none to fail and is stepped whole.
                     differs ? std::vector<apkrt::testing::FreeRun>{}
-                            : std::vector{free_run(loaded.island_at(entry_window_at), stepped_visits)},
+                            : std::vector{free_run(loaded.island_at(exit_window_at), stepped_visits)},
                     covered, compared);
                 CHECK(result == 41);
                 CHECK(cell_value == (differs ? 41u : 77u));
             }
         }
+        if (range_covered(exit_loop_at, exit_loop_end)) break;
+    }
+
+    // entry_loop(): the same loop entered from outside at its store-exclusive (ADR-0020 X7), every word of the island and of
+    // its entry pad stepped: wherever the thread stops in the pad, leave() gives the guest at the branch from outside.
+    for (int pass = 0; pass < 6; ++pass) {
+        for (const bool entered : {false, true}) {
+            for (const bool differs : {false, true}) {
+                for (const unsigned stepped_visits : {0u, 1u}) {
+                    if (differs && stepped_visits == 1) continue;
+                    std::uint64_t cell_value = 0;
+                    std::uint64_t inputs[4] = {};
+                    const auto result = step_and_compare(
+                        entry_loop_at,
+                        [&] {
+                            cell_value = 41;
+                            inputs[0] = 77;
+                            inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
+                            inputs[2] = differs ? 40 : 41;
+                            inputs[3] = entered ? 1 : 0;
+                            return reinterpret_cast<std::uint64_t>(inputs);
+                        },
+                        differs ? std::vector<apkrt::testing::FreeRun>{}
+                                : std::vector{free_run(loaded.island_at(entry_window_at), stepped_visits)},
+                        covered, compared);
+                    CHECK(result == 41);
+                    CHECK(cell_value == (differs ? 41u : 77u));
+                }
+            }
+        }
+        if (range_covered(entry_loop_at, entry_loop_end)) break;
     }
 
     // reg_loop(): a register branch in the window, which leaves it through an exit pad, run as the guest wrote it (ADR-0020
     // X7): every word stepped, the pad's two included; wherever the thread stops, its pc is where x6 says.
-    for (const bool leaves : {false, true, false, true, false, true}) {
-        for (const bool differs : {false, true}) {
-          for (const unsigned stepped_visits : {0u, 1u}) {
-            const bool stores = !leaves && !differs;  // only that pass reaches the store-exclusive
-            if (!stores && stepped_visits == 1) continue;
-            std::uint64_t cell_value = 0;
-            std::uint64_t inputs[4] = {};
-            const auto result = step_and_compare(
-                reg_loop_at,
-                [&] {
-                    cell_value = 41;
-                    inputs[0] = 77;
-                    inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
-                    inputs[2] = differs ? 40 : 41;
-                    inputs[3] = leaves ? 1 : 0;
-                    return reinterpret_cast<std::uint64_t>(inputs);
-                },
-                stores ? std::vector{free_run(loaded.island_at(reg_window_at), stepped_visits)}
-                       : std::vector<apkrt::testing::FreeRun>{},
-                covered, compared);
-            CHECK(result == 41);
-            CHECK(cell_value == (stores ? 77u : 41u));
-          }
+    for (int pass = 0; pass < 6; ++pass) {
+        for (const bool leaves : {false, true}) {
+            for (const bool differs : {false, true}) {
+                for (const unsigned stepped_visits : {0u, 1u}) {
+                    const bool stores = !leaves && !differs;  // only that pass reaches the store-exclusive
+                    if (!stores && stepped_visits == 1) continue;
+                    std::uint64_t cell_value = 0;
+                    std::uint64_t inputs[4] = {};
+                    const auto result = step_and_compare(
+                        reg_loop_at,
+                        [&] {
+                            cell_value = 41;
+                            inputs[0] = 77;
+                            inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
+                            inputs[2] = differs ? 40 : 41;
+                            inputs[3] = leaves ? 1 : 0;
+                            return reinterpret_cast<std::uint64_t>(inputs);
+                        },
+                        stores ? std::vector{free_run(loaded.island_at(reg_window_at), stepped_visits)}
+                               : std::vector<apkrt::testing::FreeRun>{},
+                        covered, compared);
+                    CHECK(result == 41);
+                    CHECK(cell_value == (stores ? 77u : 41u));
+                }
+            }
         }
+        if (range_covered(reg_loop_at, reg_loop_end)) break;
     }
 
     // write_loop(): a window that writes x18 and leaves by a branch (ADR-0020 X7), every word stepped, the exit pad's six
     // included (its store-back of x18 first, then the restores and the branch): wherever the thread stops, x18 and the
     // other registers are the guest's.
-    for (const bool leaves : {false, true, false, true, false, true}) {
-        for (const unsigned stepped_visits : {0u, 1u}) {
-            if (leaves && stepped_visits == 1) continue;
-            std::uint64_t cell_value = 0;
-            std::uint64_t inputs[3] = {};
-            const auto result = step_and_compare(
-                write_loop_at,
-                [&] {
-                    cell_value = leaves ? 11 : 3;
-                    inputs[0] = 100;
-                    inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
-                    inputs[2] = 10;  // the bound
-                    return reinterpret_cast<std::uint64_t>(inputs);
-                },
-                leaves ? std::vector<apkrt::testing::FreeRun>{}
-                       : std::vector{free_run(loaded.island_at(write_window_at), stepped_visits)},
-                covered, compared);
-            CHECK(result == (leaves ? 100u : 6u));
-            CHECK(cell_value == (leaves ? 11u : 4u));
+    for (int pass = 0; pass < 6; ++pass) {
+        for (const bool leaves : {false, true}) {
+            for (const unsigned stepped_visits : {0u, 1u}) {
+                if (leaves && stepped_visits == 1) continue;
+                std::uint64_t cell_value = 0;
+                std::uint64_t inputs[3] = {};
+                const auto result = step_and_compare(
+                    write_loop_at,
+                    [&] {
+                        cell_value = leaves ? 11 : 3;
+                        inputs[0] = 100;
+                        inputs[1] = reinterpret_cast<std::uint64_t>(&cell_value);
+                        inputs[2] = 10;  // the bound
+                        return reinterpret_cast<std::uint64_t>(inputs);
+                    },
+                    leaves ? std::vector<apkrt::testing::FreeRun>{}
+                           : std::vector{free_run(loaded.island_at(write_window_at), stepped_visits)},
+                    covered, compared);
+                CHECK(result == (leaves ? 100u : 6u));
+                CHECK(cell_value == (leaves ? 11u : 4u));
+            }
         }
+        if (range_covered(write_loop_at, write_loop_end)) break;
     }
 
     // pair_loop(): a CASP with x18 in its destination pair (ADR-0020 X7), every island word stepped: before the CASP the thread
     // goes back to the site, after it on to the next word with x18 and x19 as the CASP left them, wherever it stops.
     alignas(16) std::uint64_t pair_memory[2];
-    for (const bool matches : {true, false, true, false, true, false}) {
-        std::uint64_t inputs[5] = {};
-        const auto result = step_and_compare(
-            pair_loop_at,
-            [&] {
-                pair_memory[0] = 7;
-                pair_memory[1] = 9;
-                inputs[0] = matches ? 7 : 1;  // x18: the expected low half
-                inputs[1] = matches ? 9 : 2;  // x19: the expected high half
-                inputs[2] = reinterpret_cast<std::uint64_t>(pair_memory);
-                inputs[3] = 100;
-                inputs[4] = 200;
-                return reinterpret_cast<std::uint64_t>(inputs);
-            },
-            {}, covered, compared);
-        CHECK(result == 7 + (9u << 8));  // the memory's old pair, whether it was swapped
-        CHECK(pair_memory[0] == (matches ? 100u : 7u) && pair_memory[1] == (matches ? 200u : 9u));
+    for (int pass = 0; pass < 6; ++pass) {
+        for (const bool matches : {true, false}) {
+            std::uint64_t inputs[5] = {};
+            const auto result = step_and_compare(
+                pair_loop_at,
+                [&] {
+                    pair_memory[0] = 7;
+                    pair_memory[1] = 9;
+                    inputs[0] = matches ? 7 : 1;  // x18: the expected low half
+                    inputs[1] = matches ? 9 : 2;  // x19: the expected high half
+                    inputs[2] = reinterpret_cast<std::uint64_t>(pair_memory);
+                    inputs[3] = 100;
+                    inputs[4] = 200;
+                    return reinterpret_cast<std::uint64_t>(inputs);
+                },
+                {}, covered, compared);
+            CHECK(result == 7 + (9u << 8));  // the memory's old pair, whether it was swapped
+            CHECK(pair_memory[0] == (matches ? 100u : 7u) && pair_memory[1] == (matches ? 200u : 9u));
+        }
+        if (range_covered(pair_loop_at, pair_loop_end)) break;
     }
 
     CHECK(compared > 0);
