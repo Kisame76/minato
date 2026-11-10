@@ -1,3 +1,5 @@
+import APKLibrary
+
 /// A window's size in pixels: the layer's bounds × contentsScale (ADR-0032, decision 5).
 public struct PixelSize: Sendable, Equatable {
     public var width: Int32
@@ -65,8 +67,8 @@ public enum SessionEvent: Sendable, Equatable {
     case trimMemory(level: Int32)
     /// The answer to an app installer's question whether it may install apps, APKRT_EVENT_INSTALL_SOURCES_RESULT.
     case installSourcesResult(id: UInt64, granted: Bool)
-    /// The answer to an app installer's handed-over APK, APKRT_EVENT_INSTALL_RESULT.
-    case installResult(id: UInt64, outcome: InstallOutcome)
+    /// The answer to an app installer's handed-over APK, APKRT_EVENT_INSTALL_RESULT, with a failure's reason (a2).
+    case installResult(id: UInt64, outcome: InstallOutcome, reason: InstallFailureReason)
     /// The answer to an app's request to remove an app, APKRT_EVENT_UNINSTALL_RESULT (ADR-0077).
     case uninstallResult(id: UInt64, outcome: UninstallOutcome)
 }
@@ -540,10 +542,13 @@ public struct SessionBridge: Sendable {
         return Handled()
     }
 
-    /// The answer to install request `id`, posted unless the channel broke or the session ended.
+    /// The answer to install request `id` with a failure's reason (none otherwise), posted unless the channel broke or
+    /// the session ended.
     @discardableResult
-    public mutating func installAnswered(id: UInt64, _ outcome: InstallOutcome, host: SessionHost) -> Handled {
-        if !isBroken, !lifecycle.hasEnded { _ = posted(.installResult(id: id, outcome: outcome), host: host) }
+    public mutating func installAnswered(id: UInt64, _ outcome: InstallOutcome, reason: InstallFailureReason = .none,
+                                         host: SessionHost) -> Handled {
+        let event = SessionEvent.installResult(id: id, outcome: outcome, reason: outcome == .failed ? reason : .none)
+        if !isBroken, !lifecycle.hasEnded { _ = posted(event, host: host) }
         return Handled()
     }
 

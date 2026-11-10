@@ -30,7 +30,7 @@ final class InstallPresenter {
     private let dataFolder: URL?
     private let paths: LibraryPaths?
     private let sourcesAnswered: (UInt64, Bool) -> Void
-    private let installAnswered: (UInt64, InstallOutcome) -> Void
+    private let installAnswered: (UInt64, InstallOutcome, InstallFailureReason) -> Void
     private let uninstallAnswered: (UInt64, UninstallOutcome) -> Void
     private let removedItself: () -> Void
     private var waiting: [Request] = []
@@ -38,7 +38,7 @@ final class InstallPresenter {
 
     init(package: String, appName: String, dataFolder: URL?, paths: LibraryPaths?,
          sourcesAnswered: @escaping (UInt64, Bool) -> Void,
-         installAnswered: @escaping (UInt64, InstallOutcome) -> Void,
+         installAnswered: @escaping (UInt64, InstallOutcome, InstallFailureReason) -> Void,
          uninstallAnswered: @escaping (UInt64, UninstallOutcome) -> Void, removedItself: @escaping () -> Void) {
         self.package = package
         self.appName = appName
@@ -152,9 +152,12 @@ final class InstallPresenter {
             }.value
             switch check {
             case .failure(let error):
-                refuse(id, "the file was not taken: \(error)", removing: copy)
-            case .success(.refused(let why)):
-                refuse(id, why, removing: copy)
+                // A copy larger than the room left: Android's INSTALL_FAILED_INSUFFICIENT_STORAGE.
+                let storage = (error as? InstallFile.Failure).map { if case .tooLarge = $0 { true } else { false } }
+                refuse(id, "the file was not taken: \(error)", reason: storage == true ? .storage : .none,
+                       removing: copy)
+            case .success(.refused(let why, let reason)):
+                refuse(id, why, reason: reason, removing: copy)
             case .success(.acceptable(_, let label)):
                 let name = AlertName.plain(label).map { "“\($0)”" } ?? "this app"
                 let from = AlertName.plain(appName).map { "“\($0)”" } ?? "This app"
@@ -188,21 +191,23 @@ final class InstallPresenter {
         }
     }
 
-    private func refuse(_ id: UInt64, _ why: String, removing copy: URL? = nil) {
+    private func refuse(_ id: UInt64, _ why: String, reason: InstallFailureReason = .none, removing copy: URL? = nil) {
         log.error("install \(id) failed: \(why, privacy: .private)")
         #if DEBUG
         SessionCheck.event("install \(id) refused: \(why)")
         #endif
-        finish(id, .failed, removing: copy)
+        finish(id, .failed, reason: reason, removing: copy)
     }
 
-    private func finish(_ id: UInt64, _ outcome: InstallOutcome, removing copy: URL?) {
+    private func finish(_ id: UInt64, _ outcome: InstallOutcome, reason: InstallFailureReason = .none,
+                        removing copy: URL?) {
         if let copy { try? FileManager.default.removeItem(at: copy) }
         log.info("install \(id): \(String(describing: outcome), privacy: .public)")
         #if DEBUG
         SessionCheck.event("install \(id) \(outcome)")
+        if outcome == .failed { SessionCheck.event("install \(id) reason \(reason)") }
         #endif
-        installAnswered(id, outcome)
+        installAnswered(id, outcome, reason)
         done()
     }
 

@@ -281,7 +281,8 @@ final class RuntimeSessionHost: SessionHost {
         case .imeHidden: (APKRT_EVENT_IME_HIDDEN, 0, 0, 0)
         case .barInsets(let top, let bottom): (APKRT_EVENT_BAR_INSETS, UInt64(max(top, 0)), UInt64(max(bottom, 0)), 0)
         case .installSourcesResult(let id, let granted): (APKRT_EVENT_INSTALL_SOURCES_RESULT, id, granted ? 1 : 0, 0)
-        case .installResult(let id, let outcome): (APKRT_EVENT_INSTALL_RESULT, id, outcome.rawValue, 0)
+        case .installResult(let id, let outcome, let reason):
+            (APKRT_EVENT_INSTALL_RESULT, id, outcome.rawValue, reason.rawValue)
         case .uninstallResult(let id, let outcome): (APKRT_EVENT_UNINSTALL_RESULT, id, outcome.rawValue, 0)
         }
     }

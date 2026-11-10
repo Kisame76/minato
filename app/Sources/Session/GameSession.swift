@@ -65,7 +65,7 @@ final class GameSession {
         dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data"),
         paths: try? LibraryPaths.standard(),
         sourcesAnswered: { [weak self] id, granted in self?.installSourcesAnswered(id, granted) },
-        installAnswered: { [weak self] id, outcome in self?.installAnswered(id, outcome) },
+        installAnswered: { [weak self] id, outcome, reason in self?.installAnswered(id, outcome, reason) },
         uninstallAnswered: { [weak self] id, outcome in self?.uninstallAnswered(id, outcome) },
         removedItself: { [weak self] in self?.removedItself() })
     /// The guest's permission requests (ADR-0063 decision 2), over game mode; iOS's answer for notifications is read
@@ -1124,9 +1124,9 @@ final class GameSession {
         if !wasBroken, bridge.isBroken { report(handled) }
     }
 
-    private func installAnswered(_ id: UInt64, _ outcome: InstallOutcome) {
+    private func installAnswered(_ id: UInt64, _ outcome: InstallOutcome, _ reason: InstallFailureReason) {
         let wasBroken = bridge.isBroken
-        let handled = bridge.installAnswered(id: id, outcome, host: host)
+        let handled = bridge.installAnswered(id: id, outcome, reason: reason, host: host)
         if !wasBroken, bridge.isBroken { report(handled) }
     }
 

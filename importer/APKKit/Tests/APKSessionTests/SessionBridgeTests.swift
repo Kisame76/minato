@@ -1,3 +1,4 @@
+import APKLibrary
 import Testing
 
 @testable import APKSession
@@ -932,6 +933,22 @@ struct SessionBridgeTests {
         _ = host.take()
         bridge.pickAnswered(id: 5, picked: 1, host: host)
         #expect(host.take() == [])
+    }
+
+    /// An install's answer carries a failure's reason (APKRT_EVENT_INSTALL_RESULT's a2), and none for any other
+    /// outcome, so that the framework answers the installer with Android's code for it.
+    @Test func anInstallAnswerCarriesAFailuresReason() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        _ = host.take()
+        bridge.installAnswered(id: 1, .failed, reason: .conflict, host: host)
+        bridge.installAnswered(id: 2, .failed, host: host)
+        bridge.installAnswered(id: 3, .ready, reason: .storage, host: host)
+        bridge.installAnswered(id: 4, .cancelled, host: host)
+        #expect(host.take() == [.post(.installResult(id: 1, outcome: .failed, reason: .conflict)),
+                                .post(.installResult(id: 2, outcome: .failed, reason: .none)),
+                                .post(.installResult(id: 3, outcome: .ready, reason: .none)),
+                                .post(.installResult(id: 4, outcome: .cancelled, reason: .none))])
     }
 
     /// ADR-0077: an uninstall request's answer goes to the guest once, as long as the session runs, and not after its

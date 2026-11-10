@@ -1804,8 +1804,31 @@ extension LibraryEntry {
 public enum InstallCheck: Sendable, Equatable {
     /// The import would install or keep the app: its package and label.
     case acceptable(package: String, label: String)
-    /// The import would turn the file away, or Android's installer would fail it: why, for the log.
-    case refused(String)
+    /// The import would turn the file away, or Android's installer would fail it: why, for the log, and the reason as
+    /// Android's installer gives it.
+    case refused(String, InstallFailureReason)
+
+    /// The refusal's reason, nil for an acceptable file.
+    public var refusal: InstallFailureReason? {
+        if case .refused(_, let reason) = self { reason } else { nil }
+    }
+}
+
+/// Why an install failed as Android's installer says it: APKRT_EVENT_INSTALL_RESULT's a2, which the framework turns
+/// into INSTALL_FAILED_* and PackageInstaller's STATUS_FAILURE_* (guest_interface.h).
+public enum InstallFailureReason: UInt64, Sendable, Equatable {
+    /// No reason Android names: INSTALL_FAILED_INTERNAL_ERROR, STATUS_FAILURE.
+    case none = 0
+    /// Not a valid app (unreadable, unsigned, a failed signature, missing splits): INSTALL_FAILED_INVALID_APK.
+    case invalid = 1
+    /// An update signed by another key: INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+    case conflict = 2
+    /// An older version than the installed one: INSTALL_FAILED_VERSION_DOWNGRADE.
+    case downgrade = 3
+    /// Not enough room: INSTALL_FAILED_INSUFFICIENT_STORAGE.
+    case storage = 4
+    /// The iPhone cannot run it (32-bit only, a library that cannot load): INSTALL_FAILED_NO_MATCHING_ABIS.
+    case incompatible = 5
 }
 
 extension Library {
@@ -1822,22 +1845,24 @@ extension Library {
             archive = try ZipArchive(url: url)
             report = try APKAnalyzer.analyze(archive, preferredLanguages: preferredLanguages)
         } catch {
-            return .refused("not a readable APK: \(error)")
+            return .refused("not a readable APK: \(error)", .invalid)
         }
-        guard Self.isSafePackageName(report.packageName) else { return .refused("unsafe package name") }
+        guard Self.isSafePackageName(report.packageName) else { return .refused("unsafe package name", .invalid) }
         // Android installs no APK without a certificate it can check (INSTALL_PARSE_FAILED_NO_CERTIFICATES).
         switch report.signature.check {
-        case .failed: return .refused("its signature failed")
-        case .unsigned, nil: return .refused("unsigned")
+        case .failed: return .refused("its signature failed", .invalid)
+        case .unsigned, nil: return .refused("unsigned", .invalid)
         default: break
         }
         switch report.compatibility.status {
         case .ready: break
-        case .needsSplits: return .refused("needs split APKs")
-        case .incompatible: return .refused("incompatible")
+        case .needsSplits: return .refused("needs split APKs", .invalid)
+        case .incompatible: return .refused("incompatible", .incompatible)
         }
         guard let size = try? Self.sourceFile(for: url).size,
-              let digest = try? hash(url, size: size, progress: { _ in }) else { return .refused("unreadable") }
+              let digest = try? hash(url, size: size, progress: { _ in }) else {
+            return .refused("unreadable", .invalid)
+        }
         let new = AppVersion(state: .ready, versionCode: report.versionCode, sha256: digest,
                              signer: report.signature.signer ?? SignerIdentity(current: []),
                              signerProven: report.signature.check == .verified,
@@ -1849,48 +1874,58 @@ extension Library {
     /// (ADR-0048), the base with the splits Minato would choose, then as one APK is (`checkForInstall(_:)`). One file
     /// is the plain APK's check.
     public func checkForInstall(_ urls: [URL]) -> InstallCheck {
-        guard urls.count > 1 else { return urls.first.map(checkForInstall) ?? .refused("no APK") }
+        guard urls.count > 1 else { return urls.first.map(checkForInstall) ?? .refused("no APK", .invalid) }
         var group: [SetMember] = []
         var archives: [String: ZipArchive] = [:]
         for url in urls {
             guard let archive = try? ZipArchive(url: url), let size = try? Self.sourceFile(for: url).size,
                   let sha256 = try? Self.sha256(of: url, size: size, progress: { _ in }),
                   let member = try? SetMember.read(archive, fileName: url.lastPathComponent, sha256: sha256)
-            else { return .refused("not a readable APK: \(url.lastPathComponent)") }
+            else { return .refused("not a readable APK: \(url.lastPathComponent)", .invalid) }
             guard archives.updateValue(archive, forKey: url.lastPathComponent) == nil else {
-                return .refused("two files named \(url.lastPathComponent)")
+                return .refused("two files named \(url.lastPathComponent)", .invalid)
             }
             group.append(member)
         }
         let set: CheckedSet
         switch SetChecks.check(group) {
         case .success(let checked): set = checked
-        case .failure(let refusal): return .refused(refusal.reason)
+        case .failure(let refusal): return .refused(refusal.reason, .invalid)
         }
-        guard let base = set.base else { return .refused("a split without its base APK") }
-        guard Self.isSafePackageName(base.packageName) else { return .refused("unsafe package name") }
+        guard let base = set.base else { return .refused("a split without its base APK", .invalid) }
+        guard Self.isSafePackageName(base.packageName) else { return .refused("unsafe package name", .invalid) }
         switch base.signature.check {
-        case .failed: return .refused("its signature failed")
-        case .unsigned: return .refused("unsigned")
+        case .failed: return .refused("its signature failed", .invalid)
+        case .unsigned: return .refused("unsigned", .invalid)
         default: break
         }
         let choice = SplitSelector.choose(set, for: device)
-        if let reason = choice.incompatibility { return .refused("incompatible: \(reason)") }
+        if let reason = choice.incompatibility { return .refused("incompatible: \(reason)", .incompatible) }
         guard let (report, _) = try? SetAnalysis.analyze(set, choice: choice, preferredLanguages: preferredLanguages,
                                                          archive: { archives[$0.fileName]! })
-        else { return .refused("the set could not be read") }
+        else { return .refused("the set could not be read", .invalid) }
         switch report.compatibility.status {
         case .ready: break
-        case .needsSplits: return .refused("needs split APKs")
-        case .incompatible: return .refused("incompatible")
+        case .needsSplits: return .refused("needs split APKs", .invalid)
+        case .incompatible: return .refused("incompatible", .incompatible)
         }
         let installing = [base] + choice.chosen
         guard let digest = choice.chosen.isEmpty ? base.sha256
-            : try? SetDigest.of(installing.map { ($0.splitName, $0.sha256) }) else { return .refused("unreadable") }
+            : try? SetDigest.of(installing.map { ($0.splitName, $0.sha256) }) else {
+            return .refused("unreadable", .invalid)
+        }
         let new = AppVersion(set: set, state: .ready, sha256: digest)
         return finishCheck(report, new, archives: Dictionary(uniqueKeysWithValues: installing.map {
             ($0.splitName, archives[$0.fileName]!)
         }))
+    }
+
+    /// An update's warnings as Android's installer fails it: another signer first, as the framework's own check of the
+    /// app's own package orders them, then an older version.
+    private static func reason(of warnings: Set<UpdateWarning>) -> InstallFailureReason {
+        if warnings.contains(.otherSigner) { return .conflict }
+        if warnings.contains(.olderVersion) { return .downgrade }
+        return .none
     }
 
     /// The checks a plain APK and a set share: the update against the installed app and the APKs waiting in incoming/,
@@ -1902,10 +1937,10 @@ extension Library {
             case .install, .update, .reinstall, .unchanged:
                 continue
             case .reject(let state):
-                return .refused("the library keeps the installed version (\(state))")
+                return .refused("the library keeps the installed version (\(state))", .none)
             case .ask(let warnings):
                 let names = warnings.map { "\($0)" }.sorted().joined(separator: ", ")
-                return .refused("Android's installer fails it: \(names)")
+                return .refused("Android's installer fails it: \(names)", Self.reason(of: warnings))
             }
         }
         // The native code as the import extracts and checks it, into a folder that goes again (ADR-0055).
@@ -1917,9 +1952,9 @@ extension Library {
             _ = try installNativeCode(of: report, from: archives, into: scratch, signing: nil)
         } catch let refused as RefusedLibrary {
             let all = ([refused] + refused.also).map { "\($0.library): \($0.reason)" }.joined(separator: "; ")
-            return .refused("a library cannot load: \(all)")
+            return .refused("a library cannot load: \(all)", .incompatible)
         } catch {
-            return .refused("its native code could not be checked: \(error)")
+            return .refused("its native code could not be checked: \(error)", .none)
         }
         return .acceptable(package: report.packageName, label: report.label)
     }

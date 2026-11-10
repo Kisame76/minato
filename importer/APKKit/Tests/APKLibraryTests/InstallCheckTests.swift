@@ -41,6 +41,38 @@ struct InstallCheckTests {
         #expect(await library.entries.isEmpty)
     }
 
+    /// Why, as Android's installer says it (APKRT_EVENT_INSTALL_RESULT's a2, which the framework turns into
+    /// INSTALL_FAILED_* and PackageInstaller's STATUS_FAILURE_*): a file that is no valid app is invalid, one the
+    /// iPhone cannot run (32-bit only) incompatible.
+    @Test func aRefusalSaysWhyAsAndroidsInstallerDoes() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let library = try Library(paths: sandbox.paths)
+        let cases: [(Data, String, InstallFailureReason)] = [
+            (SampleAPK.make(abis: ["armeabi-v7a"]), "old.apk", .incompatible),
+            (SampleAPK.make(splitRequired: true), "base.apk", .invalid),
+            (Data("not a zip".utf8), "junk.apk", .invalid),
+            (SampleAPK.make(signers: []), "unsigned.apk", .invalid),
+        ]
+        for (bytes, name, reason) in cases {
+            let check = await library.checkForInstall(try sandbox.file(bytes, named: name))
+            #expect(check.refusal == reason, "\(name): \(check)")
+        }
+        let installed = SampleAPK.make(versionCode: 2)
+        _ = try await library.importFile(sandbox.file(installed, named: "v2.apk"))
+        let older = try sandbox.file(SampleAPK.make(versionCode: 1), named: "v1.apk")
+        let otherSigner = try sandbox.file(SampleAPK.make(versionCode: 3, signers: [.rsa]), named: "other.apk")
+        let both = try sandbox.file(SampleAPK.make(versionCode: 1, signers: [.rsa]), named: "both.apk")
+        #expect(await library.checkForInstall(older).refusal == .downgrade)
+        #expect(await library.checkForInstall(otherSigner).refusal == .conflict)
+        // Another signer goes first, as the framework's own check of the app's own package orders them.
+        #expect(await library.checkForInstall(both).refusal == .conflict)
+        #expect(await library.checkForInstall(try sandbox.file(installed, named: "same.apk")).refusal == nil)
+        #expect(InstallFailureReason.none.rawValue == 0 && InstallFailureReason.invalid.rawValue == 1
+                && InstallFailureReason.conflict.rawValue == 2 && InstallFailureReason.downgrade.rawValue == 3
+                && InstallFailureReason.storage.rawValue == 4 && InstallFailureReason.incompatible.rawValue == 5)
+    }
+
     @Test func anUpdateIsCheckedAsAndroidInstallsIt() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -71,7 +103,7 @@ struct InstallCheckTests {
         await library.use(checker: NativeCodeFindingsTests.Checker(reasons: ["libgame.so": ["no arm64 code"]]))
         let file = try sandbox.file(SampleAPK.make(nativeActivity: true), named: "game.apk")
 
-        guard case .refused(let why) = await library.checkForInstall(file) else {
+        guard case .refused(let why, .incompatible) = await library.checkForInstall(file) else {
             Issue.record("a refused library was accepted")
             return
         }
@@ -109,7 +141,7 @@ struct InstallCheckTests {
             return
         }
         // The base alone needs its splits; one file is the plain APK's check.
-        #expect(await library.checkForInstall([base]) == .refused("needs split APKs"))
+        #expect(await library.checkForInstall([base]) == .refused("needs split APKs", .invalid))
         #expect(await library.entries.isEmpty)
     }
 
