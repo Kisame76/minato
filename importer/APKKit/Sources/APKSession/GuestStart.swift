@@ -37,6 +37,9 @@ public struct GuestStart: Sendable, Equatable {
     public var deviceProfile: String?
     /// The app's FPS unlock for `apkrt_set_frame_rate_unlock` and the frame clock (ADR-0066), 60 or 120; 0 for none.
     public var frameRateUnlock: Int32 = 0
+    /// Whether the app may install apps, for `apkrt_set_install_sources` before the program starts: the user's grant
+    /// in the app's profile, denied by default as on Android.
+    public var installSources = false
 
     /// Takes the app's profile. An unlock above the screen's highest rate is the highest the screen shows, at least 60,
     /// so a stored 120 on a 60 Hz screen runs at 60 and is never refused.
@@ -46,6 +49,7 @@ public struct GuestStart: Sendable, Equatable {
             Int32(AppProfile.FrameRate.allCases.map(\.rawValue).filter { $0 <= min(rate.rawValue, screenMaximum) }.max()
                   ?? AppProfile.FrameRate.fps60.rawValue)
         } ?? 0
+        installSources = profile.installSources == true
     }
 
     /// NativeActivity's default for `android.app.func_name`.

@@ -193,7 +193,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "ime-engines-test io.github.kisame76.minato.test.imeengines"
       "ime-pan-test io.github.kisame76.minato.test.imepan" "ime-pan-test-34 io.github.kisame76.minato.test.imepan34"
       "native-jni-ime-test io.github.kisame76.minato.test.nativejniime"
-      "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete")
+      "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete"
+      "install-flow-test io.github.kisame76.minato.test.installflow")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -617,6 +618,8 @@ begin_start() {
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
   # A save's or a folder's alert answers Allow by itself, as the user's tap does (ADR-0057 step d).
   [[ "$app" != documents-tree-test ]] || echo yes > "$CHECK/pick-allow"
+  # An app installer's alerts answer Allow and Install by themselves, as the user's taps do.
+  [[ "$app" != install-flow-test ]] || echo yes > "$CHECK/install-allow"
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
@@ -1634,6 +1637,46 @@ if wanted notify-tap-test; then
     fail "  notify-tap-test's first lines differ from Android 15's"
     diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /'
   fi
+fi
+
+# An app installer in Minato (APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL): install-flow-test
+# without the grant opens the settings page for unknown app sources, Minato's alert answers Allow, and the grant is
+# the app's at once; it hands its own APK to the package installer, Minato's install alert answers Install, and the
+# installer ends with RESULT_OK. Its second start has the grant from the start, kept in the app's profile.
+if wanted install-flow-test; then
+  flow="io.github.kisame76.minato.test.installflow"
+  # The Simulator's run starts without the grant; on the iPhone a grant of an earlier run fails round 1's precondition.
+  [[ "$ON_DEVICE" == yes ]] || rm -f "$SUPPORT/data/$flow/profile.json"
+  for round in 1 2; do
+    if begin_start install-flow-test "$flow" "$round"; then
+      if await_line guest-log "^I/install-flow-test: done$" 120; then
+        log="$CHECK/guest-log"
+        if [[ $round == 1 ]] && grep -q "^I/install-flow-test: canRequestPackageInstalls: true$" "$log"; then
+          fail "  precondition not met: the app had the grant from an earlier run (its profile.json)"
+        elif [[ $round == 1 ]]; then
+          if grep -q "^I/install-flow-test: canRequestPackageInstalls after the settings page: true$" "$log"; then
+            ok "  Minato's alert allowed the app to install apps"
+          else
+            fail "  no grant after the settings page for unknown app sources"
+          fi
+        elif grep -q "^I/install-flow-test: canRequestPackageInstalls: true$" "$log"; then
+          ok "  the second start has the grant from the start"
+        else
+          fail "  the second start has no grant: the app's profile did not keep it"
+        fi
+        if grep -q "^I/install-flow-test: install result: ok$" "$log"; then
+          ok "  the handed-over APK went to the library, RESULT_OK"
+        else
+          fail "  the install ended $(sed -n -E 's/^I\/install-flow-test: install result: //p' "$log" | head -n 1)"
+        fi
+      else
+        failed_line "no done" "install-flow-test-$round"
+      fi
+    fi
+    end_start install-flow-test "$round"
+    fetch_events
+    grep -E " install (sources )?[0-9]+ " "$EVENTS" | sed 's/^/      | /' || true
+  done
 fi
 
 # ADR-0074 decision 4's cold tap: once notify-tap-test has run and its notification is delivered,

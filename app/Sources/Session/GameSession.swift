@@ -52,6 +52,13 @@ final class GameSession {
             [weak self] id, picked in self?.pickAnswered(id, picked)
         }
     }()
+    /// An app installer's question and handed-over APKs, over game mode.
+    @ObservationIgnored private lazy var installs = InstallPresenter(
+        package: entry.id, appName: entry.displayName,
+        dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data"),
+        paths: try? LibraryPaths.standard(),
+        sourcesAnswered: { [weak self] id, granted in self?.installSourcesAnswered(id, granted) },
+        installAnswered: { [weak self] id, outcome in self?.installAnswered(id, outcome) })
     /// The guest's permission requests (ADR-0063 decision 2), over game mode; iOS's answer for notifications is read
     /// ahead, as it comes only through a callback (ADR-0074).
     @ObservationIgnored private lazy var permissions = PermissionPresenter(
@@ -906,6 +913,10 @@ final class GameSession {
             if let request = NotificationRequest(text: text) {
                 NotificationHost.shared.handle(request, package: entry.id, appName: entry.displayName)
             }
+        case .askInstallSources(let id, let text):
+            installs.requested(.askSources(id: id, text: text))
+        case .confirmInstall(let id, let text):
+            installs.requested(.confirm(id: id, text: text))
         }
     }
 
@@ -1017,6 +1028,18 @@ final class GameSession {
         log.info("\(self.entry.id, privacy: .public): pick \(id) \(outcome, privacy: .public)")
         let wasBroken = bridge.isBroken
         let handled = bridge.pickAnswered(id: id, picked: picked, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
+    }
+
+    private func installSourcesAnswered(_ id: UInt64, _ granted: Bool) {
+        let wasBroken = bridge.isBroken
+        let handled = bridge.installSourcesAnswered(id: id, granted: granted, host: host)
+        if !wasBroken, bridge.isBroken { report(handled) }
+    }
+
+    private func installAnswered(_ id: UInt64, _ outcome: InstallOutcome) {
+        let wasBroken = bridge.isBroken
+        let handled = bridge.installAnswered(id: id, outcome, host: host)
         if !wasBroken, bridge.isBroken { report(handled) }
     }
 

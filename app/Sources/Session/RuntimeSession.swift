@@ -280,6 +280,8 @@ final class RuntimeSessionHost: SessionHost {
             (APKRT_EVENT_BACK, UInt64(phase.rawValue), UInt64(max(progress, 0)), UInt64(max(edge, 0)))
         case .imeHidden: (APKRT_EVENT_IME_HIDDEN, 0, 0, 0)
         case .barInsets(let top, let bottom): (APKRT_EVENT_BAR_INSETS, UInt64(max(top, 0)), UInt64(max(bottom, 0)), 0)
+        case .installSourcesResult(let id, let granted): (APKRT_EVENT_INSTALL_SOURCES_RESULT, id, granted ? 1 : 0, 0)
+        case .installResult(let id, let outcome): (APKRT_EVENT_INSTALL_RESULT, id, outcome.rawValue, 0)
         }
     }
 
@@ -332,6 +334,9 @@ final class RuntimeSessionHost: SessionHost {
         // The app's profile, as the property area and the loader take it at the start (ADR-0065, ADR-0066).
         guard apkrt_set_device_profile(start.deviceProfile) == 0 else { return "the device profile could not be set" }
         guard apkrt_set_frame_rate_unlock(start.frameRateUnlock) == 0 else { return "the frame rate could not be set" }
+        guard apkrt_set_install_sources(start.installSources ? 1 : 0) == 0 else {
+            return "the runtime's install permission could not be set"
+        }
         var error = [CChar](repeating: 0, count: 1024)
         let result = withCStrings(start.arguments) { arguments in
             withCStrings(start.environment) { environment in
@@ -445,6 +450,11 @@ final class RuntimeSessionHost: SessionHost {
         case APKRT_REQUEST_PERMISSION.rawValue: .permission(id: argument, text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_PERMISSION_CANCEL.rawValue: .permissionCancel(id: argument)
         case APKRT_REQUEST_NOTIFICATION.rawValue: .notification(text: text.map { String(cString: $0) } ?? "")
+        // Without a text the request is still answered, as denied or failed.
+        case APKRT_REQUEST_ASK_INSTALL_SOURCES.rawValue:
+            .askInstallSources(id: argument, text: text.map { String(cString: $0) } ?? "")
+        case APKRT_REQUEST_CONFIRM_INSTALL.rawValue:
+            .confirmInstall(id: argument, text: text.map { String(cString: $0) } ?? "")
         default: nil
         }
     }

@@ -2,7 +2,7 @@ import Testing
 
 @testable import APKSession
 
-/// ADR-0074 decision 4 with the lead's condition: a cold tap starts from the stored Intent.toUri only an explicit
+/// ADR-0074 decision 4, the creator's identity: a cold tap starts from the stored Intent.toUri only an explicit
 /// activity of the notification's own package; anything else opens the app at its launcher.
 @Suite struct NotificationTapTests {
     private let package = "com.example.app"

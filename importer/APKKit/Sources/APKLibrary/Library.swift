@@ -1789,3 +1789,55 @@ extension LibraryEntry {
         if case .invalid = state { false } else { true }
     }
 }
+
+/// What an app installer's handed-over APK would do in the library (APKRT_REQUEST_CONFIRM_INSTALL).
+public enum InstallCheck: Sendable, Equatable {
+    /// The import would install or keep the app: its package and label.
+    case acceptable(package: String, label: String)
+    /// The import would turn the file away, or Android's installer would fail it: why, for the log.
+    case refused(String)
+}
+
+extension Library {
+    /// Checks an APK an app hands to Android's package installer before Minato answers it: Android answers RESULT_OK
+    /// only once the app is installed, so a file the import would not run (not an APK, an unsafe package name, a
+    /// failed or missing signature, 32-bit only, needing splits) is refused now, and so is an update that Android's
+    /// installer fails where the library would ask (an older version, another signer). Nothing in the library
+    /// changes.
+    public func checkForInstall(_ url: URL) -> InstallCheck {
+        let report: APKReport
+        do {
+            report = try APKAnalyzer.analyze(ZipArchive(url: url), preferredLanguages: preferredLanguages)
+        } catch {
+            return .refused("not a readable APK: \(error)")
+        }
+        guard Self.isSafePackageName(report.packageName) else { return .refused("unsafe package name") }
+        // Android installs no APK without a certificate it can check (INSTALL_PARSE_FAILED_NO_CERTIFICATES).
+        switch report.signature.check {
+        case .failed: return .refused("its signature failed")
+        case .unsigned, nil: return .refused("unsigned")
+        default: break
+        }
+        switch report.compatibility.status {
+        case .ready: break
+        case .needsSplits: return .refused("needs split APKs")
+        case .incompatible: return .refused("incompatible")
+        }
+        guard let size = try? Self.sourceFile(for: url).size,
+              let digest = try? hash(url, size: size, progress: { _ in }) else { return .refused("unreadable") }
+        let new = AppVersion(state: .ready, versionCode: report.versionCode, sha256: digest,
+                             signer: report.signature.signer ?? SignerIdentity(current: []),
+                             signerProven: report.signature.check == .verified,
+                             signatureFailed: report.signature.check?.isFailure == true)
+        let installed = entries.first { $0.id == report.packageName }.flatMap(version(of:))
+        switch UpdatePolicy.decide(installed: installed, new: new) {
+        case .install, .update, .reinstall, .unchanged:
+            return .acceptable(package: report.packageName, label: report.label)
+        case .reject(let state):
+            return .refused("the library keeps the installed version (\(state))")
+        case .ask(let warnings):
+            let names = warnings.map { "\($0)" }.sorted().joined(separator: ", ")
+            return .refused("Android's installer fails it: \(names)")
+        }
+    }
+}

@@ -6,6 +6,7 @@
 #include "audio.h"
 #include "memory_watermark.h"
 #include "permissions.h"
+#include "install_sources.h"
 #include "stall_watchdog.h"
 #include "syscalls.h"
 #include "windows.h"
@@ -840,6 +841,34 @@ long permission_cancel(std::uint64_t id) {
     return 0;
 }
 
+// An app installer's requests (APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL): the host splits the
+// text at its one newline, so the runtime checks the shape whole first, as a pick's. The longest text is a Linux path
+// of PATH_MAX (4096 with its NUL) and a package name of 255 characters, with the newline and the NUL.
+constexpr std::size_t install_text_limit = 4095 + 1 + 255 + 1;
+
+/// Whether `text` is "<first>\n<second>", both parts non-empty and no other newline.
+bool valid_install(std::string_view text) {
+    const std::size_t newline = text.find('\n');
+    return newline != std::string_view::npos && newline != 0 && newline + 1 < text.size()
+           && text.find('\n', newline + 1) == std::string_view::npos;
+}
+
+/// APKRT_REQUEST_ASK_INSTALL_SOURCES or APKRT_REQUEST_CONFIRM_INSTALL (`type`): the text at `address` read through a
+/// checked copy, checked whole, and handed to the host's request handler with the ID; the host answers once with
+/// APKRT_EVENT_INSTALL_SOURCES_RESULT or APKRT_EVENT_INSTALL_RESULT. 0, or -EFAULT without text or when it cannot be
+/// read, -EINVAL for an ID of 0, a text of install_text_limit bytes or more, or one that valid_install refuses.
+long install_request(int type, std::uint64_t address, std::uint64_t id) {
+    if (address == 0) return -linux_errno::efault;
+    if (id == 0) return -linux_errno::einval;
+    std::vector<char> text(install_text_limit);
+    const long length = copy_guest_text(text.data(), address, install_text_limit);
+    if (length < 0) return length;
+    if (length >= static_cast<long>(install_text_limit)) return -linux_errno::einval;
+    if (!valid_install(std::string_view(text.data(), static_cast<std::size_t>(length)))) return -linux_errno::einval;
+    report(type, id, text.data());
+    return 0;
+}
+
 // APKRT_REQUEST_IME (ADR-0068, part 1): the guest tells the host which view takes text and whether its keyboard is
 // wanted. The host parses the text, so the runtime checks it whole first, as a pick's; no answer ends the request, the
 // host's text records are the answers, and they carry the serial.
@@ -1270,6 +1299,9 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
             return permission(a0, a1);
         case APKRT_REQUEST_PERMISSION_CANCEL:
             return permission_cancel(a0);
+        case APKRT_REQUEST_ASK_INSTALL_SOURCES:
+        case APKRT_REQUEST_CONFIRM_INSTALL:
+            return install_request(static_cast<int>(type), a0, a1);
         case APKRT_REQUEST_IME:
             return ime(a0, a1);
         case APKRT_REQUEST_WEBVIEW:
@@ -1386,6 +1418,8 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
     if (type == APKRT_EVENT_PICK_RESULT) pick_done(a0);
     if (type == APKRT_EVENT_OPEN_RESULT) open_done(a0);
     if (type == APKRT_EVENT_PERMISSION_RESULT) permission_done(a0);
+    // The answer to an app installer's question records the grant, as apkrt_set_install_sources does at the start.
+    if (type == APKRT_EVENT_INSTALL_SOURCES_RESULT) apkrt::install_sources::set(a1 != 0);
     const std::lock_guard<std::mutex> hold(lock);
     if (broken || ended) return 0;
     const apkrt_event record{type, posted + 1, {a0, a1, a2}};

@@ -4,7 +4,7 @@ import Testing
 @testable import APKSession
 
 /// An app that closed itself soon after it opened: Get Info says so in its footer until the app's next start, since
-/// neither Android nor iOS shows a word, and the library coming back looks like a crash (the lead, 2026-11-04).
+/// neither Android nor iOS shows a word, and the library coming back looks like a crash.
 @Suite("ClosedItself")
 struct ClosedItselfTests {
     let folder: URL

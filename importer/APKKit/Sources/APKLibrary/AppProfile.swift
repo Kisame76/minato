@@ -19,10 +19,14 @@ public struct AppProfile: Sendable, Equatable, Codable {
     public var deviceProfile: DeviceProfile?
     /// nil: as the app asks.
     public var frameRate: FrameRate?
+    /// Whether the app may install apps (REQUEST_INSTALL_PACKAGES, `apkrt_set_install_sources`), which the user allows
+    /// when the app asks; nil: not allowed, Android's default.
+    public var installSources: Bool?
 
-    public init(deviceProfile: DeviceProfile? = nil, frameRate: FrameRate? = nil) {
+    public init(deviceProfile: DeviceProfile? = nil, frameRate: FrameRate? = nil, installSources: Bool? = nil) {
         self.deviceProfile = deviceProfile
         self.frameRate = frameRate
+        self.installSources = installSources
     }
 
     public var isDefault: Bool { self == AppProfile() }

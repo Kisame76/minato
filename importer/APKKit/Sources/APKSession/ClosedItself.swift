@@ -2,8 +2,8 @@ import Foundation
 
 /// Apps that closed themselves soon after they opened, by package, in `closed-itself.json` in Library/Application
 /// Support: Get Info says so in its footer until the app's next start, and Report a Problem names it. Neither Android
-/// nor iOS shows a word when an app ends itself, and the library coming back at once looks like a crash (the lead,
-/// 2026-11-04). No alert and no badge: apps with their own Quit end themselves too.
+/// nor iOS shows a word when an app ends itself, and the library coming back at once looks like a crash. No alert and
+/// no badge: apps with their own Quit end themselves too.
 public struct ClosedItselfStore: Sendable {
     /// How soon after the start an end counts.
     public static let window: Double = 10

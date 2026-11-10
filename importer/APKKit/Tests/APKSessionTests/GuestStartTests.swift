@@ -303,6 +303,16 @@ struct GuestStartTests {
         #expect(start == Self.start())
     }
 
+    /// The user's grant to install apps reaches the runtime at the start; denied without it, as on Android.
+    @Test func theAppsProfileGivesTheInstallGrant() {
+        var start = Self.start()
+        #expect(start?.installSources == false)
+        start?.apply(AppProfile(installSources: true), screenMaximum: 120)
+        #expect(start?.installSources == true)
+        start?.apply(AppProfile(), screenMaximum: 120)
+        #expect(start == Self.start())
+    }
+
     /// A stored 120 on a screen that shows fewer runs at the screen's highest rate the unlock takes, never refused.
     @Test(arguments: [(120, 120, 120), (120, 60, 60), (120, 90, 60), (60, 120, 60), (60, 60, 60), (120, 30, 60)])
     func theUnlockIsAtMostTheScreensRate(stored: Int, screen: Int, unlock: Int32) {

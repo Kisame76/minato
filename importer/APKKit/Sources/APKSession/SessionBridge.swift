@@ -63,6 +63,20 @@ public enum SessionEvent: Sendable, Equatable {
     /// of TRIM_MEMORY_UI_HIDDEN (20) when its UI is no longer visible, which the host posts after onStop; a memory
     /// warning stays `lowMemory`.
     case trimMemory(level: Int32)
+    /// The answer to an app installer's question whether it may install apps, APKRT_EVENT_INSTALL_SOURCES_RESULT.
+    case installSourcesResult(id: UInt64, granted: Bool)
+    /// The answer to an app installer's handed-over APK, APKRT_EVENT_INSTALL_RESULT.
+    case installResult(id: UInt64, outcome: InstallOutcome)
+}
+
+/// APKRT_EVENT_INSTALL_RESULT's outcome, as Android's package installer ends.
+public enum InstallOutcome: UInt64, Sendable, Equatable {
+    /// The app is in the library: RESULT_OK.
+    case ready = 0
+    /// The APK cannot be installed: RESULT_FIRST_USER.
+    case failed = 1
+    /// The user declined: RESULT_CANCELED.
+    case cancelled = 2
 }
 
 /// APKRT_EVENT_BACK's phases (`apkrt_back_phase`): a gesture's start, progress, then commit or cancel; a back without
@@ -115,6 +129,11 @@ public enum SessionRequest: Sendable, Equatable {
     /// A post, cancel or cancel of all of the app's notifications (ADR-0074 decision 2), its text as the runtime
     /// checked it.
     case notification(text: String)
+    /// An app installer asks whether it may install apps (APKRT_REQUEST_ASK_INSTALL_SOURCES): "<package>\n<label>".
+    case askInstallSources(id: UInt64, text: String)
+    /// An app installer hands over an APK (APKRT_REQUEST_CONFIRM_INSTALL): "<path>\n<package>", the guest's path of
+    /// the copy below its cache folder and the requesting package.
+    case confirmInstall(id: UInt64, text: String)
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {
@@ -479,6 +498,20 @@ public struct SessionBridge: Sendable {
     public mutating func pickAnswered(id: UInt64, picked: Int?, host: SessionHost) -> Handled {
         let event = SessionEvent.pickResult(id: id, code: picked == nil ? 0 : -1, count: UInt64(picked ?? 0))
         if !isBroken, !lifecycle.hasEnded { _ = posted(event, host: host) }
+        return Handled()
+    }
+
+    /// The answer to install-sources request `id`, posted unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func installSourcesAnswered(id: UInt64, granted: Bool, host: SessionHost) -> Handled {
+        if !isBroken, !lifecycle.hasEnded { _ = posted(.installSourcesResult(id: id, granted: granted), host: host) }
+        return Handled()
+    }
+
+    /// The answer to install request `id`, posted unless the channel broke or the session ended.
+    @discardableResult
+    public mutating func installAnswered(id: UInt64, _ outcome: InstallOutcome, host: SessionHost) -> Handled {
+        if !isBroken, !lifecycle.hasEnded { _ = posted(.installResult(id: id, outcome: outcome), host: host) }
         return Handled()
     }
 

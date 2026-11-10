@@ -31,6 +31,24 @@ struct AppProfileTests {
             == sandbox.paths.dataDirectory(for: Self.package).appendingPathComponent("profile.json"))
     }
 
+    /// Whether the app may install apps (REQUEST_INSTALL_PACKAGES), which the user allows when the app asks: kept with
+    /// the profile, off where a file from before has no key.
+    @Test func theInstallSourcesGrantIsKeptAndOffByDefault() throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let old = Data(#"{"deviceProfile":"galaxy"}"#.utf8)
+        try FileManager.default.createDirectory(at: sandbox.paths.dataDirectory(for: Self.package),
+                                                withIntermediateDirectories: true)
+        try old.write(to: sandbox.paths.profileFile(for: Self.package))
+        #expect(AppProfile.load(for: Self.package, in: sandbox.paths).installSources == nil)
+
+        let granted = AppProfile(installSources: true)
+        try granted.save(for: Self.package, in: sandbox.paths)
+
+        #expect(AppProfile.load(for: Self.package, in: sandbox.paths).installSources == true)
+        #expect(!granted.isDefault)
+    }
+
     @Test func savingTheDefaultDeletesTheFile() throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

@@ -11,6 +11,7 @@
 #include "syscall_frame.h"
 #include "threads.h"
 #include "permissions.h"
+#include "install_sources.h"
 
 #include "APKRuntime/apkrt.h"
 #include "check.h"
@@ -943,6 +944,56 @@ TEST(a_malformed_or_oversized_notification_request_is_refused_before_the_host_se
     CHECK(refused("post\t1\t\tch\t3\t0\t0\tg\tT\tsub\t" + std::string(8200, 'x')));  // past the copy's limit
     take_requests();
     apkrt::permissions::reset();
+}
+
+// An app installer (APKRT_REQUEST_ASK_INSTALL_SOURCES, APKRT_REQUEST_CONFIRM_INSTALL): "<package>\n<label>" and
+// "<path>\n<package>" reach the host with their IDs, as the runtime checked them.
+TEST(install_requests_reach_the_handler_with_their_id_and_text) {
+    take_requests();
+    static const char ask[] = "io.example.store\nExample Store";
+    static const char confirm[] = "/data/user/0/io.example.store/cache/install/1.apk\nio.example.store";
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_ASK_INSTALL_SOURCES, address(ask), 31) == 0);
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_CONFIRM_INSTALL, address(confirm), 32) == 0);
+    const auto seen = take_requests();
+    CHECK(seen.size() == 2);
+    if (seen.size() != 2) return;
+    CHECK(seen[0].type == APKRT_REQUEST_ASK_INSTALL_SOURCES && seen[0].argument == 31 && seen[0].text == ask);
+    CHECK(seen[1].type == APKRT_REQUEST_CONFIRM_INSTALL && seen[1].argument == 32 && seen[1].text == confirm);
+    CHECK(seen[1].thread == ::pthread_self() && seen[1].runtime_signal_blocked);
+}
+
+// The host splits the text at its newline, so the runtime refuses any other shape, an ID of 0 and a text past the
+// limit (a Linux path of PATH_MAX and a package name), and none of them reaches the handler.
+TEST(a_malformed_install_request_is_refused_before_the_host_sees_it) {
+    take_requests();
+    const auto both = [](const std::string &text, std::uint64_t id = 9) {
+        const long ask = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_ASK_INSTALL_SOURCES, address(text.c_str()), id);
+        const long confirm = call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_CONFIRM_INSTALL, address(text.c_str()), id);
+        return ask == confirm ? ask : -9999;
+    };
+    CHECK(both("a\nb") == 0);
+    CHECK(both(std::string(4095, 'p') + "\n" + std::string(255, 'q')) == 0);  // the longest path and package
+    take_requests();
+    CHECK(both("ab") == -einval);                 // no newline
+    CHECK(both("a\nb\nc") == -einval);            // two
+    CHECK(both("\nb") == -einval);                // an empty first part
+    CHECK(both("a\n") == -einval);                // an empty second part
+    CHECK(both("") == -einval);                   // empty
+    CHECK(both("a\nb", 0) == -einval);            // ID 0
+    CHECK(both(std::string(4096, 'p') + "\n" + std::string(256, 'q')) == -einval);  // past the limit
+    CHECK(call(APKRT_NR_SESSION_REQUEST, APKRT_REQUEST_CONFIRM_INSTALL, 0, 9) == -efault);  // no text
+    CHECK(take_requests().empty());
+}
+
+// The host's answer to the question records the grant, as apkrt_set_install_sources does before the start, so a
+// later start of the same process and the runtime's own reads agree with the framework.
+TEST(an_install_sources_answer_records_the_grant) {
+    apkrt::install_sources::reset();
+    CHECK(apkrt_session_post(APKRT_EVENT_INSTALL_SOURCES_RESULT, 31, 1, 0) != 0);
+    CHECK(apkrt::install_sources::granted());
+    CHECK(apkrt_session_post(APKRT_EVENT_INSTALL_SOURCES_RESULT, 31, 0, 0) != 0);
+    CHECK(!apkrt::install_sources::granted());
+    apkrt::install_sources::reset();
 }
 
 TEST(a_permission_answer_records_the_grant_and_frees_the_id) {

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An app installer's whole flow in Minato (the host's alerts, tools/java-start-check.sh): it asks on the settings page
+     for unknown app sources whether it may install apps, then hands its own APK to the package installer through its
+     own provider, as a store app hands a downloaded one. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.installflow" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.installflow.FlowActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <provider android:name="io.github.kisame76.minato.test.installflow.ApkProvider"
+        android:authorities="io.github.kisame76.minato.test.installflow.apk" android:exported="false"
+        android:grantUriPermissions="true"/>
+  </application>
+</manifest>

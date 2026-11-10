@@ -2,7 +2,8 @@
 /// notification by its id and the FNV-1a 64 of its tag, and sends its PendingIntent itself, as SystemUI does. After
 /// the process ended, the notification's stored content intent (Intent.toUri, which the guest wrote) starts the app
 /// only when it names, explicitly, an activity of the notification's own package, as a PendingIntent carries its
-/// creator's identity (the lead's condition): every other one opens the app at its launcher.
+/// creator's identity, so a stored intent cannot start another app's activity: every other one opens the app at its
+/// launcher.
 public enum NotificationTap {
     /// The longest stored intent, in bytes.
     static let intentLimit = 2048
