@@ -232,7 +232,8 @@ Instrument sample_instrument() {
                 reading.gpu += dirty;  // info only: shared GPU mappings make this over-count, so graphics stays ledger
             } else if (tag == VM_MEMORY_SANITIZER) {
                 reading.hostmalloc += dirty;  // tag 99 = the host allocator's regions (macOS 27 xzone); parking is here
-            } else if (tag >= VM_MEMORY_MALLOC && tag <= VM_MEMORY_MALLOC_MEDIUM) {
+            } else if (tag >= VM_MEMORY_MALLOC && tag <= VM_MEMORY_MALLOC_MEDIUM &&
+                       tag != VM_MEMORY_ANALYSIS_TOOL) {  // 10 is in the range but is not an allocator tag
                 reading.malloc_bytes += dirty;  // the old allocator's tags (empty where xzone tags its own as 99)
             } else {
                 reading.untagged += dirty;  // any other named tag the split does not name yet

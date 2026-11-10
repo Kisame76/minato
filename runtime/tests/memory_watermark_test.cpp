@@ -204,6 +204,22 @@ TEST(sample_instrument_counts_tagged_regions_by_their_vm_tag) {
     if (h != MAP_FAILED) ::munmap(h, size);
 }
 
+TEST(sample_instrument_does_not_count_the_analysis_tool_tag_as_malloc) {
+    // VM_MEMORY_ANALYSIS_TOOL (10) sits inside the numeric MALLOC..MALLOC_MEDIUM (1..12) range but is not an
+    // allocator tag, so its dirty bytes must fall to `untagged`, never to `malloc_bytes`.
+    constexpr std::uint64_t size = std::uint64_t{8} << 20;  // 8 MiB
+    const memory::Instrument before = memory::sample_instrument();
+    void *a = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE,
+                     VM_MAKE_TAG(VM_MEMORY_ANALYSIS_TOOL), 0);
+    CHECK(a != MAP_FAILED);
+    std::memset(a, 1, size);
+    const memory::Instrument after = memory::sample_instrument();
+    const std::uint64_t slack = size - (std::uint64_t{1} << 16);  // allow for page rounding and eviction
+    CHECK(after.untagged >= before.untagged + slack);        // counted as untagged memory
+    CHECK(after.malloc_bytes < before.malloc_bytes + slack);  // never as an allocator region
+    if (a != MAP_FAILED) ::munmap(a, size);
+}
+
 /// A stand-in for libGLESv2's ANGLEMetalMemoryLine, so the test needs no real ANGLE: writes a fixed stats string.
 int fake_angle_line(char *line, std::size_t size) {
     static const char stats[] = "gl tex=5/2 priv=1 shared=1 comp=1/0 color=2/1 depth=1/0 msaa=1/1 mless=0 "
