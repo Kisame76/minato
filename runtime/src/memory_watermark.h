@@ -56,6 +56,11 @@ struct Instrument {
     std::uint64_t other = 0;       // footprint minus the parts above: IOKit/GPU-wired, page tables, alt accounting
     std::uint64_t anon = 0;        // the guest's (VM tag 0) anonymous mapped bytes (Scudo's regions are here)
     std::uint64_t file = 0;        // the guest's (VM tag 0) file-backed mapped bytes
+    std::uint64_t gpu = 0;         // IOAccelerator + IOSurface regions' dirty bytes (info; `graphics` stays the ledger)
+    std::uint64_t malloc_bytes = 0;  // old-allocator MALLOC_* regions' dirty bytes (info; ~0 where xzone tags its own)
+    std::uint64_t hostmalloc = 0;  // tag 99 dirty bytes: the host allocator's regions (macOS 27 xzone); parking lives
+                                   // here, measured apart by the park line's packed+kept (info, a subdivision)
+    std::uint64_t untagged = 0;    // dirty bytes of every other region (tag 0, the guest's, and any unnamed tag) (info)
 };
 
 /// Samples the Instrument now: task_info for the footprint split, a VM-region walk for the guest's mapped bytes. Safe
@@ -63,8 +68,10 @@ struct Instrument {
 Instrument sample_instrument();
 
 /// Formats the instrument line into out[0..size): "I/apkrt   : mem foot=.. int=.. comp=.. gfx=.. media=.. purg=..
-/// purgc=.. other=.. ext=.. anon=.. file=..[ warn]\n", every byte field in MiB (foot = int+comp+gfx+media+purg+
-/// purgc+other). With " warn" when `warning`. Returns the length, or 0 if it would not fit. No allocation.
+/// purgc=.. other=.. ext=.. anon=.. file=.. gpu=.. malloc=.. hmalloc=.. untag=..[ warn]\n", every byte field in MiB
+/// (foot = int+comp+gfx+media+purg+purgc+other; gfx is the graphics ledger). gpu/malloc/hmalloc/untag are VM-region
+/// dirty sums by tag, reported to attribute `other`, not added to the identity. " warn" when `warning`. 0 if it does
+/// not fit.
 std::size_t format_instrument(const Instrument &reading, bool warning, char *out, std::size_t size);
 
 /// Writes the instrument line to the session log (fd 2) with one write(2) -- so the lines survive a jetsam kill -- only

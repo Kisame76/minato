@@ -7,8 +7,11 @@
 #include "check.h"
 
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include <mach/vm_statistics.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -144,19 +147,21 @@ TEST(format_instrument_writes_the_memory_fields_in_mib) {
     const memory::Instrument reading{.footprint = 6000 * mib, .internal = 5000 * mib, .compressed = 100 * mib,
                                      .external = 200 * mib, .graphics = 300 * mib, .media = 50 * mib,
                                      .purgeable = 40 * mib, .purgeable_compressed = 10 * mib, .other = 500 * mib,
-                                     .anon = 5500 * mib, .file = 250 * mib};
+                                     .anon = 5500 * mib, .file = 250 * mib, .gpu = 300 * mib,
+                                     .malloc_bytes = 1200 * mib, .hostmalloc = 2900 * mib, .untagged = 119 * mib};
     char out[256];
     const std::size_t length = memory::format_instrument(reading, true, out, sizeof out);
     CHECK(std::string(out, length) ==
           "I/apkrt   : mem foot=6000 int=5000 comp=100 gfx=300 media=50 purg=40 purgc=10 other=500 ext=200 "
-          "anon=5500 file=250 warn\n");
+          "anon=5500 file=250 gpu=300 malloc=1200 hmalloc=2900 untag=119 warn\n");
 }
 
 TEST(format_instrument_omits_the_marker_without_a_warning) {
     char out[256];
     const std::size_t length = memory::format_instrument(memory::Instrument{}, false, out, sizeof out);
     CHECK(std::string(out, length) ==
-          "I/apkrt   : mem foot=0 int=0 comp=0 gfx=0 media=0 purg=0 purgc=0 other=0 ext=0 anon=0 file=0\n");
+          "I/apkrt   : mem foot=0 int=0 comp=0 gfx=0 media=0 purg=0 purgc=0 other=0 ext=0 anon=0 file=0 "
+          "gpu=0 malloc=0 hmalloc=0 untag=0\n");
 }
 
 TEST(sample_instrument_reads_the_footprint_and_some_anonymous_memory) {
@@ -171,6 +176,32 @@ TEST(sample_instrument_reads_the_footprint_and_some_anonymous_memory) {
     } else {
         CHECK(reading.other == 0);  // nothing to add when the named parts already exceed the footprint
     }
+}
+
+TEST(sample_instrument_counts_tagged_regions_by_their_vm_tag) {
+    // Regions forced to a MALLOC_LARGE, an IOAccelerator and a Sanitizer (tag 99) tag, all dirtied: the instrument
+    // attributes each by user_tag -- malloc_bytes, gpu and hostmalloc grow. These are the info counters the device log
+    // needs to attribute `other`. (graphics stays the ledger, independent of the over-counting gpu region sum.)
+    constexpr std::uint64_t size = std::uint64_t{8} << 20;  // 8 MiB
+    const memory::Instrument before = memory::sample_instrument();
+    void *m = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE,
+                     VM_MAKE_TAG(VM_MEMORY_MALLOC_LARGE), 0);
+    void *g = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE,
+                     VM_MAKE_TAG(VM_MEMORY_IOACCELERATOR), 0);
+    void *h = ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE,
+                     VM_MAKE_TAG(VM_MEMORY_SANITIZER), 0);
+    CHECK(m != MAP_FAILED && g != MAP_FAILED && h != MAP_FAILED);
+    std::memset(m, 1, size);
+    std::memset(g, 1, size);
+    std::memset(h, 1, size);
+    const memory::Instrument after = memory::sample_instrument();
+    const std::uint64_t slack = size - (std::uint64_t{1} << 16);  // allow for page rounding and eviction
+    CHECK(after.malloc_bytes >= before.malloc_bytes + slack);
+    CHECK(after.gpu >= before.gpu + slack);
+    CHECK(after.hostmalloc >= before.hostmalloc + slack);
+    if (m != MAP_FAILED) ::munmap(m, size);
+    if (g != MAP_FAILED) ::munmap(g, size);
+    if (h != MAP_FAILED) ::munmap(h, size);
 }
 
 /// A stand-in for libGLESv2's ANGLEMetalMemoryLine, so the test needs no real ANGLE: writes a fixed stats string.

@@ -6,7 +6,9 @@
 #include <dispatch/dispatch.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
+#include <mach/vm_page_size.h>
 #include <mach/vm_region.h>
+#include <mach/vm_statistics.h>
 #include <mach-o/dyld.h>
 #include <pthread.h>
 #include <time.h>
@@ -194,7 +196,7 @@ Instrument sample_instrument() {
         reading.external = info.external;
         // The ledger footprints are signed but never negative; clamp defensively for -Wsign-conversion.
         const auto nonneg = [](std::int64_t value) { return value > 0 ? static_cast<std::uint64_t>(value) : 0; };
-        reading.graphics = nonneg(info.ledger_tag_graphics_footprint);
+        reading.graphics = nonneg(info.ledger_tag_graphics_footprint);  // the GPU ledger alone (the de-duplicated GPU)
         reading.media = nonneg(info.ledger_tag_media_footprint);
         reading.purgeable = nonneg(info.ledger_purgeable_nonvolatile);
         reading.purgeable_compressed = nonneg(info.ledger_purgeable_novolatile_compressed);
@@ -204,21 +206,37 @@ Instrument sample_instrument() {
                                     reading.purgeable + reading.purgeable_compressed;
         reading.other = reading.footprint > parts ? reading.footprint - parts : 0;
     }
-    // The guest's own mappings carry VM tag 0 (sys_mmap's); split them by backing, as sys_madvise classifies them.
-    // vm_region_recurse_64 (not mach_vm_region_recurse, which the iOS SDK lacks): vm_address_t/vm_size_t, as inspect().
+    // One VM-region walk with the LONG submap info (pages_dirtied + pages_swapped_out + user_tag), to attribute the
+    // `other` remainder on a memory-heavy app. The guest's own mappings carry VM tag 0 (sys_mmap's); split by backing,
+    // as sys_madvise classifies them. GPU regions (IOAccelerator/IOSurface) and the allocator's (MALLOC_*) are summed
+    // by their footprint bytes (dirty + swapped). vm_region_recurse_64, not mach_vm_region_recurse (iOS SDK lacks it).
     vm_address_t address = 0;
     while (true) {
         vm_size_t size = 0;
         natural_t depth = 0;
-        vm_region_submap_short_info_data_64_t region{};
-        mach_msg_type_number_t region_count = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
+        vm_region_submap_info_data_64_t region{};
+        mach_msg_type_number_t region_count = VM_REGION_SUBMAP_INFO_COUNT_64;
         const kern_return_t kr =
             ::vm_region_recurse_64(::mach_task_self(), &address, &size, &depth,
                                    reinterpret_cast<vm_region_recurse_info_t>(&region), &region_count);
         if (kr != KERN_SUCCESS) break;
-        if (!region.is_submap && region.user_tag == 0) {
-            if (region.external_pager == 0) reading.anon += size;
-            else reading.file += size;
+        if (!region.is_submap) {
+            const unsigned tag = region.user_tag;
+            const std::uint64_t dirty =
+                (static_cast<std::uint64_t>(region.pages_dirtied) + region.pages_swapped_out) * vm_page_size;
+            if (tag == 0) {  // the guest's own mappings and other untagged memory ("Untagged" in the footprint tool)
+                if (region.external_pager == 0) reading.anon += size;
+                else reading.file += size;
+                reading.untagged += dirty;
+            } else if (tag == VM_MEMORY_IOACCELERATOR || tag == VM_MEMORY_IOSURFACE) {
+                reading.gpu += dirty;  // info only: shared GPU mappings make this over-count, so graphics stays ledger
+            } else if (tag == VM_MEMORY_SANITIZER) {
+                reading.hostmalloc += dirty;  // tag 99 = the host allocator's regions (macOS 27 xzone); parking is here
+            } else if (tag >= VM_MEMORY_MALLOC && tag <= VM_MEMORY_MALLOC_MEDIUM) {
+                reading.malloc_bytes += dirty;  // the old allocator's tags (empty where xzone tags its own as 99)
+            } else {
+                reading.untagged += dirty;  // any other named tag the split does not name yet
+            }
         }
         if (address + size <= address) break;  // wrapped past the top of the address space
         address += size;
@@ -231,10 +249,11 @@ std::size_t format_instrument(const Instrument &reading, bool warning, char *out
     const int length = std::snprintf(
         out, size,
         "I/apkrt   : mem foot=%llu int=%llu comp=%llu gfx=%llu media=%llu purg=%llu purgc=%llu other=%llu ext=%llu "
-        "anon=%llu file=%llu%s\n",
+        "anon=%llu file=%llu gpu=%llu malloc=%llu hmalloc=%llu untag=%llu%s\n",
         m(reading.footprint), m(reading.internal), m(reading.compressed), m(reading.graphics), m(reading.media),
         m(reading.purgeable), m(reading.purgeable_compressed), m(reading.other), m(reading.external), m(reading.anon),
-        m(reading.file), warning ? " warn" : "");
+        m(reading.file), m(reading.gpu), m(reading.malloc_bytes), m(reading.hostmalloc), m(reading.untagged),
+        warning ? " warn" : "");
     if (length < 0 || static_cast<std::size_t>(length) >= size) return 0;
     return static_cast<std::size_t>(length);
 }
@@ -242,7 +261,7 @@ std::size_t format_instrument(const Instrument &reading, bool warning, char *out
 void log_instrument(bool warning) {
     if (::getenv("MINATO_LOADER_LOG") == nullptr) return;
     const Instrument reading = sample_instrument();
-    char line[256];
+    char line[256];  // the mem line's 15 fields in MiB fit well under this (~192 chars at realistic values)
     const std::size_t length = format_instrument(reading, warning, line, sizeof line);
     if (length > 0) static_cast<void>(::write(STDERR_FILENO, line, length));
     char gl[256];
