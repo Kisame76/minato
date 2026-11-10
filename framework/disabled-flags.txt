@@ -1,0 +1,3 @@
+# @FlaggedApi flags that are off in the release Minato answers as (Android 15, ap3a): tools/managergen (--disabled-flags)
+# leaves a flagged member out of the generated managers, as that release's own build does. One flag per line.
+com.android.appsearch.flags.enable_app_functions  # AppSearchManager.getAppFunctionManager

@@ -301,6 +301,10 @@ themselves never ship.
 | `platform/packages/modules/Bluetooth` | `84f57cd7ec50` | Apache-2.0 | `framework/api/current.txt` | 115,798 | `304ad363f23baa83…` |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `nfc/api/current.txt` | 28,303 | `d1866c10fc888c38…` |
 | `platform/packages/modules/Permission` | `d7374497d3ac` | Apache-2.0 | `framework-s/api/current.txt` | 1,181 | `7e6928dd6c83d40a…` |
+| `platform/packages/modules/AppSearch` | `5776d8d321cc` | Apache-2.0 | `framework/api/current.txt` | 72,291 | `d515bb14d420a906…` |
+| `platform/packages/modules/DeviceLock` | `9db83af1151d` | Apache-2.0 | `framework/api/current.txt` | 1,518 | `9fb3e994059a930f…` |
+| `platform/packages/modules/HealthFitness` | `37f52da6d15b` | Apache-2.0 | `framework/api/current.txt` | 141,484 | `2f3c5da74406cf29…` |
+| `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | `apex/framework/api/current.txt` | 17,884 | `be75d4afd890a189…` |
 
 The module APIs' Java sources (the framework breadth), fetched by
 `tools/fetch-sources.py --set framework` at the tag on 2026-10-08 (`build/sources/location_java`,

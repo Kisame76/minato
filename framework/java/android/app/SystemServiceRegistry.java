@@ -314,6 +314,14 @@ final class SystemServiceRegistry {
                 ctx -> new android.app.people.PeopleManager(ctx.getOuterContext()));
         cached(Context.VIRTUAL_DEVICE_SERVICE, android.companion.virtual.VirtualDeviceManager.class,
                 ctx -> new android.companion.virtual.VirtualDeviceManager(ctx.getOuterContext()));
+        cached(Context.APP_SEARCH_SERVICE, android.app.appsearch.AppSearchManager.class,
+                ctx -> new android.app.appsearch.AppSearchManager(ctx.getOuterContext()));
+        cached(Context.DEVICE_LOCK_SERVICE, android.devicelock.DeviceLockManager.class,
+                ctx -> new android.devicelock.DeviceLockManager(ctx.getOuterContext()));
+        cached(Context.HEALTHCONNECT_SERVICE, android.health.connect.HealthConnectManager.class,
+                ctx -> new android.health.connect.HealthConnectManager(ctx.getOuterContext()));
+        cached(Context.MEDIA_COMMUNICATION_SERVICE, android.media.MediaCommunicationManager.class,
+                ctx -> new android.media.MediaCommunicationManager(ctx.getOuterContext()));
         // Services bundle C part 1 (service inventory): the IPsec, VPN management and connectivity diagnostics managers.
         cached(Context.IPSEC_SERVICE, IpSecManager.class, ctx -> new IpSecManager(ctx.getOuterContext()));
         cached(Context.VPN_MANAGEMENT_SERVICE, VpnManager.class, ctx -> new VpnManager(ctx.getOuterContext()));

@@ -44,10 +44,12 @@ cd "$(dirname "$0")/.."
 # declarations, the api files, mime and phone number data; size and time), the tools and build outputs it consumes.
 SOURCE_DIRS=(frameworks_base frameworks_base_api frameworks_base_graphics frameworks_base_hwui frameworks_base_types
   location_java location_api libcore icu build_release modules_utils connectivity_api connectivity_t_api wifi_api
-  bluetooth_api nfc_api permission_api mime_support mime_map libphonenumber hardware_interfaces_vibrator
+  bluetooth_api nfc_api permission_api appsearch_api devicelock_api healthfitness_api media_api mime_support mime_map
+  libphonenumber hardware_interfaces_vibrator
   frameworks_av_media_aidl)
 PREPARED_INPUTS=(framework/java framework/managers framework/patches framework/stubs framework/aidl-imports
-  framework/sources.txt third_party/sources.json tools/build-framework.sh tools/aconfig-flags.py tools/appopsgen.py
+  framework/sources.txt framework/disabled-flags.txt third_party/sources.json tools/build-framework.sh
+  tools/aconfig-flags.py tools/appopsgen.py
   tools/compatgen.py tools/event-log-tags.py tools/swap-dir.py tools/managergen
   fixtures/java/gapscan-test/io/github/kisame76/minato/test/gapscan/GapScan.java
   --stat build/art/java/all-classes.jar build/art/boot_jars.json build/framework-res/java
@@ -345,7 +347,31 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --api "$SOURCES/nfc_api/nfc/api/current.txt" --class android.nfc.NfcManager \
   --class android.nfc.NfcAdapter \
   --api "$SOURCES/permission_api/framework-s/api/current.txt" --class android.app.role.RoleManager \
-  --hand framework/managers --out "$GEN/managers" >/dev/null
+  --api "$SOURCES/appsearch_api/framework/api/current.txt" --class android.app.appsearch.AppSearchManager \
+  --class android.app.appsearch.AppSearchResult --class android.app.appsearch.AppSearchSession \
+  --class android.app.appsearch.EnterpriseGlobalSearchSession --class android.app.appsearch.GlobalSearchSession \
+  --class android.app.appsearch.functions.AppFunctionManager \
+  --api "$SOURCES/devicelock_api/framework/api/current.txt" --class android.devicelock.DeviceLockManager \
+  --class android.devicelock.DeviceId \
+  --api "$SOURCES/healthfitness_api/framework/api/current.txt" --class android.health.connect.HealthConnectManager \
+  --class android.health.connect.AggregateRecordsGroupedByDurationResponse \
+  --class android.health.connect.AggregateRecordsGroupedByPeriodResponse \
+  --class android.health.connect.AggregateRecordsRequest --class android.health.connect.AggregateRecordsResponse \
+  --class android.health.connect.CreateMedicalDataSourceRequest \
+  --class android.health.connect.HealthConnectException \
+  --class android.health.connect.InsertRecordsResponse --class android.health.connect.MedicalIdFilter \
+  --class android.health.connect.ReadMedicalResourcesRequest \
+  --class android.health.connect.ReadMedicalResourcesResponse \
+  --class android.health.connect.ReadRecordsRequest --class android.health.connect.ReadRecordsResponse \
+  --class android.health.connect.RecordIdFilter --class android.health.connect.TimeRangeFilter \
+  --class android.health.connect.changelog.ChangeLogTokenRequest \
+  --class android.health.connect.changelog.ChangeLogTokenResponse \
+  --class android.health.connect.changelog.ChangeLogsRequest \
+  --class android.health.connect.changelog.ChangeLogsResponse \
+  --class android.health.connect.datatypes.MedicalDataSource --class android.health.connect.datatypes.MedicalResource \
+  --class android.health.connect.datatypes.Record \
+  --api "$SOURCES/media_api/apex/framework/api/current.txt" --class android.media.MediaCommunicationManager \
+  --disabled-flags framework/disabled-flags.txt --hand framework/managers --out "$GEN/managers" >/dev/null
 # The compat changes' table (step c2e): each @ChangeId field of framework.jar's and the boot jars' sources with the
 # target SDK from which its change is enabled, from which ActivityThread.main gives the app its disabled changes.
 python3 tools/compatgen.py --sources "$SOURCES" --list framework/sources.txt --java framework/java \
@@ -378,7 +404,11 @@ python3 tools/managergen/managergen.py --stubs --hand framework/stubs/members \
   --all-of "$SOURCES/wifi_api/framework/api/current.txt" \
   --all-of "$SOURCES/bluetooth_api/framework/api/current.txt" \
   --all-of "$SOURCES/nfc_api/nfc/api/current.txt" \
-  --all-of "$SOURCES/permission_api/framework-s/api/current.txt" --out "$OUT/stubs-src" >/dev/null
+  --all-of "$SOURCES/permission_api/framework-s/api/current.txt" \
+  --all-of "$SOURCES/appsearch_api/framework/api/current.txt" \
+  --all-of "$SOURCES/devicelock_api/framework/api/current.txt" \
+  --all-of "$SOURCES/healthfitness_api/framework/api/current.txt" \
+  --all-of "$SOURCES/media_api/apex/framework/api/current.txt" --out "$OUT/stubs-src" >/dev/null
 for annotations in modules_utils/java/android/annotation modules_utils/java/com/android/internal/annotations \
     frameworks_base_graphics/ravenwood/annotations-src/android/ravenwood/annotation; do
   target="$OUT/stubs-src/${annotations#*/java/}"

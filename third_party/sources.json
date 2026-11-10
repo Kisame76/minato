@@ -609,6 +609,46 @@
       "digest": "e83554cea1314b1ddb04555360c0c82b1e053e861658575f5f4cad81b7609f12"
     },
     {
+      "name": "appsearch_api",
+      "project": "platform/packages/modules/AppSearch",
+      "commit": "5776d8d321cc3525886ff4b507eb7b448b865951",
+      "license": "Apache-2.0",
+      "files": [
+        "framework/api/current.txt"
+      ],
+      "digest": "99697d6fc9285ab1f44775731818ed138203f2681fc6311983d9ed730af7d5b6"
+    },
+    {
+      "name": "devicelock_api",
+      "project": "platform/packages/modules/DeviceLock",
+      "commit": "9db83af1151d4773a8cf65e111915147d4984131",
+      "license": "Apache-2.0",
+      "files": [
+        "framework/api/current.txt"
+      ],
+      "digest": "fd654bcfa30e5fb0e6a6e87d997778e66eb12feaa979f420f367aeb25ccdc2af"
+    },
+    {
+      "name": "healthfitness_api",
+      "project": "platform/packages/modules/HealthFitness",
+      "commit": "37f52da6d15b630868ff4338652a9f9e225e2bc6",
+      "license": "Apache-2.0",
+      "files": [
+        "framework/api/current.txt"
+      ],
+      "digest": "6e4169b0776f5220db731099c48487ddae1e4e13495f76fffb70b87105cfb615"
+    },
+    {
+      "name": "media_api",
+      "project": "platform/packages/modules/Media",
+      "commit": "579b22cdf08d463034146603014a1eab2a08274a",
+      "license": "Apache-2.0",
+      "files": [
+        "apex/framework/api/current.txt"
+      ],
+      "digest": "3818964b72895ecaf92f02516923b897d2f3861ce4bb2c200e0da925ecba96cc"
+    },
+    {
       "name": "libphonenumber",
       "project": "platform/external/libphonenumber",
       "commit": "5096f223825860ab38a488496efd6fb37a15c388",

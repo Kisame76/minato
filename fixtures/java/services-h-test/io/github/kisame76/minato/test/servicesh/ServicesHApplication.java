@@ -27,14 +27,18 @@ import java.util.Map;
 public class ServicesHApplication extends Application {
     private static final String TAG = "services-h-test";
     private static final String[][] SERVICES = {
+        {"app_search", "android.app.appsearch.AppSearchManager"},
         {"blob_store", "android.app.blob.BlobStoreManager"},
         {"bugreport", "android.os.BugreportManager"},
         {"companiondevice", "android.companion.CompanionDeviceManager"},
         {"credential", "android.credentials.CredentialManager"},
         {"crossprofileapps", "android.content.pm.CrossProfileApps"},
+        {"device_lock", "android.devicelock.DeviceLockManager"},
         {"display_hash", "android.view.displayhash.DisplayHashManager"},
         {"domain_verification", "android.content.pm.verify.domain.DomainVerificationManager"},
         {"file_integrity", "android.security.FileIntegrityManager"},
+        {"healthconnect", "android.health.connect.HealthConnectManager"},
+        {"media_communication", "android.media.MediaCommunicationManager"},
         {"overlay", "android.content.om.OverlayManager"},
         {"people", "android.app.people.PeopleManager"},
         {"virtualdevice", "android.companion.virtual.VirtualDeviceManager"},

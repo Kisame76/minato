@@ -1,3 +1,4 @@
+I/services-h-test: AppSearchManager by name: true, by class: true, same: true
 I/services-h-test: BlobStoreManager by name: true, by class: true, same: true
 I/services-h-test: BlobStoreManager.getLeasedBlobs(): size 0
 I/services-h-test: BlobStoreManager.getRemainingLeaseQuotaBytes(): 314572800
@@ -11,11 +12,17 @@ I/services-h-test: CrossProfileApps by name: true, by class: true, same: true
 I/services-h-test: CrossProfileApps.canInteractAcrossProfiles(): false
 I/services-h-test: CrossProfileApps.canRequestInteractAcrossProfiles(): false
 I/services-h-test: CrossProfileApps.getTargetUserProfiles(): size 0
+I/services-h-test: DeviceLockManager by name: true, by class: true, same: true
 I/services-h-test: DisplayHashManager by name: true, by class: true, same: true
 I/services-h-test: DisplayHashManager.getSupportedHashAlgorithms(): size 1
 I/services-h-test: DomainVerificationManager by name: true, by class: true, same: true
 I/services-h-test: FileIntegrityManager by name: true, by class: true, same: true
 I/services-h-test: FileIntegrityManager.isApkVeritySupported(): true
+I/services-h-test: HealthConnectManager by name: true, by class: true, same: true
+I/services-h-test: HealthConnectManager.getRecordRetentionPeriodInDays(): throws java.lang.SecurityException
+I/services-h-test: MediaCommunicationManager by name: true, by class: true, same: true
+I/services-h-test: MediaCommunicationManager.getSession2Tokens(): size 0
+I/services-h-test: MediaCommunicationManager.getVersion(): 1
 I/services-h-test: OverlayManager by name: true, by class: true, same: true
 I/services-h-test: PeopleManager by name: true, by class: true, same: true
 I/services-h-test: VirtualDeviceManager by name: true, by class: true, same: true

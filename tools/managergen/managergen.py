@@ -37,6 +37,9 @@ MODIFIERS = {"public", "protected", "private", "static", "final", "abstract", "d
              "transient", "volatile", "strictfp", "sealed", "non-sealed"}
 KINDS = {"class", "interface", "enum", "@interface"}
 KEPT_ANNOTATIONS = {"@Deprecated"}
+# The flags of @FlaggedApi that are off in the release Minato answers as (--disabled-flags): a member flagged by one is
+# not written, as the release's own build leaves it out.
+DISABLED_FLAGS = set()
 # An annotation type's own retention and targets, kept with their arguments: without them javac gives a stub CLASS
 # retention, and an app compiled against the stub loses the annotation at run time where the real type keeps it.
 KEPT_WITH_ARGUMENTS = {"@java.lang.annotation.Retention", "@java.lang.annotation.Target"}
@@ -224,6 +227,9 @@ def parse(text, origin, api=None, library=False):
         elif stripped == "}":
             current = None
         else:
+            flagged = re.search(r'@FlaggedApi\("([^"]+)"\)', stripped)
+            if flagged and flagged.group(1) in DISABLED_FLAGS:
+                continue
             parse_member(current, stripped, fail)
     if package is not None:
         raise GeneratorError(f"{origin}: package {package} is not closed")
@@ -901,6 +907,9 @@ def main():
     parser.add_argument("--placeholder", dest="placeholders", action="append", default=[],
                         help="a class to write whose every ctor and method throws UnsupportedOperationException")
     parser.add_argument("--hand")
+    parser.add_argument("--disabled-flags",
+                        help="a file with one @FlaggedApi flag per line (# comments) that is off: its members are not "
+                             "written")
     parser.add_argument("--out", required=True)
     parser.add_argument("--stubs", action="store_true",
                         help="write the classes as compile-only stubs: unknown types' members left out; a hand file "
@@ -912,6 +921,9 @@ def main():
     args = parser.parse_args()
     if bool(args.implement) != bool(args.implementation):
         parser.error("--implement and --as go together")
+    if args.disabled_flags:
+        with open(args.disabled_flags, encoding="utf-8") as listed:
+            DISABLED_FLAGS.update(line.split("#")[0].strip() for line in listed if line.split("#")[0].strip())
     try:
         if args.implement:
             outputs = [(args.out, implement(args.implement, args.implementation, args.hand))]
