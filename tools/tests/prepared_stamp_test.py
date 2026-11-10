@@ -122,6 +122,54 @@ for script in ("build-framework.sh", "build-framework-native.sh"):
             gone = run(box, "compute", *args).stdout
             check(gone not in (before, changed), script + ": removing " + entry + " keeps the digest")
 
+# A lane never builds: with MINATO_LANE=1 a step whose stamp does not match stops loudly instead of building, and the
+# lanes' PATH (tools/lane-bin first) leaves the declared inputs as they are (the shim must not become an input).
+import shutil
+for script in ("build-framework.sh", "build-framework-native.sh"):
+    plain = subprocess.run(["bash", os.path.join(REPO, "tools", script)], capture_output=True, text=True,
+                           env=dict(os.environ, MINATO_PRINT_INPUTS="1")).stdout
+    shimmed = subprocess.run(["bash", os.path.join(REPO, "tools", script)], capture_output=True, text=True,
+                             env=dict(os.environ, MINATO_PRINT_INPUTS="1",
+                                      PATH=os.path.join(REPO, "tools", "lane-bin") + ":" + os.environ["PATH"])).stdout
+    check(plain == shimmed and plain != "", script + ": the lanes' PATH changes the declared inputs")
+with tempfile.TemporaryDirectory() as root:
+    for name in ("tools/build-framework.sh", "tools/build-framework-native.sh", "tools/prepared-stamp.py",
+                 "tools/prefix-map-flags.sh", "framework/sources.txt", "framework/CMakeLists.txt",
+                 "tools/aapt2/soong.cmake", "tools/aapt2/CMakeLists.txt"):
+        os.makedirs(os.path.dirname(os.path.join(root, name)), exist_ok=True)
+        shutil.copy(os.path.join(REPO, name), os.path.join(root, name))
+    for script in ("build-framework.sh", "build-framework-native.sh"):
+        for lane, expect in (("1", True), (None, False)):
+            env = dict(os.environ, MINATO_PREPARED="1")
+            env.pop("MINATO_LANE", None)
+            if lane:
+                env["MINATO_LANE"] = lane
+            done = subprocess.run(["bash", os.path.join(root, "tools", script)], cwd=root, env=env,
+                                  capture_output=True, text=True)
+            said = "a lane must not build" in done.stderr
+            check(said == expect and (done.returncode != 0), script + (" in a lane" if lane else " alone") +
+                  ": expected" + ("" if expect else " no") + " lane stop; got rc " + str(done.returncode) + " " +
+                  done.stderr[-200:])
+    # The cmake shim: a lane with a stale stamp stops before the real cmake; outside a lane the real cmake runs.
+    os.makedirs(os.path.join(root, "tools/lane-bin"))
+    shutil.copy(os.path.join(REPO, "tools/lane-bin/cmake"), os.path.join(root, "tools/lane-bin/cmake"))
+    os.makedirs(os.path.join(root, "bin"))
+    write(os.path.join(root, "bin/cmake"), "#!/bin/sh\necho real cmake >> ran.txt\n")
+    os.chmod(os.path.join(root, "bin/cmake"), 0o755)
+    for lane, expect_real in (("1", False), (None, True)):
+        env = dict(os.environ, MINATO_PREPARED="1", PATH=os.path.join(root, "tools/lane-bin") + ":" +
+                   os.path.join(root, "bin") + ":" + os.environ["PATH"])
+        env.pop("MINATO_LANE", None)
+        if lane:
+            env["MINATO_LANE"] = lane
+        if os.path.exists(os.path.join(root, "ran.txt")):
+            os.remove(os.path.join(root, "ran.txt"))
+        done = subprocess.run([os.path.join(root, "tools/lane-bin/cmake"), "--build", "build/native/macos-app"],
+                              cwd=root, env=env, capture_output=True, text=True)
+        ran = os.path.exists(os.path.join(root, "ran.txt"))
+        check(ran == expect_real and (lane is None or done.returncode != 0),
+              "cmake shim " + ("in a lane" if lane else "alone") + ": real cmake ran " + str(ran))
+
 # Completeness: every folder of build/sources that a step names, and that framework/sources.txt takes from, is declared.
 declared_sources = {}
 for script in ("build-framework.sh", "build-framework-native.sh"):

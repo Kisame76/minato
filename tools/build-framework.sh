@@ -62,6 +62,11 @@ if python3 tools/prepared-stamp.py check framework build/framework/framework.jar
   echo "build-framework: prepared, inputs unchanged (build/framework/framework.jar)"
   exit 0
 fi
+if [[ "${MINATO_LANE:-}" == 1 ]]; then  # tools/check-lanes.sh: the lanes only read the folders that check-prepare built
+  echo "build-framework: inputs changed since tools/check-prepare.sh; a lane must not build into build/framework." \
+    "Run tools/check-prepare.sh again, or the check on its own." >&2
+  exit 1
+fi
 PREPARED_DIGEST=$(python3 tools/prepared-stamp.py compute "${PREPARED_INPUTS[@]}")
 
 JDK=$PWD/$(echo build/tools/jdk-17/*/Contents/Home)

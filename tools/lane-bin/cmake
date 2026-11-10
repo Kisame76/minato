@@ -13,6 +13,11 @@ if [[ "${MINATO_PREPARED:-}" == 1 ]]; then
           CMakeLists.txt CMakePresets.json runtime importer graphics third_party/sources.json); then
         exit 0
       fi
+      if [[ "${MINATO_LANE:-}" == 1 ]]; then  # tools/check-lanes.sh: a lane must not write the shared folder
+        echo "lane-bin/cmake: build/native/macos-app changed since tools/check-prepare.sh; a lane must not build it." \
+          "Run tools/check-prepare.sh again, or the check on its own." >&2
+        exit 1
+      fi
       break
     fi
   done

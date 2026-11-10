@@ -22,7 +22,7 @@ export MINATO_PREPARED=1
 tools/check-prepare.sh >/dev/null
 
 rm -rf "$logs"; mkdir -p "$logs"
-export PATH="$PWD/tools/lane-bin:$PATH" LOGS="$logs"
+export PATH="$PWD/tools/lane-bin:$PATH" LOGS="$logs" MINATO_LANE=1   # a lane never builds a shared folder
 start=$(date +%s)
 printf '%s\n' "$@" | xargs -P "$lanes" -I{} bash -c '
   name=$(basename "{}" .sh); s=$(date +%s)

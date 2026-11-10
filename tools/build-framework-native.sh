@@ -22,7 +22,8 @@ NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/30.0.16248370}"
 PREPARED_INPUTS=(framework/native framework/CMakeLists.txt runtime/include third_party/sources.json
   tools/build-framework-native.sh tools/prefix-map-flags.sh tools/aapt2/soong.cmake
   --stat build/hwui/lib build/art/lib build/bionic/lib/liblog.so tools/aapt2 "$NDK/source.properties"
-  "$NDK/build/cmake/android.toolchain.cmake" "$(command -v cmake || true)" "$(command -v ninja || true)")
+  "$NDK/build/cmake/android.toolchain.cmake" "$(PATH="${PATH//$PWD\/tools\/lane-bin:/}" command -v cmake || true)"
+  "$(command -v ninja || true)")  # the real cmake: the lanes' shim (tools/lane-bin) is first in PATH only there
 while IFS= read -r dir; do PREPARED_INPUTS+=("build/sources/$dir"); done < <(
   grep -ho 'SOURCES}/[A-Za-z0-9_-]*\|build/sources/[A-Za-z0-9_-]*' framework/CMakeLists.txt tools/aapt2/soong.cmake \
     tools/aapt2/CMakeLists.txt | sed -e 's|.*SOURCES}/||' -e 's|.*build/sources/||' | grep . | sort -u)
@@ -34,6 +35,11 @@ if python3 tools/prepared-stamp.py check framework-native build/framework-native
     "${PREPARED_INPUTS[@]}"; then
   echo "build-framework-native: prepared, inputs unchanged (build/framework-native)"
   exit 0
+fi
+if [[ "${MINATO_LANE:-}" == 1 ]]; then  # tools/check-lanes.sh: the lanes only read the folders that check-prepare built
+  echo "build-framework-native: inputs changed since tools/check-prepare.sh; a lane must not build into" \
+    "build/framework-native. Run tools/check-prepare.sh again, or the check on its own." >&2
+  exit 1
 fi
 PREPARED_DIGEST=$(python3 tools/prepared-stamp.py compute "${PREPARED_INPUTS[@]}")
 
