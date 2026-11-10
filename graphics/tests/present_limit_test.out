@@ -1,10 +1,10 @@
-unpaced without a limit: more than 100 a second: yes
+unpaced without a limit: more than 70 a second: yes
 the limit 30: set
 unpaced at the limit 30: 20 to 30 a second: yes
 paced at 30 a second, at the limit 30: 20 to 30 a second: yes
 the limit 60: set
 unpaced at the limit 60: 45 to 60 a second: yes
 the limit 0: set
-unpaced without a limit again: more than 100 a second: yes
+unpaced without a limit again: more than 70 a second: yes
 a limit of -1: refused
 done

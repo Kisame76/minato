@@ -1,6 +1,6 @@
-in a loop without a limit: more than 100 a second: yes
+in a loop without a limit: more than 70 a second: yes
 the limit 30: set
 in a loop at the limit 30: 20 to 30 a second: yes
 the limit 0: set
-in a loop without a limit again: more than 100 a second: yes
+in a loop without a limit again: more than 70 a second: yes
 done

@@ -111,6 +111,8 @@
 #              physical footprint every 10 s and every iOS memory warning to tmp/session-check/footprint-log. The
 #              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory"
 #              (tools/renpy_footprint.py); a run with no footprint sample is a note, not a failure.
+#   RENPY_MEMORY_APK  an APK of the same package that renpy-memory-test plays instead of tools/renpy-memory.sh's
+#              (Minato's own Ren'Py builds only, such as the ATL frame sequence of the texture parking's round)
 #   PIXELS     a folder: only the pixel round of ADR-0043 b5's step f runs (tools/window-contents-check.sh), with
 #              views-test, dialog-test, second-windows-test, activity-flow-test and window-formats-test (ONLY= picks),
 #              each started with SessionCheck's window-crc. At each checkpoint the windows' dump (window-dump) and a
@@ -255,6 +257,10 @@ GODOT_TEST=${GODOT_TEST-yes}
 [[ -z "$GODOT_TEST" ]] || APPS+=("godot-bench-gles io.github.kisame76.minato.godotbench.gles")
 [[ "$ON_DEVICE" == no ]] || APPS+=("vk-ahb-test io.github.kisame76.minato.test.vkahb")
 [[ "$ON_DEVICE" == no ]] || APPS+=("gles-procs-test io.github.kisame76.minato.test.glesprocs")
+# The frame rate limit's hold of unpaced presents (ADR-0078 decision 4): EGL in the Simulator too, Vulkan on the
+# iPhone only (the Simulator has no MoltenVK).
+APPS+=("present-limit-gles io.github.kisame76.minato.test.presentlimit.gles")
+[[ "$ON_DEVICE" == no ]] || APPS+=("present-limit-vulkan io.github.kisame76.minato.test.presentlimit.vulkan")
 [[ "$ON_DEVICE" == no ]] || APPS+=("engine-start-test io.github.kisame76.minato.test.enginestart")
 APPS+=("program-binary-test io.github.kisame76.minato.test.programbinary")
 APPS+=("hardware-bitmap-test io.github.kisame76.minato.test.hardwarebitmap")
@@ -371,7 +377,7 @@ apk() {
     packs-test) echo "build/packs-test/packs-test.apks" ;;
     pad-test) echo "build/pad-test/pad-test.apks" ;;
     splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
-    vk-ahb-test|window-formats-test|gles-procs-test) echo "build/fixtures/apks/$1.apk" ;;
+    vk-ahb-test|window-formats-test|gles-procs-test|present-limit-*) echo "build/fixtures/apks/$1.apk" ;;
     renpy-splash-test|renpy-stay-test) echo "build/renpy-splash-test/$1.apk" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
@@ -389,9 +395,16 @@ for app in "${APPS[@]}"; do
     packs-test) tools/build-packs-test.sh >/dev/null ;;
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
-    vk-ahb-test|window-formats-test|gles-procs-test) tools/build-fixtures.sh >/dev/null ;;
+    vk-ahb-test|window-formats-test|gles-procs-test|present-limit-*) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test|renpy-stay-test) ;;
-    renpy-memory-test) BUILD_ONLY=1 tools/renpy-memory.sh ;;
+    renpy-memory-test)
+      if [[ -n "${RENPY_MEMORY_APK:-}" ]]; then
+        mkdir -p build/renpy-memory-test
+        cp "$RENPY_MEMORY_APK" build/renpy-memory-test/renpy-memory-test.apk
+      else
+        BUILD_ONLY=1 tools/renpy-memory.sh
+      fi
+      ;;
     # Their assets are splits-test's set (build/splits-test/set/).
     install-set-test|install-set-flow-test)
       tools/build-splits-test.sh splits-test >/dev/null
@@ -1945,6 +1958,48 @@ if wanted vsync-test; then
   done
   FRAME_RATE_LIMIT=""
 fi
+
+# The frame rate limit's hold of apps that present without pacing of their own (ADR-0078 decision 4):
+# present-limit-gles swaps with EGL at a swap interval of 0, present-limit-vulkan presents a FIFO swapchain in a loop,
+# each 1 s to settle and 3 s counted, then logs its presents a second and finishes. Start 1 with the limit 30:
+# graphics/host holds the presents to 27-32 a second (one more where a late present catches up on the limit's grid).
+# Start 2 with 0 (none): more than 100 on the iPhone's 120 Hz screen, more than 40 in the Simulator (the Mac's screen,
+# at 60 Hz or more).
+for app in present-limit-gles present-limit-vulkan; do
+  wanted "$app" && listed "$app" || continue
+  package=io.github.kisame76.minato.test.presentlimit.${app#present-limit-}
+  for start in 1 2; do
+    limit=30
+    [[ $start == 1 ]] || limit=0
+    FRAME_RATE_LIMIT=$limit
+    if begin_start "$app" "$package" "$start"; then
+      if await_line guest-log "^I/$app: presents counted$" 60; then
+        fetch_events
+        present=$(grep -o -E "present limit -?[0-9]+ result -?[0-9]+" "$EVENTS" | tail -n 1 || true)
+        [[ "$present" == "present limit $limit result 0" ]] ||
+          failed_line "limit $limit: \"${present:-no present limit line}\", not \"present limit $limit result 0\"" \
+            "$app-$start"
+        rate=$(grep -E "^I/$app-device: presents a second: [0-9]+$" "$CHECK/guest-log" | tail -n 1 |
+          sed -E 's/.*: //' || true)
+        low=27 high=32
+        if [[ $limit == 0 ]]; then
+          high=100000
+          low=101
+          [[ "$ON_DEVICE" == yes ]] || low=41
+        fi
+        if [[ -n "$rate" ]] && (( rate >= low && rate <= high )); then
+          ok "  limit $limit: $app presents $rate a second (unpaced)"
+        else
+          failed_line "limit $limit: $app presents ${rate:-?} a second, not $low to $high" "$app-$start"
+        fi
+      else
+        failed_line "limit $limit: $app did not count its presents" "$app-$start"
+      fi
+    fi
+    end_start "$app" "$start"
+  done
+  FRAME_RATE_LIMIT=""
+done
 
 # A tap outside the text field while the keyboard is up (ime-outside-test; ADR-0068 a, amended 2026-11-10): for each
 # of its five kinds of field the MinatoUITests runner taps above the field once the keyboard is up. Minato hides the

@@ -59,9 +59,15 @@
 //   MoltenVK, once graphics/host's run-time check passed, as the session runs an app whose manifest requires ES 3.1.
 //   It passes as above, and with gles-test's and gles31-test's <presents> when ANGLE made one swapchain and its layer's
 //   drawables have the app's buffer size, 256 x 256.
+// - present-limit-gles and present-limit-vulkan with <mode> limit:<rate>:<low>:<high> (ADR-0078 decision 4): the frame
+//   rate limit set to <rate> (0 = none) before the program, as the App's session sets it, and no frame clock; the apps
+//   present without pacing of their own until their own ANativeActivity_finish. It passes when the app's device line
+//   says between <low> and <high> presents a second, the only request was FINISH, onNativeWindowDestroyed and
+//   onDestroy were answered within 500 ms, and activity-host ended with status 0.
 //   graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> <front libs> <expected>
 //                     <ANGLE's libGLESv2.dylib> <libMoltenVK.dylib>
-//                     <presents | live | present | bench:<load> | record:<load> | cap:<load>:<cap>[:<unlock>]>
+//                     <presents | live | present | bench:<load> | record:<load> | cap:<load>:<cap>[:<unlock>] |
+//                      limit:<rate>:<low>:<high>>
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
@@ -731,6 +737,45 @@ void play_present(const std::string &app, const fs::path &expected, const fs::pa
     ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
 }
 
+/// present-limit-gles and present-limit-vulkan: the start without a frame clock, the app's unpaced presents until it
+/// finishes, the quit; its presents a second between `low` and `high`.
+void play_limit(const std::string &app, Capture &capture, long low, long high) {
+    const std::uint64_t window = add_window();
+    if (!start(window, nullptr)) return;
+    const auto finished = [] {
+        return std::find(seen.requests.begin(), seen.requests.end(), "FINISH") != seen.requests.end();
+    };
+    if (!wait_for(finished, 60s)) fail("no FINISH within 60 s: " + requests_text());
+    const std::uint64_t counted = apkrt_window_presents(window);
+    focus_lost(window, nullptr);
+    apkrt_window_remove(window);
+    post(APKRT_EVENT_PAUSE);
+    const double destroyed = answered(post(APKRT_EVENT_NATIVE_WINDOW_DESTROYED, window), 2);
+    post(APKRT_EVENT_STOP);
+    const double destroy = answered(post(APKRT_EVENT_DESTROY), 2);
+    wait_for([] { return seen.ended; }, 10s);
+
+    const std::string log = capture.drain();
+    ::dprintf(report, "host: presents counted: %llu\n", static_cast<unsigned long long>(counted));
+    ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
+    check_answer(destroyed, "onNativeWindowDestroyed");
+    check_answer(destroy, "onDestroy");
+    if (const std::string requests = requests_text(); requests != "[FINISH]") fail("the requests were " + requests);
+    ::dprintf(report, "%s", lines_with(log, "I/" + app + ": ").c_str());
+    const std::string device = lines_with(log, "I/" + app + "-device: ");
+    ::dprintf(report, "%s", device.c_str());
+    const std::string key = "presents a second: ";
+    const auto at = device.find(key);
+    if (at == std::string::npos) {
+        fail("no presents a second in the app's device line");
+        return;
+    }
+    const long rate = std::strtol(device.c_str() + at + key.size(), nullptr, 10);
+    if (rate < low || rate > high) {
+        fail(std::to_string(rate) + " presents a second, not " + std::to_string(low) + " to " + std::to_string(high));
+    }
+}
+
 /// Waits until the window counted `count` presents or the app asked to finish: true for the presents. `limit`
 /// counts this thread's rounds (patience.h).
 bool presented(std::uint64_t window, std::uint64_t count, std::chrono::milliseconds limit) {
@@ -856,7 +901,7 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "usage: graphics-app-test <scratch> <app> <fixtures build> <bionic lib> <guest system> "
                              "<front libs> <expected> <libGLESv2.dylib> <libMoltenVK.dylib> "
                              "<presents | translucent:<presents> | live | present | bench:<load> | record:<load> | "
-                             "cap:<load>:<cap>[:<unlock>]>\n");
+                             "cap:<load>:<cap>[:<unlock>] | limit:<rate>:<low>:<high>>\n");
         return 2;
     }
     const std::string app = argv[2];
@@ -886,7 +931,14 @@ int main(int argc, char **argv) {
     while (capped && static_cast<double>(every) * tick_period + tick_period / 2 < 1e9 / rate) ++every;
     const bool present = std::strcmp(argv[10], "present") == 0;
     const bool translucent = std::strncmp(argv[10], "translucent:", 12) == 0;
-    const std::uint64_t presents = live || bench || present ? 0
+    // limit:<rate>:<low>:<high>: the frame rate limit and the range of the app's presents a second.
+    const bool limited = std::strncmp(argv[10], "limit:", 6) == 0;
+    long limit_rate = 0, limit_low = 0, limit_high = 0;
+    if (limited && std::sscanf(argv[10], "limit:%ld:%ld:%ld", &limit_rate, &limit_low, &limit_high) != 3) {
+        std::fprintf(stderr, "limit:<rate>:<low>:<high>, not %s\n", argv[10]);
+        return 2;
+    }
+    const std::uint64_t presents = live || bench || present || limited ? 0
                                    : translucent         ? std::strtoull(argv[10] + 12, nullptr, 10)
                                                          : std::strtoull(argv[10], nullptr, 10);
     // tools/build-bench.sh puts the APKs at the top of its build, tools/build-fixtures.sh into apks/; the bench's
@@ -898,7 +950,7 @@ int main(int argc, char **argv) {
                                          : fs::path(expected).parent_path() / "apps" / app / "AndroidManifest.xml";
     std::vector<fs::path> needed = {apk, library, host, bionic / "libandroid.so", front / "libEGL.so",
                                     front / "libvulkan.so", angle, moltenvk, manifest_path};
-    if (!live && !bench) needed.push_back(expected / (app + ".logcat"));
+    if (!live && !bench && !limited) needed.push_back(expected / (app + ".logcat"));
     for (const auto &path : needed) {
         if (!fs::exists(path)) {
             std::printf("skipped: %s is missing (tools/build-fixtures.sh, tools/build-bench.sh, tools/build-bionic.sh, "
@@ -1001,6 +1053,10 @@ int main(int argc, char **argv) {
     const fs::path container = scratch / "system-bin" / "activity-host.dylib";
     // ADR-0066 step 4: the FPS unlock before the program, as the App's session sets it.
     if (unlock != 0 && apkrt_set_frame_rate_unlock(unlock) != 0) fail("the runtime refused the unlock");
+    // ADR-0078 decision 4: the frame rate limit before the program, as the App's session sets it.
+    if (limited && minato_graphics_set_frame_rate_limit(static_cast<int>(limit_rate)) != 0) {
+        fail("graphics/host refused the limit " + std::to_string(limit_rate));
+    }
     if (apkrt_start_program(container.c_str(), arguments, environment, error, sizeof error) != 0) {
         fail(std::string("apkrt_start_program: ") + error);
         _exit(1);
@@ -1012,6 +1068,8 @@ int main(int argc, char **argv) {
         play_present(app, expected, data, capture);
     } else if (bench) {
         play_bench(app, capture, record, capped, every);
+    } else if (limited) {
+        play_limit(app, capture, limit_low, limit_high);
     } else {
         play_scenes(app, expected, presents, translucent, capture);
     }

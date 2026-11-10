@@ -79,3 +79,11 @@ int64_t minato_present_limit_wait(int64_t last, int64_t now, int64_t period) {
     const int64_t until = last + period - slack;
     return now < until ? until - now : 0;
 }
+
+int64_t minato_present_limit_next(int64_t last, int64_t presented, int64_t period) {
+    if (period <= 0 || last <= 0 || last > INT64_MAX - 2 * period) {
+        return presented;
+    }
+    const int64_t grid = last + period;
+    return presented < grid + period ? grid : presented;
+}

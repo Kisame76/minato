@@ -423,6 +423,8 @@ add_subdirectory(apps/vk-ahb-test)
 add_subdirectory(apps/gles-procs-test)
 # The present-test for Swappy's frame pacing (ADR-0041 test 3).
 add_subdirectory(apps/present-test)
+# The present-limit-test for the frame rate limit's hold of unpaced presents (ADR-0078 decision 4).
+add_subdirectory(apps/present-limit-test)
 # The audio test apps (ADR-0036, step c), each with its own CMakeLists.txt.
 add_subdirectory(apps/aaudio-test)
 add_subdirectory(apps/opensl-test)

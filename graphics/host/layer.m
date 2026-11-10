@@ -402,7 +402,7 @@ int64_t minato_present_hold(void *layer) {
         nanosleep(&time, NULL);
     }
     os_unfair_lock_lock(&pace->lock);
-    pace->limit_last = now_ns();
+    pace->limit_last = minato_present_limit_next(pace->limit_last, now_ns(), period);
     os_unfair_lock_unlock(&pace->lock);
     return wait;
 }

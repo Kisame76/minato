@@ -698,6 +698,21 @@ if(TARGET minato_graphics_host)
       "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}" "${moltenvk}" present)
     set_tests_properties(graphics.present_${api} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 150)
   endforeach()
+  # ADR-0078 decision 4 on the Mac, as the App runs them: present-limit-gles and present-limit-vulkan present without
+  # pacing of their own; with the frame rate limit 30, graphics/host holds them to 27-32 presents a second (one more
+  # where a late present catches up on the limit's grid; room for a loaded Mac), without a limit they run at more than
+  # 70 (100-120 on a loaded Mac).
+  foreach(api IN ITEMS gles vulkan)
+    foreach(case IN ITEMS 30:27:32 0:71:100000)
+      string(REGEX REPLACE ":.*" "" rate "${case}")
+      add_test(NAME graphics.present_limit_${api}_${rate} COMMAND graphics-app-test
+        "${CMAKE_CURRENT_BINARY_DIR}/app_runs" present-limit-${api} "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}"
+        "${APK_GUEST_SYSTEM_DIR}" "${APK_GRAPHICS_GUEST_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected" "${angle}"
+        "${moltenvk}" limit:${case})
+      set_tests_properties(graphics.present_limit_${api}_${rate} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+        TIMEOUT 120 RUN_SERIAL TRUE)
+    endforeach()
+  endforeach()
   # ADR-0058 e1), decision 7: vk-ahb-test as an app, the way it runs on the iPhone (tools/java-start-check.sh): its
   # lines must be Android 15's (fixtures/expected/vk-ahb-test.logcat); it draws nothing, so its window counts no
   # presents.

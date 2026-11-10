@@ -56,4 +56,10 @@ int minato_present_paced(struct minato_present_pace *pace, int ruled, int64_t as
    present. */
 int64_t minato_present_limit_wait(int64_t last, int64_t now, int64_t period);
 
+/* ADR-0078 decision 4: the time the window's next wait counts from (its new `last`), its present having gone at
+   `presented` after the wait: the limit's grid, `last` + `period`, while the present went less than a period after
+   it (early by the slack, or late by a wait for the drawable after the hold), so the waits keep the limit's rate;
+   `presented` itself for the first present, one a period late or more (a new grid) and without a limit. */
+int64_t minato_present_limit_next(int64_t last, int64_t presented, int64_t period);
+
 #endif

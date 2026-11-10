@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- present-limit-gles (ADR-0078 decision 4): present-limit-test's library as a copy of its own, started at
+     ANativeActivity_onCreateGLES, which presents with EGL at a swap interval of 0, without pacing of its own. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.presentlimit.gles"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-feature android:glEsVersion="0x00030000" android:required="true"/>
+  <application android:label="Present Limit GLES" android:hasCode="false"
+      android:extractNativeLibs="false">
+    <activity android:name="android.app.NativeActivity" android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="present-limit-gles"/>
+      <meta-data android:name="android.app.func_name" android:value="ANativeActivity_onCreateGLES"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

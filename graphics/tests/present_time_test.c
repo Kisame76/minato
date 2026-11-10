@@ -13,7 +13,11 @@
    frame asking for that refresh is dropped; on time across a switch from 60 to 120 Hz, none. Before the first tick a
    frame goes and takes nothing.
    ADR-0078 decision 4's wait under a frame rate limit of 30: none before the first present or without a limit; right
-   after the last present a period less 1 ms; at the period less 1 ms and later none; and at 120 likewise. */
+   after the last present a period less 1 ms; at the period less 1 ms and later none; and at 120 likewise. The next
+   wait counts from the grid of the limit, not from when the present went: the first present starts it; one that went
+   1 ms early (the slack), on time, or late by less than a period keeps it (the last present's time plus the period),
+   so a wait for the drawable after the hold costs no frame; one a period late or more starts a new grid; without a
+   limit the present's own time. */
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -153,6 +157,14 @@ static void expect_limit_wait(const char *what, int64_t last, int64_t now, int64
     }
 }
 
+static void expect_limit_next(const char *what, int64_t last, int64_t presented, int64_t period, int64_t wanted) {
+    const int64_t got = minato_present_limit_next(last, presented, period);
+    if (got != wanted) {
+        printf("present-time: limit, %s: counts from %" PRId64 ", not %" PRId64 "\n", what, got, wanted);
+        failures++;
+    }
+}
+
 static void expect_limit(void) {
     const int64_t thirty = 1000000000 / 30, last = 5000000000;
     expect_limit_wait("before the first present", 0, 5000000000, thirty, 0);
@@ -162,6 +174,13 @@ static void expect_limit(void) {
     expect_limit_wait("at the period less 1 ms", last, last + thirty - 1000000, thirty, 0);
     expect_limit_wait("2 periods later", last, last + 2 * thirty, thirty, 0);
     expect_limit_wait("at 120, 1 ms after the last", last, last + 1000000, 8333333, 8333333 - 2000000);
+    expect_limit_next("the first present", 0, last, thirty, last);
+    expect_limit_next("a present 1 ms early", last, last + thirty - 1000000, thirty, last + thirty);
+    expect_limit_next("a present on time", last, last + thirty, thirty, last + thirty);
+    expect_limit_next("a present 8 ms late", last, last + thirty + 8000000, thirty, last + thirty);
+    expect_limit_next("a present a period late", last, last + 2 * thirty, thirty, last + 2 * thirty);
+    expect_limit_next("a present 3 periods late", last, last + 4 * thirty + 5, thirty, last + 4 * thirty + 5);
+    expect_limit_next("without a limit", last, last + 5, 0, last + 5);
 }
 
 int main(void) {
@@ -217,7 +236,7 @@ int main(void) {
     if (failures == 0) {
         printf("present-time: 18 times on the grid, 16 from the runtime's ticks, 6 of them without a time; decision 11 "
                "c)'s rule on 9 streams of 10 frames at 60 and 120 Hz and one across a switch; 7 waits under a frame "
-               "rate limit\n");
+               "rate limit, 7 grids\n");
     }
     return failures == 0 ? 0 : 1;
 }
