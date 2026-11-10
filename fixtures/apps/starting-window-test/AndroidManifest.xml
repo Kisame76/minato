@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The test of the starting window (ADR-0076): activities whose themes set windowSplashScreenBackground, only a
+     windowBackground colour, neither, or no window background at all, each slow to create so that the splash stays
+     on screen for a capture, and one that keeps the splash on screen with a pre-draw listener, as androidx
+     core-splashscreen does. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.startingwindow" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@style/Plain">
+    <activity android:name=".SplashColorActivity" android:theme="@style/SplashColor" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name=".WindowBackgroundActivity" android:theme="@style/WindowBackground"
+        android:exported="true"/>
+    <activity android:name=".PlainActivity" android:exported="true"/>
+    <activity android:name=".NoBackgroundActivity" android:theme="@style/NoBackground"
+        android:exported="true"/>
+    <activity android:name=".KeepActivity" android:theme="@style/SplashColor" android:exported="true"/>
+  </application>
+</manifest>

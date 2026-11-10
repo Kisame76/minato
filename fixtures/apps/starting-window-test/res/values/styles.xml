@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- No splash attribute: the splash takes the windowBackground of Theme.Material.Light. -->
+  <style name="Plain" parent="android:Theme.Material.Light.NoActionBar"/>
+  <!-- The splash's own colour. -->
+  <style name="SplashColor" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="android:windowSplashScreenBackground">#FF2E7D32</item>
+  </style>
+  <!-- Only a window background colour, which the splash takes. -->
+  <style name="WindowBackground" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="android:windowBackground">@color/window_blue</item>
+  </style>
+  <!-- No window background and no splash colour: the splash takes Android's default for the mode. -->
+  <style name="NoBackground" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="android:windowBackground">@null</item>
+  </style>
+  <color name="window_blue">#FF1565C0</color>
+</resources>

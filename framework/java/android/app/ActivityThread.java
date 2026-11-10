@@ -1026,9 +1026,9 @@ public final class ActivityThread {
     /**
      * The content intent of the notification whose tap started this process (MINATO_START_INTENT, which the host
      * checked already): an explicit intent of an activity of the app's own, without a selector; null for none or any
-     * other, and the launcher starts.
+     * other, and the launcher starts. Logs why it takes none when `log` is set.
      */
-    private Intent notificationStartIntent() {
+    private Intent notificationStartIntent(boolean log) {
         final String uri = System.getenv("MINATO_START_INTENT");
         if (uri == null || uri.isEmpty()) {
             return null;
@@ -1038,38 +1038,53 @@ public final class ActivityThread {
             intent = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
         } catch (java.net.URISyntaxException e) {
             // Not the URI itself: its extras may hold the user's text.
-            Log.w(TAG, "a notification's start intent that does not parse");
+            if (log) {
+                Log.w(TAG, "a notification's start intent that does not parse");
+            }
             return null;
         }
         final ComponentName component = intent.getComponent();
         if (intent.getSelector() != null || component == null || !mPackageName.equals(component.getPackageName())
                 || (intent.getPackage() != null && !mPackageName.equals(intent.getPackage()))) {
-            Log.w(TAG, "a notification's start intent that is not an activity of " + mPackageName);
+            if (log) {
+                Log.w(TAG, "a notification's start intent that is not an activity of " + mPackageName);
+            }
             return null;
         }
         return intent;
     }
 
     /**
-     * The manifest's launcher activity, launched up to its onCreate; null without one or when its launch failed. A
-     * notification's tap that started the process (MINATO_START_INTENT, ADR-0074 decision 4) starts its content intent
-     * in place of the launcher, when it names one of the app's own activities.
+     * The activity this start launches and the notification's intent that names it, or null for the launcher: a
+     * notification's tap that started the process (MINATO_START_INTENT, ADR-0074 decision 4) starts its content
+     * intent's activity, when it names one of the app's own, else the manifest's launcher activity; null without one.
+     * Logs why it does not take the intent when `log` is set.
      */
-    private ActivityClientRecord launchLauncherActivity() {
-        Intent intent = notificationStartIntent();
+    private android.util.Pair<Intent, ActivityInfo> startingActivity(boolean log) {
+        Intent intent = notificationStartIntent(log);
         ActivityInfo info = intent == null ? null
                 : mPackage.activityInfo(intent.getComponent(), PackageManager.GET_SHARED_LIBRARY_FILES, false);
         if (info == null) {
-            if (intent != null) {
+            if (intent != null && log) {
                 Log.w(TAG, "a notification's start intent that names no activity of " + mPackageName);
             }
             intent = null;
             info = mPackage.launcherActivity(PackageManager.GET_SHARED_LIBRARY_FILES);
         }
-        if (info == null) {
+        return info == null ? null : android.util.Pair.create(intent, info);
+    }
+
+    /**
+     * The activity of startingActivity, launched up to its onCreate; null without one or when its launch failed.
+     */
+    private ActivityClientRecord launchLauncherActivity() {
+        android.util.Pair<Intent, ActivityInfo> start = startingActivity(true);
+        if (start == null) {
             Log.w(TAG, mPackageName + " has no launcher activity, so none starts");
             return null;
         }
+        Intent intent = start.first;
+        ActivityInfo info = start.second;
         if (intent == null) {
             intent = new Intent(Intent.ACTION_MAIN);
             intent.addCategory(Intent.CATEGORY_LAUNCHER);
@@ -1304,6 +1319,7 @@ public final class ActivityThread {
     private static final int REQUEST_WINDOW_FORMAT = 6;
     private static final int REQUEST_BACK_AT_ROOT = 19;
     private static final int REQUEST_ORIENTATION = 20;
+    private static final int REQUEST_STARTING_WINDOW = 24;
     private static final int SURFACE_MAKE = 1;
     private static final int SURFACE_PLACE = 2;
     private static final int SURFACE_REMOVE = 3;
@@ -1369,7 +1385,33 @@ public final class ActivityThread {
             }
             sEarlyNotifications.clear();
         }
+        requestStartingWindow();
         watchSession();
+    }
+
+    /**
+     * The starting window's colours (ADR-0076) for the host, which keeps them for the app's next start: those of
+     * the activity this start launches, as Android's Shell computes its splash screen's before the process exists.
+     * The host draws them opaque, so a translucent colour that Shell takes goes to it without its alpha.
+     */
+    private void requestStartingWindow() {
+        android.util.Pair<Intent, ActivityInfo> start = startingActivity(false);
+        if (start == null || mLoadedApk == null) {
+            return;
+        }
+        ActivityInfo info = start.second;
+        try {
+            int[] colors = com.android.internal.minato.StartingWindowColor.of(
+                    ContextImpl.createAppContext(this, mLoadedApk), info);
+            long splash = (colors[0] | 0xFF000000) & 0xffffffffL;
+            long icon = colors[1] == 0 ? 0 : (colors[1] | 0xFF000000) & 0xffffffffL;
+            int error = nativeSessionRequest(REQUEST_STARTING_WINDOW, splash, icon);
+            if (error != 0) {
+                Log.e(TAG, "The session refused STARTING_WINDOW: " + error);
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "The starting window's colours: " + e);
+        }
     }
 
     /** APKRT_REQUEST_NOTIFICATION's texts of the time before the session (Application.onCreate), at most 64. */
