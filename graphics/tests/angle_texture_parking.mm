@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -266,6 +267,9 @@ int main(int argc, char **argv) {
         uint64_t peak = 0;
         int mismatches = 0;
         std::vector<double> frame_ms;
+        // The intervals between the frames' swaps, as the test sees them, for the line's present_p50.
+        std::vector<double> swap_ms;
+        std::chrono::steady_clock::time_point last_swap;
         // One frame per 1/60 s, as an app would present; the made frames grow the footprint by ~475 MiB/s.
         auto next = std::chrono::steady_clock::now();
         for (int round = 0; round < (in_use ? 1 : 2); ++round) {
@@ -289,6 +293,11 @@ int main(int argc, char **argv) {
                 GL(BindFramebuffer)(GL_FRAMEBUFFER, 0);
                 GL(Clear)(GL_COLOR_BUFFER_BIT);
                 EGL(SwapBuffers)(display, surface);
+                const auto swapped = std::chrono::steady_clock::now();
+                if (round != 0 || index != 0) {
+                    swap_ms.push_back(std::chrono::duration<double, std::milli>(swapped - last_swap).count());
+                }
+                last_swap = swapped;
                 GL(BindFramebuffer)(GL_FRAMEBUFFER, framebuffer);
                 const double milliseconds =
                     std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -395,15 +404,18 @@ int main(int argc, char **argv) {
         }
         if (mode.empty() || band) {
             // Patch 0018: the line's least available memory is what the footprint left (give or take a sample
-            // between frame ends), and the presents' interval is the frames' 1/60 s, give or take a loaded Mac.
+            // between frame ends), and the presents' interval is the one between the frames' swaps as the test
+            // measures them: 1/60 s, longer on a loaded Mac, where a frame may take more than its 1/60 s.
             const double least = field(parking, "avail_min");
             const double left = static_cast<double>(limit - std::min(peak, limit)) / kMiB;
             const double present = field(parking, "present_p50");
             check(least >= 0.0 && least <= left + 64.0,
                   "avail_min " + std::to_string(least) + " MiB is what the peak left, " + std::to_string(left));
             check(field(parking, "avail_last") >= least, "the last available memory is not below the least");
-            check(present > 10.0 && present < 100.0,
-                  "the presents' interval p50 is about 1/60 s (present_p50 " + std::to_string(present) + " ms)");
+            const double swaps = percentile(swap_ms, 0.5);
+            check(std::abs(present - swaps) <= std::max(5.0, swaps / 4),
+                  "the presents' interval p50 is the swaps' (present_p50 " + std::to_string(present) + " ms, swaps " +
+                      std::to_string(swaps) + " ms)");
             check(field(parking, "present_p99") >= present, "the presents' interval p99 is not below its p50");
         }
         if (band) {
