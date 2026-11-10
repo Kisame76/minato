@@ -12,7 +12,8 @@
    drawables presented (with present:<n>, the first n), before they go to the screen, and prints their size, pixel
    format and CRC-32; and
    while window_host.m asks for it (test_host.h), it counts the command buffers guest threads commit.
-   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, and keeps how the
+   With MINATO_METAL_HOOK=count it only counts those, while window_host.m or test_control.m asks, counts every
+   waitForFence:beforeStages: of a render encoder (test_host.h's minato_test_fence_waits), and keeps how the
    first 16 drawables presented after test_control.m's watch were presented: with presentAtTime: (ANGLE's patch 0005)
    and its time, or with present.
    With MINATO_METAL_HOOK=fences it only prints each waitForFence:beforeStages: of a render encoder as it is
@@ -225,12 +226,17 @@ static void hooked_waited(id self, SEL selector, id event, uint64_t value) {
     ((void (*)(id, SEL, id, uint64_t))waited)(self, selector, event, value);
 }
 
-/* Fences mode: each render encoder's waitForFence:beforeStages:, printed as it is encoded. */
-static atomic_int fence_waits;
+/* Count mode: every render encoder's waitForFence:beforeStages: (test_host.h). */
+atomic_int minato_test_fence_waits;
 static IMP render_waited_fence;
 
+static void hooked_render_wait_fence(id self, SEL selector, id fence, MTLRenderStages stages) {
+    atomic_fetch_add(&minato_test_fence_waits, 1);
+    ((void (*)(id, SEL, id, MTLRenderStages))render_waited_fence)(self, selector, fence, stages);
+}
+
 static void hooked_render_wait_fence_printed(id self, SEL selector, id fence, MTLRenderStages stages) {
-    fprintf(stderr, "metal: render encoder fence wait %d\n", atomic_fetch_add(&fence_waits, 1) + 1);
+    fprintf(stderr, "metal: render encoder fence wait %d\n", atomic_fetch_add(&minato_test_fence_waits, 1) + 1);
     ((void (*)(id, SEL, id, MTLRenderStages))render_waited_fence)(self, selector, fence, stages);
 }
 
@@ -296,6 +302,8 @@ __attribute__((constructor)) static void hook_metal(void) {
             } else {
                 presented_at_time = hook(drawable_class, @selector(presentAtTime:), (IMP)hooked_present_at_time);
                 presented = hook(drawable_class, @selector(present), (IMP)hooked_plain_present);
+                render_waited_fence = hook(render_encoder_class(device, queue), @selector(waitForFence:beforeStages:),
+                                           (IMP)hooked_render_wait_fence);
             }
         }
         commit = hook(buffers, @selector(commit), (IMP)hooked_commit);

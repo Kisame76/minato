@@ -16,3 +16,8 @@ int minato_app_test_commits(void) {
     atomic_store(&minato_test_counting, 0);
     return atomic_load(&minato_test_guest_commits);
 }
+
+/* MoltenVK's barrier fence waits the hook counted (test_host.h). */
+int minato_app_test_fence_waits(void) {
+    return atomic_load(&minato_test_fence_waits);
+}

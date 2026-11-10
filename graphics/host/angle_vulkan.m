@@ -2,7 +2,13 @@
    2 to 4); see minato_graphics.h. ANGLE takes vkGetInstanceProcAddr from here (patch 0009) and reaches MoltenVK only
    through it, on the guest threads that call libEGL and libGLES:
    - vkCreateInstance chains MoltenVK's MVK_CONFIG_USE_METAL_PRIVATE_API through VK_EXT_layer_settings, so that
-     ANGLE's instance, and no other, gets the last vertex and OpenGL mode (decision 2);
+     ANGLE's instance, and no other, gets the last vertex and OpenGL mode (decision 2), and
+     MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS off (the ES 3.1 path's speed): without Metal argument buffers MoltenVK binds
+     the uniforms, textures and samplers straight to each stage, as ANGLE's Metal backend does, and encodes none of
+     its barrier fences, which with argument buffers hold every render encoder's vertex and fragment stages behind
+     the encoders before it [measured on the Mac: 16 waits and 4 fence-only blit encoders a frame of the bench's heavy
+     load, none without, its frame 1000 the same]. ANGLE's ES 3.1 needs fit the limits without them; libvulkan's
+     instances (the apps' own Vulkan) keep MoltenVK's default;
    - vkCreateDevice adds VK_EXT_metal_objects and keeps the device's MTLCommandQueues for "scheduled", as vulkan.m
      keeps libvulkan's, and vkDestroyDevice lets them go;
    - the submits, acquires and presents count themselves in vulkan.m's count, which "scheduled" waits for. In the
@@ -83,11 +89,15 @@ static uint32_t with_name(const char *const *names, uint32_t count, const char *
 
 static VkResult instance_created(const VkInstanceCreateInfo *info, const VkAllocationCallbacks *allocator,
                                  VkInstance *instance) {
-    static const VkBool32 on = VK_TRUE;
-    const VkLayerSettingEXT setting = {.pLayerName = "MoltenVK", .pSettingName = "MVK_CONFIG_USE_METAL_PRIVATE_API",
-                                       .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT, .valueCount = 1, .pValues = &on};
+    static const VkBool32 on = VK_TRUE, off = VK_FALSE;
+    const VkLayerSettingEXT setting[2] = {
+        {.pLayerName = "MoltenVK", .pSettingName = "MVK_CONFIG_USE_METAL_PRIVATE_API",
+         .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT, .valueCount = 1, .pValues = &on},
+        {.pLayerName = "MoltenVK", .pSettingName = "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS",
+         .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT, .valueCount = 1, .pValues = &off},
+    };
     const VkLayerSettingsCreateInfoEXT settings = {.sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
-                                                   .pNext = info->pNext, .settingCount = 1, .pSettings = &setting};
+                                                   .pNext = info->pNext, .settingCount = 2, .pSettings = setting};
     const char *names[info->enabledExtensionCount + 1];
     VkInstanceCreateInfo ours = *info;
     ours.pNext = &settings;

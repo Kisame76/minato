@@ -58,7 +58,7 @@
 // - With MINATO_ANGLE_BACKEND=vulkan (ADR-0044 c)), any of the above runs on the ES 3.1 path, ANGLE's Vulkan backend on
 //   MoltenVK, once graphics/host's run-time check passed, as the session runs an app whose manifest requires ES 3.1.
 //   It passes as above, and with gles-test's and gles31-test's <presents> when ANGLE made one swapchain and its layer's
-//   drawables have the app's buffer size, 256 x 256.
+//   drawables have the app's buffer size, 256 x 256, and MoltenVK encoded no fence waits (Metal's hook in count mode).
 // - present-limit-gles and present-limit-vulkan with <mode> limit:<rate>:<low>:<high> (ADR-0078 decision 4): the frame
 //   rate limit set to <rate> (0 = none) before the program, as the App's session sets it, and no frame clock; the apps
 //   present without pacing of their own until their own ANativeActivity_finish. It passes when the app's device line
@@ -102,9 +102,10 @@
 #include <thread>
 #include <vector>
 
-// app_counts.c: the Metal hook's count of the command buffers guest threads commit (test_host.h).
+// app_counts.c: the Metal hook's counts of the command buffers guest threads commit and of fence waits (test_host.h).
 extern "C" void minato_app_test_count_commits(void);
 extern "C" int minato_app_test_commits(void);
+extern "C" int minato_app_test_fence_waits(void);
 
 namespace {
 
@@ -517,6 +518,16 @@ void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t
         if (size.width != 256 || size.height != 256) {
             fail("ANGLE's Vulkan layer has drawables of " + std::to_string(static_cast<int>(size.width)) + " x " +
                  std::to_string(static_cast<int>(size.height)) + ", not the app's 256 x 256");
+        }
+        // ANGLE's instance runs MoltenVK without Metal argument buffers (angle_vulkan.m), so MoltenVK encodes none of
+        // the barrier fences that hold each render encoder's stages behind the encoders before it: those came at 8 a
+        // render encoder, several a present. What waits then is the app's own sync (a fence or a query, gles-test's
+        // scene 12), fewer than one a present.
+        const int fence_waits = minato_app_test_fence_waits();
+        ::dprintf(report, "host: render encoder fence waits encoded: %d\n", fence_waits);
+        if (static_cast<std::uint64_t>(fence_waits) >= counted) {
+            fail("MoltenVK encoded " + std::to_string(fence_waits) + " render encoder fence waits for " +
+                 std::to_string(counted) + " presents on ANGLE's way");
         }
     }
     focus_lost(window, nullptr);
