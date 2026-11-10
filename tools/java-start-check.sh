@@ -1547,12 +1547,13 @@ RUNNER_DOWN=""
 runner_fail() { [[ -n "$RUNNER_DOWN" ]] || fail "$1"; }
 runner_failed_line() { [[ -n "$RUNNER_DOWN" ]] || failed_line "$@"; }
 # Runs the runner's test $1 against this run's Simulator or iPhone, with TEST_RUNNER_MINATO_WAIT=$3 seconds (for a
-# banner or an alert); prints its notes, and its failure, false when it failed.
+# banner or an alert) and TEST_RUNNER_MINATO_ARG=$4 (the test's own argument); prints its notes, and its failure,
+# false when it failed. $2 names the round's log.
 uitest() {
   local run
   [[ -z "$RUNNER_DOWN" ]] || return 1
   run=$(ls "$UITESTS"/Build/Products/*.xctestrun | head -n 1)
-  if TEST_RUNNER_MINATO_WAIT=${3:-0} xcodebuild test-without-building -xctestrun "$run" \
+  if TEST_RUNNER_MINATO_WAIT=${3:-0} TEST_RUNNER_MINATO_ARG=${4:-} xcodebuild test-without-building -xctestrun "$run" \
       -destination "id=${DEVICE_UDID:-${SIM_UDID:-}}" \
       -only-testing:"MinatoUITests/NotificationTapUITests/$1" > "$WORK/uitest-$1-$2.log" 2>&1; then
     grep -o "MINATO-UITEST .*" "$WORK/uitest-$1-$2.log" | sed 's/^MINATO-UITEST/note   /' || true
@@ -2204,7 +2205,9 @@ if wanted lan-test; then
   if [[ -z "$lan_host" ]]; then
     fail "lan-test needs the Mac on Wi-Fi: no address to serve on"
   else
-    python3 tools/lan-server.py --bind "$lan_host" --seconds 120 >/dev/null 2>&1 &
+    # LAN_SETTINGS' second start comes minutes later (the runner in Settings twice): the server waits for it.
+    python3 tools/lan-server.py --bind "$lan_host" --seconds "$([[ -n "${LAN_SETTINGS:-}" ]] && echo 480 || echo 120)" \
+      >/dev/null 2>&1 &
     lan_server=$!
     sleep 1
     echo "MINATO_LAN_HOST=$lan_host" > "$WORK/guest-environment"
@@ -2213,7 +2216,40 @@ if wanted lan-test; then
     else
       cp "$WORK/guest-environment" "$CONTAINER/tmp/guest-environment"
     fi
+    # On the iPhone iOS asks for the local network at the first connection: the runner answers Allow, the "allowed"
+    # state (a later run finds the answer). The Simulator has no such permission.
+    allow=""
+    if [[ "$ON_DEVICE" == yes ]] && uitests_build; then
+      uitest testAllowAlert lan-allow 60 localnetwork > "$WORK/lan-allow.out" 2>&1 &
+      allow=$!
+    fi
     run_one lan-test io.github.kisame76.minato.test.lan
+    if [[ -n "$allow" ]]; then
+      if wait "$allow"; then ok "  the runner answered iOS's local network alert Allow"; else
+        echo "note    no local network alert came (iOS has Minato's answer already)"; fi
+    fi
+    # LAN_SETTINGS=1, only after the user's yes to the runner changing Minato's Local Network switch in Settings: the
+    # "denied" state. The runner reads the switch first, turns it off for a second start, and sets it back as it was,
+    # also when that start failed; nothing else in Settings is touched. The second start's lines are printed.
+    if [[ "$ON_DEVICE" == yes && -n "${LAN_SETTINGS:-}" ]] && uitests_build; then
+      was=""
+      if uitest testLocalNetworkSetting lan-read 0 read > "$WORK/lan-read.out"; then
+        was=$(sed -n -E 's/^note +local network was (on|off)$/\1/p' "$WORK/lan-read.out" | head -n 1)
+      fi
+      if [[ -z "$was" ]]; then
+        runner_fail "  the runner could not read Minato's Local Network switch"
+      else
+        echo "note    Minato's Local Network switch was $was"
+        if uitest testLocalNetworkSetting lan-off 0 off > /dev/null; then
+          run_start lan-test io.github.kisame76.minato.test.lan 2
+          grep -E "^I/lan-test: " "$WORK/lan-test-2.log" | sed 's/^/      denied | /' || true
+        else
+          runner_fail "  the runner did not turn Minato's Local Network off"
+        fi
+        uitest testLocalNetworkSetting lan-back 0 "$was" > /dev/null ||
+          fail "  Minato's Local Network switch was not set back to $was: set it in Settings > Minato"
+      fi
+    fi
     kill "$lan_server" 2>/dev/null || true
     if [[ "$ON_DEVICE" == yes ]]; then
       : > "$WORK/guest-environment"

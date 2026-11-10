@@ -155,16 +155,71 @@ final class NotificationTapUITests: XCTestCase {
 
     /// iOS's alert for Minato's request, such as the notifications prompt of a Simulator that never answered it, is
     /// answered Allow within TEST_RUNNER_MINATO_WAIT seconds, 90 by default (its button that allows, in English or
-    /// German).
+    /// German). TEST_RUNNER_MINATO_ARG "localnetwork": only iOS's local network alert ("… Find and Connect to Devices
+    /// on Your Local Network"), which the iPhone shows at a guest's first connection into the local network.
     func testAllowAlert() {
+        answerAlert(allow: true)
+    }
+
+    /// The same alert answered Don't Allow, as the user's refusal.
+    func testDenyAlert() {
+        answerAlert(allow: false)
+    }
+
+    private func answerAlert(allow: Bool) {
         continueAfterFailure = false
-        let alert = springboard.alerts.firstMatch
-        let seconds = ProcessInfo.processInfo.environment["MINATO_WAIT"].flatMap { Double($0) } ?? 90
+        let environment = ProcessInfo.processInfo.environment
+        let alert = environment["MINATO_ARG"] == "localnetwork"
+            ? springboard.alerts.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
+                                                      "Local Network", "lokalen Netzwerk")).firstMatch
+            : springboard.alerts.firstMatch
+        let seconds = environment["MINATO_WAIT"].flatMap { Double($0) } ?? 90
         XCTAssertTrue(alert.waitForExistence(timeout: seconds), "no alert within \(Int(seconds)) s")
-        let allow = alert.buttons.matching(NSPredicate(format: "label IN %@", ["Allow", "Erlauben"])).firstMatch
-        XCTAssertTrue(allow.exists, "the alert has no Allow button")
-        allow.tap()
-        print("MINATO-UITEST answered an alert Allow")
+        let labels = allow ? ["Allow", "Erlauben"] : ["Don’t Allow", "Don't Allow", "Nicht erlauben"]
+        let button = alert.buttons.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
+        XCTAssertTrue(button.exists, "the alert has no \(allow ? "Allow" : "Don't Allow") button")
+        button.tap()
+        print("MINATO-UITEST answered an alert \(allow ? "Allow" : "Don't Allow")")
+    }
+
+    /// Minato's own Local Network switch in Settings (Settings > Minato > Local Network, which iOS lists once a guest
+    /// connected into the local network; the Simulator has no such switch): TEST_RUNNER_MINATO_ARG "read" prints its
+    /// state, "on" or "off" sets it and prints the state before and after. It opens Minato's page through Settings >
+    /// Apps and touches nothing else; Settings goes again at the end. The check reads the state first and sets it back
+    /// at its end.
+    func testLocalNetworkSetting() {
+        continueAfterFailure = false
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        settings.launch()
+        defer { settings.terminate() }
+        // Settings > Apps lists every app, with a search field of its own (Settings' main search does not index them);
+        // its rows are buttons.
+        let row = { (label: String) in
+            settings.buttons.matching(NSPredicate(format: "label ==[c] %@", label)).firstMatch
+        }
+        let apps = row("Apps")
+        for _ in 0..<6 where !apps.waitForExistence(timeout: 1) { settings.swipeUp() }
+        XCTAssertTrue(apps.exists, "Settings has no Apps row")
+        apps.tap()
+        let search = settings.searchFields.firstMatch
+        if search.waitForExistence(timeout: 5) {
+            search.tap()
+            search.typeText("Minato")
+        }
+        let page = row("Minato")
+        XCTAssertTrue(page.waitForExistence(timeout: 10), "Settings' Apps list has no Minato")
+        page.tap()
+        let labels = ["Local Network", "Lokales Netzwerk"]
+        let toggle = settings.switches.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Minato's settings page has no Local Network switch")
+        let isOn = { (toggle.value as? String) == "1" }
+        print("MINATO-UITEST local network was \(isOn() ? "on" : "off")")
+        let want = ProcessInfo.processInfo.environment["MINATO_ARG"]
+        if want == "on" || want == "off", isOn() != (want == "on") {
+            toggle.tap()
+            XCTAssertTrue(waitUntil(5) { isOn() == (want == "on") }, "the switch did not turn \(want ?? "")")
+        }
+        print("MINATO-UITEST local network is \(isOn() ? "on" : "off")")
     }
 
     /// An alert of SpringBoard's that is still up goes, by its first button (a prompt's "Don't Allow"), with a note:
