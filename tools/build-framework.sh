@@ -312,7 +312,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.net.NetworkRequest --class android.net.LinkProperties \
   --class android.net.MacAddress \
   --api "$SOURCES/connectivity_t_api/framework-t/api/current.txt" --class android.net.TrafficStats \
-  --class android.app.usage.NetworkStatsManager \
+  --class android.app.usage.NetworkStatsManager --class android.app.usage.NetworkStats \
   --api "$SOURCES/bluetooth_api/framework/api/current.txt" --class android.bluetooth.BluetoothManager \
   --class android.bluetooth.BluetoothAdapter \
   --class android.bluetooth.BluetoothDevice --class android.bluetooth.BluetoothProfile \
