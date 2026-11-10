@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs ADR-0073 step e's test of the legacy android.hardware.Camera's focus and pictures on the Mac
 # (framework/tests/java_app_run.py) on graphics/host's model cameras, with the camera grant held (MINATO_GRANT_CAMERA):
-# builds apk-run, apk-convert and graphics-run for macOS into build/native/macos-grafik, and app_process with
+# builds apk-run, apk-convert and graphics-run for macOS into build/native/macos-checks, and app_process with
 # libandroid_runtime.so (incremental), framework.jar and the app every time, so it never tests an old binary; then
 # camera-picture-test against Android 15's log (fixtures/expected/camera-picture-test.logcat, from
 # tools/android-reference.sh --app camera-picture-test): autoFocus, cancelAutoFocus and takePicture's callbacks and
@@ -17,7 +17,7 @@ if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-framework-native.sh >/dev/null

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0060 e2f's test of MediaCodec's AAC decoder on the Mac (framework/tests/java_app_run.py): builds apk-run,
-# apk-convert and graphics-run for macOS into build/native/macos-grafik, and app_process with libandroid_runtime.so
+# apk-convert and graphics-run for macOS into build/native/macos-checks, and app_process with libandroid_runtime.so
 # (incremental), framework.jar and the app every time, so it never tests an old binary; then media-codec-audio-test
 # against Android 15's log (fixtures/expected/media-codec-audio-test.logcat, from tools/android-reference.sh --app
 # media-codec-audio-test): MediaCodecList's AAC decoders, baseline.mp4's AAC track through MediaExtractor decoded
@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-framework-native.sh >/dev/null

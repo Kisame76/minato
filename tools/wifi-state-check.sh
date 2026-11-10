@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-framework-native.sh >/dev/null

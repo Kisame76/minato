@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0060 e2c3's test of a decoder rendering into a window on the Mac (framework/tests/java_app_run.py): builds
-# apk-run, apk-convert and graphics-run for macOS into build/native/macos-grafik, and app_process with
+# apk-run, apk-convert and graphics-run for macOS into build/native/macos-checks, and app_process with
 # libandroid_runtime.so (incremental), framework.jar and the app every time; then media-window-test against Android
 # 15's log (fixtures/expected/media-window-test.logcat, from tools/android-reference.sh --app media-window-test):
 # MediaCodec and AMediaCodec rendering into a SurfaceView's window, their frame rendered callbacks, setOutputSurface
@@ -20,7 +20,7 @@ if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-ang
 MOLTENVK="$PWD/build/moltenvk/macos/libMoltenVK.dylib"
 if [[ ! -f "$MOLTENVK" ]]; then echo "skipped: $MOLTENVK is not there (tools/fetch-moltenvk.sh)"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-framework-native.sh >/dev/null

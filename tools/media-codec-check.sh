@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0060 e2b's test of MediaCodec on the Mac (framework/tests/java_app_run.py): builds apk-run, apk-convert
-# and graphics-run for macOS into build/native/macos-grafik, and app_process with libandroid_runtime.so
+# and graphics-run for macOS into build/native/macos-checks, and app_process with libandroid_runtime.so
 # (incremental), framework.jar and the app every time, so it never tests an old binary; then media-codec-test against
 # Android 15's log (fixtures/expected/media-codec-test.logcat, from tools/android-reference.sh --app
 # media-codec-test): H.264 decoded in ByteBuffer mode from Minato's own streams, synchronously, asynchronously and
@@ -19,7 +19,7 @@ if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-framework-native.sh >/dev/null

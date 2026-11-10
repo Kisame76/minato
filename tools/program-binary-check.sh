@@ -3,7 +3,7 @@
 # GL programs' binaries saved by the first start and loaded by the second, a new process over the first one's
 # folders, then binaries a driver must refuse without a crash (a format not listed, one cut short, one with its middle
 # overwritten, an empty one, one with bytes after its end). Builds graphics-run and apk-convert for macOS into
-# build/native/macos-grafik, and app_process with libandroid_runtime.so (incremental), framework.jar and the app every
+# build/native/macos-checks, and app_process with libandroid_runtime.so (incremental), framework.jar and the app every
 # time, so it never tests an old binary; then starts the NativeActivity twice in a session on the M4 plan's display,
 # the iPhone 15 Pro Max's 1290 x 2796 px at scale 3 in en-US, with ANGLE, and compares the two starts' lines with
 # fixtures/expected/program-binary-test.logcat, the Android 15 emulator's (tools/android-reference.sh --app
@@ -23,7 +23,7 @@ if [[ "${MINATO_ANGLE_BACKEND:-}" == vulkan ]]; then
   export MINATO_MOLTENVK="${MINATO_MOLTENVK:-$PWD/build/moltenvk/macos/libMoltenVK.dylib}"
 fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

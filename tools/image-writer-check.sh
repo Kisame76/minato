@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs ADR-0058 e1)'s test of ImageWriter (the graphics breadth's G3b) on the Mac (framework/tests/java_app_run.py):
 # builds graphics-run (apk-run with graphics/host's providers) and apk-convert for macOS into
-# build/native/macos-grafik, and app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and
+# build/native/macos-checks, and app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and
 # image-writer-test (seconds) every time, so it never tests an old binary; then compares image-writer-test's log with
 # Android 15's (fixtures/expected/image-writer-test.logcat, from tools/android-reference.sh --app image-writer-test):
 # writers on ImageReaders and a SurfaceTexture, on the front libs (tools/build-front-libs.sh) and the Mac's ANGLE
@@ -18,7 +18,7 @@ skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/syste
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

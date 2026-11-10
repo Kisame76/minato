@@ -20,7 +20,7 @@ JDK=$(echo build/tools/jdk-21/*/Contents/Home)
 if [[ ! -x $JDK/bin/java ]]; then echo "skipped: no JDK 21 at build/tools/jdk-21"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 MOLTENVK="$PWD/build/moltenvk/macos/libMoltenVK.dylib"
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 for needed in "$ANGLE" "$MOLTENVK" "$NATIVE/graphics/tests/graphics-run" build/framework/framework.jar; do
   if [[ -z ${BUILD_ONLY:-} && ! -e $needed ]]; then
     echo "skipped: $needed is not built (tools/renpy-check.sh's builds)"; exit 0

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0041 decision 7's test on the Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert for
-# macOS into build/native/macos-formate and asset-ndk-test, then starts asset-ndk-test through app_process. Its JNI
+# macOS into build/native/macos-checks2 and asset-ndk-test, then starts asset-ndk-test through app_process. Its JNI
 # library takes the Context's AssetManager through libandroid's AAssetManager_fromJava, as Godot takes its project's,
 # and reads its assets; its log must be Android 15's (fixtures/expected/asset-ndk-test.logcat, from
 # tools/android-reference.sh --app asset-ndk-test). app_process, libandroid_runtime.so and framework.jar are the shared
@@ -21,7 +21,7 @@ for built in build/framework-native/app_process64 build/framework/framework.jar;
   if [[ ! -f "$built" ]]; then echo "skipped: $built is not built"; exit 0; fi
 done
 
-NATIVE=build/native/macos-formate
+NATIVE=build/native/macos-checks2
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert >/dev/null
 tools/build-java-test-app.sh asset-ndk-test >/dev/null

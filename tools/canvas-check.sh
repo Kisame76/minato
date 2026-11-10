@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0043 test 2's canvas-test on the Mac against Android 15 (framework/tests/java_app_run.py): builds apk-run and
-# apk-convert for macOS into build/native/macos-grafik, and app_process with libandroid_runtime.so (incremental),
+# apk-convert for macOS into build/native/macos-checks, and app_process with libandroid_runtime.so (incremental),
 # framework.jar (about 10 s) and canvas-test (seconds) every time, so it never tests an old binary; then starts
 # canvas-test through app_process, compares its log with fixtures/expected/canvas-test.logcat and the pixels it wrote
 # with fixtures/expected/canvas-test.rgba.gz (graphics/tests/canvas_compare.py), both from tools/android-reference.sh
@@ -26,7 +26,7 @@ for expected in fixtures/expected/$APP.logcat fixtures/expected/$APP.rgba.gz; do
   fi
 done
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 WORK=build/canvas-check
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert >/dev/null

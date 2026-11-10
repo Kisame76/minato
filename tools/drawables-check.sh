@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0043 step d)'s test of the XML drawables on the Mac (framework/tests/java_app_run.py): builds apk-run and
-# apk-convert for macOS into build/native/macos-grafik, and app_process with libandroid_runtime.so (incremental),
+# apk-convert for macOS into build/native/macos-checks, and app_process with libandroid_runtime.so (incremental),
 # framework.jar (about 10 s) and drawables-test (seconds) every time, so it never tests an old binary; then starts
 # drawables-test through app_process. It draws a drawable of every XML tag, a color state list, the drawables of the
 # theme's Button and CheckBox and an AGSL RuntimeShader into bitmaps on the CPU; its log, with each bitmap's CRC-32,
@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

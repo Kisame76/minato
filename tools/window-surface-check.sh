@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0043 c2's test of Surface's natives on the Mac (framework/tests/java_app_run.py): builds graphics-run
-# (apk-run with graphics/host's providers) and apk-convert for macOS into build/native/macos-grafik, and
+# (apk-run with graphics/host's providers) and apk-convert for macOS into build/native/macos-checks, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and window-surface-test (seconds)
 # every time, so it never tests an old binary; then runs window-surface-test on graphics-run's window 1 of 64 x 48
 # pixels (MINATO_WINDOW) with the Mac's ANGLE (MINATO_ANGLE), the Metal hook reading back the first 4 drawables
@@ -20,7 +20,7 @@ skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/syste
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

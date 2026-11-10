@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0060 e2d part 2a's test of the NDK's AMediaExtractor on the Mac (framework/tests/java_app_run.py): builds
-# apk-run, apk-convert and graphics-run for macOS into build/native/macos-grafik, the guest's libmediandk.so with
+# apk-run, apk-convert and graphics-run for macOS into build/native/macos-checks, the guest's libmediandk.so with
 # Minato's mp4 parser (tools/build-bionic.sh, incremental), app_process with libandroid_runtime.so, framework.jar and
 # the app every time, so it never tests an old binary; then media-extractor-test against Android 15's log
 # (fixtures/expected/media-extractor-test.logcat, from tools/android-reference.sh --app media-extractor-test): both
@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-bionic.sh >/dev/null

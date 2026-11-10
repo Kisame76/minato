@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the test of a WebView that loads pages on the Mac with the host's WKWebView (ADR-0056 step c1, the ADR's test
-# 2): builds apk-run, apk-convert and graphics-run for macOS into build/native/macos-grafik, and app_process with
+# 2): builds apk-run, apk-convert and graphics-run for macOS into build/native/macos-checks, and app_process with
 # libandroid_runtime.so (incremental), framework.jar and webview-test every time, so it never tests an old binary;
 # then starts webview-test through graphics-run, whose window host answers the app's WebViews with graphics/host's
 # WKWebView (webview.m), and compares the app's log with Android 15's on apk-runner-35
@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-framework-native.sh >/dev/null

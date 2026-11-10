@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs glsurface-pause-test on the Mac (framework/tests/java_app_run.py): a GLSurfaceView with ES 2.0 that draws
 # continuously, as libGDX's does, through the background and the return. Builds graphics-run (apk-run with
-# graphics/host's providers) and apk-convert for macOS into build/native/macos-grafik, and app_process with
+# graphics/host's providers) and apk-convert for macOS into build/native/macos-checks, and app_process with
 # libandroid_runtime.so (incremental), framework.jar and the app every time, so it never tests an old binary; then
 # starts it on the Mac's ANGLE in a session on the M4 plan's display, whose host plays the start, the background and the
 # return, and compares its log with Android 15's (fixtures/expected/glsurface-pause-test.logcat, from
@@ -21,7 +21,7 @@ if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

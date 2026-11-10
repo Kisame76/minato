@@ -4,7 +4,7 @@
 # hide and show, against Android 15's log (fixtures/expected/surfaceview-producers-test.logcat, from
 # tools/android-reference.sh --app surfaceview-producers-test): a new surface of the view (a format change, a hide and
 # show) takes a producer again after the software frame of the one before, a new size of the same surface does not.
-# Builds graphics-run and apk-convert for macOS into build/native/macos-grafik, and libandroid_runtime.so, framework.jar
+# Builds graphics-run and apk-convert for macOS into build/native/macos-checks, and libandroid_runtime.so, framework.jar
 # and the app every time. Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh,
 # tools/build-framework-res.sh and tools/build-angle.sh first.
 # Usage: tools/surfaceview-producers-check.sh
@@ -16,7 +16,7 @@ if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

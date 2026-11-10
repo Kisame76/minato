@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0060 e2e1's test of android.media.MediaPlayer on the Mac (framework/tests/java_app_run.py): builds apk-run,
-# apk-convert and graphics-run for macOS into build/native/macos-grafik, the guest's libraries (tools/build-bionic.sh,
+# apk-convert and graphics-run for macOS into build/native/macos-checks, the guest's libraries (tools/build-bionic.sh,
 # incremental), app_process with libandroid_runtime.so, framework.jar and the apps every time, so it never tests an
 # old binary; then media-player-test and its twin without the INTERNET permission, media-player-test-offline, against
 # Android 15's logs (fixtures/expected/<app>.logcat, from tools/android-reference.sh --app <app>): a player's answers
@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target apk-run apk-convert graphics-run >/dev/null
 tools/build-bionic.sh >/dev/null

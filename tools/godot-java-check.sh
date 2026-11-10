@@ -6,7 +6,7 @@
 # through its GLSurfaceView's EGL on the Mac's ANGLE (MINATO_ANGLE). Each one's "godot-bench: " lines must be Android
 # 15's (fixtures/expected/godot-bench-*.logcat, from tools/android-reference.sh --app), its run must have frames and
 # no failures, and it must end its process itself afterwards, as on Android. It builds graphics-run and apk-convert
-# for macOS into build/native/macos-grafik, and app_process with libandroid_runtime.so (incremental) and
+# for macOS into build/native/macos-checks, and app_process with libandroid_runtime.so (incremental) and
 # framework.jar (about 10 s) every time, so it never tests an old binary.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-framework-res.sh,
 # tools/build-front-libs.sh, tools/build-angle.sh, tools/fetch-moltenvk.sh and tools/build-godot.sh first.
@@ -21,7 +21,7 @@ ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 MOLTENVK="$PWD/build/moltenvk/macos/libMoltenVK.dylib"
 if [[ ! -f "$MOLTENVK" ]]; then echo "skipped: $MOLTENVK is not fetched (tools/fetch-moltenvk.sh)"; exit 0; fi
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
 tools/build-framework-native.sh >/dev/null

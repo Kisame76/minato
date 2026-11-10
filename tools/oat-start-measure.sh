@@ -23,7 +23,7 @@ if (($(load | cut -d. -f1) >= 10)); then echo "stopped: load $(load) is not unde
 ANGLE="$PWD/build/angle/angle/out/macos/libGLESv2.dylib"
 if [[ ! -f "$ANGLE" ]]; then echo "skipped: $ANGLE is not built (tools/build-angle.sh)"; exit 0; fi
 MOLTENVK="$PWD/build/moltenvk/macos/libMoltenVK.dylib"
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert apk-run >/dev/null
 tools/build-framework-native.sh >/dev/null

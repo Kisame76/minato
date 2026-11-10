@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ADR-0058 d)'s test of TextureView (texture-view-test) on the Mac (framework/tests/java_app_run.py): builds
-# graphics-run and apk-convert for macOS into build/native/macos-grafik, and app_process with libandroid_runtime.so
+# graphics-run and apk-convert for macOS into build/native/macos-checks, and app_process with libandroid_runtime.so
 # (incremental), framework.jar (about 10 s) and the app (seconds) every time, so it never tests an old binary. Then
 # texture-view-test starts under graphics-run in a session on the M4 plan's display, the iPhone 15 Pro Max's
 # 1290 x 2796 px at scale 3 in en-US, with graphics/tests/window_host.m's fake buffers, which write each post of the
@@ -28,7 +28,7 @@ for expected in fixtures/expected/$APP.logcat fixtures/expected/$APP.rgba.gz; do
   fi
 done
 
-NATIVE=build/native/macos-grafik
+NATIVE=build/native/macos-checks
 WORK=build/texture-view-check
 cmake --preset macos -B "$NATIVE" >/dev/null
 cmake --build "$NATIVE" --target graphics-run apk-convert >/dev/null
