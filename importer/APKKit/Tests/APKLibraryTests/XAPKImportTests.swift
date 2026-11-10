@@ -238,7 +238,8 @@ struct XAPKImportTests {
         let left = (try? FileManager.default.contentsOfDirectory(atPath: sandbox.paths.incoming.path)) ?? []
         #expect(left.filter { $0.hasPrefix(".") || $0.hasSuffix(".partial") } == [])
         #expect(await library.entries.contains { $0.id == Self.package } == false)
-        // The refused XAPK is a tile with its reason, like any refused file; its unit is gone, the pick is to be repeated.
+        // The refused XAPK is a tile with its reason, like any refused file; its unit is gone, so the pick is to be
+        // repeated.
         #expect(!sandbox.exists(unit))
     }
 
@@ -267,6 +268,41 @@ struct XAPKImportTests {
                 #expect(!sandbox.exists(Self.obbFolder(sandbox.paths)))
             }
         }
+    }
+
+    /// The two forms of a full disk: the POSIX error itself, and what FileHandle.write(contentsOf:) throws on a real
+    /// full volume, measured on a 4 MB APFS disk image: an NSCocoaErrorDomain 640 (NSFileWriteOutOfSpaceError) with the
+    /// POSIX error 28 as its underlying error.
+    static let fullDisk: [@Sendable () -> Error] = [
+        { POSIXError(.ENOSPC) },
+        { NSError(domain: NSCocoaErrorDomain, code: 640,
+                  userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: 28)]) },
+    ]
+
+    @Test(arguments: [0, 1])
+    func aDiskThatFillsWhileAnOBBIsWrittenRefusesItsXAPKWithTheReasonAndLeavesNothingBehind(_ form: Int) async throws {
+        // The free space was enough when the import began and is gone half way (another app writes at the same time):
+        // the write fails at its second chunk, and the container is refused as for a shortage up front.
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let calls = Mutex(0)
+        let error = Self.fullDisk[form]
+        let library = try Library(paths: sandbox.paths, writeChunk: { handle, chunk in
+            let call = calls.withLock { count -> Int in count += 1; return count }
+            if call > 1 { throw error() }
+            try handle.write(contentsOf: chunk)
+        })
+        let name = Self.name("main", 1)
+        let unit = try Self.unit(obbs: [(name, Data(repeating: 0x5A, count: 1 << 20))], in: sandbox.paths)
+
+        let entry = try #require(try await library.importUnit(unit).first?.entry)
+
+        #expect(calls.withLock { $0 } > 1)
+        #expect(entry.id == "file:game.xapk")
+        #expect(entry.refusal?.contains("free space") == true)
+        #expect(!sandbox.exists(Self.obbFolder(sandbox.paths)))
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: sandbox.paths.incoming.path)) ?? []
+        #expect(left.filter { $0.hasPrefix(".") || $0.hasSuffix(".partial") } == [])
     }
 
     @Test func theXAPKsNamesGoOnOneOfItsEntries() async throws {

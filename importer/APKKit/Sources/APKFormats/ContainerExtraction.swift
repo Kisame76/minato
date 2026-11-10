@@ -43,7 +43,8 @@ extension Container {
     /// first. An existing `destination` is never replaced.
     @discardableResult
     public func extract(_ items: [Item], into destination: URL,
-                        availableSpace: (URL) throws -> UInt64 = Container.availableSpace) throws -> [URL] {
+                        availableSpace: (URL) throws -> UInt64 = Container.availableSpace,
+                        writeChunk: ((FileHandle, Data) throws -> Void)? = nil) throws -> [URL] {
         var names = Set<String>()
         for item in items {
             guard Self.isPlainFileName(item.fileName), names.insert(item.fileName).inserted else {
@@ -65,9 +66,14 @@ extension Container {
             excluded.isExcludedFromBackup = true
             try partial.setResourceValues(excluded)
             for item in items {
-                try write(item.entry, to: partial.appendingPathComponent(item.fileName))
+                try write(item.entry, to: partial.appendingPathComponent(item.fileName), writeChunk: writeChunk)
             }
             try fileManager.moveItem(at: partial, to: destination)
+        } catch let error where Self.isOutOfSpace(error) {
+            // The disk filled while the files were written (another app writes at the same time), after the check
+            // above passed: the same refusal as for a shortage up front, with the free space as it is now.
+            try? fileManager.removeItem(at: partial)
+            throw ContainerError.notEnoughSpace(needed: needed, available: (try? availableSpace(parent)) ?? 0)
         } catch {
             try? fileManager.removeItem(at: partial)
             throw error
@@ -80,7 +86,8 @@ extension Container {
     /// (ADR-0049 c1). The checksum still runs over it, and the file's length is set at the end, so it ends at the
     /// declared size also after a last chunk of zeros. The file is made new or not at all, so two names the volume takes
     /// for one, as APFS folds case on the Mac, fail closed (the review).
-    private func write(_ entry: ZipEntry, to file: URL) throws {
+    private func write(_ entry: ZipEntry, to file: URL,
+                       writeChunk: ((FileHandle, Data) throws -> Void)? = nil) throws {
         let descriptor = Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
         guard descriptor >= 0 else {
             if errno == EEXIST { throw ContainerError.unsafeName(file.lastPathComponent) }
@@ -95,7 +102,11 @@ extension Container {
                 crc = chunk.withUnsafeBytes { Self.checksum(crc, adding: $0) }
                 if !Self.isZeros(chunk) {
                     try handle.seek(toOffset: length)
-                    try handle.write(contentsOf: chunk)
+                    if let writeChunk {
+                        try writeChunk(handle, chunk)
+                    } else {
+                        try handle.write(contentsOf: chunk)
+                    }
                 }
                 length += UInt64(chunk.count)
             }
@@ -105,6 +116,18 @@ extension Container {
         guard crc == entry.crc32 else { throw ContainerError.checksumMismatch(entry.name) }
         try handle.truncate(atOffset: length)
         try handle.synchronize()
+    }
+
+    /// Whether `error` says the volume is full: the POSIX error ENOSPC or EDQUOT, or what FileHandle throws on a full
+    /// volume, an NSCocoaErrorDomain 640 (NSFileWriteOutOfSpaceError) with the POSIX error as its underlying error
+    /// (measured on a small APFS disk image), either one anywhere along the chain of underlying errors.
+    static func isOutOfSpace(_ error: Error) -> Bool {
+        if let posix = error as? POSIXError, posix.code == .ENOSPC || posix.code == .EDQUOT { return true }
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOSPC) || ns.code == Int(EDQUOT) { return true }
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileWriteOutOfSpaceError { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error { return isOutOfSpace(underlying) }
+        return false
     }
 
     /// Whether `chunk` holds only zeros, compared with a block of zeros at a time.

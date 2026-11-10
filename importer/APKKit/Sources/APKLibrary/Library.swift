@@ -66,13 +66,17 @@ public actor Library {
     /// The free space of the volume a container's files are taken out on (iOS's figure for data the user asked for);
     /// a test gives its own.
     private let availableSpace: @Sendable (URL) throws -> UInt64
+    /// How a container's file is written, chunk by chunk (nil: the file handle's own write); a test makes it fail.
+    private let writeChunk: (@Sendable (FileHandle, Data) throws -> Void)?
 
     /// `device` defaults to an iPhone at 3x with `preferredLanguages`.
     public init(paths: LibraryPaths, preferredLanguages: [String] = Locale.preferredLanguages,
                 device: DeviceProfile? = nil,
-                availableSpace: @escaping @Sendable (URL) throws -> UInt64 = Container.availableSpace) throws {
+                availableSpace: @escaping @Sendable (URL) throws -> UInt64 = Container.availableSpace,
+                writeChunk: (@Sendable (FileHandle, Data) throws -> Void)? = nil) throws {
         self.paths = paths
         self.availableSpace = availableSpace
+        self.writeChunk = writeChunk
         self.preferredLanguages = preferredLanguages
         self.device = device ?? .iPhone(nativeScale: 3, languages: preferredLanguages)
         let index = try Self.index(in: paths)
@@ -1189,7 +1193,7 @@ public actor Library {
         let files = items.map { (url: folder.appendingPathComponent($0.fileName), name: $0.fileName) }
         if !files.allSatisfy({ FileManager.default.fileExists(atPath: $0.url.path) }) {
             try? FileManager.default.removeItem(at: folder)
-            try container.extract(items, into: folder, availableSpace: availableSpace)
+            try container.extract(items, into: folder, availableSpace: availableSpace, writeChunk: writeChunk)
         }
         return files
     }
