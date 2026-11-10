@@ -100,6 +100,14 @@ enum FixtureRunner {
         if !fields.contains("no-library-path") {
             environment.append("LD_LIBRARY_PATH=/data/local/tmp")
         }
+        // Force the guest libc build as apk-run's --scudo-regions does (ADR-0035 item 3): the runtime reads
+        // MINATO_SCUDO_REGIONS in place of its address-space probe, so a check exercises the 128 MiB build even on
+        // the increased-memory device suite, where the probe would pick 256 MiB. In the host process, not the guest
+        // environment: the runtime reads it with getenv (dl.cpp scudo_region_log2), before libc loads.
+        if let regions = fields.first(where: { $0.hasPrefix("scudo-regions=") })
+            .map({ String($0.dropFirst("scudo-regions=".count)) }) {
+            setenv("MINATO_SCUDO_REGIONS", regions, 1)
+        }
 
         var error = [CChar](repeating: 0, count: 1024)
         check(apkrt_mount("/data/local/tmp", dataLocalTmp.path, &error, error.count), error)
