@@ -22,13 +22,21 @@ import android.view.inputmethod.InputMethodManager;
  * keyboard at Enter as SDL2 does with SDL_HINT_RETURN_KEY_HIDES_IME (SDLInputConnection's ENTER, SDL_StopTextInput,
  * hideSoftInputFromWindow), as Ren'Py's name field does at Return, and ends with "done" 2 s later. Its twin
  * ime-surrounding-test-delete waits for one edit only, the keyboard's delete key in the empty field, which Android's
- * keyboard still sends as deleteSurroundingText(1, 0), and ends with "done" 1 s after it.
+ * keyboard still sends as deleteSurroundingText(1, 0), and ends with "done" 1 s after it. Its twin
+ * ime-surrounding-test-hide hides the keyboard by itself (hideSoftInputFromWindow) 3 s after its showSoftInput, as an
+ * SDL game does when it ends its text input, and ends with "done" 2 s later.
  */
 public class SurroundingActivity extends Activity {
     static final String RETURN_PACKAGE = "io.github.kisame76.minato.test.imesurroundingreturn";
     static final String RETURN_TAG = "ime-surrounding-test-return";
     static final String DELETE_PACKAGE = "io.github.kisame76.minato.test.imesurroundingdelete";
     static final String DELETE_TAG = "ime-surrounding-test-delete";
+    static final String HIDE_PACKAGE = "io.github.kisame76.minato.test.imesurroundinghide";
+    static final String HIDE_TAG = "ime-surrounding-test-hide";
+    /** The twin that hides the keyboard by itself, and how long after its showSoftInput. */
+    private boolean mHides;
+    private boolean mHidden;
+    private static final long HIDE_AFTER_MS = 3000;
     private int mEditsWanted = 3;
     private static final long TIMEOUT_MS = 12000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
@@ -115,6 +123,10 @@ public class SurroundingActivity extends Activity {
             mTag = DELETE_TAG;
             mEditsWanted = 1;
         }
+        mHides = HIDE_PACKAGE.equals(getPackageName());
+        if (mHides) {
+            mTag = HIDE_TAG;
+        }
         mEdit = new DummyEdit(this);
         setContentView(mEdit);
     }
@@ -128,6 +140,14 @@ public class SurroundingActivity extends Activity {
         mStarted = true;
         mEdit.requestFocus();
         Log.i(mTag, "showSoftInput " + getSystemService(InputMethodManager.class).showSoftInput(mEdit, 0));
+        if (mHides) {
+            mHandler.postDelayed(() -> {
+                mHidden = getSystemService(InputMethodManager.class)
+                        .hideSoftInputFromWindow(mEdit.getWindowToken(), 0);
+                Log.i(mTag, "hide: hideSoftInputFromWindow " + mHidden);
+                mHandler.postDelayed(this::finishRun, 2000);
+            }, HIDE_AFTER_MS);
+        }
         mHandler.postDelayed(this::finishRun, TIMEOUT_MS);
     }
 
@@ -136,6 +156,6 @@ public class SurroundingActivity extends Activity {
             return;
         }
         mDone = true;
-        Log.i(mTag, mEdits == mEditsWanted || mReturned ? "done" : "timeout");
+        Log.i(mTag, mEdits == mEditsWanted || mReturned || mHidden ? "done" : "timeout");
     }
 }

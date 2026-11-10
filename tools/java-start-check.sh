@@ -204,6 +204,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "native-jni-ime-test io.github.kisame76.minato.test.nativejniime"
       "ime-surrounding-test-delete io.github.kisame76.minato.test.imesurroundingdelete"
       "ime-surrounding-test-return io.github.kisame76.minato.test.imesurroundingreturn"
+      "ime-surrounding-test-hide io.github.kisame76.minato.test.imesurroundinghide"
       "install-flow-test io.github.kisame76.minato.test.installflow"
       "install-session-flow-test io.github.kisame76.minato.test.installsessionflow"
       "install-set-flow-test io.github.kisame76.minato.test.installsetflow"
@@ -2856,6 +2857,42 @@ if wanted starting-window-test; then
   : > "$WORK/guest-environment"
   if [[ "$ON_DEVICE" == yes ]]; then guest_environment; else rm -f "$CONTAINER/tmp/guest-environment"; fi
   rm -f "$WORK/guest-environment"
+fi
+
+# The same glass check without the MinatoUITests runner, so that it runs on an iPhone whose UI automation is off:
+# ime-surrounding-test-hide hides the keyboard by itself 3 s after it came (hideSoftInputFromWindow, as an SDL game
+# ends its text input), the user's real path of a guest-initiated hide. The bar must be in the list while the keyboard
+# is up and nothing of it may stay after the hide; the app's log must be Android 15's.
+if wanted ime-surrounding-test-hide; then
+  if begin_start ime-surrounding-test-hide io.github.kisame76.minato.test.imesurroundinghide 1; then
+    if await_line guest-log '^I/ime-surrounding-test-hide: showSoftInput true$' 120 &&
+        await_event 'keyboard show\(' 20; then
+      keyboard_views 1
+      if [[ "$VIEWS" == *KeyboardBarView* ]]; then ok "  the bar is on screen while the keyboard is up: $VIEWS"; else
+        failed_line "the list has no bar while the keyboard is up: $VIEWS" ime-surrounding-test-hide-1; fi
+      if await_event 'keyboard hide' 15; then
+        ok "  the app's own hide reached Minato"
+        no_keyboard_views "the app's own hide" ime-surrounding-test-hide-1
+      else
+        failed_line "the app's own hide did not hide the keyboard" ime-surrounding-test-hide-1
+      fi
+      await_line guest-log '^I/ime-surrounding-test-hide: done$' 15 || true
+    else
+      failed_line "no keyboard for the app's own hide" ime-surrounding-test-hide-1
+    fi
+  fi
+  end_start ime-surrounding-test-hide 1
+  python3 - "$WORK/ime-surrounding-test-hide-1.log" fixtures/expected/ime-surrounding-test-hide.logcat <<'PY' ||
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+log, expected = sys.argv[1:]
+compare_log("ime-surrounding-test-hide",
+            subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected, {})
+PY
+    failures=$((failures + 1))
 fi
 
 # IME: ime-test (ADR-0068 step 2c) starts with its field focused and asks for the keyboard; UIKit's must come, and the
