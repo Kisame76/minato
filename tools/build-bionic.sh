@@ -24,3 +24,5 @@ cmake -S runtime/bionic -B build/bionic -G Ninja \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/bionic "$@"
 python3 tools/make-tzdata.py build/bionic/system/usr/share/zoneinfo/tzdata
+# The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
+touch build/bionic/.built

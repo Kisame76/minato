@@ -1186,6 +1186,25 @@ std::vector<Library *> preload_luajit_switch(State &state, Library &program, boo
     return std::move(preloaded->added);
 }
 
+/// The Mono switch, libminato-mono.so (runtime/android/mono.c, ADR-0071 decision 3), loaded the same way:
+/// mono_jit_set_aot_mode of an object that also defines mono_jit_init_version (Mono's embedding library) becomes its
+/// wrapper, which hands Mono the interpreter's mode, so that its JIT never asks for executable memory. The libraries
+/// it adds to the program's group, none without it.
+std::vector<Library *> preload_mono_switch(State &state, Library &program, bool &missed) {
+    constexpr std::string_view name = "libminato-mono.so";
+    auto preloaded = preload_optional(state, program, missed, name);
+    if (!preloaded) return {};
+    const auto &object = preloaded->library->object;
+    const auto symbol = [&](const char *wanted) { return required_symbol(object, name, wanted); };
+    linker::add_overrides({{.name = "mono_jit_set_aot_mode",
+                            .wrapper = &object,
+                            .replacement = symbol("minato_mono_set_aot_mode"),
+                            .original = reinterpret_cast<std::uint64_t *>(
+                                linker::symbol_address(object, *symbol("minato_mono_original"))),
+                            .requires_symbol = "mono_jit_init_version"}});
+    return std::move(preloaded->added);
+}
+
 /// libffi closures without executable memory, libminato-ffi.so (runtime/android/ffi.c, ADR-0072), loaded the same way:
 /// ffi_closure_alloc, ffi_closure_free and ffi_prep_closure_loc of an object that defines the other two become its
 /// pool wrappers, so that a closure's code is a trampoline of the signed library instead of memory the app made
@@ -1365,6 +1384,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         auto added = load_needed(state, program, true, missed);
         for (auto *library : preload_frame_rate(state, program, missed)) added.push_back(library);
         for (auto *library : preload_luajit_switch(state, program, missed)) added.push_back(library);
+        for (auto *library : preload_mono_switch(state, program, missed)) added.push_back(library);
         for (auto *library : preload_jsc_switch(state, program, missed)) added.push_back(library);
         for (auto *library : preload_ffi_closures(state, program, missed)) added.push_back(library);
         for (auto *library : added) {

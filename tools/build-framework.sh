@@ -507,4 +507,6 @@ PY
 python3 tools/swap-dir.py "$OUT" "$FINAL"
 trap - EXIT
 python3 tools/prepared-stamp.py write framework "$PREPARED_DIGEST"
+# The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
+touch "$FINAL/.built"
 echo "build-framework: $FINAL/framework.jar ($(wc -c <"$FINAL/framework.jar" | tr -d ' ') bytes)"

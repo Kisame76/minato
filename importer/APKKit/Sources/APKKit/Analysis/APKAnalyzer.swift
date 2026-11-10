@@ -345,6 +345,11 @@ public enum APKAnalyzer {
         let hasAOTImages = libraries.contains { $0.hasPrefix("libaot-") }
         let known: [(test: (Set<String>) -> Bool, name: String)] = [
             ({ $0.contains("libil2cpp.so") }, "Unity (IL2CPP)"),
+            // Unity's Mono backend (MonoBleedingEdge's libmonobdwgc-2.0.so, or the older libmono.so): its Mono
+            // compiles at run time unless the app carries AOT images, like any Mono (ADR-0071), so it says so.
+            ({ $0.contains("libunity.so") && !$0.contains("libil2cpp.so")
+                && ($0.contains("libmonobdwgc-2.0.so") || $0.contains("libmono.so")) },
+             "Unity (Mono)" + (hasAOTImages ? "" : needsJIT)),
             ({ $0.contains("libunity.so") }, "Unity"),
             ({ $0.contains("libUE4.so") || $0.contains("libUnreal.so") }, "Unreal Engine"),
             ({ $0.contains("libgodot_android.so") }, "Godot"),

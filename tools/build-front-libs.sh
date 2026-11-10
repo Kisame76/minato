@@ -25,3 +25,5 @@ cmake -S graphics/guest -B build/graphics/guest -G Ninja \
   -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null
 cmake --build build/graphics/guest -j 6
+# The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
+touch build/graphics/guest/.built

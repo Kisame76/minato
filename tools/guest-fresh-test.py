@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """The release guards of tools/check-guest-fresh.py and tools/release.sh, CTest's release.guest_fresh, on a fake tree:
   - guest outputs newer than their sources pass;
-  - a source file newer than its output fails, and so does a missing output;
+  - a source file newer than its build's stamp fails, and so does a missing output or a missing stamp (the stamp is
+    what a build script touches as its last step: a new file that ninja does not relink the library for, such as one
+    only a second target uses, leaves the library older than the sources for good, so the library's own time says
+    nothing);
   - a stray file that no build reads (.DS_Store, a README, an editor's backup) newer than the output does not fail the
     guard for good, since ninja would have nothing to rebuild;
   - `--only <folder>` checks the outputs under that folder alone, so that a test of the guest libraries stops with the
@@ -51,13 +54,15 @@ import runpy, sys, os
 src = open(sys.argv[1]).read().replace("\\nmain()\\n", "\\n")
 ns = {}
 exec(compile(src, sys.argv[1], "exec"), ns)
-for marker, script, sources in ns["OUTPUTS"]:
-    print(marker + "\\t" + "\\t".join(sources))
+for marker, script, sources, *stamp in ns["OUTPUTS"]:
+    print(marker + "\\t" + (stamp[0] if stamp else "-") + "\\t" + "\\t".join(sources))
 """, GUARD], capture_output=True, text=True).stdout.splitlines()
     sources = {}
     for line in spec:
-        marker, *paths = line.split("\t")
+        marker, stamp, *paths = line.split("\t")
         touch(os.path.join(base, marker), 1000)
+        if stamp != "-":
+            touch(os.path.join(base, stamp), 1000)
         for path in paths:
             full = os.path.join(base, path)
             if os.path.splitext(path)[1]:
@@ -87,6 +92,28 @@ with tempfile.TemporaryDirectory() as base:
     check(guard(base) == 0, "fresh again")
     os.remove(os.path.join(base, "build/art/lib/libart.so"))
     check(guard(base) == 1, "a missing output fails")
+
+with tempfile.TemporaryDirectory() as base:
+    # A new source file that the build script's ninja run does not relink libc.so for (libminato-mono.so, say): the
+    # library stays older than the file, the build script has run and touched its stamp, and the guard passes.
+    sources = fake_tree(base)
+    touch(os.path.join(base, "runtime/android/new_unit.c"), 2000)
+    check(guard(base) == 1, "a new source file newer than the stamp fails")
+    touch(os.path.join(base, "build/bionic/.built"), 3000)
+    for stamp in ("build/art/.built", "build/framework/.built", "build/framework-native/.built", "build/hwui/.built",
+                  "build/graphics/guest/.built"):
+        touch(os.path.join(base, stamp), 3000)
+    check(os.stat(os.path.join(base, "build/bionic/lib/libc.so")).st_mtime < 2000, "(libc.so is older than the file)")
+    check(guard(base) == 0, "a build script's stamp newer than a new source file passes, the library staying older")
+    code, message = guard_only(base, "build/bionic")
+    check(code == 0, "--only: the same for one folder")
+    os.remove(os.path.join(base, "build/bionic/.built"))
+    code, message = guard_only(base, "build/bionic")
+    check(code == 1 and "tools/build-bionic.sh" in message and "build/bionic/.built" in message,
+          "a missing stamp fails and names the build script to run")
+    touch(os.path.join(base, "build/bionic/.built"), 3000)
+    os.remove(os.path.join(base, "build/bionic/lib/libc.so"))
+    check(guard_only(base, "build/bionic")[0] == 1, "a stamp without the library fails")
 
 with tempfile.TemporaryDirectory() as base:
     sources = fake_tree(base)

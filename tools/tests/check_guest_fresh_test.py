@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/check-guest-fresh.py: the guest outputs a release packs (build/bionic, art, framework, framework-native, hwui,
 graphics/guest) must not be older than the sources they are built from, or the release would ship stale libraries.
-On a small tree it writes: all fresh passes; a source newer than its output, a missing output and a missing marker
-file fail and name the pair; a missing source folder and an old file in a folder the build does not read are ignored.
+On a small tree it writes: all fresh passes; a source newer than its build's stamp, a missing output and a missing
+stamp fail and name the pair; a missing source folder and an old file in a folder the build does not read are ignored.
 Python 3.9."""
 import os
 import subprocess
@@ -39,6 +39,10 @@ def make(root, output_time, source_time):
                  "build/framework-native/libandroid_runtime.so", "build/hwui/lib/libhwui.so",
                  "build/graphics/guest/bin/libEGL.so"]:
         touch(root, path, output_time)
+    # The stamp each build script touches as its last step.
+    for folder in ["build/bionic", "build/art", "build/framework", "build/framework-native", "build/hwui",
+                   "build/graphics/guest"]:
+        touch(root, folder + "/.built", output_time)
     for path in ["runtime/bionic/CMakeLists.txt", "runtime/art/CMakeLists.txt", "framework/java/android/app/A.java",
                  "framework/native/android_runtime/B.cpp", "graphics/hwui/CMakeLists.txt",
                  "graphics/guest/CMakeLists.txt", "tools/build-bionic.sh"]:
@@ -66,6 +70,12 @@ with tempfile.TemporaryDirectory() as root:
     code, text = run(root)
     check(code == 1 and "build/hwui/lib/libhwui.so" in text and "missing" in text, "a missing output fails: " + text)
     touch(root, "build/hwui/lib/libhwui.so", 2000)
+
+    os.remove(os.path.join(root, "build/art/.built"))
+    code, text = run(root)
+    check(code == 1 and "build/art/.built is missing" in text and "tools/build-art.sh" in text,
+          "a missing stamp fails and names its build script: " + text)
+    touch(root, "build/art/.built", 2000)
 
     os.remove(os.path.join(root, "graphics/guest/CMakeLists.txt"))
     os.rmdir(os.path.join(root, "graphics/guest"))

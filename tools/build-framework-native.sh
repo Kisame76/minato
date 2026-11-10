@@ -82,4 +82,6 @@ cmake -S framework -B build/framework-native -G Ninja \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/framework-native -j 6
 python3 tools/prepared-stamp.py write framework-native "$PREPARED_DIGEST"
+# The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
+touch build/framework-native/.built
 echo "build-framework-native: build/framework-native"

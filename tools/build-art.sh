@@ -25,3 +25,5 @@ cmake -S runtime/art -B build/art -G Ninja \
 cmake --build build/art "$@"
 # The stamp the checks on this build compare with the tree (tools/art_sources.py).
 python3 tools/art_sources.py runtime/art > build/art/sources.sha256
+# The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
+touch build/art/.built

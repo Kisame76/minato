@@ -166,6 +166,12 @@ add_library(fake-luajit SHARED suite/libfake-luajit.c)
 add_library(fake-lua SHARED suite/libfake-lua.c)
 add_executable(luajit-switch-test suite/luajit-switch-test.c)
 target_link_libraries(luajit-switch-test PRIVATE fake-luajit dl)
+# mono-switch-test and the two libraries that stand in for Mono and for a library that only borrows its mode name (the
+# Mono switch, runtime/tests/mono_switch_run.py): the app imports the names, or looks them up with dlsym.
+add_library(fake-mono SHARED suite/libfake-mono.c)
+add_library(fake-notmono SHARED suite/libfake-notmono.c)
+add_executable(mono-switch-test suite/mono-switch-test.c)
+target_link_libraries(mono-switch-test PRIVATE fake-mono dl)
 # ffi-closure-test and the two libraries that stand in for a statically linked libffi by its exported names and by the
 # layout of its legacy closure path (libffi closures without executable memory, runtime/tests/ffi_closures_run.py):
 # libfake-ffi-sym.so is linked -Bsymbolic and calls the names from inside, by direct branches.

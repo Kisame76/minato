@@ -179,7 +179,10 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   and the player's volume, also while a player plays at a speed other than 1.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
   says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
-  cannot reach, emulators' recompilers).
+  cannot reach, emulators' recompilers). Minato switches Mono to its interpreter when the app starts it, so a .NET app
+  with AOT images that carry the interpreter's wrappers does not need a JIT; this is built and tested with a stand-in
+  for Mono, not yet with a real .NET app. Unity games on the Mono backend ship no AOT images, so Get Info lists
+  them as needing a JIT.
 - Device features and permissions: sensors, location, the microphone and the camera work. For each app Minato asks
   first, then iOS asks once for Minato, and a no stays a no after the second time, as on Android. The camera works
   through Android's Camera API; Camera2 and CameraX are not in yet.

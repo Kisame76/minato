@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Fails when a guest output that a release packs is older than the sources it is built from (or is missing), so that
-tools/release.sh never ships libraries left over from an older tree. Each output is a marker file the build writes; its
-sources are the folders and files the build script reads. The marker's time must be at least that of the newest source
-file. In a fresh clone every source is as new as the checkout, so a clone needs the full build of docs/BUILDING.md
+tools/release.sh never ships libraries left over from an older tree. Each output is a marker file the build writes, and
+each build script touches a stamp (build/<folder>/.built) as its last step, after a build that succeeded. The stamp's
+time must be at least that of the newest source file the build script reads (folders and files). The marker, the
+library itself, only has to be there: a source that ninja does not relink the marker for (a new unit of another target)
+leaves it older than the sources for good, so its own time says nothing. In a fresh clone every source is as new as
+the checkout, so a clone needs the full build of docs/BUILDING.md
 before a release, which is what this asks for. A source folder that is not there is skipped; tests and docs are not
 sources, and neither are files that no build reads (.DS_Store, README and *.md, editors' backups). Python 3.9.
 
@@ -15,24 +18,25 @@ import argparse
 import os
 import sys
 
-# marker -> (what it is built by, the sources: folders are walked, files are taken as they are)
+# marker, what it is built by, the sources (folders are walked, files are taken as they are), the stamp it touches
 OUTPUTS = [
     ("build/bionic/lib/libc.so", "tools/build-bionic.sh",
-     ["runtime/bionic", "runtime/android", "runtime/include", "tools/build-bionic.sh", "tools/prefix-map-flags.sh"]),
+     ["runtime/bionic", "runtime/android", "runtime/include", "tools/build-bionic.sh", "tools/prefix-map-flags.sh"],
+     "build/bionic/.built"),
     ("build/art/lib/libart.so", "tools/build-art.sh",
-     ["runtime/art", "tools/build-art.sh", "tools/prefix-map-flags.sh"]),
+     ["runtime/art", "tools/build-art.sh", "tools/prefix-map-flags.sh"], "build/art/.built"),
     ("build/framework/framework.jar", "tools/build-framework.sh",
      ["framework/java", "framework/managers", "framework/patches", "framework/stubs", "framework/sources.txt",
       "framework/stub-references.txt", "framework/stub-supertypes.txt", "framework/signature-gaps.txt",
-      "tools/build-framework.sh"]),
+      "tools/build-framework.sh"], "build/framework/.built"),
     ("build/framework-native/libandroid_runtime.so", "tools/build-framework-native.sh",
      ["framework/native", "framework/CMakeLists.txt", "runtime/include", "tools/build-framework-native.sh",
-      "tools/prefix-map-flags.sh"]),
+      "tools/prefix-map-flags.sh"], "build/framework-native/.built"),
     ("build/hwui/lib/libhwui.so", "tools/build-hwui.sh",
-     ["graphics/hwui", "tools/build-hwui.sh", "tools/prefix-map-flags.sh"]),
+     ["graphics/hwui", "tools/build-hwui.sh", "tools/prefix-map-flags.sh"], "build/hwui/.built"),
     ("build/graphics/guest/bin/libEGL.so", "tools/build-front-libs.sh",
      ["graphics/guest", "graphics/egl", "graphics/gles", "graphics/vulkan", "runtime/include",
-      "tools/build-front-libs.sh", "tools/prefix-map-flags.sh"]),
+      "tools/build-front-libs.sh", "tools/prefix-map-flags.sh"], "build/graphics/guest/.built"),
 ]
 
 
@@ -87,14 +91,17 @@ def main():
             print("check-guest-fresh: no guest output lives in " + ", ".join(missing), file=sys.stderr)
             sys.exit(2)
     problems = []
-    for marker, script, sources in outputs:
-        path = os.path.join(root, marker)
-        if not os.path.exists(path):
+    for marker, script, sources, stamp in outputs:
+        if not os.path.exists(os.path.join(root, marker)):
             problems.append(f"{marker} is missing; run {script}")
             continue
+        stamp_path = os.path.join(root, stamp)
+        if not os.path.exists(stamp_path):
+            problems.append(f"{stamp} is missing (the build did not finish, or predates the stamps); run {script}")
+            continue
         time, source = newest(root, sources)
-        if os.stat(path).st_mtime < time:
-            problems.append(f"{marker} is older than {source}; run {script}")
+        if os.stat(stamp_path).st_mtime < time:
+            problems.append(f"{marker}'s build ({stamp}) is older than {source}; run {script}")
     if problems:
         print("check-guest-fresh: the guest outputs are not those of this tree:", file=sys.stderr)
         for problem in problems:

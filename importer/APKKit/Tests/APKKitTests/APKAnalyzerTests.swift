@@ -348,6 +348,19 @@ struct APKAnalyzerTests {
                                              .init(name: "assemblies/Game.dll", content: Data(count: 64))])
         let monoBlob = TestAPK(files: [Self.library("lib/arm64-v8a/libgame.so"),
                                        .init(name: "assemblies/assemblies.blob", content: Data(count: 64))])
+        // Unity's Mono backend (MonoBleedingEdge's libmonobdwgc-2.0.so or the older libmono.so) beside libunity.so: it
+        // compiles at run time like any Mono without AOT images, so Get Info says so; Unity's IL2CPP and a plain
+        // libunity.so keep their names.
+        let unityMono = TestAPK(files: [Self.library("lib/arm64-v8a/libunity.so"),
+                                        Self.library("lib/arm64-v8a/libmonobdwgc-2.0.so")])
+        let unityMonoOld = TestAPK(files: [Self.library("lib/arm64-v8a/libunity.so"),
+                                           Self.library("lib/arm64-v8a/libmono.so")])
+        let unityMonoAOT = TestAPK(files: [Self.library("lib/arm64-v8a/libunity.so"),
+                                           Self.library("lib/arm64-v8a/libmonobdwgc-2.0.so"),
+                                           Self.library("lib/arm64-v8a/libaot-mscorlib.dll.so")])
+        let unityIL2CPP = TestAPK(files: [Self.library("lib/arm64-v8a/libunity.so"),
+                                          Self.library("lib/arm64-v8a/libil2cpp.so")])
+        let unityPlain = TestAPK(files: [Self.library("lib/arm64-v8a/libunity.so")])
         let coreCLR = TestAPK(files: [Self.library("lib/arm64-v8a/libcoreclr.so")])
         let coreCLRHost = TestAPK(files: [Self.library("lib/arm64-v8a/libnet-android.release.so")])
         let luaJITNamed = TestAPK(files: [Self.library("lib/arm64-v8a/libluajit-5.1.so")])
@@ -363,6 +376,11 @@ struct APKAnalyzerTests {
         #expect(try engine(monoBlob) == (".NET (Xamarin/MAUI)" + needsJIT, .ready))
         #expect(try engine(coreCLR) == (".NET (CoreCLR)" + needsJIT, .ready))
         #expect(try engine(coreCLRHost) == (".NET (CoreCLR)" + needsJIT, .ready))
+        #expect(try engine(unityMono) == ("Unity (Mono)" + needsJIT, .ready))
+        #expect(try engine(unityMonoOld) == ("Unity (Mono)" + needsJIT, .ready))
+        #expect(try engine(unityMonoAOT) == ("Unity (Mono)", .ready))
+        #expect(try engine(unityIL2CPP) == ("Unity (IL2CPP)", .ready))
+        #expect(try engine(unityPlain) == ("Unity", .ready))
         #expect(try engine(luaJITNamed) == ("LuaJIT", .ready))
         // Before SDL: LÖVE-like apps load SDL too.
         #expect(try engine(luaJITLinkedIn) == ("LuaJIT", .ready))

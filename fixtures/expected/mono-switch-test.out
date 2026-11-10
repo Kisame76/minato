@@ -1,0 +1,4 @@
+mono-switch-test: mono_jit_set_aot_mode(1)
+mono-switch-test: mono_jit_init_version
+mono-switch-test: JIT allowed
+mono-switch-test: the JIT asked for executable memory

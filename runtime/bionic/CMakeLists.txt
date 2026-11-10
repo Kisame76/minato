@@ -351,6 +351,12 @@ apk_bionic_unit(apk_luajit SOURCES "${android_sources}/luajit.c" INCLUDES ${andr
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libminato-luajit UNITS apk_luajit NEEDED libc)
 
+# libminato-mono.so (the Mono switch, ADR-0071 decision 3): the wrapper of mono_jit_set_aot_mode that hands Mono the
+# interpreter's mode, which the loader preloads when it is among the system's libraries (runtime/android/mono.c).
+apk_bionic_unit(apk_mono SOURCES "${android_sources}/mono.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libminato-mono UNITS apk_mono NEEDED libc)
+
 # libminato-ffi.so (libffi closures without executable memory, ADR-0072): a pool of trampolines and the wrappers of
 # ffi_closure_alloc, ffi_prep_closure_loc and ffi_closure_free, which the loader preloads when it is among the system's
 # libraries (runtime/android/ffi.c).

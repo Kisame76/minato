@@ -30,3 +30,5 @@ cmake -S graphics/hwui -B "$build" -G Ninja \
   -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" -DAPK_PREFIX_MAP="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$build" "$@"
+# The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
+touch "$build/.built"
