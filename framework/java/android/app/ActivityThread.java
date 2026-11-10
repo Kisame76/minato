@@ -1052,7 +1052,44 @@ public final class ActivityThread {
             }
             return null;
         }
+        final String extras = intent.getStringExtra(NotificationService.START_EXTRAS);
+        if (extras != null) {
+            // The extras as the app put them in, from their parcel; the app's class loader reads its own Parcelables
+            // later (setExtrasClassLoader), as for an intent from a Binder call. A parcel that does not read leaves
+            // the URI's own extras, without the key.
+            final Bundle restored = extrasFromParcel(extras);
+            if (restored != null) {
+                intent.replaceExtras(restored);
+            } else {
+                intent.removeExtra(NotificationService.START_EXTRAS);
+                if (log) {
+                    Log.w(TAG, "a notification's start intent whose extras do not read");
+                }
+            }
+        }
         return intent;
+    }
+
+    /**
+     * The Bundle NotificationService wrote for a cold tap's intent (START_EXTRAS); null when it does not read: no bytes
+     * (it never writes an empty Bundle), bytes left after the Bundle, or a parcel that throws.
+     */
+    private static Bundle extrasFromParcel(String extras) {
+        final android.os.Parcel parcel = android.os.Parcel.obtain();
+        try {
+            final byte[] bytes = android.util.Base64.decode(extras, android.util.Base64.URL_SAFE);
+            if (bytes.length == 0) {
+                return null;
+            }
+            parcel.unmarshall(bytes, 0, bytes.length);
+            parcel.setDataPosition(0);
+            final Bundle bundle = parcel.readBundle();
+            return parcel.dataAvail() == 0 ? bundle : null;
+        } catch (RuntimeException e) {
+            return null;
+        } finally {
+            parcel.recycle();
+        }
     }
 
     /**

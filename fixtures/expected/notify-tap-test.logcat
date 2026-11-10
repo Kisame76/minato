@@ -1,5 +1,6 @@
 I/notify-tap-test: posted: enabled true
 I/notify-tap-test: sent the content intent
 I/notify-tap-test: opened by the tap: room 7
+I/notify-tap-test: the tap's extras: thread 42 Team, tags [news, sport], counts [3, 4], uri content://io.github.kisame76.minato.test.notifytap/article/9, inner io.github.kisame76.minato.test.notifytap.OPEN 9, uuid 6f1c2a3e-0000-4000-8000-000000000007
 I/notify-tap-test: active after the tap: 1
 I/notify-tap-test: done

@@ -26,15 +26,18 @@ import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.content.res.Resources;
 import android.os.Binder;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Parcel;
 import android.os.Process;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import android.util.ArrayMap;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.widget.ToastPresenter;
@@ -185,9 +188,18 @@ public final class NotificationService extends INotificationManager.Default {
     }
 
     /**
+     * The extra of a cold tap's intent URI that holds the intent's extras as Bundle.writeToParcel writes them, in
+     * URL-safe Base64: Intent.toUri keeps only strings, numbers and booleans, and an app keeps a conversation's or an
+     * article's ID in a Bundle, an array or a Parcelable as well. ActivityThread puts them back and drops the key.
+     */
+    public static final String START_EXTRAS = "android.minato.START_EXTRAS";
+    /** NotificationText.INTENT_BYTES: a longer URI is not handed over. */
+    private static final int INTENT_BYTES = 2048;
+
+    /**
      * The content intent for a cold tap (ADR-0074 decision 4): Intent.toUri of a PendingIntent the app made for one of
-     * its own activities; null for any other, so that the tap only opens the app. The host and ActivityThread check it
-     * again before the start.
+     * its own activities, its extras as their parcel (START_EXTRAS) where that is possible and fits; null for any
+     * other, so that the tap only opens the app. The host and ActivityThread check it again before the start.
      */
     private static String startIntent(String pkg, Notification notification) {
         final PendingIntent content = notification.contentIntent;
@@ -199,7 +211,37 @@ public final class NotificationService extends INotificationManager.Default {
         if (intent == null || intent.getComponent() == null || !pkg.equals(intent.getComponent().getPackageName())) {
             return null;
         }
+        final String extras = extrasParcel(intent);
+        if (extras != null) {
+            final Intent bare = new Intent(intent);
+            bare.replaceExtras((Bundle) null);
+            final String uri = bare.putExtra(START_EXTRAS, extras).toUri(Intent.URI_INTENT_SCHEME);
+            if (uri.length() <= INTENT_BYTES) {
+                return uri;
+            }
+        }
+        // Without its parcel the URI keeps what Intent.toUri can: strings, numbers and booleans.
         return intent.toUri(Intent.URI_INTENT_SCHEME);
+    }
+
+    /**
+     * The intent's extras as Bundle.writeToParcel writes them, in URL-safe Base64; null for none, and for extras the
+     * parcel cannot carry outside a Binder call (binders, file descriptors) or whose Parcelable throws.
+     */
+    private static String extrasParcel(Intent intent) {
+        final Bundle extras = intent.getExtras();
+        if (extras == null || extras.isEmpty()) {
+            return null;
+        }
+        final Parcel parcel = Parcel.obtain();
+        try {
+            parcel.writeBundle(extras);
+            return Base64.encodeToString(parcel.marshall(), Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        } catch (RuntimeException e) {
+            return null;
+        } finally {
+            parcel.recycle();
+        }
     }
 
     @Override

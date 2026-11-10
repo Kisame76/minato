@@ -197,8 +197,9 @@ In plain terms, as a user meets it:
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.
 - The microphone, the camera, location and notifications are new and not yet checked on the iPhone.
 - Jobs, alarms and notifications work only while the app runs: nothing runs while iOS has the app suspended.
-- A notification's tap while Minato is closed opens the app at the notification's screen, but extras other than strings,
-  numbers and booleans in its content intent are not kept.
+- A notification's tap while Minato is closed opens the app at the notification's screen with its content intent's
+  extras, Bundles, arrays and Parcelables included, unless they hold binders or file descriptors or come to more than
+  about 1.5 KB: then only its strings, numbers and booleans are kept.
 - On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
 - OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
   missing too.

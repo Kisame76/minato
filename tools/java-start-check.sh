@@ -242,6 +242,13 @@ APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 # Minato's Ren'Py memory game (tools/renpy-memory.sh), only with ONLY=renpy-memory-test: it plays for MINUTES.
 [[ " $ONLY " != *" renpy-memory-test "* ]] ||
   APPS+=("renpy-memory-test io.github.kisame76.minato.test.renpymemory")
+# workmanager-test too, when the WorkManager libraries are there to build it with
+# (tools/fetch-workmanager-libraries.py).
+if /usr/bin/python3 tools/fetch-workmanager-libraries.py >/dev/null 2>&1; then
+  APPS+=("workmanager-test io.github.kisame76.minato.test.workmanager")
+else
+  echo "skipped: workmanager-test: no WorkManager libraries (tools/fetch-workmanager-libraries.py --fetch, on request)"
+fi
 # pad-test too, when Google's Play libraries are there to build it with (ADR-0050 c)).
 if /usr/bin/python3 tools/fetch-play-libraries.py >/dev/null 2>&1; then
   APPS+=("pad-test io.github.kisame76.minato.test.pad")
@@ -393,6 +400,7 @@ for app in "${APPS[@]}"; do
       fi
       ;;
     packs-test) tools/build-packs-test.sh >/dev/null ;;
+    workmanager-test) tools/build-workmanager-test.sh >/dev/null ;;
     pad-test) tools/build-pad-test.sh >/dev/null ;;
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
     vk-ahb-test|window-formats-test|gles-procs-test|present-limit-*) tools/build-fixtures.sh >/dev/null ;;
@@ -1471,6 +1479,26 @@ compare_log("context-test", subprocess.CompletedProcess([], 0, "", log), expecte
 EOF
 fi
 
+# workmanager-test (androidx.work 2.12.0): launch 1 enqueues unique delayed work, and launch 2, after Minato ended and
+# the process with it, finds it ENQUEUED in WorkManager's Room database in the app's data folder. Both starts' lines
+# must be Android 15's (fixtures/expected/workmanager-test.logcat, 50 lines: "kept work none", then "kept work 1,
+# ENQUEUED" and "2 tagged"). Room's SQLite in Minato's sandbox paths is what the Mac cannot show.
+if wanted workmanager-test; then
+  run_start workmanager-test io.github.kisame76.minato.test.workmanager 1
+  run_start workmanager-test io.github.kisame76.minato.test.workmanager 2
+  python3 - "$WORK/workmanager-test-1.log" "$WORK/workmanager-test-2.log" \
+    fixtures/expected/workmanager-test.logcat <<'EOF' || failures=$((failures + 1))
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+first, second, expected = sys.argv[1:]
+log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
+compare_log("workmanager-test", subprocess.CompletedProcess([], 0, "", log), expected, {})
+EOF
+fi
+
 # ADR-0057 step d: documents-tree-test opens Documents, allowed in Minato's alert, and makes a file there; its second
 # start reads it through the grant it kept. Both starts' lines must be Android 15's.
 if wanted documents-tree-test; then
@@ -1807,6 +1835,20 @@ save_response() {
   if await_line events " notification response saved$" 20; then ok "  $1: the tap's response is kept"; else
     fail "  $1: the tap's response was not kept"; fi
 }
+# Whether TapActivity of the tap $1 got its content intent's extras as Android gives them (a nested Bundle, a String[]
+# and an int[], a Uri, an Intent, a ParcelUuid): its "the tap's extras" line must be the reference log's. A process
+# that restarts for the tap gets the intent from the notification's store, which kept only strings, numbers and
+# booleans before 2026-11-10. The start's first such line is the tap's: a second later the new process's Application
+# sends its own content intent, in the process, with every extra.
+tap_extras() {
+  local prefix="I/notify-tap-test: the tap's extras: " want got
+  want=$(grep -m 1 -F "$prefix" fixtures/expected/notify-tap-test.logcat || true)
+  fetch "$CHECK_REL/guest-log" || true
+  got=$(grep -m 1 -F "$prefix" "$CHECK/guest-log" 2>/dev/null || true)
+  if [[ -n "$want" && "$got" == "$want" ]]; then ok "  $1: the content intent's extras are Android's"; else
+    fail "  $1: the content intent's extras: \"${got#"$prefix"}\", not \"${want#"$prefix"}\""
+  fi
+}
 # The round's precondition: the tap reached the delegate before Minato was active, and so did the restart, or its
 # wait for active with the fix. Only then does the round stand for the user's tap; a restart that came at active
 # proves nothing. Prints the round's events of the tap and the restart.
@@ -1885,9 +1927,11 @@ if wanted notify-tap-test; then
   if [[ "$on_main" == 1 ]]; then ok "  the delegate completed the tap's response on the main thread"; else
     fail "  the delegate completed the tap's response on the main thread ${on_main:-0} times, not once"; fi
   # A start that failed has no lines: the comparison fails, the check goes on.
-  grep -E "^I/notify-tap-test: " "$WORK/notify-tap-test-1.log" | head -n 5 > "$WORK/notify-tap-test-head.log" || true
+  lines=$(wc -l < fixtures/expected/notify-tap-test.logcat)
+  grep -E "^I/notify-tap-test: " "$WORK/notify-tap-test-1.log" | head -n "$lines" > "$WORK/notify-tap-test-head.log" ||
+    true
   if cmp -s "$WORK/notify-tap-test-head.log" fixtures/expected/notify-tap-test.logcat; then
-    ok "  notify-tap-test's first 5 lines are Android 15's"
+    ok "  notify-tap-test's first $((lines)) lines are Android 15's"
   else
     fail "  notify-tap-test's first lines differ from Android 15's"
     diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /' || true
@@ -2083,7 +2127,7 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
     fi
     end_start $app 1
   done
-  # The control (EDGE_CONTROL=1, the lead's experiment of 2026-11-10): the runner launches Minato as a bare UIKit view
+  # The control (EDGE_CONTROL=1, an experiment of 2026-11-10): the runner launches Minato as a bare UIKit view
   # controller in landscape with the same deferral and no session (EdgeControl), and swipes it the same way. Only
   # notes: a control that loses the first swipe too says it is iOS's own behaviour; one that keeps it, Minato's.
   if [[ -n "${EDGE_CONTROL:-}" ]]; then
@@ -2332,6 +2376,8 @@ if wanted notify-tap-test; then
     else
       fail "  the cold tap started the launcher: $first"
     fi
+    sleep 1
+    tap_extras "the cold tap"
   else
     failed_line "no TapActivity after the cold tap" notify-tap-test-3
   fi
@@ -2366,6 +2412,8 @@ if wanted notify-tap-test; then
   launch
   if await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 120; then
     ok "  the tap from the background started TapActivity"
+    sleep 1
+    tap_extras "the tap from the background"
   else
     failed_line "no TapActivity after the tap from the background" notify-tap-test-5
   fi
@@ -2477,6 +2525,8 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
     if uitest testTapNotification "$round" "$(banner_wait 40)" &&
         await_line guest-log "^I/notify-tap-test: opened by the tap: room 7$" 60; then
       ok "  $label: TapActivity opened"
+      sleep 1
+      tap_extras "$label"
     else
       runner_failed_line "$label: no TapActivity after the tap" "notify-tap-test-$round"
     fi
@@ -3635,7 +3685,7 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     else
       echo "note  renpy-memory-test: no ping answered, so no frame rate"
     fi
-    # Grafik's ANGLE parking line (the runtime's memory watermark line of the guest log): parks, restores, present
+    # The ANGLE parking line (the runtime's memory watermark line of the guest log): parks, restores, present
     # times. Without it, the guest log's line counts tell why: no mem lines = the log is stale or cut short, mem lines
     # but no gl line = libGLESv2's line symbols did not resolve, mem lines that stop early = the sampler stalled.
     fetch "$CHECK_REL/guest-log" || true

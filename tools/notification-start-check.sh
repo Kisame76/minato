@@ -3,7 +3,9 @@
 # (framework/tests/java_app_run.py): notify-tap-test starts with MINATO_START_INTENT set, as GameSession sets it after
 # the host's check, once with an intent of the app's own TapActivity, which starts in place of the launcher, and once
 # each with an intent ActivityThread must refuse: another app's activity, a selector, an implicit intent, the package
-# field of another app, an activity the app does not have and a URI Intent.parseUri cannot read. A refused one starts
+# field of another app, an activity the app does not have and a URI Intent.parseUri cannot read; and once with
+# extras whose parcel (NotificationService's START_EXTRAS) does not read, which start TapActivity with the URI's own
+# extras. A refused one starts
 # the launcher (the framework's android.app.Activity), and the app's own send of its content intent a second later
 # opens TapActivity only then. The host refuses all of them before, so only this check reaches ActivityThread's.
 # Builds apk-run and apk-convert for macOS into build/native/macos-app, app_process with libandroid_runtime.so,
@@ -62,8 +64,16 @@ refused "another app's package field" "intent:#Intent;package=org.example.other;
 refused "an activity the app does not have" "intent:#Intent;component=$APP/.Elsewhere;S.room=7;end" \
   "names no activity of $APP"
 refused "a URI that does not parse" "intent:#Intent;component=$OWN" "does not parse"
+# Extras whose parcel (NotificationService.START_EXTRAS) does not read: TapActivity starts all the same, with the URI's
+# own extras.
+echo "== extras whose parcel does not read"
+none="thread null, tags null, counts null, uri null, inner null, uuid null"
+start "intent:#Intent;component=$OWN;S.room=7;S.android.minato.START_EXTRAS=!!!;end" \
+  --in-order "W/ActivityThread: a notification's start intent whose extras do not read" \
+  --in-order "I/notify-tap-test: opened by the tap: room 7" --in-order "I/notify-tap-test: the tap's extras: $none" \
+  --in-order "I/notify-tap-test: sent the content intent"
 if ((failed)); then
-  echo "notification start check: $failed of 7 starts failed"
+  echo "notification start check: $failed of 8 starts failed"
   exit 1
 fi
 echo "notification start check: fine"
