@@ -119,6 +119,10 @@ targets:
         NSMicrophoneUsageDescription: Apps you run in Minato can use the microphone when they ask for it.
         NSLocationWhenInUseUsageDescription: >-
           Lets apps you run in Minato use your approximate or precise location, only when you allow it for that app.
+        # iOS asks the user before an app's connection reaches a device on the local network (lan-test is red without
+        # this key). No NSBonjourServices: Minato has no NsdManager.
+        NSLocalNetworkUsageDescription: >-
+          Lets apps you run in Minato connect to devices on your local network, only when you allow it.
         # No UIFileSharingEnabled: the app has no folder in the Files app (ADR-0018).
         # "Open with" hands over the original file instead of a copy in Documents/Inbox.
         LSSupportsOpeningDocumentsInPlace: true
