@@ -40,10 +40,15 @@ RELEASE=()
 [[ "$CONFIGURATION" != Release ]] || RELEASE=(--release)
 tools/build-native.sh --app ${RELEASE[@]+"${RELEASE[@]}"}
 tools/build-graphics-host.sh ${RELEASE[@]+"${RELEASE[@]}"}
+# Xcode talks to Apple (and needs the signed-in account) only when the local profile is about to run out
+# (tools/provisioning-updates.sh); a valid one builds without it.
+SIGNING=()
+[[ -z "$(tools/provisioning-updates.sh "$BUNDLE_ID")" ]] ||
+  SIGNING=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration)
 # The ${a[@]+"${a[@]}"} form keeps empty arrays working under `set -u` in macOS's bash 3.2.
 xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATION" \
   -destination "id=$DEVICE_UDID" -derivedDataPath "$DERIVED" \
-  -allowProvisioningUpdates -allowProvisioningDeviceRegistration -quiet build \
+  ${SIGNING[@]+"${SIGNING[@]}"} -quiet build \
   ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
 APP="$DERIVED/Build/Products/$CONFIGURATION-iphoneos/Minato.app"

@@ -23,9 +23,16 @@ else
   [[ -n "${UDID:-}" ]] || { echo "No booted Simulator found." >&2; exit 1; }
   destination="generic/platform=iOS Simulator"
 fi
+# Only a build for the iPhone is signed with a profile: Xcode talks to Apple (and needs the signed-in account) only when
+# the local profile of Minato or of the runner is about to run out (tools/provisioning-updates.sh).
+SIGNING=()
+if [[ "$ON_DEVICE" == yes ]]; then
+  [[ -z "$(tools/provisioning-updates.sh io.github.kisame76.minato io.github.kisame76.minato.uitests.xctrunner)" ]] ||
+    SIGNING=(-allowProvisioningUpdates)
+fi
 if ! { tools/gen.sh > "$WORK/build.log" 2>&1 &&
     xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
-      -derivedDataPath "$WORK/runner" -allowProvisioningUpdates -quiet >> "$WORK/build.log" 2>&1; }; then
+      -derivedDataPath "$WORK/runner" ${SIGNING[@]+"${SIGNING[@]}"} -quiet >> "$WORK/build.log" 2>&1; }; then
   if grep -q -E "No Accounts|No Account for Team|requires a development team" "$WORK/build.log"; then
     echo "skipped  the UI test runner needs an Xcode account (Xcode > Settings > Accounts)"
   else

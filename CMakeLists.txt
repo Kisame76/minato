@@ -155,4 +155,8 @@ if(APK_HOST_BUILD)
   # by the files the test leaves, against a fake devicectl.
   add_test(NAME tools.device_suite_fallback
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/device_suite_fallback_test.sh")
+  # tools/provisioning-updates.sh: the builds ask Apple (the Xcode account) only when a profile is about to run out,
+  # against profiles made in a temp folder.
+  add_test(NAME tools.provisioning_updates
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/provisioning_updates_test.sh")
 endif()
