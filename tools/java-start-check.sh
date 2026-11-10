@@ -207,6 +207,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "install-flow-test io.github.kisame76.minato.test.installflow"
       "install-session-flow-test io.github.kisame76.minato.test.installsessionflow"
       "install-set-flow-test io.github.kisame76.minato.test.installsetflow"
+      "starting-window-test io.github.kisame76.minato.test.startingwindow"
       "ime-outside-test io.github.kisame76.minato.test.imeoutside"
       "edge-back-test-landscape io.github.kisame76.minato.test.edgeback")
 JAVA_TEST=${JAVA_TEST:-}
@@ -2794,6 +2795,67 @@ if wanted ime-surrounding-test-return && uitests_build; then
     fi
   fi
   end_start ime-surrounding-test-return 1
+fi
+
+# ADR-0076's starting window, the host's view over the session until the starting activity's first frame:
+# starting-window-test on a fresh install (each run imports it new). Start 1, its launcher SplashColorActivity
+# (windowSplashScreenBackground #2E7D32, Android 15's splash), shows Android's default for the appearance and keeps the
+# colour the guest computed; start 2 shows it from the cache. Start 3, KeepActivity (MINATO_START_INTENT through the
+# Debug guest environment), holds its first frame back for 2 s with a pre-draw listener: the view stays that long.
+if wanted starting-window-test; then
+  swpkg="io.github.kisame76.minato.test.startingwindow"
+  guest_environment() {
+    if [[ "$ON_DEVICE" == yes ]]; then
+      devicectl_copy to --source "$WORK/guest-environment" --destination "tmp/guest-environment" || true
+    else
+      cp "$WORK/guest-environment" "$CONTAINER/tmp/guest-environment"
+    fi
+  }
+  for round in 1 2 3; do
+    activity=SplashColorActivity
+    if [[ $round == 3 ]]; then
+      activity=KeepActivity
+      echo "MINATO_START_INTENT=intent:#Intent;component=$swpkg/.KeepActivity;end" > "$WORK/guest-environment"
+      guest_environment
+    fi
+    if begin_start starting-window-test "$swpkg" "$round" &&
+        await_line guest-log "^I/starting-window-test: $activity: drawn" 60; then
+      sleep 1
+      fetch_events
+      line() { sed -n -E "s/^[0-9.]+ [0-9]+ starting window: $1$/\1/p" "$EVENTS" | head -n 1; }
+      shown=$(line "(#[0-9A-F]{6} from (cache|default))")
+      gone=$(line "gone at the first frame of window [0-9]+ after ([0-9]+) ms")
+      case $round in
+        1)
+          kept=$(line "(#[0-9A-F]{6} kept for the next start, (day|night))")
+          default="#FFFFFF from default"
+          [[ "$kept" != *night ]] || default="#000000 from default"
+          if [[ "$shown" == "$default" ]]; then ok "  start 1: $shown"; else
+            fail "  start 1 showed \"$shown\", not \"$default\""; fi
+          if [[ "$kept" == "#2E7D32 "* ]]; then ok "  start 1 kept $kept"; else
+            fail "  start 1 kept \"$kept\", not Android 15's #2E7D32"; fi
+          ;;
+        2)
+          if [[ "$shown" == "#2E7D32 from cache" ]]; then ok "  start 2: $shown"; else
+            fail "  start 2 showed \"$shown\", not \"#2E7D32 from cache\""; fi
+          ;;
+        3)
+          if [[ "$gone" =~ ^[0-9]+$ ]] && (( gone >= 2000 )); then
+            ok "  KeepActivity's held frame kept the view $gone ms"
+          else
+            fail "  KeepActivity's view went after \"$gone\" ms, not at least 2000"
+          fi
+          ;;
+      esac
+      [[ -n "$gone" ]] || fail "  start $round: the view did not go at a first frame"
+    else
+      failed_line "no $activity: drawn" "starting-window-test-$round"
+    fi
+    end_start starting-window-test "$round"
+  done
+  : > "$WORK/guest-environment"
+  if [[ "$ON_DEVICE" == yes ]]; then guest_environment; else rm -f "$CONTAINER/tmp/guest-environment"; fi
+  rm -f "$WORK/guest-environment"
 fi
 
 # IME: ime-test (ADR-0068 step 2c) starts with its field focused and asks for the keyboard; UIKit's must come, and the

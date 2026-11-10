@@ -487,6 +487,10 @@ struct SessionBridgeTests {
     @Test func theFrameRateComesAsAFloatsBits() {
         #expect(SessionRequest.frameRate(bits: UInt64(Float(90).bitPattern)) == .frameRate(90))
         #expect(SessionRequest.frameRate(bits: 0) == .frameRate(0))
+        // APKRT_REQUEST_STARTING_WINDOW: a0 in the low 32 bits, a1 in the high ones (ADR-0076).
+        #expect(SessionRequest.startingWindow(packed: 0xFFFF_5722_FF2E_7D32)
+            == .startingWindow(splash: 0xFF2E_7D32, iconBackground: 0xFFFF_5722))
+        #expect(SessionRequest.startingWindow(packed: 0xFF15_65C0) == .startingWindow(splash: 0xFF15_65C0, iconBackground: 0))
     }
 
     // ADR-0038, decision 1.4 and test 2: a layout in another size turns the running window, in rotation-test's
@@ -1100,6 +1104,22 @@ struct SessionBridgeTests {
         ])
         bridge.windowRequested(Self.window(.remove, 9), host: host)
         #expect(host.take() == [.removeRequestedWindow(2)])
+    }
+
+    /// An activity's own window (type 1, a translucent or floating activity's, ViewRootImpl.requestActivityWindow) is
+    /// one that takes the starting window away at its first frame (ADR-0076 decision 1); a dialog's is not.
+    @Test func anActivitysOwnRequestedWindowIsAnActivityWindow() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.windowRequested(Self.window(.make, 9), host: host)
+        bridge.windowRequested(Self.window(.make, 10, type: 1), host: host)
+        bridge.windowRequested(Self.window(.make, 11, type: 1000, parent: 10), host: host)
+        _ = host.take()
+
+        #expect(bridge.activityWindows == [3])
+        bridge.windowRequested(Self.window(.remove, 11), host: host)
+        bridge.windowRequested(Self.window(.remove, 10), host: host)
+        #expect(bridge.activityWindows == [])
     }
 
     /// The requested windows' gates follow the window's, as the surfaces' do.

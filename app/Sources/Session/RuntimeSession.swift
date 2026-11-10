@@ -455,6 +455,8 @@ final class RuntimeSessionHost: SessionHost {
             .askInstallSources(id: argument, text: text.map { String(cString: $0) } ?? "")
         case APKRT_REQUEST_CONFIRM_INSTALL.rawValue:
             .confirmInstall(id: argument, text: text.map { String(cString: $0) } ?? "")
+        // a0, the splash colour, in the low 32 bits, a1, the icon's background colour, in the high ones (ADR-0076).
+        case APKRT_REQUEST_STARTING_WINDOW.rawValue: SessionRequest.startingWindow(packed: argument)
         default: nil
         }
     }

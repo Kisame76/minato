@@ -47,4 +47,7 @@ public struct WindowRequest: Sendable, Equatable {
 
     /// A sub-window, whose WINDOW_DESTROYED comes before its parent's.
     public var isSubWindow: Bool { (1000...1999).contains(type) }
+    /// An activity's own window (TYPE_BASE_APPLICATION): a translucent or floating activity's (ViewRootImpl's
+    /// requestActivityWindow), which an opaque activity's window on the session's window is not.
+    public var isActivityWindow: Bool { type == 1 }
 }

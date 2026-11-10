@@ -134,6 +134,16 @@ public enum SessionRequest: Sendable, Equatable {
     /// An app installer hands over an APK (APKRT_REQUEST_CONFIRM_INSTALL): "<path>\n<package>", the guest's path of
     /// the copy below its cache folder and the requesting package.
     case confirmInstall(id: UInt64, text: String)
+    /// The starting window's colours the guest framework computed from the starting activity's theme
+    /// (APKRT_REQUEST_STARTING_WINDOW, ADR-0076): the splash colour and the icon's background colour, each 0xAARRGGBB,
+    /// the latter 0 for none; the host keeps them for the next start.
+    case startingWindow(splash: UInt64, iconBackground: UInt64)
+
+    /// APKRT_REQUEST_STARTING_WINDOW's argument: a0, the splash colour, in the low 32 bits, a1, the icon's background
+    /// colour, in the high ones.
+    public static func startingWindow(packed: UInt64) -> SessionRequest {
+        .startingWindow(splash: packed & 0xFFFF_FFFF, iconBackground: packed >> 32)
+    }
 
     /// APKRT_REQUEST_FRAME_RATE's argument, the bits of a float.
     public static func frameRate(bits: UInt64) -> SessionRequest {
@@ -332,6 +342,8 @@ public struct SessionBridge: Sendable {
         var size: PixelSize
         /// A sub-window, whose WINDOW_DESTROYED comes before its parent's.
         var sub: Bool
+        /// An activity's own window (WindowRequest.isActivityWindow).
+        var activity = false
         /// Its window went with the window's, at the background or the end.
         var taken = false
         /// The guest was told with WINDOW_DESTROYED.
@@ -340,6 +352,12 @@ public struct SessionBridge: Sendable {
 
     /// The requested windows in the order they were made, until the guest removes them.
     private var requestedWindows: [RequestedWindow] = []
+
+    /// The activities' own requested windows the guest has, in the order they were made, whose first frame takes the
+    /// starting window away as the session's window's does (StartingWindowWatch).
+    public var activityWindows: [UInt64] {
+        requestedWindows.filter { $0.activity && !$0.taken }.map(\.window)
+    }
 
     /// The windows of the surfaces the guest has, in the order they were made, for the FPS label.
     public var surfaceWindows: [UInt64] {
@@ -463,7 +481,7 @@ public struct SessionBridge: Sendable {
             let window = host.addRequestedWindow(request)
             guard window != 0 else { return }
             requestedWindows.append(RequestedWindow(token: request.token, window: window, size: size,
-                                                    sub: request.isSubWindow))
+                                                    sub: request.isSubWindow, activity: request.isActivityWindow))
             guard posted(.windowCreated(token: request.token, window: window, width: size.width,
                                         height: size.height), host: host) else { return }
             if gateIsOpen { host.setGate(window, open: true) }

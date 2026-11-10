@@ -40,6 +40,13 @@ final class GameSession {
     @ObservationIgnored private weak var layer: CAMetalLayer?
     /// The session's view, which shows the guest's window in size compat in its letterbox (ADR-0041, decision 12 b).
     @ObservationIgnored private weak var layersView: SessionLayersView?
+    /// Android's starting window over the session until the starting activity's first frame (ADR-0076).
+    @ObservationIgnored private var startingWindow: StartingWindowView?
+    @ObservationIgnored private var startingWatch = StartingWindowWatch()
+    /// When the starting window came, in nanoseconds of the uptime clock.
+    @ObservationIgnored private var startingShownAt: UInt64 = 0
+    /// The night mode the session runs in, whose colours the guest's request sends.
+    @ObservationIgnored private var startingMode = StartingWindow.Mode.day
     /// What the guest asks to open (ADR-0062), over game mode.
     @ObservationIgnored private lazy var opens = OpenPresenter(
         dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data")
@@ -285,10 +292,68 @@ final class GameSession {
     /// The session's view, once, as it is made.
     func attach(_ view: SessionLayersView) {
         layersView = view
+        showStartingWindow(on: view)
         view.onWindowMoved = { RuntimeSessionHost.windowsMoved() }
         view.onPointer = { [weak self, weak view] change in
             self?.pointed(change, scale: Double(view?.hostView.metalLayer.contentsScale ?? 1))
         }
+    }
+
+    /// The starting window at once, before the guest runs (ADR-0076): the colours the app's last start sent for the
+    /// mode the session runs in, else Android's default; the library's icon.
+    private func showStartingWindow(on view: SessionLayersView) {
+        #if !BENCHMARK
+        let paths = try? LibraryPaths.standard()
+        let mode = StartingWindow.Mode(dark: UITraitCollection.current.userInterfaceStyle == .dark)
+        startingMode = mode
+        let (colours, fromCache) = paths.map { StartingWindow.load(from: $0.versionDirectory(for: entry), mode: mode) }
+            ?? (StartingWindow.standard(mode), false)
+        let icon = entry.iconFile.flatMap { file in
+            paths.flatMap { UIImage(contentsOfFile: $0.applicationSupport.appendingPathComponent(file).path) }
+        }
+        let starting = StartingWindowView(colours, icon: icon) { [weak self] in self?.startingWindowFrame() }
+        starting.frame = view.bounds
+        view.addSubview(starting)
+        startingWindow = starting
+        startingShownAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let line = "starting window: \(colours.hex) from \(fromCache ? "cache" : "default")"
+        log.info("\(self.entry.id, privacy: .public): \(line, privacy: .public)")
+        #if DEBUG
+        SessionCheck.event(line)
+        #endif
+        #endif
+    }
+
+    /// The colours the guest computed from the starting activity's theme (ADR-0076 decision 2): kept for the next start
+    /// in the mode this session runs in; the window shown now keeps its colour, so nothing flickers.
+    private func startingWindowSent(splash: UInt64, iconBackground: UInt64) {
+        guard let colours = StartingWindow(request: splash, iconBackground: iconBackground),
+              let paths = try? LibraryPaths.standard()
+        else { return }
+        do {
+            try StartingWindow.store(colours, mode: startingMode, in: paths.versionDirectory(for: entry))
+        } catch {
+            log.error("\(self.entry.id, privacy: .public): the starting window's colours were not kept: \(error)")
+        }
+        #if DEBUG
+        SessionCheck.event("starting window: \(colours.hex) kept for the next start, \(startingMode.rawValue)")
+        #endif
+    }
+
+    /// At each frame of the display while the starting window shows: it goes at the first frame of the starting
+    /// activity's window, the session's or an activity's own (StartingWindowWatch).
+    private func startingWindowFrame() {
+        guard let starting = startingWindow,
+              let window = startingWatch.check([bridge.window] + bridge.activityWindows, presents: presents)
+        else { return }
+        starting.removeFromSuperview()
+        startingWindow = nil
+        let milliseconds = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - startingShownAt) / 1_000_000
+        let line = "starting window: gone at the first frame of window \(window) after \(milliseconds) ms"
+        log.info("\(self.entry.id, privacy: .public): \(line, privacy: .public)")
+        #if DEBUG
+        SessionCheck.event(line)
+        #endif
     }
 
     /// A tap on a notification of `package` (ADR-0074 decision 4): for this session's app, the guest sends its content
@@ -917,6 +982,8 @@ final class GameSession {
             installs.requested(.askSources(id: id, text: text))
         case .confirmInstall(let id, let text):
             installs.requested(.confirm(id: id, text: text))
+        case .startingWindow(let splash, let iconBackground):
+            startingWindowSent(splash: splash, iconBackground: iconBackground)
         }
     }
 
