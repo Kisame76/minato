@@ -4,8 +4,14 @@ footprint of the run in MB and its memory-warning count, as a CSV line. A run th
 device fetch or timing artifact (the sampler writes a line at once and every 10 s, so an empty log means the fetch
 raced the run's end), not a leak, so it is a note, not a failure; the real gate on the run is "game ended before N
 min" in java-start-check.sh, not this summary.
+With --lived and the run's minutes, it says whether the process lived the whole run: the sampler writes a line at
+once and every 10 s while the process runs and nothing once iOS has killed it, and a jetsam kill writes no event of
+Minato's, so the run lived when its lines span the minutes less 30 s. Else it prints "the game ended before N min
+(killed: last footprint X MB after S s)", the last line's footprint (a warning's included), and exits 1. A log without
+a footprint line is the same note as above.
 Runs on /usr/bin/python3 (3.9).
 Usage: tools/renpy_footprint.py <footprint-log>
+       tools/renpy_footprint.py --lived <footprint-log> <minutes>
 """
 import sys
 
@@ -28,7 +34,36 @@ def samples(path):
     return footprints, warnings
 
 
+def lines(path):
+    """(seconds since 1970, bytes) of every footprint and warning line, in the file's order."""
+    found = []
+    try:
+        for line in open(path, encoding="utf-8"):
+            parts = line.split()
+            if len(parts) == 3 and parts[1] in ("footprint", "warning") and int(parts[2]) >= 0:
+                found.append((float(parts[0]), int(parts[2])))
+    except (OSError, ValueError):
+        pass
+    return found
+
+
+def lived(path, minutes):
+    """0 when the log's lines span `minutes` less 30 s, else 1 and the kill's line; a note without a footprint."""
+    if not samples(path)[0]:
+        print("note  renpy-memory-test: no footprint sample (skipped)")
+        return 0
+    found = lines(path)
+    span = found[-1][0] - found[0][0]
+    if span >= minutes * 60 - 30:
+        return 0
+    print("the game ended before {} min (killed: last footprint {:.0f} MB after {:.0f} s)".format(
+        minutes, found[-1][1] / 1048576, int(span)))
+    return 1
+
+
 def main(argv):
+    if len(argv) == 4 and argv[1] == "--lived":
+        return lived(argv[2], int(argv[3]))
     footprints, warnings = samples(argv[1])
     if not footprints:
         # A device fetch or timing artifact, not a leak: a note, not a failure. The game-ended check is the real gate.

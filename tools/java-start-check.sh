@@ -2806,6 +2806,12 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
   if begin_start renpy-memory-test io.github.kisame76.minato.test.renpymemory 1; then
     end=$((SECONDS + minutes * 60))
     ended=no
+    # iOS's memory kill (jetsam) ends the whole process and writes no event of Minato's, so the round also watches the
+    # footprint log, which gets a line every 10 s while the process lives: none for 30 s ends the wait early, and
+    # tools/renpy_footprint.py --lived judges the whole log afterwards (the iPhone's red run of 2026-11-10 was killed
+    # 15 s in and still said "played for 5 min").
+    lines=0
+    changed=$SECONDS
     while (( SECONDS < end )); do
       sleep 20
       fetch_events
@@ -2813,11 +2819,24 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
         ended=yes
         break
       fi
+      # A failed fetch (the iPhone's copy) says nothing: the container stays readable after a kill.
+      if fetch "$CHECK_REL/footprint-log"; then
+        now_lines=$(wc -l <"$CHECK/footprint-log")
+        if (( now_lines > lines )); then
+          lines=$now_lines
+          changed=$SECONDS
+        elif (( SECONDS - changed > 30 )); then
+          break
+        fi
+      fi
     done
     fetch "$CHECK_REL/footprint-log" || true
     if [[ "$ended" == yes ]]; then
       failed_line "the game ended before $minutes min" "renpy-memory-test-1"
+    elif ! killed=$(python3 tools/renpy_footprint.py --lived "$CHECK/footprint-log" "$minutes"); then
+      failed_line "$killed" "renpy-memory-test-1"
     else
+      [[ -z "$killed" ]] || echo "$killed"
       ok "  played for $minutes min"
     fi
   fi

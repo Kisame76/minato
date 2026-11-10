@@ -4,6 +4,11 @@
     counted, not treated as footprints), exit 0.
   - A run with no footprint sample (the file is missing, empty, or has only warning lines): a device fetch or timing
     artifact, not a leak, so a note and exit 0, not a failure; the game-ended check stays the real gate.
+  - --lived <log> <minutes>: whether the process lived the whole run. The sampler writes a footprint line at once and
+    every 10 s while the process runs, and nothing once iOS has killed it (jetsam writes no event of Minato's), so the
+    run lived when its lines span the minutes less 30 s; else exit 1 and "the game ended before N min (killed: last
+    footprint X MB after S s)", with the last line's footprint, a warning's included. iPhone, 2026-11-10: the build
+    without texture parking was killed ~15 s into a 5 min run, and the round still said "played for 5 min".
 Runs on /usr/bin/python3 (3.9).
 Usage: tools/tests/renpy_footprint_test.py
 """
@@ -20,10 +25,12 @@ renpy_footprint = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(renpy_footprint)
 
 
-def run(path):
+def run(path, *options):
     out = io.StringIO()
     with redirect_stdout(out):
-        code = renpy_footprint.main(["renpy_footprint.py", path])
+        # renpy_footprint.py <log>, or renpy_footprint.py --lived <log> <minutes>.
+        argv = ["renpy_footprint.py", path] if not options else ["renpy_footprint.py", options[0], path, *options[1:]]
+        code = renpy_footprint.main(argv)
     return code, out.getvalue()
 
 
@@ -64,6 +71,30 @@ with tempfile.TemporaryDirectory() as directory:
     code, text = run(os.path.join(directory, "absent"))
     check(code == 0, "a missing log must be a note, not a failure (exit 0), got {}".format(code))
     check("no footprint sample" in text, "a missing log should print the note: " + text.strip())
+
+    # --lived: the iPhone's red run of 2026-11-10 (5 min asked): 24 MB at the start, 3.5 GB at +10 s, five memory
+    # warnings at 5.0-5.4 GB at +14 s, then nothing: jetsam killed the process ~15 s in.
+    MB = 1048576
+    killed = write(directory, "killed", ["1730800000.000 footprint {}".format(24 * MB),
+                                         "1730800010.000 footprint {}".format(3584 * MB)]
+                   + ["1730800014.{:03d} warning {}".format(i, (5120 + 70 * i) * MB) for i in range(5)])
+    code, text = run(killed, "--lived", "5")
+    check(code == 1, "a run killed 15 s into 5 min must fail (exit 1), got {}".format(code))
+    check("the game ended before 5 min (killed: last footprint 5400 MB after 14 s)" in text,
+          "the kill should name the last footprint and when: " + text.strip())
+    # A run that lived: a line every 10 s for the 5 minutes.
+    lived = write(directory, "lived", ["{}.000 footprint {}".format(1730800000 + 10 * i, 4800 * MB)
+                                       for i in range(30)])
+    code, text = run(lived, "--lived", "5")
+    check(code == 0, "a run with lines over the 5 minutes must pass (exit 0), got {}: {}".format(code, text.strip()))
+    # Its log fetched a little early (the last line at +280 s): still lived, within the 30 s.
+    early = write(directory, "early", ["{}.000 footprint {}".format(1730800000 + 10 * i, 4800 * MB)
+                                       for i in range(29)])
+    code, text = run(early, "--lived", "5")
+    check(code == 0, "the last line 20 s before the end is no kill: " + text.strip())
+    # No line at all: a note, as for the summary; the kill needs a line to tell.
+    code, text = run(os.path.join(directory, "absent"), "--lived", "5")
+    check(code == 0 and "no footprint sample" in text, "a missing log under --lived must be a note: " + text.strip())
 
 if failures:
     print("renpy_footprint_test: {} FAILED".format(failures))
