@@ -242,6 +242,33 @@ struct XAPKImportTests {
         #expect(!sandbox.exists(unit))
     }
 
+    @Test func theFreeSpaceDecidesAtTheEdgeOfTheDeclaredSizesPlusATenth() async throws {
+        // An OBB of 1 MiB asks for 1 MiB and a tenth more: exactly that much free space imports it, one byte less
+        // refuses it, and the refusal names both figures.
+        let size = 1 << 20
+        let needed = Container.neededSpace(forSizes: [UInt64(size)])
+        #expect(needed == UInt64(size + size / 10))
+        for (available, imported) in [(needed, true), (needed - 1, false)] {
+            let sandbox = try Sandbox()
+            defer { sandbox.remove() }
+            let library = try Library(paths: sandbox.paths, availableSpace: { _ in available })
+            let name = Self.name("main", 1)
+            let unit = try Self.unit(obbs: [(name, Data(count: size))], in: sandbox.paths)
+
+            let entry = try #require(try await library.importUnit(unit).first?.entry)
+
+            if imported {
+                #expect(entry.id == Self.package)
+                #expect(try Self.obbFiles(sandbox.paths) == [name])
+            } else {
+                #expect(entry.id == "file:game.xapk")
+                let reason = try #require(entry.refusal)
+                #expect(reason.contains("free space"))
+                #expect(!sandbox.exists(Self.obbFolder(sandbox.paths)))
+            }
+        }
+    }
+
     @Test func theXAPKsNamesGoOnOneOfItsEntries() async throws {
         // Review: copied onto each entry of an XAPK with many apps, they made library.json grow with every
         // store.
