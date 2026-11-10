@@ -29,6 +29,27 @@ class TelephonyManager {
         mContext = context;
     }
 
+    /** @hide AOSP's default manager, which PhoneNumberUtils asks for the country and the emergency numbers. */
+    public static TelephonyManager getDefault() {
+        final android.app.Application application = android.app.ActivityThread.currentApplication();
+        return application == null ? null : from(application);
+    }
+
+    /** @hide AOSP's, deprecated since API 31: the context's manager, null where the context has none. */
+    public static TelephonyManager from(Context context) {
+        return (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+    }
+
+    /** @hide The voice mail number of a subscription: none, as Minato has no SIM. */
+    public String getVoiceMailNumber(int subId) {
+        return null;
+    }
+
+    /** @hide The line 1 number of a subscription: none, as Minato has no SIM. */
+    public String getLine1Number(int subId) {
+        return null;
+    }
+
     public TelephonyManager createForSubscriptionId(int subId) {
         return new TelephonyManager(mContext);
     }

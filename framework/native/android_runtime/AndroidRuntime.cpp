@@ -61,6 +61,8 @@ extern int register_android_os_Trace(JNIEnv *env);
 extern int register_com_android_internal_minato_webkit_WebViewChannel(JNIEnv *env);
 extern int register_android_os_Debug(JNIEnv *env);
 extern int register_android_os_Process(JNIEnv *env);
+// LocalSocket's natives (batch F of the framework breadth): AOSP's, over libcutils' sockets.
+extern int register_android_net_LocalSocketImpl(JNIEnv *env);
 extern int register_com_android_internal_util_VirtualRefBasePtr(JNIEnv *env);
 extern int register_android_hardware_SensorManager(JNIEnv *env);
 extern int register_android_hardware_HardwareBuffer(JNIEnv *env);
@@ -156,7 +158,7 @@ int register_framework_natives(JNIEnv *env) {
           register_android_backup_BackupDataInput, register_android_backup_BackupDataOutput,
           register_android_backup_BackupHelperDispatcher, register_android_backup_FileBackupHelperBase,
           register_android_os_MessageQueue, register_android_os_Trace, register_android_os_Debug,
-          register_android_os_Process,
+          register_android_os_Process, register_android_net_LocalSocketImpl,
           register_com_android_internal_util_VirtualRefBasePtr,
           register_android_hardware_SensorManager, register_android_hardware_HardwareBuffer,
           register_android_hardware_Camera,

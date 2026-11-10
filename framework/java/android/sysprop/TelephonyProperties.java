@@ -9,9 +9,15 @@ package android.sysprop;
 import android.os.SystemProperties;
 
 import java.util.List;
+import java.util.Optional;
 
 public final class TelephonyProperties {
     private TelephonyProperties() {
+    }
+
+    /** The prefix PhoneNumberUtils puts before a number's plus sign: none unless the radio sets one. */
+    public static Optional<String> operator_idp_string() {
+        return Optional.ofNullable(SyspropValues.string(SystemProperties.get("gsm.operator.idpstring")));
     }
 
     public static List<String> baseband_version() {

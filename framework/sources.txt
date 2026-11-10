@@ -2896,6 +2896,27 @@ frameworks_base/core/java/android/hardware/camera2/impl/PhysicalCaptureResultInf
 frameworks_base/core/java/android/hardware/camera2/impl/SetCommand.java
 frameworks_base/core/java/android/hardware/camera2/impl/GetCommand.java
 
+# The framework breadth's batch F (android.text.format, android.widget, android.net, android.telephony): Formatter,
+# SearchView with its dialog and suggestions adapter, Proxy, LocalSocket with LocalServerSocket, PhoneNumberUtils
+# and VideoView with the caption renderers it names. Inet4AddressUtils and ProxyUtils of the connectivity module are
+# ours (framework/java/com/android/net/module/util).
+frameworks_base/core/java/android/text/format/Formatter.java
+frameworks_base/core/java/android/widget/SearchView.java
+frameworks_base/core/java/android/widget/SuggestionsAdapter.java
+frameworks_base/core/java/android/app/SearchDialog.java
+frameworks_base/core/java/android/net/Proxy.java
+frameworks_base/core/java/android/net/PacProxySelector.java
+connectivity_java/framework/src/android/net/InetAddresses.java
+frameworks_base/core/java/android/net/LocalSocket.java
+frameworks_base/core/java/android/net/LocalSocketImpl.java
+frameworks_base/core/java/android/net/LocalServerSocket.java
+frameworks_base_types/telephony/java/android/telephony/PhoneNumberUtils.java
+frameworks_base_types/telephony/java/android/telephony/JapanesePhoneNumberFormatter.java
+frameworks_base/core/java/android/widget/VideoView.java
+frameworks_base_types/media/java/android/media/Cea708CaptionRenderer.java
+frameworks_base_types/media/java/android/media/ClosedCaptionRenderer.java
+frameworks_base_types/media/java/android/media/TtmlRenderer.java
+
 # The framework breadth's batch G (keystore, backup): StrongBoxUnavailableException, KeyStoreException and KeyProtection
 # that AndroidX Security's EncryptedSharedPreferences and other key code name; BackupManager with BackupAgent,
 # BackupAgentHelper and the two helpers that apps declare in the manifest.

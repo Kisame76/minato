@@ -210,9 +210,6 @@ android.telephony.SmsMessage <- android.provider.Telephony  # gap: Sms.Intents.g
 android.media.CamcorderProfile <- android.hardware.camera2.params.MandatoryStreamCombination  # stays: the recording size of the mandatory stream combinations, which are built from a camera's characteristics, and cameraserver lists no camera
 android.media.MediaRecorder <- android.hardware.camera2.params.MandatoryStreamCombination, android.hardware.camera2.params.OutputConfiguration, android.hardware.camera2.params.StreamConfigurationMap  # gap: a MediaRecorder.class output (OutputConfiguration(Size, Class), StreamConfigurationMap.isOutputSupportedFor) and any class that is neither SurfaceHolder nor SurfaceTexture, as MediaRecorder is compile-only
 
-# F4d: the telephony cell family's logging.
-android.telephony.PhoneNumberUtils <- com.android.telephony.Rlog  # stays: Rlog.piiHandle's phone number branches, which the telephony service's logs use; the cells log ids through Rlog.pii
-
 # Batch B2 (retest 8's resolve list): android.accounts.
 android.app.admin.DevicePolicyResourcesManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: as DevicePolicyManager
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator  # stays: IAccountAuthenticator's Stub, which an app's authenticator service makes, and Minato never binds one

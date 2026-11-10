@@ -41,6 +41,15 @@ class AudioManager {
         return AUDIOFOCUS_REQUEST_GRANTED;
     }
 
+    /**
+     * @hide AOSP's four-argument request (VideoView's), granted at once as the three-argument one is: the attributes
+     * and the flags (FLAG_DELAY_OK and the rest) change nothing while no other source plays.
+     */
+    public int requestAudioFocus(OnAudioFocusChangeListener l, AudioAttributes requestAttributes, int durationHint,
+            int flags) {
+        return AUDIOFOCUS_REQUEST_GRANTED;
+    }
+
     public int abandonAudioFocus(OnAudioFocusChangeListener l) {
         return AUDIOFOCUS_REQUEST_GRANTED;
     }

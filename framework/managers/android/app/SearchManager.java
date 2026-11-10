@@ -4,6 +4,7 @@
 // null for "search"), so the class is the API with the hidden members the taken files call: the constructor, and
 // PhoneWindow's assist key, which does nothing here.
 import android.content.Context;
+import android.database.Cursor;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.ServiceManager.ServiceNotFoundException;
@@ -15,5 +16,13 @@ class SearchManager {
 
     /** @hide */
     public void launchAssist(Bundle args) {
+    }
+
+    /**
+     * @hide A searchable's suggestions, which AOSP asks the searchable's provider for: none, as no app's search
+     * provider is wired to this class yet. SuggestionsAdapter takes a null cursor as no suggestions.
+     */
+    public Cursor getSuggestions(SearchableInfo searchable, String query, int limit) {
+        return null;
     }
 }

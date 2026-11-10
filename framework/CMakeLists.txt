@@ -309,7 +309,8 @@ set(jni "${SOURCES}/frameworks_base/core/jni")
 sources_in(android_runtime_sources "${jni}"
   android_util_Log.cpp android_util_AssetManager.cpp android_util_StringBlock.cpp android_util_XmlBlock.cpp
   android_content_res_ApkAssets.cpp android_os_SystemProperties.cpp android_os_SystemClock.cpp core_jni_helpers.cpp
-  android_animation_PropertyValuesHolder.cpp com_android_internal_util_VirtualRefBasePtr.cpp)
+  android_animation_PropertyValuesHolder.cpp com_android_internal_util_VirtualRefBasePtr.cpp
+  android_net_LocalSocketImpl.cpp)
 # SQLite's natives (the compatibility plan's gap 7): AOSP's core/jni files as they stand, over libsqlite.so and
 # libandroidfw's CursorWindow.
 sources_in(database_jni_sources "${jni}"

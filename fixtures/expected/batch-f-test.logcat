@@ -1,0 +1,37 @@
+I/batch-f-test: formatter size 0: 0 B | 0 B
+I/batch-f-test: formatter size 999: 1.00 kB | 1.00 kB
+I/batch-f-test: formatter size 1000: 1.00 kB | 1.0 kB
+I/batch-f-test: formatter size 1500: 1.50 kB | 1.5 kB
+I/batch-f-test: formatter size 1234567: 1.23 MB | 1.2 MB
+I/batch-f-test: formatter size 5368709120: 5.37 GB | 5.4 GB
+I/batch-f-test: formatter ip: 127.0.0.1 192.168.0.1
+I/batch-f-test: searchview start: iconified true query  hint null submit button false refinement false max width 0
+I/batch-f-test: searchview after: iconified false query xyz hint Find submit button true refinement true max width 500
+I/batch-f-test: searchview events: change abc change xyz submit xyz
+I/batch-f-test: searchview iconified again: false query 
+I/batch-f-test: proxy constants: android.intent.action.PROXY_CHANGE
+I/batch-f-test: proxy none: null -1
+I/batch-f-test: proxy set: proxy.example.com 8080 null -1
+I/batch-f-test: proxy get: HTTP 8080 local DIRECT DIRECT
+I/batch-f-test: proxy bad port: proxy.example.com -1
+I/batch-f-test: proxy cleared: null -1
+I/batch-f-test: phone strip: 41555526713 +14155552671
+I/batch-f-test: phone keypad: 1-800-3569377
+I/batch-f-test: phone global: true false false
+I/batch-f-test: phone network portion: +14155552671 postdial ,123;45
+I/batch-f-test: phone compare: true false
+I/batch-f-test: phone tel: true false true true true
+I/batch-f-test: phone toa: 145 129
+I/batch-f-test: phone minmatch: 1762555
+I/batch-f-test: videoview start: playing false position 0 duration -1 buffer 0 pause false back false forward false
+I/batch-f-test: videoview after uri: playing false position 0 duration -1
+I/batch-f-test: videoview after stop: playing false position 0
+I/batch-f-test: localsocket address: true ABSTRACT FILESYSTEM
+I/batch-f-test: localsocket server: true true
+I/batch-f-test: localsocket before: connected false bound false closed UnsupportedOperationException
+I/batch-f-test: localsocket reply: pong connected true peer uid true
+I/batch-f-test: localsocket end: -1
+I/batch-f-test: localsocket server heard: ping uid true
+I/batch-f-test: localsocket closed: UnsupportedOperationException
+I/batch-f-test: localsocket missing: IOException
+I/batch-f-test: done

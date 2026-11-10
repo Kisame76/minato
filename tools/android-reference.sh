@@ -672,6 +672,7 @@ run_app() {
       | sensors-java-test \
       | location-manager-test \
       | gms-absent-test \
+      | batch-f-test \
       | location-manager-test-denied | location-manager-test-fine | location-manager-test-coarse \
       | install-sources-test \
       | device-profile-test | run-test | persisted-job-test | manager-answers-test | locale-test | locale-persist-test \
