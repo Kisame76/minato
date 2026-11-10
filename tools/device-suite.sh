@@ -244,8 +244,51 @@ launch() {
   xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing --console \
     --timeout "$TIMEOUT" --json-output "$RESULTS/$name.launch.json" "$BUNDLE_ID" -- "${run[@]}" \
     ${APP_ARGUMENTS[@]+"${APP_ARGUMENTS[@]}"} >"$RESULTS/$name.console" 2>&1 || true
-  python3 -c 'import json, sys; json.load(open(sys.argv[1]))["result"]["terminationResult"]' \
-    "$RESULTS/$name.launch.json" 2>/dev/null
+  if python3 -c 'import json, sys; json.load(open(sys.argv[1]))["result"]["terminationResult"]' \
+      "$RESULTS/$name.launch.json" 2>/dev/null; then
+    return 0
+  fi
+  # With the phone asleep or its console connection down devicectl refuses the launch with --console (CoreDeviceError
+  # 10002, POSIX error 22) while the same launch without it works. Then the test is started without the console and
+  # judged by the files it leaves: wait until a fresh output/status is there.
+  if grep -q -E "10002|POSIX.*22|Invalid argument" "$RESULTS/$name.console" 2>/dev/null; then
+    echo "note: devicectl refused --console (10002 / EINVAL): launched $name without it" >>"$RESULTS/$name.console"
+    launch_without_console "$name" "${run[@]}" ${APP_ARGUMENTS[@]+"${APP_ARGUMENTS[@]}"}
+    return
+  fi
+  return 1
+}
+
+# The launch without devicectl's console: a marker file goes into the test's output folder on the device first, the
+# app removes that folder when it starts the test, and so a status without the marker is the new run's. The launch
+# then polls the folder, at most $TIMEOUT s; the fetched files are kept in $RESULTS/<test>.
+launch_without_console() {
+  local name=$1
+  shift
+  local marker="$RESULTS/$name.marker" now="$RESULTS/$name.poll" waited=0
+  rm -rf "$now"
+  : > "$marker"
+  xcrun devicectl device copy to --device "$DEVICE_ID" --domain-type appDataContainer \
+    --domain-identifier "$BUNDLE_ID" --source "$marker" --destination "tmp/fixtures/$name/output/stale-marker" \
+    >/dev/null 2>&1 || true
+  xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing --json-output \
+    "$RESULTS/$name.launch.json" "$BUNDLE_ID" -- "$@" >>"$RESULTS/$name.console" 2>&1 || return 1
+  while [[ "$waited" -lt "$TIMEOUT" ]]; do
+    sleep "${POLL_SECONDS:-2}"
+    waited=$((waited + ${POLL_SECONDS:-2}))
+    rm -rf "$now"
+    if xcrun devicectl device copy from --device "$DEVICE_ID" --domain-type appDataContainer \
+        --domain-identifier "$BUNDLE_ID" --source "tmp/fixtures/$name/output" --destination "$now" >/dev/null 2>&1 &&
+        [[ -f "$now/status" && ! -e "$now/stale-marker" ]]; then
+      rm -rf "${RESULTS:?}/$name" "$marker"
+      mv "$now" "$RESULTS/$name"
+      FETCHED=$name
+      return 0
+    fi
+  done
+  rm -rf "$now" "$marker"
+  echo "no new output/status within $TIMEOUT s" >>"$RESULTS/$name.console"
+  return 1
 }
 
 # Copies what the program left in the app's tmp/fixtures/<test>/output to $RESULTS/<test>.
@@ -257,6 +300,7 @@ fetch() {
     cp -R "$container/tmp/fixtures/$name/output" "$RESULTS/$name"
     return
   fi
+  [[ "${FETCHED:-}" != "$name" ]] || return 0  # the launch without a console fetched it already
   xcrun devicectl device copy from --device "$DEVICE_ID" --domain-type appDataContainer \
     --domain-identifier "$BUNDLE_ID" --source "tmp/fixtures/$name/output" --destination "$RESULTS/$name" \
     >>"$RESULTS/$name.console" 2>&1

@@ -151,4 +151,8 @@ if(APK_HOST_BUILD)
   # framework build steps declare changes the digest (tools/prepared-stamp.py).
   add_test(NAME tools.prepared_stamp
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/prepared_stamp_test.py")
+  # tools/device-suite.sh's launch without devicectl's console when devicectl refuses it (CoreDeviceError 10002), judged
+  # by the files the test leaves, against a fake devicectl.
+  add_test(NAME tools.device_suite_fallback
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/device_suite_fallback_test.sh")
 endif()
