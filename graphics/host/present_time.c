@@ -70,3 +70,12 @@ int minato_present_paced(struct minato_present_pace *pace, int ruled, int64_t as
     }
     return minato_present_paced_on_grid(pace, ruled, asked, time, waited, now, phase, period);
 }
+
+int64_t minato_present_limit_wait(int64_t last, int64_t now, int64_t period) {
+    const int64_t slack = 1000000;
+    if (period <= slack || last <= 0 || last > INT64_MAX - period) {
+        return 0;
+    }
+    const int64_t until = last + period - slack;
+    return now < until ? until - now : 0;
+}

@@ -212,11 +212,14 @@ static egl_boolean terminated(void *display) {
 
 /* The present leaves the time asked for it on the layer before ANGLE's swap, as its drawable's present may come before
    the swap returns, and takes it back when the swap fails; once it succeeded, the time is spent, and the present counts
-   for the FPS label. */
+   for the FPS label. A window's swap first waits for the frame rate limit (ADR-0078 decision 4). */
 static egl_boolean swapped(void *display, void *surface) {
     void *layer = NULL;
     int64_t asked = 0;
     const uint64_t window = window_of(surface, &layer, &asked);
+    if (layer != NULL) {
+        minato_present_hold(layer);
+    }
     const struct minato_present_record record = {.asked = asked, .ruled = 1};
     const uint64_t ticket = layer != NULL ? minato_present_push(layer, &record) : 0;
     const egl_boolean result = swap_buffers(display, surface);

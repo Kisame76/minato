@@ -380,6 +380,10 @@ static VkResult presented(VkQueue queue, const VkPresentInfoKHR *info) {
         handed.pTimes = times;
         ours.pNext = &handed;
     }
+    /* The frame rate limit (ADR-0078 decision 4), for each swapchain's window. */
+    for (uint32_t index = 0; index < info->swapchainCount; index++) {
+        minato_present_hold(chain_layer(info->pSwapchains[index]));
+    }
     if (!entered()) {
         if (times != few) {
             free(times);

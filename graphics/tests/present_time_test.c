@@ -11,7 +11,9 @@
    frames the rule does not rule, as Vulkan's; the same without a time, none; one refresh asked for three times, only
    the one whose drawable waited dropped; a frame without a time after one far out, which shows after it, so the next
    frame asking for that refresh is dropped; on time across a switch from 60 to 120 Hz, none. Before the first tick a
-   frame goes and takes nothing. */
+   frame goes and takes nothing.
+   ADR-0078 decision 4's wait under a frame rate limit of 30: none before the first present or without a limit; right
+   after the last present a period less 1 ms; at the period less 1 ms and later none; and at 120 likewise. */
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -143,6 +145,25 @@ static void expect_switch(void) {
     }
 }
 
+static void expect_limit_wait(const char *what, int64_t last, int64_t now, int64_t period, int64_t wanted) {
+    const int64_t got = minato_present_limit_wait(last, now, period);
+    if (got != wanted) {
+        printf("present-time: limit, %s: waits %" PRId64 " ns, not %" PRId64 "\n", what, got, wanted);
+        failures++;
+    }
+}
+
+static void expect_limit(void) {
+    const int64_t thirty = 1000000000 / 30, last = 5000000000;
+    expect_limit_wait("before the first present", 0, 5000000000, thirty, 0);
+    expect_limit_wait("without a limit", last, last, 0, 0);
+    expect_limit_wait("right after the last", last, last, thirty, thirty - 1000000);
+    expect_limit_wait("10 ms after the last", last, last + 10000000, thirty, thirty - 11000000);
+    expect_limit_wait("at the period less 1 ms", last, last + thirty - 1000000, thirty, 0);
+    expect_limit_wait("2 periods later", last, last + 2 * thirty, thirty, 0);
+    expect_limit_wait("at 120, 1 ms after the last", last, last + 1000000, 8333333, 8333333 - 2000000);
+}
+
 int main(void) {
     const int64_t phase = 10000123457, periods[] = {16666667, 8333333};
     for (size_t index = 0; index < sizeof periods / sizeof *periods; index++) {
@@ -192,9 +213,11 @@ int main(void) {
     expect_rule(16666667);
     expect_rule(8333333);
     expect_switch();
+    expect_limit();
     if (failures == 0) {
         printf("present-time: 18 times on the grid, 16 from the runtime's ticks, 6 of them without a time; decision 11 "
-               "c)'s rule on 9 streams of 10 frames at 60 and 120 Hz and one across a switch\n");
+               "c)'s rule on 9 streams of 10 frames at 60 and 120 Hz and one across a switch; 7 waits under a frame "
+               "rate limit\n");
     }
     return failures == 0 ? 0 : 1;
 }

@@ -50,4 +50,10 @@ int minato_present_paced_on_grid(struct minato_present_pace *pace, int ruled, in
 int minato_present_paced(struct minato_present_pace *pace, int ruled, int64_t asked, int64_t time, int64_t waited,
                          int64_t now);
 
+/* ADR-0078 decision 4: how long a present at `now` waits under the frame rate limit's `period`, in nanoseconds, the
+   window's last present having gone at `last` (0 before one): until `last` + `period` less 1 ms, which leaves an app
+   paced at the limit its jitter. 0 once that has passed, without a limit (`period` 0 or less) and before the first
+   present. */
+int64_t minato_present_limit_wait(int64_t last, int64_t now, int64_t period);
+
 #endif

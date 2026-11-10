@@ -57,4 +57,9 @@ int minato_present_buffers_shown(void *layer);
    in the Simulator. */
 void minato_present_record_post(void *layer, int64_t committed_ns);
 
+/* ADR-0078 decision 4: holds the calling thread, an app's present, until the frame rate limit lets `layer`'s next
+   present go (minato_present_limit_wait), and notes it as the layer's last; at once without a limit or when the layer
+   is no MinatoMetalLayer. Returns the nanoseconds it held. */
+int64_t minato_present_hold(void *layer);
+
 #endif

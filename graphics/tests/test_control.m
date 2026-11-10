@@ -103,6 +103,8 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
             return minato_graphics_drop_present(minato_test_window, (int64_t)a) == 0;
         case MINATO_TEST_PRESENTED_NTH:
             return (uint64_t)minato_test_presented_nth(a);
+        case MINATO_TEST_FRAME_RATE_LIMIT:
+            return minato_graphics_set_frame_rate_limit((int)a) == 0;
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);
             return 0;

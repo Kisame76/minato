@@ -513,6 +513,11 @@ if(TARGET minato_graphics_host)
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
     add_guest_test(vulkan_drop vulkan-drop-test vulkan_drop_test "${vulkan_system_libraries}"
       "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_METAL_HOOK=set:count" "MINATO_WINDOW=set:64x48")
+    # ADR-0078 decision 4: an app's Vulkan presents in a loop held to the frame rate limit; it counts presents a
+    # second, so it runs alone.
+    add_guest_test(present_limit_vulkan present-limit-vulkan-test present_limit_vulkan_test
+      "${vulkan_system_libraries}" "MINATO_MOLTENVK=set:${moltenvk}" "MINATO_ANGLE=unset:" "MINATO_WINDOW=set:64x48")
+    set_tests_properties(graphics.present_limit_vulkan PROPERTIES RUN_SERIAL TRUE)
     # A swapchain destroyed right after its present, while MoltenVK's scheduled handler, which the Metal hook runs
     # 100 ms late, is still to present its drawable: graphics/host's destroy waits for it (vulkan.m).
     add_guest_test(vulkan_destroy vulkan-destroy-test vulkan_destroy_test "${vulkan_system_libraries}"
@@ -533,7 +538,7 @@ if(TARGET minato_graphics_host)
       "MINATO_METAL_HOOK=set:fences" "MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=set:0" HOST_LINES "^metal:")
   else()
     foreach(name IN ITEMS vulkan_moltenvk vulkan_queue vulkan_present vulkan_drop vulkan_destroy vk_ahb
-        vulkan_indexing vulkan_indexing_plain_buffers)
+        vulkan_indexing vulkan_indexing_plain_buffers present_limit_vulkan)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no MoltenVK in ${APK_MOLTENVK_DIR}, see tools/fetch-moltenvk.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -598,6 +603,10 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW_SCRIPT=set:glue")
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
     add_guest_test(gles_drop gles-drop-test gles_drop_test "${gles_system_libraries}" ${with_angle})
+    # ADR-0078 decision 4: an app's unpaced EGL presents held to the frame rate limit. It counts swaps a second, so it
+    # runs alone.
+    add_guest_test(present_limit present-limit-test present_limit_test "${gles_system_libraries}" ${with_angle})
+    set_tests_properties(graphics.present_limit PROPERTIES RUN_SERIAL TRUE)
     # ADR-0041 a1: libGLESv1_CM on ANGLE's ES 1.x, as an app linked against the NDK's stub reaches it.
     add_guest_test(gles1_front gles1-front-test gles1_front_test "${gles_system_libraries}" ${with_angle})
     # ADR-0058 b): EGL images of AHardwareBuffers on ANGLE's Metal display, and on its Vulkan display, whose R8G8B8X8
@@ -614,7 +623,7 @@ if(TARGET minato_graphics_host)
     endif()
   else()
     foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front gles_gate_vulkan ahb_image
-        ahb_image_vulkan)
+        ahb_image_vulkan present_limit)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
       set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
@@ -773,7 +782,7 @@ else()
       gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
       window_switch window_producers
       gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class gles31_app gles_app_vulkan
-      gles_live_vulkan gles_gate_vulkan)
+      gles_live_vulkan gles_gate_vulkan present_limit present_limit_vulkan)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
       "skipped: graphics/host needs build/graphics/gen/ from tools/build-front-libs.sh; configure again after it")
     set_tests_properties(graphics.${name} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")

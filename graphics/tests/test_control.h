@@ -40,6 +40,8 @@ enum minato_test_command {
                                    decision 11 c)'s rule); 1 once noted, 0 when refused */
     MINATO_TEST_PRESENTED_NTH,  /* a: n from 0: how the hook saw the n-th drawable presented since the watch, as
                                    MINATO_TEST_PRESENTED_AT answers for the first; 0 before it */
+    MINATO_TEST_FRAME_RATE_LIMIT, /* a: the frame rate limit graphics/host holds presents to (ADR-0078 decision 4),
+                                     0 for none: 1 once set (minato_graphics_set_frame_rate_limit), 0 when refused */
 };
 
 #ifndef __APPLE__

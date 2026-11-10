@@ -243,6 +243,8 @@ struct pace {
     unsigned drop_count;
     /// Decision 11 c)'s rule, for the presents with a record.
     struct minato_present_pace rule;
+    /// ADR-0078 decision 4: when the layer's last present went, 0 before one.
+    int64_t limit_last;
     struct {
         const void *drawable;
         int64_t waited;
@@ -376,6 +378,33 @@ void minato_present_unpaced(void *drawable) {
     if (object != nil && paced_class != Nil && object_getClass(object) == paced_class) {
         object_setClass(object, drawable_class);
     }
+}
+
+/// ADR-0078 decision 4: the frame rate limit's period in nanoseconds, 0 for none.
+static _Atomic(int64_t) limit_period;
+
+int minato_graphics_set_frame_rate_limit(int rate) {
+    if (rate < 0 || rate > 1000) return -1;
+    atomic_store(&limit_period, rate == 0 ? 0 : 1000000000 / rate);
+    return 0;
+}
+
+int64_t minato_present_hold(void *layer) {
+    const int64_t period = atomic_load(&limit_period);
+    MinatoMetalLayer *paced = period > 0 ? paced_layer(layer) : nil;
+    if (paced == nil) return 0;
+    struct pace *pace = &paced->_pace;
+    os_unfair_lock_lock(&pace->lock);
+    const int64_t wait = minato_present_limit_wait(pace->limit_last, now_ns(), period);
+    os_unfair_lock_unlock(&pace->lock);
+    if (wait > 0) {
+        const struct timespec time = {(time_t)(wait / 1000000000), (long)(wait % 1000000000)};
+        nanosleep(&time, NULL);
+    }
+    os_unfair_lock_lock(&pace->lock);
+    pace->limit_last = now_ns();
+    os_unfair_lock_unlock(&pace->lock);
+    return wait;
 }
 
 int minato_graphics_drop_present(uint64_t window, int64_t asked) {

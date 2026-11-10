@@ -138,6 +138,12 @@ int minato_graphics_window_scheduled(uint64_t deadline);
    layer is no MinatoMetalLayer or 8 presents are noted already. */
 int minato_graphics_drop_present(uint64_t window, int64_t asked);
 
+/* ADR-0078 decision 4: the frame rate limit, in presents a second, that graphics/host holds each window's EGL and
+   Vulkan presents to: a present waits on its app's thread until 1/rate after the window's last, less 1 ms for an app
+   paced at the limit. 0 is none, the default. App sets it at a session's start (the global limit, or none when the
+   app's FPS unlock is at or above it, decision 2). Returns 0, or -1 for a rate below 0 or above 1000. */
+int minato_graphics_set_frame_rate_limit(int rate);
+
 /* ADR-0058 a): graphics/host's hardware buffers (hardware_buffer.m), the memory of the guest's AHardwareBuffers as
    IOSurfaces in the process, which the guest reads and writes at a lock's address: gives them to the runtime
    (apkrt_set_hardware_buffers). minato_graphics_set_providers calls it. Returns 0, or -1 when the runtime refused
