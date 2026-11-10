@@ -1,0 +1,154 @@
+Texture parking lets the packed copies of restored textures go in its emergency band (Minato, patch 0019).
+
+Why: a restored texture keeps its packed copy until it is written, so that parking it again only drops the GPU
+storage. On an iPhone 15 Pro Max a visual novel's cycled frame sequence held 616 MiB of such copies. Near the limit
+they are memory the process may need within the next frames, and a texture in use cannot be parked for them. Below
+384 MiB available (the emergency band) a restore now lets its packed copy go, and a frame end that is still short
+of memory after its parks drops the packed copies of the restored textures in use. Such a texture is read back and
+packed again once it qualifies. ANGLEMetalParkingLine gains " unkept=<n>", the copies let go. The stress mode keeps
+every copy as before.
+Test: graphics/tests/angle_texture_parking.mm --in-use makes 240 frames, then draws 128 of them in every frame for
+3 s; at the end at least 384 MiB stay available (patch 0018: 282-286 MiB, held by the copies; this patch: 561 MiB).
+Upstream: no (Minato's memory policy).
+diff --git a/src/libANGLE/renderer/metal/TextureMtl.mm b/src/libANGLE/renderer/metal/TextureMtl.mm
+index ce23520..adb4e44 100644
+--- a/src/libANGLE/renderer/metal/TextureMtl.mm
++++ b/src/libANGLE/renderer/metal/TextureMtl.mm
+@@ -930,8 +930,16 @@ uint32_t height(GLuint glLevel) const
+                                   mtl::MipmapNativeLevel(level), MTLOriginMake(0, 0, 0),
+                                   MTLBlitOptionNone);
+     }
+-    // Kept until the texture is written: parking it again then only drops the storage.
+-    mParkJob->kept = true;
++    // Kept until the texture is written: parking it again then only drops the storage. Near the limit the copy
++    // goes now instead (texture parking's emergency band).
++    if (mtl::TextureParking::Get().keepRestored())
++    {
++        mParkJob->kept = true;
++    }
++    else
++    {
++        mtl::TextureParking::Get().orphan(std::move(mParkJob));
++    }
+     const double milliseconds =
+         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+     mtl::TextureParking::Get().noteRestore(milliseconds);
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.h b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+index 2d0d755..143212f 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.h
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -129,6 +129,9 @@ class TextureParking
+     angle::Result tickFromUpload(const gl::Context *context);
+ 
+     void noteRestore(double milliseconds);
++    // Whether a texture just restored keeps its packed copy, which makes parking it again free: not in the
++    // emergency band, where the copy is memory the process may need within the next frames.
++    bool keepRestored();
+     // Called at every present of a window, for the counters line's intervals between presents.
+     void notePresent();
+     // A job the texture no longer needs (destroyed, or written after a restore): dropped once no worker uses it.
+@@ -168,6 +171,8 @@ class TextureParking
+     uint64_t mAborts       = 0;
+     uint64_t mRestores     = 0;
+     uint64_t mRepacks      = 0;
++    // Packed copies of restored textures let go under pressure (at the restore or at a frame end).
++    uint64_t mUnkept       = 0;
+     std::vector<float> mRestoreMs;
+     size_t mRestoreNext = 0;
+     std::vector<float> mPresentMs;
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.mm b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+index cb0cb60..92acddf 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -53,7 +53,8 @@
+ // Stop at 2 GiB: 512 MiB of hysteresis (~64 full-screen frames), so that parking does not toggle every frame
+ // while an app creates and deletes textures in the same second.
+ constexpr uint64_t kStopAt = 2048 * kMiB;
+-// Below 384 MiB (~0.4 s at that rate) textures idle for two frames qualify too.
++// Below 384 MiB (~0.4 s at that rate) textures idle for two frames qualify too, and the packed copies of restored
++// textures in use go: they only make a later park free, and a cycled frame sequence holds hundreds of MiB of them.
+ constexpr uint64_t kEmergencyBelow = 384 * kMiB;
+ // Below 128 MiB (~0.13 s, a few frames before a kill) the asynchronous parks are too late: the frame waits for
+ // them, as a stall is better than a kill.
+@@ -256,7 +257,7 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+         if (getenv("MINATO_ANGLE_PARK_REPORT") != nullptr)
+         {
+             atexit([] {
+-                char line[256];
++                char line[320];
+                 if (TextureParking::Get().line(line, sizeof(line)) > 0)
+                 {
+                     fprintf(stderr, "angle %s\n", line);
+@@ -617,6 +618,22 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+         started = true;
+     }
+ 
++    if (emergency && available + expected < kStopAt)
++    {
++        // Still short: the packed copies of the restored textures that are in use go, which frees host memory at
++        // once, as no texture can be parked for them now. Such a texture is read back and packed again when it
++        // qualifies.
++        for (TextureMtl *texture : mTextures)
++        {
++            if (texture->mParkOwner == owner && texture->mParkJob && texture->mParkJob->kept)
++            {
++                expected += texture->mParkJob->packed.size();
++                mUnkept += 1;
++                orphan(std::move(texture->mParkJob));
++            }
++        }
++    }
++
+     if (started && available >= kStallBelow)
+     {
+         // The readbacks run once their command buffer is committed; an app that loads for seconds without a frame
+@@ -669,6 +686,18 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     mLastPresent = now;
+ }
+ 
++bool TextureParking::keepRestored()
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    const uint64_t available = availableBytes();
++    if (mStress || available == 0 || available >= kEmergencyBelow)
++    {
++        return true;
++    }
++    mUnkept += 1;
++    return false;
++}
++
+ void TextureParking::noteRestore(double milliseconds)
+ {
+     std::lock_guard<std::recursive_mutex> lock(mMutex);
+@@ -713,14 +742,14 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+         buffer, size,
+         "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
+         "restore_p50=%.1f restore_p99=%.1f lzfse=%llu avail_min=%llu avail_last=%llu present_p50=%.1f "
+-        "present_p99=%.1f",
++        "present_p99=%.1f unkept=%llu",
+         static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
+         static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
+         static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
+         static_cast<unsigned long long>(mAborts), static_cast<unsigned long long>(mRestores), at(restores, 0.5),
+         at(restores, 0.99), static_cast<unsigned long long>(mRepacks),
+         static_cast<unsigned long long>(availableMin / kMiB), static_cast<unsigned long long>(mAvailableLast / kMiB),
+-        at(presents, 0.5), at(presents, 0.99));
++        at(presents, 0.5), at(presents, 0.99), static_cast<unsigned long long>(mUnkept));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 
+@@ -728,9 +757,10 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+ }  // namespace rx
+ 
+ // "park n=<parked> raw=<MiB> packed=<MiB> kept=<MiB> pending=<MiB> parks=<n> aborts=<n> restores=<n> restore_p50=<ms>
+-// restore_p99=<ms> lzfse=<n> avail_min=<MiB> avail_last=<MiB> present_p50=<ms> present_p99=<ms>": the least and the
+-// last memory the process could still allocate at a frame end (0 when unknown), and the time between the last 512
+-// presents; returns the length, or 0 when it does not fit.
++// restore_p99=<ms> lzfse=<n> avail_min=<MiB> avail_last=<MiB> present_p50=<ms> present_p99=<ms> unkept=<n>": the
++// least and the last memory the process could still allocate at a frame end (0 when unknown), the time between the
++// last 512 presents, and how many packed copies of restored textures went under pressure; returns the length, or 0
++// when it does not fit.
+ extern "C" ANGLE_EXPORT int ANGLEMetalParkingLine(char *line, size_t size)
+ {
+     return rx::mtl::TextureParking::Get().line(line, size);

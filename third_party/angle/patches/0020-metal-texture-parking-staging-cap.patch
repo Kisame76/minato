@@ -1,0 +1,162 @@
+Texture parking holds a working set that comes back to the memory it needs (Minato, patch 0020).
+
+Why: an app whose parked working set comes back restores many textures within one frame. Each restore's storage and
+its 8 MiB staging buffer reach the footprint only as their command buffer runs, so the memory available that parking
+reads lags, and before the restores see the emergency band they have kept their packed copies and queued hundreds of
+MiB of staging (751 MiB measured). While parking is needed (below 1.5 GiB available) a restore now finishes the
+command buffer first once more than 64 MiB of staging would be on its way, and the first restore in the emergency
+band lets go the packed copies the restores before it kept. A frame sequence that restores about one texture per
+frame never reaches the cap.
+Test: graphics/tests/angle_texture_parking.mm --in-use waits for the background repacks before the working set comes
+back, samples the footprint after every draw while it is restored and requires 256 MiB to stay available then
+(patch 0019: 0 MiB, the footprint 500 MiB over the limit; this patch: ~390 MiB).
+Upstream: no (Minato's memory policy).
+diff --git a/src/libANGLE/renderer/metal/TextureMtl.mm b/src/libANGLE/renderer/metal/TextureMtl.mm
+index adb4e44..3cfd6ab 100644
+--- a/src/libANGLE/renderer/metal/TextureMtl.mm
++++ b/src/libANGLE/renderer/metal/TextureMtl.mm
+@@ -911,6 +911,7 @@ uint32_t height(GLuint glLevel) const
+     mParked                    = false;
+     ContextMtl *contextMtl     = mtl::GetImpl(context);
+ 
++    ANGLE_TRY(mtl::TextureParking::Get().beforeRestore(context, job->rawSize));
+     mtl::BufferRef staging;
+     ANGLE_TRY(mtl::Buffer::MakeBufferWithStorageMode(contextMtl, MTLStorageModeShared, job->rawSize,
+                                                      &staging));
+@@ -932,7 +933,7 @@ uint32_t height(GLuint glLevel) const
+     }
+     // Kept until the texture is written: parking it again then only drops the storage. Near the limit the copy
+     // goes now instead (texture parking's emergency band).
+-    if (mtl::TextureParking::Get().keepRestored())
++    if (mtl::TextureParking::Get().keepRestored(context))
+     {
+         mParkJob->kept = true;
+     }
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.h b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+index 143212f..03983f8 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.h
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -131,7 +131,12 @@ class TextureParking
+     void noteRestore(double milliseconds);
+     // Whether a texture just restored keeps its packed copy, which makes parking it again free: not in the
+     // emergency band, where the copy is memory the process may need within the next frames.
+-    bool keepRestored();
++    bool keepRestored(const gl::Context *context);
++    // Called before a restore allocates its staging buffer of |bytes|, which lives until its command buffer is done:
++    // while parking is needed (below 1.5 GiB available) the command buffer is finished first once the staging since
++    // the last wait would pass 64 MiB, so that restoring a whole working set at once does not overshoot by its size
++    // (the available memory lags, as a restored texture's storage counts only once the GPU writes it).
++    angle::Result beforeRestore(const gl::Context *context, size_t bytes);
+     // Called at every present of a window, for the counters line's intervals between presents.
+     void notePresent();
+     // A job the texture no longer needs (destroyed, or written after a restore): dropped once no worker uses it.
+@@ -153,6 +158,8 @@ class TextureParking
+     angle::Result advance(const gl::Context *context, const void *owner, uint64_t now, bool packHere);
+     angle::Result parkAll(const gl::Context *context, const void *owner, uint64_t now);
+     void reportFirst(uint64_t count);
++    // Lets go the packed copies of the owner's restored textures; returns their bytes.
++    size_t dropKept(const void *owner);
+ 
+     std::recursive_mutex mMutex;
+     std::vector<TextureMtl *> mTextures;
+@@ -173,6 +180,9 @@ class TextureParking
+     uint64_t mRepacks      = 0;
+     // Packed copies of restored textures let go under pressure (at the restore or at a frame end).
+     uint64_t mUnkept       = 0;
++    // Restore staging encoded since the last wait, and the command buffer of the last.
++    size_t mStagingBytes    = 0;
++    uint64_t mStagingSerial = 0;
+     std::vector<float> mRestoreMs;
+     size_t mRestoreNext = 0;
+     std::vector<float> mPresentMs;
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.mm b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+index 92acddf..5db9ca5 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -60,6 +60,8 @@
+ // them, as a stall is better than a kill.
+ constexpr uint64_t kStallBelow = 128 * kMiB;
+ constexpr size_t kStallBudget   = 32 * kMiB;
++// While parking is needed, the restores' staging buffers alive at once: 8 full-screen frames.
++constexpr size_t kStagingCap = 64 * kMiB;
+ // Uploads tick too (an app may load for seconds before its first frame), at most this often.
+ constexpr uint64_t kUploadTickMs = 16;
+ constexpr uint64_t kIdleMs          = 500;
+@@ -621,17 +623,8 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     if (emergency && available + expected < kStopAt)
+     {
+         // Still short: the packed copies of the restored textures that are in use go, which frees host memory at
+-        // once, as no texture can be parked for them now. Such a texture is read back and packed again when it
+-        // qualifies.
+-        for (TextureMtl *texture : mTextures)
+-        {
+-            if (texture->mParkOwner == owner && texture->mParkJob && texture->mParkJob->kept)
+-            {
+-                expected += texture->mParkJob->packed.size();
+-                mUnkept += 1;
+-                orphan(std::move(texture->mParkJob));
+-            }
+-        }
++        // once, as no texture can be parked for them now.
++        expected += dropKept(owner);
+     }
+ 
+     if (started && available >= kStallBelow)
+@@ -686,7 +679,46 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     mLastPresent = now;
+ }
+ 
+-bool TextureParking::keepRestored()
++angle::Result TextureParking::beforeRestore(const gl::Context *context, size_t bytes)
++{
++    std::lock_guard<std::recursive_mutex> lock(mMutex);
++    ContextMtl *contextMtl = GetImpl(context);
++    if (mStagingBytes != 0 && contextMtl->getDisplay()->cmdQueue().isSerialCompleted(mStagingSerial))
++    {
++        mStagingBytes = 0;
++    }
++    if (mStagingBytes != 0 && mStagingBytes + bytes > kStagingCap && !mStress)
++    {
++        const uint64_t available = availableBytes();
++        if (available != 0 && available < kStartBelow)
++        {
++            // A restore runs from a texture's sync before a draw, outside any encoder.
++            ANGLE_TRY(contextMtl->finishCommandBuffer());
++            mStagingBytes = 0;
++        }
++    }
++    mStagingBytes += bytes;
++    mStagingSerial = contextMtl->parkingCommandSerial();
++    return angle::Result::Continue;
++}
++
++size_t TextureParking::dropKept(const void *owner)
++{
++    // Such a texture is read back and packed again when it qualifies.
++    size_t bytes = 0;
++    for (TextureMtl *texture : mTextures)
++    {
++        if (texture->mParkOwner == owner && texture->mParkJob && texture->mParkJob->kept)
++        {
++            bytes += texture->mParkJob->packed.size();
++            mUnkept += 1;
++            orphan(std::move(texture->mParkJob));
++        }
++    }
++    return bytes;
++}
++
++bool TextureParking::keepRestored(const gl::Context *context)
+ {
+     std::lock_guard<std::recursive_mutex> lock(mMutex);
+     const uint64_t available = availableBytes();
+@@ -694,6 +726,9 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     {
+         return true;
+     }
++    // The copies kept by the restores before, while more was available, go too: a working set that comes back
++    // restores many textures at once, whose storage reaches the footprint only as the GPU writes it.
++    dropKept(context->getState().getShareGroup());
+     mUnkept += 1;
+     return false;
+ }

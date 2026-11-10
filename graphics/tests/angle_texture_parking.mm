@@ -9,7 +9,17 @@
 // ANGLEMetalParkingLine names the least and the last available memory and the time between presents, and parking
 // starts below 1.5 GiB available (stops at 2 GiB), above the ~1 GiB where the iPhone starts its memory warnings:
 // --warning-band puts the limit 2.5 GiB above the start, as on the device (a ~6 GB limit), and prints the least
-// memory that stayed available.
+// memory that stayed available. Patch 0019: --in-use makes the 240 frames once and then draws the first 128 of them
+// in every frame for 3 s, as an app whose working set comes back: all of them are restored and stay in use, so none
+// can be parked again, and their packed copies, kept to make a later park free, must go in the emergency band (below
+// 384 MiB available): at the end no copy is kept unless at least that much is available (0018 kept ~250 MiB at ~280
+// MiB available). How much stays available depends on how far the background repacks of the other textures got,
+// which a loaded Mac delays; it is printed. Patch 0020: the first frame restores all 128 at once, whose storage and
+// staging buffers (8 MiB each) reach the footprint only as their command buffer runs, so the memory available lags;
+// at most 64 MiB of staging may be on its way while parking is needed, and the first restore in the emergency band
+// lets go the copies kept before: while they are restored (the footprint sampled after every draw of the first
+// frames) at least 256 MiB stay available. Its CTest run turns off ASan's quarantine, which would hold freed memory
+// in the footprint.
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -40,6 +50,15 @@ constexpr uint64_t kMiB = 1024 * 1024;
 constexpr uint64_t kHeadroom = 1792 * kMiB;
 // --warning-band: room for the 2 GiB of frames and half a GiB more.
 constexpr uint64_t kBandHeadroom = 2560 * kMiB;
+// --in-use: the textures drawn in every frame once all are made, and for how many frames.
+constexpr size_t kInUse = 128;
+constexpr int kInUseFrames = 180;
+// The emergency band of texture parking (mtl_texture_parking.mm), where --in-use keeps no packed copy, and what its
+// restores may take below it: the 64 MiB of staging on their way, their textures' storage and the samples between.
+constexpr uint64_t kEmergencyBelow = 384 * kMiB;
+constexpr uint64_t kRestoringFloor = 256 * kMiB;
+// --in-use samples the footprint after every draw in its first frames, which restore the working set.
+constexpr int kRestoringFrames = 3;
 
 void *library = nullptr;
 bool failed = false;
@@ -159,7 +178,8 @@ double percentile(std::vector<double> values, double share) {
 
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 3) {
-        fail("usage: angle-texture-parking <libGLESv2.dylib> [--without-parking | --far-limit | --warning-band]");
+        fail("usage: angle-texture-parking <libGLESv2.dylib> [--without-parking | --far-limit | --warning-band | "
+             "--in-use]");
     }
     if (access(argv[1], F_OK) != 0) {
         std::printf("skipped: %s is not built, see tools/build-angle.sh\n", argv[1]);
@@ -176,8 +196,10 @@ int main(int argc, char **argv) {
         const std::string mode = argc == 3 ? argv[2] : "";
         const bool far = mode == "--far-limit";
         const bool band = mode == "--warning-band";
+        const bool in_use = mode == "--in-use";
         const uint64_t limit = mode == "--without-parking" || far ? (uint64_t{1} << 20) * kMiB
                                : band                             ? footprint() + 128 * kMiB + kBandHeadroom
+                               : in_use                           ? footprint() + 192 * kMiB + kHeadroom
                                                                   : footprint() + 128 * kMiB + kHeadroom;
         if (mode == "--without-parking") {
             unsetenv("MINATO_ANGLE_PARK_LIMIT_MB");
@@ -246,7 +268,7 @@ int main(int argc, char **argv) {
         std::vector<double> frame_ms;
         // One frame per 1/60 s, as an app would present; the made frames grow the footprint by ~475 MiB/s.
         auto next = std::chrono::steady_clock::now();
-        for (int round = 0; round < 2; ++round) {
+        for (int round = 0; round < (in_use ? 1 : 2); ++round) {
             for (size_t index = 0; index < frames.size(); ++index) {
                 if (round == 0) {
                     fill(texels, static_cast<int>(index));
@@ -279,6 +301,54 @@ int main(int argc, char **argv) {
                 std::this_thread::sleep_until(next);
             }
         }
+        // --in-use: first empty frames until the background repacks are done (the line's lzfse reaches the parked
+        // textures, for at most 60 s), so that the working set comes back at the same memory every run; then the
+        // first kInUse frames in every frame; the last frame reads each one back.
+        auto parking_line = [] {
+            std::array<char, 512> line{};
+            void *address = dlsym(library, "ANGLEMetalParkingLine");
+            if (address != nullptr) {
+                reinterpret_cast<int (*)(char *, size_t)>(address)(line.data(), line.size());
+            }
+            return std::string(line.data());
+        };
+        const auto repacks_until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (in_use && std::chrono::steady_clock::now() < repacks_until) {
+            const std::string line = parking_line();
+            if (field(line, "lzfse") >= field(line, "n")) {
+                break;
+            }
+            GL(BindFramebuffer)(GL_FRAMEBUFFER, 0);
+            GL(Clear)(GL_COLOR_BUFFER_BIT);
+            EGL(SwapBuffers)(display, surface);
+            GL(BindFramebuffer)(GL_FRAMEBUFFER, framebuffer);
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        next = std::chrono::steady_clock::now();
+        uint64_t in_use_peak = 0;
+        for (int frame = 0; in_use && frame < kInUseFrames; ++frame) {
+            for (size_t index = 0; index < kInUse; ++index) {
+                GL(BindTexture)(GL_TEXTURE_2D, frames[index]);
+                GL(DrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
+                if (frame == kInUseFrames - 1) {
+                    GL(ReadPixels)(0, 0, kWidth, kHeight, GL_RGBA, GL_UNSIGNED_BYTE, readback.data());
+                    if (sum(readback) != sums[index]) {
+                        ++mismatches;
+                    }
+                }
+                if (frame < kRestoringFrames) {
+                    in_use_peak = std::max(in_use_peak, footprint());
+                }
+            }
+            GL(BindFramebuffer)(GL_FRAMEBUFFER, 0);
+            GL(Clear)(GL_COLOR_BUFFER_BIT);
+            EGL(SwapBuffers)(display, surface);
+            GL(BindFramebuffer)(GL_FRAMEBUFFER, framebuffer);
+            in_use_peak = std::max(in_use_peak, footprint());
+            next += std::chrono::microseconds(16667);
+            std::this_thread::sleep_until(next);
+        }
+        peak = std::max(peak, in_use_peak);
         check(GL(GetError)() == GL_NO_ERROR, "no GL error");
 
         std::string parking;
@@ -310,6 +380,19 @@ int main(int argc, char **argv) {
         // A stall in every frame shows in the median; a long one in p99. Both bounds leave room for a loaded Mac.
         check(percentile(frame_ms, 0.5) < 25.0, "frame p50 below 25 ms");
         check(percentile(frame_ms, 0.99) < 250.0, "frame p99 below 250 ms");
+        if (in_use) {
+            std::printf("in use: peak %llu MiB of %llu MiB, %.0f MiB available at the end\n",
+                        static_cast<unsigned long long>(in_use_peak / kMiB),
+                        static_cast<unsigned long long>(limit / kMiB), field(parking, "avail_last"));
+            check(in_use_peak + kRestoringFloor <= limit,
+                  "while the working set is restored at least " + std::to_string(kRestoringFloor / kMiB) +
+                      " MiB stay available (" + std::to_string((limit - std::min(in_use_peak, limit)) / kMiB) + ")");
+            const double last = field(parking, "avail_last");
+            const double kept = field(parking, "kept");
+            check(kept == 0.0 || last >= static_cast<double>(kEmergencyBelow / kMiB),
+                  "no packed copy is kept in the emergency band (kept " + std::to_string(kept) + " MiB at " +
+                      std::to_string(last) + " MiB available)");
+        }
         if (mode.empty() || band) {
             // Patch 0018: the line's least available memory is what the footprint left (give or take a sample
             // between frame ends), and the presents' interval is the frames' 1/60 s, give or take a loaded Mac.

@@ -49,6 +49,14 @@ if(TARGET angle-texture-parking)
     COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" --warning-band)
   set_tests_properties(graphics.angle_texture_parking_band PROPERTIES
     RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:")
+  # --in-use: a working set in use that comes back from parking keeps no packed copy in the emergency band (patch
+  # 0019) and stays clear of the limit while it is restored (0020). ASan's quarantine would keep freed memory in the
+  # footprint.
+  add_test(NAME graphics.angle_texture_parking_in_use
+    COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" --in-use)
+  set_tests_properties(graphics.angle_texture_parking_in_use PROPERTIES
+    RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:"
+    ENVIRONMENT "ASAN_OPTIONS=quarantine_size_mb=0:thread_local_quarantine_size_kb=0")
 endif()
 
 # ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.
