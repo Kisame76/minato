@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The calibration of android.media.audiofx (audiofx-response-test): sine tones through the Equalizer, Bass Boost,
+     Virtualizer and Loudness Enhancer of a track's session, read at the Visualizer, which sits after the effects.
+     The harness grants RECORD_AUDIO, which the Visualizer needs. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.audiofxresponse" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+  <application android:label="@string/app_name"
+      android:name="io.github.kisame76.minato.test.audiofxresponse.ResponseApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

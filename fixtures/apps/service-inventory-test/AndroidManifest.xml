@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The inventory of Android 15's public system services (service-inventory-test; the compatibility plan's
+     system services gap): getSystemService(name) for every public Context.*_SERVICE constant, logging the class of
+     the answer or null. The launcher activity is the framework's own android.app.Activity, so that `am start` starts
+     the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.serviceinventory" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="service-inventory-test"
+      android:name="io.github.kisame76.minato.test.serviceinventory.ServiceInventoryApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
