@@ -788,13 +788,17 @@ final class GameSession {
     }
 
     func memoryWarning() {
+        // Minato's own give-back answers every warning (patch 0022: ANGLE parks as in its emergency band for a
+        // second, which keeps a burst cheap); the guest's onLowMemory has the bridge's 60 s limit after it.
+        let graphics = minato_graphics_memory_warning()
         #if DEBUG
         let handled = bridge.handle(.memoryWarning, host: host)
         let note = MemoryWarningCheck.note(passedOn: handled.callbacks.contains(.onLowMemory),
                                            since: bridge.lowMemoryHeldFor)
-        SessionCheck.event("memory warning delivered: \(note)")
+        SessionCheck.event("memory warning delivered: \(note); ANGLE \(graphics == 0 ? "parks" : "has no 0022")")
         report(handled)
         #else
+        _ = graphics
         deliver(.memoryWarning)
         #endif
     }
