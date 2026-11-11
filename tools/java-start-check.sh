@@ -1081,9 +1081,10 @@ except Exception:
 PY
 }
 # The checks after a return from the background (the resume round): the second ping, new frames for an app that moves,
-# a screenshot that is not black, and the menu's answer. $1 the app, $2 the label of the case.
+# a screenshot that is not black, and the menu's answer. $1 the app, $2 the label of the case; $3 no-frame when the
+# app's surface showed no frame after the return (await_return_frame's FAIL), so new frames are not asked for.
 check_return() {
-  local app=$1 wait_for=$2 presents_after presents_now lit
+  local app=$1 wait_for=$2 frame=${3:-} presents_after presents_now lit
     presents_after=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
     # The windows are made again at the return, so the counts before and after the background are not comparable:
     # the frames of the app after the return are those between this ping and the next.
@@ -1096,6 +1097,8 @@ check_return() {
     [[ -z "${LOGS:-}" ]] || lit=$(lit_percent "$LOGS/$app-resume-$wait_for.png")
     if [[ -z "$EVENT" ]]; then
       failed_line "after $wait_for: the second ping got no answer" "$app-resume-$wait_for"
+    elif [[ "$frame" == no-frame ]]; then
+      echo "note  after $wait_for: new frames n/a, as the app's surface showed none"
     elif [[ "$app" == surface-test || "$app" == views-test ]]; then
       echo "note  after $wait_for s: $app draws a still picture, so new frames say nothing"
     elif (( $(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT") > presents_after )); then
@@ -1127,6 +1130,7 @@ check_return() {
 # keeps the old gate, as does a build whose pong has no surface count. Fails for app $1 when no frame comes.
 await_first_frame() {
   local app=$1 settle=$2 started=$SECONDS limit=${RESUME_FIRST_FRAME:-90}
+  SURFACED=""
   while (( SECONDS - started <= limit )); do
     request ping
     EVENT=""
@@ -1134,6 +1138,7 @@ await_first_frame() {
     if [[ "$EVENT" =~ pong\ presents\ ([0-9]+)\ .*\ surfaces\ ([0-9]+)\ surface\ frames\ ([0-9]+) ]]; then
       if (( BASH_REMATCH[2] > 0 && BASH_REMATCH[3] > 0 )); then
         ok "  first frame of the app's surface after $((SECONDS - started)) s"
+        SURFACED=yes
         return 0
       fi
       (( BASH_REMATCH[2] == 0 && BASH_REMATCH[1] > 0 && SECONDS - started >= settle )) && return 0
@@ -1145,13 +1150,39 @@ await_first_frame() {
   failed_line "no first frame of the app's surface in ${limit} s, before the first return" "$app-resume"
   return 1
 }
+# After a return of the resume round, for an app whose start drew on its surface (SURFACED): the first frame of the
+# new surface the return gives it, up to RESUME_FIRST_FRAME (90) seconds from the return at uptime $3 (SECONDS), as
+# a game may load again for as long as at its start (renpy-memory-test on the iPhone, 2026-11-11: about 25 s), and the
+# checks of check_return come only after it. The pong's surface frames are those of the surfaces the guest has now,
+# so they start again with the new surface. Label $2; false, after its FAIL line, when no frame came.
+await_return_frame() {
+  local app=$1 label=$2 returned=$3 limit=${RESUME_FIRST_FRAME:-90}
+  [[ -n "${SURFACED:-}" ]] || return 0
+  while (( SECONDS - returned <= limit )); do
+    request ping
+    EVENT=""
+    await_event "pong presents [0-9]+ scene .*" 15 || true
+    if [[ "$EVENT" =~ \ surfaces\ ([0-9]+)\ surface\ frames\ ([0-9]+) ]] &&
+        (( BASH_REMATCH[1] > 0 && BASH_REMATCH[2] > 0 )); then
+      ok "  after $label: first frame of the app's surface $((SECONDS - returned)) s after the return"
+      return 0
+    fi
+    sleep 2
+  done
+  failed_line "after $label: no frame of the app's surface in $limit s after the return" "$app-resume"
+  return 1
+}
+# check_return after await_return_frame, for app $1 and label $2, the return at uptime $3.
+checked_return() {
+  if await_return_frame "$1" "$2" "$3"; then check_return "$1" "$2"; else check_return "$1" "$2" no-frame; fi
+}
 # The resume round of app $1 (package $2), the user's bug of a black screen after leaving Minato and coming back: the
 # app runs, Minato goes to the background for 15 s and again for 60 s (iOS suspends a background app), and after each
 # return the host's main thread answers (ping), the guest's windows present new frames, the screen is not black, and the
 # menu's request gets its answer. A touch is checked by hand: `motion` events in tmp/session-check/events.
 # The guest may end by itself in the meantime (a run of the bench); that is no failure.
 run_resume() {
-  local app=$1 package=$2 wait_for presents_before presents_after lit
+  local app=$1 package=$2 wait_for presents_before presents_after lit returned
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   # Godot's bench ends by itself after about 14 s of frames, so it gets one short background trip.
   local settle=${RESUME_SETTLE:-8} waits=${RESUME_WAITS:-15 60}
@@ -1173,6 +1204,7 @@ run_resume() {
     launch "$AWAY"
     sleep "$wait_for"
     launch
+    returned=$SECONDS
     sleep 3
     request ping
     if ! await_event "pong presents [0-9]+ scene .*" 20; then
@@ -1183,7 +1215,7 @@ run_resume() {
       fi
       break
     fi
-    check_return "$app" "$wait_for s in the background"
+    checked_return "$app" "$wait_for s in the background" "$returned"
     sleep 2
   done
   fetch_events
@@ -1201,7 +1233,7 @@ ping_again() {
   await_event "pong presents [0-9]+ scene .*" 20 || true
 }
 run_resume_cases() {
-  local app=$1 package=$2 trip
+  local app=$1 package=$2 trip returned
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   if ! await_first_frame "$app" "${RESUME_SETTLE:-8}"; then end_start "$app" 1; return; fi
   sleep "${RESUME_SETTLE:-8}"
@@ -1217,21 +1249,23 @@ run_resume_cases() {
   launch "$AWAY"
   sleep 15
   launch
+  returned=$SECONDS
   sleep 4
   # The menu that was open stays open over the paused app (Continue starts it again): the menu request closes it.
   request menu
   await_event "menu opened" 15 || true
   sleep 4
   ping_again
-  check_return "$app" "the three-finger menu open in the background"
+  checked_return "$app" "the three-finger menu open in the background" "$returned"
   for trip in 1 2; do
     launch "$AWAY"
     sleep 3
     launch
+    returned=$SECONDS
     sleep 2
   done
   ping_again
-  check_return "$app" "two short trips in a row"
+  checked_return "$app" "two short trips in a row" "$returned"
   fetch_events
   cp "$EVENTS" "$WORK/$app-resume-cases-events.out" 2>/dev/null || true
   end_start "$app" 1
@@ -1241,9 +1275,10 @@ run_resume_cases() {
   launch "$AWAY"
   sleep 5
   launch
+  returned=$SECONDS
   sleep "${RESUME_EARLY_WAIT:-20}"
   ping_again
-  check_return "$app" "a trip 1 s after the start"
+  checked_return "$app" "a trip 1 s after the start" "$returned"
   fetch_events
   cp "$EVENTS" "$WORK/$app-resume-cases-early-events.out" 2>/dev/null || true
   end_start "$app" 1
