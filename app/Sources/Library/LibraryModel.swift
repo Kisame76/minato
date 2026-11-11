@@ -115,7 +115,13 @@ struct OBBQuestion: Identifiable {
 @MainActor
 @Observable
 final class LibraryModel {
-    private(set) var entries: [LibraryEntry] = []
+    private(set) var entries: [LibraryEntry] = [] {
+        didSet {
+            #if DEBUG
+            SessionCheck.keepOut(entries)
+            #endif
+        }
+    }
     /// The favorites' packages in their own order (the navigation design, section 3).
     private(set) var favorites: [String] = []
     /// When each app was last opened (the navigation design, section 2).

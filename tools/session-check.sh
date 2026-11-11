@@ -948,7 +948,7 @@ run_ends() {
   sleep 1
   launch
   await_event "process library.*" && expect "  the library shows the signal" \
-    "process library quitUnexpectedly Session Check signal 11" "$(event_of "$EVENT")" || fail "  no library after the crash"
+    "process library quitUnexpectedly signal 11" "$(event_of "$EVENT")" || fail "  no library after the crash"
   shot "ends-1-crash"
   terminate
   launch
@@ -963,7 +963,7 @@ run_ends() {
   launch
   await_event "start failed .*" 60 || { abort_round "no start failure"; return; }
   await_event "process library.*" 30 && expect "  the library shows the reason" \
-    "process library quitUnexpectedly Session Check failure libmain.so is missing" "$(event_of "$EVENT")" \
+    "process library quitUnexpectedly failure libmain.so is missing" "$(event_of "$EVENT")" \
     || fail "  no library after Quit"
   shot "ends-2-start-failed"
 
@@ -996,7 +996,7 @@ run_ends() {
   launch
   await_event "program ended 1" 60 || { abort_round "game mode did not end"; return; }
   await_event "process library.*" 30 && expect "  the library shows the status" \
-    "process library quitUnexpectedly Session Check status 1" "$(event_of "$EVENT")" \
+    "process library quitUnexpectedly status 1" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
 
   begin_round "an end with status 1 without the end handler" || return 0
@@ -1008,7 +1008,7 @@ run_ends() {
   sleep 1
   launch
   await_event "process library.*" && expect "  the library shows the status" \
-    "process library quitUnexpectedly Session Check status 1" "$(event_of "$EVENT")" \
+    "process library quitUnexpectedly status 1" "$(event_of "$EVENT")" \
     || fail "  no library after the end"
 }
 
@@ -1336,7 +1336,7 @@ run_angle_refused() {
       "could not start the ES 3.1 path is refused: the run-time check was forced to fail" "$(event_of "$EVENT")" \
     || fail "  the session started"
   await_event "process library.*" 30 || { fail "  no library after the refusal"; return; }
-  [[ "$(event_of "$EVENT")" == "process library quitUnexpectedly "*" failure the ES 3.1 path is refused: "* ]] \
+  [[ "$(event_of "$EVENT")" == "process library quitUnexpectedly failure the ES 3.1 path is refused: "* ]] \
     && ok "  the library shows the reason" || fail "  the library shows no reason: $(event_of "$EVENT")"
 }
 

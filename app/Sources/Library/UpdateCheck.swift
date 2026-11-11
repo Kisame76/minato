@@ -23,6 +23,7 @@ enum UpdateCheck {
 
     static func event(_ text: String) {
         guard isOn else { return }
+        let text = SessionCheck.redacted(text)
         let line = String(format: "%.3f", Date.now.timeIntervalSince1970) + " \(getpid()) \(text)\n"
         let file = folder.appending(path: "events")
         if let handle = try? FileHandle(forWritingTo: file) {

@@ -258,8 +258,28 @@ enum SessionCheck {
         }
     }
 
+    /// What the apps other than Minato's own test apps are known by (CheckEventPrivacy): cut from every event, so
+    /// that a folder left on a device after a check holds nothing of the apps someone uses.
+    private static let keptOut = Mutex(Set<String>())
+
+    /// Keeps `entries`' names, packages and files out of the events for the rest of the process.
+    static func keepOut(_ entries: [LibraryEntry]) {
+        keepOut(entries.flatMap(CheckEventPrivacy.names(of:)))
+    }
+
+    static func keepOut(_ names: [String]) {
+        guard !names.isEmpty else { return }
+        keptOut.withLock { $0.formUnion(names) }
+    }
+
+    /// `text` with every kept-out name as "<app>".
+    static func redacted(_ text: String) -> String {
+        CheckEventPrivacy.redact(text, names: keptOut.withLock { $0 })
+    }
+
     static func event(_ text: String) {
         guard isOn else { return }
+        let text = redacted(text)
         writing.withLock { _ in
             let line = String(format: "%.3f", Date.now.timeIntervalSince1970) + " \(getpid()) \(text)\n"
             let file = folder.appending(path: "events")
@@ -286,19 +306,21 @@ enum SessionCheck {
         }
         let seconds = request.map { String(format: " %.3f", Date.now.timeIntervalSince($0.time)) } ?? ""
         switch mode {
+        case .gameMode(let entry), .compileMode(let entry), .library(.appNotReady(let entry)): keepOut([entry])
+        case .library(.appNotFound(let package)): keepOut(CheckEventPrivacy.names(package: package))
+        case .library(.quitUnexpectedly(let notice)):
+            keepOut(CheckEventPrivacy.names(package: notice.package ?? "", others: [notice.name]))
+        case .library(nil): break
+        }
+        switch mode {
         case .gameMode(let entry): event("process gameMode \(entry.id)\(seconds)")
         case .compileMode(let entry): event("process compileMode \(entry.id)\(seconds)")
         case .library(nil): event("process library\(seconds)")
         case .library(.appNotFound(let package)): event("process library appNotFound \(package)\(seconds)")
         case .library(.appNotReady(let entry)): event("process library appNotReady \(entry.id)\(seconds)")
         case .library(.quitUnexpectedly(let notice)):
-            switch notice.cause {
-            case .signal(let number): event("process library quitUnexpectedly \(notice.name) signal \(number)\(seconds)")
-            case .failure(let reason): event("process library quitUnexpectedly \(notice.name) failure \(reason)\(seconds)")
-            case .endedByIOS: event("process library quitUnexpectedly \(notice.name) endedByIOS\(seconds)")
-            case .exitStatus(let status):
-                event("process library quitUnexpectedly \(notice.name) status \(status)\(seconds)")
-            }
+            // The cause only: no app's name or package (CheckEventPrivacy).
+            event("process library quitUnexpectedly \(notice.checkEvent)\(seconds)")
             // The runtime's record of the end, which Report a Problem shows: its size and its cause line only.
             if let cause = notice.record.first {
                 event("process library lastSessionRecord \(notice.record.count) lines: \(cause)")
