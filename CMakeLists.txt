@@ -173,6 +173,13 @@ if(APK_HOST_BUILD)
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/mem_notes_test.sh")
+  # tools/check-bundle.sh: a Minato.app that a failed build left half made (no ART in Guest/apex-lib64, no Guest/lib64
+  # or no main binary) is named and refused before java-start-check.sh or deploy.sh installs it.
+  add_test(NAME tools.check_bundle
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/check_bundle_test.sh")
+  # java-start-check.sh's failed_line: a start that got no last line names the start's "could not start" reason.
+  add_test(NAME tools.failed_line
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/failed_line_test.sh")
   # java-start-check.sh's request files: every one the script writes into the check folder is in REQUESTS, and its
   # send_requests sends it as written, so it reaches the iPhone (live-counts, pad-only and permission-allow did not).
   add_test(NAME tools.check_requests_sent

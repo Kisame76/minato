@@ -193,7 +193,8 @@ else
     BUILD_SETTINGS="$BUILD_SETTINGS" INSTALL_ONLY=1 tools/deploy.sh ${WANTED_DEVICE:+"$WANTED_DEVICE"}
   read -r DEVICE_ID _ < <(python3 tools/find-device.py "$WANTED_DEVICE") || true
   # Whether the installed build has the entitlement, from its signature, as tools/spikes.sh shows it.
-  entitlements=$(codesign -d --entitlements - --xml build/DerivedData/Build/Products/Debug-iphoneos/Minato.app \
+  entitlements=$(codesign -d --entitlements - --xml \
+    "${DERIVED:-build/DerivedData}/Build/Products/Debug-iphoneos/Minato.app" \
     2>/dev/null || true)
   ENTITLEMENT=without
   [[ "$entitlements" != *com.apple.developer.kernel.increased-memory-limit* ]] || ENTITLEMENT=with

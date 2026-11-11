@@ -7,11 +7,13 @@
 #                   tools/benchmark.sh builds Release
 #   BUILD_SETTINGS  extra xcodebuild settings, e.g. "APK_EMBED_FIXTURES=YES"
 #   INSTALL_ONLY    when set, installs the app without launching it
+#   DERIVED         the derived data folder (build/DerivedData by default), e.g. a build of its own that does not
+#                   replace the bundle another step installs (device-suite.sh's with the fixtures)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUNDLE_ID="io.github.kisame76.minato"
-DERIVED="build/DerivedData"
+DERIVED="${DERIVED:-build/DerivedData}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 
 HEADLESS=0

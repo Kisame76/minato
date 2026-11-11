@@ -456,6 +456,12 @@ done
 now() { python3 -c 'import time; print(time.time())'; }
 seconds() { python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.1f}")' "$1" "$2"; }
 
+# An APP= bundle is installed as it is: one that a failed build left half made fails every start with "could not
+# start host path" (iPhone, 2026-11-11), so the check stops before it installs one that is not whole.
+if [[ -n "${APP:-}" ]] && ! problem=$(tools/check-bundle.sh "$APP"); then
+  echo "FAIL  $problem"
+  exit 1
+fi
 WORK=$(mktemp -d)
 if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${APP:-}" ]]; then
@@ -522,20 +528,31 @@ copy_trace_tail() {
   echo "note    devicectl's last log before the killed copy, where its file service stalled:" >&3
   sed 's/^/note    | /' <<< "$masked" >&3
 }
+# Hung copies in a row, over all calls: an answer, whatever its exit, sets it back to 0. Two in a row stop the check at
+# once with one line and exit status 3, so a runner stops too: after copies were killed, the Mac's CoreDeviceService
+# has stopped answering every later copy and even a file listing while launch still worked, and only its restart cured
+# it, for a few minutes (iPhone, 2026-11-11); the check would otherwise wait two deadlines per copy through every app,
+# every later line a FAIL. The script never restarts the service itself. After the stop (DEVICECTL_DEAD=stopped) the
+# exit's clean-up, which removes the test apps, gets one short try per copy (DEVICECTL_LAST_TRY_S, 15), and once one
+# of those hangs too (gone) no copy at all.
+HUNG_IN_ROW=0
+DEVICECTL_DEAD=""
 devicectl_copy() {
   local direction=$1
   shift
+  [[ "${DEVICECTL_DEAD:-}" != gone ]] || return 1
   # A lost device aborts the whole check, as on_device does; keep that guard before the timed copy.
   python3 tools/require-device.py "$DEVICE_ID" 2>&3 || exit 1
   # devicectl has hung for minutes on the phone (seen twice in a row), which would make the check wait and then go
   # red for the wrong reason, so the copy runs with a deadline the way the tools bound things without a GNU timeout:
   # in the background, killed if it outlasts the deadline. One retry; if it hangs both times, a red names the cause.
-  local limit=${DEVICECTL_COPY_TIMEOUT_S:-90} attempt hung=no status shown=${2:-}
+  local limit=${DEVICECTL_COPY_TIMEOUT_S:-90} attempt attempts="1 2" hung=no status shown=${2:-}
+  if [[ "${DEVICECTL_DEAD:-}" == stopped ]]; then limit=${DEVICECTL_LAST_TRY_S:-15} attempts=1; fi
   shown=${shown#"$WORK"/}
   # devicectl's own log of this copy, named so restore()'s *.log/*.out sweep into LOGS skips it; read back on
   # a hang (which then goes to a FAIL) to show where the file service stalled, device identifiers masked out.
   local trace="$WORK/devicectl-copy-trace"
-  for attempt in 1 2; do
+  for attempt in $attempts; do
     local from started=$SECONDS
     from=$(date +%H:%M:%S)
     : > "$trace"
@@ -551,9 +568,22 @@ devicectl_copy() {
       hung=yes
       copy_stamp "$direction ${shown:-}" "$started" "$from" "$attempt" "hung, killed"
       copy_trace_tail "$trace"
+      if [[ "${DEVICECTL_DEAD:-}" == stopped ]]; then
+        DEVICECTL_DEAD=gone
+        return 1
+      fi
+      HUNG_IN_ROW=$((${HUNG_IN_ROW:-0} + 1))
+      if (( HUNG_IN_ROW >= 2 )); then
+        # shellcheck disable=SC2016
+        local way='restart CoreDeviceService (kill -TERM $(pgrep -x CoreDeviceService)) and rerun'
+        fail "device file service hung, round stopped: $way"
+        DEVICECTL_DEAD=stopped
+        exit 3
+      fi
     else
       wait "$pid"
       status=$?
+      HUNG_IN_ROW=0
       copy_stamp "$direction ${shown:-}" "$started" "$from" "$attempt" "exit $status"
       [[ $status -eq 0 ]] && return 0
       hung=no
@@ -870,8 +900,15 @@ end_start() {
   cp "$CHECK/guest-log" "$WORK/$1-$2.log" 2>/dev/null || : > "$WORK/$1-$2.log"
   cp "$CHECK/guest-out" "$WORK/$1-$2.out" 2>/dev/null || : > "$WORK/$1-$2.out"
 }
+# A start that got no last line because Minato could not start it says why: the start's event "could not start
+# <reason>", such as a host path of a bundle that a failed build left half made, instead of "no last line".
 failed_line() {
-  fail "  $1"
+  local message=$1 reason
+  if [[ "$message" == "no last line"* ]]; then
+    reason=$(sed -n -E 's/^[0-9.]+ [0-9]+ (could not start .*)$/\1/p' "$EVENTS" 2>/dev/null | tail -n 1) || reason=""
+    [[ -z "$reason" ]] || message="$reason (${message})"
+  fi
+  fail "  $message"
   screenshot "$2"
   sed 's/^/      | /' "$EVENTS" 2>/dev/null || true
   tail -n 40 "$CHECK/guest-log" 2>/dev/null | sed 's/^/      | /' || true

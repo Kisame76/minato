@@ -11,11 +11,13 @@
 #   BUILD_SETTINGS  extra xcodebuild settings, e.g. "CODE_SIGN_ENTITLEMENTS=" to sign without app/Minato.entitlements
 #   LAUNCH_ARGS     arguments for the app; its output is then shown here until it exits
 #   INSTALL_ONLY    when set, installs the app without launching it
+#   DERIVED         the derived data folder (build/DerivedData by default), e.g. a build of its own that does not
+#                   replace the bundle another step installs (device-suite.sh's with the fixtures)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUNDLE_ID="io.github.kisame76.minato"
-DERIVED="build/DerivedData"
+DERIVED="${DERIVED:-build/DerivedData}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 
 read -r DEVICE_ID DEVICE_UDID DEV_MODE CONN_STATE < <(python3 tools/find-device.py "${1:-}") || true
@@ -52,6 +54,8 @@ xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATI
   ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
 APP="$DERIVED/Build/Products/$CONFIGURATION-iphoneos/Minato.app"
+# A bundle that a failed build phase left half made installs and then fails every start (tools/check-bundle.sh).
+tools/check-bundle.sh "$APP" >&2 || exit 1
 xcrun devicectl device install app --device "$DEVICE_ID" "$APP"
 # Only the Debug build answers the hand-over (app/Sources/Signing/CertificateHandover.swift); asking a
 # Release build would wait out devicectl's 120 s.

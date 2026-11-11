@@ -51,10 +51,17 @@ EOF
 
 # A tree $1 with the fakes; the transports of the listings, one per `devicectl list devices` and the last one for
 # every later one, are $2 ("fail" for a devicectl that fails, "broken" for JSON cut short), the layout $3.
+# A Minato.app at $1 that tools/check-bundle.sh takes for whole: the main binary and the guest's folders, all empty.
+fake_bundle() {
+  mkdir -p "$1/Guest/lib64" "$1/Guest/apex-lib64/com.android.art"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string Minato" "$1/Info.plist" >/dev/null
+  : > "$1/Minato"
+}
 make_tree() {
   local tree=$1 transports=$2 layout=${3:-both} script
   mkdir -p "$tree/tools" "$tree/fake"
   [[ ! -f tools/require-device.py ]] || cp tools/require-device.py "$tree/tools/"
+  [[ ! -f tools/check-bundle.sh ]] || cp tools/check-bundle.sh "$tree/tools/"
   devices "$layout" >"$tree/devices.json.in"
   echo "$transports" >"$tree/transports"
   printf 'print("FAKE-DEVICE FAKE-UDID enabled connected")\n' >"$tree/tools/find-device.py"
@@ -201,12 +208,36 @@ for transport in wired localNetwork; do
   tree="$WORK/deploy-$transport"
   make_tree "$tree" "$transport"
   cp tools/deploy.sh "$tree/tools/deploy.sh"
+  # What the fake xcodebuild does not make: the bundle a whole build leaves, which deploy.sh checks before installing.
+  fake_bundle "$tree/build/DerivedData/Build/Products/Debug-iphoneos/Minato.app"
   status=0
   (cd "$tree" && INSTALL_ONLY=1 PATH="$tree/fake:$PATH" tools/deploy.sh) >"$tree/out" 2>&1 || status=$?
   problems=""
   [[ "$status" == 0 ]] || problems+=" exit $status"
   grep -q "devicectl device install app" "$tree/access.log" 2>/dev/null || problems+=" not installed"
   report "deploy.sh over $transport installs" "$problems" "$tree"
+done
+# Neither deploy.sh nor java-start-check.sh installs a bundle that a failed build left half made, without ART's
+# Guest/apex-lib64 (tools/check-bundle.sh; iPhone, 2026-11-11): each stops with its line before the install.
+for script in deploy.sh java-start-check.sh; do
+  tree="$WORK/half-$script"
+  make_tree "$tree" wired
+  cp "tools/$script" "$tree/tools/$script"
+  app="$tree/build/DerivedData/Build/Products/Debug-iphoneos/Minato.app"
+  fake_bundle "$app"
+  rm -rf "$app/Guest/apex-lib64"
+  status=0
+  if [[ "$script" == deploy.sh ]]; then
+    (cd "$tree" && INSTALL_ONLY=1 PATH="$tree/fake:$PATH" tools/deploy.sh) >"$tree/out" 2>&1 || status=$?
+  else
+    (cd "$tree" && ONLY=app-start-test APP="$app" TMPDIR="$tree" PATH="$tree/fake:$PATH" \
+      limited 60 tools/java-start-check.sh --device) >"$tree/out" 2>&1 || status=$?
+  fi
+  problems=""
+  [[ "$status" != 0 ]] || problems+=" exit 0"
+  ! grep -q "devicectl device install app" "$tree/access.log" 2>/dev/null || problems+=" installed"
+  grep -q "is not whole (no Guest/apex-lib64/com.android.art)" "$tree/out" || problems+=" no message"
+  report "$script does not install a bundle that is not whole" "$problems" "$tree"
 done
 
 # java-start-check.sh with APP over the transports $2: the device accesses before the stop must be $3, a ";" list
@@ -215,7 +246,7 @@ check_pulled() {
   local name=$1 transports=$2 expected=$3 tree="$WORK/pulled-$((++cases))" status=0 problems="" seen
   make_tree "$tree" "$transports"
   cp tools/java-start-check.sh "$tree/tools/java-start-check.sh"
-  mkdir -p "$tree/Minato.app"
+  fake_bundle "$tree/Minato.app"
   (cd "$tree" && ONLY=app-start-test APP="$tree/Minato.app" TMPDIR="$tree" PATH="$tree/fake:$PATH" \
     limited 60 tools/java-start-check.sh --device) >"$tree/out" 2>&1 || status=$?
   [[ "$status" != 0 ]] || problems+=" exit 0"
