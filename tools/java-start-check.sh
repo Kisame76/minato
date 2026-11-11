@@ -115,7 +115,8 @@
 #              full-screen backgrounds one after another as a visual novel does; the Debug build writes the process's
 #              physical footprint every 10 s and every iOS memory warning to tmp/session-check/footprint-log. The
 #              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory"
-#              (tools/renpy_footprint.py); a run with no footprint sample is a note, not a failure.
+#              (tools/renpy_footprint.py; on_low_memory is the onLowMemory calls of the session's events, which the
+#              bridge holds to one a minute); a run with no footprint sample is a note, not a failure.
 #   RENPY_MENU_AT  renpy-memory-test opens and closes the overlay menu (Continue) this many seconds after its start;
 #              the game must draw on after it and its memory lines go on (the menu's pause on SDL's path)
 #   RENPY_WARN_AT  renpy-memory-test gets two memory warnings at once (the request warning) this many seconds after its
@@ -3867,9 +3868,10 @@ mem_notes() {
   ' "$1"
 }
 # RENPY_WARN_AT's step $1: 1, two warnings at once, which must give one onLowMemory; 2, one more after the minute,
-# which must give the second. The live line before and after, and what the bridge said for each warning.
+# which must give the second. The live line before and after, what the bridge said for each warning, and ANGLE's
+# park line after the step (its warn= counts every warning ANGLE took, ANGLE patch 0022).
 warn_step() {
-  local step=$1 count lows before after notes
+  local step=$1 count lows before after notes park
   fetch_events
   before=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || before=""
   request warning "$(( step == 1 ? 2 : 1 ))"
@@ -3877,10 +3879,14 @@ warn_step() {
   fetch_events
   after=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || after=""
   lows=$(count_lines ' callback onLowMemory$' "$EVENTS")
-  notes=$(sed -n -E 's/^[0-9.]+ [0-9]+ memory warning delivered: (.*)$/\1/p' "$EVENTS" | paste -s -d ';' -)
+  notes=$(sed -n -E 's/^[0-9.]+ [0-9]+ memory warning delivered: (.*)$/\1/p' "$EVENTS" |
+    awk 'NR > 1 { printf "; " } { printf "%s", $0 } END { if (NR) print "" }')
+  fetch "$CHECK_REL/guest-log" || true
+  park=$(grep 'angle park ' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*(angle park )/\1/') || park=""
   echo "note    renpy-memory-test, warning step $step: before \"${before:-no live line}\""
   echo "note    renpy-memory-test, warning step $step: after \"${after:-no live line}\""
   echo "note    renpy-memory-test, the bridge: ${notes:-no line}"
+  echo "note    renpy-memory-test, warning step $step: ${park:-no angle park line}"
   if [[ "$lows" == "$step" ]]; then
     ok "  renpy-memory-test: $([[ $step == 1 ]] && echo "two warnings at once gave one onLowMemory" ||
       echo "a warning after the minute gave the second onLowMemory")"
@@ -3889,9 +3895,11 @@ warn_step() {
   fi
 }
 # Minato's Ren'Py memory game for MINUTES: the footprint over time and the memory warnings it got. The game says more
-# scenes than MINUTES can play, so the sitting ends it, not the game; each warning reaches the guest as one onLowMemory
-# once it has started (Lifecycle's memoryWarning), so the two counts are the warnings since the guest's start.
+# scenes than MINUTES can play, so the sitting ends it, not the game; a warning reaches the guest as onLowMemory once
+# it has started (Lifecycle's memoryWarning), at most one a minute (the bridge), so the calls are counted from the
+# session's events, not taken from the warnings.
 if wanted renpy-memory-test && listed renpy-memory-test; then
+  low_memory=""
   minutes=${MINUTES:-15}
   environment=$WORK/guest-environment
   echo "MINATO_SCENES=$((minutes * 120))" > "$environment"
@@ -4000,6 +4008,8 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     # but no gl line = libGLESv2's line symbols did not resolve, mem lines that stop early = the sampler stalled.
     fetch "$CHECK_REL/guest-log" || true
     park=$(grep "angle park " "$CHECK/guest-log" 2>/dev/null | tail -n 1 || true)
+    fetch_events
+    low_memory=$(count_lines ' callback onLowMemory$' "$EVENTS")
     if [[ -n "$park" ]]; then echo "note  $park"; else
       count() { grep -c "$1" "$CHECK/guest-log" 2>/dev/null || true; }
       echo "note  renpy-memory-test: no angle park line in the guest log (guest log: $(count '') lines," \
@@ -4020,7 +4030,8 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
   # renpy-memory-test's footprint summary (tools/renpy_footprint.py): the CSV of its min/max/end footprint and memory
   # warnings. A run with no footprint sample is a device fetch or timing artifact, so a note, not a failure; the
   # "game ended before N min" check above stays the real gate on the run.
-  python3 tools/renpy_footprint.py "$CHECK/footprint-log" || fail "  renpy-memory-test: footprint summary failed"
+  python3 tools/renpy_footprint.py "$CHECK/footprint-log" ${low_memory:+"$low_memory"} ||
+    fail "  renpy-memory-test: footprint summary failed"
 fi
 if [[ -n "${COMPILE:-}" ]]; then
   echo "csv,app,dex_mb,plain_s,compiled_s,compiled_over_plain,dex2oat_s,dex2oat_s_per_dex_mb,peak_mb,"\

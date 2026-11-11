@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """tools/renpy_footprint.py (java-start-check.sh's renpy-memory-test summary):
-  - A run with footprint samples: the CSV line of min, max, end footprint and the memory-warning count (warning lines
-    counted, not treated as footprints), exit 0.
+  - A run with footprint samples: the CSV line of min, max, end footprint, the memory-warning count (warning lines
+    counted, not treated as footprints) and the onLowMemory calls the guest got, exit 0. That last count is
+    java-start-check's, from the session's events: the bridge passes one warning a minute on, so two warnings at once
+    give one call (Simulator round of 2026-11-11: 3 warnings, 2 calls, and the column said 3). Without it the field
+    is empty, never the warning count.
   - A run with no footprint sample (the file is missing, empty, or has only warning lines): a device fetch or timing
     artifact, not a leak, so a note and exit 0, not a failure; the game-ended check stays the real gate.
   - --lived <log> <minutes>: whether the process lived the whole run. The sampler writes a footprint line at once and
@@ -28,8 +31,11 @@ SPEC.loader.exec_module(renpy_footprint)
 def run(path, *options):
     out = io.StringIO()
     with redirect_stdout(out):
-        # renpy_footprint.py <log>, or renpy_footprint.py --lived <log> <minutes>.
-        argv = ["renpy_footprint.py", path] if not options else ["renpy_footprint.py", options[0], path, *options[1:]]
+        # renpy_footprint.py <log> [<onLowMemory calls>], or renpy_footprint.py --lived <log> <minutes>.
+        if options and options[0] == "--lived":
+            argv = ["renpy_footprint.py", options[0], path, *options[1:]]
+        else:
+            argv = ["renpy_footprint.py", path, *options]
         code = renpy_footprint.main(argv)
     return code, out.getvalue()
 
@@ -59,7 +65,16 @@ with tempfile.TemporaryDirectory() as directory:
                                              "1730800030.000 footprint 157286400"])   # 150 MB (end)
     code, text = run(log)
     check(code == 0, "a run with samples should pass (exit 0), got {}".format(code))
-    check("csv,100,200,150,1,1" in text, "the CSV should be min 100, max 200, end 150, 1 warning: " + text.strip())
+    check("csv,100,200,150,1,\n" in text, "the CSV should be min 100, max 200, end 150, 1 warning, no call count: "
+          + text.strip())
+
+    # Two warnings at once and the guest's one onLowMemory: the columns differ.
+    pair = write(directory, "pair", ["1730800000.000 footprint 104857600",
+                                     "1730800010.000 warning 104857600",
+                                     "1730800010.100 warning 104857600"])
+    code, text = run(pair, "1")
+    check(code == 0, "a run with a call count should pass (exit 0), got {}".format(code))
+    check("csv,100,100,100,2,1\n" in text, "two warnings and one onLowMemory should read 2,1: " + text.strip())
 
     # No footprint line at all (only a warning): a note, not a failure.
     only_warning = write(directory, "only-warning", ["1730800000.000 warning 209715200"])
