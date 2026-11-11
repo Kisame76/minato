@@ -14,8 +14,14 @@ The content is checked against the pinned digest in the list:
 SHA-256 over the sorted lines "<path> NUL <SHA-256 of the file>", which does not depend on how the
 server packs the archive. A source whose digest matches is not fetched again.
 
-Usage: tools/fetch-sources.py [--set <list>] [--pin] [name...]
+A folder that is there but does not match the pinned digest (a stale tree, or a pin that moved) is not fetched over
+silently: the run stops, names the digest it expected and what the folder holds, and leaves the folder alone.
+--refetch is the explicit step that downloads the pinned content again and replaces it. A folder that is missing is
+the first setup and is fetched as before.
+
+Usage: tools/fetch-sources.py [--set <list>] [--pin] [--refetch] [name...]
   --set   the list to fetch: sources (the default), art, framework, graphics or moltenvk-src
+  --refetch  fetch a source whose folder is there but does not match its pinned digest, and replace the folder
   --pin   write the digests of what was fetched into the list (only for a new or changed entry), into its text as
           it is written, so that its compact lines stay as they are
 """
@@ -147,6 +153,7 @@ def pin_by_text(text, chosen, pinned):
 def main():
     arguments = sys.argv[1:]
     pin = "--pin" in arguments
+    refetch = "--refetch" in arguments
     chosen = "sources"
     if "--set" in arguments:
         index = arguments.index("--set")
@@ -154,7 +161,7 @@ def main():
             raise SystemExit("--set needs the name of a list: sources, art, framework, graphics or moltenvk-src")
         chosen = arguments[index + 1]
         del arguments[index:index + 2]
-    wanted = [argument for argument in arguments if argument != "--pin"]
+    wanted = [argument for argument in arguments if argument not in ("--pin", "--refetch")]
     with open(MANIFEST) as handle:
         manifest = json.load(handle)
     if not isinstance(manifest.get(chosen), list):
@@ -169,9 +176,18 @@ def main():
         if wanted and name not in wanted:
             continue
         target = os.path.join(ROOT, source["directory"]) if "directory" in source else os.path.join(DESTINATION, name)
-        if source["digest"] and os.path.isdir(target) and digest(target) == source["digest"]:
-            print(f"{name}: up to date")
-            continue
+        if source["digest"] and os.path.isdir(target):
+            present = digest(target)
+            if present == source["digest"]:
+                print(f"{name}: up to date")
+                continue
+            if not refetch:
+                raise SystemExit(
+                    f"{name}: {os.path.relpath(target, ROOT)} does not match the pinned digest {source['digest']} "
+                    f"(it holds {present}): a stale tree, or a pin that moved. Nothing was fetched. Copy "
+                    f"third_party/sources.json of the tree that moved the pin, or run tools/fetch-sources.py "
+                    f"{'--set ' + chosen + ' ' if chosen != 'sources' else ''}--refetch {name}, which downloads "
+                    "the pinned content again.")
 
         os.makedirs(os.path.dirname(target), exist_ok=True)
         staging = tempfile.mkdtemp(dir=os.path.dirname(target), prefix=f".{name}-")

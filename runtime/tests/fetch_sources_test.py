@@ -199,6 +199,38 @@ def main():
         fetched, error, _ = run(module, root, after, ["--set", "art"])
         check(error is None and fetched == [], f"a pinned list that is present is not fetched again: {fetched} {error}")
 
+        # A folder that is there but does not match the pinned digest (a stale tree, or a pin that moved): no silent
+        # download. The run stops, names the digest it expected and the way out, and leaves the folder as it is.
+        stale = os.path.join(root, "build/sources/art/runtime/runtime.cc")
+        with open(stale, "w") as handle:
+            handle.write("// an older art\n")
+        fetched, error, _ = run(module, root, after, ["--set", "art"])
+        check(error is not None and fetched == [],
+              f"a stale folder is not fetched over without --refetch: {fetched} {error}")
+        check(error is not None and after["art"][0]["digest"] in error and "--refetch" in error and "art" in error,
+              f"the refusal names the pinned digest, the folder and --refetch: {error}")
+        with open(stale) as handle:
+            check(handle.read() == "// an older art\n", "the refused stale folder is left as it was")
+        # --refetch is the explicit step: it fetches the pinned content again and replaces the folder.
+        fetched, error, _ = run(module, root, after, ["--set", "art", "--refetch"])
+        check(error is None and f"{HOST}/platform/art/+archive/2222.tar.gz" in fetched,
+              f"--refetch fetches a stale folder again: {fetched} {error}")
+        with open(stale) as handle:
+            check(handle.read() == "// art\n", "--refetch replaced the stale folder with the pinned content")
+        # A folder that is missing is the first setup: fetched as before, with no flag.
+        shutil.rmtree(os.path.join(root, "build/sources/art"))
+        fetched, error, _ = run(module, root, after, ["--set", "art"])
+        check(error is None and f"{HOST}/platform/art/+archive/2222.tar.gz" in fetched,
+              f"a missing folder is fetched without --refetch: {fetched} {error}")
+        # A moved pin: the entry's digest is emptied and --pin writes the new one over a folder that is there.
+        moved = json.loads(json.dumps(after))
+        moved["art"][0]["digest"] = ""
+        with open(stale, "w") as handle:
+            handle.write("// an older art\n")
+        fetched, error, moved_after = run(module, root, moved, ["--set", "art", "--pin", "art"])
+        check(error is None and moved_after["art"][0]["digest"] != "",
+              f"an entry without a digest is fetched and pinned over an existing folder: {fetched} {error}")
+
     # --pin writes a new digest into the list as it is written and leaves the rest alone: entries and lists on one
     # line stay on theirs, as sources.json keeps them, and of two entries without a digest only the fetched one gets
     # its own, however its key is spaced.

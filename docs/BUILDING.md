@@ -59,6 +59,10 @@ tools/fetch-sources.py --set graphics
 tools/fetch-sources.py --set moltenvk-src
 ```
 
+A folder that is there but does not match its pinned digest (a stale tree, or a pin that moved) is not downloaded over
+silently: the run stops and says so. Copy `third_party/sources.json` of the tree that moved the pin, or run the list
+again with `--refetch <name>`, which downloads the pinned content again.
+
 Most build scripts fetch the lists they need themselves. The AOSP tag is `android-15.0.0_r1` throughout. Other
 pinned downloads have scripts of their own: ANGLE (`tools/build-angle.sh --fetch`), bundletool
 (`tools/fetch-bundletool.py --fetch`) and, for one benchmark, Godot (`tools/fetch-godot.py --fetch`). Each checks
