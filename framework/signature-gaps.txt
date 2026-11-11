@@ -123,3 +123,4 @@ android.health.connect.datatypes.Metadata <- android.health.connect.datatypes.Re
 com.android.internal.net.VpnProfile <- android.net.IVpnManager  # stays: provisionVpnProfile and startLegacyVpn are no app API (VpnProfile's IKE and VCN classes are not taken); no app reflects over the hidden interface
 android.service.voice.VoiceInteractionSession$ActivityId <- android.service.voice.VisibleActivityInfo  # stays: getActivityId, which only a voice interaction service reads (batch H4); no app is one on Minato
 android.telecom.CallControlCallback <- android.telecom.TelecomManager  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the manager's methods fails with a NoClassDefFoundError
+android.view.inputmethod.InlineSuggestionsRequest <- android.service.autofill.FillRequest  # gap: the inline suggestions request is not taken yet (text input gap 11, the IME inline family)

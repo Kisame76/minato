@@ -3319,3 +3319,9 @@ frameworks_base/core/java/android/app/slice/SliceMetrics.java
 # VisualVoicemailService, whose static methods call four hidden members of TelephonyManager (managers/).
 frameworks_base/core/java/android/app/ApplicationStartInfo.java
 frameworks_base_types/telephony/java/android/telephony/VisualVoicemailService.java
+
+# Batch H6 (framework breadth, pure Java, trial): the assist structure and the autofill requests.
+frameworks_base/core/java/android/app/assist/AssistStructure.java
+frameworks_base/core/java/android/service/autofill/FillContext.java
+frameworks_base/core/java/android/service/autofill/FillRequest.java
+frameworks_base/core/java/android/service/autofill/SaveRequest.java

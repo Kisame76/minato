@@ -515,6 +515,22 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /** As AOSP's: new attributes take effect at the next traversal. */
+    /**
+     * The window's title, flags and display, which AssistStructure writes into the structure it makes of the
+     * window.
+     */
+    public CharSequence getTitle() {
+        return mWindowAttributes.getTitle();
+    }
+
+    public int getDisplayId() {
+        return mDisplay.getDisplayId();
+    }
+
+    public int getWindowFlags() {
+        return mWindowAttributes.flags;
+    }
+
     void setLayoutParams(WindowManager.LayoutParams attrs, boolean newView) {
         synchronized (this) {
             final int oldSoftInputMode = mWindowAttributes.softInputMode;
