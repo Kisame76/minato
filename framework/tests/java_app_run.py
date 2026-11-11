@@ -94,7 +94,8 @@ second time over the first start's folders, as tools/android-reference.sh starts
 starts' lines count as one log (step c1's context-test).
 
 With --log <file>, the process's log (apk-run's stderr) is written to the file as well, for a check that reads a host's
-lines itself (tools/glsurface-returns-check.sh's live lines).
+lines itself (tools/glsurface-returns-check.sh's live lines); also when the run does not end in time, then the lines up
+to its end, which run_app's MINATO_LINE_TIMES file (<file>.lines unless the caller set one) keeps.
 
 With --odex <file>, the file and its .vdex beside it lie at ART's place for base.apk (oat/arm64/base.odex and .vdex),
 as the odex of an installed app does (M6 c1; runtime/tests/dex2oat_make.py makes one for the code path).
@@ -123,6 +124,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # apk-run's line at the first post of a window into its headless buffers (runtime/tools/apk_run.cpp).
 FIRST_POST = "apk-run: the first post of window "
 PERMISSIONS = os.path.join(ROOT, "build", "sources", "frameworks_base_etc", "data", "etc")
+
+
+def logged_lines(times_path):
+    """The stderr lines of a MINATO_LINE_TIMES file ("<seconds>\t<stream>\t<line>"), as the process wrote them."""
+    if not os.path.isfile(times_path):
+        return ""
+    with open(times_path, encoding="utf-8", errors="replace") as times:
+        return "".join(line.split("\t", 2)[2] for line in times if line.split("\t", 2)[1:2] == ["stderr"])
 
 
 def main():
@@ -246,6 +255,11 @@ def main():
         subprocess.run([apk_inspect, "--signers", signers, apk], check=True, capture_output=True)
         if not os.path.exists(signers):
             signers = None  # an unsigned APK has none
+    # With --log, run_app's line file keeps what the process wrote, for a run that does not end in time.
+    if log_file and not os.environ.get("MINATO_LINE_TIMES"):
+        os.environ["MINATO_LINE_TIMES"] = log_file + ".lines"
+        if os.path.exists(log_file + ".lines"):
+            os.remove(log_file + ".lines")
     results = []
     for again in ((False, True) if restart else (False,)):
         result = start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_run, work, app_process,
@@ -257,6 +271,9 @@ def main():
                        sensor_script=sensor_script, grant_location=grant_location, location_script=location_script,
                        device_profile=device_profile, odex=odex, webview_fake=webview_fake)
         if result is None:
+            if log_file:
+                with open(log_file, "w", encoding="utf-8") as out:
+                    out.write(logged_lines(os.environ["MINATO_LINE_TIMES"]))
             print("FAIL: no end within 300 s" + (" in the second start" if again else ""))
             sys.exit(1)
         results.append(result)

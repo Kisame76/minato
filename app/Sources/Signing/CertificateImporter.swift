@@ -122,7 +122,9 @@ enum CertificateImporter {
             record.pendingExport = nil
         }
         let paired = CodeSigning.storedIdentity() != nil ? "keychain identity" : "keychain key and certificate"
-        log.info("Imported certificate \(info.sha256.prefix(12), privacy: .public) from \(source.rawValue, privacy: .public) as \(paired, privacy: .public); \(selfTest.message)")
+        // The certificate's hash prefix stays private: it names the user's own signing certificate.
+        log.info("Imported certificate \(info.sha256.prefix(12)) from \(source.rawValue, privacy: .public)")
+        log.info("Stored as \(paired, privacy: .public); self-test: \(selfTest.message)")
         return info
     }
 

@@ -329,6 +329,24 @@ with tempfile.TemporaryDirectory() as scratch:
     check(conversions() == count and f"{app}/lib/arm64={os.path.join(godot_work, 'app-lib64')}" in command,
           "a start over the same run converts nothing and keeps the folder")
 
+# java_app_run.py's --log on a run that does not end in time: run_app gives None, and its MINATO_LINE_TIMES file still
+# holds the process's stderr lines, which java_app_run writes to the log.
+import java_app_run  # noqa: E402
+
+with tempfile.TemporaryDirectory() as scratch:
+    lines = os.path.join(scratch, "run.lines")
+    os.environ["MINATO_LINE_TIMES"] = lines
+    try:
+        program = ("import sys, time; print('out'); sys.stderr.write('I/app: one\\nI/app: two\\n'); "
+                   "sys.stderr.flush(); time.sleep(5)")
+        hung = app_process_run.run_app([sys.executable, "-c", program], last="never", timeout=1)
+    finally:
+        del os.environ["MINATO_LINE_TIMES"]
+    check(hung is None, "a run that does not end in time gives None")
+    check(java_app_run.logged_lines(lines) == "I/app: one\nI/app: two\n",
+          f"its stderr lines are kept for --log: {java_app_run.logged_lines(lines)!r}")
+    check(java_app_run.logged_lines(os.path.join(scratch, "none")) == "", "no line file gives no lines")
+
 if failures:
     sys.exit(f"app_process_run_test: {failures} failed")
-print("app_process_run_test: convert(), run_app(), install_libraries() and start() fine")
+print("app_process_run_test: convert(), run_app(), install_libraries(), start() and --log's lines fine")
