@@ -113,6 +113,9 @@
 #              (tools/renpy_footprint.py); a run with no footprint sample is a note, not a failure.
 #   RENPY_MENU_AT  renpy-memory-test opens and closes the overlay menu (Continue) this many seconds after its start;
 #              the game must draw on after it and its memory lines go on (the menu's pause on SDL's path)
+#   RENPY_WARN_AT  renpy-memory-test gets two memory warnings at once (the request warning) this many seconds after its
+#              start, and one more 61 s later: the pair must give one onLowMemory and the later one a second (the
+#              bridge's rate limit of 60 s, AOSP's GC_MIN_INTERVAL); the session's live line before and after each
 #   RENPY_MEMORY_APK  an APK of the same package that renpy-memory-test plays instead of tools/renpy-memory.sh's
 #              (Minato's own Ren'Py builds only, such as the ATL frame sequence of the texture parking's round)
 #   PIXELS     a folder: only the pixel round of ADR-0043 b5's step f runs (tools/window-contents-check.sh), with
@@ -786,6 +789,8 @@ begin_start() {
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
+  # RENPY_WARN_AT: the session's live line, read before and after each warning.
+  [[ "$app" != renpy-memory-test || -z "${RENPY_WARN_AT:-}" ]] || echo yes > "$CHECK/live-counts"
   # A save's or a folder's alert answers Allow by itself, as the user's tap does (ADR-0057 step d).
   [[ "$app" != documents-tree-test ]] || echo yes > "$CHECK/pick-allow"
   # An app installer's alerts answer Allow and Install by themselves, as the user's taps do.
@@ -996,14 +1001,15 @@ run_media_bench() {
 }
 
 # A request of SessionCheck while the app runs: $1 is the file's name, on the iPhone sent into the container.
+# A request file $1 for the Debug build, with the text $2 ("yes" without it).
 request() {
   if [[ "$ON_DEVICE" == yes ]]; then
     rm -rf "$WORK/one"
     mkdir "$WORK/one"
-    echo yes > "$WORK/one/$1"
+    echo "${2:-yes}" > "$WORK/one/$1"
     devicectl_copy to --source "$WORK/one" --destination "$CHECK_REL"
   else
-    echo yes > "$CHECK/$1"
+    echo "${2:-yes}" > "$CHECK/$1"
   fi
 }
 # The share of the screen's sampled points $1 (a PNG) that are not black, in percent; -1 when it cannot be read.
@@ -3839,6 +3845,28 @@ mem_notes() {
     }
   ' "$1"
 }
+# RENPY_WARN_AT's step $1: 1, two warnings at once, which must give one onLowMemory; 2, one more after the minute,
+# which must give the second. The live line before and after, and what the bridge said for each warning.
+warn_step() {
+  local step=$1 count lows before after notes
+  fetch_events
+  before=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || before=""
+  request warning "$(( step == 1 ? 2 : 1 ))"
+  sleep 3
+  fetch_events
+  after=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || after=""
+  lows=$(count_lines ' callback onLowMemory$' "$EVENTS")
+  notes=$(sed -n -E 's/^[0-9.]+ [0-9]+ memory warning delivered: (.*)$/\1/p' "$EVENTS" | paste -s -d ';' -)
+  echo "note    renpy-memory-test, warning step $step: before \"${before:-no live line}\""
+  echo "note    renpy-memory-test, warning step $step: after \"${after:-no live line}\""
+  echo "note    renpy-memory-test, the bridge: ${notes:-no line}"
+  if [[ "$lows" == "$step" ]]; then
+    ok "  renpy-memory-test: $([[ $step == 1 ]] && echo "two warnings at once gave one onLowMemory" ||
+      echo "a warning after the minute gave the second onLowMemory")"
+  else
+    fail "  renpy-memory-test: after warning step $step, $lows onLowMemory, not $step"
+  fi
+}
 # Minato's Ren'Py memory game for MINUTES: the footprint over time and the memory warnings it got. The game says more
 # scenes than MINUTES can play, so the sitting ends it, not the game; each warning reaches the guest as one onLowMemory
 # once it has started (Lifecycle's memoryWarning), so the two counts are the warnings since the guest's start.
@@ -3869,6 +3897,9 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     menu_at=${RENPY_MENU_AT:+$((SECONDS + RENPY_MENU_AT))}
     menu_presents=-1
     menu_mem=-1
+    # RENPY_WARN_AT: the pair of warnings, then one more after the minute (warned counts the steps done).
+    warn_at=${RENPY_WARN_AT:+$((SECONDS + RENPY_WARN_AT))}
+    warned=0
     while (( SECONDS < end )); do
       sleep 20
       fetch_events
@@ -3896,6 +3927,11 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
         fetch "$CHECK_REL/guest-log" || true
         menu_mem=$(count_lines ': mem foot=' "$CHECK/guest-log")
         echo "note    renpy-memory-test: the menu opened and closed at $presents presents, $menu_mem memory lines"
+      fi
+      if [[ -n "$warn_at" ]] && (( warned < 2 && SECONDS >= warn_at )); then
+        warned=$((warned + 1))
+        warn_step "$warned"
+        warn_at=$((SECONDS + 61))
       fi
       # A failed fetch (the iPhone's copy) says nothing: the container stays readable after a kill.
       if fetch "$CHECK_REL/footprint-log"; then

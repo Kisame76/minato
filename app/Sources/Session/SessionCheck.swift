@@ -58,6 +58,9 @@ import UIKit
 ///   ping     once a second while game mode runs: when the file is there, it goes and the event "pong presents <n>
 ///            scene <state>" says that the host's main thread answers, how many frames the guest's windows have
 ///            presented so far and the scene's state (the resume round of tools/java-start-check.sh).
+///   warning  the same poll posts iOS's memory warning (didReceiveMemoryWarningNotification) as many times as the file
+///            says (1 to 10, 1 for none), so GameModeView's handler and the session's rate limit see it as iOS's own;
+///            each logs "memory warning delivered: <what the bridge did>" (MemoryWarningCheck); the file goes.
 ///   menu     the same poll opens game mode's menu, logs "menu opened" and closes it 0.5 s later, as the three-finger
 ///            gesture and the menu's Continue do; the file goes.
 ///   menu-hold  the same poll opens game mode's menu and leaves it open, logs "menu held"; the file goes. A menu that
@@ -607,6 +610,15 @@ enum SessionCheck {
                 if requested("pad") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "pad"))
                     await playVirtualPad()
+                }
+                if requested("warning") {
+                    // iOS's memory warning as iOS posts it, so GameModeView's handler and everything after it run.
+                    let count = MemoryWarningCheck.count(of: text(of: "warning"))
+                    try? FileManager.default.removeItem(at: folder.appending(path: "warning"))
+                    for _ in 0..<count {
+                        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification,
+                                                        object: UIApplication.shared)
+                    }
                 }
                 if requested("menu") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "menu"))

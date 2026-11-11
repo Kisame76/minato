@@ -386,6 +386,13 @@ public struct SessionBridge: Sendable {
     /// at most that often, as AppProfiler.doLowMemReportIfNeededLocked does with lastLowMemory.
     private var lastLowMemory: Duration?
     static let lowMemoryInterval: Duration = .seconds(60)
+    /// The time since the last onLowMemory the bridge passed on while the rate limit still holds the next one back;
+    /// nil before the first and once the interval is over (MemoryWarningCheck's note).
+    public var lowMemoryHeldFor: Duration? {
+        guard let lastLowMemory else { return nil }
+        let since = Self.monotonicNow() - lastLowMemory
+        return since < Self.lowMemoryInterval ? since : nil
+    }
     public static func monotonicNow() -> Duration { .nanoseconds(Int(clamping: DispatchTime.now().uptimeNanoseconds)) }
 
     public init(lifecycle: Lifecycle) {

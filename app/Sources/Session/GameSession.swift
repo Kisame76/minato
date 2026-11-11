@@ -788,7 +788,15 @@ final class GameSession {
     }
 
     func memoryWarning() {
+        #if DEBUG
+        let handled = bridge.handle(.memoryWarning, host: host)
+        let note = MemoryWarningCheck.note(passedOn: handled.callbacks.contains(.onLowMemory),
+                                           since: bridge.lowMemoryHeldFor)
+        SessionCheck.event("memory warning delivered: \(note)")
+        report(handled)
+        #else
         deliver(.memoryWarning)
+        #endif
     }
 
     func openMenu(atRoot: Bool = false) {
