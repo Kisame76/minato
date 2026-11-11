@@ -319,7 +319,9 @@ fi
 # background app), brings it back and checks, with SessionCheck's ping and menu requests: the host's main thread
 # answers, the guest's windows present new frames, the screenshot is not black, the menu opens. RESUME_SETTLE (8) is
 # the seconds an app runs before the first background (3 and a single 15 s trip for Godot's bench, which ends by itself
-# after about 14 s). Only that round runs. A touch is checked by hand (`motion` events).
+# after about 14 s), counted from the first frame of the app's own SurfaceView surface when it has one, which the round
+# waits for up to RESUME_FIRST_FRAME (90) seconds (await_first_frame). Only that round runs. A touch is checked by hand
+# (`motion` events).
 # COMPILE: the measures of M6 c's E6 (tools/compile-measure.sh): compute-app-test and godot-bench-gles, each started
 # plain, left by Quit so that the library asks for compile mode, compiled by dex2oat in a process of its own, signed at
 # the next library start and started again with its compiled code. It prints a "csv," line for each (the columns are
@@ -1116,6 +1118,33 @@ check_return() {
       failed_line "after $wait_for: no answer of the menu" "$app-resume-$wait_for"
     fi
 }
+# Before the first background of the resume round, the first frame of the app's own surface: a Java app's decor
+# posts within ms of the start, while a game behind a SurfaceView may load for half a minute before its first frame
+# (renpy-memory-test on the iPhone, 2026-11-11: about 35 s), so a round that went by the decor's posts sent the app
+# away twice before it had drawn anything. The ping's answer names the SurfaceView surfaces and their frames: it waits
+# up to RESUME_FIRST_FRAME (90) seconds for a surface frame. A pong that names no surface once the windows have
+# presented and $2 seconds have passed (a NativeActivity, whose window is its own surface, or an app of plain views)
+# keeps the old gate, as does a build whose pong has no surface count. Fails for app $1 when no frame comes.
+await_first_frame() {
+  local app=$1 settle=$2 started=$SECONDS limit=${RESUME_FIRST_FRAME:-90}
+  while (( SECONDS - started <= limit )); do
+    request ping
+    EVENT=""
+    await_event "pong presents [0-9]+ scene .*" 15 || true
+    if [[ "$EVENT" =~ pong\ presents\ ([0-9]+)\ .*\ surfaces\ ([0-9]+)\ surface\ frames\ ([0-9]+) ]]; then
+      if (( BASH_REMATCH[2] > 0 && BASH_REMATCH[3] > 0 )); then
+        ok "  first frame of the app's surface after $((SECONDS - started)) s"
+        return 0
+      fi
+      (( BASH_REMATCH[2] == 0 && BASH_REMATCH[1] > 0 && SECONDS - started >= settle )) && return 0
+    elif [[ -n "$EVENT" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  failed_line "no first frame of the app's surface in ${limit} s, before the first return" "$app-resume"
+  return 1
+}
 # The resume round of app $1 (package $2), the user's bug of a black screen after leaving Minato and coming back: the
 # app runs, Minato goes to the background for 15 s and again for 60 s (iOS suspends a background app), and after each
 # return the host's main thread answers (ping), the guest's windows present new frames, the screen is not black, and the
@@ -1127,6 +1156,7 @@ run_resume() {
   # Godot's bench ends by itself after about 14 s of frames, so it gets one short background trip.
   local settle=${RESUME_SETTLE:-8} waits=${RESUME_WAITS:-15 60}
   case "$app" in godot-bench-*) settle=${RESUME_SETTLE:-3} waits=${RESUME_WAITS:-15} ;; esac
+  if ! await_first_frame "$app" "$settle"; then end_start "$app" 1; return; fi
   sleep "$settle"
   request ping
   if ! await_event "pong presents [0-9]+ scene .*" 15; then
@@ -1173,6 +1203,7 @@ ping_again() {
 run_resume_cases() {
   local app=$1 package=$2 trip
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  if ! await_first_frame "$app" "${RESUME_SETTLE:-8}"; then end_start "$app" 1; return; fi
   sleep "${RESUME_SETTLE:-8}"
   request continue
   ping_again

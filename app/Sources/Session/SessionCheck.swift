@@ -57,8 +57,9 @@ import UIKit
 ///            against it, and every iOS memory warning, one line each in tmp/session-check/footprint-log:
 ///            "<seconds since 1970> footprint <bytes>" and "<seconds since 1970> warning <bytes>".
 ///   ping     once a second while game mode runs: when the file is there, it goes and the event "pong presents <n>
-///            scene <state>" says that the host's main thread answers, how many frames the guest's windows have
-///            presented so far and the scene's state (the resume round of tools/java-start-check.sh).
+///            scene <state> surfaces <k> surface frames <m>" says that the host's main thread answers, how many frames
+///            the guest's windows have presented so far, the scene's state, and the SurfaceView surfaces the guest has
+///            with their frames (the resume round of tools/java-start-check.sh waits for an app's own first frame).
 ///   warning  the same poll posts iOS's memory warning (didReceiveMemoryWarningNotification) as many times as the file
 ///            says (1 to 10, 1 for none), so GameModeView's handler and the session's rate limit see it as iOS's own;
 ///            each logs "memory warning delivered: <what the bridge did>" (MemoryWarningCheck); the file goes.
@@ -598,7 +599,9 @@ enum SessionCheck {
                     case .inactive: "inactive"
                     default: "background"
                     }
-                    event("pong presents \(session.allPresents) scene \(state)")
+                    let surfaces = session.surfacePresents
+                    event("pong presents \(session.allPresents) scene \(state) surfaces \(surfaces.surfaces) "
+                          + "surface frames \(surfaces.frames)")
                 }
                 if requested("window-dump") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "window-dump"))

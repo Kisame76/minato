@@ -275,6 +275,14 @@ final class GameSession {
         let windows = [bridge.window] + bridge.surfaceWindows
         return windows.reduce(0) { $0 + ($1 == 0 ? 0 : presents($1)) }
     }
+
+    /// The SurfaceView surfaces the guest has now and the frames they presented (the ping's resume gate): a Java
+    /// app's session window is its decor, whose posts come within ms of the start and say nothing about whether the
+    /// app behind the SurfaceView has drawn yet.
+    var surfacePresents: (surfaces: Int, frames: UInt64) {
+        let windows = bridge.surfaceWindows
+        return (windows.count, windows.reduce(0) { $0 + presents($1) })
+    }
     #endif
 
     /// iOS was asked to hold the window in `orientation`, which turns it after a while; a session that turns
