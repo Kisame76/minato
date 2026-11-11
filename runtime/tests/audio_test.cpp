@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -1460,6 +1461,39 @@ TEST(a_source_that_plays_slowly_stays_in_the_tap_between_its_blocks_and_leaves_a
     CHECK(tap(100).samples[99] > 0.09f);
     apkrt_audio_source_close(source);
     apkrt_audio_source_set_speed(source, 0.5f);  // a closed handle is harmless
+}
+
+TEST(mute_silences_the_output_unit_but_the_counters_advance) {
+    // MINATO_AUDIO_MUTE: the output unit gets silence (gain 0) while the stream, its frames_read and its state advance
+    // exactly as without it. The host reads the variable when it sets its output (apkrt_audio_set_output), as the fake
+    // host does inside the open.
+    use_fake_host();
+    const auto stream = opened();
+    Frames frames;
+    CHECK(write(stream, frames, 480) == 480);
+    CHECK(control(stream, APKRT_AUDIO_START) == 0);
+
+    // Off (the default): the read gives the real, non-silent frames.
+    unsetenv("MINATO_AUDIO_MUTE");
+    apkrt_audio_set_output(nullptr, 10'000'000);
+    CHECK(gave(host_read(stream, 100), 0, 100));
+    const auto read_before = status_of(stream).frames_read;
+
+    // On: the next read is all silence, but the same frame count and frames_read still advance.
+    setenv("MINATO_AUDIO_MUTE", "1", 1);
+    apkrt_audio_set_output(nullptr, 10'000'000);
+    const Read muted = host_read(stream, 100);
+    bool silent = muted.count == 100;
+    for (const float sample : muted.samples) silent = silent && sample == 0.0f;
+    CHECK(silent);
+    CHECK(status_of(stream).frames_read == read_before + 100);
+
+    // Off again, so the switch does not leak into later tests; the stream plays its sound once more.
+    unsetenv("MINATO_AUDIO_MUTE");
+    apkrt_audio_set_output(nullptr, 10'000'000);
+    CHECK(gave(host_read(stream, 100), 200, 100));
+
+    CHECK(close_stream(stream) == 0);
 }
 
 }  // namespace

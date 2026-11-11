@@ -38,6 +38,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <unistd.h>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -137,6 +140,10 @@ apkrt_audio_host current_input_host{};  // an apkrt_audio_input_host, which has 
 bool have_input_host = false;
 
 std::atomic<std::int64_t> output_latency{0};  // ns
+// MINATO_AUDIO_MUTE (a test switch for the Simulator rounds): when on, the render block writes silence to the output
+// unit (gain 0) while the streams, their threads, callbacks, timing, frames_read and state changes stay exactly as
+// they are. Read from the environment when the host sets its output; off by default.
+std::atomic<bool> output_muted{false};
 // Constant-init + immortal (apkrt_audio_set_output, network.cpp).
 [[clang::no_destroy]] constinit std::mutex output_lock;
 os_workgroup_t output_workgroup = nullptr;  // +1, from the host's output unit
@@ -404,6 +411,12 @@ std::int64_t take_frames(Slot &slot, float *buffer, std::int64_t frames, std::ui
             std::int32_t stopping = playing_out;
             slot.state.compare_exchange_strong(stopping, APKRT_AUDIO_STOPPED);  // played out
         }
+    }
+    // MINATO_AUDIO_MUTE: silence the frames handed to the output unit, after the tap, the read position and the
+    // timestamp have taken the real ones, so only the sound to the speaker is gone and nothing else changes.
+    if (taken > 0 && output_muted.load(std::memory_order_relaxed)) {
+        const std::size_t samples = static_cast<std::size_t>(taken) * static_cast<std::size_t>(slot.channels);
+        std::memset(buffer, 0, samples * sizeof(float));
     }
     if (change) changed(slot);
     return taken;
@@ -1046,6 +1059,15 @@ void apkrt_audio_disconnected(uint64_t stream) {
 
 void apkrt_audio_set_output(void *audio_unit, int64_t latency) {
     output_latency.store(latency);
+    // MINATO_AUDIO_MUTE: read it here, where the host sets its output once a session, so the render hot path never
+    // calls getenv; one session-log line when it turns on.
+    const char *mute = std::getenv("MINATO_AUDIO_MUTE");
+    const bool muted_now = mute != nullptr && mute[0] == '1' && mute[1] == '\0';
+    if (output_muted.exchange(muted_now) != muted_now && muted_now) {
+        static const char line[] =
+            "I/apkrt   : audio output muted (MINATO_AUDIO_MUTE=1): output silenced, audio path unchanged\n";
+        static_cast<void>(::write(STDERR_FILENO, line, sizeof line - 1));
+    }
     os_workgroup_t group = nullptr;
     if (audio_unit != nullptr) {
         // AudioToolbox is loaded wherever an AudioUnit exists: the runtime finds the getter there rather than
