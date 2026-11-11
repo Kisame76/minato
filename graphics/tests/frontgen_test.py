@@ -55,8 +55,8 @@ ABI_COUNTS = {
     "vulkan": {"same": 233},
 }
 KIND_COUNTS = {
-    "gles": {"plain": 578, "extend": 37, "repack": 8, "by hand": 11},
-    "egl": {"plain": 50, "by hand": 23},
+    "gles": {"plain": 572, "extend": 37, "repack": 8, "by hand": 17},
+    "egl": {"plain": 47, "by hand": 26},
     "vulkan": {"plain": 141, "without allocator": 41, "by hand": 51},
 }
 # ADR-0029, decision 14: the extensions the strings withhold by name, whatever their commands; and the

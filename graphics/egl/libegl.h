@@ -67,4 +67,18 @@ MINATO_HIDDEN void minato_timestamps_destroyed(EGLDisplay display, EGLSurface su
    (timestamps.c). */
 MINATO_HIDDEN EGLint minato_peek_error(void);
 
+/* The trace of a device run (trace.c, MINATO_EGL_TRACE=1): whether it is on, a line, and its bookkeeping of
+   contexts, the context current on the calling thread, swaps and destroyed surfaces. An error passed in is one read
+   once with minato_peek_error (a second read would lose it for the app). */
+MINATO_HIDDEN int minato_trace_on(void);
+MINATO_HIDDEN void minato_trace(const char *format, ...) __attribute__((format(printf, 1, 2)));
+MINATO_HIDDEN void minato_trace_context_made(EGLContext context);
+MINATO_HIDDEN void minato_trace_context_destroyed(EGLContext context);
+MINATO_HIDDEN void minato_trace_current(EGLContext context);
+MINATO_HIDDEN void minato_trace_swap(EGLSurface surface, uint64_t window, EGLBoolean result, EGLint error);
+MINATO_HIDDEN void minato_trace_surface_destroyed(EGLSurface surface);
+
+/* The host window's ID of a window surface of libEGL's, 0 for any other surface (surface.c). */
+MINATO_HIDDEN uint64_t minato_window_surface_id(EGLSurface surface);
+
 #endif

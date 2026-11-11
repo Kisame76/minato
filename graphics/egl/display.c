@@ -24,8 +24,10 @@
      sleeps, and the flush bit has no context to flush. eglWaitSync and eglWaitSyncKHR answer EGL_TRUE there for a
      sync that exists, as Android's drivers do (no context's commands to hold back), where ANGLE refuses with
      EGL_BAD_MATCH.
-   - eglMakeCurrent goes to ANGLE; a failure is logged (E/libEGL, at most one line a second, the others counted), and
-     so is the first time a context is made current without a draw surface (diagnostics that stay in the build). */
+   - eglMakeCurrent, eglCreateContext, eglDestroyContext and eglReleaseThread go to ANGLE, traced with
+     MINATO_EGL_TRACE=1 (trace.c). eglMakeCurrent's failure is logged (E/libEGL, at most one line a second, the others
+     counted), and so is the first time a context is made current without a draw surface (diagnostics that stay in
+     the build). */
 #include <android/log.h>
 #include <android/native_window.h>
 #include <pthread.h>
@@ -49,6 +51,9 @@ MINATO_HOST(eglClientWaitSyncKHR);
 MINATO_HOST(eglWaitSync);
 MINATO_HOST(eglWaitSyncKHR);
 MINATO_HOST(eglMakeCurrent);
+MINATO_HOST(eglCreateContext);
+MINATO_HOST(eglDestroyContext);
+MINATO_HOST(eglReleaseThread);
 
 static EGLDisplay metal_display(void) {
     static const EGLAttrib metal[] = MINATO_EGL_METAL_DISPLAY;
@@ -71,6 +76,10 @@ EGLDisplay eglGetPlatformDisplay(EGLenum platform, void *display, const EGLAttri
 
 EGLBoolean eglTerminate(EGLDisplay display) {
     const EGLBoolean result = minato_host_eglTerminate(display);
+    if (minato_trace_on()) {
+        minato_trace("eglTerminate(display %p): %s, error 0x%x", display, result ? "EGL_TRUE" : "EGL_FALSE",
+                     result ? EGL_SUCCESS : minato_peek_error());
+    }
     if (result) {
         minato_release_windows(display);
     }
@@ -443,15 +452,67 @@ static int first_surfaceless(EGLContext context) {
     return first;
 }
 
+/* The trace's reset status of the context now current on this thread (GL_NO_ERROR, or a reset's kind). */
+static unsigned reset_status(void) {
+    unsigned (*status)(void) = (unsigned (*)(void))minato_gles_function("glGetGraphicsResetStatusEXT");
+    return status != NULL ? status() : 0;
+}
+
 EGLBoolean eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
     const EGLBoolean result = minato_host_eglMakeCurrent(display, draw, read, context);
+    const EGLint error = result ? EGL_SUCCESS : minato_peek_error();  // read once, kept for the app
+    if (minato_trace_on()) {
+        if (result) {
+            minato_trace_current(context);
+        }
+        minato_trace("eglMakeCurrent(draw %p window %llu, read %p, context %p): %s, error 0x%x, reset status 0x%x",
+                     draw, (unsigned long long)minato_window_surface_id(draw), read, context,
+                     result ? "EGL_TRUE" : "EGL_FALSE", error,
+                     result && context != EGL_NO_CONTEXT ? reset_status() : 0);
+    }
     if (!result) {
-        minato_egl_log("eglMakeCurrent: failed, error 0x%x (draw %s, context %s)", minato_peek_error(),
+        minato_egl_log("eglMakeCurrent: failed, error 0x%x (draw %s, context %s)", error,
                        draw == EGL_NO_SURFACE ? "none" : minato_window_surface(display, draw) ? "a window" : "another",
                        context == EGL_NO_CONTEXT ? "none" : "given");
     } else if (context != EGL_NO_CONTEXT && draw == EGL_NO_SURFACE && first_surfaceless(context)) {
         __android_log_write(ANDROID_LOG_ERROR, "libEGL",
                             "eglMakeCurrent: a context without a draw surface (once a context)");
+    }
+    return result;
+}
+
+EGLContext eglCreateContext(EGLDisplay display, EGLConfig config, EGLContext share, const EGLint *attributes) {
+    const EGLContext context = minato_host_eglCreateContext(display, config, share, attributes);
+    if (minato_trace_on()) {
+        if (context != EGL_NO_CONTEXT) {
+            minato_trace_context_made(context);
+        }
+        minato_trace("eglCreateContext(share %p): context %p, error 0x%x", share, context,
+                     context != EGL_NO_CONTEXT ? EGL_SUCCESS : minato_peek_error());
+    }
+    return context;
+}
+
+EGLBoolean eglDestroyContext(EGLDisplay display, EGLContext context) {
+    const EGLBoolean result = minato_host_eglDestroyContext(display, context);
+    if (minato_trace_on()) {
+        if (result) {
+            minato_trace_context_destroyed(context);
+        }
+        minato_trace("eglDestroyContext(context %p): %s, error 0x%x%s", context, result ? "EGL_TRUE" : "EGL_FALSE",
+                     result ? EGL_SUCCESS : minato_peek_error(),
+                     context == eglGetCurrentContext() ? ", current on this thread" : "");
+    }
+    return result;
+}
+
+EGLBoolean eglReleaseThread(void) {
+    const EGLBoolean result = minato_host_eglReleaseThread();
+    if (minato_trace_on()) {
+        if (result) {
+            minato_trace_current(EGL_NO_CONTEXT);
+        }
+        minato_trace("eglReleaseThread: %s", result ? "EGL_TRUE" : "EGL_FALSE");
     }
     return result;
 }

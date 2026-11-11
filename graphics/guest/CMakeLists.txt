@@ -213,7 +213,7 @@ target_compile_definitions(gles-procs-measure PRIVATE GLES_PROCS_MEASURE)
 set(egl "${graphics}/egl")
 set(gles "${graphics}/gles")
 add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/image.c" "${egl}/queue.c" "${egl}/procs.c"
-  "${egl}/timestamps.c"
+  "${egl}/timestamps.c" "${egl}/trace.c"
   "${gen}/egl_stubs.S" "${gen}/egl_bind.c")
 # AHardwareBuffer_getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato resolve.
 set_source_files_properties("${egl}/image.c" PROPERTIES COMPILE_DEFINITIONS __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
@@ -225,7 +225,8 @@ target_link_options(EGL PRIVATE "-Wl,--version-script=${gen}/libEGL.map" -Wl,-Bs
 set_target_properties(EGL PROPERTIES LINK_DEPENDS "${gen}/libEGL.map"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 target_compile_options(EGL PRIVATE -Wall -Wextra)
-add_library(gles_objects OBJECT "${gles}/gles.c" "${gles}/procs.c" "${gen}/gles_stubs.S" "${gen}/gles_bind.c")
+add_library(gles_objects OBJECT "${gles}/gles.c" "${gles}/procs.c" "${gles}/trace.c" "${gen}/gles_stubs.S"
+  "${gen}/gles_bind.c")
 target_include_directories(gles_objects PRIVATE "${gles}" "${gen}" "${repo}/runtime/include")
 target_link_libraries(gles_objects PRIVATE minato_bind)
 set_target_properties(gles_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)

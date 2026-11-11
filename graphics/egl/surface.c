@@ -134,6 +134,9 @@ static struct window_surface *prepared(EGLDisplay display, EGLConfig config, str
 
 /* The surface ANGLE made, or none: then the record goes and the window's producer disconnects. */
 static EGLSurface kept(struct window_surface *record, EGLSurface surface) {
+    if (minato_trace_on()) {
+        minato_trace("eglCreateWindowSurface(window %llu): surface %p", (unsigned long long)record->id, surface);
+    }
     if (surface == EGL_NO_SURFACE) {
         not_made("ANGLE made no surface", record->id, minato_peek_error());
         minato_window_disconnect(record->window);
@@ -239,7 +242,15 @@ static void release(EGLDisplay display, EGLSurface surface) {
 }
 
 EGLBoolean eglDestroySurface(EGLDisplay display, EGLSurface surface) {
+    const uint64_t window = minato_trace_on() ? minato_window_surface_id(surface) : 0;
     const EGLBoolean result = minato_host_eglDestroySurface(display, surface);
+    if (minato_trace_on()) {
+        const EGLint error = result ? EGL_SUCCESS : minato_peek_error();
+        minato_trace("eglDestroySurface(surface %p, window %llu): %s, error 0x%x%s", surface,
+                     (unsigned long long)window, result ? "EGL_TRUE" : "EGL_FALSE", error,
+                     surface == eglGetCurrentSurface(EGL_DRAW) ? ", current on this thread" : "");
+        minato_trace_surface_destroyed(surface);
+    }
     if (result && surface != EGL_NO_SURFACE) {
         release(display, surface);
         minato_queue_destroyed(display, surface);
@@ -250,6 +261,16 @@ EGLBoolean eglDestroySurface(EGLDisplay display, EGLSurface surface) {
 void minato_release_windows(EGLDisplay display) {
     release(display, EGL_NO_SURFACE);
     minato_queue_terminated(display);
+}
+
+uint64_t minato_window_surface_id(EGLSurface surface) {
+    uint64_t id = 0;
+    pthread_mutex_lock(&lock);
+    for (const struct window_surface *entry = surfaces; entry != NULL && id == 0; entry = entry->next) {
+        id = entry->surface == surface ? entry->id : 0;
+    }
+    pthread_mutex_unlock(&lock);
+    return id;
 }
 
 int minato_window_surface(EGLDisplay display, EGLSurface surface) {
@@ -326,7 +347,7 @@ static void follow(EGLDisplay display, EGLSurface surface, const struct window_s
 /* A window surface's swap for the diagnostic lines: its first failure with the error, then, once one works again, how
    many failed (a destroy says it otherwise, release), never a line per frame. A window that is gone (decision 15) is
    the expected end of a surface and stays out. */
-static void noted(EGLSurface surface, const struct window_surface *record, EGLBoolean result) {
+static void noted(EGLSurface surface, const struct window_surface *record, EGLBoolean result, EGLint error) {
     unsigned failed = 0;
     pthread_mutex_lock(&lock);
     for (struct window_surface *entry = surfaces; entry != NULL; entry = entry->next) {
@@ -339,7 +360,6 @@ static void noted(EGLSurface surface, const struct window_surface *record, EGLBo
     }
     pthread_mutex_unlock(&lock);
     if (!result && failed == 1) {
-        const EGLint error = minato_peek_error();  // before eglGetCurrentContext, which sets EGL_SUCCESS
         __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglSwapBuffers: window %llu: failed, error 0x%x%s",
                             (unsigned long long)record->id, error,
                             eglGetCurrentContext() == EGL_NO_CONTEXT ? ", no context current on this thread" : "");
@@ -351,10 +371,9 @@ static void noted(EGLSurface surface, const struct window_surface *record, EGLBo
 
 /* A swap of a surface that is no window surface of libEGL's (EGL_NO_SURFACE, a destroyed one, a pbuffer) failed: its
    first failure with the error, once per surface handle in a row. */
-static void other_failed(EGLSurface surface) {
+static void other_failed(EGLSurface surface, EGLint error) {
     static EGLSurface last = (EGLSurface)(uintptr_t)1;  // no handle's value
     static unsigned repeated;
-    const EGLint error = minato_peek_error();
     pthread_mutex_lock(&lock);
     const int first = surface != last;
     const unsigned before = repeated;
@@ -376,13 +395,21 @@ static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
     }
     if (!recall(surface, &record)) {
         const EGLBoolean result = minato_host_eglSwapBuffers(display, surface);
+        // Read once, before eglGetCurrentContext sets EGL_SUCCESS; kept for the app's eglGetError.
+        const EGLint error = result ? EGL_SUCCESS : minato_peek_error();
         if (!result) {
-            other_failed(surface);
+            other_failed(surface, error);
+        }
+        if (minato_trace_on()) {
+            minato_trace_swap(surface, 0, result, error);
         }
         return result;
     }
     if (gone(record.id)) {
         minato_bad_native_window(display, record.config);
+        if (minato_trace_on()) {
+            minato_trace_swap(surface, record.id, EGL_FALSE, EGL_BAD_NATIVE_WINDOW);
+        }
         return EGL_FALSE;
     }
     const EGLSyncKHR sync = minato_timestamps_before_swap(display, surface);
@@ -391,7 +418,11 @@ static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
     if (result) {
         follow(display, surface, &record);
     }
-    noted(surface, &record, result);
+    const EGLint error = result ? EGL_SUCCESS : minato_peek_error();
+    noted(surface, &record, result, error);
+    if (minato_trace_on()) {
+        minato_trace_swap(surface, record.id, result, error);
+    }
     return result;
 }
 

@@ -27,6 +27,8 @@ hand glClientWaitSync
 # glGetVkProcAddrNV, which returns a function and which Android 15's libGLESv2 exports (measured below): Android's
 # entry for a function its driver lacks, as ANGLE has no GL_NV_draw_vulkan_image.
 hand glGetVkProcAddrNV
+# The device trace (MINATO_EGL_TRACE=1, trace.c): GL calls made with no context current on the calling thread.
+hand glClear glViewport glGenTextures glTexImage2D glBindFramebuffer glBindTexture
 # The filter's count (B1): GL_NUM_EXTENSIONS counts the extensions glGetStringi lists, through every query.
 hand glGetBooleanv glGetFloatv glGetIntegerv glGetInteger64v
 hand glGetBooleanvRobustANGLE glGetFloatvRobustANGLE glGetIntegervRobustANGLE glGetInteger64vRobustANGLE
