@@ -781,6 +781,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=120
       ;;
+    # net-types-test (IpPrefix, LinkAddress, RouteInfo and LinkProperties): the Application logs and ends with "done".
+    net-types-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
+      ;;
     # vpn-test (group 1 of the framework breadth): the Application logs VpnService's shape, what prepare asks for and
     # what its own VpnService does when started, bound and asked to establish, in an app the user did not allow to be
     # a VPN, and ends with "done".

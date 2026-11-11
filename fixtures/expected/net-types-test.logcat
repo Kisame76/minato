@@ -1,0 +1,22 @@
+I/net-types-test: prefix 192.168.7.0/24: address 192.168.7.0, length 24, raw 4 bytes
+I/net-types-test: prefix 2001:db8::/32: address 2001:db8::, length 32, raw 16 bytes
+I/net-types-test: prefix contains 192.168.7.200: true
+I/net-types-test: prefix contains 192.168.8.1: false
+I/net-types-test: prefix contains 2001:db8:ffff::1: true
+I/net-types-test: prefix contains 2001:db9::1: false
+I/net-types-test: prefix equals true false, hash true
+I/net-types-test: prefix parcel: 2001:db8::/32 true
+I/net-types-test: prefix 33: java.lang.RuntimeException
+I/net-types-test: address 10.1.2.3/24: 10.1.2.3/24, flags 0, scope 0, v4 true, v6 false
+I/net-types-test: address 2001:db8::5/64: 2001:db8::5/64, flags 0, scope 0, v4 false, v6 true
+I/net-types-test: address same prefix: false
+I/net-types-test: address equals true false, hash true
+I/net-types-test: address parcel: 2001:db8::5/64 true
+I/net-types-test: address nonsense: java.lang.IllegalArgumentException
+I/net-types-test: route 0.0.0.0/0 -> 10.1.2.1 wlan0 mtu 0: destination 0.0.0.0/0, gateway 10.1.2.1, interface wlan0, hasGateway true, default true, type 1
+I/net-types-test: route 10.1.2.0/24 -> 0.0.0.0 mtu 0: destination 10.1.2.0/24, gateway 0.0.0.0, interface null, hasGateway false, default false, type 1
+I/net-types-test: route ::/0 -> fe80::1 wlan0 mtu 0: destination ::/0, gateway fe80::1, interface wlan0, hasGateway true, default true, type 1
+I/net-types-test: route matches: true true false true
+I/net-types-test: route equals true false, hash true
+I/net-types-test: route parcel: 0.0.0.0/0 -> 10.1.2.1 wlan0 mtu 0 true
+I/net-types-test: done
