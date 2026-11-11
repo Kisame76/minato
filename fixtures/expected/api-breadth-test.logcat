@@ -449,4 +449,6 @@ I/api-breadth-test: android.app.assist.AssistStructure: loads
 I/api-breadth-test: android.service.autofill.FillContext: loads
 I/api-breadth-test: android.service.autofill.FillRequest: loads
 I/api-breadth-test: android.service.autofill.SaveRequest: loads
+I/api-breadth-test: android.app.MediaRouteActionProvider: loads
+I/api-breadth-test: android.app.MediaRouteButton: loads
 I/api-breadth-test: done

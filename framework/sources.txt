@@ -3325,3 +3325,12 @@ frameworks_base/core/java/android/app/assist/AssistStructure.java
 frameworks_base/core/java/android/service/autofill/FillContext.java
 frameworks_base/core/java/android/service/autofill/FillRequest.java
 frameworks_base/core/java/android/service/autofill/SaveRequest.java
+
+# Batch H6, part 2: the media route button and its action provider, with the route dialogs they open.
+frameworks_base/core/java/android/app/MediaRouteButton.java
+frameworks_base/core/java/android/app/MediaRouteActionProvider.java
+frameworks_base/core/java/com/android/internal/app/MediaRouteChooserDialog.java
+frameworks_base/core/java/com/android/internal/app/MediaRouteChooserDialogFragment.java
+frameworks_base/core/java/com/android/internal/app/MediaRouteControllerDialog.java
+frameworks_base/core/java/com/android/internal/app/MediaRouteControllerDialogFragment.java
+frameworks_base/core/java/com/android/internal/app/MediaRouteDialogPresenter.java

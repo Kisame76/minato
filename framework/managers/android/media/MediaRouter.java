@@ -13,6 +13,30 @@ class MediaRouter {
     public MediaRouter(Context context) {
     }
 
+    // The flags and the type the route button and its dialogs name; AOSP's values.
+    /** @hide */
+    public static final int CALLBACK_FLAG_PASSIVE_DISCOVERY = 1 << 3;
+    /** @hide */
+    public static final int AVAILABILITY_FLAG_IGNORE_DEFAULT_ROUTE = 1 << 0;
+    /** @hide */
+    public static final int ROUTE_TYPE_REMOTE_DISPLAY = 1 << 2;
+
+    /** @hide The route of every type, here the default one. */
+    public RouteInfo getSelectedRoute() {
+        return sDefaultRoute;
+    }
+
+    /** @hide As AOSP's: whether a route of the types is there, without the default route when the flag says so. */
+    public boolean isRouteAvailable(int types, int flags) {
+        if ((flags & AVAILABILITY_FLAG_IGNORE_DEFAULT_ROUTE) != 0) return false;
+        return sDefaultRoute.matchesTypes(types);
+    }
+
+    /** @hide No other route exists, so the fallback is the default route. */
+    public RouteInfo getFallbackRoute() {
+        return sDefaultRoute;
+    }
+
     public RouteInfo getDefaultRoute() {
         return sDefaultRoute;
     }
@@ -53,6 +77,30 @@ class MediaRouter {
 
         public int getSupportedTypes() {
             return ROUTE_TYPE_LIVE_AUDIO | ROUTE_TYPE_LIVE_VIDEO;
+        }
+
+        /** @hide The route is the default one; it is selected for every type, and no Bluetooth route exists. */
+        public boolean isDefault() {
+            return this == sDefaultRoute;
+        }
+
+        /** @hide */
+        public boolean isSelected() {
+            return this == sDefaultRoute;
+        }
+
+        /** @hide */
+        public boolean isBluetooth() {
+            return false;
+        }
+
+        /** @hide */
+        public boolean matchesTypes(int types) {
+            return (getSupportedTypes() & types) != 0;
+        }
+
+        /** @hide Selecting the route that is already the only one changes nothing. */
+        public void select() {
         }
     }
 

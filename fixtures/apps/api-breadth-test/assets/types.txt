@@ -338,8 +338,8 @@ android.telephony.mbms.MbmsGroupCallSessionCallback
 android.telephony.mbms.MbmsStreamingSessionCallback
 android.telephony.mbms.StreamingServiceCallback
 android.widget.inline.InlinePresentationSpec
-# Batch H2: the device policy types, the autofill service's types, and PhoneNumberFormattingTextWatcher and UiccCardInfo; the legacy activity groups, the
-# media route button wait for their hidden members.
+# Batch H2: the device policy types, the autofill service's types, and PhoneNumberFormattingTextWatcher and
+# UiccCardInfo; the legacy activity groups wait for their hidden members.
 android.app.admin.ConnectEvent
 android.app.admin.DevicePolicyIdentifiers
 android.app.admin.DnsEvent
@@ -386,7 +386,7 @@ android.telephony.UiccCardInfo
 # Batch H3: the companion device filters, the media effect interfaces, MediaProjectionConfig, TvAdServiceInfo, the MTP
 # types, AppUriAuthenticationPolicy, the identity credential store's types (android.security.identity), MessagePdu and
 # UnsafeStateException. EffectFactory, the activity
-# groups, the media route button, InlineContentView and VcnUnderlyingNetworkTemplate
+# groups, InlineContentView and VcnUnderlyingNetworkTemplate
 # wait for steps of their own.
 android.app.admin.UnsafeStateException
 android.companion.BluetoothDeviceFilter
@@ -478,3 +478,6 @@ android.app.assist.AssistStructure
 android.service.autofill.FillContext
 android.service.autofill.FillRequest
 android.service.autofill.SaveRequest
+# Batch H6, part 2: the media route button and its action provider (hidden members of the legacy MediaRouter).
+android.app.MediaRouteActionProvider
+android.app.MediaRouteButton
