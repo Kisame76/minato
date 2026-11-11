@@ -105,7 +105,7 @@ final class GameSession {
     @ObservationIgnored private var mouse = Mouse(scale: 1)
     @ObservationIgnored private var mouseObserver: (any NSObjectProtocol)?
     /// The game controllers (ADR-0068 decision 5), and where their records go.
-    @ObservationIgnored private lazy var controllers = ControllerHost { [weak self] in self?.post($0) }
+    @ObservationIgnored private(set) lazy var controllers = ControllerHost { [weak self] in self?.post($0) }
     @ObservationIgnored private let padSink = PadChannelSink()
     /// The guest's input method on UIKit's keyboard (ADR-0068 step 2c): its editor, the view that has the keyboard, and
     /// where the typed text goes.
@@ -774,6 +774,7 @@ final class GameSession {
     /// iOS moved the scene to the background; SwiftUI's scene phase follows later, which then changes
     /// nothing.
     private func enteredBackground() {
+        controllers.enteredBackground()
         deliver(.inactive)
         deliver(.background)
         showMenuForTheReturn()

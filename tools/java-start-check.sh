@@ -643,9 +643,10 @@ REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-fa
 # The notification taps of the notify-tap-test rounds.
 REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
 REQUESTS+=" notification-repost"
-# Written at the start for some apps (begin_start): the session's live line, gamepad-test's pad only and the permission
-# alert's Allow (tools/tests/check_requests_sent_test.py: every file written into $CHECK must be listed here).
-REQUESTS+=" live-counts pad-only permission-allow"
+# Written at the start for some apps (begin_start): the session's live line, gamepad-test's pad only and rumble, and
+# the permission alert's Allow (tools/tests/check_requests_sent_test.py: every file written into $CHECK must be
+# listed here).
+REQUESTS+=" live-counts pad-only pad-rumble permission-allow"
 # On the iPhone: the requests as the script has them go into the app's folder. A request the script does not have goes
 # as an empty file, which the app takes for none: devicectl cannot delete a file. The events go only after the script
 # emptied them for a new start (reset_events): sent at any other time, the copy the script holds would replace the
@@ -885,6 +886,7 @@ begin_start() {
   [[ -z "${FRAME_RATE_LIMIT:-}" ]] || echo "$FRAME_RATE_LIMIT" > "$CHECK/frame-rate-limit"
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
+  [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-rumble"
   # The returns round: a line a second of what the session holds (SessionCheck.liveCounts).
   [[ "$app" != glsurface-returns-test ]] || echo yes > "$CHECK/live-counts"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
@@ -1988,10 +1990,42 @@ compare_log("orientation-request-test", subprocess.CompletedProcess([], 0, "", l
 EOF
 fi
 
+# pad-rumble's lines in the events: the virtual pad lists vibrators 0 and 1; the one-shot runs both motors at 1.0 and
+# stops; the waveform runs at 1.0, stops for its pause, runs at 128/255 and goes on from its second step until the
+# cancel stops it; the pad's going releases the haptics.
+check_rumble() {
+  python3 - "$EVENTS" <<'EOF'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+lines = re.findall(r" pad \d+ rumble (.+)$", text, re.M)
+problems = []
+if not re.search(r" virtual pad vibrators 0,1$", text, re.M):
+    problems.append("no \"virtual pad vibrators 0,1\"")
+half = r"run 0\.50196\d* 0\.50196\d*"
+shape = ["run 1.0 1.0", "stop", "run 1.0 1.0", "stop"]
+if lines[:4] != shape:
+    problems.append(f"the first commands are {lines[:4]}, not {shape}")
+middle = lines[4:-2]
+if not middle or any(not re.fullmatch(half, line) for line in middle[0::2]) \
+        or any(line != "stop" for line in middle[1::2]):
+    problems.append(f"the waveform's repeat is {middle}, not runs at 128/255 between stops")
+if lines[-2:] != ["stop", "release"]:
+    problems.append(f"the end is {lines[-2:]}, not the cancel's stop and the release")
+if problems:
+    print("FAIL    gamepad-test's rumble: " + "; ".join(problems))
+    sys.exit(1)
+print(f"ok      gamepad-test's rumble: {len(lines)} motor commands as Android 15's steps")
+EOF
+}
+
 # gamepad-test (ADR-0068 decision 5): once it is ready, SessionCheck's pad request connects a hidden GCVirtualController
 # and plays tools/gamepad-check.sh's steps on it, which the app gets through GameController as a real pad's. Its lines
 # must be Android 15's for the AVD's uinput Xbox pad, with the virtual pad's name, vendor and product in the device
-# line, which GameController reports for it.
+# line, which GameController reports for it. With pad-rumble the virtual pad gets a fake for haptics and plays a
+# one-shot, then a repeating waveform that is cancelled: its motors' commands must be Android 15's VibratorInputMapper
+# steps.
 if wanted gamepad-test; then
   if begin_start gamepad-test io.github.kisame76.minato.test.gamepad 1; then
     if await_line guest-log "^I/gamepad-test: ready: pad$" 300; then
@@ -2009,6 +2043,7 @@ if wanted gamepad-test; then
   end_start gamepad-test 1
   fetch_events
   grep -E " (virtual pad|pad (dis)?connected|pad ignored)" "$EVENTS" | sed 's/^[0-9.]* [0-9]* /note    /' || true
+  check_rumble || failures=$((failures + 1))
   python3 - "$WORK/gamepad-test-1.log" fixtures/expected/gamepad-test.logcat "$WORK" "$EVENTS" <<'EOF' \
     || failures=$((failures + 1))
 import os

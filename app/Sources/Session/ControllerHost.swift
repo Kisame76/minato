@@ -4,7 +4,8 @@ import GameController
 
 /// The game controllers for the guest (ADR-0068 decision 5): each GCController with an extended gamepad becomes a
 /// `Gamepad`, from its connection, or from the session's start for one already connected, to its disconnection; its
-/// reports come on the main queue (GCController's handler queue by default) and go out as records.
+/// reports come on the main queue (GCController's handler queue by default) and go out as records. A pad with haptics
+/// rumbles as Android 15's FF_RUMBLE pad does (PadRumbleHost), through its own CoreHaptics engines.
 @MainActor
 final class ControllerHost {
     /// The first pad's device ID: above the hardware keyboard's (1000) and the mouse's.
@@ -14,6 +15,25 @@ final class ControllerHost {
     private var pads: [ObjectIdentifier: Gamepad] = [:]
     private var nextID = firstID
     private var observers: [any NSObjectProtocol] = []
+    private var controllers: [Int32: GCController] = [:]
+    private lazy var rumble = PadRumbleHost { [weak self] id in
+        #if DEBUG
+        if Self.fakeHaptics { return LoggingHaptics(id: id) }
+        #endif
+        return self?.controllers[id].flatMap { ControllerHaptics($0) }
+    }
+
+    #if DEBUG
+    /// SessionCheck's pad-rumble: a pad that connects gets a fake that logs its motors' commands, as the Simulator's
+    /// virtual pad has no haptics.
+    static var fakeHaptics = false
+
+    /// The guest's device ID of a connected pad.
+    func deviceID(of controller: GCController) -> Int32? {
+        pads[ObjectIdentifier(controller)]?.device.id
+    }
+    #endif
+    private var rumbleTimer: Task<Void, Never>?
 
     init(post: @escaping ([PadEvent]) -> Void) {
         self.post = post
@@ -43,6 +63,46 @@ final class ControllerHost {
         observers = []
         for controller in GCController.controllers() { disconnect(controller) }
         pads = [:]
+        rumble.end()
+        controllers = [:]
+        schedule(nil)
+    }
+
+    /// The vibrators of a pad's InputDevice: Android's two FF_RUMBLE ones (0 strong, 1 weak) for a pad with haptics,
+    /// none for one without.
+    func vibratorIDs(of deviceID: Int32) -> [Int32] {
+        rumble.vibratorIDs(deviceID)
+    }
+
+    func isVibrating(_ deviceID: Int32) -> Bool {
+        rumble.isVibrating(deviceID)
+    }
+
+    func vibrate(_ deviceID: Int32, _ vibration: PadVibration) {
+        schedule(rumble.vibrate(deviceID, vibration, now: Self.now))
+    }
+
+    func cancelVibration(_ deviceID: Int32, token: Int32) {
+        schedule(rumble.cancel(deviceID, token: token))
+    }
+
+    /// The app went to the background: every pad stops rumbling.
+    func enteredBackground() {
+        rumble.stopAll()
+        schedule(nil)
+    }
+
+    /// The timer for the next step of the pads' vibrations, at `deadline` on the uptime clock (ns), or none.
+    private func schedule(_ deadline: Int64?) {
+        rumbleTimer?.cancel()
+        rumbleTimer = nil
+        guard let deadline else { return }
+        rumbleTimer = Task { @MainActor [weak self] in
+            let wait = max(deadline - Self.now, 0)
+            try? await Task.sleep(nanoseconds: UInt64(wait))
+            guard !Task.isCancelled, let self else { return }
+            self.schedule(self.rumble.advance(now: max(Self.now, deadline)))
+        }
     }
 
     private func connect(_ controller: GCController) {
@@ -54,6 +114,12 @@ final class ControllerHost {
         let pad = Gamepad(id: nextID, productCategory: controller.productCategory, vendorName: controller.vendorName)
         nextID += 1
         pads[key] = pad
+        controllers[pad.device.id] = controller
+        var hasHaptics = controller.haptics != nil
+        #if DEBUG
+        hasHaptics = hasHaptics || Self.fakeHaptics
+        #endif
+        rumble.add(pad.device.id, hasHaptics: hasHaptics)
         #if DEBUG
         SessionCheck.event("pad connected \(pad.device.id) \(controller.productCategory)")
         #endif
@@ -70,6 +136,8 @@ final class ControllerHost {
     private func disconnect(_ controller: GCController) {
         guard var pad = pads.removeValue(forKey: ObjectIdentifier(controller)) else { return }
         controller.extendedGamepad?.valueChangedHandler = nil
+        rumble.remove(pad.device.id)
+        controllers[pad.device.id] = nil
         #if DEBUG
         SessionCheck.event("pad disconnected \(pad.device.id)")
         #endif

@@ -116,6 +116,11 @@ import UIKit
 ///            Minato is in the background or not running, for a tap through SpringBoard; the file goes.
 ///   notification-tap  the same poll taps the app's newest delivered notification, as UNUserNotificationCenter's
 ///            didReceive would (ADR-0074 decision 4); the file goes.
+///   pad-rumble  the pad request's virtual pad gets a fake for haptics that logs its motors' commands ("pad <id>
+///            rumble run <strong> <weak>", "... stop", "... release"); before it goes, the pad plays a one-shot of
+///            300 ms at amplitude 255, then the waveform 100, 100, 100 ms at 255, 0, 128 repeating from its second
+///            step, cancelled after 650 ms, as an app's InputDevice vibrator would ask. It logs "virtual pad
+///            vibrators <ids>" first. The file stays.
 ///   pad-only  game mode hands the guest only the controllers that connect during a pad request, none that were
 ///            there before (the Simulator lists one of its own).
 ///   permission-allow  Minato's alert for a permission request (ADR-0063 decision 2) chooses Allow by itself 1 s
@@ -615,7 +620,7 @@ enum SessionCheck {
                 repostIfRequested()
                 if requested("pad") {
                     try? FileManager.default.removeItem(at: folder.appending(path: "pad"))
-                    await playVirtualPad()
+                    await playVirtualPad(session)
                 }
                 if requested("warning") {
                     // iOS's memory warning as iOS posts it, so GameModeView's handler and everything after it run.
@@ -656,7 +661,7 @@ enum SessionCheck {
 
     /// The pad request: gamepad-check's steps on a hidden virtual controller, a real GCController to the app.
     @MainActor
-    private static func playVirtualPad() async {
+    private static func playVirtualPad(_ session: GameSession) async {
         // gamepad-check's order; a touch controller has no home button (its configuration refuses it).
         let buttons = [GCInputButtonA, GCInputButtonB, GCInputButtonX, GCInputButtonY, GCInputLeftShoulder,
                        GCInputRightShoulder, GCInputButtonMenu, GCInputButtonOptions, GCInputButtonHome,
@@ -670,7 +675,12 @@ enum SessionCheck {
         configuration.isHidden = true
         let pad = GCVirtualController(configuration: configuration)
         padPlays = true
-        defer { padPlays = false }
+        let rumble = requested("pad-rumble")
+        ControllerHost.fakeHaptics = rumble
+        defer {
+            padPlays = false
+            ControllerHost.fakeHaptics = false
+        }
         do {
             try await pad.connect()
         } catch {
@@ -710,8 +720,26 @@ enum SessionCheck {
             }
             try? await Task.sleep(for: .milliseconds(150))
         }
+        if rumble, let controller = pad.controller, let id = session.controllers.deviceID(of: controller) {
+            await playRumble(session.controllers, id)
+        }
         pad.disconnect()
         event("virtual pad done")
+    }
+
+    /// pad-rumble's vibrations, as an app's InputDevice vibrator asks them through the runtime.
+    @MainActor
+    private static func playRumble(_ host: ControllerHost, _ id: Int32) async {
+        event("virtual pad vibrators \(host.vibratorIDs(of: id).map(String.init).joined(separator: ","))")
+        guard let shot = PadVibration(durations: [300], amplitudes: [255], repeatIndex: -1, token: 1),
+              let wave = PadVibration(durations: [100, 100, 100], amplitudes: [255, 0, 128], repeatIndex: 1,
+                                      token: 2)
+        else { return }
+        host.vibrate(id, shot)
+        try? await Task.sleep(for: .milliseconds(500))
+        host.vibrate(id, wave)
+        try? await Task.sleep(for: .milliseconds(650))
+        host.cancelVibration(id, token: 2)
     }
 
     /// Back from the background with the menu over the app: Continue, as the user would.
