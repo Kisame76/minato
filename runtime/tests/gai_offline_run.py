@@ -51,7 +51,7 @@ def main():
                 convert(apk_convert, os.path.join(bionic_lib, name), os.path.join(system, name + ".dylib"))
         convert(apk_convert, fixture, os.path.join(work, "gai-offline-test.dylib"))
     # apk-run's mounts call realpath(), which lstats every component of a path; corpus.sb denies the home folder, so
-    # the repo's ancestor folders that lie under it (e.g. ~/dev for ~/projects/minato) must be allowed -- metadata only,
+    # the repo's ancestor folders that lie under it (e.g. the parent of <repo folder>) must be allowed -- metadata only,
     # so the home folder's files stay unreadable. tools/corpus-run.py writes the same rule for the corpus harness;
     # mirror it here because gai_offline uses the static profile directly. (Without it, a lookup in a clone under the
     # home folder fails before the fixture runs, as every contributor's clone does.)
