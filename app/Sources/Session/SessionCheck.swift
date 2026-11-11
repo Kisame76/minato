@@ -320,11 +320,17 @@ enum SessionCheck {
         CheckEventPrivacy.redact(text, names: keptOut.withLock { $0 })
     }
 
+    /// The events on stderr too with MINATO_CHECK_CONSOLE=1, for the device check's console (CheckConsole).
+    private static let console = CheckConsole(environment: ProcessInfo.processInfo.environment) { line in
+        FileHandle.standardError.write(Data(line.utf8))
+    }
+
     static func event(_ text: String) {
         guard isOn else { return }
         let text = redacted(text)
         writing.withLock { _ in
-            let line = String(format: "%.3f", Date.now.timeIntervalSince1970) + " \(getpid()) \(text)\n"
+            let line = CheckConsole.line(time: Date.now.timeIntervalSince1970, pid: getpid(), text: text)
+            console.event(line)
             let file = folder.appending(path: "events")
             if let handle = try? FileHandle(forWritingTo: file) {
                 defer { try? handle.close() }
