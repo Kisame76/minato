@@ -408,6 +408,7 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
     std::vector<std::pair<bool, Settled>> left;  // leave() at each step, while the thread waited there
     std::vector<Step> steps;
     std::uint64_t result = 0;
+    const auto lost_steps_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
     for (int attempt = 1;; ++attempt) {
         const auto argument = prepare();
         left.clear();
@@ -420,10 +421,10 @@ std::uint64_t step_and_compare(std::uint64_t function_at, const std::function<st
             });
             break;
         } catch (const apkrt::testing::LostSteps &) {
-            // The trace has a gap: run the call again. Under load gaps come in bursts (stepper.h) that can
-            // outlast a short budget, so each try waits a little longer first (capped at 50 ms), up to about
-            // 1.7 s over 60 tries -- enough to ride out a burst while the parallel test load is heavy.
-            if (attempt == 60) throw;
+            // The trace has a gap: run the call again. Under load gaps come in bursts (stepper.h) that can outlast a
+            // short budget, so each try waits a little longer first (capped at 50 ms), up to a deadline rather than a
+            // fixed try count -- it keeps retrying as long as the burst lasts, enough to ride out heavy parallel load.
+            if (std::chrono::steady_clock::now() >= lost_steps_deadline) throw;
             std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 50 ? attempt : 50));
         }
     }
@@ -596,8 +597,12 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     std::uint64_t counter = 0, counter_before = 0;
 
     // range_covered(from, to): true when every runnable island word whose site lies in [from, to) is already in
-    // `covered`. Each retry section below runs its passes until this holds for its own range or six passes are spent,
-    // so a step lost under single-stepping load is retried without a fixed repeat count (ADR-0020 X7).
+    // `covered`. Each retry section below keeps running passes until this holds for its own range, giving up only
+    // after kStaleLimit passes in a row that step no new word (a deadline by progress, not a fixed count): a step lost
+    // under single-stepping load is retried as long as the passes keep making progress (ADR-0020 X7).
+    // A pass that steps no new word is "stale"; this many stale passes in a row (no progress) end a retry
+    // section, so a genuinely unsteppable word is reported while load, which still makes progress, is ridden out.
+    constexpr int kStaleLimit = 20;
     const auto range_covered = [&](std::uint64_t from, std::uint64_t to) {
         for (const auto &island : loaded.islands) {
             const auto site = loaded.header + island.site - loaded.image;
@@ -672,7 +677,8 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
     // (ADR-0020 X7), every word of the island stepped, the pad's two words included: wherever the thread stops, leave()
     // must give the state the guest passes through, and in a pad the leaving branch's target. Up to six passes,
     // stopping as soon as range_covered says the exit_loop range was fully stepped (a step may be lost under load).
-    for (int pass = 0; pass < 6; ++pass) {
+    for (int stale = 0; stale < kStaleLimit;) {
+        const std::size_t covered_before = covered.size();
         for (const unsigned stepped_visits : {0u, 1u}) {
             for (const bool differs : {false, true}) {
                 if (differs && stepped_visits == 1) continue;  // no store-exclusive on that path: one pass is enough
@@ -697,11 +703,13 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             }
         }
         if (range_covered(exit_loop_at, exit_loop_end)) break;
+        stale = covered.size() == covered_before ? stale + 1 : 0;
     }
 
     // entry_loop(): the same loop entered from outside at its store-exclusive (ADR-0020 X7), every word of the island and of
     // its entry pad stepped: wherever the thread stops in the pad, leave() gives the guest at the branch from outside.
-    for (int pass = 0; pass < 6; ++pass) {
+    for (int stale = 0; stale < kStaleLimit;) {
+        const std::size_t covered_before = covered.size();
         for (const bool entered : {false, true}) {
             for (const bool differs : {false, true}) {
                 for (const unsigned stepped_visits : {0u, 1u}) {
@@ -727,11 +735,13 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             }
         }
         if (range_covered(entry_loop_at, entry_loop_end)) break;
+        stale = covered.size() == covered_before ? stale + 1 : 0;
     }
 
     // reg_loop(): a register branch in the window, which leaves it through an exit pad, run as the guest wrote it (ADR-0020
     // X7): every word stepped, the pad's two included; wherever the thread stops, its pc is where x6 says.
-    for (int pass = 0; pass < 6; ++pass) {
+    for (int stale = 0; stale < kStaleLimit;) {
+        const std::size_t covered_before = covered.size();
         for (const bool leaves : {false, true}) {
             for (const bool differs : {false, true}) {
                 for (const unsigned stepped_visits : {0u, 1u}) {
@@ -758,12 +768,14 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             }
         }
         if (range_covered(reg_loop_at, reg_loop_end)) break;
+        stale = covered.size() == covered_before ? stale + 1 : 0;
     }
 
     // write_loop(): a window that writes x18 and leaves by a branch (ADR-0020 X7), every word stepped, the exit pad's six
     // included (its store-back of x18 first, then the restores and the branch): wherever the thread stops, x18 and the
     // other registers are the guest's.
-    for (int pass = 0; pass < 6; ++pass) {
+    for (int stale = 0; stale < kStaleLimit;) {
+        const std::size_t covered_before = covered.size();
         for (const bool leaves : {false, true}) {
             for (const unsigned stepped_visits : {0u, 1u}) {
                 if (leaves && stepped_visits == 1) continue;
@@ -786,12 +798,14 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             }
         }
         if (range_covered(write_loop_at, write_loop_end)) break;
+        stale = covered.size() == covered_before ? stale + 1 : 0;
     }
 
     // pair_loop(): a CASP with x18 in its destination pair (ADR-0020 X7), every island word stepped: before the CASP the thread
     // goes back to the site, after it on to the next word with x18 and x19 as the CASP left them, wherever it stops.
     alignas(16) std::uint64_t pair_memory[2];
-    for (int pass = 0; pass < 6; ++pass) {
+    for (int stale = 0; stale < kStaleLimit;) {
+        const std::size_t covered_before = covered.size();
         for (const bool matches : {true, false}) {
             std::uint64_t inputs[5] = {};
             const auto result = step_and_compare(
@@ -811,6 +825,7 @@ TEST(every_word_of_every_island_leaves_to_a_real_guest_state) {
             CHECK(pair_memory[0] == (matches ? 100u : 7u) && pair_memory[1] == (matches ? 200u : 9u));
         }
         if (range_covered(pair_loop_at, pair_loop_end)) break;
+        stale = covered.size() == covered_before ? stale + 1 : 0;
     }
 
     CHECK(compared > 0);
