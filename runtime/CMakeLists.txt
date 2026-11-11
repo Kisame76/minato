@@ -13,13 +13,15 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
-  src/stall_watchdog.cpp src/crash_report.cpp src/memory_watermark.cpp src/monitor_probe.cpp
+  src/stall_watchdog.cpp src/crash_report.cpp src/memory_watermark.cpp src/monitor_probe.cpp src/network_probe.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(apkrt PRIVATE apk_defaults)
 # The window registry retains the host's layers (ADR-0028, decision 6).
 target_link_libraries(apkrt PUBLIC "-framework CoreFoundation")
+# network_probe.cpp reads the resolver config with res_ninit/res_getservers (libresolv, on iOS and macOS alike).
+target_link_libraries(apkrt PUBLIC "-lresolv")
 # The syscall layer runs on the guest's stack, which AddressSanitizer does not know as a thread
 # stack; instrumented, every exit_group would print a false "stack switching" warning.
 # So does libdl's work (dl.cpp and the linker and loader under it), which guest code calls on its
@@ -131,6 +133,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(network_transport_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.network_transport COMMAND network_transport_test)
   set_tests_properties(runtime.network_transport PROPERTIES TIMEOUT 60)
+
+  # The host network probe's line is counts and families only (no address, name or SSID): safe on the user's phone.
+  add_executable(network_probe_test tests/network_probe_test.cpp)
+  target_include_directories(network_probe_test PRIVATE src)
+  target_link_libraries(network_probe_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.network_probe COMMAND network_probe_test)
 
   # A host callback (apkrt_network_set and the like) must not abort when it runs during exit's static destruction: the
   # state's mutex is immortal. This hammers it from a detached thread and returns from main.

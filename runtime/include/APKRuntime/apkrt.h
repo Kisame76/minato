@@ -1097,6 +1097,13 @@ void apkrt_battery_set(int32_t level_percent, int32_t state);
 /// reads it). While a session runs it posts APKRT_EVENT_NETWORK only when the state changed since the last post.
 void apkrt_network_set(uint32_t state);
 
+/// Writes one network-probe line to the session log (stderr): counts and families only -- how many up interfaces and
+/// routable ones, the active interface's address counts by family and v6 scope, prefix-ok, a private IPv4 yes/no, the
+/// MTU, the resolver's server counts, and whether sysctl NET_RT_DUMP and a default route are seen. Never an address,
+/// an interface name or an SSID. A diagnostic for gap 3's design; session.cpp calls it at session start under
+/// MINATO_NET_PROBE. Returns 0.
+int apkrt_network_probe(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1396,6 +1396,9 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     // on, even though the app does not call apkrt_report_memory_to; the lines survive a jetsam kill
     // (memory_watermark.h).
     if (::getenv("MINATO_LOADER_LOG") != nullptr) apkrt::memory::start_instrument();
+    // The network probe (gap 3): one counts-only line of what the sandbox lets the runtime read for LinkProperties.
+    // Under MINATO_NET_PROBE, and under MINATO_LOADER_LOG too, so any instrumented run's kept guest log carries it.
+    if (::getenv("MINATO_NET_PROBE") != nullptr || ::getenv("MINATO_LOADER_LOG") != nullptr) apkrt_network_probe();
     begun.store(true, std::memory_order_release);
     return 0;
 }

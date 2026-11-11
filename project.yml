@@ -58,6 +58,9 @@ targets:
       # Runtime (runtime/, C++). tools/build-native.sh --app builds it; sim.sh and deploy.sh call it first.
       - framework: build/APKRuntime.xcframework
         embed: false
+      # libapkrt reads the resolver config with res_ninit/res_getservers (the network probe, ADR-0054): the app, the
+      # one thing that links libapkrt.a, must link libresolv on both iOS slices (a static archive carries no link flag).
+      - sdk: libresolv.tbd
       # Converter and signer (importer/converter/, C++): ELF to signed container on the iPhone (ADR-0022).
       - framework: build/APKConvert.xcframework
         embed: false
