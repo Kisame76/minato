@@ -786,6 +786,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=60
       ;;
+    # speech-test (group 3 of the framework breadth): the Application asks SpeechRecognizer and starts listening in an
+    # app without RECORD_AUDIO; it logs and ends with "done".
+    speech-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
+      ;;
     # vpn-test (group 1 of the framework breadth): the Application logs VpnService's shape, what prepare asks for and
     # what its own VpnService does when started, bound and asked to establish, in an app the user did not allow to be
     # a VPN, and ends with "done".

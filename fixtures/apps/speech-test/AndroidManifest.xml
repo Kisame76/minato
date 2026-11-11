@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The speech recognition test (group 3 of the framework breadth, speech-test): the Application asks SpeechRecognizer
+     what a phone without a recognition service answers, starts listening and logs what the listener hears, in an app
+     that holds no RECORD_AUDIO permission, without a window. The launcher activity is the framework's own
+     android.app.Activity. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.speech" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <queries>
+    <intent>
+      <action android:name="android.speech.RecognitionService"/>
+    </intent>
+  </queries>
+  <application android:label="speech-test" android:name="io.github.kisame76.minato.test.speech.SpeechApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

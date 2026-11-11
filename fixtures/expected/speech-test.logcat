@@ -1,0 +1,17 @@
+I/speech-test: listener methods: [onBeginningOfSpeech, onBufferReceived, onEndOfSegmentedSession, onEndOfSpeech, onError, onEvent, onLanguageDetection, onPartialResults, onReadyForSpeech, onResults, onRmsChanged, onSegmentResults]
+I/speech-test: SpeechRecognizer methods: [cancel, checkRecognitionSupport, createOnDeviceSpeechRecognizer, createSpeechRecognizer, createSpeechRecognizer, destroy, isOnDeviceRecognitionAvailable, isRecognitionAvailable, setRecognitionListener, startListening, stopListening, triggerModelDownload, triggerModelDownload]
+I/speech-test: SpeechRecognizer constants: CONFIDENCE_SCORES=confidence_scores ERROR_AUDIO=3 ERROR_CANNOT_CHECK_SUPPORT=14 ERROR_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS=15 ERROR_CLIENT=5 ERROR_INSUFFICIENT_PERMISSIONS=9 ERROR_LANGUAGE_NOT_SUPPORTED=12 ERROR_LANGUAGE_UNAVAILABLE=13 ERROR_NETWORK=2 ERROR_NETWORK_TIMEOUT=1 ERROR_NO_MATCH=7 ERROR_RECOGNIZER_BUSY=8 ERROR_SERVER=4 ERROR_SERVER_DISCONNECTED=11 ERROR_SPEECH_TIMEOUT=6 ERROR_TOO_MANY_REQUESTS=10 RESULTS_ALTERNATIVES=results_alternatives RESULTS_RECOGNITION=results_recognition
+I/speech-test: RecognizerIntent actions: android.speech.action.RECOGNIZE_SPEECH, android.speech.action.WEB_SEARCH, android.speech.action.VOICE_SEARCH_HANDS_FREE
+I/speech-test: RecognizerIntent extras: android.speech.extra.LANGUAGE_MODEL, android.speech.extra.PARTIAL_RESULTS, android.speech.extra.RESULTS, android.speech.extra.MAX_RESULTS, android.speech.extra.PROMPT
+I/speech-test: language models: free_form, web_search
+I/speech-test: isRecognitionAvailable: false
+I/speech-test: isOnDeviceRecognitionAvailable: false
+I/speech-test: recognizer activity: false
+I/speech-test: startActivity: ActivityNotFoundException
+I/speech-test: createSpeechRecognizer: true
+I/speech-test: createOnDeviceSpeechRecognizer: UnsupportedOperationException
+I/speech-test: startListening
+I/speech-test: startListening returned
+I/speech-test: listener: onError 5
+I/speech-test: listener: onError 5
+I/speech-test: done

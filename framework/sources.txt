@@ -3248,3 +3248,16 @@ frameworks_base_types/identity/java/android/security/identity/SessionTranscriptM
 frameworks_base_types/identity/java/android/security/identity/UnknownAuthenticationKeyException.java
 frameworks_base_types/identity/java/android/security/identity/WritableIdentityCredential.java
 frameworks_base/core/java/android/service/carrier/MessagePdu.java
+
+# SpeechRecognizer (group 3 of the framework breadth, speech-test): the recognizer, its implementation and proxy, and
+# the AIDL interfaces of the recognition service manager they ask (over the local speech recognition service, which
+# answers as a phone without a recognition service does).
+frameworks_base/core/java/android/speech/SpeechRecognizer.java
+frameworks_base/core/java/android/speech/SpeechRecognizerImpl.java
+frameworks_base/core/java/android/speech/SpeechRecognizerProxy.java
+frameworks_base/core/java/android/speech/IRecognitionServiceManager.aidl
+frameworks_base/core/java/android/speech/IRecognitionServiceManagerCallback.aidl
+frameworks_base/core/java/android/speech/IRecognitionService.aidl
+frameworks_base/core/java/android/speech/IRecognitionListener.aidl
+frameworks_base/core/java/android/speech/IRecognitionSupportCallback.aidl
+frameworks_base/core/java/android/speech/IModelDownloadListener.aidl

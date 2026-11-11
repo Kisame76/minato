@@ -25,6 +25,7 @@ import android.app.LocalAlarmManager;
 import android.app.backup.LocalBackupManager;
 import android.hardware.biometrics.LocalAuthService;
 import android.net.LocalVpnService;
+import android.speech.LocalSpeechRecognitionService;
 import android.media.session.LocalMediaSessionService;
 import android.location.LocalLocationManager;
 import android.app.LocalGameManager;
@@ -97,6 +98,7 @@ public final class ServiceManager {
         sMakers.put(Context.BACKUP_SERVICE, LocalBackupManager::newBinder);
         sMakers.put(Context.AUTH_SERVICE, LocalAuthService::newBinder);
         sMakers.put(Context.VPN_MANAGEMENT_SERVICE, LocalVpnService::newBinder);
+        sMakers.put(Context.SPEECH_RECOGNITION_SERVICE, LocalSpeechRecognitionService::newBinder);
         sMakers.put(Context.MEDIA_SESSION_SERVICE, LocalMediaSessionService::newBinder);
         sMakers.put("batteryproperties", LocalBatteryService::newPropertiesBinder);
         sMakers.put(BatteryStats.SERVICE_NAME, LocalBatteryService::newStatsBinder);
