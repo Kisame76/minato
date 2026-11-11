@@ -560,10 +560,53 @@ void play_scenes(const std::string &app, const fs::path &expected, std::uint64_t
     ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
 }
 
+/// A thread of the host that sleeps 1 ms at a time and notes each wakeup later than 30 ms after the one before, on
+/// CLOCK_UPTIME_RAW (the guest's CLOCK_MONOTONIC): a gap it saw as well is the machine's, which gave its CPU to other
+/// processes, not the app's; a wait inside the app leaves it on time.
+struct Canary {
+    std::atomic<bool> running{false};
+    std::thread thread;
+    std::mutex mutex;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> gaps;  // [start, end), ns
+
+    void start() {
+        running = true;
+        thread = std::thread([this] {
+            std::uint64_t last = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+            while (running) {
+                ::usleep(1000);
+                const std::uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+                if (now - last > 30'000'000) {
+                    const std::lock_guard<std::mutex> lock(mutex);
+                    gaps.emplace_back(last, now);
+                }
+                last = now;
+            }
+        });
+    }
+
+    /// The longest of its gaps that overlaps [start, end), in ms; 0 for none.
+    double longest(std::uint64_t start, std::uint64_t end) {
+        const std::lock_guard<std::mutex> lock(mutex);
+        std::uint64_t longest = 0;
+        for (const auto &gap : gaps) {
+            if (gap.first < end && gap.second > start) longest = std::max(longest, gap.second - gap.first);
+        }
+        return static_cast<double>(longest) / 1e6;
+    }
+
+    ~Canary() {
+        running = false;
+        if (thread.joinable()) thread.join();
+    }
+};
+
 /// gles-live and vulkan-live: the start, two turns, HOME, the return with a new window and Quit.
 void play_live(const std::string &app, Capture &capture) {
     Vsync vsync;
     vsync.start();
+    Canary canary;
+    canary.start();
     const std::uint64_t first = add_window();
     MinatoMetalLayer *first_layer = last_layer;
     if (!start(first, &vsync)) {
@@ -645,13 +688,25 @@ void play_live(const std::string &app, Capture &capture) {
     const std::string app_lines = lines_with(log, "I/" + app + ": ");
     const std::regex destroyed_line("I/" + app + R"(: onDestroy: frames [1-9][0-9]*, windows 2, failures 0, lost [0-9]+\n)");
     if (!std::regex_search(app_lines, destroyed_line)) fail("no onDestroy line with windows 2 and failures 0");
-    // Each rate's frame intervals leave the breaks out (HOME, the window's change): none reaches 100 ms.
+    // Each rate's frame intervals leave the breaks out (HOME, the window's change): none reaches 100 ms, but for one
+    // in which the canary saw a gap of 50 ms or more too: the machine's, not the app's.
     const std::string device_lines = lines_with(log, "I/" + app + "-device: ");
-    const std::regex rate_line(R"(rate [0-9]+: [0-9]+ frame intervals, median [0-9.]+ ms, p99 [0-9.]+ ms, max ([0-9.]+) ms)");
+    const std::regex rate_line(R"(rate ([0-9]+): [0-9]+ frame intervals, median [0-9.]+ ms, p99 [0-9.]+ ms, )"
+                               R"(max ([0-9.]+) ms(, ending at ([0-9]+) ns)?)");
     int rates = 0;
     for (std::sregex_iterator line(device_lines.begin(), device_lines.end(), rate_line), end; line != end; ++line) {
         ++rates;
-        if (std::stod((*line)[1].str()) >= 100) fail("a frame interval spans a break: " + line->str());
+        const double longest = std::stod((*line)[2].str());
+        const std::uint64_t at = (*line)[4].matched ? std::stoull((*line)[4].str()) : 0;
+        const auto span = static_cast<std::uint64_t>(longest * 1e6);
+        const double gap = at > span ? canary.longest(at - span, at) : 0;
+        ::dprintf(report, "host: rate %s: max %.2f ms, the canary's longest gap in it %.1f ms%s\n",
+                  (*line)[1].str().c_str(), longest, gap,
+                  longest >= 100 && gap >= 50 ? ": the machine's, not counted" : "");
+        if (longest >= 100 && gap < 50) {
+            fail("a frame interval spans a break: " + line->str() + ", the canary's longest gap in it " +
+                 std::to_string(static_cast<int>(gap)) + " ms");
+        }
     }
     if (rates < 2) fail("the frame intervals of fewer than two rates");
     check_turns(app, device_lines);

@@ -1573,6 +1573,8 @@ static struct {
     float rate;            // the frames a second the window is asked for: 120 or 60
     int64_t phase_start;   // the frame time the rate's phase began, 0 before the first callback
     int64_t previous;      // the frame time of the frame before, 0 after a break
+    double longest;        // the phase's longest interval so far, ms
+    int64_t longest_end;   // the frame time that ended it (CLOCK_MONOTONIC, ns), for the host's canary
     int interval_count;
     double intervals[kMaxIntervals];  // ms
 } live = {.rate = 120};
@@ -1591,8 +1593,9 @@ static void log_phase(void) {
     const int count = live.interval_count;
     if (count == 0) return;
     qsort(live.intervals, (size_t)count, sizeof live.intervals[0], compare_doubles);
-    DEVICE("rate %.0f: %d frame intervals, median %.2f ms, p99 %.2f ms, max %.2f ms", live.rate, count,
-           live.intervals[(count + 1) / 2 - 1], live.intervals[(99 * count + 99) / 100 - 1], live.intervals[count - 1]);
+    DEVICE("rate %.0f: %d frame intervals, median %.2f ms, p99 %.2f ms, max %.2f ms, ending at %lld ns", live.rate,
+           count, live.intervals[(count + 1) / 2 - 1], live.intervals[(99 * count + 99) / 100 - 1],
+           live.intervals[count - 1], (long long)live.longest_end);
     live.interval_count = 0;
 }
 
@@ -1750,7 +1753,12 @@ static void on_frame(int64_t frame_time, void *data) {
         return;
     }
     if (live.previous != 0 && live.interval_count < kMaxIntervals) {
-        live.intervals[live.interval_count++] = (double)(frame_time - live.previous) / 1e6;
+        const double interval = (double)(frame_time - live.previous) / 1e6;
+        if (live.interval_count == 0 || interval > live.longest) {
+            live.longest = interval;
+            live.longest_end = frame_time;
+        }
+        live.intervals[live.interval_count++] = interval;
     }
     live.previous = frame_time;
     live_frame();
