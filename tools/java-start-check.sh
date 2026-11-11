@@ -585,6 +585,9 @@ REQUESTS="way tap quit confirm orientation unanswered forget-hint crash start-fa
 # The notification taps of the notify-tap-test rounds.
 REQUESTS+=" notification-tap notification-cold-tap notification-foreground-tap notification-response-save"
 REQUESTS+=" notification-repost"
+# Written at the start for some apps (begin_start): the session's live line, gamepad-test's pad only and the permission
+# alert's Allow (tools/tests/check_requests_sent_test.py: every file written into $CHECK must be listed here).
+REQUESTS+=" live-counts pad-only permission-allow"
 # On the iPhone: the requests as the script has them go into the app's folder. A request the script does not have goes
 # as an empty file, which the app takes for none: devicectl cannot delete a file. The events go only after the script
 # emptied them for a new start (reset_events): sent at any other time, the copy the script holds would replace the
@@ -1292,10 +1295,12 @@ run_resume_cases() {
 # returns'; after the first frame after the return, once what the background let go is gone; the fifth surface's app
 # finishes at once), the session's live line must hold what it held after the start: 1 window on the session's layer, 1
 # surface layer, of the layers made only the newest alive, and the Metal device's bytes and the footprint at most
-# RETURNS_GROWTH MiB (32) above the start's; one full-screen drawable set is more than that.
+# RETURNS_GROWTH MiB (32) above the start's; one full-screen drawable set is more than that. A round without the live
+# line has those counts as n/a and is judged by ANGLE's gl line alone: its mtl= (the Metal device's MiB as ANGLE sees
+# it) at most RETURNS_GROWTH above the start's, so a missing line neither hides a leak nor fails a green run.
 run_returns() {
-  local app=glsurface-returns-test package=io.github.kisame76.minato.test.glsurfacereturns round line stops
-  local lines=()
+  local app=glsurface-returns-test package=io.github.kisame76.minato.test.glsurfacereturns round line stops gl
+  local lines=() mtls=()
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   for round in 1 2 3 4 5; do
     if ! await_line guest-log "I/$app: surface $round: 30 frames" 60; then
@@ -1311,7 +1316,9 @@ run_returns() {
     echo "note    after surface $round: ${line:-no live line}"
     # ANGLE's view (the gl line, iOS's ANGLE only): a window surface ANGLE still holds counts in color= and depth=.
     fetch "$CHECK_REL/guest-log" || true
-    grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/note      \1/' || true
+    gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
+    [[ -z "$gl" ]] || echo "note      $gl"
+    mtls+=("$(sed -n -E 's/.* mtl=([0-9]+).*/\1/p' <<< "$gl")")
     if (( round == 3 )); then
       request menu
       await_event "menu opened" 15 || fail "  $app: the menu did not open"
@@ -1352,12 +1359,28 @@ PY
     local shown=' (menu |callback on(Pause|Resume|Stop|Restart|Start)|answer |scene did)'
     grep -E "$shown" "$WORK/$app-events.out" | cut -d ' ' -f 1,3- | sed 's/^/      e /' || true
   fi
-  if python3 - "${RETURNS_GROWTH:-32}" "${lines[@]}" <<'PY'; then
+  if python3 - "${RETURNS_GROWTH:-32}" "${lines[@]}" -- "${mtls[@]}" <<'PY'; then
 import re
 import sys
-growth, lines = float(sys.argv[1]), sys.argv[2:]
+growth, rest = float(sys.argv[1]), sys.argv[2:]
+lines, mtls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
 pattern = re.compile(r"live windows (\d+) surfaces (\d+) layers (\d+) of (\d+) gpu ([-0-9.]+) foot ([-0-9.]+)$")
 read = [pattern.match(line) for line in lines]
+if len(lines) == 4 and not all(lines):
+    # No live line in a round (a build without the session's counters): the counts are n/a, ANGLE's mtl= judges.
+    print("note    no live line after surface " + ", ".join(str(n) for n, line in enumerate(lines, 1) if not line)
+          + ": the window, surface and layer counts are n/a, ANGLE's gl line (mtl=) judges the growth")
+    if len(mtls) != 4 or not all(mtls):
+        print("FAIL    no live line and no gl line with mtl= after every surface: "
+              + ", ".join(m or "none" for m in mtls))
+        sys.exit(1)
+    grew = max(int(m) for m in mtls[1:]) - int(mtls[0])
+    if grew > growth:
+        print(f"FAIL    ANGLE's Metal bytes (mtl=) grew {grew} MiB over three returns (more than {growth:.0f}): "
+              + ", ".join(mtls))
+        sys.exit(1)
+    print(f"ok      after three returns ANGLE's Metal bytes (mtl=) did not grow by a drawable set: " + ", ".join(mtls))
+    sys.exit(0)
 bad = [f"after surface {n}: {line or 'no live line'}" for n, (line, m) in enumerate(zip(lines, read), 1)
        if not m or (m[1], m[2], m[3]) != ("1", "1", "1")]
 if len(lines) != 4 or bad:

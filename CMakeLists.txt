@@ -173,6 +173,10 @@ if(APK_HOST_BUILD)
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/mem_notes_test.sh")
+  # java-start-check.sh's request files: every one the script writes into the check folder is in REQUESTS, and its
+  # send_requests sends it as written, so it reaches the iPhone (live-counts, pad-only and permission-allow did not).
+  add_test(NAME tools.check_requests_sent
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/check_requests_sent_test.py")
   # tools/hiddenapi-encode.py: the hiddenapi class data section it writes into a dex file and the jars it rewrites,
   # against dex files and jars made in the test (the expected bytes follow ART's hiddenapi tool).
   add_test(NAME tools.hiddenapi_encode
