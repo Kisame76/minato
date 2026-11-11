@@ -338,3 +338,50 @@ android.telephony.mbms.MbmsGroupCallSessionCallback
 android.telephony.mbms.MbmsStreamingSessionCallback
 android.telephony.mbms.StreamingServiceCallback
 android.widget.inline.InlinePresentationSpec
+# Batch H2: the device policy types, the autofill service's types (AssistStructure waits: FillContext, FillRequest and
+# SaveRequest stay out with it), and PhoneNumberFormattingTextWatcher and UiccCardInfo; the legacy activity groups, the
+# media route button, ApplicationStartInfo, SliceMetrics, VisualVoicemailService and UnsafeStateException wait for their
+# hidden members.
+android.app.admin.ConnectEvent
+android.app.admin.DevicePolicyIdentifiers
+android.app.admin.DnsEvent
+android.app.admin.FactoryResetProtectionPolicy
+android.app.admin.FreezePeriod
+android.app.admin.ManagedSubscriptionsPolicy
+android.app.admin.NetworkEvent
+android.app.admin.PackagePolicy
+android.app.admin.PolicyUpdateReceiver
+android.app.admin.PolicyUpdateResult
+android.app.admin.PreferentialNetworkServiceConfig
+android.app.admin.SystemUpdateInfo
+android.app.admin.SystemUpdatePolicy
+android.app.admin.TargetUser
+android.app.admin.WifiSsidPolicy
+android.service.autofill.BatchUpdates
+android.service.autofill.CharSequenceTransformation
+android.service.autofill.CustomDescription
+android.service.autofill.Dataset
+android.service.autofill.DateTransformation
+android.service.autofill.DateValueSanitizer
+android.service.autofill.Field
+android.service.autofill.FieldClassification
+android.service.autofill.FillEventHistory
+android.service.autofill.FillResponse
+android.service.autofill.ImageTransformation
+android.service.autofill.InlinePresentation
+android.service.autofill.LuhnChecksumValidator
+android.service.autofill.OnClickAction
+android.service.autofill.Presentations
+android.service.autofill.RegexValidator
+android.service.autofill.Sanitizer
+android.service.autofill.SaveInfo
+android.service.autofill.SavedDatasetsInfo
+android.service.autofill.SavedDatasetsInfoCallback
+android.service.autofill.TextValueSanitizer
+android.service.autofill.Transformation
+android.service.autofill.UserData
+android.service.autofill.Validator
+android.service.autofill.Validators
+android.service.autofill.VisibilitySetterAction
+android.telephony.PhoneNumberFormattingTextWatcher
+android.telephony.UiccCardInfo

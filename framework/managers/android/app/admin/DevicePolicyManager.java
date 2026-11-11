@@ -12,6 +12,9 @@ import android.os.Process;
 import java.util.List;
 
 class DevicePolicyManager {
+    /** @hide PreferentialNetworkServiceConfig's default (batch H2). */
+    public static final boolean PREFERENTIAL_NETWORK_SERVICE_ENABLED_DEFAULT = false;
+
     /** @hide */
     public DevicePolicyManager(Context context) {
     }

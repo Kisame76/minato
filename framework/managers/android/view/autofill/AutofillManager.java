@@ -20,6 +20,9 @@ import java.io.PrintWriter;
 import com.android.minato.services.Unwritten;
 
 class AutofillManager {
+    /** @hide Dataset.Builder's field for any hint (batch H2). */
+    public static final String ANY_HINT = "any";
+
     /** @hide AutofillOptions' verbose flag (the Unity test APK retest 10: Context's methods name AutofillOptions). */
     public static final int FLAG_ADD_CLIENT_VERBOSE = 0x4;
 

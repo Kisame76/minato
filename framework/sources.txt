@@ -3139,3 +3139,62 @@ frameworks_base_types/telephony/java/android/telephony/mbms/MbmsStreamingSession
 frameworks_base_types/telephony/java/android/telephony/mbms/StreamingServiceCallback.java
 frameworks_base/core/java/android/widget/inline/InlinePresentationSpec.java
 frameworks_base/core/java/com/android/internal/widget/InlinePresentationStyleUtils.java
+
+# Batch H2 (framework breadth, pure Java, api-coverage's next batch): the device policy types (events, policies,
+# FreezePeriod, SystemUpdatePolicy), the autofill service's types (Dataset, FillResponse, SaveInfo, the validators,
+# transformations and sanitizers), PhoneNumberFormattingTextWatcher and UiccCardInfo, with the hidden helpers they pull
+# in. Left out: the legacy activity groups (ActivityGroup, TabActivity, LocalActivityManager) and the media route
+# button and its dialogs, which need classes that are not taken yet.
+frameworks_base/core/java/android/service/autofill/InternalTransformation.java
+frameworks_base/core/java/android/service/autofill/ValueFinder.java
+frameworks_base/core/java/android/service/autofill/InternalOnClickAction.java
+frameworks_base/core/java/android/service/autofill/InternalValidator.java
+frameworks_base/core/java/android/service/autofill/InternalSanitizer.java
+frameworks_base/core/java/android/service/autofill/AutofillServiceHelper.java
+frameworks_base/core/java/android/service/autofill/FieldClassificationUserData.java
+frameworks_base/core/java/android/service/autofill/NegationValidator.java
+frameworks_base/core/java/android/service/autofill/OptionalValidators.java
+frameworks_base/core/java/android/service/autofill/RequiredValidators.java
+frameworks_base/core/java/android/app/admin/ConnectEvent.java
+frameworks_base/core/java/android/app/admin/DevicePolicyIdentifiers.java
+frameworks_base/core/java/android/app/admin/DnsEvent.java
+frameworks_base/core/java/android/app/admin/FactoryResetProtectionPolicy.java
+frameworks_base/core/java/android/app/admin/FreezePeriod.java
+frameworks_base/core/java/android/app/admin/ManagedSubscriptionsPolicy.java
+frameworks_base/core/java/android/app/admin/NetworkEvent.java
+frameworks_base/core/java/android/app/admin/PackagePolicy.java
+frameworks_base/core/java/android/app/admin/PolicyUpdateReceiver.java
+frameworks_base/core/java/android/app/admin/PolicyUpdateResult.java
+frameworks_base/core/java/android/app/admin/PreferentialNetworkServiceConfig.java
+frameworks_base/core/java/android/app/admin/SystemUpdateInfo.java
+frameworks_base/core/java/android/app/admin/SystemUpdatePolicy.java
+frameworks_base/core/java/android/app/admin/TargetUser.java
+frameworks_base/core/java/android/app/admin/WifiSsidPolicy.java
+frameworks_base/core/java/android/service/autofill/BatchUpdates.java
+frameworks_base/core/java/android/service/autofill/CharSequenceTransformation.java
+frameworks_base/core/java/android/service/autofill/CustomDescription.java
+frameworks_base/core/java/android/service/autofill/Dataset.java
+frameworks_base/core/java/android/service/autofill/DateTransformation.java
+frameworks_base/core/java/android/service/autofill/DateValueSanitizer.java
+frameworks_base/core/java/android/service/autofill/Field.java
+frameworks_base/core/java/android/service/autofill/FieldClassification.java
+frameworks_base/core/java/android/service/autofill/FillEventHistory.java
+frameworks_base/core/java/android/service/autofill/FillResponse.java
+frameworks_base/core/java/android/service/autofill/ImageTransformation.java
+frameworks_base/core/java/android/service/autofill/InlinePresentation.java
+frameworks_base/core/java/android/service/autofill/LuhnChecksumValidator.java
+frameworks_base/core/java/android/service/autofill/OnClickAction.java
+frameworks_base/core/java/android/service/autofill/Presentations.java
+frameworks_base/core/java/android/service/autofill/RegexValidator.java
+frameworks_base/core/java/android/service/autofill/Sanitizer.java
+frameworks_base/core/java/android/service/autofill/SaveInfo.java
+frameworks_base/core/java/android/service/autofill/SavedDatasetsInfo.java
+frameworks_base/core/java/android/service/autofill/SavedDatasetsInfoCallback.java
+frameworks_base/core/java/android/service/autofill/TextValueSanitizer.java
+frameworks_base/core/java/android/service/autofill/Transformation.java
+frameworks_base/core/java/android/service/autofill/UserData.java
+frameworks_base/core/java/android/service/autofill/Validator.java
+frameworks_base/core/java/android/service/autofill/Validators.java
+frameworks_base/core/java/android/service/autofill/VisibilitySetterAction.java
+frameworks_base_types/telephony/java/android/telephony/PhoneNumberFormattingTextWatcher.java
+frameworks_base_types/telephony/java/android/telephony/UiccCardInfo.java
