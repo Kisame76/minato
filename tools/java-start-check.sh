@@ -111,6 +111,8 @@
 #              physical footprint every 10 s and every iOS memory warning to tmp/session-check/footprint-log. The
 #              check prints "csv,footprint_min_mb,footprint_max_mb,footprint_end_mb,memory_warnings,on_low_memory"
 #              (tools/renpy_footprint.py); a run with no footprint sample is a note, not a failure.
+#   RENPY_MENU_AT  renpy-memory-test opens and closes the overlay menu (Continue) this many seconds after its start;
+#              the game must draw on after it and its memory lines go on (the menu's pause on SDL's path)
 #   RENPY_MEMORY_APK  an APK of the same package that renpy-memory-test plays instead of tools/renpy-memory.sh's
 #              (Minato's own Ren'Py builds only, such as the ATL frame sequence of the texture parking's round)
 #   PIXELS     a folder: only the pixel round of ADR-0043 b5's step f runs (tools/window-contents-check.sh), with
@@ -3763,6 +3765,10 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     rates=()
     presents=-1
     pinged=$SECONDS
+    # RENPY_MENU_AT: the menu once, then the presents and the guest's memory lines at that moment, which must grow.
+    menu_at=${RENPY_MENU_AT:+$((SECONDS + RENPY_MENU_AT))}
+    menu_presents=-1
+    menu_mem=-1
     while (( SECONDS < end )); do
       sleep 20
       fetch_events
@@ -3783,6 +3789,14 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
         presents=${BASH_REMATCH[1]}
         pinged=$SECONDS
       fi
+      if [[ -n "$menu_at" && "$menu_presents" == -1 && "$presents" -ge 0 ]] && (( SECONDS >= menu_at )); then
+        request menu
+        await_event "menu opened" 15 || fail "  renpy-memory-test: the menu did not open"
+        menu_presents=$presents
+        fetch "$CHECK_REL/guest-log" || true
+        menu_mem=$(count_lines ': mem foot=' "$CHECK/guest-log")
+        echo "note    renpy-memory-test: the menu opened and closed at $presents presents, $menu_mem memory lines"
+      fi
       # A failed fetch (the iPhone's copy) says nothing: the container stays readable after a kill.
       if fetch "$CHECK_REL/footprint-log"; then
         now_lines=$(wc -l <"$CHECK/footprint-log")
@@ -3802,6 +3816,20 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     else
       [[ -z "$killed" ]] || echo "$killed"
       ok "  played for $minutes min"
+    fi
+    if [[ -n "$menu_at" ]]; then
+      fetch "$CHECK_REL/guest-log" || true
+      mem_after=$(count_lines ': mem foot=' "$CHECK/guest-log")
+      if (( menu_presents < 0 )); then
+        fail "  renpy-memory-test: no menu, as no ping answered before RENPY_MENU_AT"
+      else
+        drawn=$((presents - menu_presents))
+        if (( drawn > 60 && mem_after > menu_mem + 10 )); then
+          ok "  renpy-memory-test: after the menu's Continue $drawn frames more, memory lines $menu_mem to $mem_after"
+        else
+          fail "  renpy-memory-test: after the menu's Continue $drawn frames, memory lines $menu_mem to $mem_after"
+        fi
+      fi
     fi
     if (( ${#rates[@]} > 0 )); then
       sorted=($(printf '%s\n' "${rates[@]}" | sort -n))
