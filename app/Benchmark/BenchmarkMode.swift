@@ -137,6 +137,11 @@ final class BenchmarkRunner {
     }
 
     func start() async {
+        // The earlier runs' folders, which the Mac has fetched (BenchFolders): off the main thread, as there may be
+        // thousands, and done before anything is prepared or measured.
+        let base = folder.deletingLastPathComponent()
+        let own = folder.lastPathComponent
+        _ = await Task.detached(priority: .utility) { BenchFolders.removeOthers(in: base, keeping: own) }.value
         try? FileManager.default.removeItem(at: folder)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // The APK is imported and signed first, so that work has cooled off before the run.
