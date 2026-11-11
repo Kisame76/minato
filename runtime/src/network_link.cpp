@@ -17,6 +17,11 @@ namespace {
 // IFF_UP 0x1, IFF_LOOPBACK 0x8 (the guest-form Interface.flags are Linux's). Darwin's NET_RT_DUMP (not in the iOS SDK).
 constexpr int linux_v4 = 2, iff_up = 0x1, iff_loopback = 0x8, net_rt_dump = 1;  // IPv6 is Linux family 10
 
+// The Mac session's fake path monitor fixes the resolver too (fake_path_monitor.cpp): when set, read() returns these
+// servers instead of the host's, so a run under MINATO_FAKE_NETWORK reads nothing of the host's network.
+bool fake_dns_set = false;
+std::vector<Address> fake_dns;
+
 int wire_family(int linux_family) { return linux_family == linux_v4 ? 4 : 6; }
 
 bool link_local(int linux_family, const std::string &bytes) {
@@ -56,6 +61,11 @@ bool route_dump_allowed() {
 }
 
 void read_resolver(Snapshot &snapshot) {
+    if (fake_dns_set) {  // the fake path monitor's servers; do not read the host's resolver
+        snapshot.resolver_ok = true;
+        snapshot.dns = fake_dns;
+        return;
+    }
     struct __res_state state;
     std::memset(&state, 0, sizeof state);
     if (::res_ninit(&state) != 0) return;  // resolver_ok stays false, dns empty
@@ -91,6 +101,16 @@ void put_u32le(std::string &out, std::uint32_t value) {
 }
 
 }  // namespace
+
+void set_fake_dns(std::vector<Address> servers) {
+    fake_dns = std::move(servers);
+    fake_dns_set = true;
+}
+
+void clear_fake_dns() {
+    fake_dns_set = false;
+    fake_dns.clear();
+}
 
 std::string serialize(const Snapshot &s) {
     const auto u = [](int v) { return static_cast<unsigned>(v); };

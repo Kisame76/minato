@@ -51,4 +51,10 @@ std::string serialize(const Snapshot &snapshot);
 /// SIOCGIFMTU). Device-dependent (the sandbox decides routes/DNS), so not unit-tested; serialize() is.
 Snapshot read();
 
+/// The Mac session's fake path monitor fixes the resolver too (fake_path_monitor.cpp): set_fake_dns makes read()
+/// return these servers instead of the host's, so a run under the fake reads nothing of the host's network;
+/// clear_fake_dns restores res_getservers. Set once before the guest runs; tests set and clear it.
+void set_fake_dns(std::vector<Address> servers);
+void clear_fake_dns();
+
 }  // namespace apkrt::network::link

@@ -177,4 +177,21 @@ TEST(the_fake_path_monitor_gives_one_source_to_the_snapshot_and_the_guest) {
     apkrt::netlink::clear_fake_host();
 }
 
+TEST(the_fake_path_monitor_fixes_the_dns_so_the_snapshot_reads_no_host_server) {
+    // Under the fake, the snapshot's DNS must be exactly the fake's two servers -- nothing of the developer's real
+    // resolver (which would differ from machine to machine and leak the host's network into a test log).
+    apkrt::network::start_fake_path_monitor();
+    const apkrt::network::link::Snapshot snap = apkrt::network::link::read();
+    CHECK(snap.resolver_ok);
+    bool only_fake = snap.dns.size() == 2;
+    for (const auto &d : snap.dns) {
+        const bool is_fake = (d.family == 4 && d.bytes == v4(192, 168, 7, 1))
+                             || (d.family == 6 && d.bytes == v6({0x20, 0x01, 0x0d, 0xb8}, 1));
+        if (!is_fake) only_fake = false;
+    }
+    CHECK(only_fake);
+    apkrt::netlink::clear_fake_host();
+    apkrt::network::link::clear_fake_dns();
+}
+
 int main() { return apk::testing::run_all(); }

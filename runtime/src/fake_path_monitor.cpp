@@ -9,6 +9,7 @@
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
 #include "netlink.h"
+#include "network_link.h"
 
 #include <net/if.h>
 
@@ -61,6 +62,8 @@ void start_fake_path_monitor() {
     netlink::HostRoute ipv4_default{linux_inet, en0.index, v4(192, 168, 7, 1)};        // via the gateway
     netlink::HostRoute ipv6_default{linux_inet6, en0.index, v6({0xfe, 0x80}, 1)};       // via a link-local gateway
     netlink::set_fake_host({en0}, {ipv4_default, ipv6_default});
+    // Fix the resolver too, so a run under the fake reads nothing of the host's network (private/doc addresses only).
+    link::set_fake_dns({{4, v4(192, 168, 7, 1), 0}, {6, v6({0x20, 0x01, 0x0d, 0xb8}, 1), 0}});
 
     apkrt_network_set(APKRT_NETWORK_SATISFIED | APKRT_NETWORK_WIFI);
 }
