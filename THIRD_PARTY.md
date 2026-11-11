@@ -145,9 +145,10 @@ bionic then answer from one IANA release (ADR-0033 decision 9).
 
 | Source | Pin | Licence | What ships |
 |---|---|---|---|
-| `unicode-org/icu-data` (GitHub) | commit `bae5ca647fa41703393dbf00240ec1b807a9c353` (2026-09-30, "ICU-23249 TZDB 2026e"), digest `494eb94e0976e8179b133ad9fb0d98fe3d23e951afc559759d2ebffd612172fe` in `third_party/sources.json` (`icu_tzdata`, list art) | Unicode License V3 (`LICENSE` at the root, fetched with the files: its notice must go with every build that ships the data); permissive, no copyleft | `tzdata/icunew/2026e/44/le/`: `zoneinfo64.res` (149,600 bytes), `metaZones.res` (43,536), `timezoneTypes.res` (21,264), `windowsZones.res` (22,064): ICU 75's resources, format 44, little-endian, in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/icu/` |
+| `unicode-org/icu-data` (GitHub) | commit `6eac2f4d349d9f4a0825103bb41845d8e5ab7add` (2026-10-29, "ICU-23594 TZDB 2026f"), digest `6603aad9e693f9b1802e0ff4e92671aa4fde54fc9f015eea6c7f1174223c5cf7` in `third_party/sources.json` (`icu_tzdata`, list art) | Unicode License V3 (`LICENSE` at the root, fetched with the files: its notice must go with every build that ships the data); permissive, no copyleft | `tzdata/icunew/2026f/44/le/`: `zoneinfo64.res` (149,696 bytes), `metaZones.res` (41,312), `timezoneTypes.res` (21,264), `windowsZones.res` (22,208): ICU 75's resources, format 44, little-endian, in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/icu/` |
 
-Fetched on 2026-10-08 (4 files, 234,048 bytes plus LICENSE).
+Fetched on 2026-10-08 (2026c, 4 files, 234,048 bytes plus LICENSE), again for 2026e, and on 2026-11-11 for 2026f
+(5 files, 239,611 bytes in all: the four files, 234,480 bytes, and LICENSE, 5,131).
 A newer tz release needs these four files of that release pinned too (embed-guest-system.sh and
 framework/tests/app_process_run.py name the pin to make when bionic's tzdata is of a release without them).
 
