@@ -140,6 +140,12 @@ if(APK_HOST_BUILD)
   endforeach()
   # The bundle's license rule for the twin: Godot's texts go into a build with MinatoGodot.framework (c) 2).
   add_test(NAME godot.licenses COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/license-check-test.py")
+  # Every row of THIRD_PARTY.md has its license text in a bundle filled as the app build fills it, and every section
+  # has a rule (tools/license-check-repo-test.py, the real third_party/licenses.json): a new row without a text fails
+  # here and not at the next release. Skipped (77) without build/sources.
+  add_test(NAME tools.license_rows
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/license-check-repo-test.py")
+  set_tests_properties(tools.license_rows PROPERTIES SKIP_RETURN_CODE 77)
   # The source archive of the parts under the GPL-2.0 with the Classpath Exception and its SOURCE.txt (ADR-0033).
   add_test(NAME release.source_archive
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/source-archive-test.py")

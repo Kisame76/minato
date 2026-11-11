@@ -94,6 +94,9 @@ app="$out/Minato.xcarchive/Products/Applications/Minato.app"
 # A public release carries no local build paths: the guest libraries must not embed the build root or $HOME.
 tools/check-no-build-paths.sh "$app"
 
+# The license text of everything THIRD_PARTY.md lists travels with the app: a row without a text stops the release.
+python3 tools/license-check.py "$app"
+
 # SideStore and AltStore sign the app with the user's certificate. An ad-hoc signature, from the inside out, carries
 # the entitlements that they compare with the source entry's.
 find "$app" -depth \( -name '*.framework' -o -name '*.dylib' -o -name '*.appex' \) -print0 |

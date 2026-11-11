@@ -14,7 +14,8 @@
     "Test 2 with Godot": "MinatoGodot.framework",
     "Test 2's APKs": "Benchmark/godot-bench-vulkan.apk",
     "Build tools for the formats": "never",
-    "References without adopted code": "never"
+    "References without adopted code": "never",
+    "Time zones": "always"
   },
   "components": [
     {
@@ -469,6 +470,46 @@
         {
           "from": "sources:roboto_fonts/NOTICE",
           "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "noto-fonts",
+      "section": "Guest fonts",
+      "license": "OFL-1.1",
+      "rows": [
+        "platform/external/noto-fonts"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/fonts/NotoNaskhArabic-NOTICE.txt",
+          "as": "NotoNaskhArabic-NOTICE"
+        },
+        {
+          "from": "repo:third_party/fonts/NotoSansDevanagari-NOTICE.txt",
+          "as": "NotoSansDevanagari-NOTICE"
+        },
+        {
+          "from": "repo:third_party/fonts/NotoSansHebrew-NOTICE.txt",
+          "as": "NotoSansHebrew-NOTICE"
+        },
+        {
+          "from": "repo:third_party/fonts/NotoSansThai-NOTICE.txt",
+          "as": "NotoSansThai-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "noto-emoji",
+      "section": "Guest fonts",
+      "license": "OFL-1.1",
+      "rows": [
+        "googlefonts/noto-emoji"
+      ],
+      "texts": [
+        {
+          "from": "repo:third_party/fonts/NotoColorEmoji-LICENSE.txt",
+          "as": "LICENSE"
         }
       ]
     },
@@ -1036,7 +1077,30 @@
       "rows": [
         "platform/system/timezone"
       ],
-      "none": "Only read as the model for the format of the time zone files (ADR-0033, decision 9); none of its code or data is in the binary."
+      "texts": [
+        {
+          "from": "sources:okhttp/LICENSE.txt",
+          "as": "LICENSE-Apache-2.0"
+        },
+        {
+          "from": "sources:timezone/input_data/iana/NOTICE",
+          "as": "iana-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "vixl",
+      "section": "ART and its libraries",
+      "license": "BSD-3-Clause",
+      "rows": [
+        "platform/external/vixl"
+      ],
+      "texts": [
+        {
+          "from": "sources:vixl/LICENCE",
+          "as": "LICENCE"
+        }
+      ]
     },
     {
       "name": "frameworks_base",
@@ -1153,6 +1217,171 @@
         "platform/build/soong"
       ],
       "none": "Only cc/libbuildversion, which the host aapt2 links; none of its code is in the app."
+    },
+    {
+      "name": "sqlite",
+      "section": "Framework sources",
+      "license": "public domain (dist/) and Apache-2.0 (android/)",
+      "rows": [
+        "platform/external/sqlite"
+      ],
+      "texts": [
+        {
+          "from": "sources:sqlite/LICENSE",
+          "as": "LICENSE"
+        },
+        {
+          "from": "sources:sqlite/dist/NOTICE",
+          "as": "dist-NOTICE"
+        },
+        {
+          "from": "sources:sqlite/android/NOTICE",
+          "as": "android-NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "system_media",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/system/media"
+      ],
+      "texts": [
+        {
+          "from": "sources:system_media_camera/NOTICE",
+          "as": "NOTICE"
+        }
+      ]
+    },
+    {
+      "name": "media_module",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/modules/Media"
+      ],
+      "texts": [
+        {
+          "from": "sources:okhttp/LICENSE.txt",
+          "as": "LICENSE-Apache-2.0"
+        }
+      ]
+    },
+    {
+      "name": "media_provider_module",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/providers/MediaProvider"
+      ],
+      "texts": [
+        {
+          "from": "sources:okhttp/LICENSE.txt",
+          "as": "LICENSE-Apache-2.0"
+        }
+      ]
+    },
+    {
+      "name": "libphonenumber",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/libphonenumber"
+      ],
+      "texts": [
+        {
+          "from": "sources:okhttp/LICENSE.txt",
+          "as": "LICENSE-Apache-2.0"
+        }
+      ]
+    },
+    {
+      "name": "tagsoup",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/external/tagsoup"
+      ],
+      "texts": [
+        {
+          "from": "sources:tagsoup/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "mime_support",
+      "section": "Framework sources",
+      "license": "public domain",
+      "rows": [
+        "platform/external/mime-support"
+      ],
+      "texts": [
+        {
+          "from": "sources:mime_support/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "stb_vorbis",
+      "section": "Framework sources",
+      "license": "MIT or public domain (the licensee's choice)",
+      "rows": [
+        "nothings/stb"
+      ],
+      "texts": [
+        {
+          "from": "sources:stb_vorbis/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "permission_api",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/modules/Permission"
+      ],
+      "none": "Only its api/current.txt, read at build time; the file never ships and none of its code is in the app."
+    },
+    {
+      "name": "bluetooth_api",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/modules/Bluetooth"
+      ],
+      "none": "Only its api/current.txt, read at build time; the file never ships and none of its code is in the app."
+    },
+    {
+      "name": "appsearch_api",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/modules/AppSearch"
+      ],
+      "none": "Only its api/current.txt, read at build time; the file never ships and none of its code is in the app."
+    },
+    {
+      "name": "devicelock_api",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/modules/DeviceLock"
+      ],
+      "none": "Only its api/current.txt, read at build time; the file never ships and none of its code is in the app."
+    },
+    {
+      "name": "healthfitness_api",
+      "section": "Framework sources",
+      "license": "Apache-2.0",
+      "rows": [
+        "platform/packages/modules/HealthFitness"
+      ],
+      "none": "Only its api/current.txt, read at build time; the file never ships and none of its code is in the app."
     },
     {
       "name": "hwui",
@@ -1452,6 +1681,20 @@
       "texts": [
         {
           "from": "sources:googletest_prod/LICENSE",
+          "as": "LICENSE"
+        }
+      ]
+    },
+    {
+      "name": "icu_tzdata",
+      "section": "Time zones",
+      "license": "Unicode-3.0",
+      "rows": [
+        "unicode-org/icu-data (GitHub)"
+      ],
+      "texts": [
+        {
+          "from": "sources:icu_tzdata/LICENSE",
           "as": "LICENSE"
         }
       ]
