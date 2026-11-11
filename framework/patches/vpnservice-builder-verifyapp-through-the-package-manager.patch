@@ -1,0 +1,37 @@
+Minato's patch to frameworks/base's core/java/android/net/VpnService.java at android-15.0.0_r1 (Apache-2.0), group 1 of
+the framework breadth (vpn-test): Builder.verifyApp without the IPackageManager stub.
+
+Why: addAllowedApplication and addDisallowedApplication check the package with
+IPackageManager.Stub.asInterface(ServiceManager.getService("package")).getApplicationInfo, a call into a
+compile-only stub, which ART cannot resolve (NoClassDefFoundError in the app; tools/framework-check.sh's stub
+references). The app's own package manager, which ApplicationPackageManager answers over the app's manifest, does
+the same work. IPackageManager answers null for a package that is not installed and the Builder takes no notice of
+it: the AVD's Android 15 accepts addAllowedApplication and addDisallowedApplication of a package that is not
+installed without an exception [verified: vpn-test, "builder allowed missing: ok"], so ApplicationPackageManager's
+NameNotFoundException is swallowed.
+
+tools/build-framework.sh applies it to a copy in build/framework/src, never to build/sources.
+
+--- a/core/java/android/net/VpnService.java
++++ b/core/java/android/net/VpnService.java
+@@ -779,13 +779,13 @@
+         }
+ 
+         private void verifyApp(String packageName) throws PackageManager.NameNotFoundException {
+-            IPackageManager pm = IPackageManager.Stub.asInterface(
+-                    ServiceManager.getService("package"));
+-            try {
+-                pm.getApplicationInfo(packageName, 0, UserHandle.getCallingUserId());
+-            } catch (RemoteException e) {
+-                throw new IllegalStateException(e);
+-            }
++            // Minato asks the app's own package manager, not the IPackageManager stub. IPackageManager answers
++            // null for a package that is not installed and the Builder ignores it: so does this.
++            try {
++                VpnService.this.getPackageManager().getApplicationInfo(packageName, 0);
++            } catch (PackageManager.NameNotFoundException e) {
++                // not installed: Android's Builder accepts it all the same
++            }
+         }
+ 
+         /**

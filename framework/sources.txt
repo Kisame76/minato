@@ -3056,3 +3056,14 @@ frameworks_base/core/java/android/provider/VoicemailContract.java
 frameworks_base_types/telecomm/java/android/telecom/Voicemail.java
 frameworks_base/core/java/android/provider/CallLog.java
 frameworks_base/core/java/android/provider/BlockedNumberContract.java
+
+# VpnService (group 1 of the framework breadth, vpn-test): the service class, its consent intent's VpnConfig and the
+# interface it asks (IVpnManager, with the types its signatures name; VpnProfile only as AOSP's parcelable
+# declaration, as its IKE and VCN classes are none of an app's business), over the local vpn service.
+frameworks_base/core/java/android/net/VpnService.java
+frameworks_base/core/java/android/net/IVpnManager.aidl
+frameworks_base/core/java/com/android/internal/net/VpnConfig.java
+frameworks_base/core/java/com/android/internal/net/LegacyVpnInfo.java
+connectivity_java/framework/src/android/net/IpPrefix.java
+connectivity_java/framework/src/android/net/LinkAddress.java
+connectivity_java/framework/src/android/net/RouteInfo.java

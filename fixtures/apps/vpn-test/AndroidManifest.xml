@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The VpnService test (group 1 of the framework breadth, vpn-test): the Application logs the class's shape, what
+     VpnService.prepare asks for, and what its own VpnService does when it is started, bound and asked to establish
+     a tunnel, in an app the user has not allowed to be a VPN. Its launcher activity then starts the consent intent
+     for a result, which the user answers with Cancel, and logs what comes back. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.vpn" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="vpn-test" android:name="io.github.kisame76.minato.test.vpn.VpnApplication">
+    <activity android:name="io.github.kisame76.minato.test.vpn.VpnActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <service android:name="io.github.kisame76.minato.test.vpn.TestVpnService" android:exported="false"
+        android:permission="android.permission.BIND_VPN_SERVICE">
+      <intent-filter>
+        <action android:name="android.net.VpnService"/>
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

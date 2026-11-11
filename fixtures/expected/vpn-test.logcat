@@ -1,0 +1,48 @@
+I/vpn-test: class: android.net.VpnService extends android.app.Service, not abstract
+I/vpn-test: SERVICE_INTERFACE: android.net.VpnService
+I/vpn-test: method prepare: 1 Intent
+I/vpn-test: method protect: 3 boolean boolean boolean
+I/vpn-test: method setUnderlyingNetworks: 1 boolean
+I/vpn-test: method isAlwaysOn: 1 boolean
+I/vpn-test: method isLockdownEnabled: 1 boolean
+I/vpn-test: method onRevoke: 1 void
+I/vpn-test: method onBind: 1 IBinder
+I/vpn-test: builder setSession: 1 Builder
+I/vpn-test: builder setConfigureIntent: 1 Builder
+I/vpn-test: builder addAddress: 2 Builder Builder
+I/vpn-test: builder addRoute: 3 Builder Builder Builder
+I/vpn-test: builder addDnsServer: 2 Builder Builder
+I/vpn-test: builder addSearchDomain: 1 Builder
+I/vpn-test: builder setMtu: 1 Builder
+I/vpn-test: builder setBlocking: 1 Builder
+I/vpn-test: builder setMetered: 1 Builder
+I/vpn-test: builder setHttpProxy: 1 Builder
+I/vpn-test: builder allowFamily: 1 Builder
+I/vpn-test: builder addAllowedApplication: 1 Builder
+I/vpn-test: builder addDisallowedApplication: 1 Builder
+I/vpn-test: builder allowBypass: 1 Builder
+I/vpn-test: builder setUnderlyingNetworks: 1 Builder
+I/vpn-test: builder establish: 1 ParcelFileDescriptor
+I/vpn-test: prepare 1: intent for com.android.vpndialogs/.ConfirmDialog
+I/vpn-test: prepare 2: intent for com.android.vpndialogs/.ConfirmDialog
+I/vpn-test: startService: true
+I/vpn-test: service: onCreate
+I/vpn-test: service: onStartCommand
+I/vpn-test: builder allowed own: ok
+I/vpn-test: builder allowed missing: ok
+I/vpn-test: builder disallowed own: ok
+I/vpn-test: builder disallowed missing: ok
+I/vpn-test: builder allowed then disallowed: java.lang.UnsupportedOperationException
+I/vpn-test: builder disallowed then allowed: java.lang.UnsupportedOperationException
+I/vpn-test: service: establish returns null
+I/vpn-test: service: protect(-1) false
+I/vpn-test: started: true
+I/vpn-test: bind: connected, binder not null
+I/vpn-test: bindService: true, connected: true
+I/vpn-test: service: onDestroy
+I/vpn-test: stopService: true, destroyed: true
+I/vpn-test: consent: started
+I/vpn-test: activity: onPause
+I/vpn-test: consent: result request 7, code 0, data null
+I/vpn-test: activity: onResume
+I/vpn-test: done

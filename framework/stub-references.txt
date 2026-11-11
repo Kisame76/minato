@@ -250,3 +250,5 @@ android.hardware.face.FaceManager <- android.hardware.biometrics.BiometricPrompt
 android.security.identity.IdentityCredential <- android.hardware.biometrics.CryptoObject  # gap: getIdentityCredential, which an app of identity credentials (wallets) calls; android.security.identity is not taken
 android.security.identity.PresentationSession <- android.hardware.biometrics.CryptoObject  # gap: getPresentationSession, as above
 android.os.PermissionEnforcer <- android.hardware.biometrics.IAuthService, android.hardware.biometrics.ITestSession  # stays: the Stubs' constructors, which the local authentication service (an IAuthService.Default) never runs
+# VpnService (group 1 of the framework breadth).
+com.android.internal.net.VpnProfile <- android.net.IVpnManager  # stays: IVpnManager's Stub reads a VpnProfile in two transactions (provisionVpnProfile, startLegacyVpn), which are no app API: VpnService and VpnManager never call them and no parcel reaches the local vpn service, which is AIDL's Default class

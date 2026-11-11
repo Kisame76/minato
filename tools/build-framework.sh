@@ -230,7 +230,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.window.SplashScreen \
   --class android.app.LocaleManager --class android.os.storage.OnObbStateChangeListener \
   --class android.net.http.SslCertificate \
-  --class android.net.TransportInfo --class android.net.IpPrefix --class android.net.RouteInfo \
+  --class android.net.TransportInfo \
   --class android.net.DhcpInfo --class android.net.http.SslError --class android.telephony.BarringInfo \
   --class android.telephony.ims.ImsReasonInfo \
   --class android.telephony.PreciseDataConnectionState --class android.telephony.TelephonyDisplayInfo \

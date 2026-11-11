@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A resource so that the build packs the manifest through aapt2, which knows android:permission on a service. -->
+<resources>
+  <string name="vpn_test_name">vpn-test</string>
+</resources>

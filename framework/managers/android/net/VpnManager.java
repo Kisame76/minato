@@ -3,6 +3,18 @@
 import android.content.Context;
 
 class VpnManager {
+    // AOSP's values of the VPN types, which VpnService.prepareAndAuthorize reads (hidden: not API).
+    /** @hide */
+    public static final int TYPE_VPN_NONE = -1;
+    /** @hide */
+    public static final int TYPE_VPN_SERVICE = 1;
+    /** @hide */
+    public static final int TYPE_VPN_PLATFORM = 2;
+    /** @hide */
+    public static final int TYPE_VPN_LEGACY = 3;
+    /** @hide */
+    public static final int TYPE_VPN_OEM = 4;
+
     private final Context mContext;
 
     /** @hide As the tag's, which SystemServiceRegistry calls with the outer context. */

@@ -781,6 +781,13 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=120
       ;;
+    # vpn-test (group 1 of the framework breadth): the Application logs VpnService's shape, what prepare asks for and
+    # what its own VpnService does when started, bound and asked to establish, in an app the user did not allow to be
+    # a VPN, and ends with "done".
+    vpn-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done
+      activity_class=io.github.kisame76.minato.test.vpn.VpnActivity limit=90
+      ;;
     # mic-test and its twin mic-test-granted (ADR-0064), from the same sources: the twin gets RECORD_AUDIO before the
     # start.
     mic-test | mic-test-granted)
@@ -1798,6 +1805,12 @@ PY
     { run input tap $button && wait_for "$app" "close tapped" && sleep 1 && run input tap $tap &&
       wait_for "$app" "title: page tapped" && sleep 1 && run input swipe $swipe 300 &&
       wait_for "$app" "scrolled back" && sleep 1 && run input tap $field; } || return 1
+  fi
+  if [[ "$app" == vpn-test ]]; then
+    # The consent dialog of VpnService.prepare ("Connection request") ignores BACK [measured on apk-runner-35]: the user
+    # says no with its CANCEL button, which ends with RESULT_CANCELED and no data.
+    wait_for "$app" "consent: started" 60 && sleep 4 || return 1
+    python3 tools/ui-pick.py "$ADB" "$serial" tap CANCEL 30 || return 1
   fi
   if [[ "$app" == picker-test ]]; then
     # ADR-0057 step a: each picker is cancelled with BACK a few seconds after its start line, once it shows.

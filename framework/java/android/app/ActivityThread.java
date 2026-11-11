@@ -127,6 +127,7 @@ import com.android.internal.minato.permissions.SystemPermissionActivity;
 import android.location.LocalLocationManager;
 import com.android.internal.minato.picker.PickerIntents;
 import com.android.internal.minato.picker.SystemPickerActivity;
+import com.android.internal.minato.vpn.VpnConsentActivity;
 import com.android.internal.minato.picker.UriGrants;
 import com.android.internal.os.SafeZipPathValidatorCallback;
 import dalvik.system.AppSpecializationHooks;
@@ -1762,7 +1763,10 @@ public final class ActivityThread {
         // ACTION_DELETE and ACTION_UNINSTALL_PACKAGE of a package go to the activity that has the host ask the user.
         final boolean uninstall = component == null && pickerKind == PickerIntents.NONE && !open && !permissions
                 && !sources && !confirm && UninstallActivity.handles(intent);
-        ActivityInfo info = pickerKind != PickerIntents.NONE
+        // VpnService.prepare's intent names Android's consent dialog, which Minato answers with the user's "no".
+        final boolean vpnConsent = component != null && VpnConsentActivity.handles(component);
+        ActivityInfo info = vpnConsent ? VpnConsentActivity.activityInfo(mPackage.applicationInfo(0))
+                : pickerKind != PickerIntents.NONE
                 ? PickerIntents.activityInfo(mPackage.applicationInfo(0), pickerKind)
                 : open ? OpenIntents.activityInfo(mPackage.applicationInfo(0))
                 : permissions ? SystemPermissionActivity.activityInfo(mPackage.applicationInfo(0))
@@ -1781,7 +1785,7 @@ public final class ActivityThread {
             return result;
         }
         final Intent started = new Intent(intent);
-        if (pickerKind != PickerIntents.NONE || open || permissions || sources || confirm || uninstall) {
+        if (pickerKind != PickerIntents.NONE || open || permissions || sources || confirm || uninstall || vpnConsent) {
             started.setComponent(new ComponentName(info.packageName, info.name));
         }
         sMainThreadHandler.post(() -> addTransaction(
