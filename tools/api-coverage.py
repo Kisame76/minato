@@ -40,7 +40,13 @@ Usage: api-coverage.py [--api <current.txt>] [--stub-api <current.txt>]... [--kn
                        [--classes <folder>] [--sources <folder>]... [--ours <folder>] [--first <file>] [--taken <file>]
                        [--batch <n>] [--context-impl <file>] [--service-registry <file>]
                        [--module-api <name>=<current.txt>]...
-                       [--table <file>] [--json <file>]
+                       [--limits <file>] [--table <file>] [--json <file>]
+
+--limits <file> (fixtures/corpus/api-limits.txt) names the missing types that stay missing, and why: a line
+`<qualified type> <group> <reason id>`, and a line `# reason <id>: <sentence>` for every reason id. The tool prints
+"unexplained missing: N" (the missing top-level types of the core and module APIs that the file does not name),
+lists what the file names that is not missing ("stale limit lines"), and adds a section "Limits" to the table; the
+exit status is 1 for a stale or malformed line or a reason without its sentence.
 """
 import collections
 import json
@@ -347,7 +353,7 @@ def main():
                "--context-impl": os.path.join(REPO, "framework", "managers", "android", "app", "ContextImpl.java"),
                "--service-registry": os.path.join(REPO, "framework", "java", "android", "app",
                                                   "SystemServiceRegistry.java"),
-               "--table": os.path.join(REPO, "docs", "corpus", "api-coverage.md"),
+               "--limits": "", "--table": os.path.join(REPO, "docs", "corpus", "api-coverage.md"),
                "--json": os.path.join(REPO, "build", "api-coverage.json")}
     roots, stub_apis, known, modules = [], [], [], []
     while arguments:
@@ -505,11 +511,56 @@ def main():
         lines.append("None.")
     lines += ["", "## Nested types our own classes lack", ""]
     lines += [f"- {name}" for name in ours] or ["None."]
+    limits_note, limits_failed = "", False
+    if options["--limits"]:
+        reasons, listed, problems = {}, {}, []
+        with open(options["--limits"]) as handle:
+            for number, line in enumerate(handle, 1):
+                text = line.rstrip("\n")
+                found = re.match(r"# reason (\S+): (.+)$", text)
+                if found:
+                    reasons[found.group(1)] = found.group(2)
+                elif text.strip() and not text.startswith("#"):
+                    fields = text.split("#")[0].split()
+                    group = " ".join(fields[1:-1])
+                    if len(fields) < 3 or group not in GROUPS + ["module api"]:
+                        problems.append(f"line {number}: expected '<type> <group> <reason id>', group one of "
+                                        f"{', '.join(GROUPS + ['module api'])}: {text.strip()}")
+                    elif fields[0] in listed:
+                        problems.append(f"line {number}: {fields[0]} is listed twice")
+                    else:
+                        listed[fields[0]] = (group, fields[-1])
+        problems += [f"reason {reason} of {name} has no '# reason {reason}: ...' line"
+                     for name, (_, reason) in sorted(listed.items()) if reason not in reasons]
+        every_missing = sorted(set(coverage.missing) | set(apart_missing))
+        stale = sorted(name for name in listed if name not in every_missing)
+        wrong = sorted(name for name, (group, _) in listed.items() if name in coverage.group
+                       and name in every_missing and group not in (coverage.group[name], "module api"))
+        unexplained = [q for q in every_missing if q not in listed]
+        by_reason = collections.Counter(reason for name, (_, reason) in listed.items() if name in every_missing)
+        limits_failed = bool(problems or stale or wrong)
+        limits_note = f"; unexplained missing: {len(unexplained)}"
+        for message in problems:
+            print(f"limits: {message}", file=sys.stderr)
+        for name in stale:
+            print(f"limits: stale limit line: {name} is not missing", file=sys.stderr)
+        for name in wrong:
+            print(f"limits: {name} is in group {coverage.group[name]}, the line says {listed[name][0]}",
+                  file=sys.stderr)
+        lines += ["", "## Limits", "",
+                  f"{len(listed) - len(stale)} of the {len(every_missing)} missing types stay missing for the reasons "
+                  f"below ({options['--limits']}); unexplained missing: {len(unexplained)}.", ""]
+        lines += [f"- {reason}: {by_reason[reason]} ({reasons[reason]})" for reason in sorted(by_reason)]
+        lines += [f"- unexplained: {q}" for q in unexplained[:40]]
+        if len(unexplained) > 40:
+            lines.append(f"- unexplained: ... and {len(unexplained) - 40} more")
     with open(options["--table"], "w") as handle:
         handle.write("\n".join(lines) + "\n")
     print(f"{options['--table']}: {len(coverage.missing)} missing, " + ", ".join(f"{counts[g]} {g}" for g in GROUPS)
           + f"; {len(batches)} batches; {len(ours)} nested types of ours; module APIs: {len(apart_missing)} of {tops} "
-          "top-level types missing")
+          f"top-level types missing{limits_note}")
+    if limits_failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -334,6 +334,37 @@ with tempfile.TemporaryDirectory() as work:
     check("| g.h | 0 | 5 | 3 | 2 | 0 | 0 | 0 |" in text, "the core table's row for g.h leaves the module's types out")
     check("- (9), a module step: 1 (Far)" in text, "the table lists the taken module type with its step")
 
+    # --limits: the missing types the file names are explained, the rest is counted; a stale or incomplete line fails.
+    def with_limits(text):
+        path = os.path.join(work, "limits.txt")
+        with open(path, "w") as handle:
+            handle.write(text)
+        return subprocess.run([sys.executable, TOOL, "--api", api, "--classes", classes, "--sources", sources,
+                               "--stub-api", stub_api, "--known", jmod, "--ours", ours, "--first", first,
+                               "--taken", taken, "--batch", "3", "--context-impl", context_impl,
+                               "--service-registry", registry, "--module-api", f"mod={module_api}",
+                               "--limits", path, "--table", table, "--json", data],
+                              capture_output=True, text=True)
+    every = len(report["types"]) + len(module.get("missing", {}))
+    named = ("# reason jni: native code has no iPhone counterpart\n# reason src: the source is not fetched\n"
+             "a.b.Native native jni\na.b.Elsewhere not fetched src  # a comment after a line\n")
+    result = with_limits(named)
+    check(result.returncode == 0 and f"unexplained missing: {every - 2}" in result.stdout,
+          f"two of {every} missing types named: {result.returncode} {result.stdout[-200:]} {result.stderr[-200:]}")
+    text = open(table).read()
+    check("- jni: 1 (native code has no iPhone counterpart)" in text and "- src: 1 (the source is not fetched)" in text,
+          "the table's Limits section counts each reason with its sentence")
+    check("- unexplained: a.b.Plain" in text, "the table lists an unexplained type")
+    result = with_limits(named + "x.y.Gone native jni\n")
+    check(result.returncode == 1 and "stale limit line: x.y.Gone is not missing" in result.stderr,
+          f"a line for a type that is not missing is stale: {result.returncode} {result.stderr[-200:]}")
+    result = with_limits(named + "a.b.Plain pure Java nope\n")
+    check(result.returncode == 1 and "reason nope of a.b.Plain has no '# reason nope: ...' line" in result.stderr,
+          f"a reason without its sentence fails: {result.returncode} {result.stderr[-200:]}")
+    result = with_limits(named + "a.b.Plain native jni\n")
+    check(result.returncode == 1 and "a.b.Plain is in group pure Java, the line says native" in result.stderr,
+          f"a line whose group differs from the tool's fails: {result.returncode} {result.stderr[-200:]}")
+
 if failures:
     print(f"{failures} failed")
     sys.exit(1)

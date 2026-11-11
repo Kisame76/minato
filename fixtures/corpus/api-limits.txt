@@ -1,0 +1,186 @@
+# The API types that stay missing, and why (tools/api-coverage.py --limits): `<qualified type> <group> <reason id>`.
+# Only what cannot exist on an iPhone or is a stated non-goal; a type an app can reasonably call is a task, not here.
+# The reasons are repeated in docs/COMPATIBILITY.md, "Limits that stay".
+
+# reason apache-http: the legacy Apache HTTP client's classes, removed from Android's API in 6.0: not a goal
+# reason carrier-network: the virtual carrier network (VCN): a carrier- and system-only API
+# reason device-admin: device administration, enterprise and recovery: only a device owner or the system uses it
+# reason gnss-raw: raw GNSS measurements and location setting injection: iOS gives apps no raw satellite data
+# reason print-hardware: the print framework's services and jobs: iOS prints through AirPrint, not through these classes
+# reason secure-hardware: trusted UI, the secure element (OMAPI) and identity credentials: hardware iOS gives no app
+# reason system-service: a base class an app implements for the Android system to bind (accessibility, IME, dream, ...)
+# reason telephony: an iPhone gives an app no telephony stack: calls, SMS, SIM, eSIM, SIP, RTP, carrier and IMS services
+# reason test-only: instrumentation and test automation: runs only under an instrumentation
+# reason tv-platform: Android TV platform services and views (TV input, ads, interactive apps): an iPhone is no TV
+# reason wifi-hardware: Wi-Fi Aware, RTT, Passpoint, Wi-Fi Direct discovery, Easy Connect, Wi-Fi setup: no iOS API
+
+org.apache.http.conn.ConnectTimeoutException not fetched apache-http
+org.apache.http.conn.scheme.HostNameResolver not fetched apache-http
+org.apache.http.conn.scheme.LayeredSocketFactory not fetched apache-http
+org.apache.http.conn.scheme.SocketFactory not fetched apache-http
+org.apache.http.conn.ssl.AbstractVerifier not fetched apache-http
+org.apache.http.conn.ssl.AllowAllHostnameVerifier not fetched apache-http
+org.apache.http.conn.ssl.BrowserCompatHostnameVerifier not fetched apache-http
+org.apache.http.conn.ssl.SSLSocketFactory not fetched apache-http
+org.apache.http.conn.ssl.StrictHostnameVerifier not fetched apache-http
+org.apache.http.conn.ssl.X509HostnameVerifier not fetched apache-http
+org.apache.http.params.CoreConnectionPNames not fetched apache-http
+org.apache.http.params.HttpConnectionParams not fetched apache-http
+org.apache.http.params.HttpParams not fetched apache-http
+android.net.vcn.VcnCellUnderlyingNetworkTemplate module carrier-network
+android.net.vcn.VcnConfig module carrier-network
+android.net.vcn.VcnGatewayConnectionConfig module carrier-network
+android.net.vcn.VcnManager service carrier-network
+android.net.vcn.VcnWifiUnderlyingNetworkTemplate module carrier-network
+android.app.admin.DeviceAdminService service device-admin
+android.app.admin.DevicePolicyResourcesManager service device-admin
+android.app.admin.SecurityLog native device-admin
+android.os.RecoverySystem service device-admin
+android.service.persistentdata.PersistentDataBlockManager service device-admin
+android.location.GnssMeasurement module api gnss-raw
+android.location.SettingInjectorService module api gnss-raw
+android.print.PrintJobInfo module print-hardware
+android.print.PrinterInfo module print-hardware
+android.printservice.CustomPrinterIconCallback service print-hardware
+android.printservice.PrintDocument service print-hardware
+android.printservice.PrintJob service print-hardware
+android.printservice.PrintService service print-hardware
+android.printservice.PrinterDiscoverySession service print-hardware
+android.se.omapi.Channel service secure-hardware
+android.se.omapi.Reader service secure-hardware
+android.se.omapi.SEService service secure-hardware
+android.se.omapi.Session service secure-hardware
+android.security.ConfirmationPrompt module secure-hardware
+android.security.identity.IdentityCredentialStore module secure-hardware
+android.accessibilityservice.AccessibilityButtonController service system-service
+android.accessibilityservice.AccessibilityService service system-service
+android.accessibilityservice.BrailleDisplayController service system-service
+android.accessibilityservice.FingerprintGestureController service system-service
+android.accessibilityservice.InputMethod service system-service
+android.accessibilityservice.TouchInteractionController service system-service
+android.app.slice.SliceProvider service system-service
+android.companion.CompanionDeviceService service system-service
+android.content.AbstractThreadedSyncAdapter service system-service
+android.content.SyncContext service system-service
+android.inputmethodservice.AbstractInputMethodService module system-service
+android.inputmethodservice.InputMethodService module system-service
+android.media.MediaRoute2ProviderService service system-service
+android.media.midi.MidiDeviceService service system-service
+android.media.midi.MidiUmpDeviceService service system-service
+android.service.autofill.AutofillService service system-service
+android.service.autofill.FillCallback service system-service
+android.service.autofill.SaveCallback service system-service
+android.service.chooser.ChooserTargetService service system-service
+android.service.controls.ControlsProviderService service system-service
+android.service.credentials.CredentialProviderService service system-service
+android.service.dreams.DreamService service system-service
+android.service.notification.ConditionProviderService service system-service
+android.service.notification.NotificationListenerService service system-service
+android.service.quickaccesswallet.QuickAccessWalletService service system-service
+android.service.textservice.SpellCheckerService service system-service
+android.service.voice.VoiceInteractionService module system-service
+android.service.voice.VoiceInteractionSession service system-service
+android.service.voice.VoiceInteractionSessionService service system-service
+android.service.vr.VrListenerService service system-service
+android.service.wallpaper.WallpaperService module system-service
+android.speech.RecognitionService module system-service
+android.speech.tts.TextToSpeechService service system-service
+android.view.inputmethod.InlineSuggestion service system-service
+android.view.inputmethod.InputMethod module system-service
+android.view.inputmethod.InputMethodSession service system-service
+android.widget.RemoteViewsService service system-service
+android.net.rtp.AudioCodec not fetched telephony
+android.net.rtp.AudioGroup not fetched telephony
+android.net.rtp.AudioStream not fetched telephony
+android.net.rtp.RtpStream not fetched telephony
+android.net.sip.SipAudioCall not fetched telephony
+android.net.sip.SipErrorCode not fetched telephony
+android.net.sip.SipException not fetched telephony
+android.net.sip.SipManager not fetched telephony
+android.net.sip.SipProfile not fetched telephony
+android.net.sip.SipRegistrationListener not fetched telephony
+android.net.sip.SipSession not fetched telephony
+android.service.carrier.CarrierIdentifier module telephony
+android.service.carrier.CarrierMessagingClientService service telephony
+android.service.carrier.CarrierMessagingService service telephony
+android.service.carrier.CarrierService module telephony
+android.telecom.Call service telephony
+android.telecom.CallControl service telephony
+android.telecom.CallEventCallback service telephony
+android.telecom.CallRedirectionService service telephony
+android.telecom.CallScreeningService service telephony
+android.telecom.Connection service telephony
+android.telecom.ConnectionService module telephony
+android.telecom.DisconnectCause module telephony
+android.telecom.InCallService service telephony
+android.telecom.RemoteConference service telephony
+android.telecom.RemoteConnection service telephony
+android.telephony.DataFailCause module telephony
+android.telephony.MbmsDownloadSession service telephony
+android.telephony.MbmsGroupCallSession service telephony
+android.telephony.MbmsStreamingSession service telephony
+android.telephony.NetworkRegistrationInfo module telephony
+android.telephony.PhysicalChannelConfig module telephony
+android.telephony.SmsManager module telephony
+android.telephony.SmsMessage module telephony
+android.telephony.SubscriptionPlan module telephony
+android.telephony.data.ApnSetting module telephony
+android.telephony.emergency.EmergencyNumber module telephony
+android.telephony.euicc.DownloadableSubscription module telephony
+android.telephony.euicc.EuiccManager module telephony
+android.telephony.gsm.SmsManager not fetched telephony
+android.telephony.gsm.SmsMessage not fetched telephony
+android.telephony.ims.stub.ImsRegistrationImplBase service telephony
+android.telephony.mbms.GroupCall service telephony
+android.telephony.mbms.StreamingService service telephony
+android.app.UiAutomation native test-only
+android.media.tv.TvContract service tv-platform
+android.media.tv.TvInputInfo module tv-platform
+android.media.tv.TvInputService module tv-platform
+android.media.tv.TvRecordingClient service tv-platform
+android.media.tv.TvView service tv-platform
+android.media.tv.ad.TvAdManager native tv-platform
+android.media.tv.ad.TvAdService service tv-platform
+android.media.tv.ad.TvAdView service tv-platform
+android.media.tv.interactive.TvInteractiveAppManager native tv-platform
+android.media.tv.interactive.TvInteractiveAppService service tv-platform
+android.media.tv.interactive.TvInteractiveAppView service tv-platform
+android.net.wifi.EasyConnectStatusCallback module api wifi-hardware
+android.net.wifi.MloLink module api wifi-hardware
+android.net.wifi.WifiAvailableChannel module api wifi-hardware
+android.net.wifi.WifiEnterpriseConfig module api wifi-hardware
+android.net.wifi.aware.AttachCallback module api wifi-hardware
+android.net.wifi.aware.AwarePairingConfig module api wifi-hardware
+android.net.wifi.aware.AwareResources module api wifi-hardware
+android.net.wifi.aware.Characteristics module api wifi-hardware
+android.net.wifi.aware.DiscoverySession module api wifi-hardware
+android.net.wifi.aware.DiscoverySessionCallback module api wifi-hardware
+android.net.wifi.aware.IdentityChangedListener module api wifi-hardware
+android.net.wifi.aware.ParcelablePeerHandle module api wifi-hardware
+android.net.wifi.aware.PeerHandle module api wifi-hardware
+android.net.wifi.aware.PublishConfig module api wifi-hardware
+android.net.wifi.aware.PublishDiscoverySession module api wifi-hardware
+android.net.wifi.aware.ServiceDiscoveryInfo module api wifi-hardware
+android.net.wifi.aware.SubscribeConfig module api wifi-hardware
+android.net.wifi.aware.SubscribeDiscoverySession module api wifi-hardware
+android.net.wifi.aware.WifiAwareChannelInfo module api wifi-hardware
+android.net.wifi.aware.WifiAwareDataPathSecurityConfig module api wifi-hardware
+android.net.wifi.aware.WifiAwareManager module api wifi-hardware
+android.net.wifi.aware.WifiAwareNetworkInfo module api wifi-hardware
+android.net.wifi.aware.WifiAwareNetworkSpecifier module api wifi-hardware
+android.net.wifi.aware.WifiAwareSession module api wifi-hardware
+android.net.wifi.hotspot2.ConfigParser module api wifi-hardware
+android.net.wifi.hotspot2.omadm.PpsMoParser module api wifi-hardware
+android.net.wifi.hotspot2.pps.Credential module api wifi-hardware
+android.net.wifi.hotspot2.pps.HomeSp module api wifi-hardware
+android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo module api wifi-hardware
+android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest module api wifi-hardware
+android.net.wifi.p2p.nsd.WifiP2pUpnpServiceInfo module api wifi-hardware
+android.net.wifi.p2p.nsd.WifiP2pUpnpServiceRequest module api wifi-hardware
+android.net.wifi.rtt.CivicLocationKeys module api wifi-hardware
+android.net.wifi.rtt.RangingRequest module api wifi-hardware
+android.net.wifi.rtt.RangingResult module api wifi-hardware
+android.net.wifi.rtt.RangingResultCallback module api wifi-hardware
+android.net.wifi.rtt.ResponderConfig module api wifi-hardware
+android.net.wifi.rtt.ResponderLocation module api wifi-hardware
+android.net.wifi.rtt.WifiRttManager module api wifi-hardware

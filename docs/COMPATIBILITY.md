@@ -274,3 +274,11 @@ signatures. A crash names its cause when the app returns to the library.
   gets the touch and then a cancel, as on Android when the system takes a gesture; back in Minato, its menu
   waits over the app.
 - Signed code only: every native library must be converted and signed at import, which takes time once per version.
+
+**Android API types that stay missing** (fixtures/corpus/api-limits.txt, checked by `tools/api-coverage.py --limits`,
+which counts the rest as "unexplained missing"): `telephony` (calls, SMS, SIM, SIP, RTP, carrier and IMS services),
+`system-service` (base classes an app implements for the system to bind: accessibility, input methods, dreams,
+wallpapers, notification listeners), `device-admin`, `print-hardware`, `wifi-hardware` (Wi-Fi Aware, ranging,
+Passpoint, Wi-Fi Direct discovery), `carrier-network` (VCN), `gnss-raw`, `secure-hardware` (trusted UI, the secure
+element, identity credentials), `tv-platform`, `test-only` (UiAutomation) and `apache-http` (the legacy HTTP client).
+Every other missing type is a task, not a limit.
