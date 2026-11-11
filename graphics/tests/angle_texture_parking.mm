@@ -25,7 +25,8 @@
 // 128 MiB more, not the ~1 GiB of packed copies (the iPhone's malloc climb, 983 to 1813 MiB in 15 min). They live in
 // a file the kernel may evict and read back: a third round restores every frame from it, bit for bit. --store-full
 // lets the file grow to 64 MiB only (RLIMIT_FSIZE): the writes past it fail, those copies stay in host memory, and
-// every frame still comes back bit for bit.
+// every frame still comes back bit for bit. Patch 0024: in --store the file is written about only the copies that
+// stay (the LZFSE repacks); each park's LZ4 copy is held in host memory until then, at most 128 MiB.
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -515,6 +516,18 @@ int main(int argc, char **argv) {
                 check(field(store_line, "ffail") > 0.0, "the full park file refused copies (ffail)");
                 check(field(store_line, "file") <= static_cast<double>(kStoreFullFile / kMiB),
                       "the park file stays within its limit");
+            }
+            if (!store_full) {
+                // Patch 0024: the file gets the copies that stay (the LZFSE repacks), not each park's LZ4 copy a
+                // second before (0021 wrote 1676 MiB for 465 MiB here); the LZ4 copies held meanwhile stay under the
+                // 128 MiB cap.
+                check(field(store_line, "fwrite") <= field(store_line, "file") * 1.25,
+                      "the park file is written the copies that stay, not each LZ4 copy too (fwrite " +
+                          std::to_string(field(store_line, "fwrite")) + " MiB for " +
+                          std::to_string(field(store_line, "file")) + " MiB)");
+                check(field(store_line, "hpeak") >= 0.0 && field(store_line, "hpeak") <= 128.0,
+                      "the LZ4 copies held until their repack stay under 128 MiB (hpeak " +
+                          std::to_string(field(store_line, "hpeak")) + ")");
             }
             check(store_full || held <= on_gpu + static_cast<double>(kStoreSlack / kMiB),
                   "the packed copies are not in the footprint (" + std::to_string(held) + " MiB held, " +

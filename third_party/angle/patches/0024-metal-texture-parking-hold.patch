@@ -1,0 +1,299 @@
+Texture parking holds each LZ4 copy in host memory until its repack, so the park file gets the copies that stay
+(Minato, patch 0024).
+
+Why: 0021 wrote every park's LZ4 copy into the park file at once, and a second later the LZFSE repack wrote the copy
+that stays: about 70 % of the bytes written were LZ4 copies that lived about a second, and a texture deleted or used
+again within that second was written for nothing. One load of a visual novel on the iPhone wrote ~8 GB of flash,
+almost all of it textures the game parked and deleted unused. Now the pack keeps its LZ4 copy in host memory while
+the held copies stay under 128 MiB and the process is neither in the emergency band nor in a memory warning's second;
+the repack writes only the LZFSE copy, reading the LZ4 copy from memory. A repack that saves nothing writes the LZ4
+copy as it is. In the emergency band or a warning's second nothing is held and the held copies go to the file at once
+(a plain write, up to 4 at a time); past the cap a pack writes as before. MINATO_ANGLE_PARK_HOLD=0 turns it off.
+ANGLEMetalParkingLine appends " hold=<MiB> hpeak=<MiB>".
+Test: graphics/tests/angle_texture_parking.mm --store (fwrite at most the file's bytes + 25 %: 1676 -> 479 MiB for
+465 MiB; hpeak at most 128 MiB; the footprint and bit-for-bit checks unchanged).
+Upstream: no (Minato's memory policy).
+
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.h
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -92,6 +92,9 @@
+     uint64_t fileOffset = kNotInFile;
+     size_t fileSize     = 0;
+     std::vector<PackedChunk> chunks;
++    // Patch 0024: the bytes of |packed| held in host memory until the repack writes the copy that stays (0 when the
++    // copy is in the file, or in host memory only because the file could not take it).
++    size_t held = 0;
+ 
+     // Second pass: LZFSE for textures that stay parked.
+     std::atomic<int> repackState{0};  // 0 none, 1 running, 2 done, 3 failed, 4 taken
+@@ -99,6 +102,7 @@
+     uint64_t repackedOffset = kNotInFile;
+     size_t repackedSize     = 0;
+     std::vector<PackedChunk> repackedChunks;
++    ParkCodec repackedCodec = ParkCodec::LZFSE;
+ 
+     // Context-thread bookkeeping: what this job still counts in TextureParking.
+     bool countsPacking   = false;
+@@ -166,7 +170,7 @@
+     // Bytes the process may still allocate before the limit, or 0 when unknown (no parking then).
+     uint64_t availableBytes();
+     void dispatchPack(std::shared_ptr<ParkJob> job);
+-    void dispatchRepack(std::shared_ptr<ParkJob> job);
++    void dispatchRepack(std::shared_ptr<ParkJob> job, bool spill);
+     // Releases what a job no longer needs: its worker slot, its readback buffer.
+     void settle(ParkJob *job);
+     // Moves the owner's jobs on: starts packs, takes packed ones (dropping the GPU storage), aborts used ones.
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -82,6 +82,12 @@
+ // up with an engine that cycles a few hundred frames.
+ constexpr int kRepackWorkers      = 2;
+ constexpr uint64_t kRepackAfterMs = 1000;
++// Patch 0024: the LZ4 copy is held in host memory until its repack writes the copy that stays, so that a texture
++// deleted or used again within that second never reaches the flash (one load of a visual novel wrote ~8 GB, almost
++// all of it LZ4 copies of textures it deleted unused). At most this much is held, and nothing in the emergency band
++// or a warning's second, where the held copies go to the file at once, up to this many at a time.
++constexpr size_t kHoldCap     = 128 * kMiB;
++constexpr int kSpillWorkers   = 4;
+ // A pack must save at least an eighth, or the texture stays on the GPU (and is not tried again for 10 s).
+ constexpr size_t kMinSavingShift = 3;
+ constexpr uint64_t kRetryAfterMs = 10000;
+@@ -101,6 +107,48 @@
+ constexpr uint64_t kFileBlock   = 16 * 1024;
+ constexpr uint64_t kFileMinFree = 2048 * kMiB;
+ 
++// The held copies' bytes, the most held, and whether a pack may hold (the context thread's last tick says so).
++std::atomic<size_t> gHeldBytes{0};
++std::atomic<size_t> gHeldPeak{0};
++std::atomic<bool> gHoldOpen{true};
++
++bool HoldEnabled()
++{
++    static const bool enabled = [] {
++        const char *hold = getenv("MINATO_ANGLE_PARK_HOLD");
++        return hold == nullptr || strcmp(hold, "0") != 0;
++    }();
++    return enabled;
++}
++
++// Counts |bytes| as held when they fit under the cap and holding is open.
++bool Hold(size_t bytes)
++{
++    if (!HoldEnabled() || !gHoldOpen.load(std::memory_order_relaxed))
++    {
++        return false;
++    }
++    size_t held = gHeldBytes.load(std::memory_order_relaxed);
++    do
++    {
++        if (held + bytes > kHoldCap)
++        {
++            return false;
++        }
++    } while (!gHeldBytes.compare_exchange_weak(held, held + bytes, std::memory_order_relaxed));
++    size_t peak = gHeldPeak.load(std::memory_order_relaxed);
++    while (peak < held + bytes &&
++           !gHeldPeak.compare_exchange_weak(peak, held + bytes, std::memory_order_relaxed))
++    {
++    }
++    return true;
++}
++
++void Unhold(size_t bytes)
++{
++    gHeldBytes.fetch_sub(bytes, std::memory_order_relaxed);
++}
++
+ class ParkFile
+ {
+   public:
+@@ -349,7 +397,8 @@
+ constexpr size_t kChunkBytes = 1024 * 1024;
+ 
+ // Packs |size| bytes as independent chunks into the park file (|fileOffset|) or else |out|; fails when the result
+-// would not save an eighth.
++// would not save an eighth. With |held|, the bytes stay in |out| while they fit under the hold cap (patch 0024), and
++// |held| says how many are held.
+ bool Encode(const uint8_t *source,
+             size_t size,
+             ParkCodec codec,
+@@ -357,7 +406,8 @@
+             std::vector<uint8_t> *out,
+             uint64_t *fileOffset,
+             size_t *fileSize,
+-            std::vector<PackedChunk> *chunks)
++            std::vector<PackedChunk> *chunks,
++            size_t *held = nullptr)
+ {
+     // The stress mode parks whatever it can, even when packing does not save anything.
+     const size_t limit = anySaving ? size + size / 2 + 4096 : size - (size >> kMinSavingShift);
+@@ -384,8 +434,15 @@
+         written += chunk.packedSize;
+         parts.push_back(chunk);
+     }
+-    if (ParkFile::Get().store(buffer.data(), written, fileOffset))
++    if (held != nullptr && Hold(written))
+     {
++        *held       = written;
++        *fileOffset = ParkJob::kNotInFile;
++        *fileSize   = 0;
++        out->assign(buffer.data(), buffer.data() + written);
++    }
++    else if (ParkFile::Get().store(buffer.data(), written, fileOffset))
++    {
+         *fileSize = written;
+         out->clear();
+     }
+@@ -449,12 +506,33 @@
+     uint8_t *bytes = static_cast<uint8_t *>([job->readback->get() contents]);
+     FilterUp(bytes, job->levels);
+     const bool packed = Encode(bytes, job->rawSize, ParkCodec::LZ4, job->stress, &job->packed, &job->fileOffset,
+-                               &job->fileSize, &job->chunks);
++                               &job->fileSize, &job->chunks, &job->held);
+     job->state.store(packed ? ParkJob::Packed : ParkJob::Failed, std::memory_order_release);
+ }
+ 
+-void Repack(ParkJob *job)
++// The held LZ4 copy into the park file as it is (patch 0024): the emergency band's spill, or a repack that saved
++// nothing. False when the file cannot take it.
++bool StoreHeld(ParkJob *job)
+ {
++    if (!ParkFile::Get().store(job->packed.data(), job->packed.size(), &job->repackedOffset))
++    {
++        job->repackedOffset = ParkJob::kNotInFile;
++        return false;
++    }
++    job->repackedSize   = job->packed.size();
++    job->repackedChunks = job->chunks;
++    job->repackedCodec  = ParkCodec::LZ4;
++    return true;
++}
++
++void Repack(ParkJob *job, bool spill)
++{
++    if (spill)
++    {
++        job->repackState.store(StoreHeld(job) ? 2 : 3, std::memory_order_release);
++        return;
++    }
++    job->repackedCodec = ParkCodec::LZFSE;
+     PageBuffer raw(job->rawSize);
+     const bool encoded = raw.data() != nullptr && Decode(*job, raw.data(), /*parallel=*/false) &&
+                          Encode(raw.data(), job->rawSize, ParkCodec::LZFSE, false, &job->repacked,
+@@ -466,6 +544,13 @@
+         ParkFile::Get().release(job->repackedOffset, job->repackedSize);
+         job->repackedOffset = ParkJob::kNotInFile;
+     }
++    if (!ok && job->held != 0)
++    {
++        // LZFSE saved nothing: the held LZ4 copy is the one that stays, in the file.
++        job->repacked.clear();
++        job->repackState.store(StoreHeld(job) ? 2 : 3, std::memory_order_release);
++        return;
++    }
+     job->repackState.store(ok ? 2 : 3, std::memory_order_release);
+ }
+ 
+@@ -499,6 +584,10 @@
+ 
+ ParkJob::~ParkJob()
+ {
++    if (held != 0)
++    {
++        Unhold(held);
++    }
+     if (fileOffset != kNotInFile)
+     {
+         ParkFile::Get().release(fileOffset, fileSize);
+@@ -644,13 +733,13 @@
+     });
+ }
+ 
+-void TextureParking::dispatchRepack(std::shared_ptr<ParkJob> job)
++void TextureParking::dispatchRepack(std::shared_ptr<ParkJob> job, bool spill)
+ {
+     job->repackState.store(1, std::memory_order_relaxed);
+     job->countsRepacking = true;
+     mRepacking += 1;
+-    dispatch_async(RepackQueue(), ^{
+-      Repack(job.get());
++    dispatch_async(spill ? PackQueue() : RepackQueue(), ^{
++      Repack(job.get(), spill);
+     });
+ }
+ 
+@@ -715,6 +804,12 @@
+         {
+             settle(job.get());
+             const int repack = job->repackState.load(std::memory_order_acquire);
++            if ((repack == 2 || repack == 3) && job->held != 0)
++            {
++                // The held copy is in the file now, or stays in host memory as 0021's fallback: no longer held.
++                Unhold(job->held);
++                job->held = 0;
++            }
+             if (repack == 2)
+             {
+                 if (job->fileOffset != ParkJob::kNotInFile)
+@@ -729,14 +824,19 @@
+                 job->repackedSize   = 0;
+                 job->repacked       = std::vector<uint8_t>();
+                 job->repackedChunks = std::vector<PackedChunk>();
+-                job->codec    = ParkCodec::LZFSE;
+-                mRepacks += 1;
++                job->codec    = job->repackedCodec;
++                mRepacks += job->codec == ParkCodec::LZFSE ? 1 : 0;
+                 job->repackState.store(4, std::memory_order_relaxed);
+             }
++            else if (repack == 0 && job->held != 0 && !gHoldOpen.load(std::memory_order_relaxed) &&
++                     mRepacking < kSpillWorkers)
++            {
++                dispatchRepack(job, /*spill=*/true);
++            }
+             else if (repack == 0 && job->codec == ParkCodec::LZ4 && mRepacking < kRepackWorkers &&
+                      now - job->parkedAtMs >= kRepackAfterMs)
+             {
+-                dispatchRepack(job);
++                dispatchRepack(job, /*spill=*/false);
+             }
+             continue;
+         }
+@@ -858,6 +958,8 @@
+     // memory shows it).
+     const bool emergency = available < kEmergencyBelow || warned;
+     const uint64_t idle  = emergency ? kEmergencyIdleMs : kIdleMs;
++    // Patch 0024: no holds in the emergency band or a warning's second; the next advance spills the held copies.
++    gHoldOpen.store(!emergency, std::memory_order_relaxed);
+     // Readbacks count toward the footprint until packed: in the emergency band a quarter of what is left. In the
+     // stall band they are packed within this frame end, so a fixed budget lets parking go on even at the limit.
+     const size_t cap = available < kStallBelow ? kStallBudget
+@@ -1079,7 +1181,7 @@
+         buffer, size,
+         "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
+         "restore_p50=%.1f restore_p99=%.1f lzfse=%llu avail_min=%llu avail_last=%llu present_p50=%.1f "
+-        "present_p99=%.1f unkept=%llu file=%llu fwrite=%llu ffail=%llu warn=%llu",
++        "present_p99=%.1f unkept=%llu file=%llu fwrite=%llu ffail=%llu warn=%llu hold=%llu hpeak=%llu",
+         static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
+         static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
+         static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
+@@ -1089,7 +1191,9 @@
+         at(presents, 0.5), at(presents, 0.99), static_cast<unsigned long long>(mUnkept),
+         static_cast<unsigned long long>(fileBytes / kMiB), static_cast<unsigned long long>(fileWritten / kMiB),
+         static_cast<unsigned long long>(fileFails),
+-        static_cast<unsigned long long>(mWarnings.load(std::memory_order_relaxed)));
++        static_cast<unsigned long long>(mWarnings.load(std::memory_order_relaxed)),
++        static_cast<unsigned long long>(gHeldBytes.load(std::memory_order_relaxed) / kMiB),
++        static_cast<unsigned long long>(gHeldPeak.load(std::memory_order_relaxed) / kMiB));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 
+@@ -1101,7 +1205,8 @@
+ // least and the last memory the process could still allocate at a frame end (0 when unknown), the time between the
+ // last 512 presents, and how many packed copies of restored textures went under pressure; patch 0021 appends
+ // " file=<MiB> fwrite=<MiB> ffail=<n>": what the park file holds, what was written into it and how often it could
+-// not take a copy. Returns the length, or 0 when it does not fit.
++// not take a copy; patch 0024 appends " hold=<MiB> hpeak=<MiB>": the LZ4 copies held in host memory until their
++// repack, now and at the most. Returns the length, or 0 when it does not fit.
+ // An iOS memory warning, from any thread: parking acts as in the emergency band for a second (patch 0022).
+ extern "C" ANGLE_EXPORT void ANGLEMetalMemoryWarning()
+ {
