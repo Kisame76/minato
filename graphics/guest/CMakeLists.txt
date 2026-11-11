@@ -255,7 +255,7 @@ target_link_libraries(gles-thunk-test PRIVATE EGL dl)
 target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
 set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
 foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test gles_profile_test
-    present_limit_test)
+    present_limit_test gles_resume_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")

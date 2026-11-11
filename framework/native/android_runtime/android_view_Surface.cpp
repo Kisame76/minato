@@ -22,6 +22,7 @@
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
 
+#include <cstdlib>
 #include <mutex>
 #include <unordered_map>
 
@@ -363,6 +364,13 @@ const JNINativeMethod gWindowSurfaceMethods[] = {
 
 }  // namespace
 
+// A failure-only diagnostic of the window return path (ADR-0043 c3), off unless MINATO_SURFACE_DIAG is set, so
+// byte-exact test runs and release builds print nothing.
+bool surface_return_diag() {
+    static const bool on = std::getenv("MINATO_SURFACE_DIAG") != nullptr;
+    return on;
+}
+
 ANativeWindow *minato_surface_window(JNIEnv *env, jobject surface) {
     if (surface == nullptr || !env->IsInstanceOf(surface, gSurfaceClassInfo.clazz)) {
         return nullptr;
@@ -405,7 +413,12 @@ int register_android_view_Surface(JNIEnv *env) {
 // For libandroid's ANativeWindow_fromSurface: the window of a Java Surface, acquired for the caller; null for a
 // released Surface or another object.
 extern "C" ANativeWindow *minato_ANativeWindow_fromSurface(JNIEnv *env, jobject surface) {
-    return android::minato_surface_window(env, surface);
+    ANativeWindow *window = android::minato_surface_window(env, surface);
+    if (window == nullptr && android::surface_return_diag()) {
+        ALOGW("surface return: ANativeWindow_fromSurface got no window (the Surface is null, not a Surface, or "
+              "released)");
+    }
+    return window;
 }
 
 // For libandroid's ANativeWindow_toSurface: a new Java Surface of the window, holding a reference of its own, as

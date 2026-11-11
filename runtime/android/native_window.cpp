@@ -618,6 +618,34 @@ int minato_ANativeWindow_attachAndQueue(ANativeWindow* window, AHardwareBuffer* 
     return queue_slot(queue, found, *settings);
 }
 
+// A failure-only diagnostic of the window return path (ADR-0043 c3), off unless MINATO_SURFACE_DIAG is set, so
+// byte-exact test runs and release builds print nothing. When on, it names the call that fails when an app cannot
+// make its window surface again after a return: the host no longer knows the window, or a producer connect is
+// refused because another producer (the CPU, a decoder) still holds it.
+static bool surface_diag() {
+    // No guarded static: this library links no C++ runtime. Two threads reading the environment at once agree.
+    static int on = -1;
+    if (on < 0) on = getenv("MINATO_SURFACE_DIAG") != nullptr ? 1 : 0;
+    return on > 0;
+}
+
+static void diagnose_producer_connect(uint64_t id, bool host_window, int result, const char* reason) {
+    if (!surface_diag()) return;
+    if (host_window) {
+        int32_t now[2];
+        if (syscall(APKRT_NR_WINDOW_SIZE, id, now) != 0) {
+            __android_log_print(ANDROID_LOG_WARN, "apkrt",
+                                "surface return: the host no longer knows window %llu at producer connect",
+                                (unsigned long long)id);
+        }
+    }
+    if (result != 0 && reason != nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, "apkrt",
+                            "surface return: producer connect refused for window %llu (%s)",
+                            (unsigned long long)id, reason);
+    }
+}
+
 int minato_ANativeWindow_connect(ANativeWindow* window, int32_t maxDequeued, minato_BufferQueue_released released,
                                  void* context) {
     if (!is_window(window) || window->queue == nullptr || maxDequeued < 1) return -EINVAL;
@@ -705,15 +733,20 @@ int minato_ANativeWindow_connectProducer(ANativeWindow* window) {
     if (window->queue == nullptr) {
         pthread_mutex_lock(&window->lock);
         int result;
+        const char* reason;
         if (window->cpu_connected) {
             result = -EINVAL;  // the CPU holds it (libgui's connect of a second API fails, "already connected")
+            reason = "the CPU producer holds it, EGL_BAD_ALLOC";
         } else if (window->claimed) {
             result = -EBUSY;  // a decoder's
+            reason = "a decoder claims it";
         } else {
             window->producers++;
             result = 0;
+            reason = nullptr;
         }
         pthread_mutex_unlock(&window->lock);
+        diagnose_producer_connect(window->id, true, result, reason);
         return result;
     }
     // A queue window counts its producers too (ADR-0058 c), refused while the CPU holds it or a decoder claims it.
@@ -722,15 +755,20 @@ int minato_ANativeWindow_connectProducer(ANativeWindow* window) {
     pthread_mutex_unlock(&window->queue->lock);
     pthread_mutex_lock(&window->lock);
     int result;
+    const char* reason;
     if (window->cpu_connected) {
         result = -EINVAL;
+        reason = "the CPU producer holds it, EGL_BAD_ALLOC";
     } else if (claimed) {
         result = -EBUSY;
+        reason = "a decoder claims it";
     } else {
         window->producers++;
         result = 0;
+        reason = nullptr;
     }
     pthread_mutex_unlock(&window->lock);
+    diagnose_producer_connect(window->id, false, result, reason);
     return result;
 }
 

@@ -1,0 +1,284 @@
+/* graphics.gles_resume: SDL 2's Android surface order on a return, as an SDL game (e.g. a Ren'Py title) drives it
+   through SDL_androidevents.c and SDL_android.c, reproduced deterministically on ANGLE's macOS slice with
+   graphics-run's window and test control (test_control.h).
+
+   The roles, as SDL runs them:
+   - R, the render thread, holds the GL context current on the window surface and is busy drawing and swapping. It
+     backs the context up (eglMakeCurrent with no surface and no context) when told to pause, and restores it on the
+     return.
+   - the UI thread (main here) plays Android's: it takes the window away, pauses, destroys the surface while R is
+     still busy (R has not backed up), goes to the background, then on the return gives a NEW window (a removed one
+     never returns), makes the new surface and lets R restore.
+
+   The order the host keeps (apkrt.h, "The order the app keeps"), followed exactly, three returns in a row:
+     1. the window is removed first: it is gone, so R's next swap fails at once with EGL_BAD_NATIVE_WINDOW;
+     2. the lifecycle events, each answered within 1.5 s: onPause -> nativePause; then SDL's onNativeSurfaceDestroyed
+        waits a bounded time for R to back the context up. R is busy and does not, so the wait times out and the UI
+        thread calls eglDestroySurface while the surface is STILL current on R;
+     3. the session goes to the background (BACKGROUND 1); R's backup -- eglMakeCurrent with nothing -- flushes the
+        command buffer and parks in the window's commit gate until the foreground, under ANGLE's one EGL lock;
+     4. the return is BACKGROUND 0 and a NEW window; the UI thread makes S2 = eglCreateWindowSurface on it (as SDL's
+        onNativeSurfaceChanged does, synchronously, before mIsSurfaceReady), then R restores onto S2.
+
+   On the Mac this is green: the serialization cannot leave the surface empty at the restore, so R restores onto S2,
+   glGenTextures writes, the clear reads back and the swap presents. The device's result -- one unchanged name for
+   every texture, zero swaps, eglGetError 0x300D -- happens only when eglCreateWindowSurface(S2) itself FAILS on the
+   return (a stale or not-yet-registered window id, or a producer already on the new window); SDL resumes anyway and
+   the restore silently makes nothing current. So the fixture's assertion is on the return's create: S2 is a real
+   surface and eglGetError is EGL_SUCCESS, the context's old textures are still valid, a fresh glGenTextures binds, a
+   known clear reads back, and the swap is EGL_TRUE. The create's result and error are logged every return, so a red
+   run on the iPhone shows the cause on its own line.
+
+   With MINATO_RESUME_DIAG set (the iPhone run; not the Mac check, whose output is byte-compared) the host's memory
+   line (MINATO_TEST_GRAPHICS_LINE) prints depth=<n> on stderr before the background, after the backup released,
+   after the first return and after the third, and the backup and restore durations are printed too, for the
+   surface/layer/depth leak. */
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
+#include <android/native_window.h>
+#include <dlfcn.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "test_control.h"
+
+enum { width = 64, height = 48, kept_textures = 3, returns = 3 };
+
+/* The sentinel a name holds before glGenTextures: if the call writes nothing (no context current) it stays, which
+   is how the device showed "one unchanged name for every texture". */
+#define UNWRITTEN 0xABCDu
+
+static EGLDisplay display;
+static EGLConfig config;
+static EGLContext context;
+static int diag;  /* MINATO_RESUME_DIAG: the iPhone run's extra, non-deterministic lines on stderr */
+
+/* data->egl_surface in SDL: the surface R restores onto; the UI thread sets it on each return. */
+static _Atomic(EGLSurface) egl_surface;
+
+/* The hand-off: to_render is written only by the UI thread, from_render only by R, so neither races the other. */
+enum { TR_PAUSE = 1, TR_BACKUP, TR_RESUME, TR_DONE };
+enum { FR_RAN = 1, FR_GONE, FR_BACKED_UP, FR_RESTORED };
+static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
+static int to_render, from_render;
+static atomic_int entering_backup;
+
+static GLuint kept[kept_textures];
+static int create_ok[returns], gl_ok[returns];
+static EGLBoolean swapped[returns];
+static double backup_ms, restore_ms;
+
+static void tell(int value) {
+    pthread_mutex_lock(&m);
+    to_render = value;
+    pthread_cond_broadcast(&cv);
+    pthread_mutex_unlock(&m);
+}
+static void report(int value) {
+    pthread_mutex_lock(&m);
+    from_render = value;
+    pthread_cond_broadcast(&cv);
+    pthread_mutex_unlock(&m);
+}
+static void await_to(int value) {
+    pthread_mutex_lock(&m);
+    while (to_render != value) {
+        pthread_cond_wait(&cv, &m);
+    }
+    pthread_mutex_unlock(&m);
+}
+static void await_from(int value) {
+    pthread_mutex_lock(&m);
+    while (from_render != value) {
+        pthread_cond_wait(&cv, &m);
+    }
+    pthread_mutex_unlock(&m);
+}
+static double now_ms(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1000000.0;
+}
+static const char *ok(EGLBoolean value) { return value == EGL_TRUE ? "EGL_TRUE" : "EGL_FALSE"; }
+static const char *yn(int value) { return value ? "yes" : "no"; }
+
+/* R: owns the context across all returns, draws, backs up on each pause and restores on each return. */
+static void *render_thread(void *argument) {
+    EGLSurface surface = (EGLSurface)argument;
+    eglMakeCurrent(display, surface, surface, context);
+    glGenTextures(kept_textures, kept);
+    for (int i = 0; i < kept_textures; i++) {
+        glBindTexture(GL_TEXTURE_2D, kept[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    }
+
+    for (int r = 0; r < returns; r++) {
+        glClear(GL_COLOR_BUFFER_BIT);
+        eglSwapBuffers(display, surface);
+        report(FR_RAN);
+
+        /* The window went while R is busy. R's next swap meets the gone window. */
+        await_to(TR_PAUSE);
+        const EGLBoolean swap = eglSwapBuffers(display, surface);
+        const EGLint error = eglGetError();
+        printf("return %d R: swap after the window went: %s, error %s\n", r + 1, ok(swap),
+               error == EGL_BAD_NATIVE_WINDOW ? "EGL_BAD_NATIVE_WINDOW" : "another");
+        report(FR_GONE);
+
+        /* The UI thread has destroyed the surface and gone to the background; only now does R back up. */
+        await_to(TR_BACKUP);
+        atomic_store(&entering_backup, 1);
+        const double at = now_ms();
+        const EGLBoolean backed = eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (r == 0) {
+            backup_ms = now_ms() - at;
+        }
+        printf("return %d R: backup eglMakeCurrent(none): %s\n", r + 1, ok(backed));
+        report(FR_BACKED_UP);
+
+        /* The restore, after the UI thread made S2 (the real order: the create is done before the resume). */
+        await_to(TR_RESUME);
+        surface = atomic_load(&egl_surface);
+        const double restore_at = now_ms();
+        const EGLBoolean restored = eglMakeCurrent(display, surface, surface,
+                                                   surface != EGL_NO_SURFACE ? context : EGL_NO_CONTEXT);
+        if (r == 0) {
+            restore_ms = now_ms() - restore_at;
+        }
+        GLuint fresh = UNWRITTEN;
+        GLubyte pixel[4] = {0, 0, 0, 0};
+        if (surface != EGL_NO_SURFACE) {
+            glGenTextures(1, &fresh);
+            glBindTexture(GL_TEXTURE_2D, fresh);
+            glClearColor(0.0f, 1.0f, 0.0f, 1.0f);  /* pure green: exact in 8 bits, so the read-back is deterministic */
+            glClear(GL_COLOR_BUFFER_BIT);
+            glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+            swapped[r] = eglSwapBuffers(display, surface);
+        }
+        gl_ok[r] = fresh != UNWRITTEN && glIsTexture(fresh) == GL_TRUE && pixel[0] == 0 && pixel[1] == 255 &&
+                   pixel[2] == 0 && pixel[3] == 255;
+        printf("return %d R: restore eglMakeCurrent(%s): %s, error 0x%x; fresh name written: %s; clear read back "
+               "%u %u %u %u; swap %s\n", r + 1, surface != EGL_NO_SURFACE ? "S2" : "none", ok(restored),
+               eglGetError(), yn(fresh != UNWRITTEN), pixel[0], pixel[1], pixel[2], pixel[3], ok(swapped[r]));
+        report(FR_RESTORED);
+    }
+    await_to(TR_DONE);
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    return NULL;
+}
+
+typedef ANativeWindow *(*create_window)(uint64_t id, int32_t width, int32_t height);
+
+static void graphics_line(void) {
+    if (diag) {
+        minato_test(MINATO_TEST_GRAPHICS_LINE, 0, 0, 0);
+    }
+}
+
+int main(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    diag = getenv("MINATO_RESUME_DIAG") != NULL;
+    create_window create = (create_window)dlsym(dlopen("libnativewindow.so", RTLD_NOW), "minato_ANativeWindow_create");
+
+    display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    eglInitialize(display, NULL, NULL);
+    const EGLint attributes[] = {EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                                 EGL_DEPTH_SIZE, 16, EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE,
+                                 EGL_OPENGL_ES3_BIT, EGL_NONE};
+    EGLint count = 0;
+    eglChooseConfig(display, attributes, &config, 1, &count);
+    const EGLint version[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    context = eglCreateContext(display, config, EGL_NO_CONTEXT, version);
+
+    ANativeWindow *window = create(minato_test(MINATO_TEST_WINDOW, 0, 0, 0), width, height);
+    EGLSurface surface = eglCreateWindowSurface(display, config, window, NULL);
+    pthread_t render;
+    pthread_create(&render, NULL, render_thread, surface);
+
+    for (int r = 0; r < returns; r++) {
+        await_from(FR_RAN);
+        if (r == 0) {
+            graphics_line();  /* depth before the background */
+        }
+        /* 1. The window goes. 2. onPause, then SDL's bounded wait for the backup, which does not come. */
+        printf("return %d UI: window removed (apkrt_window_remove -> %lld); onPause -> nativePause\n", r + 1,
+               (long long)minato_test(MINATO_TEST_REMOVE, 0, 0, 0));
+        tell(TR_PAUSE);
+        await_from(FR_GONE);
+        printf("return %d UI: surfaceDestroyed's wait for the backup timed out (R still busy); eglDestroySurface "
+               "while current on R: %s\n", r + 1, ok(eglDestroySurface(display, surface)));
+
+        /* 3. Into the background; R's backup then parks in the gate until the foreground. The UI thread does not
+           wait for the backup (it cannot finish before the foreground), only for R to have entered it. */
+        minato_test(MINATO_TEST_BACKGROUND, 1, 0, 0);
+        atomic_store(&entering_backup, 0);
+        tell(TR_BACKUP);
+        while (atomic_load(&entering_backup) == 0) {
+            usleep(1000);
+        }
+
+        /* 4. The return: foreground, then a NEW window and S2 made on the UI thread before the resume. */
+        minato_test(MINATO_TEST_BACKGROUND, 0, 0, 0);
+        ANativeWindow_release(window);
+        const uint64_t id = minato_test(MINATO_TEST_ADD_WINDOW, ((uint64_t)width << 32) | (uint64_t)height, 0, 0);
+        window = id != 0 ? create(id, width, height) : NULL;
+        const double make_at = now_ms();
+        surface = window != NULL ? eglCreateWindowSurface(display, config, window, NULL) : EGL_NO_SURFACE;
+        const EGLint make_error = eglGetError();
+        const double make_ms = now_ms() - make_at;
+        create_ok[r] = surface != EGL_NO_SURFACE && make_error == EGL_SUCCESS;
+        atomic_store(&egl_surface, surface);
+        printf("return %d UI: new window %s; eglCreateWindowSurface(S2): %s, error 0x%x\n", r + 1,
+               id != 0 ? "added" : "ABSENT (MINATO_TEST_ADD_WINDOW)",
+               surface != EGL_NO_SURFACE ? "a surface" : "EGL_NO_SURFACE", make_error);
+        await_from(FR_BACKED_UP);
+        graphics_line();  /* depth after the backup released (diag only) */
+        tell(TR_RESUME);
+        await_from(FR_RESTORED);
+        if (r == 0 || r == returns - 1) {
+            graphics_line();  /* depth after the first return and after the third (diag only) */
+        }
+        if (diag) {
+            fprintf(stderr, "resume diag: return %d, S2 made in %.0f ms\n", r + 1, make_ms);
+        }
+    }
+    tell(TR_DONE);
+    pthread_join(render, NULL);
+
+    /* The old context's textures must have outlived all three returns. */
+    eglMakeCurrent(display, surface, surface, context);
+    int kept_ok = 1;
+    for (int i = 0; i < kept_textures; i++) {
+        kept_ok &= glIsTexture(kept[i]) == GL_TRUE;
+    }
+    int created = 1, drew = 1, presented = 1;
+    for (int r = 0; r < returns; r++) {
+        created &= create_ok[r];
+        drew &= gl_ok[r];
+        presented &= swapped[r] == EGL_TRUE;
+    }
+    if (diag) {
+        fprintf(stderr, "resume diag: backup %.0f ms, restore %.0f ms\n", backup_ms, restore_ms);
+    }
+    printf("after three returns: S2 created every return: %s; GL worked every return: %s; presented every return: "
+           "%s; kept textures still valid: %s\n", yn(created), yn(drew), yn(presented), yn(kept_ok));
+    printf("gles resume: %s\n", (created && drew && presented && kept_ok) ? "the context survived every return" :
+           "BROKEN: eglCreateWindowSurface failed on a return, so the restore made nothing current");
+
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (surface != EGL_NO_SURFACE) {
+        eglDestroySurface(display, surface);
+    }
+    eglDestroyContext(display, context);
+    if (window != NULL) {
+        ANativeWindow_release(window);
+    }
+    eglTerminate(display);
+    return (created && drew && presented && kept_ok) ? 0 : 1;
+}

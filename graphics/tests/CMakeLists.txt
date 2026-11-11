@@ -623,6 +623,12 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW_SCRIPT=set:glue")
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
     add_guest_test(gles_drop gles-drop-test gles_drop_test "${gles_system_libraries}" ${with_angle})
+    # ADR-0043 c3: SDL 2's surface order on a return (gles_resume_test.c). The window is removed while the render
+    # thread holds the context current, the surface is destroyed while still current, the session goes to the
+    # background, and on the return a new window and its surface must let the context restore: the old textures stay
+    # valid, a fresh glGenTextures binds and the swap presents. A return whose eglCreateWindowSurface fails is the
+    # break the assertion catches.
+    add_guest_test(gles_resume gles-resume-test gles_resume_test "${gles_system_libraries}" ${with_angle})
     # ADR-0078 decision 4: an app's unpaced EGL presents held to the frame rate limit. It counts swaps a second, so it
     # runs alone.
     add_guest_test(present_limit present-limit-test present_limit_test "${gles_system_libraries}" ${with_angle})
@@ -642,7 +648,7 @@ if(TARGET minato_graphics_host)
       set_tests_properties(graphics.ahb_image_vulkan PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
     endif()
   else()
-    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles1_front gles_gate_vulkan ahb_image
+    foreach(name IN ITEMS gles_front gles_gate gles_glue gles_drop gles_resume gles1_front gles_gate_vulkan ahb_image
         ahb_image_vulkan present_limit)
       add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
         "skipped: no ANGLE in ${APK_ANGLE_DIR}, see tools/build-angle.sh")
@@ -787,7 +793,8 @@ if(TARGET minato_graphics_host)
   # test's GPU work could stall a frame past their limits (graphics.vulkan_live once saw a frame interval of 108 ms
   # in a full run with -j8).
   set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
-    graphics.gles1_front graphics.gles_gate graphics.gles_glue graphics.gles_drop graphics.vulkan_queue
+    graphics.gles1_front graphics.gles_gate graphics.gles_glue graphics.gles_drop graphics.gles_resume
+    graphics.vulkan_queue
     graphics.vulkan_present graphics.vulkan_drop graphics.gles_app
     graphics.gles_translucent graphics.vulkan_app graphics.gles_live graphics.vulkan_live graphics.present_gles
     graphics.present_vulkan graphics.bench graphics.recorder graphics.recorder_class graphics.window_buffers
@@ -814,8 +821,8 @@ else()
       window_trim window_pace window_spare window_background window_hide window_hide_opaque window_buffers_drawables
       vulkan_moltenvk vulkan_queue vulkan_present
       vulkan_drop probe
-      gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_app gles_translucent vulkan_app window_app
-      window_switch window_producers
+      gles_thunk gles_front gles1_front gles_gate gles_glue gles_drop gles_resume gles_app gles_translucent vulkan_app
+      window_app window_switch window_producers
       gles_live vulkan_live present_gles present_vulkan bench recorder recorder_class gles31_app gles_app_vulkan
       gles_live_vulkan gles_gate_vulkan present_limit present_limit_vulkan)
     add_test(NAME graphics.${name} COMMAND ${CMAKE_COMMAND} -E echo
