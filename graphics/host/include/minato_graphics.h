@@ -144,6 +144,11 @@ int minato_graphics_drop_present(uint64_t window, int64_t asked);
    app's FPS unlock is at or above it, decision 2). Returns 0, or -1 for a rate below 0 or above 1000. */
 int minato_graphics_set_frame_rate_limit(int rate);
 
+/* An iOS memory warning, from any thread, for each one (patch 0022): ANGLE's texture parking acts as in its emergency
+   band for a second (it parks textures idle for 33 ms and lets the kept packed copies go on the app's GL thread).
+   Returns 0, or -1 while no ANGLE with the patch is loaded. */
+int minato_graphics_memory_warning(void);
+
 /* ADR-0058 a): graphics/host's hardware buffers (hardware_buffer.m), the memory of the guest's AHardwareBuffers as
    IOSurfaces in the process, which the guest reads and writes at a lock's address: gives them to the runtime
    (apkrt_set_hardware_buffers). minato_graphics_set_providers calls it. Returns 0, or -1 when the runtime refused

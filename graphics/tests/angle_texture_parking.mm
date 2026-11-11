@@ -194,7 +194,7 @@ double percentile(std::vector<double> values, double share) {
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 3) {
         fail("usage: angle-texture-parking <libGLESv2.dylib> [--without-parking | --far-limit | --warning-band | "
-             "--in-use | --store | --store-full]");
+             "--in-use | --store | --store-full | --warning-band-now]");
     }
     if (access(argv[1], F_OK) != 0) {
         std::printf("skipped: %s is not built, see tools/build-angle.sh\n", argv[1]);
@@ -214,6 +214,9 @@ int main(int argc, char **argv) {
         const bool in_use = mode == "--in-use";
         const bool store_full = mode == "--store-full";
         const bool store = mode == "--store" || store_full;
+        // --warning-band-now (patch 0022): the limit far away, so nothing parks, until an iOS memory warning
+        // (ANGLEMetalMemoryWarning) comes: within its second the idle frames park, as in the emergency band.
+        const bool warning_now = mode == "--warning-band-now";
         if (store_full) {
             // A write past the limit fails with EFBIG instead of a signal.
             signal(SIGXFSZ, SIG_IGN);
@@ -222,7 +225,7 @@ int main(int argc, char **argv) {
                 fail("setrlimit RLIMIT_FSIZE");
             }
         }
-        const uint64_t limit = mode == "--without-parking" || far ? (uint64_t{1} << 20) * kMiB
+        const uint64_t limit = mode == "--without-parking" || far || warning_now ? (uint64_t{1} << 20) * kMiB
                                : band                             ? footprint() + 128 * kMiB + kBandHeadroom
                                : in_use                           ? footprint() + 192 * kMiB + kHeadroom
                                                                   : footprint() + 128 * kMiB + kHeadroom;
@@ -450,6 +453,35 @@ int main(int argc, char **argv) {
             check(kept == 0.0 || last >= static_cast<double>(kEmergencyBelow / kMiB),
                   "no packed copy is kept in the emergency band (kept " + std::to_string(kept) + " MiB at " +
                       std::to_string(last) + " MiB available)");
+        }
+        if (warning_now) {
+            void *warn = dlsym(library, "ANGLEMetalMemoryWarning");
+            if (warn == nullptr) {
+                fail("no ANGLEMetalMemoryWarning (patch 0022)");
+            }
+            auto empty_frame = [&] {
+                GL(BindFramebuffer)(GL_FRAMEBUFFER, 0);
+                GL(Clear)(GL_COLOR_BUFFER_BIT);
+                EGL(SwapBuffers)(display, surface);
+                GL(BindFramebuffer)(GL_FRAMEBUFFER, framebuffer);
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            };
+            for (int frame = 0; frame < 10; ++frame) {
+                empty_frame();  // the frames idle past the emergency band's 33 ms
+            }
+            const std::string before = parking_line();
+            reinterpret_cast<void (*)()>(warn)();
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+            while (std::chrono::steady_clock::now() < until) {
+                empty_frame();
+            }
+            const std::string after = parking_line();
+            std::printf("warning: before %s\nwarning: after  %s\n", before.c_str(), after.c_str());
+            check(field(before, "parks") == 0.0, "nothing parks with the limit far away before the warning");
+            check(field(after, "warn") == 1.0, "the line counts the warning (warn=1)");
+            check(field(after, "parks") > 0.0 && field(after, "parks") + field(after, "pending") > 0.0,
+                  "the idle frames park within the warning's second (parks " + std::to_string(field(after, "parks")) +
+                      ")");
         }
         if (mode.empty() || band) {
             // Patch 0018: the line's least available memory is what the footprint left (give or take a sample

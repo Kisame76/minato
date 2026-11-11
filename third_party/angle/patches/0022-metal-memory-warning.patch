@@ -1,0 +1,139 @@
+Texture parking acts on an iOS memory warning (Minato, patch 0022).
+
+Why: parking reacted only to the available memory it reads at its ticks, and iOS warns before that number shows the
+pressure (an app was ended 18 s after its first warning). ANGLEMetalMemoryWarning(), callable from any thread, sets a
+deadline one second ahead (atomics only; the work stays on the app's GL thread): until it, each tick parks as in the
+emergency band whatever the available memory says (textures idle for 33 ms, the in-memory packed copies of restored
+textures go, the restores' staging is finished once). The park line appends " warn=<n>", the warnings seen.
+
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.h
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -151,6 +151,9 @@
+     angle::Result beforeRestore(const gl::Context *context, size_t bytes);
+     // Called at every present of a window, for the counters line's intervals between presents.
+     void notePresent();
++    // An iOS memory warning (ANGLEMetalMemoryWarning, any thread): for a second the GL thread's ticks park as the
++    // emergency band does, whatever the available memory says. Only atomics here; the work stays on the GL thread.
++    void memoryWarning();
+     // A job the texture no longer needs (destroyed, or written after a restore): dropped once no worker uses it.
+     void orphan(std::shared_ptr<ParkJob> job);
+     int line(char *buffer, size_t size);
+@@ -192,6 +195,9 @@
+     uint64_t mRepacks      = 0;
+     // Packed copies of restored textures let go under pressure (at the restore or at a frame end).
+     uint64_t mUnkept       = 0;
++    std::atomic<uint64_t> mWarnedUntilMs{0};  // a memory warning's deadline, 0 for none
++    std::atomic<uint64_t> mWarnings{0};
++    uint64_t mWarningHandled = 0;              // the deadline whose staging was finished
+     // Restore staging encoded since the last wait, and the command buffer of the last.
+     size_t mStagingBytes    = 0;
+     uint64_t mStagingSerial = 0;
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -830,13 +830,18 @@
+         // of any size and idle for any time, so that a whole test suite runs through parks and restores.
+         return parkAll(context, owner, now);
+     }
+-    if (available == 0)
++    const uint64_t warnedUntil = mWarnedUntilMs.load(std::memory_order_relaxed);
++    const bool warned          = now < warnedUntil;
++    if (available == 0 && !warned)
+     {
+         return angle::Result::Continue;
+     }
+-    mAvailableMin  = std::min(mAvailableMin, available);
+-    mAvailableLast = available;
+-    if (available < kStartBelow)
++    if (available != 0)
++    {
++        mAvailableMin  = std::min(mAvailableMin, available);
++        mAvailableLast = available;
++    }
++    if (available < kStartBelow || warned)
+     {
+         mActive = true;
+     }
+@@ -849,7 +854,9 @@
+         return angle::Result::Continue;
+     }
+ 
+-    const bool emergency = available < kEmergencyBelow;
++    // A memory warning: the emergency band's rules for its second (iOS says memory is short before the available
++    // memory shows it).
++    const bool emergency = available < kEmergencyBelow || warned;
+     const uint64_t idle  = emergency ? kEmergencyIdleMs : kIdleMs;
+     // Readbacks count toward the footprint until packed: in the emergency band a quarter of what is left. In the
+     // stall band they are packed within this frame end, so a fixed budget lets parking go on even at the limit.
+@@ -874,7 +881,7 @@
+     {
+         TextureMtl *texture = candidate.second;
+         const size_t bytes  = texture->parkingCandidateBytes(now, idle, kMinBytes);
+-        if (available + expected >= kStopAt)
++        if (!warned && available + expected >= kStopAt)
+         {
+             break;
+         }
+@@ -896,7 +903,17 @@
+         started = true;
+     }
+ 
+-    if (emergency && available + expected < kStopAt)
++    if (warned && warnedUntil != mWarningHandled)
++    {
++        // Once a warning: the restores' staging goes back now, not over the next frames.
++        mWarningHandled = warnedUntil;
++        if (mStagingBytes != 0)
++        {
++            ANGLE_TRY(GetImpl(context)->finishCommandBuffer());
++            mStagingBytes = 0;
++        }
++    }
++    if (emergency && (warned || available + expected < kStopAt))
+     {
+         // Still short: the packed copies of the restored textures that are in use go, which frees host memory at
+         // once, as no texture can be parked for them now.
+@@ -941,6 +958,12 @@
+     return angle::Result::Continue;
+ }
+ 
++void TextureParking::memoryWarning()
++{
++    mWarnedUntilMs.store(NowMs() + 1000, std::memory_order_relaxed);
++    mWarnings.fetch_add(1, std::memory_order_relaxed);
++}
++
+ void TextureParking::notePresent()
+ {
+     std::lock_guard<std::recursive_mutex> lock(mMutex);
+@@ -1056,7 +1079,7 @@
+         buffer, size,
+         "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
+         "restore_p50=%.1f restore_p99=%.1f lzfse=%llu avail_min=%llu avail_last=%llu present_p50=%.1f "
+-        "present_p99=%.1f unkept=%llu file=%llu fwrite=%llu ffail=%llu",
++        "present_p99=%.1f unkept=%llu file=%llu fwrite=%llu ffail=%llu warn=%llu",
+         static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
+         static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
+         static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
+@@ -1065,7 +1088,8 @@
+         static_cast<unsigned long long>(availableMin / kMiB), static_cast<unsigned long long>(mAvailableLast / kMiB),
+         at(presents, 0.5), at(presents, 0.99), static_cast<unsigned long long>(mUnkept),
+         static_cast<unsigned long long>(fileBytes / kMiB), static_cast<unsigned long long>(fileWritten / kMiB),
+-        static_cast<unsigned long long>(fileFails));
++        static_cast<unsigned long long>(fileFails),
++        static_cast<unsigned long long>(mWarnings.load(std::memory_order_relaxed)));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 
+@@ -1078,6 +1102,12 @@
+ // last 512 presents, and how many packed copies of restored textures went under pressure; patch 0021 appends
+ // " file=<MiB> fwrite=<MiB> ffail=<n>": what the park file holds, what was written into it and how often it could
+ // not take a copy. Returns the length, or 0 when it does not fit.
++// An iOS memory warning, from any thread: parking acts as in the emergency band for a second (patch 0022).
++extern "C" ANGLE_EXPORT void ANGLEMetalMemoryWarning()
++{
++    rx::mtl::TextureParking::Get().memoryWarning();
++}
++
+ extern "C" ANGLE_EXPORT int ANGLEMetalParkingLine(char *line, size_t size)
+ {
+     return rx::mtl::TextureParking::Get().line(line, size);

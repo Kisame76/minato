@@ -363,6 +363,16 @@ static void *platform_display_asked(egl_enum platform, void *native, const egl_a
 }
 
 static int (*_Atomic wait_until_scheduled)(double seconds);
+static void (*_Atomic memory_warning)(void);  // ANGLEMetalMemoryWarning (patch 0022), once ANGLE is loaded
+
+int minato_graphics_memory_warning(void) {
+    void (*warn)(void) = atomic_load(&memory_warning);
+    if (warn == NULL) {
+        return -1;
+    }
+    warn();
+    return 0;
+}
 
 static void commit_entered(void) {
     for (;;) {
@@ -386,6 +396,7 @@ static void gates(void *library) {
         set(commit_entered, commit_counted);
     }
     atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
+    atomic_store(&memory_warning, (void (*)(void))dlsym(library, "ANGLEMetalMemoryWarning"));
     if (minato_graphics_angle_vulkan_backend() && !atomic_load(&vulkan_ready)) {
         void (*set_loader)(void *) = (void (*)(void *))dlsym(library, "ANGLEVulkanSetGetInstanceProcAddr");
         void *loader = minato_graphics_angle_vulkan_loader();

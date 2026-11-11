@@ -58,6 +58,19 @@ if(TARGET angle-texture-parking)
   set_tests_properties(graphics.angle_texture_parking_in_use PROPERTIES
     RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:"
     ENVIRONMENT "ASAN_OPTIONS=quarantine_size_mb=0:thread_local_quarantine_size_kb=0;MINATO_ANGLE_PARK_FILE=0")
+  # --store-full: the park file is full (a small RLIMIT_FSIZE): the copies stay in host memory, every frame read back
+  # bit for bit (patch 0021's path for a full disk). --warning-band-now: an iOS memory warning parks the idle frames
+  # within its second with the limit far away (patch 0022).
+  foreach(case IN ITEMS store_full:--store-full warning:--warning-band-now)
+    string(REPLACE ":" ";" parts "${case}")
+    list(GET parts 0 name)
+    list(GET parts 1 flag)
+    add_test(NAME graphics.angle_texture_parking_${name}
+      COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" ${flag})
+    set_tests_properties(graphics.angle_texture_parking_${name} PROPERTIES
+      RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:"
+      ENVIRONMENT "ASAN_OPTIONS=quarantine_size_mb=0:thread_local_quarantine_size_kb=0")
+  endforeach()
   # --store: once every frame is parked, its packed copy is not in the footprint (patch 0021); same quarantine.
   add_test(NAME graphics.angle_texture_parking_store
     COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" --store)
