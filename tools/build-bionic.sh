@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the guest libc (ADR-0021): fetches the pinned AOSP sources if needed, then builds bionic's
 # ld-android.so, libdl.so, libc.so and libm.so with the NDK into build/bionic/lib. The guest's
-# /system gets bionic's time zone file, packed from the Mac's tz database (tools/make-tzdata.py).
+# /system gets bionic's time zone file, packed from the Mac's tz database of the release icu-data's files are pinned
+# for (tools/make-tzdata.py --pin-from), not of whatever release macOS holds today.
 # Usage: tools/build-bionic.sh
 # Optional environment:
 #   ANDROID_NDK  NDK to build with, default: r30 in ~/Library/Android/sdk/ndk
@@ -23,6 +24,6 @@ cmake -S runtime/bionic -B build/bionic -G Ninja \
   -DCMAKE_C_FLAGS="$pfx" -DCMAKE_CXX_FLAGS="$pfx" -DCMAKE_ASM_FLAGS="$pfx" \
   -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build build/bionic "$@"
-python3 tools/make-tzdata.py build/bionic/system/usr/share/zoneinfo/tzdata
+python3 tools/make-tzdata.py build/bionic/system/usr/share/zoneinfo/tzdata --pin-from third_party/sources.json
 # The stamp tools/check-guest-fresh.py compares with the sources: this build finished.
 touch build/bionic/.built

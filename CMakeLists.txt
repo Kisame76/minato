@@ -171,6 +171,10 @@ if(APK_HOST_BUILD)
   # against dex files and jars made in the test (the expected bytes follow ART's hiddenapi tool).
   add_test(NAME tools.hiddenapi_encode
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/hiddenapi_encode_test.py" "${PROJECT_SOURCE_DIR}")
+  # tools/make-tzdata.py --pin-from: bionic's tzdata is packed from the tz release icu-data's files are pinned for (the
+  # Mac's folder of that release, else the active one when equal, else a message with the ways out), with fake roots.
+  add_test(NAME tools.make_tzdata
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/make_tzdata_test.py")
   # tools/fetch-hiddenapi-flags.py's guards: the pin of the hidden API lists is read and checked, the folder must lie
   # outside the repository (no network).
   add_test(NAME tools.fetch_hiddenapi_flags

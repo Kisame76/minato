@@ -130,8 +130,10 @@ Used only to build: the NDK's `glslc` (Apache-2.0), which compiles the scene's s
 ## Time zones
 
 Bionic reads time zones from a file in its own format. At build time, `tools/make-tzdata.py` packs them from the Mac's
-IANA time zone database (`/usr/share/zoneinfo`, public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not
-in the repo.
+IANA time zone database (public domain) into `build/bionic/system/usr/share/zoneinfo/tzdata`; not in the repo. It packs
+the release icu-data's files below are pinned for, from `/var/db/timezone/tz/<release>.*/zoneinfo` when the Mac still
+holds that release beside the active one, else from `/usr/share/zoneinfo` when that is the release, and stops with the
+ways out when neither is.
 
 Android's tzdata module (`com.android.tzdata`) lies in every app build as Android 15 lays it out (the compatibility
 plan's gap 21): `etc/tz/tzdata` and `etc/tz/versioned/8/tzdata` are the file above, with a `tz_version` beside each
