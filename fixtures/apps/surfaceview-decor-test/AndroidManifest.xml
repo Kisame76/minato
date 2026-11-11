@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hypothesis 3 of the black-screen sweep: a SurfaceView over an opaque software decor, two producers. The decor is
+     drawn in software (hardwareAccelerated="false") and the child SurfaceView posts its OWN opaque CPU frame once and
+     stays connected; both the decor around the hole and the SurfaceView's buffer in it must stay shown. The gl twin
+     (surfaceview-decor-test-gl) posts the SurfaceView's frame with GL instead. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.surfaceviewdecor" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:hardwareAccelerated="false">
+    <activity android:name="io.github.kisame76.minato.test.surfaceviewdecor.SoftwareProducerActivity"
+        android:exported="true" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -110,6 +110,7 @@ static const uint64_t spare_ns = 1000000000;
     uint64_t posted;    // the window's post count at its last post, 0 before
     BOOL reading;       // a post's command buffer reads it
     uint32_t readers;   // readbacks that read it (read_back)
+    BOOL hidden_visible;  // the `visible` of shown()/presented()'s hide decision; the dump reads it while hidden
 }
 @end
 
@@ -756,6 +757,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
         }
         minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         write_crc(window_id, buffer->posted, buffer, 0, 0, format, NO, YES);
+        buffer->hidden_visible = visible;  // exact hide-decision visible; the dump marks hidden visible vs transparent
         apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_HIDDEN);
         trace_post(window_id, buffer->posted, "hidden as all transparent", layer, visible);
         return NO;
@@ -788,6 +790,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     write_crc(window_id, buffer->posted, buffer, (int32_t)IOSurfaceGetWidth(buffer->surface),
               (int32_t)IOSurfaceGetHeight(buffer->surface), format, format != format_rgba_8888 || layer.opaque, NO);
     atomic_fetch_sub(&in_flight, 1);
+    buffer->hidden_visible = NO;  // a shown buffer re-arms, so the stored value always reflects the last decision
     apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_SHOWN);
     trace_post(window_id, buffer->posted, "shown", layer, visible);
     return NO;
@@ -807,6 +810,7 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
         if (!layer.hidden) {
             set_hidden(layer, YES);
         }
+        buffer->hidden_visible = visible;  // exact hide-decision visible; the dump marks hidden visible vs transparent
         apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_HIDDEN);
         return NO;
     }
@@ -885,6 +889,7 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     }
     write_crc(window_id, buffer->posted, buffer, width, height, format, NO, NO);
     atomic_fetch_sub(&in_flight, 1);
+    buffer->hidden_visible = NO;  // a shown buffer re-arms, so the stored value always reflects the last decision
     apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_SHOWN);
     return YES;
 }
@@ -1269,9 +1274,11 @@ int minato_graphics_window_dump(const char *folder) {
         }
         IOSurfaceUnlock(buffer->surface, kIOSurfaceLockReadOnly, NULL);
         static const char *const names[] = {"", "RGBA_8888", "RGBX_8888", "", "RGB_565"};
+        const char *shown_state =
+            hidden ? (buffer->hidden_visible ? "hidden visible" : "hidden transparent") : "shown";
         NSString *facts = [NSString stringWithFormat:@"%dx%d %s%s post %llu %s\n%@buffers %@\n", width, height,
                                                      names[format], black ? " on black" : "",
-                                                     [dump[5] unsignedLongLongValue], hidden ? "hidden" : "shown",
+                                                     [dump[5] unsignedLongLongValue], shown_state,
                                                      layer != nil ? placed(layer, order, layers) : @"", dump[6]];
         NSString *base = [NSString stringWithFormat:@"%s/window-%llu", folder, (unsigned long long)window_id];
         if (![pixels writeToFile:[base stringByAppendingString:@".rgba"] atomically:YES] ||

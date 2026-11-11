@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hypothesis 2 of the black-screen sweep: a non-opaque (translucent) main window drawn in software
+     (hardwareAccelerated="false"). The activity fills its window with one OPAQUE colour and posts it once; shown()
+     must keep that opaque fill shown on the non-opaque layer. The transparent twin (translucent-decor-test-transparent)
+     posts a fully transparent frame, the known "nothing to show" case that is hidden as transparent. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.translucentdecor" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:hardwareAccelerated="false">
+    <activity android:name="io.github.kisame76.minato.test.translucentdecor.OpaqueActivity" android:exported="true"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The transparent twin of translucent-decor-test (shared sources): the launcher posts a fully transparent first
+     frame on a translucent software window, the known "nothing to show" case that must be hidden as transparent, not
+     shown as black. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.translucentdecortransparent"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:hardwareAccelerated="false">
+    <activity android:name="io.github.kisame76.minato.test.translucentdecor.TransparentActivity"
+        android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

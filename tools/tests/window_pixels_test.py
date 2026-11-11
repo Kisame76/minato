@@ -4,7 +4,8 @@
     whose pixels in few levels make Paeth's predictor meet its ties;
     one 10 off at a grid point DIFFERS and names the point; a translucent buffer shows its RGB over black; with a
     Display P3 profile the buffer's sRGB is compared as P3 (pure sRGB red as P3's 234 51 35, the known conversion
-    within 1); a hidden window is not compared; a dump of the wrong size is refused; of two windows, each is compared
+    within 1); a hidden window is not compared, one hidden with visible pixels DIFFERS; a dump of the wrong size is
+    refused; of two windows, each is compared
     at its frame's points that no layer covers, a dialog the screen lacks DIFFERS, translucent pixels over another
     window and a window at half opacity are not compared;
   - posts: each window's last post equal to the reference's passes, another CRC or size DIFFERS, hidden posts match
@@ -128,6 +129,12 @@ def main():
               "DIFFERS")
         dump(f"{work}/h", lambda x, y: (0, 0, 0, 0), "12x18 RGBA_8888 post 2 hidden")
         check("hidden", run("screen", f"{work}/h", f"{work}/same.png"), 0, "not compared")
+        dump(f"{work}/ht", lambda x, y: (0, 0, 0, 0), "12x18 RGBA_8888 post 2 hidden transparent")
+        check("hidden as transparent", run("screen", f"{work}/ht", f"{work}/same.png"), 0, "not compared")
+        # A buffer with visible pixels that the hide rule hid is a black screen, not a window to skip.
+        dump(f"{work}/hv", lambda x, y: (60, 60, 60, 255), "12x18 RGBA_8888 post 2 hidden visible")
+        check("a visible buffer hidden", run("screen", f"{work}/hv", f"{work}/same.png"), 1,
+              "a visible buffer was hidden as transparent, not shown: DIFFERS")
         dump(f"{work}/w", lambda x, y: (0, 0, 0, 255), "13x18 RGBA_8888 post 2 shown")
         check("a dump of the wrong size", run("screen", f"{work}/w", f"{work}/same.png"), 2, "bytes for 13x18")
 

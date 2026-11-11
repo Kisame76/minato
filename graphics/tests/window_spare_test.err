@@ -1,6 +1,6 @@
 window host: contents 1: 64 x 48, RGBA_8888, CRC-32 8085e8df
 window host: the layer is hidden
 window host: dumped 1 window; an earlier dump's window-99.txt is gone: yes
-window host: window 1: 64x48 RGBA_8888 post 2 hidden; frame 0 0 64 48 in 64 48 alpha 0; buffers 1, 12288 bytes, CRC-32 8a258aec
+window host: window 1: 64x48 RGBA_8888 post 2 hidden transparent; frame 0 0 64 48 in 64 48 alpha 0; buffers 1, 12288 bytes, CRC-32 8a258aec
 window host: the layer is shown
 window host: contents 2: 64 x 48, RGBA_8888, CRC-32 59729f95

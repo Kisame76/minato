@@ -335,7 +335,13 @@ if [[ -n "${PIXELS:-}" ]]; then
              "window-formats-test io.github.kisame76.minato.test.windowformats" \
              "views-test-landscape io.github.kisame76.minato.test.viewslandscape" \
              "static-window-test io.github.kisame76.minato.test.staticwindow" \
-             "egl-probe-decor-test io.github.kisame76.minato.test.eglprobedecor"; do
+             "egl-probe-decor-test io.github.kisame76.minato.test.eglprobedecor" \
+             "translucent-decor-test io.github.kisame76.minato.test.translucentdecor" \
+             "translucent-decor-test-transparent io.github.kisame76.minato.test.translucentdecortransparent" \
+             "surfaceview-decor-test io.github.kisame76.minato.test.surfaceviewdecor" \
+             "surfaceview-decor-test-gl io.github.kisame76.minato.test.surfaceviewdecorgl" \
+             "dialog-decor-test io.github.kisame76.minato.test.dialogdecor" \
+             "null-background-decor-test io.github.kisame76.minato.test.nullbackgrounddecor"; do
     [[ " ${APPS[*]%% *} " == *" ${app%% *} "* ]] || APPS+=("$app")
   done
   [[ -n "${ONLY// /}" ]] ||

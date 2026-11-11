@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- An opaque, no-action-bar theme with no window background at all: the content view provides every pixel. -->
+  <style name="NoBackground" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <item name="android:windowBackground">@null</item>
+  </style>
+</resources>

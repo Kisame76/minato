@@ -124,7 +124,10 @@ def compare_window(folder, window, image, tolerance):
     width, height, rows, p3 = image
     lines = open(f"{folder}/window-{window}.txt").read().splitlines()
     facts = lines[0].split()
-    if facts[-1] == "hidden":
+    if facts[-2:] == ["hidden", "visible"]:
+        print(f"window {window}: {lines[0]}; a visible buffer was hidden as transparent, not shown: DIFFERS")
+        return True
+    if facts[-1] == "hidden" or facts[-2:] == ["hidden", "transparent"]:
         print(f"window {window}: hidden by the hide rule, not compared")
         return False
     size = re.fullmatch(r"(\d+)x(\d+)", facts[0])
