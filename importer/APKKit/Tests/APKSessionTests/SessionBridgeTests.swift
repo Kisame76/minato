@@ -435,6 +435,21 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.lowMemory)])
     }
 
+    @Test func memoryWarningsAreRateLimitedPerGcMinInterval() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        // A device run forwarded ten warnings in eleven seconds (one per iOS kernel event). AOSP's AppProfiler
+        // passes low memory on at most once per GC_MIN_INTERVAL (60 s), so the guest must get ONE onLowMemory.
+        bridge.handle(.memoryWarning, host: host, now: .seconds(0))
+        for _ in 0 ..< 9 { bridge.handle(.memoryWarning, host: host, now: .seconds(4)) }
+        #expect(host.take() == [.post(.lowMemory)])
+        // Another inside 60 s is dropped; one at/after 60 s passes again.
+        bridge.handle(.memoryWarning, host: host, now: .seconds(59))
+        #expect(host.take() == [])
+        bridge.handle(.memoryWarning, host: host, now: .seconds(61))
+        #expect(host.take() == [.post(.lowMemory)])
+    }
+
     @Test func backgroundBeforeTheStartOnlyTellsTheRuntime() {
         let host = FakeHost()
         var bridge = Self.bridge()

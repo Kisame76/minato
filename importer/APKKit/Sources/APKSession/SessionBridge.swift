@@ -1,4 +1,5 @@
 import APKLibrary
+import Dispatch
 
 /// A window's size in pixels: the layer's bounds × contentsScale (ADR-0032, decision 5).
 public struct PixelSize: Sendable, Equatable {
@@ -380,6 +381,13 @@ public struct SessionBridge: Sendable {
         surfaces.filter { !$0.taken }.map(\.window)
     }
 
+    /// The uptime at which the last onLowMemory was passed to the guest, and the interval AOSP's AppProfiler
+    /// enforces (GC_MIN_INTERVAL = 60 s): iOS posts a memory warning per kernel pressure event, so we pass one on
+    /// at most that often, as AppProfiler.doLowMemReportIfNeededLocked does with lastLowMemory.
+    private var lastLowMemory: Duration?
+    static let lowMemoryInterval: Duration = .seconds(60)
+    public static func monotonicNow() -> Duration { .nanoseconds(Int(clamping: DispatchTime.now().uptimeNanoseconds)) }
+
     public init(lifecycle: Lifecycle) {
         self.lifecycle = lifecycle
     }
@@ -420,7 +428,8 @@ public struct SessionBridge: Sendable {
 
     /// Hands `event` to the lifecycle and its callbacks to the host.
     @discardableResult
-    public mutating func handle(_ event: Lifecycle.Event, host: SessionHost) -> Handled {
+    public mutating func handle(_ event: Lifecycle.Event, host: SessionHost,
+                                now: Duration = SessionBridge.monotonicNow()) -> Handled {
         guard !isBroken else { return Handled() }
         switch event {
         case .background where !isInBackground:
@@ -432,7 +441,7 @@ public struct SessionBridge: Sendable {
         default:
             break
         }
-        return apply(lifecycle.handle(event), host: host, cause: event)
+        return apply(lifecycle.handle(event), host: host, cause: event, now: now)
     }
 
     /// At background, once per trip, even while the lifecycle holds the event back (ADR-0032, decision 6, changed
@@ -646,7 +655,7 @@ public struct SessionBridge: Sendable {
     /// - the surfaces' windows go with the window's, and at onDestroy those made in the background; their gates follow
     ///   the window's (ADR-0043 c4).
     private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost,
-                                cause: Lifecycle.Event) -> Handled {
+                                cause: Lifecycle.Event, now: Duration = SessionBridge.monotonicNow()) -> Handled {
         var handled = Handled()
         let givesUpWindow = callbacks.contains(.onNativeWindowDestroyed)
         var gone: UInt64 = 0
@@ -665,6 +674,12 @@ public struct SessionBridge: Sendable {
                 takeSurfacesAway(host)
             }
             if callback == .onDestroy { takeSurfacesAway(host) }
+            if callback == .onLowMemory {
+                // AOSP rate-limit: pass one onLowMemory on at most every GC_MIN_INTERVAL (60 s), so a storm of iOS
+                // warnings (one per kernel event) becomes one call, as AppProfiler schedules low memory per process.
+                if let last = lastLowMemory, now - last < Self.lowMemoryInterval { continue }
+                lastLowMemory = now
+            }
             for event in sessionEvents(for: callback, gone: gone, host: host) {
                 serial = host.post(event)
                 guard serial != 0 else {
