@@ -8,8 +8,10 @@
 #import <Foundation/Foundation.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include <dlfcn.h>
+#include <objc/message.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "minato_graphics.h"
@@ -208,5 +210,73 @@ __attribute__((constructor)) static void drawable_probe_on_launch(void) {
         run_when_active("drawable probe", ^{
             return minato_drawable_probe(3.0);
         });
+    }
+}
+
+/* ADR-0029 decision 15's probe of Metal in the background: a debug build of the app, launched with
+   MINATO_BACKGROUND_COMMIT_PROBE set, runs background_commit_probe.m's first step at its first activation, its second
+   0.5 s after its next didEnterBackground has returned (on a queue of its own, inside a background task, so iOS lets
+   the process run), and its last at the activation after that, and ends with the last step's result. Without the
+   variable it does nothing. */
+__attribute__((constructor)) static void background_commit_probe_on_launch(void) {
+    if (getenv("MINATO_BACKGROUND_COMMIT_PROBE") == NULL) {
+        return;
+    }
+    @autoreleasepool {
+        NSString *const *active = dlsym(RTLD_DEFAULT, "UIApplicationDidBecomeActiveNotification");
+        NSString *const *background = dlsym(RTLD_DEFAULT, "UIApplicationDidEnterBackgroundNotification");
+        if (active == NULL || background == NULL) {
+            fprintf(stderr, "background commit probe: no UIKit app to wait for\n");
+            fflush(stderr);
+            _exit(1);
+        }
+        static int stage;  // 0 before the first activation, 1 begun, 2 the background step queued
+        [NSNotificationCenter.defaultCenter addObserverForName:*active
+                                                        object:nil
+                                                         queue:nil
+                                                    usingBlock:^(NSNotification *notification) {
+                                                        (void)notification;
+                                                        if (stage == 0) {
+                                                            stage = 1;
+                                                            if (minato_background_commit_probe_begin() != 0) {
+                                                                fflush(stdout);
+                                                                _exit(1);
+                                                            }
+                                                        } else if (stage == 2) {
+                                                            const int status = minato_background_commit_probe_end();
+                                                            fflush(stdout);
+                                                            fflush(stderr);
+                                                            _exit(status);
+                                                        }
+                                                    }];
+        [NSNotificationCenter.defaultCenter
+            addObserverForName:*background
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification *notification) {
+                        (void)notification;
+                        if (stage != 1) {
+                            return;
+                        }
+                        stage = 2;
+                        // UIApplication's background task, through the runtime: graphics/host does not link UIKit.
+                        id application = [NSClassFromString(@"UIApplication")
+                            performSelector:NSSelectorFromString(@"sharedApplication")];
+                        NSUInteger (*begin_task)(id, SEL, void (^)(void)) = (NSUInteger(*)(id, SEL, void (^)(void)))
+                            objc_msgSend;
+                        const NSUInteger task = begin_task(
+                            application, NSSelectorFromString(@"beginBackgroundTaskWithExpirationHandler:"), ^{
+                            });
+                        const uint64_t entered = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2),
+                                       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                                           const double since =
+                                               (double)(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - entered) / 1e9;
+                                           minato_background_commit_probe_background(since);
+                                           void (*end_task)(id, SEL, NSUInteger) =
+                                               (void (*)(id, SEL, NSUInteger))objc_msgSend;
+                                           end_task(application, NSSelectorFromString(@"endBackgroundTask:"), task);
+                                       });
+                    }];
     }
 }

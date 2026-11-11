@@ -863,6 +863,23 @@ if(TARGET minato_graphics_host)
     "drawable probe: 120 Hz, let go at present: 60 frames, ${waits}"
     "drawable probe: 120 Hz, held 3 frames: 60 frames, ${waits}")
   set_tests_properties(graphics.drawable_probe PROPERTIES TIMEOUT 60 PASS_REGULAR_EXPRESSION "${probe_lines}")
+  # ADR-0029 decision 15's probe of Metal in the background: on the Mac, where nothing restricts the GPU, its three
+  # steps one after another, and the counter-case completes.
+  add_executable(graphics-background-commit-probe graphics_background_commit_probe.c)
+  target_link_libraries(graphics-background-commit-probe PRIVATE minato_graphics_host apk_defaults)
+  add_test(NAME graphics.background_commit_probe COMMAND graphics-background-commit-probe)
+  string(CONCAT background_lines
+    "background commit probe: foreground, a command buffer: completed, its result right: yes\n"
+    "background commit probe: foreground, command buffer A made and its fill encoded, not committed\n"
+    "background commit probe: background \\(0.0 s after its notification\\), A encoded on: yes, B made and encoded: "
+    "yes, neither committed\n"
+    "background commit probe: background, a command buffer committed there: completed\n"
+    "background commit probe: foreground again, A committed: completed, its results right: yes; B committed: "
+    "completed, its result right: yes\n"
+    "background commit probe: foreground again, the counter-case's queue: completed, its result right: yes\n"
+    "background commit probe: passed\n")
+  set_tests_properties(graphics.background_commit_probe PROPERTIES TIMEOUT 60
+    PASS_REGULAR_EXPRESSION "${background_lines}")
 else()
   add_test(NAME graphics.drawable_probe COMMAND ${CMAKE_COMMAND} -E echo
     "skipped: graphics/host is left out, see graphics/host/CMakeLists.txt")

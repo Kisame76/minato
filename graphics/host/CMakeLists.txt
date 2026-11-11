@@ -9,7 +9,8 @@ set(APK_GRAPHICS_GEN_DIR "${PROJECT_SOURCE_DIR}/build/graphics/gen" CACHE PATH
 if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_GEN_DIR}/gles_names.inc"
     AND EXISTS "${APK_GRAPHICS_GEN_DIR}/egl_names.inc" AND EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan_metal.h")
   add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m angle_vulkan.m probe.m
-    provoking.m drawable_probe.m layer.m upscale.m window.m hardware_buffer.m image.m video_decoder.m
+    provoking.m drawable_probe.m background_commit_probe.m layer.m upscale.m window.m hardware_buffer.m image.m
+    video_decoder.m
     video_parameters.c media_player.m webview.m network.m camera_model.m camera_rules.c camera_avf.m)
   # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
@@ -31,7 +32,8 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   set_source_files_properties(probe.m PROPERTIES COMPILE_OPTIONS "-fmodules")
   # ADR-0044 a)'s probe and ADR-0041 decision 11 c)'s, which probe.m calls, with ARC: debug builds of the app get them
   # with probe.m.
-  set_source_files_properties(provoking.m drawable_probe.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc")
+  set_source_files_properties(provoking.m drawable_probe.m background_commit_probe.m PROPERTIES
+    COMPILE_OPTIONS "-fmodules;-fobjc-arc")
   # The game view's layer with the benchmark's recorder (ADR-0037, decision 2), with ARC. Its nextDrawable runs on
   # the thread that draws, a guest thread in Minato.
   set_source_files_properties(layer.m PROPERTIES COMPILE_OPTIONS "-fmodules;-fobjc-arc;${on_guest_stacks}")

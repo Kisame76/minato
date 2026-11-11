@@ -76,6 +76,21 @@ unsigned minato_graphics_angle_vulkan_swapchains(void);
    active (probe.m) and exits with its result. */
 int minato_drawable_probe(double seconds);
 
+/* The probe of Metal in the background (ADR-0029, decision 15), host code only, in three steps:
+   - begin, in the foreground: a command buffer that works, then command buffer A made and partly encoded;
+   - background, on any thread once didEnterBackground has returned (`since`: the seconds after it, for its line):
+     A encoded on, command buffer B made and encoded (an upload into a texture), neither committed, and the
+     counter-case, a commit on a queue of its own, with how it ends;
+   - end, in the foreground again: A and B committed in that order, their results checked, the counter-case's queue
+     tried again.
+   Each step prints its line to stdout. begin and end return 0, or 1 when something did not work (end: A's or B's
+   results wrong, or the counter-case's queue broken; the counter-case's own end is information only). A debug build
+   of the app, launched with MINATO_BACKGROUND_COMMIT_PROBE set, runs the steps at its first activation, its next
+   background and its return (probe.m) and exits with end's result. */
+int minato_background_commit_probe_begin(void);
+void minato_background_commit_probe_background(double since);
+int minato_background_commit_probe_end(void);
+
 /* "Scheduled" for Vulkan (ADR-0030, decision 13), from a host thread, which need not be the main thread:
    waits until no call of libvulkan that makes MoltenVK commit is in flight, then commits one empty command
    buffer on each queue of every device libvulkan made and waits until Metal has scheduled them, which it
