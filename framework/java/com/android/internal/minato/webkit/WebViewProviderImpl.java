@@ -262,6 +262,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     }
                     send(new JSONObject().put("call", "make").put("dataStore", dataStore)
                             .put("schemes", schemes).put("settings", mSentSettings), null, 0);
+                    mWebView.postInvalidate();  // a pre-draw places the new view
                     boolean objects;
                     synchronized (mInterfaces) {
                         objects = !mInterfaces.isEmpty();
@@ -305,6 +306,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     .put("javaScript", mSettings.getJavaScriptEnabled())
                     .put("domStorage", mSettings.getDomStorageEnabled())
                     .put("mediaNeedsGesture", mSettings.getMediaPlaybackRequiresUserGesture())
+                    .put("thirdPartyCookies", mSettings.getAcceptThirdPartyCookies())
                     .put("blockNetworkLoads", mSettings.getBlockNetworkLoads())
                     .put("textZoom", mSettings.getTextZoom())
                     .put("wideViewPort", mSettings.getUseWideViewPort());
@@ -1391,10 +1393,12 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public boolean onKeyMultiple(int keyCode, int repeatCount, KeyEvent event) { return false; }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) { return false; }
     @Override public boolean onKeyUp(int keyCode, KeyEvent event) { return false; }
-    /** The host's view is opened here at the latest (a WebView never attached costs no channel), and placed. */
+    /**
+     * The host's view is placed from here on; it is made at the first load (or script), with the client the app has
+     * set by then: a WebView that a running activity's setContentView attaches at once gets its client after that.
+     */
     @Override
     public void onAttachedToWindow() {
-        hostOpen();
         mWebView.getViewTreeObserver().addOnPreDrawListener(mPlacer);
     }
 

@@ -290,7 +290,7 @@ final class CookieManagerImpl extends CookieManager {
                     break;
             }
         }
-        if (cookie.secure && !"https".equalsIgnoreCase(uri.getScheme())) {
+        if (cookie.secure && !trustworthy(uri)) {
             return null;
         }
         if (maxAge != Long.MIN_VALUE) {
@@ -363,7 +363,7 @@ final class CookieManagerImpl extends CookieManager {
             return null;
         }
         String path = uri.getPath() == null || uri.getPath().isEmpty() ? "/" : uri.getPath();
-        boolean secure = "https".equalsIgnoreCase(uri.getScheme()) || "wss".equalsIgnoreCase(uri.getScheme());
+        boolean secure = trustworthy(uri);
         long now = System.currentTimeMillis();
         List<Cookie> matching = new ArrayList<>();
         synchronized (this) {
@@ -462,5 +462,14 @@ final class CookieManagerImpl extends CookieManager {
     @Override protected synchronized boolean allowFileSchemeCookiesImpl() { return mAcceptFileSchemeCookies; }
     @Override protected synchronized void setAcceptFileSchemeCookiesImpl(boolean accept) {
         mAcceptFileSchemeCookies = accept;
+    }
+
+    /** Whether cookies count the URL as secure: https or wss, or the loopback (Chromium's trustworthy origins). */
+    private static boolean trustworthy(Uri uri) {
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        return scheme.equals("https") || scheme.equals("wss") || host.equals("localhost")
+                || host.endsWith(".localhost") || host.equals("127.0.0.1") || host.equals("[::1]")
+                || host.equals("::1");
     }
 }

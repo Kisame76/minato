@@ -1219,6 +1219,11 @@ run_app() {
     webview-redirect-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RedirectActivity
       ;;
+    # webview-cookie-sites-test (ADR-0056): third-party cookies between two sites the app serves itself on its
+    # loopback (127.0.0.1 and localhost), with the WebView's default and with them accepted. It ends with "done".
+    webview-cookie-sites-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SitesActivity
+      ;;
     # network-test (ADR-0054 step d)): the active network, its NetworkInfo and capabilities, and the default network
     # callback's first calls, on the emulator's Wi-Fi: its mobile data, the default network otherwise, is off for the
     # run (mobile_data_off), as a Mac or an iPhone on Wi-Fi has it. It ends with "done".

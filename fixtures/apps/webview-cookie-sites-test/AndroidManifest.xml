@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Third-party cookies (webview-cookie-sites-test, ADR-0056): the app serves two sites itself over http on its
+     loopback, 127.0.0.1 and localhost, so that no network is needed; cleartext to its own server is allowed. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewcookiesites" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+      android:usesCleartextTraffic="true">
+    <activity android:name="io.github.kisame76.minato.test.webviewcookiesites.SitesActivity"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

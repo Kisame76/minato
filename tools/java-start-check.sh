@@ -58,7 +58,8 @@
 # webview-localhost-test (pages the app serves itself over https), webview-prompt-bridge-test (an asset page that
 # calls the app through prompt(); its page sees location.protocol "minato-asset:", a named limit, where Android's
 # sees "file:"), webview-splash-test and webview-redirect-test (redirects from the app's own loopback server over
-# http: on iOS that cleartext goes through App Transport Security).
+# http: on iOS that cleartext goes through App Transport Security) and webview-cookie-sites-test (third-party cookies
+# between two sites of that server).
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
 # performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD
@@ -197,6 +198,7 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "webview-prompt-bridge-test io.github.kisame76.minato.test.webviewprompt"
       "webview-splash-test io.github.kisame76.minato.test.webviewsplash"
       "webview-redirect-test io.github.kisame76.minato.test.webviewredirect"
+      "webview-cookie-sites-test io.github.kisame76.minato.test.webviewcookiesites"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "storage-space-test io.github.kisame76.minato.test.storagespace"
       "network-test io.github.kisame76.minato.test.network"
@@ -2936,6 +2938,7 @@ if wanted webview-prompt-bridge-test; then
 fi
 run_one webview-splash-test io.github.kisame76.minato.test.webviewsplash
 run_one webview-redirect-test io.github.kisame76.minato.test.webviewredirect
+run_one webview-cookie-sites-test io.github.kisame76.minato.test.webviewcookiesites
 # ADR-0043's test 1: views, a TextView and a Button drawn in software. This check plays no touches, so the Button's
 # click comes from the app's performClick, 5 s after its label's change, which its device line names; the Mac's
 # tools/views-check.sh and the AVD tap it.

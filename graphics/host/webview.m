@@ -300,6 +300,7 @@ static NSString *const kErrorPage =
 @property(nonatomic, strong) NSURLRequest *request;  // what it asks for now: the task's, or a redirect's next hop
 @property(nonatomic) BOOL redirected;  // the network's answer was a redirect: the rest of its fetch is dropped
 @property(nonatomic) BOOL cookies;     // the request carries the store's cookies and its answer may set them
+@property(nonatomic) BOOL crossSite;   // a subresource of another site than the page's: SameSite=None cookies alone
 @property(nonatomic, strong) NSData *body;  // the request's body, again for a 307 or 308 hop
 @end
 
@@ -470,12 +471,46 @@ static BOOL web_url(NSURL *url) {
     return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
 }
 
-/// The Cookie header a browser sends to `url` from `cookies` (domain, path, secure, expiry; longer paths first);
-/// nil for none.
-static NSString *cookie_header(NSArray<NSHTTPCookie *> *cookies, NSURL *url) {
+/// Whether cookies count `url` as secure: https, or the loopback (Chromium's potentially trustworthy origins).
+static BOOL trustworthy(NSURL *url) {
+    NSString *host = url.host.lowercaseString;
+    return [url.scheme.lowercaseString isEqualToString:@"https"] || [host isEqualToString:@"localhost"] ||
+           [host hasSuffix:@".localhost"] || [host isEqualToString:@"127.0.0.1"] || [host isEqualToString:@"::1"];
+}
+
+/// The site of `url` for cookies: an IP address or a name without a dot as it is, else its registrable domain, taken
+/// as the last two labels, three under a two-letter country code's co, com, net, org, gov, edu, ac, or, ne or go (a
+/// short list, not the public suffix list: a named limit).
+static NSString *site_of(NSURL *url) {
+    NSString *host = url.host.lowercaseString;
+    if (host == nil) return @"";
+    NSArray<NSString *> *labels = [host componentsSeparatedByString:@"."];
+    const BOOL address = [host containsString:@":"] ||
+                         [host rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:
+                                                                          @"0123456789."].invertedSet]
+                                 .location == NSNotFound;
+    if (address || labels.count < 2) return host;
+    NSUInteger keep = 2;
+    NSString *second = labels[labels.count - 2];
+    if (labels.count > 2 && labels.lastObject.length == 2 &&
+        [@[ @"co", @"com", @"net", @"org", @"gov", @"edu", @"ac", @"or", @"ne", @"go" ] containsObject:second]) {
+        keep = 3;
+    }
+    return [[labels subarrayWithRange:NSMakeRange(labels.count - keep, keep)] componentsJoinedByString:@"."];
+}
+
+/// Whether a cookie may go to or come from another site than the page's: SameSite=None alone (Chromium takes a
+/// cookie without SameSite as Lax).
+static BOOL cross_site_cookie(NSHTTPCookie *cookie) {
+    return [cookie.sameSitePolicy.lowercaseString isEqualToString:@"none"];
+}
+
+/// The Cookie header a browser sends to `url` from `cookies` (domain, path, secure, expiry, and for a request to
+/// another site than the page's SameSite=None alone; longer paths first); nil for none.
+static NSString *cookie_header(NSArray<NSHTTPCookie *> *cookies, NSURL *url, BOOL crossSite) {
     NSString *host = url.host.lowercaseString;
     NSString *path = url.path.length > 0 ? url.path : @"/";
-    const BOOL secure = [url.scheme.lowercaseString isEqualToString:@"https"];
+    const BOOL secure = trustworthy(url);
     NSDate *now = [NSDate date];
     NSMutableArray<NSHTTPCookie *> *matching = [NSMutableArray new];
     for (NSHTTPCookie *cookie in cookies) {
@@ -489,7 +524,10 @@ static NSString *cookie_header(NSArray<NSHTTPCookie *> *cookies, NSURL *url) {
             [path isEqualToString:own] ||
             ([path hasPrefix:own] && ([own hasSuffix:@"/"] || [path characterAtIndex:own.length] == '/'));
         const BOOL expired = cookie.expiresDate != nil && [cookie.expiresDate compare:now] != NSOrderedDescending;
-        if (domainMatches && pathMatches && (secure || !cookie.isSecure) && !expired) [matching addObject:cookie];
+        if (domainMatches && pathMatches && (secure || !cookie.isSecure) && !expired &&
+            (!crossSite || cross_site_cookie(cookie))) {
+            [matching addObject:cookie];
+        }
     }
     if (matching.count == 0) return nil;
     [matching sortWithOptions:NSSortStable
@@ -1512,6 +1550,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     resource.view = self;
     resource.request = task.request;
     resource.cookies = task.request.HTTPShouldHandleCookies;  // WebKit's answer to the request's credentials mode
+    [self sites:resource];
     resource.body = task.request.HTTPBody;
     const BOOL main = task.request.mainDocumentURL == nil || [task.request.mainDocumentURL isEqual:task.request.URL];
     resource.mainFrame = main;
@@ -1644,8 +1683,19 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 // MARK: The network's answers (ADR-0056, note of 2026-11-11)
 
-/// Stores the Set-Cookie of a response of the network that the page gets through the handler, then `then`.
-- (void)storeCookiesOf:(NSDictionary *)headers url:(NSURL *)url then:(void (^)(void))then {
+/// Whether the resource is a subresource of another site than the page's; such a request carries no cookies and
+/// its answer sets none unless the app accepts third-party cookies for the view (CookieManager's
+/// setAcceptThirdPartyCookies, off by default from target SDK 21, as Android's WebView).
+- (void)sites:(MinatoResource *)resource {
+    NSURL *page = resource.task.request.mainDocumentURL;
+    resource.crossSite = !resource.mainFrame && page != nil &&
+                         ![site_of(network_url(page)) isEqualToString:site_of(network_url(resource.request.URL))];
+    if (resource.crossSite && ![self.settings[@"thirdPartyCookies"] boolValue]) resource.cookies = NO;
+}
+
+/// Stores the Set-Cookie of a response of the network that the page gets through the handler, then `then`: for a
+/// request to another site SameSite=None cookies alone, and a secure cookie only from a secure URL.
+- (void)storeCookiesOf:(NSDictionary *)headers url:(NSURL *)url crossSite:(BOOL)crossSite then:(void (^)(void))then {
     NSString *value = nil;
     for (id key in headers) {
         if ([[key description] caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame) {
@@ -1656,6 +1706,20 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
         value != nil && self.cookieStore != nil
             ? [NSHTTPCookie cookiesWithResponseHeaderFields:@{@"Set-Cookie" : value} forURL:network_url(url)]
             : @[];
+    NSMutableArray<NSHTTPCookie *> *kept = [NSMutableArray new];
+    for (NSHTTPCookie *cookie in cookies) {
+        if ((crossSite && !cross_site_cookie(cookie)) || (cookie.isSecure && !trustworthy(network_url(url)))) continue;
+        if (cookie.sameSitePolicy != nil) {
+            [kept addObject:cookie];
+            continue;
+        }
+        // Without SameSite Chromium takes it as Lax; WebKit's store would keep it as none, so it says so itself.
+        NSMutableDictionary *properties = [cookie.properties mutableCopy];
+        properties[NSHTTPCookieSameSitePolicy] = NSHTTPCookieSameSiteLax;
+        NSHTTPCookie *lax = [NSHTTPCookie cookieWithProperties:properties];
+        [kept addObject:lax != nil ? lax : cookie];
+    }
+    cookies = kept;
     if (cookies.count == 0) {
         then();
         return;
@@ -1670,13 +1734,13 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 }
 
 /// The Cookie header of the view's store for `url`, or nil.
-- (void)cookieHeaderFor:(NSURL *)url then:(void (^)(NSString *))then {
+- (void)cookieHeaderFor:(NSURL *)url crossSite:(BOOL)crossSite then:(void (^)(NSString *))then {
     if (self.cookieStore == nil) {
         then(nil);
         return;
     }
     [self.cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
-        then(cookie_header(cookies, url));
+        then(cookie_header(cookies, url, crossSite));
     }];
 }
 
@@ -1692,6 +1756,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     resource.passed = YES;
     const BOOL cookies = resource.cookies;
     [self cookieHeaderFor:request.URL
+                crossSite:resource.crossSite
                      then:^(NSString *cookie) {
                          if (resource.stopped) return;
                          [request setValue:cookies ? cookie : nil forHTTPHeaderField:@"Cookie"];
@@ -1713,6 +1778,7 @@ static BOOL same_origin(NSURL *a, NSURL *b) {
     __weak MinatoWebView *weakSelf = self;
     [self storeCookiesOf:resource.cookies ? response.allHeaderFields : @{}
                      url:response.URL
+               crossSite:resource.crossSite
                     then:^{
                         MinatoWebView *strong = weakSelf;
                         if (strong == nil || resource.stopped) return;
@@ -1778,6 +1844,7 @@ static BOOL same_origin(NSURL *a, NSURL *b) {
     const BOOL cors = [request valueForHTTPHeaderField:@"Origin"] != nil;
     next.cookies = previous.cookies &&
                    (!cors || page == nil || same_origin(network_url(page), network_url(request.URL)));
+    [self sites:next];
     if (cors && !same_origin(network_url(previous.request.URL), network_url(request.URL))) {
         [self ask:next];  // Chromium asks the app again for a CORS request's hop to another origin
         return;
@@ -1860,12 +1927,13 @@ static BOOL same_origin(NSURL *a, NSURL *b) {
     NSDictionary *headers = http != nil ? http.allHeaderFields : @{};
     [view storeCookiesOf:resource.cookies ? headers : @{}
                      url:response.URL
+               crossSite:resource.crossSite
                     then:^{
                         if (resource.stopped) {
                             completion(NSURLSessionResponseCancel);
                             return;
                         }
-                        // At the page's URL: a redirect the fetch followed stays unknown to WebKit (a named limit).
+                        // At the URL WebKit asked for: each hop of a redirect is a request of its own.
                         NSURL *url = resource.request.URL;
                         NSURLResponse *answer =
                             http != nil ? [[NSHTTPURLResponse alloc] initWithURL:url

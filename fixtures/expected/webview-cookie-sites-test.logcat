@@ -1,0 +1,8 @@
+I/webview-cookie-sites-test: round 1 third-party cookies false
+I/webview-cookie-sites-test: round 1 page: image loaded
+I/webview-cookie-sites-test: round 1 cookies of B: first,none
+I/webview-cookie-sites-test: round 2 third-party cookies true
+I/webview-cookie-sites-test: round 2 page: image loaded
+I/webview-cookie-sites-test: round 2 cookies of B: first,none,thirdnone
+I/webview-cookie-sites-test: served [round 1 A/page cookies -, round 1 B/img.png cookies -, round 1 B/visit?again cookies first,none, round 1 B/visit?first cookies -, round 2 A/page cookies -, round 2 B/img.png cookies none, round 2 B/visit?again cookies first,none,thirdnone, round 2 B/visit?first cookies -]
+I/webview-cookie-sites-test: done
