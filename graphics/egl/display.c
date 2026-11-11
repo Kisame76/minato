@@ -23,10 +23,15 @@
      wait (a frame pacer waits for its render thread's fences so), the sync's status is asked between the same
      sleeps, and the flush bit has no context to flush. eglWaitSync and eglWaitSyncKHR answer EGL_TRUE there for a
      sync that exists, as Android's drivers do (no context's commands to hold back), where ANGLE refuses with
-     EGL_BAD_MATCH. */
+     EGL_BAD_MATCH.
+   - eglMakeCurrent goes to ANGLE; a failure is logged (E/libEGL, at most one line a second, the others counted), and
+     so is the first time a context is made current without a draw surface (diagnostics that stay in the build). */
+#include <android/log.h>
 #include <android/native_window.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -43,6 +48,7 @@ MINATO_HOST(eglClientWaitSync);
 MINATO_HOST(eglClientWaitSyncKHR);
 MINATO_HOST(eglWaitSync);
 MINATO_HOST(eglWaitSyncKHR);
+MINATO_HOST(eglMakeCurrent);
 
 static EGLDisplay metal_display(void) {
     static const EGLAttrib metal[] = MINATO_EGL_METAL_DISPLAY;
@@ -384,4 +390,68 @@ EGLint eglWaitSyncKHR(EGLDisplay display, EGLSyncKHR sync, EGLint flags) {
         return eglGetSyncAttribKHR(display, sync, EGL_SYNC_STATUS_KHR, &status);
     }
     return minato_host_eglWaitSyncKHR(display, sync, flags);
+}
+
+/* At most one diagnostic line a second, so that an app failing every frame does not flood the log: the lines in
+   between are counted and the next one says how many went. */
+static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t last_line_ns;
+static unsigned skipped;
+
+static void __attribute__((format(printf, 1, 2))) minato_egl_log(const char *format, ...) {
+    const uint64_t now = now_ns();
+    pthread_mutex_lock(&log_lock);
+    const int write = last_line_ns == 0 || now - last_line_ns >= 1000000000u;
+    const unsigned before = skipped;
+    if (write) {
+        last_line_ns = now;
+        skipped = 0;
+    } else {
+        skipped++;
+    }
+    pthread_mutex_unlock(&log_lock);
+    if (!write) {
+        return;
+    }
+    char line[256];
+    va_list arguments;
+    va_start(arguments, format);
+    vsnprintf(line, sizeof line, format, arguments);
+    va_end(arguments);
+    if (before > 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "libEGL", "%s (%u lines left out before)", line, before);
+    } else {
+        __android_log_write(ANDROID_LOG_ERROR, "libEGL", line);
+    }
+}
+
+/* Whether `context` is made current without a draw surface for the first time (the first 16 contexts). */
+static int first_surfaceless(EGLContext context) {
+    static EGLContext seen[16];
+    static unsigned count;
+    int first = 1;
+    pthread_mutex_lock(&log_lock);
+    for (unsigned index = 0; index < count && first; index++) {
+        first = seen[index] != context;
+    }
+    if (first && count < 16) {
+        seen[count++] = context;
+    } else if (first) {
+        first = 0;
+    }
+    pthread_mutex_unlock(&log_lock);
+    return first;
+}
+
+EGLBoolean eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
+    const EGLBoolean result = minato_host_eglMakeCurrent(display, draw, read, context);
+    if (!result) {
+        minato_egl_log("eglMakeCurrent: failed, error 0x%x (draw %s, context %s)", minato_peek_error(),
+                       draw == EGL_NO_SURFACE ? "none" : minato_window_surface(display, draw) ? "a window" : "another",
+                       context == EGL_NO_CONTEXT ? "none" : "given");
+    } else if (context != EGL_NO_CONTEXT && draw == EGL_NO_SURFACE && first_surfaceless(context)) {
+        __android_log_write(ANDROID_LOG_ERROR, "libEGL",
+                            "eglMakeCurrent: a context without a draw surface (once a context)");
+    }
+    return result;
 }

@@ -1,1 +1,2 @@
 minato graphics: a GL debug message on a host thread, logged instead of calling the app: on a host thread
+E/libEGL  : eglCreateWindowSurface: window 0: no window the host knows, error 0x300b

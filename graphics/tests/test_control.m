@@ -13,6 +13,7 @@
 
 #include "APKRuntime/apkrt.h"
 #include "minato_graphics.h"
+#include "minato_layer.h"
 #include "test_control.h"
 #include "test_host.h"
 
@@ -55,6 +56,36 @@ static uint64_t on_own_thread(uint64_t command, uint64_t a, uint64_t b, uint64_t
     }
     pthread_join(thread, NULL);
     return work.result;
+}
+
+/* A window as the app adds one at a return: a new ID on a new layer, its gate open; the commands' window from now
+ * on. */
+static uint64_t add_window(int32_t width, int32_t height) {
+    uint64_t window = 0;
+    @autoreleasepool {
+        CAMetalLayer *layer = [MinatoMetalLayer layer];
+        layer.contentsScale = 1;
+        layer.bounds = CGRectMake(0, 0, width, height);
+        window = apkrt_window_add((__bridge void *)layer, width, height);
+    }
+    if (window == 0 || apkrt_window_set_gate(window, 1) != 0) {
+        return 0;
+    }
+    minato_test_window = window;
+    return window;
+}
+
+/* ANGLE's memory line on stderr, as the runtime's sampler prints it after each mem line. */
+static uint64_t graphics_line(void) {
+    const char *path = getenv("MINATO_ANGLE");
+    void *angle = path != NULL ? dlopen(path, RTLD_NOW | RTLD_LOCAL | RTLD_FIRST) : NULL;
+    int (*line)(char *, size_t) = angle != NULL ? (int (*)(char *, size_t))dlsym(angle, "ANGLEMetalMemoryLine") : NULL;
+    char text[512];
+    if (line == NULL || line(text, sizeof text) <= 0) {
+        return 0;
+    }
+    fprintf(stderr, "graphics: %s\n", text);
+    return 1;
 }
 
 static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
@@ -105,6 +136,10 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
             return (uint64_t)minato_test_presented_nth(a);
         case MINATO_TEST_FRAME_RATE_LIMIT:
             return minato_graphics_set_frame_rate_limit((int)a) == 0;
+        case MINATO_TEST_ADD_WINDOW:
+            return add_window(a != 0 ? (int32_t)(a >> 32) : 64, a != 0 ? (int32_t)(a & 0xffffffffu) : 48);
+        case MINATO_TEST_GRAPHICS_LINE:
+            return graphics_line();
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);
             return 0;

@@ -1,0 +1,2 @@
+E/libEGL  : eglSwapBuffers: window 1: failed, error 0x300d
+E/libEGL  : eglSwapBuffers: window 1: works again after 1 failed

@@ -68,6 +68,13 @@ static EGLBoolean succeed(void) {
     return EGL_TRUE;
 }
 
+/* Right after a call of ANGLE's that failed: ANGLE's error, which is the last call's, kept for the app's
+ * eglGetError. */
+EGLint minato_peek_error(void) {
+    own_error = minato_host_eglGetError();
+    return own_error;
+}
+
 EGLint eglGetError(void) {
     const EGLint own = own_error;
     if (own != 0) {

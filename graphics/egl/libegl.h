@@ -63,4 +63,8 @@ MINATO_HIDDEN void minato_timestamps_swapped(EGLDisplay display, EGLSurface surf
                                              EGLBoolean swapped);
 MINATO_HIDDEN void minato_timestamps_destroyed(EGLDisplay display, EGLSurface surface);
 
+/* The thread's EGL error for a diagnostic line, left for the app's eglGetError, which still answers it
+   (timestamps.c). */
+MINATO_HIDDEN EGLint minato_peek_error(void);
+
 #endif

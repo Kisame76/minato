@@ -220,7 +220,7 @@ set_source_files_properties("${egl}/image.c" PROPERTIES COMPILE_DEFINITIONS __AN
   COMPILE_OPTIONS -Wno-unguarded-availability)
 target_include_directories(EGL PRIVATE "${egl}" "${gen}" "${repo}/runtime/include")
 # The window (ADR-0028): ANativeWindow's references from the NDK's stub, its private getInfo by dlsym.
-target_link_libraries(EGL PRIVATE minato_bind nativewindow dl)
+target_link_libraries(EGL PRIVATE minato_bind nativewindow dl log)  # a window surface not made says why
 target_link_options(EGL PRIVATE "-Wl,--version-script=${gen}/libEGL.map" -Wl,-Bsymbolic)
 set_target_properties(EGL PROPERTIES LINK_DEPENDS "${gen}/libEGL.map"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

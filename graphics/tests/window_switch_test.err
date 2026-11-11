@@ -1,4 +1,5 @@
 window host: contents 1: 64 x 48, RGBA_8888, CRC-32 478dd1fc
+E/libEGL  : eglCreateWindowSurface: window 1: another producer is connected (another API, the CPU or a decoder), error 0x3003
 window host: the buffers' layer is hidden
 window host: the buffers' layer is shown
 window host: contents 2: 64 x 48, RGBA_8888, CRC-32 3f16f3f3

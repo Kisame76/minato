@@ -12,7 +12,10 @@
    A SurfaceTexture's queue window gets a surface of queue.c's instead (ADR-0058 c)). A window surface is its host
    window's producer from its making to its destroy (ADR-0060 e2c3), as Android's connects: a window another API is
    connected to, the CPU since its first lock or a decoder, gets none (EGL_BAD_ALLOC, as Android's), and the CPU's lock
-   or a decoder's claim of a window with one is refused. */
+   or a decoder's claim of a window with one is refused.
+   A window surface that is not made says why in the log (E/libEGL), as Android's libEGL logs its failed connect: no
+   window the host knows (removed, or not added yet), a window another producer is connected to, or ANGLE's refusal. */
+#include <android/log.h>
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <errno.h>
@@ -62,6 +65,7 @@ struct window_surface {
     struct ANativeWindow *window;
     uint64_t id;
     EGLint width, height;
+    unsigned failed;  // swaps failed since the last one that worked, for the diagnostic lines
 };
 static struct window_surface *surfaces;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -102,6 +106,18 @@ FIXED(fixed_attributes, EGLint)
 FIXED(fixed_attribs, EGLAttrib)
 #undef FIXED
 
+/* Why a window surface was not made, in the log as Android's libEGL logs it. */
+static void not_made(const char *why, uint64_t window, EGLint error) {
+    __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglCreateWindowSurface: window %llu: %s, error 0x%x",
+                        (unsigned long long)window, why, error);
+}
+
+/* The host window's ID of an ANativeWindow, 0 when the host knows none. */
+static uint64_t window_id(struct ANativeWindow *window) {
+    struct minato_window_info info;
+    return window != NULL && window_info(window, &info) == 0 ? info.id : 0;
+}
+
 /* The record of a window surface, made before ANGLE's surface; NULL without memory or for no window. */
 static struct window_surface *prepared(EGLDisplay display, EGLConfig config, struct ANativeWindow *window) {
     struct minato_window_info info;
@@ -110,7 +126,7 @@ static struct window_surface *prepared(EGLDisplay display, EGLConfig config, str
     }
     struct window_surface *record = calloc(1, sizeof *record);
     if (record != NULL) {
-        *record = (struct window_surface){NULL, EGL_NO_SURFACE, display, config, window, info.id, 0, 0};
+        *record = (struct window_surface){NULL, EGL_NO_SURFACE, display, config, window, info.id, 0, 0, 0};
         surface_size(&info, &record->width, &record->height);
     }
     return record;
@@ -119,6 +135,7 @@ static struct window_surface *prepared(EGLDisplay display, EGLConfig config, str
 /* The surface ANGLE made, or none: then the record goes and the window's producer disconnects. */
 static EGLSurface kept(struct window_surface *record, EGLSurface surface) {
     if (surface == EGL_NO_SURFACE) {
+        not_made("ANGLE made no surface", record->id, minato_peek_error());
         minato_window_disconnect(record->window);
         free(record);
         return surface;
@@ -139,7 +156,12 @@ EGLSurface eglCreateWindowSurface(EGLDisplay display, EGLConfig config, EGLNativ
     }
     /* The window first, then its connect, as Android's: a pointer that is no window gets EGL_BAD_NATIVE_WINDOW. */
     struct window_surface *record = prepared(display, config, window);
+    if (record == NULL) {
+        not_made(window_id(window) == 0 ? "no window the host knows" : "no memory", window_id(window),
+                 EGL_BAD_NATIVE_WINDOW);
+    }
     if (record != NULL && minato_window_connect(window) != 0) {
+        not_made("another producer is connected (another API, the CPU or a decoder)", record->id, EGL_BAD_ALLOC);
         free(record);
         minato_bad_alloc(display);  /* Android's connect fails, "already connected to another API" */
         return EGL_NO_SURFACE;
@@ -164,7 +186,12 @@ EGLSurface eglCreatePlatformWindowSurface(EGLDisplay display, EGLConfig config, 
     }
     /* The window first, then its connect, as Android's: a pointer that is no window gets EGL_BAD_NATIVE_WINDOW. */
     struct window_surface *record = prepared(display, config, window);
+    if (record == NULL) {
+        not_made(window_id(window) == 0 ? "no window the host knows" : "no memory", window_id(window),
+                 EGL_BAD_NATIVE_WINDOW);
+    }
     if (record != NULL && minato_window_connect(window) != 0) {
+        not_made("another producer is connected (another API, the CPU or a decoder)", record->id, EGL_BAD_ALLOC);
         free(record);
         minato_bad_alloc(display);  /* Android's connect fails, "already connected to another API" */
         return EGL_NO_SURFACE;
@@ -200,6 +227,10 @@ static void release(EGLDisplay display, EGLSurface surface) {
     minato_timestamps_destroyed(display, surface);
     while (gone != NULL) {
         struct window_surface *next = gone->next;
+        if (gone->failed > 0) {
+            __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglSwapBuffers: window %llu: %u swaps failed until its "
+                                "surface's destroy", (unsigned long long)gone->id, gone->failed);
+        }
         minato_window_disconnect(gone->window);
         ANativeWindow_release(gone->window);
         free(gone);
@@ -292,6 +323,51 @@ static void follow(EGLDisplay display, EGLSurface surface, const struct window_s
     pthread_mutex_unlock(&lock);
 }
 
+/* A window surface's swap for the diagnostic lines: its first failure with the error, then, once one works again, how
+   many failed (a destroy says it otherwise, release), never a line per frame. A window that is gone (decision 15) is
+   the expected end of a surface and stays out. */
+static void noted(EGLSurface surface, const struct window_surface *record, EGLBoolean result) {
+    unsigned failed = 0;
+    pthread_mutex_lock(&lock);
+    for (struct window_surface *entry = surfaces; entry != NULL; entry = entry->next) {
+        if (entry->surface == surface) {
+            failed = result ? entry->failed : ++entry->failed;
+            if (result) {
+                entry->failed = 0;
+            }
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    if (!result && failed == 1) {
+        const EGLint error = minato_peek_error();  // before eglGetCurrentContext, which sets EGL_SUCCESS
+        __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglSwapBuffers: window %llu: failed, error 0x%x%s",
+                            (unsigned long long)record->id, error,
+                            eglGetCurrentContext() == EGL_NO_CONTEXT ? ", no context current on this thread" : "");
+    } else if (result && failed > 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglSwapBuffers: window %llu: works again after %u failed",
+                            (unsigned long long)record->id, failed);
+    }
+}
+
+/* A swap of a surface that is no window surface of libEGL's (EGL_NO_SURFACE, a destroyed one, a pbuffer) failed: its
+   first failure with the error, once per surface handle in a row. */
+static void other_failed(EGLSurface surface) {
+    static EGLSurface last = (EGLSurface)(uintptr_t)1;  // no handle's value
+    static unsigned repeated;
+    const EGLint error = minato_peek_error();
+    pthread_mutex_lock(&lock);
+    const int first = surface != last;
+    const unsigned before = repeated;
+    repeated = first ? 0 : repeated + 1;
+    last = surface;
+    pthread_mutex_unlock(&lock);
+    if (first) {
+        __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglSwapBuffers: %s: failed, error 0x%x%s (%u before on the "
+                            "last surface)", surface == EGL_NO_SURFACE ? "EGL_NO_SURFACE" : "no window surface",
+                            error, eglGetCurrentContext() == EGL_NO_CONTEXT ? ", no context current" : "", before);
+    }
+}
+
 static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
     struct window_surface record;
     EGLBoolean queued;
@@ -299,7 +375,11 @@ static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
         return queued;
     }
     if (!recall(surface, &record)) {
-        return minato_host_eglSwapBuffers(display, surface);
+        const EGLBoolean result = minato_host_eglSwapBuffers(display, surface);
+        if (!result) {
+            other_failed(surface);
+        }
+        return result;
     }
     if (gone(record.id)) {
         minato_bad_native_window(display, record.config);
@@ -311,6 +391,7 @@ static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
     if (result) {
         follow(display, surface, &record);
     }
+    noted(surface, &record, result);
     return result;
 }
 

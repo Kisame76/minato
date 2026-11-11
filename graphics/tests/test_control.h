@@ -42,6 +42,11 @@ enum minato_test_command {
                                    MINATO_TEST_PRESENTED_AT answers for the first; 0 before it */
     MINATO_TEST_FRAME_RATE_LIMIT, /* a: the frame rate limit graphics/host holds presents to (ADR-0078 decision 4),
                                      0 for none: 1 once set (minato_graphics_set_frame_rate_limit), 0 when refused */
+    MINATO_TEST_ADD_WINDOW,     /* a: width << 32 | height in pixels, 0 for 64 x 48: a new window on graphics/host's
+                                   layer, its gate open, as the app adds one at a return (apkrt_window_add); from now
+                                   on the window the other commands act on. Its ID, or 0 */
+    MINATO_TEST_GRAPHICS_LINE,  /* ANGLE's memory line (ANGLEMetalMemoryLine, patch 0015) on stderr as
+                                   "graphics: <line>"; 1 once printed, 0 without the symbol */
 };
 
 #ifndef __APPLE__
