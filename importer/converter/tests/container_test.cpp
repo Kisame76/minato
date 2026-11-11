@@ -1420,6 +1420,34 @@ bool contains(const std::string &text, std::string_view part) {
     return text.find(part) != std::string::npos;
 }
 
+// The refusal names what the library gives for a code/data split: whether there is a .symtab, how many mapping symbols
+// it holds, how many of them mark data ($d) in an executable section, and how many of the refused sites lie inside a $d
+// range (counts only).
+TEST(an_x18_refusal_counts_the_mapping_symbols) {
+    const apk::rewrite::Unsupported use{0x100, "x", 0xd65f0240};
+    const apk::container::X18SiteCounts counts;
+    const std::vector<apk::elf::Section> stripped = {
+        {".text", 1, apk::elf::section_allocated | apk::elf::section_executable, 0x100, 0x100, 0x100, 4}};
+    CHECK(contains(apk::container::x18_refusal(std::span(&use, 1), {}, stripped, counts),
+                   "; no .symtab, 0 mapping symbols, 0 data ranges in executable sections, "
+                   "0 of the 1 refused sites inside a $d range"));
+    auto with_symtab = stripped;
+    with_symtab.push_back({".symtab", apk::elf::section_type_symtab, 0, 0, 0x300, 0x60, 8});
+    const std::vector<apk::elf::Symbol> symbols = {{"$x", 0x100, 0}, {"$d", 0x140, 0}, {"$x.1", 0x180, 0},
+                                                   {"$d.2", 0x1c0, 0}, {"$d.3", 0x400, 0}, {"main", 0x100, 4}};
+    CHECK(contains(apk::container::x18_refusal(std::span(&use, 1), symbols, with_symtab, counts),
+                   "; .symtab, 5 mapping symbols, 2 data ranges in executable sections, "
+                   "0 of the 1 refused sites inside a $d range"));
+    // A refused site between a $d and the next mapping symbol of its section lies in data; one after a $x does not,
+    // and nor does one past the section's end.
+    const apk::rewrite::Unsupported in_data{0x150, "x", 0xd65f0240};
+    const apk::rewrite::Unsupported in_code{0x190, "x", 0xd65f0240};
+    const std::vector<apk::rewrite::Unsupported> uses = {use, in_data, in_code};
+    CHECK(contains(apk::container::x18_refusal(uses, symbols, with_symtab, counts),
+                   "; .symtab, 5 mapping symbols, 2 data ranges in executable sections, "
+                   "1 of the 3 refused sites inside a $d range"));
+}
+
 /// What convert() throws for `builder`, "" when it converts.
 std::string refusal_of(const ElfBuilder &builder) {
     try {
@@ -1428,6 +1456,17 @@ std::string refusal_of(const ElfBuilder &builder) {
         return refusal.what();
     }
     return "";
+}
+
+// An x18 refusal also carries what the library tells without symbols (data_hints.h): its unwind tables, the PC-relative
+// loads of its code and its section layout, counts only.
+TEST(an_x18_refusal_carries_the_hints_that_need_no_symbols) {
+    auto stripped = static_program();
+    stripped.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18, refused
+    const auto text = refusal_of(stripped);
+    CHECK(contains(text, "; unwind: .eh_frame_hdr no, .eh_frame no, 0 FDEs, 1 of the 1 sites outside every FDE; "
+                         "PC-relative loads: 0 of the 1 sites loaded from code; sections: 1 executable, 8 bytes of "
+                         "other sections in executable segments, 1 of the 1 sites in executable sections"));
 }
 
 /// static_program with a RELR table of `entries` words in a third, read-only LOAD segment: the first an address in

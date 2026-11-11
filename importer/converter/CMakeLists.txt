@@ -1,7 +1,8 @@
 # apkconv: turns the ELF files of an APK into container dylibs (ADR-0008, ADR-0010, ADR-0019):
 # ELF reader, rewriter, Mach-O writer and the converter that puts them together.
 add_library(apkconv STATIC src/elf.cpp src/macho.cpp src/a64.cpp src/rewrite.cpp src/container.cpp src/der.cpp
-  src/certificate.cpp src/codesign.cpp src/security_identity.cpp src/pkcs12.cpp src/c_api.cpp)
+  src/certificate.cpp src/codesign.cpp src/security_identity.cpp src/pkcs12.cpp src/c_api.cpp
+  src/data_hints.cpp)
 # The container format is shared with the loader: runtime/include/APKRuntime/container_format.h.
 # capi/ holds the C interface for the app (APKConvert/apkconv.h), packed into build/APKConvert.xcframework.
 target_include_directories(apkconv PUBLIC include capi "${PROJECT_SOURCE_DIR}/runtime/include")
@@ -47,6 +48,10 @@ if(APK_HOST_BUILD)
   add_executable(elf_test tests/elf_test.cpp)
   target_link_libraries(elf_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.elf COMMAND elf_test)
+
+  add_executable(data_hints_test tests/data_hints_test.cpp)
+  target_link_libraries(data_hints_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.data_hints COMMAND data_hints_test "${APK_FIXTURES_DIR}")
 
   # The reference code is assembled by the host toolchain and serves as the oracle for the stubs.
   enable_language(ASM)

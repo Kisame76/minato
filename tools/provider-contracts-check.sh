@@ -14,6 +14,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+tools/test-grants-check.sh
+
 skipped=$(python3 graphics/tests/hwui_ready.py build/hwui/lib build/bionic/system)
 if [[ -n "$skipped" ]]; then echo "$skipped"; exit 0; fi
 

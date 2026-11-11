@@ -110,8 +110,11 @@ struct X18SiteCounts {
 /// then the per-site `counts` (ADR-0020 (b)/(c)). Each address is named with the symbol it sits in (`symbols` from
 /// read_symbols) and its section (`sections`), so an import of a protected library shows which component; a stripped
 /// library names only the section, or nothing.
+/// `hints` is appended as it is: hints::describe's text for the library (its unwind tables, PC-relative loads and
+/// section layout), or empty.
 std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
-                        std::span<const elf::Section> sections, const X18SiteCounts &counts);
+                        std::span<const elf::Section> sections, const X18SiteCounts &counts,
+                        std::string_view hints = {});
 
 /// The [begin, end) of the sized function symbol (`read_symbols`) that contains `address` — the tightest by start —
 /// clamped to the section [base, limit); nullopt when no sized symbol contains it. Option (c) renames x18 across

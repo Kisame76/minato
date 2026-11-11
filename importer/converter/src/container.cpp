@@ -1,4 +1,5 @@
 #include "apkconv/container.h"
+#include "apkconv/data_hints.h"
 
 #include "APKRuntime/container_format.h"
 #include "apkconv/a64.h"
@@ -536,13 +537,51 @@ PageLayout page_layout(const elf::File &file, std::span<const elf::Section> sect
 }
 
 std::string x18_refusal(std::span<const rewrite::Unsupported> uses, std::span<const elf::Symbol> symbols,
-                        std::span<const elf::Section> sections, const X18SiteCounts &counts) {
+                        std::span<const elf::Section> sections, const X18SiteCounts &counts,
+                        std::string_view hints) {
     // The (b)/(c) split, after the reason(s): the only way the counts reach an import on the iPhone, where the
     // library never runs through apk-convert (no user libraries on the Mac).
+    // What the library offers for telling code from data: a .symtab, its mapping symbols ($x code, $d data, with an
+    // optional ".N" suffix) and the $d ranges that start in an executable section. Counts only.
+    const auto is_mapping = [](const elf::Symbol &symbol) {
+        const std::string_view name = symbol.name;
+        return name.size() >= 2 && name[0] == '$' && (name[1] == 'x' || name[1] == 'd') &&
+               (name.size() == 2 || name[2] == '.');
+    };
+    const bool symtab = std::ranges::any_of(sections, [](const elf::Section &section) {
+        return section.type == elf::section_type_symtab;
+    });
+    const auto mapping = std::ranges::count_if(symbols, is_mapping);
+    const auto data_ranges = std::ranges::count_if(symbols, [&](const elf::Symbol &symbol) {
+        return is_mapping(symbol) && symbol.name[1] == 'd' &&
+               std::ranges::any_of(sections, [&](const elf::Section &section) {
+                   return (section.flags & elf::section_executable) != 0 && symbol.value >= section.address &&
+                          symbol.value - section.address < section.size;
+               });
+    });
+    // How many of the refused sites lie in a $d range: after the last mapping symbol before them, within their
+    // section, which is a $d. A library whose refused sites all do is one that data in .text (a literal pool, a
+    // jump table) makes refuse.
+    std::vector<std::pair<std::uint64_t, bool>> marks;  // address, whether it starts data
+    for (const auto &symbol : symbols) {
+        if (is_mapping(symbol)) marks.emplace_back(symbol.value, symbol.name[1] == 'd');
+    }
+    std::ranges::stable_sort(marks, {}, &std::pair<std::uint64_t, bool>::first);
+    const auto sites_in_data = std::ranges::count_if(uses, [&](const rewrite::Unsupported &use) {
+        const auto section = std::ranges::find_if(sections, [&](const elf::Section &candidate) {
+            return (candidate.flags & elf::section_executable) != 0 && use.address >= candidate.address &&
+                   use.address - candidate.address < candidate.size;
+        });
+        const auto after = std::ranges::upper_bound(marks, use.address, {}, &std::pair<std::uint64_t, bool>::first);
+        return section != sections.end() && after != marks.begin() && std::prev(after)->second &&
+               std::prev(after)->first >= section->address;
+    });
     const auto facts = std::format(
         "; of the {}: {} defined in their loop, {} live into it, {} in no window; {} in a function with a free "
-        "register",
-        uses.size(), counts.defined_in_loop, counts.live_in, counts.no_exclusive, counts.with_free_register);
+        "register; {}, {} mapping symbols, {} data ranges in executable sections, {} of the {} refused sites inside "
+        "a $d range{}",
+        uses.size(), counts.defined_in_loop, counts.live_in, counts.no_exclusive, counts.with_free_register,
+        symtab ? ".symtab" : "no .symtab", mapping, data_ranges, sites_in_data, uses.size(), hints);
     // The instruction word and its kind name the exact encoding of a site, for a next import to read.
     const auto word_of = [](const rewrite::Unsupported &use) {
         return std::format(" [word {:#010x}, {}]", use.word, rewrite::instruction_kind(use.word));
@@ -924,8 +963,14 @@ void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite:
         if (std::ranges::find(covered, use.address) == covered.end()) remaining.push_back(use);
     }
     if (remaining.empty()) return;
-    throw Incompatible(x18_refusal(remaining, elf::read_symbols(elf_bytes), layout_sections(elf_bytes),
-                                   x18_site_counts(elf_bytes, findings)));
+    const auto sections = layout_sections(elf_bytes);
+    std::string hints;
+    try {  // what the library tells without symbols; a file the reader refuses just has none
+        hints = hints::describe(hints::data_hints(elf::read(elf_bytes), elf_bytes, sections, remaining));
+    } catch (const std::exception &) {
+    }
+    throw Incompatible(x18_refusal(remaining, elf::read_symbols(elf_bytes), sections,
+                                   x18_site_counts(elf_bytes, findings), hints));
 }
 
 /// A libffi entry the converter redirects (ADR-0072 decision 3 b).
