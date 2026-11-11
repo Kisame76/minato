@@ -31,7 +31,8 @@ struct ELFChecker: Sendable {
         do {
             return try check(elf)
         } catch {
-            log.error("\(elf.lastPathComponent, privacy: .public) could not be checked: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(elf.lastPathComponent) could not be checked: \(error.localizedDescription)")
             throw error
         }
     }

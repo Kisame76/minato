@@ -225,7 +225,7 @@ final class PickPresenter: NSObject {
         }
         if clone == nil {
             let reason = failure?.localizedDescription ?? "no clone"
-            log.error("pick \(id): a file could not be read: \(reason, privacy: .public)")
+            log.error("pick \(id): a file could not be read: \(reason, privacy: .private(mask: .hash))")
         }
         return clone
     }

@@ -93,4 +93,15 @@ import Testing
                                            package: "com.example.chat") == nil)
         #expect(NotificationPost.checkLine(presented: "other.app|a|1", options: [.list], package: package) == nil)
     }
+
+    /// The Debug events of a post, a cancel and a tap name a test app's tag, but never another app's: a tag is the
+    /// app's own text.
+    @Test func theEventsKeyNamesATestAppsTagOnly() {
+        #expect(NotificationPost.checkKey(tag: "chat", id: 7, package: "io.github.kisame76.minato.test.notify")
+            == "chat|7")
+        #expect(NotificationPost.checkKey(tag: "null", id: 8, package: "io.github.kisame76.minato.test.notify")
+            == "null|8")
+        #expect(NotificationPost.checkKey(tag: "order 4711 for Holiday", id: 3, package: "com.example.shop")
+            == "<app>|3")
+    }
 }

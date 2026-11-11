@@ -323,7 +323,7 @@ final class GameSession {
         startingWindow = starting
         startingShownAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let line = "starting window: \(colours.hex) from \(fromCache ? "cache" : "default")"
-        log.info("\(self.entry.id, privacy: .public): \(line, privacy: .public)")
+        log.info("\(self.entry.id, privacy: .private(mask: .hash)): \(line, privacy: .private(mask: .hash))")
         #if DEBUG
         SessionCheck.event(line)
         #endif
@@ -339,7 +339,8 @@ final class GameSession {
         do {
             try StartingWindow.store(colours, mode: startingMode, in: paths.versionDirectory(for: entry))
         } catch {
-            log.error("\(self.entry.id, privacy: .public): the starting window's colours were not kept: \(error)")
+            log.error(
+                "\(self.entry.id): the starting window's colours were not kept: \(error)")
         }
         #if DEBUG
         SessionCheck.event("starting window: \(colours.hex) kept for the next start, \(startingMode.rawValue)")
@@ -356,7 +357,7 @@ final class GameSession {
         startingWindow = nil
         let milliseconds = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - startingShownAt) / 1_000_000
         let line = "starting window: gone at the first frame of window \(window) after \(milliseconds) ms"
-        log.info("\(self.entry.id, privacy: .public): \(line, privacy: .public)")
+        log.info("\(self.entry.id, privacy: .private(mask: .hash)): \(line, privacy: .private(mask: .hash))")
         #if DEBUG
         SessionCheck.event(line)
         #endif
@@ -527,7 +528,8 @@ final class GameSession {
         do {
             try paths.prepareData(for: entry.id)
         } catch {
-            log.error("\(self.entry.id, privacy: .public): its data folders: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(self.entry.id, privacy: .private(mask: .hash)): its data folders: \(error.localizedDescription)")
         }
         let data = paths.dataDirectory(for: entry.id)
         #if BENCHMARK
@@ -645,7 +647,7 @@ final class GameSession {
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
         let parsed = DebugGuestEnvironment.parse(text)
         for entry in parsed.entries {
-            log.notice("guest environment (Debug): \(entry, privacy: .public)")
+            log.notice("guest environment (Debug): \(entry, privacy: .private(mask: .hash))")
             SessionCheck.event("guest environment \(entry)")
         }
         for skipped in parsed.skipped {
@@ -658,7 +660,8 @@ final class GameSession {
 
     /// The guest cannot start: the library tells why at its next start (decision 8).
     private func couldNotStart(_ reason: String) {
-        log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
+        log.error(
+            "\(self.entry.id, privacy: .private(mask: .hash)) cannot start: \(reason, privacy: .private(mask: .hash))")
         #if DEBUG
         SessionCheck.event("could not start \(reason)")
         #endif
@@ -703,14 +706,14 @@ final class GameSession {
                 .write(LaunchRequest(package: entry.id, time: .now, kind: .compile))
         } catch {
             log.error(
-                "\(entry.id, privacy: .public): no compile request: \(error.localizedDescription, privacy: .public)")
+                "\(entry.id, privacy: .private(mask: .hash)): no compile request: \(error.localizedDescription)")
         }
     }
 
     /// The program ended, after onDestroy or by itself (ADR-0032, decision 7): back to the library. A crash
     /// ends the process without this.
     func programEnded(status: Int32) {
-        log.info("\(self.entry.id, privacy: .public) ended with status \(status)")
+        log.info("\(self.entry.id, privacy: .private(mask: .hash)) ended with status \(status)")
         SessionEndReport.ended()
         #if DEBUG
         SessionCheck.event("program ended \(status)")
@@ -976,7 +979,8 @@ final class GameSession {
             SessionCheck.event("layer opaque \(layerIsOpaque ? 1 : 0)")
             #endif
         case .startFailed(let reason):
-            log.error("\(self.entry.id, privacy: .public) cannot start: \(reason, privacy: .public)")
+            log.error(
+                "\(self.entry.id, privacy: .private(mask: .hash)) cannot start: \(reason)")
             startFailure = reason
             SessionEndReport.startFailed(reason)
         case .open(let id, let text):
@@ -1118,7 +1122,7 @@ final class GameSession {
     /// The answer to a pick request (ADR-0057): the number of files the manifest names, nil for a cancel.
     private func pickAnswered(_ id: UInt64, _ picked: Int?) {
         let outcome = picked.map { "\($0) picked" } ?? "cancelled"
-        log.info("\(self.entry.id, privacy: .public): pick \(id) \(outcome, privacy: .public)")
+        log.info("\(self.entry.id, privacy: .private(mask: .hash)): pick \(id) \(outcome, privacy: .public)")
         let wasBroken = bridge.isBroken
         let handled = bridge.pickAnswered(id: id, picked: picked, host: host)
         if !wasBroken, bridge.isBroken { report(handled) }
@@ -1166,7 +1170,8 @@ final class GameSession {
 
     /// The answer to an open request (ADR-0062), which the guest's framework activity finishes with.
     private func openAnswered(_ id: UInt64, _ outcome: OpenOutcome) {
-        log.info("\(self.entry.id, privacy: .public): open \(id) \(String(describing: outcome), privacy: .public)")
+        log.info(
+            "\(self.entry.id): open \(id) \(String(describing: outcome), privacy: .public)")
         let wasBroken = bridge.isBroken
         let handled = bridge.openAnswered(id: id, outcome, host: host)
         if !wasBroken, bridge.isBroken { report(handled) }
@@ -1208,7 +1213,8 @@ final class GameSession {
     /// guest has ended or its channel broke.
     private func report(_ handled: SessionBridge.Handled) {
         for callback in handled.callbacks {
-            log.info("\(self.entry.id, privacy: .public): \(String(describing: callback), privacy: .public)")
+            log.info(
+                "\(self.entry.id, privacy: .private(mask: .hash)): \(String(describing: callback), privacy: .public)")
             #if DEBUG
             SessionCheck.event("callback \(callback)")
             #endif
@@ -1232,7 +1238,7 @@ final class GameSession {
         }
         if let wait = handled.wait { waitForGuest(wait) }
         if bridge.isBroken {
-            log.error("\(self.entry.id, privacy: .public): the session's channel broke")
+            log.error("\(self.entry.id, privacy: .private(mask: .hash)): the session's channel broke")
         }
         if bridge.lifecycle.hasEnded || bridge.isBroken {
             #if BENCHMARK

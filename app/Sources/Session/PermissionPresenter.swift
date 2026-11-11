@@ -113,7 +113,8 @@ final class PermissionPresenter {
         do {
             try desk.records.save(to: file)
         } catch {
-            log.error("the permission records were not saved: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "the permission records were not saved: \(error.localizedDescription, privacy: .private(mask: .hash))")
         }
     }
 

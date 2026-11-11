@@ -125,7 +125,7 @@ final class LocationHost: NSObject, CLLocationManagerDelegate, @unchecked Sendab
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
         MainActor.assumeIsolated {
-            log.info("location failed: \(error.localizedDescription, privacy: .public)")
+            log.info("location failed: \(error.localizedDescription, privacy: .private(mask: .hash))")
             // A continuous run goes on (CoreLocation retries); a single ends with no location.
             guard !updating || (error as? CLError)?.code == .denied else {
                 return

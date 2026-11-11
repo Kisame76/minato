@@ -91,16 +91,19 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
                 Self.checkDelivered(package: package, op: op)
                 #endif
                 guard let error else { return }
-                log.error("notification \(identifier, privacy: .public) failed: \(error.localizedDescription)")
+                // The id only: the identifier carries the app's package, and the tag is the app's own text.
+                log.error("notification \(note.id, privacy: .public) failed: \(error.localizedDescription)")
             }
             #if DEBUG
-            SessionCheck.event("notification posted \(note.tag)|\(note.id) importance \(note.importance)")
+            let key = NotificationPost.checkKey(tag: note.tag, id: note.id, package: package)
+            SessionCheck.event("notification posted \(key) importance \(note.importance)")
             #endif
         case .cancel(let id, let tag):
             let identifier = NotificationPost.identifier(package: package, tag: tag, id: id)
             center.removeDeliveredNotifications(withIdentifiers: [identifier])
             #if DEBUG
-            SessionCheck.event("notification cancelled \(tag)|\(id)")
+            let key = NotificationPost.checkKey(tag: tag, id: id, package: package)
+            SessionCheck.event("notification cancelled \(key)")
             Self.checkDelivered(package: package, op: op)
             #endif
         case .cancelAll:
@@ -223,7 +226,8 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     /// with no session the library starts the app (a cold tap); during another app's session it only brings Minato up.
     @MainActor private static func tapped(_ key: (package: String, id: Int32, tag: String, intent: String?)) {
         #if DEBUG
-        SessionCheck.event("notification tapped \(key.tag)|\(key.id)")
+        let named = NotificationPost.checkKey(tag: key.tag, id: key.id, package: key.package)
+        SessionCheck.event("notification tapped \(named)")
         SessionCheck.event("notification tap state \(SessionCheck.appState) session \(GameSession.current != nil)")
         #endif
         if let session = GameSession.current {

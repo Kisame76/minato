@@ -396,7 +396,7 @@ final class RuntimeSessionHost: SessionHost {
 
     /// The backend's line in the log, and in a Debug build the session's event for tools/session-check.sh.
     private static func note(_ line: String) {
-        log.info("\(line, privacy: .public)")
+        log.info("\(line, privacy: .private(mask: .hash))")
         #if DEBUG
         SessionCheck.event(line)
         #endif

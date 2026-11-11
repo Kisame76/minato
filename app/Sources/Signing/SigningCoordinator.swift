@@ -120,7 +120,7 @@ final class SigningCoordinator {
         try? records.update { $0.pendingExport = request }
         openedStoreThisLaunch = true
         activity = .waitingForStore(store)
-        log.info("Asking \(store.name, privacy: .public) for the certificate")
+        log.info("Asking \(store.name, privacy: .private(mask: .hash)) for the certificate")
         if await !UIApplication.shared.open(request.url) {
             activity = .idle
             problem = .storeMissing(store)
@@ -332,7 +332,8 @@ final class SigningCoordinator {
         activity = .idle
         if case .failure(let failure) = outcome {
             embeddedCertificateFailed = true
-            log.error("The certificate SideStore embedded did not import: \(failure.message, privacy: .public)")
+            log.error(
+                "The certificate SideStore embedded did not import: \(failure.message, privacy: .private(mask: .hash))")
         }
     }
 
@@ -391,7 +392,7 @@ final class SigningCoordinator {
             case .none, .pending: return nil
             }
         } catch {
-            log.error("Cannot sign native code: \(error.localizedDescription, privacy: .public)")
+            log.error("Cannot sign native code: \(error.localizedDescription, privacy: .private(mask: .hash))")
             return nil
         }
     }
@@ -424,7 +425,7 @@ final class SigningCoordinator {
         do {
             converter = SignerConverter(signer: try CodeSigning.signer())
         } catch {
-            log.error("Cannot sign again: \(error.localizedDescription, privacy: .public)")
+            log.error("Cannot sign again: \(error.localizedDescription, privacy: .private(mask: .hash))")
             return
         }
         activity = .resigning

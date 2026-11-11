@@ -122,7 +122,7 @@ enum CertificateImporter {
             record.pendingExport = nil
         }
         let paired = CodeSigning.storedIdentity() != nil ? "keychain identity" : "keychain key and certificate"
-        log.info("Imported certificate \(info.sha256.prefix(12), privacy: .public) from \(source.rawValue, privacy: .public) as \(paired, privacy: .public); \(selfTest.message, privacy: .public)")
+        log.info("Imported certificate \(info.sha256.prefix(12), privacy: .public) from \(source.rawValue, privacy: .public) as \(paired, privacy: .public); \(selfTest.message)")
         return info
     }
 
@@ -138,7 +138,7 @@ enum CertificateImporter {
             outcome = SelfTestRecord(sha256: sha256, passed: false, message: error.localizedDescription, date: now)
         }
         try? records.update { $0.selfTest = outcome }
-        log.info("Self-test: \(outcome.passed ? "passed" : "failed", privacy: .public), \(outcome.message, privacy: .public)")
+        log.info("Self-test: \(outcome.passed ? "passed" : "failed", privacy: .public), \(outcome.message)")
         return outcome
     }
 

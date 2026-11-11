@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         orientations = mask
         // UIKit does not say on which thread the handler runs.
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { @Sendable error in
-            log.error("iOS did not turn the window: \(error.localizedDescription, privacy: .public)")
+            log.error("iOS did not turn the window: \(error.localizedDescription, privacy: .private(mask: .hash))")
             Task { @MainActor in
                 // The orientation it has then stays, also after a return from the background.
                 orientations = switch scene.effectiveGeometry.interfaceOrientation {
@@ -411,7 +411,7 @@ final class SessionLayersView: UIView {
     #if DEBUG
     /// The swipe log of ADR-0032's decision 9: what tools/session-check.sh prints after its rounds by hand.
     private func note(_ line: String) {
-        log.debug("\(line, privacy: .public)")
+        log.debug("\(line, privacy: .private(mask: .hash))")
         SessionCheck.event(line)
     }
     #endif

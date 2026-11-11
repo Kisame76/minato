@@ -211,7 +211,7 @@ final class LibraryModel {
         do {
             try await library.takeCompileWork(bootClassPath: bootClassPath, converter: converter(currentSigner()))
         } catch {
-            log.error("Compiled code not taken: \(error.localizedDescription, privacy: .public)")
+            log.error("Compiled code not taken: \(error.localizedDescription, privacy: .private(mask: .hash))")
         }
         optimizingIDs = []
         entries = await library.entries
@@ -266,7 +266,7 @@ final class LibraryModel {
         entries = await library.entries
         log.info("Checked again: \(summary.checked.count, privacy: .public) apps")
         for failure in summary.failures {
-            log.error("Not checked again: \(failure, privacy: .public)")
+            log.error("Not checked again: \(failure, privacy: .private(mask: .hash))")
         }
     }
 
@@ -279,7 +279,8 @@ final class LibraryModel {
             do {
                 return try String(contentsOf: etc.appending(path: name), encoding: .utf8)
             } catch {
-                log.error("The guest's \(name, privacy: .public) cannot be read: \(error.localizedDescription, privacy: .public)")
+                log.error(
+                    "The guest's \(name, privacy: .private(mask: .hash)) cannot be read: \(error.localizedDescription)")
                 return nil
             }
         }
@@ -289,7 +290,8 @@ final class LibraryModel {
         do {
             try await library.use(exportTable: list("export-table.txt"))
         } catch {
-            log.error("The guest's export table is no table: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "The guest's export table is no table: \(error.localizedDescription, privacy: .private(mask: .hash))")
         }
     }
 
@@ -381,7 +383,8 @@ final class LibraryModel {
             }
             let start = ContinuousClock.now
             _ = try await library.adopt(urls)
-            log.info("Adopted \(names, privacy: .public) in \(ContinuousClock.now - start, privacy: .public)")
+            log.info(
+                "Adopted \(names, privacy: .private(mask: .hash)) in \(ContinuousClock.now - start, privacy: .public)")
         } catch {
             errorMessage = "\(names) could not be added: \(error.localizedDescription)"
         }
@@ -492,9 +495,10 @@ final class LibraryModel {
             try await library?.recordOpened(entry.id)
         } catch {
             let reason = error.localizedDescription
-            log.error("\(entry.id, privacy: .public): its opening was not recorded: \(reason, privacy: .public)")
+            log.error(
+                "\(entry.id, privacy: .private(mask: .hash)): its opening was not recorded: \(reason)")
         }
-        log.info("Starting \(entry.id, privacy: .public)")
+        log.info("Starting \(entry.id, privacy: .private(mask: .hash))")
         Restart.now { [weak self] in self?.restartFailedFor = entry }
     }
 
@@ -538,7 +542,8 @@ final class LibraryModel {
         do {
             try profile.save(for: entry.id, in: paths)
         } catch {
-            log.error("\(entry.id, privacy: .public): its profile: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(entry.id, privacy: .private(mask: .hash)): its profile: \(error.localizedDescription)")
             errorMessage = "The profile could not be saved: \(error.localizedDescription)"
         }
     }
@@ -649,7 +654,8 @@ final class LibraryModel {
         }
         if let error {
             let reason = error.localizedDescription
-            log.info("\(entry.id, privacy: .public): no web data removed: \(reason, privacy: .public)")
+            log.info(
+                "\(entry.id, privacy: .private(mask: .hash)): no web data removed: \(reason)")
         }
     }
 
@@ -834,7 +840,9 @@ final class LibraryModel {
             }
             let megabytes = Double(unit.size) / 1_000_000
             let decisions = results.map { String(describing: $0.decision) }.joined(separator: ", ")
-            log.info("Imported \(unit.title, privacy: .public) (\(megabytes, format: .fixed(precision: 1), privacy: .public) MB, \(decisions, privacy: .public)) in \(ContinuousClock.now - start, privacy: .public)")
+            let took = ContinuousClock.now - start
+            log.info("Imported \(unit.title, privacy: .private(mask: .hash)): \(decisions)")
+            log.info("The import: \(megabytes, format: .fixed(precision: 1)) MB in \(took, privacy: .public)")
             let installed = await library.entries
             show(results, of: url, installed: installed)
             await askAboutOBBs(in: url, with: library)

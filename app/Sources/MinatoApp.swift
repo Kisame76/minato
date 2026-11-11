@@ -131,7 +131,8 @@ struct MinatoApp: App {
             case .compileMode: "compile mode"
             case .library: "the library"
             }
-            log.info("Launch request for \(request.package, privacy: .public), \(seconds, format: .fixed(precision: 3)) s after the tap: \(chosen, privacy: .public)")
+            log.info("Launch request \(request.package, privacy: .private(mask: .hash)): \(chosen, privacy: .public)")
+            log.info("The launch request came \(seconds, format: .fixed(precision: 3)) s after the tap")
         }
         #if DEBUG
         SessionCheck.processStarted(mode, request: request)
@@ -151,7 +152,8 @@ struct MinatoApp: App {
             do {
                 _ = try await Library(paths: .standard()).adopt(url)
             } catch {
-                log.error("“\(url.lastPathComponent, privacy: .public)” could not be taken over: \(error.localizedDescription, privacy: .public)")
+                log.error(
+                    "“\(url.lastPathComponent)” could not be taken over: \(error.localizedDescription)")
             }
         }
     }

@@ -61,7 +61,7 @@ final class CompileSession {
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Optimizing") { [weak self] in
             self?.endBackgroundTask()
         }
-        log.info("Compiling \(self.entry.id, privacy: .public)")
+        log.info("Compiling \(self.entry.id, privacy: .private(mask: .hash))")
         #if DEBUG
         SessionCheck.event("compile started \(entry.id)")
         #endif
@@ -86,7 +86,7 @@ final class CompileSession {
 
     /// dex2oat ended, through the end handler: its status is in the folder already.
     private func ended(status: Int32) {
-        log.info("Compiling \(self.entry.id, privacy: .public) ended with status \(status)")
+        log.info("Compiling \(self.entry.id, privacy: .private(mask: .hash)) ended with status \(status)")
         #if DEBUG
         SessionCheck.event("compile ended \(status) peak \(Self.peakFootprintMegabytes)")
         #endif
@@ -95,7 +95,8 @@ final class CompileSession {
 
     /// It did not start: in a prepared folder, a failure's status, which the library records.
     private func back(_ reason: String) {
-        log.error("\(self.entry.id, privacy: .public) is not compiled: \(reason, privacy: .public)")
+        log.error(
+            "\(self.entry.id, privacy: .private(mask: .hash)) is not compiled: \(reason)")
         if let work { try? Data("1\n".utf8).write(to: work.statusFile) }
         #if DEBUG
         SessionCheck.event("compile not started \(reason)")

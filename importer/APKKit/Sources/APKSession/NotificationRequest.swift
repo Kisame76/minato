@@ -51,6 +51,12 @@ public struct NotificationPost: Sendable, Equatable {
     /// The packages of the check's test apps, the only ones whose notifications a check line names.
     public static let checkPackages = "io.github.kisame76.minato.test."
 
+    /// The Debug events' "<tag>|<id>" of a post, a cancel or a tap: the tag only for the check's test apps, as a tag is
+    /// the app's own text; "<app>|<id>" for any other app.
+    public static func checkKey(tag: String, id: Int32, package: String) -> String {
+        "\(package.hasPrefix(checkPackages) ? tag : "<app>")|\(id)"
+    }
+
     /// java-start-check's line for iOS's delivered list (ADR-0074 decision 3, the Debug host while the check's folder
     /// is there): "[<tag>|<id> <title>, ...]" of `package`'s own notifications, sorted; nil for an app that is not one
     /// of the check's test apps, so that no other app's notification, title or count gets into it.
