@@ -10,7 +10,9 @@
 # the tree, the surface layers made that are still alive and the Metal device's allocated MiB. Before each of the four
 # backgrounds (after the start's surface and the first three returns'; the fifth surface's app finishes at once), the
 # last such line must say 1 surface and 1 layer alive, and the device's MiB at most RETURNS_GROWTH (32) above the
-# first's: a window that went took its layer and its drawables with it.
+# first's: a window that went took its layer and its drawables with it. And no traversal may draw on the session's
+# window after the host took it away at a background (before onPause, ADR-0029 decision 15) and before the guest heard
+# of it (NATIVE_WINDOW_DESTROYED): the log holds no "Could not lock surface".
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh, tools/build-framework-res.sh,
 # tools/build-front-libs.sh and tools/build-angle.sh first.
 # Usage: tools/glsurface-returns-check.sh
@@ -37,7 +39,7 @@ mkdir -p "$WORK"
 # and its first frames after the return commit what the background let go.
 round=pause:2000,background,foreground
 MINATO_ANGLE="$ANGLE" MINATO_SESSION_LAYERS=1 MINATO_LIVE_LAYERS=1 python3 framework/tests/java_app_run.py \
-  --lifecycle "start,$round,$round,$round,$round" --log "$WORK/process.log" \
+  --lifecycle "start,$round,$round,$round,$round" --log "$WORK/process.log" --never "Could not lock surface" \
   glsurface-returns-test io.github.kisame76.minato.test.glsurfacereturns \
   android.app.Application build/art build/bionic/lib build/bionic/system build/hwui/lib \
   build/sources/icu/icu4c/source/stubdata/icudt75l.dat "$NATIVE/importer/converter/apk-convert" \

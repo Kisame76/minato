@@ -3,8 +3,8 @@ package android.view;
 /**
  * Surfaces on the host's windows (ADR-0043 c2): a window of ADR-0028's registry, by its ID, as a Java {@link Surface}
  * whose native object is a libnativewindow window (ADR-0041 decision 3). ViewRootImpl takes one at
- * NATIVE_WINDOW_CREATED, a SurfaceView one for its layer's window. Any thread may call both: create touches no shared
- * state, and setBuffersGeometry takes the window's own lock, as a render thread's lock and EGL's swap do.
+ * NATIVE_WINDOW_CREATED, a SurfaceView one for its layer's window. Any thread may call them: create and isAlive touch
+ * no shared state, and setBuffersGeometry takes the window's own lock, as a render thread's lock and EGL's swap do.
  */
 public final class WindowSurface {
     private WindowSurface() {}
@@ -26,4 +26,11 @@ public final class WindowSurface {
      * @throws IllegalArgumentException if the Surface is released
      */
     public static native int setBuffersGeometry(Surface surface, int width, int height, int format);
+
+    /**
+     * Whether the host still has the window {@code window}: false once the host removed it, which at a background it
+     * does before the guest hears of it (ADR-0029 decision 15), so a Surface on it is still valid in Java then and its
+     * lock fails. The runtime's window size call, which answers -EINVAL for a window that is removed.
+     */
+    public static native boolean isAlive(long window);
 }

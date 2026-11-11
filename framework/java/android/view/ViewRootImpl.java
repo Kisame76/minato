@@ -1156,7 +1156,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /**
      * As AOSP's: the canvas locked on the dirty rectangle at the display's density, cleared when its buffers have
      * alpha, the tree drawn and posted. A surface that fails asks for a layout, as AOSP's asks the window manager for a
-     * new one; ours logs it, as no window manager has memory to free.
+     * new one; ours logs it, as no window manager has memory to free. A host window already removed draws nothing.
      */
     @SuppressWarnings("finally") // the post's failure returns from the finally block, as AOSP's does.
     private boolean drawSoftware(Surface surface, int xoff, int yoff, boolean scalingRequired, Rect dirty) {
@@ -1169,6 +1169,12 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
             mLayoutRequested = true;
             return false;
         } catch (IllegalArgumentException e) {
+            // A window the host already took away (at a background, before the guest heard of it: ADR-0029 decision
+            // 15) is as AOSP's surface that is not valid: no draw and no error line; NATIVE_WINDOW_DESTROYED, which
+            // follows, releases the surface. Any other failure asks for a layout, as AOSP's does.
+            if (mHostWindow != 0 && !WindowSurface.isAlive(mHostWindow)) {
+                return false;
+            }
             Log.e(TAG, "Could not lock surface", e);
             mLayoutRequested = true;
             return false;

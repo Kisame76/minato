@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <jni.h>
 #include <nativehelper/JNIHelp.h>
+#include <unistd.h>
 
 #include <cstdlib>
 #include <mutex>
@@ -319,6 +320,12 @@ jobject windowSurfaceCreate(JNIEnv *env, jclass, jlong window, jint width, jint 
     return surface;
 }
 
+// Whether the host still has the window: the runtime's window_size answers -EINVAL once it is removed.
+jboolean windowSurfaceIsAlive(JNIEnv *, jclass, jlong window) {
+    int32_t size[2];
+    return syscall(APKRT_NR_WINDOW_SIZE, static_cast<uint64_t>(window), size) == 0 ? JNI_TRUE : JNI_FALSE;
+}
+
 jint windowSurfaceSetBuffersGeometry(JNIEnv *env, jclass, jobject surface, jint width, jint height, jint format) {
     ANativeWindow *window = minato_surface_window(env, surface);
     if (window == nullptr) {
@@ -360,6 +367,7 @@ const JNINativeMethod gSurfaceMethods[] = {
 const JNINativeMethod gWindowSurfaceMethods[] = {
         {"create", "(JII)Landroid/view/Surface;", (void *)windowSurfaceCreate},
         {"setBuffersGeometry", "(Landroid/view/Surface;III)I", (void *)windowSurfaceSetBuffersGeometry},
+        {"isAlive", "(J)Z", (void *)windowSurfaceIsAlive},
 };
 
 }  // namespace
