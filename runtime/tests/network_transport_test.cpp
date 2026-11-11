@@ -82,8 +82,14 @@ TEST(network_get_answers_the_state_last_set) {
 }
 
 TEST(a_bad_network_op_is_einval) {
-    CHECK(network(1) == -einval);
+    CHECK(network(2) == -einval);    // op 0 is GET, op 1 is APKRT_NETWORK_LINK; 2 and up are unused
     CHECK(network(999) == -einval);
+}
+
+TEST(link_before_a_set_is_enodata) {
+    apkrt::network::reset();
+    // APKRT_NETWORK_LINK is -ENODATA when no network has been set, before it touches the guest buffer, as GET is.
+    CHECK(network(APKRT_NETWORK_LINK) == -enodata);
 }
 
 // A state set before the session is stored but announces nothing; in the session the first set is announced (even

@@ -13,9 +13,11 @@
 
 namespace apkrt::network {
 
-/// APKRT_NR_NETWORK: `op` is APKRT_NETWORK_GET (0), which returns the current APKRT_NETWORK_* flags, or -ENODATA
-/// before the first apkrt_network_set. Any other op is -EINVAL.
-long call(std::uint64_t op);
+/// APKRT_NR_NETWORK: `op` APKRT_NETWORK_GET (0) returns the current APKRT_NETWORK_* flags, or -ENODATA before the
+/// first apkrt_network_set. `op` APKRT_NETWORK_LINK (1) writes the active network's LinkProperties snapshot
+/// (network_link.h) to the guest buffer at `argument` of `size` bytes and returns the byte count it needs, or
+/// -ENODATA for no active network. Any other op is -EINVAL. GET ignores `argument`/`size`.
+long call(std::uint64_t op, std::uint64_t argument, std::uint64_t size);
 
 /// Forgets the stored and the last-posted state — for tests between cases.
 void reset();

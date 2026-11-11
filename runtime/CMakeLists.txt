@@ -14,6 +14,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
   src/stall_watchdog.cpp src/crash_report.cpp src/memory_watermark.cpp src/monitor_probe.cpp src/network_probe.cpp
+  src/network_link.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
@@ -139,6 +140,12 @@ if(APK_HOST_BUILD)
   target_include_directories(network_probe_test PRIVATE src)
   target_link_libraries(network_probe_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.network_probe COMMAND network_probe_test)
+
+  # The LinkProperties snapshot's wire form (network_link.cpp): serialized from the one source, round-tripped.
+  add_executable(network_link_test tests/network_link_test.cpp)
+  target_include_directories(network_link_test PRIVATE src)
+  target_link_libraries(network_link_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.network_link COMMAND network_link_test)
 
   # A host callback (apkrt_network_set and the like) must not abort when it runs during exit's static destruction: the
   # state's mutex is immortal. This hammers it from a detached thread and returns from main.

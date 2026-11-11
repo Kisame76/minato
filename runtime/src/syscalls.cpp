@@ -1047,7 +1047,7 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
         case APKRT_NR_BATTERY:
             return apkrt::battery::call(x[0]);  // the battery transport (App gap-1, 2026-10-29)
         case APKRT_NR_NETWORK:
-            return apkrt::network::call(x[0]);  // the network transport (ADR-0054 step d))
+            return apkrt::network::call(x[0], x[1], x[2]);  // the network transport (ADR-0054 step d))
         case APKRT_NR_SESSION_CONFIGURATION:
             return apkrt::session::configuration(x[0]);  // ADR-0039, config-test
         // The vsync channel (ADR-0036, decision 1).

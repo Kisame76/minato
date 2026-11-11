@@ -1,10 +1,13 @@
 #include "network.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <mutex>
+#include <string>
 
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
+#include "network_link.h"
 #include "syscalls.h"
 
 namespace apkrt::network {
@@ -27,11 +30,26 @@ std::uint32_t posted_state = 0;
 
 }  // namespace
 
-long call(std::uint64_t op) {
-    if (op != APKRT_NETWORK_GET) return -linux_errno::einval;
-    const std::lock_guard<std::mutex> hold(mutex);
-    if (!have_state) return -linux_errno::enodata;
-    return static_cast<long>(state);
+long call(std::uint64_t op, std::uint64_t argument, std::uint64_t size) {
+    if (op == APKRT_NETWORK_GET) {
+        const std::lock_guard<std::mutex> hold(mutex);
+        if (!have_state) return -linux_errno::enodata;
+        return static_cast<long>(state);
+    }
+    if (op == APKRT_NETWORK_LINK) {
+        {
+            const std::lock_guard<std::mutex> hold(mutex);
+            if (!have_state) return -linux_errno::enodata;  // no active network reported yet
+        }
+        const link::Snapshot snapshot = link::read();  // the one source; no network mutex (netlink has its own)
+        if (!snapshot.have) return -linux_errno::enodata;
+        const std::string blob = link::serialize(snapshot);
+        const std::size_t fits = std::min<std::size_t>(blob.size(), size);
+        if (fits > 0 && !sys::memory::copy_checked(argument, reinterpret_cast<std::uint64_t>(blob.data()), fits))
+            return -linux_errno::efault;
+        return static_cast<long>(blob.size());
+    }
+    return -linux_errno::einval;
 }
 
 void reset() {

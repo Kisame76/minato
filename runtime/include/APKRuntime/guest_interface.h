@@ -1337,11 +1337,19 @@ struct apkrt_location_fix {
 // ConnectivityManager's answers and callbacks live on the framework side, which checks ACCESS_NETWORK_STATE as
 // ConnectivityService does; this is only the transport.
 
-/// One syscall carries every network operation, like the battery's: x0 the op.
+/// One syscall carries every network operation, like the battery's: x0 the op; APKRT_NETWORK_LINK also takes
+/// x1 a guest buffer and x2 its size.
 #define APKRT_NR_NETWORK 4135
 
 #define APKRT_NETWORK_GET 0  // x0 0: the current state, APKRT_NETWORK_* flags (never negative); -ENODATA before the
                              // host's first apkrt_network_set, as on a host that reports none: no network
+
+#define APKRT_NETWORK_LINK 1  // x0 1, x1 a guest buffer, x2 its size: the active network's LinkProperties snapshot
+                              // (interface name, addresses with prefix and scope, DNS servers, the default and
+                              // on-link routes, MTU), serialized (network_link.h), written to the buffer; returns
+                              // the byte count it needs (write what fits; call larger only if it exceeds x2) or
+                              // -ENODATA for no active network. Built from netlink::interfaces()/host_default_routes()
+                              // and the host resolver -- the same source as getifaddrs and RTM_GETADDR/GETROUTE.
 
 /// APKRT_EVENT_NETWORK's a0 and APKRT_NETWORK_GET's value: the path's status and what it goes over.
 #define APKRT_NETWORK_SATISFIED   0x1   // nw_path_status_satisfied: the path can reach the network
