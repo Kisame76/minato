@@ -47,15 +47,20 @@ SOURCE_DIRS=(frameworks_base frameworks_base_api frameworks_base_graphics framew
   bluetooth_api nfc_api permission_api appsearch_api devicelock_api healthfitness_api media_api mime_support mime_map
   libphonenumber hardware_interfaces_vibrator
   frameworks_av_media_aidl)
+# Android 15's hidden API lists, which the dex files of framework.jar and the boot jars carry as flags (ADR-0033
+# decision 4: tools/hiddenapi-encode.py); fetched once after the user's OK, outside the repository. Without the file
+# the build says so in one line and writes no flags.
+HIDDENAPI_FLAGS=${MINATO_HIDDENAPI_FLAGS:-$HOME/.android/minato-hiddenapi/hiddenapi-flags.csv}
 PREPARED_INPUTS=(framework/java framework/managers framework/patches framework/stubs framework/aidl-imports
   framework/sources.txt framework/disabled-flags.txt third_party/sources.json tools/build-framework.sh
   tools/aconfig-flags.py tools/appopsgen.py
-  tools/compatgen.py tools/event-log-tags.py tools/swap-dir.py tools/managergen
+  tools/compatgen.py tools/event-log-tags.py tools/hiddenapi-encode.py tools/swap-dir.py tools/managergen
   fixtures/java/gapscan-test/io/github/kisame76/minato/test/gapscan/GapScan.java
   --stat build/art/java/all-classes.jar build/art/boot_jars.json build/framework-res/java
   build/framework-res/feature-flags.txt build/aidl/aidl build/sources/r8/r8.jar build/tools/jdk-17)
 while IFS= read -r dir; do PREPARED_INPUTS+=("build/sources/$dir"); done < <(
   { printf '%s\n' "${SOURCE_DIRS[@]}"; sed -e 's/#.*//' -e 's|/.*||' -e '/^[[:space:]]*$/d' framework/sources.txt; } | sort -u)
+if [[ -f "$HIDDENAPI_FLAGS" ]]; then PREPARED_INPUTS+=("$HIDDENAPI_FLAGS"); fi  # in the stat part: 71 MB
 if [[ "${MINATO_PRINT_INPUTS:-}" == 1 ]]; then  # for tools/tests/prepared_stamp_test.py
   printf '%s\n' "${PREPARED_INPUTS[@]}"
   exit 0
@@ -504,6 +509,7 @@ with zipfile.ZipFile(path + ".tmp", "w") as jar:
         jar.writestr(info, open(os.path.join(data, name), "rb").read())
 os.replace(path + ".tmp", path)
 PY
+python3 tools/hiddenapi-encode.py --csv "$HIDDENAPI_FLAGS" --pin third_party/sources.json "$OUT/framework.jar"
 python3 tools/swap-dir.py "$OUT" "$FINAL"
 trap - EXIT
 python3 tools/prepared-stamp.py write framework "$PREPARED_DIGEST"

@@ -677,6 +677,7 @@ run_app() {
       | gms-absent-test \
       | batch-f-test \
       | service-inventory-test \
+      | hidden-api-test | hidden-api-test-33 | hidden-api-test-28 \
       | services-f-test \
       | services-i-test \
       | net-io-test \

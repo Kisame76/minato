@@ -1,0 +1,26 @@
+I/hidden-api-test: target SDK 35
+I/hidden-api-test: sdk android.app.Activity.onCreate: found, listed
+I/hidden-api-test: StrictMode: Landroid/os/Handler;->mCallback:Landroid/os/Handler$Callback;
+I/hidden-api-test: unsupported android.os.Handler.mCallback: found, listed
+I/hidden-api-test: StrictMode: Landroid/os/Handler;->getIMessenger()Landroid/os/IMessenger;
+I/hidden-api-test: unsupported android.os.Handler.getIMessenger: found, listed
+I/hidden-api-test: StrictMode: Landroid/os/Handler;-><init>(Landroid/os/Looper;Landroid/os/Handler$Callback;Z)V
+I/hidden-api-test: unsupported android.os.Handler.<init>: found, listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity$ManagedCursor;->mCursor:Landroid/database/Cursor;
+I/hidden-api-test: max-target-o android.app.Activity$ManagedCursor.mCursor: NoSuchFieldException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->mVisibleFromClient:Z
+I/hidden-api-test: max-target-p android.app.Activity.mVisibleFromClient: NoSuchFieldException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->setParent(Landroid/app/Activity;)V
+I/hidden-api-test: max-target-p android.app.Activity.setParent: NoSuchMethodException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->mParent:Landroid/app/Activity;
+I/hidden-api-test: max-target-q android.app.Activity.mParent: NoSuchFieldException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->FRAGMENTS_TAG:Ljava/lang/String;
+I/hidden-api-test: max-target-r android.app.Activity.FRAGMENTS_TAG: NoSuchFieldException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->setDisablePreviewScreenshots(Z)V
+I/hidden-api-test: max-target-s android.app.Activity.setDisablePreviewScreenshots: NoSuchMethodException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->DUMP_ARG_AUTOFILL:Ljava/lang/String;
+I/hidden-api-test: blocked android.app.Activity.DUMP_ARG_AUTOFILL: NoSuchFieldException, not listed
+I/hidden-api-test: StrictMode: Landroid/app/Activity;->addDumpable(Landroid/util/Dumpable;)Z
+I/hidden-api-test: blocked+test-api android.app.Activity.addDumpable: NoSuchMethodException, not listed
+I/hidden-api-test: none android.app.Activity.noSuchMethod: NoSuchMethodException, not listed
+I/hidden-api-test: done

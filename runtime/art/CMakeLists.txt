@@ -201,6 +201,17 @@ set(APK_R8_JAR "${APK_SOURCES}/r8/r8.jar")
 if(NOT EXISTS "${APK_JDK_HOME}/bin/javac" OR NOT EXISTS "${APK_R8_JAR}")
   message(FATAL_ERROR "No JDK 17 in build/tools/jdk-17 or no D8 in ${APK_R8_JAR}: run tools/fetch-sources.py --set art")
 endif()
+# Android 15's hidden API lists, which the boot jars' dex files carry as flags (tools/hiddenapi-encode.py): fetched once
+# after the user's OK, outside the repository. Without the file the build says so in one line and writes no flags.
+if(DEFINED ENV{MINATO_HIDDENAPI_FLAGS})
+  set(APK_HIDDENAPI_FLAGS "$ENV{MINATO_HIDDENAPI_FLAGS}")
+else()
+  set(APK_HIDDENAPI_FLAGS "$ENV{HOME}/.android/minato-hiddenapi/hiddenapi-flags.csv")
+endif()
+set(apk_hiddenapi_inputs "${APK_ROOT}/tools/hiddenapi-encode.py" "${APK_ROOT}/third_party/sources.json")
+if(EXISTS "${APK_HIDDENAPI_FLAGS}")
+  list(APPEND apk_hiddenapi_inputs "${APK_HIDDENAPI_FLAGS}")
+endif()
 function(art_boot_jars description)
   cmake_parse_arguments(PARSE_ARGV 1 boot "" "" "JARS;DEPENDS")
   set(outputs)
@@ -210,7 +221,10 @@ function(art_boot_jars description)
   add_custom_command(OUTPUT ${outputs}
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/boot_jars.py" "${description}" "${APK_JDK_HOME}"
       "${APK_R8_JAR}" "${CMAKE_BINARY_DIR}/javalib" "${CMAKE_BINARY_DIR}/java"
-    DEPENDS ${boot_DEPENDS} "${CMAKE_CURRENT_SOURCE_DIR}/boot_jars.py" "${description}" VERBATIM)
+    COMMAND ${Python3_EXECUTABLE} "${APK_ROOT}/tools/hiddenapi-encode.py" --csv "${APK_HIDDENAPI_FLAGS}"
+      --pin "${APK_ROOT}/third_party/sources.json" ${outputs}
+    DEPENDS ${boot_DEPENDS} "${CMAKE_CURRENT_SOURCE_DIR}/boot_jars.py" "${description}" ${apk_hiddenapi_inputs}
+    VERBATIM)
   add_custom_target(art_boot_jars ALL DEPENDS ${outputs})
 endfunction()
 

@@ -28,8 +28,10 @@
 //     Without it, ART derives the default image's location from BOOTCLASSPATH's mainline part after
 //     DEX2OATBOOTCLASSPATH, which we do not have, and aborts ("No mainline framework library found"). M6's boot
 //     image replaces it with a real -Ximage;
-//   - -Xhidden-api-policy:disabled: our boot jars carry no hidden-API access flags, so ART enforces nothing either
-//     way (decision 4).
+//   - -Xhidden-api-policy:just-warn: framework.jar and the boot jars carry Android 15's hidden-API flags (tools/
+//     hiddenapi-encode.py), which ART reads; it denies nothing yet (the step after, "enabled", is Android's default)
+//     and reports what an app reaches to StrictMode's detectNonSdkApiUsage. Without the flags' file (a clone that has
+//     not fetched it) every member reads as public, as before.
 // On the main thread right after the VM, as AndroidRuntime::start does, it registers framework.jar's natives with
 // libandroid_runtime.so's register_framework_natives, our stand-in for the private AndroidRuntime::startReg
 // (decision 10); their FindClass goes to the boot class path.
@@ -127,7 +129,7 @@ int main(int argc, char **argv) {
         "-Xnoimage-dex2oat",
         "-Xforcejitzygote",
         "-XjdwpProvider:none",
-        "-Xhidden-api-policy:disabled",
+        "-Xhidden-api-policy:just-warn",
     };
     // The Mac tests' measurement switch (M6 e0, tools/boot-start-measure.sh): MINATO_MEASURE_ART_OPTIONS adds options,
     // such as -Xverify:none to measure what verification costs, or -Xint. No app's launch sets it (GuestStart passes

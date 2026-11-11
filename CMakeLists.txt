@@ -167,4 +167,12 @@ if(APK_HOST_BUILD)
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/mem_notes_test.sh")
+  # tools/hiddenapi-encode.py: the hiddenapi class data section it writes into a dex file and the jars it rewrites,
+  # against dex files and jars made in the test (the expected bytes follow ART's hiddenapi tool).
+  add_test(NAME tools.hiddenapi_encode
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/hiddenapi_encode_test.py" "${PROJECT_SOURCE_DIR}")
+  # tools/fetch-hiddenapi-flags.py's guards: the pin of the hidden API lists is read and checked, the folder must lie
+  # outside the repository (no network).
+  add_test(NAME tools.fetch_hiddenapi_flags
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/fetch-hiddenapi-flags.py" --self-test)
 endif()

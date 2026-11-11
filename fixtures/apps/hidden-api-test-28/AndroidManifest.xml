@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The hidden API policy test (hidden-api-test, built three times from fixtures/java/hidden-api-test:
+     hidden-api-test for targetSdk 35, hidden-api-test-33 and hidden-api-test-28): reflection on hidden members of the
+     platform's classes, as the target SDK allows them. The launcher activity is the framework's own
+     android.app.Activity, so that `am start` starts the process on Android. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.hiddenapi28" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28"/>
+  <application android:label="hidden-api-test-28"
+      android:name="io.github.kisame76.minato.test.hiddenapi.HiddenApiApplication">
+    <activity android:name="android.app.Activity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

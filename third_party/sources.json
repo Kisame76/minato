@@ -1775,5 +1775,12 @@
       "license": "MIT (the headers; other files as their texts say)",
       "digest": "1022e935ef74751e2002a7614eacdbbc05bbb6ab8122aa7c9e9e28a4a435ed3e"
     }
-  ]
+  ],
+  "hiddenapi-flags": {
+    "comment": "The hidden API lists of Android 15 (API level 35), one line per member of the platform's classes and the flag lists it belongs to (sdk, unsupported, blocked, max-target-o to -s), generated from AOSP and published by Google on https://developer.android.com/guide/app-compatibility/restrictions-non-sdk-interfaces, fetched on 2026-11-10 after the user's OK into ~/.android/minato-hiddenapi/hiddenapi-flags.csv, outside the repository. tools/hiddenapi-encode.py checks it against this pin and writes each member's flags into the dex files of framework.jar and the boot jars (ART's hiddenapi class data section, what ART's hidden API check reads); only those flags reach the app, never the file. Without it the jars carry no hiddenapi data and the build says so in one line. tools/fetch-sources.py does not read this entry.",
+    "url": "https://dl.google.com/developers/android/vic/non-sdk/hiddenapi-flags.csv",
+    "bytes": 71184887,
+    "sha256": "40134e205e58922a708c453726b279a296e6a1f34a988abd90cec0f3432ea5a9",
+    "license": "Apache-2.0 (generated from AOSP; the page names no licence of its own for the file)"
+  }
 }

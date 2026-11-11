@@ -213,6 +213,9 @@ In plain terms, as a user meets it:
   extras, Bundles, arrays and Parcelables included, unless they hold binders or file descriptors or come to more than
   about 1.5 KB: then only its strings, numbers and booleans are kept.
 - On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
+- Hidden APIs: Android 15 hides some members of its own classes from an app (reflection and JNI find no such member).
+  The lists are in `framework.jar` and the boot jars, and Minato's ART reads them and reports what an app reaches, but
+  it does not deny anything yet, so an app can still reach members that Android 15 would hide from it.
 - OpenGL ES 3.2 is not available, so apps that require it do not start. Some Vulkan features that MoltenVK lacks are
   missing too.
 - Audio effects: the reverbs are an approximation of Android's (a tail of four feedback lines; an auxiliary reverb
