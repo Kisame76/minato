@@ -427,3 +427,46 @@ android.security.identity.SessionTranscriptMismatchException
 android.security.identity.UnknownAuthenticationKeyException
 android.security.identity.WritableIdentityCredential
 android.service.carrier.MessagePdu
+# Batch H4: the credential provider service's types (android.service.credentials), the quick access wallet's, the
+# translation and content capture value types, the spell checker's info and subtype, the telephony data slicing types,
+# CallAudioState, CallAttributes, ImsException, EuiccInfo and VisibleActivityInfo. Conference, ConnectionRequest (with
+# the Connection family) and CallControlCallback (DisconnectCause needs androidx's IntDef) wait for steps of their own.
+android.service.credentials.Action
+android.service.credentials.BeginCreateCredentialRequest
+android.service.credentials.BeginCreateCredentialResponse
+android.service.credentials.BeginGetCredentialOption
+android.service.credentials.BeginGetCredentialRequest
+android.service.credentials.BeginGetCredentialResponse
+android.service.credentials.CallingAppInfo
+android.service.credentials.ClearCredentialStateRequest
+android.service.credentials.CreateCredentialRequest
+android.service.credentials.CreateEntry
+android.service.credentials.CredentialEntry
+android.service.credentials.GetCredentialRequest
+android.service.credentials.RemoteEntry
+android.service.quickaccesswallet.GetWalletCardsCallback
+android.service.quickaccesswallet.GetWalletCardsError
+android.service.quickaccesswallet.GetWalletCardsRequest
+android.service.quickaccesswallet.GetWalletCardsResponse
+android.service.quickaccesswallet.SelectWalletCardRequest
+android.service.quickaccesswallet.WalletCard
+android.service.quickaccesswallet.WalletServiceEvent
+android.service.voice.VisibleActivityInfo
+android.telecom.CallAttributes
+android.telecom.CallAudioState
+android.telephony.data.NetworkSliceInfo
+android.telephony.data.NetworkSlicingConfig
+android.telephony.data.RouteSelectionDescriptor
+android.telephony.data.TrafficDescriptor
+android.telephony.data.UrspRule
+android.telephony.euicc.EuiccInfo
+android.telephony.ims.ImsException
+android.view.contentcapture.ContentCaptureCondition
+android.view.contentcapture.ContentCaptureSessionId
+android.view.textservice.SpellCheckerInfo
+android.view.textservice.SpellCheckerSubtype
+android.view.translation.TranslationRequest
+android.view.translation.TranslationRequestValue
+android.view.translation.TranslationResponse
+android.view.translation.TranslationResponseValue
+android.view.translation.UiTranslationStateCallback

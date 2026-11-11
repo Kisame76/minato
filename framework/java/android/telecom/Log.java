@@ -14,6 +14,11 @@ public final class Log {
     private Log() {
     }
 
+    /** CallAttributes' toString: any piece of personal information is the mark (batch H4). */
+    public static String pii(Object pii) {
+        return pii == null ? String.valueOf((Object) null) : PII;
+    }
+
     public static void d(Object prefix, String format, Object... args) {
         android.util.Log.d(TAG, line(prefix, format, args));
     }

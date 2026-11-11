@@ -136,9 +136,6 @@ com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # ga
 
 # ADR-0043 step d), text: TextView, EditText and Editor, with the selection UI, text classification, translation,
 # spell checking, the clipboard and hardware keys left for their steps; the input method side waits for the keyboard step.
-android.view.textservice.SpellCheckerSubtype <- android.widget.TextView  # stays: a spell checker's subtype, and text services are absent (ADR-0043 step d), decision 3)
-android.view.translation.TranslationRequestValue <- android.widget.TextView  # stays: UI translation, absent (ADR-0043 step d), decision 3)
-android.view.translation.TranslationResponseValue <- android.text.method.TranslationTransformationMethod, android.widget.TextViewTranslationCallback  # stays: UI translation, absent (ADR-0043 step d), decision 3)
 com.android.internal.accessibility.util.AccessibilityUtils <- android.widget.TextView  # stays: accessibility, off (ADR-0041): TextView asks it only while accessibility is on
 com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.EditorInfo  # stays: EditorInfo.dump, which only dumpsys runs
 
@@ -219,7 +216,6 @@ com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.P
 
 # android.media's take-in classes (the Unity test APK gap sort, category 1).
 android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which returns none here (category 1, package 2)
-android.view.translation.TranslationResponseValue <- android.view.translation.ViewTranslationResponse  # stays: UI translation, which only the system starts
 
 # Activity's signature types (the Unity test APK retest 10): the types they take in reach these.
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
@@ -250,3 +246,4 @@ android.hardware.face.FaceManager <- android.hardware.biometrics.BiometricPrompt
 android.os.PermissionEnforcer <- android.hardware.biometrics.IAuthService, android.hardware.biometrics.ITestSession  # stays: the Stubs' constructors, which the local authentication service (an IAuthService.Default) never runs
 # VpnService (group 1 of the framework breadth).
 com.android.internal.net.VpnProfile <- android.net.IVpnManager  # stays: IVpnManager's Stub reads a VpnProfile in two transactions (provisionVpnProfile, startLegacyVpn), which are no app API: VpnService and VpnManager never call them and no parcel reaches the local vpn service, which is AIDL's Default class
+android.service.voice.VoiceInteractionSession$ActivityId <- android.service.voice.VisibleActivityInfo  # stays: getActivityId, which only a voice interaction service reads (batch H4); Minato has none and no app is one

@@ -3261,3 +3261,51 @@ frameworks_base/core/java/android/speech/IRecognitionService.aidl
 frameworks_base/core/java/android/speech/IRecognitionListener.aidl
 frameworks_base/core/java/android/speech/IRecognitionSupportCallback.aidl
 frameworks_base/core/java/android/speech/IModelDownloadListener.aidl
+
+# Batch H4 (framework breadth, pure Java, what api-coverage's last batch holds beyond a hidden member by hand): the
+# credential provider service's types (android.service.credentials), the quick access wallet's, the UI translation and
+# content capture value types, the spell checker's info and subtype, the telephony data slicing types, CallAudioState,
+# CallAttributes, ImsException, EuiccInfo and VisibleActivityInfo, with the hidden helpers they pull in. Left out and
+# named in api-breadth-test's types.txt: Conference and ConnectionRequest (the telecom Connection family),
+# CallControlCallback (DisconnectCause needs androidx's IntDef) and the earlier batches' deferred types.
+frameworks_base/core/java/android/service/voice/VisibleActivityInfo.java
+frameworks_base_types/telecomm/java/android/telecom/AudioState.java
+frameworks_base/core/java/com/android/internal/inputmethod/SubtypeLocaleUtils.java
+frameworks_base/core/java/android/service/credentials/Action.java
+frameworks_base/core/java/android/service/credentials/BeginCreateCredentialRequest.java
+frameworks_base/core/java/android/service/credentials/BeginCreateCredentialResponse.java
+frameworks_base/core/java/android/service/credentials/BeginGetCredentialOption.java
+frameworks_base/core/java/android/service/credentials/BeginGetCredentialRequest.java
+frameworks_base/core/java/android/service/credentials/BeginGetCredentialResponse.java
+frameworks_base/core/java/android/service/credentials/CallingAppInfo.java
+frameworks_base/core/java/android/service/credentials/ClearCredentialStateRequest.java
+frameworks_base/core/java/android/service/credentials/CreateCredentialRequest.java
+frameworks_base/core/java/android/service/credentials/CreateEntry.java
+frameworks_base/core/java/android/service/credentials/CredentialEntry.java
+frameworks_base/core/java/android/service/credentials/GetCredentialRequest.java
+frameworks_base/core/java/android/service/credentials/RemoteEntry.java
+frameworks_base/core/java/android/service/quickaccesswallet/GetWalletCardsCallback.java
+frameworks_base/core/java/android/service/quickaccesswallet/GetWalletCardsError.java
+frameworks_base/core/java/android/service/quickaccesswallet/GetWalletCardsRequest.java
+frameworks_base/core/java/android/service/quickaccesswallet/GetWalletCardsResponse.java
+frameworks_base/core/java/android/service/quickaccesswallet/SelectWalletCardRequest.java
+frameworks_base/core/java/android/service/quickaccesswallet/WalletCard.java
+frameworks_base/core/java/android/service/quickaccesswallet/WalletServiceEvent.java
+frameworks_base_types/telecomm/java/android/telecom/CallAttributes.java
+frameworks_base_types/telecomm/java/android/telecom/CallAudioState.java
+frameworks_base_types/telephony/java/android/telephony/data/NetworkSliceInfo.java
+frameworks_base_types/telephony/java/android/telephony/data/NetworkSlicingConfig.java
+frameworks_base_types/telephony/java/android/telephony/data/RouteSelectionDescriptor.java
+frameworks_base_types/telephony/java/android/telephony/data/TrafficDescriptor.java
+frameworks_base_types/telephony/java/android/telephony/data/UrspRule.java
+frameworks_base_types/telephony/java/android/telephony/euicc/EuiccInfo.java
+frameworks_base_types/telephony/java/android/telephony/ims/ImsException.java
+frameworks_base/core/java/android/view/contentcapture/ContentCaptureCondition.java
+frameworks_base/core/java/android/view/contentcapture/ContentCaptureSessionId.java
+frameworks_base/core/java/android/view/textservice/SpellCheckerInfo.java
+frameworks_base/core/java/android/view/textservice/SpellCheckerSubtype.java
+frameworks_base/core/java/android/view/translation/TranslationRequest.java
+frameworks_base/core/java/android/view/translation/TranslationRequestValue.java
+frameworks_base/core/java/android/view/translation/TranslationResponse.java
+frameworks_base/core/java/android/view/translation/TranslationResponseValue.java
+frameworks_base/core/java/android/view/translation/UiTranslationStateCallback.java

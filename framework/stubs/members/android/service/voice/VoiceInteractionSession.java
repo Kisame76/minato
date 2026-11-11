@@ -16,4 +16,11 @@ class VoiceInteractionSession {
     /** @hide */
     public @interface VoiceInteractionActivityEventType {
     }
+
+    public static class ActivityId {
+        /** @hide VisibleActivityInfo builds an ActivityId from a task id and an assist token (batch H4). */
+        public ActivityId(int taskId, android.os.IBinder assistToken) {
+            throw new RuntimeException("stub");
+        }
+    }
 }
