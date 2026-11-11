@@ -1,0 +1,54 @@
+Window surfaces let go of their textures when they are released (Minato, patch 0023).
+
+Why: a context's default framebuffer outlives the window surface it was made current with. Its FramebufferMtl kept
+the surface's render targets and a render pass whose TextureRefs held the surface's drawable, depth and stencil, and
+the render encoder kept the last pass's MTLRenderPassDescriptor with the same textures, both until that context's next
+render pass. A context that is not made current again (an app's SDL 2 context after a failed restore at a return)
+kept a destroyed surface's depth/stencil for good: on the iPhone each return of such a game left one more
+screen-sized depth/stencil alive. Now the framebuffer lets go of both when its window surface is detached, and the
+encoder's cached descriptor drops its textures and visibility buffer at the end of each pass (the next pass sets them
+again).
+Test: graphics/tests/angle_memory_counters.mm (a window surface with depth and stencil, drawn, swapped, released and
+destroyed while its context lives on: the depth/stencil count comes back).
+Upstream: could be offered (a leak of a destroyed surface's textures in an idle context).
+
+--- a/src/libANGLE/renderer/metal/FramebufferMtl.mm
++++ b/src/libANGLE/renderer/metal/FramebufferMtl.mm
+@@ -144,6 +144,15 @@
+ 
+ void FramebufferMtl::setBackbuffer(WindowSurfaceMtl *backbuffer, bool flipY)
+ {
++    if (backbuffer == nullptr && mBackbuffer != nullptr)
++    {
++        // Minato (patch 0023): the context's default framebuffer outlives its window surface; let go of the
++        // surface's render targets and of the textures the cached render pass holds (its drawable, depth and
++        // stencil), which a context that is not made current again would otherwise keep for good. The next
++        // surface's attach dirties every attachment, so syncState fills both again.
++        reset();
++        mRenderPassDesc = mtl::RenderPassDesc();
++    }
+     mBackbuffer      = backbuffer;
+     mBackbufferFlipY = flipY;
+ }
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.mm
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
+@@ -1655,6 +1655,19 @@
+     // reset state
+     mRenderPassDesc = RenderPassDesc();
+     mStateCache.reset();
++
++    // Minato (patch 0023): the cached descriptor lets go of the pass's textures and buffer, so that a context
++    // which encodes no other pass does not keep a destroyed surface's drawable, depth and stencil alive.
++    for (uint32_t i = 0; i < kMaxRenderTargets; ++i)
++    {
++        objCRenderPassDesc.colorAttachments[i].texture        = nil;
++        objCRenderPassDesc.colorAttachments[i].resolveTexture = nil;
++    }
++    objCRenderPassDesc.depthAttachment.texture          = nil;
++    objCRenderPassDesc.depthAttachment.resolveTexture   = nil;
++    objCRenderPassDesc.stencilAttachment.texture        = nil;
++    objCRenderPassDesc.stencilAttachment.resolveTexture = nil;
++    objCRenderPassDesc.visibilityResultBuffer           = nil;
+ }
+ 
+ inline void RenderCommandEncoder::initAttachmentWriteDependencyAndScissorRect(

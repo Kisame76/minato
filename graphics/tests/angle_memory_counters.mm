@@ -2,8 +2,11 @@
 // Metal by class until Metal frees it. On a pbuffer context: an RGBA8 and an ETC2 texture, a DEPTH24_STENCIL8 and a
 // 4x RGBA8 renderbuffer, cleared, and a 1 MiB buffer each add one to their class with at least their own bytes (the
 // renderbuffers in private storage), the device's allocation is known, and once they are deleted and Metal is done
-// with them the texture classes come back to where they were.
+// with them the texture classes come back to where they were. Patch 0023: a window surface's depth/stencil (and its
+// drawable) go once the surface is released and destroyed, while its context lives on and draws nothing more, as an
+// app's context that is not made current again after a return (SDL 2's restore on Android) does.
 #import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -194,6 +197,47 @@ int main(int argc, char **argv) {
         EGL(MakeCurrent)(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         EGL(DestroyContext)(display, context);
         EGL(DestroySurface)(display, surface);
+
+        // Patch 0023: a window surface with depth and stencil, drawn and swapped, then released and destroyed; its
+        // context stays and draws nothing more.
+        const EGLint window_spec[] = {EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                                      EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                                      EGL_DEPTH_SIZE, 24, EGL_STENCIL_SIZE, 8, EGL_NONE};
+        EGLConfig window_config = nullptr;
+        if (EGL(ChooseConfig)(display, window_spec, &window_config, 1, &configs) != EGL_TRUE || configs < 1) {
+            fail("no ES 3 window config with depth and stencil");
+        }
+        CAMetalLayer *layer = [CAMetalLayer layer];
+        layer.contentsScale = 1;
+        layer.bounds = CGRectMake(0, 0, 64, 48);
+        const Counters before_window = read();
+        EGLSurface window = EGL(CreateWindowSurface)(display, window_config, (__bridge EGLNativeWindowType)layer,
+                                                     nullptr);
+        EGLContext idle = EGL(CreateContext)(display, window_config, EGL_NO_CONTEXT, version);
+        if (window == EGL_NO_SURFACE || EGL(MakeCurrent)(display, window, window, idle) != EGL_TRUE) {
+            fail("no current window surface");
+        }
+        GL(Clear)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        EGL(SwapBuffers)(display, window);
+        GL(Clear)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        GL(Finish)();
+        const Counters drawn = read();
+        check(count(drawn, DEPTH) >= count(before_window, DEPTH) + 1, "the window surface's depth/stencil counts");
+        EGL(MakeCurrent)(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        EGL(DestroySurface)(display, window);
+        Counters released{};
+        for (int round = 0; round < 40; ++round) {
+            released = read();
+            if (count(released, DEPTH) <= count(before_window, DEPTH)) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        line_of(line.data(), line.size());
+        std::printf("window destroyed, its context idle: %s\n", line.data());
+        check(count(released, DEPTH) <= count(before_window, DEPTH),
+              "the destroyed window surface's depth/stencil go while its context lives on");
+        EGL(DestroyContext)(display, idle);
         EGL(Terminate)(display);
     }
     if (failed) {
