@@ -223,4 +223,22 @@ class TelephonyManager {
 
     public void unregisterTelephonyCallback(TelephonyCallback callback) {
     }
+
+    /** @hide VisualVoicemailService's calls: a phone Minato has no visual voicemail SMS filter or SIM for. */
+    public void enableVisualVoicemailSmsFilter(int subId, VisualVoicemailSmsFilterSettings settings) {
+    }
+
+    /** @hide */
+    public void disableVisualVoicemailSmsFilter(int subId) {
+    }
+
+    /** @hide */
+    public void sendVisualVoicemailSmsForSubscriber(int subId, String number, short port, String text,
+            android.app.PendingIntent sentIntent) {
+    }
+
+    /** @hide No SIM: the invalid subscription id. */
+    public int getSubIdForPhoneAccount(android.telecom.PhoneAccount phoneAccount) {
+        return -1;
+    }
 }

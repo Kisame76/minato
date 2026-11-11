@@ -3314,3 +3314,8 @@ frameworks_base/core/java/android/view/translation/UiTranslationStateCallback.ja
 # StatusBarNotification's log entry gives way to it). Metrics are written nowhere: our MetricsLogger.write drops them.
 frameworks_base/core/java/android/metrics/LogMaker.java
 frameworks_base/core/java/android/app/slice/SliceMetrics.java
+
+# Batch H5, part 2: ApplicationStartInfo (its proto field ids are a compile-only stub: nothing persists a record) and
+# VisualVoicemailService, whose static methods call four hidden members of TelephonyManager (managers/).
+frameworks_base/core/java/android/app/ApplicationStartInfo.java
+frameworks_base_types/telephony/java/android/telephony/VisualVoicemailService.java
