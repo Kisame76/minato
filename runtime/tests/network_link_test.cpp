@@ -4,6 +4,9 @@
 // does -- asserting the fields survive and the version/flags/mtu header is exactly as agreed with Formate.
 #include "network_link.h"
 
+#include "fake_path_monitor.h"
+#include "netlink.h"
+
 #include "check.h"
 
 #include <cstdint>
@@ -148,6 +151,30 @@ TEST(a_refused_route_dump_clears_the_flag_lists_no_route_and_guesses_no_gateway)
     Snapshot out;
     CHECK(parse(blob, out) && same(in, out));
     CHECK(out.routes.empty());
+}
+
+TEST(the_fake_path_monitor_gives_one_source_to_the_snapshot_and_the_guest) {
+    // The Mac session's fake path monitor feeds netlink's host source; the snapshot and the guest's own interfaces()
+    // must then agree (one source). route_dump is allowed on the Mac, so the fake default route is in the snapshot.
+    apkrt::network::start_fake_path_monitor();
+    const apkrt::network::link::Snapshot snap = apkrt::network::link::read();
+    CHECK(snap.have);
+    CHECK(snap.iface == "wlan0");
+    CHECK(snap.mtu == 1500);
+    bool v4ok = false, def4 = false;
+    for (const auto &a : snap.addresses)
+        if (a.family == 4 && a.prefix == 24 && a.bytes == v4(192, 168, 7, 9)) v4ok = true;
+    CHECK(v4ok);
+    for (const auto &r : snap.routes)
+        if (r.dest_family == 4 && r.dest_prefix == 0 && r.gateway == v4(192, 168, 7, 1)) def4 = true;
+    CHECK(def4);
+    bool guest_wlan0 = false;
+    for (const auto &i : apkrt::netlink::interfaces())
+        if (i.name == "wlan0")
+            for (const auto &a : i.addresses)
+                if (a.family == 2 && a.bytes == v4(192, 168, 7, 9)) guest_wlan0 = true;
+    CHECK(guest_wlan0);
+    apkrt::netlink::clear_fake_host();
 }
 
 int main() { return apk::testing::run_all(); }

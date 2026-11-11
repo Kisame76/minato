@@ -660,7 +660,29 @@ std::vector<Interface> guest_interfaces(const std::vector<HostInterface> &host) 
     return guest;
 }
 
+// A fake host network for the Mac session and tests: there is no NWPathMonitor on the Mac, so a fake lets the guest's
+// getifaddrs/netlink AND the LinkProperties snapshot read one fixed source. Set once at session start
+// (fake_path_monitor.cpp, under MINATO_FAKE_NETWORK) or by a test; never on the device (the real monitor runs).
+namespace {
+bool fake_host_set = false;
+std::vector<HostInterface> fake_host_interfaces;
+std::vector<HostRoute> fake_host_routes;
+}  // namespace
+
+void set_fake_host(std::vector<HostInterface> interfaces, std::vector<HostRoute> routes) {
+    fake_host_interfaces = std::move(interfaces);
+    fake_host_routes = std::move(routes);
+    fake_host_set = true;
+}
+
+void clear_fake_host() {
+    fake_host_set = false;
+    fake_host_interfaces.clear();
+    fake_host_routes.clear();
+}
+
 std::vector<HostInterface> host_interfaces() {
+    if (fake_host_set) return fake_host_interfaces;
     ifaddrs *list = nullptr;
     if (::getifaddrs(&list) != 0) return {};
     std::map<std::string, HostInterface> by_host_name;
@@ -772,6 +794,7 @@ std::vector<HostRoute> default_routes(std::string_view dump) {
 }
 
 std::vector<HostRoute> host_default_routes() {
+    if (fake_host_set) return fake_host_routes;
     std::vector<HostRoute> all;
     for (const int family : {AF_INET, AF_INET6}) {
         int names[6] = {CTL_NET, PF_ROUTE, 0, family, net_rt_dump, 0};

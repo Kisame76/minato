@@ -2,6 +2,7 @@
 
 #include "channels.h"
 #include "descriptors.h"
+#include "fake_path_monitor.h"
 #include "guest_context.h"
 #include "audio.h"
 #include "memory_watermark.h"
@@ -1399,6 +1400,9 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     // The network probe (gap 3): one counts-only line of what the sandbox lets the runtime read for LinkProperties.
     // Under MINATO_NET_PROBE, and under MINATO_LOADER_LOG too, so any instrumented run's kept guest log carries it.
     if (::getenv("MINATO_NET_PROBE") != nullptr || ::getenv("MINATO_LOADER_LOG") != nullptr) apkrt_network_probe();
+    // The Mac session's fake path monitor (gap 3): a fixed host network where there is no NWPathMonitor, so
+    // net-link-test runs end to end on the Mac. Never set on the device. Set before the guest reads getifaddrs.
+    if (::getenv("MINATO_FAKE_NETWORK") != nullptr) apkrt::network::start_fake_path_monitor();
     begun.store(true, std::memory_order_release);
     return 0;
 }

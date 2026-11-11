@@ -70,6 +70,11 @@ std::vector<HostRoute> default_routes(std::string_view dump);
 /// fails (the sandbox).
 std::vector<HostRoute> host_default_routes();
 
+/// Replaces the host source of host_interfaces() and host_default_routes() with fixed values (the Mac session's fake
+/// path monitor, and tests); clear_fake_host() restores getifaddrs/NET_RT_DUMP. Set once before the guest runs.
+void set_fake_host(std::vector<HostInterface> interfaces, std::vector<HostRoute> routes);
+void clear_fake_host();
+
 /// Linux's NETLINK_ROUTE (0), the only netlink protocol an app may open on Android 15.
 constexpr int netlink_route = 0;
 

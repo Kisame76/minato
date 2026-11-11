@@ -14,7 +14,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
   src/stall_watchdog.cpp src/crash_report.cpp src/memory_watermark.cpp src/monitor_probe.cpp src/network_probe.cpp
-  src/network_link.cpp
+  src/network_link.cpp src/fake_path_monitor.cpp
   ${apkrt_syscall_sources} src/syscall_entry.S)
 target_include_directories(apkrt PUBLIC include)
 target_compile_definitions(apkrt PRIVATE APKRT_VERSION="${PROJECT_VERSION}")
