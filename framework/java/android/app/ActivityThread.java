@@ -3010,6 +3010,15 @@ public final class ActivityThread {
     }
 
     /**
+     * @hide LocalNetwork's: the active network's LinkProperties snapshot (APKRT_NETWORK_LINK) written into `buffer`;
+     * the byte count it needs (more than the buffer holds: ask again with a larger one), or a negative errno, -ENODATA
+     * for no active network.
+     */
+    public static int networkLink(byte[] buffer) {
+        return nativeNetworkLink(buffer);
+    }
+
+    /**
      * @hide SystemBarInsets': the host's system bars as "<top>,<bottom>", which it passes in MINATO_BAR_INSETS and the
      * runtime takes out of the environment at start (apps do not see it), or null when it passed none.
      */
@@ -3325,6 +3334,7 @@ public final class ActivityThread {
     /** APKRT_NR_BATTERY's GET: level | state << 32, or a negative errno. */
     private static native long nativeBattery();
     private static native long nativeNetwork();
+    private static native int nativeNetworkLink(byte[] buffer);
     private static native String nativeBarInsets();
     private static native int nativeSessionRequestExportMedia(byte[] text);
 

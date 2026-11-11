@@ -290,7 +290,11 @@ public final class LocalNetwork {
         return capabilities;
     }
 
-    /** The link of `network` if it is the active one, else null: the guest's name of its interface. */
+    /**
+     * The link of `network` if it is the active one, else null: the runtime's snapshot of the host's network
+     * (APKRT_NETWORK_LINK: interface, addresses, DNS servers, routes, MTU, the same data the guest's getifaddrs and
+     * netlink answer from), or, where the runtime gives none, the guest's name of the interface alone.
+     */
     public static LinkProperties link(Network network) {
         synchronized (sLock) {
             readLocked();
@@ -299,15 +303,81 @@ public final class LocalNetwork {
     }
 
     private static LinkProperties linkLocked() {
-        LinkProperties link = new LinkProperties();
-        if ((sState & CELLULAR) != 0) {
-            link.setInterfaceName("rmnet_data0");
-        } else if ((sState & WIRED) != 0 && (sState & WIFI) == 0) {
-            link.setInterfaceName("eth0");
-        } else {
-            link.setInterfaceName("wlan0");
+        LinkProperties snapshot = snapshot();
+        if (snapshot != null) {
+            return snapshot;
         }
+        LinkProperties link = new LinkProperties();
+        link.setInterfaceName(transportName());
         return link;
+    }
+
+    /** The guest's name of the interface by the transport the host reports (the runtime's netlink names them so). */
+    private static String transportName() {
+        if ((sState & CELLULAR) != 0) {
+            return "rmnet_data0";
+        } else if ((sState & WIRED) != 0 && (sState & WIFI) == 0) {
+            return "eth0";
+        }
+        return "wlan0";
+    }
+
+    /**
+     * The runtime's snapshot (APKRT_NETWORK_LINK, version 1, little-endian: version, flags, the interface name, the
+     * MTU, the addresses with their prefix lengths, the DNS servers and the routes with their gateways, each with its
+     * family 4 or 6), or null when the runtime gives none or its bytes are not a snapshot this code reads.
+     */
+    private static LinkProperties snapshot() {
+        byte[] buffer = new byte[512];
+        int size = ActivityThread.networkLink(buffer);
+        if (size > buffer.length) {
+            buffer = new byte[size];
+            size = ActivityThread.networkLink(buffer);
+        }
+        if (size <= 0 || size > buffer.length) {
+            return null;
+        }
+        try {
+            java.nio.ByteBuffer in = java.nio.ByteBuffer.wrap(buffer, 0, size).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            if (in.get() != 1) {
+                return null;
+            }
+            in.get();  // flags: which parts the sandbox let the runtime read; an empty list says the rest
+            LinkProperties link = new LinkProperties();
+            byte[] name = new byte[in.get() & 0xff];
+            in.get(name);
+            // A network whose interface the runtime cannot read comes as an empty snapshot (name length 0, no lists):
+            // the link is still there, named by the transport as before.
+            String snapshotName = new String(name, java.nio.charset.StandardCharsets.UTF_8);
+            link.setInterfaceName(snapshotName.isEmpty() ? transportName() : snapshotName);
+            link.setMtu(in.getInt());
+            for (int count = in.get() & 0xff; count > 0; count--) {
+                int family = in.get();
+                int prefix = in.get() & 0xff;
+                link.addLinkAddress(new android.net.LinkAddress(address(in, family), prefix));
+            }
+            for (int count = in.get() & 0xff; count > 0; count--) {
+                link.addDnsServer(address(in, in.get()));
+            }
+            for (int count = in.get() & 0xff; count > 0; count--) {
+                int family = in.get();
+                int prefix = in.get() & 0xff;
+                java.net.InetAddress destination = address(in, family);
+                java.net.InetAddress gateway = in.get() != 0 ? address(in, family) : null;
+                link.addRoute(new android.net.RouteInfo(new android.net.IpPrefix(destination, prefix), gateway,
+                        link.getInterfaceName()));
+            }
+            return link;
+        } catch (java.nio.BufferUnderflowException | java.net.UnknownHostException | IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static java.net.InetAddress address(java.nio.ByteBuffer in, int family)
+            throws java.net.UnknownHostException {
+        byte[] bytes = new byte[family == 6 ? 16 : 4];
+        in.get(bytes);
+        return java.net.InetAddress.getByAddress(bytes);
     }
 
     /** The networks: the active one, or none. */

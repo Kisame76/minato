@@ -6,7 +6,7 @@
 # carry through a Parcel, and what LinkProperties of the active network hands out, and compares its log with Android
 # 15's (fixtures/expected/net-types-test.logcat, from tools/android-reference.sh --app net-types-test).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
-# Usage: tools/net-types-test-check.sh
+# Usage: tools/net-types-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

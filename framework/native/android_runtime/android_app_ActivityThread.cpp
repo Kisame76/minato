@@ -13,6 +13,7 @@
 // ADR-0043 step c4 also SurfaceView's surface request, whose struct the native fills, and since ADR-0045 step 7b2
 // the input channel's connect, whose descriptor becomes an InputChannel (android_view_InputChannel.cpp).
 #include <android/configuration.h>
+#include <algorithm>
 #include <dlfcn.h>
 #include <stddef.h>
 #include <errno.h>
@@ -377,6 +378,20 @@ jlong Network(JNIEnv *, jclass) {
     return result < 0 ? -errno : static_cast<jlong>(result);
 }
 
+// The active network's LinkProperties snapshot (APKRT_NETWORK_LINK): written into the Java byte array; the byte count
+// the snapshot needs (more than the array holds: the caller asks again with a larger one) or the negative errno
+// (-ENODATA: no active network).
+jint NetworkLink(JNIEnv *env, jclass, jbyteArray buffer) {
+    const jsize size = env->GetArrayLength(buffer);
+    std::vector<jbyte> bytes(static_cast<size_t>(size));
+    const long result = syscall(APKRT_NR_NETWORK, APKRT_NETWORK_LINK, bytes.data(), static_cast<size_t>(size));
+    if (result < 0) {
+        return -errno;
+    }
+    env->SetByteArrayRegion(buffer, 0, std::min<jsize>(size, static_cast<jsize>(result)), bytes.data());
+    return static_cast<jint>(result);
+}
+
 // The host's system bars, "<top>,<bottom>" in pixels, which the host passes in the environment as MINATO_BAR_INSETS:
 // taken out of it at registration, before any Java code reads the environment, so the app does not see it in
 // System.getenv() as it does not on Android. Null when the host passed none.
@@ -509,6 +524,7 @@ const JNINativeMethod gActivityThreadMethods[] = {
         {"nativeLocationFix", "(ZJ[D[J)I", reinterpret_cast<void *>(LocationFix)},
         {"nativeBattery", "()J", reinterpret_cast<void *>(Battery)},
         {"nativeNetwork", "()J", reinterpret_cast<void *>(Network)},
+        {"nativeNetworkLink", "([B)I", reinterpret_cast<void *>(NetworkLink)},
         {"nativeBarInsets", "()Ljava/lang/String;", reinterpret_cast<void *>(BarInsets)},
         {"nativeSessionRequestExportMedia", "([B)I", reinterpret_cast<void *>(SessionRequestExportMedia)},
         {"nativeSessionRequestNotification", "([B)I", reinterpret_cast<void *>(SessionRequestNotification)},

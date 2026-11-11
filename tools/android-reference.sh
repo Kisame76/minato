@@ -781,6 +781,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=120
       ;;
+    # net-link-test (gap 3 of the networking plan): the Application reads getLinkProperties of the active network and
+    # logs its structure, and ends with "done".
+    net-link-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
+      limit=60
+      ;;
     # net-types-test (IpPrefix, LinkAddress, RouteInfo and LinkProperties): the Application logs and ends with "done".
     net-types-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity

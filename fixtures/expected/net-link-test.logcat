@@ -1,0 +1,11 @@
+I/net-link-test: active network: true
+I/net-link-test: link properties: true
+I/net-link-test: interface named: true
+I/net-link-test: addresses: some, prefixes valid true, wildcard false
+I/net-link-test: routes: some, all on the interface true, a default route true, its gateway a wildcard false
+I/net-link-test: dns servers: wildcard false
+I/net-link-test: toString lists what the getters hold: true
+I/net-link-test: toString shape: true true
+I/net-link-test: lists unmodifiable: true true true
+I/net-link-test: second query equals the first: true
+I/net-link-test: done
