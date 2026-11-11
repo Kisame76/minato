@@ -325,7 +325,9 @@ int port_of(const char *service, int family, int socktype, int flags, std::uint1
     if ((flags & ai_numericserv) != 0) return eai_noname;
     // The host's services (iOS's /etc/services, the same IANA names as Android's built-in table, as far as apps use
     // them); getservbyname has one buffer for the process.
-    static std::mutex services;
+    // Never destroyed: a detached converse thread may lock it in getaddrinfo during a host test exit; a
+    // static mutex's dtor could run first -> EINVAL. The device uses _exit (no static dtors). See stall_watchdog.cpp.
+    static std::mutex &services = *new std::mutex;
     const std::lock_guard lock(services);
     const servent *entry =
         ::getservbyname(service, socktype == sock_dgram ? "udp" : socktype == sock_stream ? "tcp" : nullptr);

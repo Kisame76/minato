@@ -8,7 +8,12 @@
 
 #include "check.h"
 
+#include <csignal>
+#include <mutex>
+#include <new>
 #include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using apkrt::stall::paused;
 using apkrt::stall::presented;
@@ -107,6 +112,50 @@ TEST(a_paused_app_is_never_reported) {
     surface_created(1, 1'000);
     paused();
     CHECK(tick(9'000).empty());  // paused: no report however long it waits
+}
+
+namespace {
+/// Runs `body` in a forked child and returns its wait status, so a terminate/abort is contained and observed, not a
+/// flaky exit race in the parent. `body` is noexcept: an exception escaping it calls std::terminate -> abort, exactly
+/// as a detached std::thread's function does when it throws (the watchdog daemon's lambda) -- so the child models the
+/// daemon's fate rather than letting this test's run_all() catch the exception.
+int child_status(void (*body)() noexcept) {
+    std::fflush(nullptr);  // flush stdio before fork, so an aborting child does not re-emit the parent's buffered lines
+    const pid_t pid = ::fork();
+    if (pid == 0) {
+        body();
+        ::_exit(0);  // reached only when body() returned without throwing
+    }
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    return status;
+}
+}  // namespace
+
+TEST(the_watchdog_lock_step_aborts_on_a_destroyed_mutex_but_not_on_a_never_destroyed_one) {
+    // The detached watchdog daemon locks `lock` (a namespace-static std::mutex) in tick() about once a second and is
+    // never joined. If a host test's process exit destroys `lock` while a tick is in flight, tick()'s lock_guard locks
+    // a destroyed std::mutex -> Darwin libc++'s checked pthread mutex returns EINVAL -> std::system_error; escaping the
+    // daemon's thread function it reaches std::terminate -> abort (the .ips backtrace of the runtime.program flake).
+    // The fix makes `lock` (and `surfaces`) never-destroyed (`std::mutex &lock = *new std::mutex;`), so the daemon
+    // always locks a live mutex. Reproduced deterministically with the exact operation tick() runs -- a
+    // lock_guard<std::mutex> inside a noexcept body (the daemon's throw-is-terminate contract) -- in a child process.
+
+    // Destroyed (what an owned `std::mutex lock;` becomes at exit): the lock step terminates.
+    const int destroyed = child_status([]() noexcept {
+        alignas(std::mutex) unsigned char storage[sizeof(std::mutex)];
+        auto *m = ::new (storage) std::mutex;
+        m->~mutex();                                 // run its destructor, as static destruction would
+        const std::lock_guard<std::mutex> hold(*m);  // tick()'s lock step on the now-destroyed mutex: EINVAL -> throw
+    });
+    CHECK(WIFSIGNALED(destroyed) && WTERMSIG(destroyed) == SIGABRT);
+
+    // Never destroyed (the fix: a leaked heap mutex): the same lock step is clean.
+    const int leaked = child_status([]() noexcept {
+        auto *m = new std::mutex;                    // never destroyed, like `std::mutex &lock = *new std::mutex;`
+        const std::lock_guard<std::mutex> hold(*m);
+    });
+    CHECK(WIFEXITED(leaked) && WEXITSTATUS(leaked) == 0);
 }
 
 int main() { return apk::testing::run_all(); }

@@ -179,4 +179,9 @@ if(APK_HOST_BUILD)
   # outside the repository (no network).
   add_test(NAME tools.fetch_hiddenapi_flags
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/fetch-hiddenapi-flags.py" --self-test)
+  # The detached-thread guard: the statics a detached or never-joined thread locks use the never-destroyed idiom, and
+  # any new detached-thread site is reviewed, so that an abort on a static destroyed at exit (the runtime.program
+  # flake) cannot return.
+  add_test(NAME tools.detached_thread_statics
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/detached_thread_statics_test.py")
 endif()

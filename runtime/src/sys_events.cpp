@@ -721,7 +721,10 @@ class TimerFd;
 class TimerThread {
 public:
     static TimerThread &instance() {
-        static TimerThread thread;
+        // Never destroyed: the detached loop() thread locks mutex_ and reads owners_ and is never joined, so a
+        // static TimerThread's dtor could destroy them mid-tick at a host test exit. The device uses
+        // _exit (no static dtors); see stall_watchdog.cpp. A leaked singleton keeps mutex_/owners_ valid.
+        static TimerThread &thread = *new TimerThread;
         return thread;
     }
 

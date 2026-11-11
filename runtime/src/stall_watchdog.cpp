@@ -33,8 +33,10 @@ struct Surface {
     std::uint64_t present_count = 0;
 };
 
-std::mutex lock;
-std::vector<Surface> surfaces;
+// Never destroyed: the detached watchdog daemon may touch these during static destruction at a host test exit;
+// a leaked heap mutex and vector stay valid while the daemon still ticks (the device uses _exit, no static dtors).
+std::mutex &lock = *new std::mutex;
+std::vector<Surface> &surfaces = *new std::vector<Surface>;
 bool is_paused = false;
 bool has_dumped = false;
 std::uint64_t timeout_ns = 10'000'000'000ull;  // 10 s
