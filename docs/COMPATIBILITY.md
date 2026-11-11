@@ -122,7 +122,8 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **Cordova, Capacitor, HTML5 games:** they are a WebView, which shows its pages inside the app. An open-source
   Capacitor app that asked for Android's SDK extension versions no longer stops at that question. An app that serves
   its pages itself under `https://localhost` or `https://appassets.androidplatform.net` (Capacitor's default, and
-  Cordova's since version 10) does not get past its splash screen yet: Minato does not hand those requests to the app.
+  Cordova's since version 10) gets those requests as on Android now; this works on the Mac and in the Simulator and
+  is not confirmed on the iPhone yet.
 
 ## The gaps, counted
 
@@ -166,9 +167,13 @@ a limit that is named, and 7 partly closed.**
 - Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
   connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone.
   Multicast and service discovery are not in, and what an app sees after you switch the local network off for Minato
-  in iOS's Settings is not checked on the iPhone yet.
+  in iOS's Settings is not checked on the iPhone yet. The active network's link properties (addresses, DNS servers,
+  routes, MTU) are filled from the iPhone's network; what iOS lets Minato read of them is not checked on the iPhone
+  yet.
 - WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects. Pages
-  that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` do not load yet.
+  that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` load on the Mac and
+  in the Simulator as on Android; the check on the iPhone is still to come. A page from the app's assets sees
+  `minato-asset:` as its protocol where Android says `file:`.
 - Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's inset
   work. Game controllers reach apps as Android 15's standard pad; rumble, a PlayStation pad's touchpad and its extra
   keys are not passed on. A mouse or trackpad reaches apps where iOS gives a pointer; on the iPhone iOS offers a mouse
@@ -196,7 +201,8 @@ a limit that is named, and 7 partly closed.**
 - Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added
   more of them, among them Formatter, SearchView, Proxy, PhoneNumberUtils, VideoView, the local sockets, the
   provider contracts for the calendar, the call log and voicemail, VpnService with Android's own IpPrefix, LinkAddress
-  and RouteInfo, and the TV input, device controls and MBMS types, and the ones still missing are rare in apps. The
+  and RouteInfo, SpeechRecognizer, and the TV input, device controls, MBMS, device policy, autofill service, identity
+  credential and credential provider types, and the ones still missing are rare in apps. The
   text classifier answers as a phone without its model does, and Linkify finds web and e-mail addresses and phone
   numbers.
 
@@ -204,8 +210,10 @@ a limit that is named, and 7 partly closed.**
 
 In plain terms, as a user meets it:
 
-- Apps built on Capacitor or a newer Cordova that serve their pages under `https://localhost` stay on their splash
-  screen.
+- Apps built on Capacitor or a newer Cordova that serve their pages under `https://localhost`: the fix is in, but not
+  confirmed on the iPhone yet.
+- Voice input: there is no speech recognition; an app that offers it gets the answers of a phone without a recognition
+  service.
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.
 - Recording audio or video to a file with `MediaRecorder`.
 - The microphone, the camera and location are new and not yet checked on the iPhone.
@@ -258,6 +266,8 @@ signatures. A crash names its cause when the app returns to the library.
   screen widgets. A VPN app starts and gets Android's answers for a user who declined the VPN: the consent ends as
   cancelled and there is no tunnel.
 - No telephony, NFC, USB host or classic Bluetooth, and no multicast or broadcast networking.
+- A WebView page under `http://` on a public host is refused by iOS, also for an app that allows cleartext traffic on
+  Android.
 - Memory: at most about 5 GB for an app when Minato has the `increased-memory-limit` entitlement, about 2.5 GB
   without it, which is the case for a free account through SideStore (ADR-0012).
 - In landscape the first swipe up from the bottom edge goes Home: iOS does not hold it back for any app. The app

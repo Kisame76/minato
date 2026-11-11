@@ -159,6 +159,18 @@ All notable changes to Minato are documented in this file. The format follows
   reported to its StrictMode listener, as on a phone; nothing is denied yet
 - An app that is refused at import for the way a library uses the x18 register also says, in counts, what that
   library offers for telling code from data
+- 119 more public types of Android 15 (the device policy types, the autofill service's types, the identity credential
+  store, the credential provider service's types, the quick access wallet's, the companion device filters, the UI
+  translation types and others): an app that names one no longer stops with NoClassDefFoundError
+- `android.speech.SpeechRecognizer`, which answers as an Android 15 phone without a recognition service does:
+  recognition is not available and `startListening` ends in the listener's `onError`, so an app that offers voice
+  input shows its fallback instead of crashing
+- Apps that serve their pages themselves under `https://localhost` or `https://appassets.androidplatform.net`, as
+  Capacitor and Cordova apps do, load them: when the app's WebViewClient answers requests itself, every request of its
+  WebView reaches it as on Android, and what it does not answer comes from the network with the WebView's cookies and
+  redirects as a browser handles them
+- The active network's link properties: an app that asks for them gets the interface's addresses, the DNS servers, the
+  routes and the MTU, where the lists were empty before
 
 ### Changed
 
@@ -214,6 +226,12 @@ All notable changes to Minato are documented in this file. The format follows
 - An iOS memory warning reaches the app as `onLowMemory` at most once in 60 seconds, as Android reports low memory,
   so a burst of warnings is one call
 - Minato's log lines no longer carry the names, packages, files or paths of the apps you run in plain text
+- Report a Problem names the engine, the SDK levels, Minato's version and what went wrong, and not the app: the app's
+  name and the last session's log are two switches in the report, off by default, and the text shows what leaves;
+  the link to the issue form never carries the app, and the copied report stays on the device and expires
+- A WebView that fetches a page's requests through Minato no longer sends or takes another site's cookies for the
+  page's images, scripts and frames unless the app accepts third-party cookies, and then only SameSite=None ones, as
+  Android's WebView does
 
 ### Fixed
 
@@ -299,3 +317,6 @@ All notable changes to Minato are documented in this file. The format follows
 - An app that Minato's menu paused goes on when the menu closes, as Android resumes the activity under a dialog;
   before, a Java app stayed paused until you left it and came back, so an app that draws through Android's
   GLSurfaceView stood still after the menu
+- Coming back to an app with a new window no longer keeps the window it left alive: its graphics memory stayed, a
+  little more with every return, until iOS ended the app
+- Minato's log lines no longer carry the hash prefix of your signing certificate
