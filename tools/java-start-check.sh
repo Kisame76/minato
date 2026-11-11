@@ -221,7 +221,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "uninstall-noperm-test io.github.kisame76.minato.test.uninstallnoperm"
       "vsync-test io.github.kisame76.minato.test.vsync"
       "menu-pause-test io.github.kisame76.minato.test.menupause"
-      "glsurface-pause-test io.github.kisame76.minato.test.glsurfacepause")
+      "glsurface-pause-test io.github.kisame76.minato.test.glsurfacepause"
+      "glsurface-returns-test io.github.kisame76.minato.test.glsurfacereturns")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -805,6 +806,8 @@ begin_start() {
   [[ -z "${FRAME_RATE_LIMIT:-}" ]] || echo "$FRAME_RATE_LIMIT" > "$CHECK/frame-rate-limit"
   # Only the virtual controller of the pad request reaches gamepad-test, not one the Simulator or the iPhone has.
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
+  # The returns round: a line a second of what the session holds (SessionCheck.liveCounts).
+  [[ "$app" != glsurface-returns-test ]] || echo yes > "$CHECK/live-counts"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
   case "$app" in
     permission-request-test-fine | permission-request-test-camera | permission-request-test-notifications)
@@ -1196,6 +1199,100 @@ run_resume_cases() {
   fetch_events
   cp "$EVENTS" "$WORK/$app-resume-cases-early-events.out" 2>/dev/null || true
   end_start "$app" 1
+}
+
+# The returns round: glsurface-returns-test's GLSurfaceView, with a depth buffer, through four trips away and back, each
+# with a new session window and surface, as tools/android-reference.sh plays HOME and the return; after the third
+# surface, as a user does it, the overlay menu opens over the app and closes (Continue), which Android 15 answers as a
+# dialog of another task: onPause, then onResume (menu-pause-test, the menu round). Its log must be Android 15's with
+# those two lines after the third surface's. 3 s after each of the first four surfaces' 30 frames (the start's and three
+# returns'; after the first frame after the return, once what the background let go is gone; the fifth surface's app
+# finishes at once), the session's live line must hold what it held after the start: 1 window on the session's layer, 1
+# surface layer, of the layers made only the newest alive, and the Metal device's bytes and the footprint at most
+# RETURNS_GROWTH MiB (32) above the start's; one full-screen drawable set is more than that.
+run_returns() {
+  local app=glsurface-returns-test package=io.github.kisame76.minato.test.glsurfacereturns round line stops
+  local lines=()
+  if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  for round in 1 2 3 4 5; do
+    if ! await_line guest-log "I/$app: surface $round: 30 frames" 60; then
+      fail "  $app: no 30 frames on surface $round"
+      end_start "$app" 1
+      return
+    fi
+    (( round < 5 )) || break
+    sleep 3
+    fetch_events
+    line=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || line=""
+    lines+=("$line")
+    echo "note    after surface $round: ${line:-no live line}"
+    # ANGLE's view (the gl line, iOS's ANGLE only): a window surface ANGLE still holds counts in color= and depth=.
+    fetch "$CHECK_REL/guest-log" || true
+    grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/note      \1/' || true
+    if (( round == 3 )); then
+      request menu
+      await_event "menu opened" 15 || fail "  $app: the menu did not open"
+      sleep 3
+    fi
+    launch "$AWAY"
+    stops=0
+    for _ in $(seq 1 100); do
+      fetch "$CHECK_REL/guest-log" || true
+      stops=$(count_lines "^I/$app: onStop$" "$CHECK/guest-log")
+      (( stops >= round )) && break
+      sleep 0.2
+    done
+    (( stops >= round )) || fail "  $app: no stop in trip $round"
+    # The events so far, for a mismatch's report: the library that follows the app's end starts them anew.
+    fetch_events
+    cp "$EVENTS" "$WORK/$app-events.out" 2>/dev/null || true
+    sleep 1
+    launch
+  done
+  await_line guest-log "^I/$app: onStop$" 30 || true
+  sleep 2
+  end_start "$app" 1
+  awk -v tag="I/$app: " '{ print } $0 == tag "surface 3: 30 frames" { print tag "onPause"; print tag "onResume" }' \
+    "fixtures/expected/$app.logcat" > "$WORK/$app-expected.logcat"
+  if ! python3 - "$app" "$WORK/$app-1.log" "$WORK/$app-expected.logcat" <<'PY'; then
+import subprocess
+import sys
+sys.path.insert(0, "framework/tests")
+from java_app_run import compare_log
+
+app, log, expected = sys.argv[1:]
+compare_log(app, subprocess.CompletedProcess([], 0, "", open(log, encoding="utf-8", errors="replace").read()), expected,
+            {})
+PY
+    failures=$((failures + 1))
+    diff <(grep "^I/$app: " "$WORK/$app-1.log") "$WORK/$app-expected.logcat" | sed 's/^/      | /' || true
+    local shown=' (menu |callback on(Pause|Resume|Stop|Restart|Start)|answer |scene did)'
+    grep -E "$shown" "$WORK/$app-events.out" | cut -d ' ' -f 1,3- | sed 's/^/      e /' || true
+  fi
+  if python3 - "${RETURNS_GROWTH:-32}" "${lines[@]}" <<'PY'; then
+import re
+import sys
+growth, lines = float(sys.argv[1]), sys.argv[2:]
+pattern = re.compile(r"live windows (\d+) surfaces (\d+) layers (\d+) of (\d+) gpu ([-0-9.]+) foot ([-0-9.]+)$")
+read = [pattern.match(line) for line in lines]
+bad = [f"after surface {n}: {line or 'no live line'}" for n, (line, m) in enumerate(zip(lines, read), 1)
+       if not m or (m[1], m[2], m[3]) != ("1", "1", "1")]
+if len(lines) != 4 or bad:
+    print("FAIL    the session holds more than one window, surface and layer: " + "; ".join(bad))
+    sys.exit(1)
+first = read[0]
+for name, index in (("the Metal device's bytes", 5), ("the footprint", 6)):
+    grew = max(float(m[index]) for m in read[1:]) - float(first[index])
+    if grew > growth:
+        print(f"FAIL    {name} grew {grew:.1f} MiB over three returns (more than {growth:.0f})")
+        sys.exit(1)
+print("ok      after three returns the session holds one window, one surface and one layer, and the Metal device's "
+      "bytes and the footprint did not grow by a drawable set")
+PY
+    :
+  else
+    failures=$((failures + 1))
+  fi
 }
 
 # The menu's pause on the Java path (ADR-0032, the menu's pause): menu-pause-test's MainActivity under Minato's menu,
@@ -2061,6 +2158,9 @@ if wanted notify-tap-test; then
     diff fixtures/expected/notify-tap-test.logcat "$WORK/notify-tap-test-head.log" | sed 's/^/      | /' || true
   fi
 fi
+
+# The returns round (run_returns above).
+if wanted glsurface-returns-test; then run_returns; fi
 
 # The global frame rate limit (Settings > Apps > Frame Rate Limit: 120, 60 or 30 fps, the screen's highest by
 # default). Start 1 with 30, which the request frame-rate-limit stores as the user's pick at each launch: game mode

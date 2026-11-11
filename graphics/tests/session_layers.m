@@ -24,6 +24,7 @@
      "window <n>" and "dim", where <n> counts the surfaces or the requested windows made. */
 #import <Foundation/Foundation.h>
 #import <IOSurface/IOSurfaceRef.h>
+#import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #include <stdint.h>
@@ -220,11 +221,54 @@ static NSMutableArray<MinatoLayerEntry *> *entries;  // in the order made
 static unsigned long made, surfaces_made, windows_made;
 static NSString *printed_order;  // the tree's last line
 
+/* MINATO_LIVE_LAYERS=1 (tools/glsurface-returns-check.sh, the returns check): the surfaces' and requested windows'
+   layers made, held weakly, and once a second "window host: live surfaces <n>, layers alive <a> of <m>, gpu <MiB>":
+   the surfaces in the tree, the layers made that are still alive (a window that went must take its layer and the
+   layer's drawables with it), and the Metal device's allocated bytes in MiB. On the tree's queue. */
+static NSPointerArray *made_layers;
+static id<MTLDevice> live_device;
+static dispatch_source_t live_timer;
+
+static void print_live(void) {
+    unsigned long surfaces = 0, alive = 0;
+    for (MinatoLayerEntry *entry in entries) {
+        surfaces += entry->window ? 0 : 1;
+    }
+    [made_layers compact];
+    for (NSUInteger index = 0; index < made_layers.count; index++) {
+        alive += [made_layers pointerAtIndex:index] != NULL ? 1 : 0;
+    }
+    fprintf(stderr, "window host: live surfaces %lu, layers alive %lu of %lu, gpu %.1f\n", surfaces, alive,
+            surfaces_made + windows_made, (double)live_device.currentAllocatedSize / 1048576.0);
+}
+
+static void note_made(CALayer *layer) {
+    const char *live = getenv("MINATO_LIVE_LAYERS");
+    if (live == NULL || strcmp(live, "1") != 0) {
+        return;
+    }
+    if (made_layers == nil) {
+        made_layers = [NSPointerArray weakObjectsPointerArray];
+        live_device = MTLCreateSystemDefaultDevice();
+        live_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, tree);
+        dispatch_source_set_timer(live_timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC,
+                                  NSEC_PER_SEC / 10);
+        dispatch_source_set_event_handler(live_timer, ^{
+            print_live();
+        });
+        dispatch_resume(live_timer);
+    }
+    [made_layers addPointer:(__bridge void *)layer];
+}
+
 static void without_actions(void (^change)(void)) {
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     change();
     [CATransaction commit];
+    // The tree's queue has no run loop: an implicit transaction a change opened there would stay open, and with it the
+    // last release of a layer taken out of the tree.
+    [CATransaction flush];
 }
 
 static void *window_layer(int32_t width, int32_t height) {
@@ -503,6 +547,7 @@ static void *surface_layer(const struct apkrt_surface_request *request) {
         entry->z = asked.z;
         entry->made = ++made;
         entry->number = ++surfaces_made;
+        note_made(layer);
         [entries addObject:entry];
         arrange();
         print_place(entry);
@@ -585,6 +630,7 @@ static void *requested_layer(const struct apkrt_window_request *request) {
         entry->dim = float_of(asked.dim);
         entry->made = ++made;
         entry->number = ++windows_made;
+        note_made(layer);
         [entries addObject:entry];
         arrange();
         print_window(entry);

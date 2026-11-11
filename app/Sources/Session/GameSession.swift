@@ -849,6 +849,11 @@ final class GameSession {
         countFrames()
     }
 
+    #if DEBUG
+    /// The returns check's line of what the session holds (SessionCheck.liveCounts), nil without the runtime's host.
+    var liveCounts: String? { (host as? RuntimeSessionHost)?.liveCounts }
+    #endif
+
     /// While the label is on, samples the presents of the guest's window about once a second.
     private func countFrames() {
         frameRateTask?.cancel()

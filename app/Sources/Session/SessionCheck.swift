@@ -4,6 +4,7 @@ import APKSession
 import Darwin
 import Foundation
 import GameController
+import Metal
 import Synchronization
 import UIKit
 
@@ -223,6 +224,34 @@ enum SessionCheck {
             }
         }
         return result == KERN_SUCCESS ? Int64(info.phys_footprint) : -1
+    }
+
+    /// The returns check (java-start-check's glsurface-returns-test round): with the file "live-counts", game mode
+    /// logs a line a second of what the session holds (liveCounts).
+    static var wantsLiveCounts: Bool { requested("live-counts") }
+
+    /// The surfaces' and requested windows' layers made so far, held weakly: a layer of a window that went must be
+    /// gone, with its drawables, once the registry and graphics/host let it go.
+    private struct MadeLayer {
+        weak var layer: CALayer?
+    }
+
+    /// Used on the main thread only (SurfaceLayers, the live line's loop), in Debug builds.
+    nonisolated(unsafe) private static var madeLayers: [MadeLayer] = []
+
+    static func layerMade(_ layer: CALayer) {
+        madeLayers.append(MadeLayer(layer: layer))
+    }
+
+    /// "live windows <n> surfaces <n> layers <alive> of <made> gpu <MiB> foot <MiB>": the registry's windows on the
+    /// session's layer, the surfaces' and requested windows' layers in the session view, the made layers still alive,
+    /// the Metal device's allocated bytes (the drawables and textures of every layer and of ANGLE) and the footprint.
+    @MainActor static func liveCounts(windows: Int, surfaces: Int) -> String {
+        let alive = madeLayers.filter { $0.layer != nil }.count
+        let gpu = MTLCreateSystemDefaultDevice().map { Double($0.currentAllocatedSize) / 1_048_576 } ?? -1
+        let foot = Double(physFootprint) / 1_048_576
+        return String(format: "live windows %d surfaces %d layers %d of %d gpu %.1f foot %.1f", windows, surfaces,
+                      alive, madeLayers.count, gpu, foot)
     }
 
     /// The way the script asks for.
@@ -519,6 +548,14 @@ enum SessionCheck {
         if requested("extra-session") {
             extraSessions.append(GameSession(entry: session.entry))
             event("extra session made")
+        }
+        if wantsLiveCounts {
+            Task { @MainActor [weak session] in
+                while let line = session?.liveCounts {
+                    event(line)
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.5))

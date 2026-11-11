@@ -75,6 +75,13 @@ final class RuntimeSessionHost: SessionHost {
 
     /// No FRAME_RATE request for the window comes once it is removed, and its preference goes with it: a
     /// new window has none, as a new Surface on Android (ADR-0036, decision 2).
+    #if DEBUG
+    /// The returns check's line (SessionCheck.liveCounts).
+    @MainActor var liveCounts: String {
+        SessionCheck.liveCounts(windows: windows.count, surfaces: surfaces?.count ?? 0)
+    }
+    #endif
+
     func removeWindow(_ window: UInt64) {
         #if BENCHMARK
         // The gate is closed by now, so no present comes between the count and the removal.

@@ -302,7 +302,11 @@ static void pace_adopt(MinatoMetalLayer *layer, id<CAMetalDrawable> drawable, in
 // MoltenVK presents otherwise. A drawable not handed over goes back to the layer's pool once it is let go, and its
 // presented handlers run then, with presentedTime 0; MoltenVK lets an image's drawable go when it acquires that image
 // again. The subclass is made once, for the first drawable's class; a drawable of another class goes as it comes.
-static Class drawable_class, paced_class;
+// Each present drains its own autorelease pool: Metal calls it from its scheduled handler, on a dispatch thread that
+// drains its pool only once it idles, which it never does while frames come, and the drawable's layer, which the
+// present and Core Animation autorelease there, then outlived its window with all its drawables' storage, one more
+// layer each time a window came back (glsurface-returns-test).
+static Class drawable_class, paced_class, unpaced_class;  // unpaced: a window's own drawable, dealloc alone
 static dispatch_once_t paced_once;
 
 /// The layer as a MinatoMetalLayer, nil for any other.
@@ -376,7 +380,7 @@ int minato_present_wait(void *layer, uint64_t swapchain, int64_t deadline) {
 void minato_present_unpaced(void *drawable) {
     id object = (__bridge id)drawable;
     if (object != nil && paced_class != Nil && object_getClass(object) == paced_class) {
-        object_setClass(object, drawable_class);
+        object_setClass(object, unpaced_class != Nil ? unpaced_class : drawable_class);
     }
 }
 
@@ -522,20 +526,48 @@ static void drawn(id<CAMetalDrawable> drawable) {
     [CATransaction commit];
 }
 
+/// Whether the drawable's layer has left the tree: then its last release may wait for this thread's transaction,
+/// which a flush commits. Normal frames take no Core Animation commit lock here (it may wait for the main thread's).
+static BOOL layer_gone(__unsafe_unretained id drawable) {
+    CALayer *layer = ((id<CAMetalDrawable>)drawable).layer;
+    return layer == nil || layer.superlayer == nil;
+}
+
 static void paced_present(id self, SEL command) {
-    if (pace_hands_over(self, 0)) {
-        drawn(self);
-        ((void (*)(id, SEL))class_getMethodImplementation(drawable_class, command))(self, command);
+    BOOL gone;
+    @autoreleasepool {
+        if (pace_hands_over(self, 0)) {
+            drawn(self);
+            ((void (*)(id, SEL))class_getMethodImplementation(drawable_class, command))(self, command);
+        }
+        gone = layer_gone(self);
     }
+    if (gone) [CATransaction flush];
+}
+
+/// The drawable's end, on whichever thread lets it go last (Metal's, after its present): Core Animation autoreleases
+/// the layer in it, and the layer's last release then waits for that thread's transaction.
+static void paced_dealloc(__unsafe_unretained id self, SEL command) {
+    BOOL gone;
+    @autoreleasepool {
+        gone = layer_gone(self);
+        ((void (*)(__unsafe_unretained id, SEL))class_getMethodImplementation(drawable_class, command))(self, command);
+    }
+    if (gone) [CATransaction flush];
 }
 
 static void paced_present_at(id self, SEL command, CFTimeInterval time) {
-    // Core Animation's host time in seconds, as CLOCK_UPTIME_RAW counts it.
-    if (pace_hands_over(self, time > 0 ? (int64_t)llround(time * 1e9) : 0)) {
-        drawn(self);
-        const IMP present_at = class_getMethodImplementation(drawable_class, command);
-        ((void (*)(id, SEL, CFTimeInterval))present_at)(self, command, time);
+    BOOL gone;
+    @autoreleasepool {
+        // Core Animation's host time in seconds, as CLOCK_UPTIME_RAW counts it.
+        if (pace_hands_over(self, time > 0 ? (int64_t)llround(time * 1e9) : 0)) {
+            drawn(self);
+            const IMP present_at = class_getMethodImplementation(drawable_class, command);
+            ((void (*)(id, SEL, CFTimeInterval))present_at)(self, command, time);
+        }
+        gone = layer_gone(self);
     }
+    if (gone) [CATransaction flush];
 }
 
 static void make_paced_class(Class concrete) {
@@ -544,7 +576,9 @@ static void make_paced_class(Class concrete) {
     const struct {
         SEL selector;
         IMP implementation;
-    } methods[] = {{@selector(present), (IMP)paced_present}, {@selector(presentAtTime:), (IMP)paced_present_at}};
+    } methods[] = {{@selector(present), (IMP)paced_present},
+                   {@selector(presentAtTime:), (IMP)paced_present_at},
+                   {NSSelectorFromString(@"dealloc"), (IMP)paced_dealloc}};
     for (size_t index = 0; index < sizeof methods / sizeof *methods; index++) {
         const Method method = class_getInstanceMethod(concrete, methods[index].selector);
         if (method == NULL || !class_addMethod(made, methods[index].selector, methods[index].implementation,
@@ -556,6 +590,17 @@ static void make_paced_class(Class concrete) {
         }
     }
     objc_registerClassPair(made);
+    Class unpaced = objc_allocateClassPair(concrete, "MinatoUnpacedDrawable", 0);
+    if (unpaced != Nil) {
+        const SEL dealloc = NSSelectorFromString(@"dealloc");
+        if (class_addMethod(unpaced, dealloc, (IMP)paced_dealloc,
+                            method_getTypeEncoding(class_getInstanceMethod(concrete, dealloc)))) {
+            objc_registerClassPair(unpaced);
+            unpaced_class = unpaced;
+        } else {
+            objc_disposeClassPair(unpaced);
+        }
+    }
     drawable_class = concrete;
     paced_class = made;
 }

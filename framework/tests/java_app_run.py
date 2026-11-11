@@ -93,6 +93,9 @@ role in the app's lines, as tools/android-reference.sh marks Android's (b3.5b1).
 second time over the first start's folders, as tools/android-reference.sh starts it again on the AVD, and the two
 starts' lines count as one log (step c1's context-test).
 
+With --log <file>, the process's log (apk-run's stderr) is written to the file as well, for a check that reads a host's
+lines itself (tools/glsurface-returns-check.sh's live lines).
+
 With --odex <file>, the file and its .vdex beside it lie at ART's place for base.apk (oat/arm64/base.odex and .vdex),
 as the odex of an installed app does (M6 c1; runtime/tests/dex2oat_make.py makes one for the code path).
 
@@ -102,7 +105,7 @@ Usage: java_app_run.py [--apk-inspect <apk-inspect>] [--restart] [--lifecycle <s
                        [--pick-save] [--pick-tree <folder>] [--export-dir <folder>] [--shares]
                        [--sensor-script <file>] [--grant-location fine|coarse|denied] [--location-script <file>]
                        [--device-profile pixel|galaxy] [--odex <file>] [--status <n>] [--webview-fake]
-                       [--once <line>]... [--never <text>]...
+                       [--once <line>]... [--never <text>]... [--log <file>]
                        [--env <name>=<value>]... [--split <file>]...
                        <app> <package> <application class> <art> <bionic-lib> <bionic-system> <hwui-lib> <icu-data>
                        <apk-convert> <apk-run> <work> <app_process64> <framework.jar> <framework-res folder> <app.apk>
@@ -150,7 +153,9 @@ def main():
     once = []
     never = []
     environment = []
-    while args[:1] in (["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"], ["--android-id"],
+    log_file = None
+    while args[:1] in (["--log"], ["--apk-inspect"], ["--restart"], ["--lifecycle"], ["--until"], ["--drawn"],
+                       ["--android-id"],
                        ["--in-order"], ["--obb"], ["--packs"], ["--pick"], ["--pick-photo"], ["--pick-save"],
                        ["--pick-tree"], ["--export-dir"], ["--shares"], ["--sensor-script"], ["--grant-location"],
                        ["--location-script"], ["--device-profile"], ["--odex"], ["--status"], ["--once"], ["--never"],
@@ -190,6 +195,8 @@ def main():
             packs, args = packs + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--split":
             splits, args = splits + [args[1]], args[2:]
+        elif len(args) > 1 and args[0] == "--log":
+            log_file, args = args[1], args[2:]
         elif len(args) > 1 and args[0] == "--env":
             environment, args = environment + [args[1]], args[2:]
         elif len(args) > 1 and args[0] == "--once":
@@ -256,6 +263,9 @@ def main():
     # One log of the starts: the first start's failure counts.
     result = subprocess.CompletedProcess(results[0].args, next((r.returncode for r in results if r.returncode), 0),
                                          "".join(r.stdout for r in results), "".join(r.stderr for r in results))
+    if log_file:
+        with open(log_file, "w", encoding="utf-8") as out:
+            out.write(result.stderr)
     if drawn and not any(line.startswith(FIRST_POST) for line in result.stderr.splitlines()):
         print("FAIL: no post of the session's window into apk-run's headless buffers (ADR-0043 step c3)")
         sys.exit(1)

@@ -861,6 +861,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.GlPauseActivity
       limit=90
       ;;
+    # glsurface-returns-test: four rounds of HOME and the return drive its GLSurfaceView (below), and it ends with
+    # "done".
+    glsurface-returns-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.GlReturnsActivity
+      limit=150
+      ;;
     # windows-return-test (ADR-0041 gap 4 (b5a)): HOME and the return drive it (below), and it ends with "done".
     windows-return-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ReturnActivity
@@ -2074,6 +2080,19 @@ PY
     wait_for "$app" "I/$app: onStop" || return 1
     sleep 1
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+  fi
+  if [[ "$app" == glsurface-returns-test ]]; then
+    # Four rounds: HOME a second after its n-th surface drew 30 frames, and the return a second after the n-th stop,
+    # as the host plays them in tools/glsurface-returns-check.sh and java-start-check.
+    local round
+    for round in 1 2 3 4; do
+      wait_for "$app" "I/$app: surface $round: 30 frames" || return 1
+      sleep 1
+      run input keyevent KEYCODE_HOME
+      wait_count "$app" "I/$app: onStop" "$round" || return 1
+      sleep 1
+      run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
+    done
   fi
   if [[ "$app" == windows-return-test ]]; then
     # ADR-0041 gap 4 (b5a): HOME a second after the translucent activity's "ready", and the return a second after the

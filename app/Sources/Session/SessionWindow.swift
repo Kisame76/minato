@@ -457,6 +457,9 @@ final class SurfaceLayers {
     /// it, or 0 without one.
     func add(frame: PixelRect, z: Int32, opaque: Bool, register: (CAMetalLayer) -> UInt64) -> UInt64 {
         let layer = MinatoMetalLayer()
+        #if DEBUG
+        SessionCheck.layerMade(layer)
+        #endif
         layer.contentsScale = windowLayer.contentsScale
         layer.isOpaque = opaque
         Self.withoutAnimation { layer.frame = points(frame) }
@@ -477,6 +480,11 @@ final class SurfaceLayers {
         arrange()
     }
 
+    #if DEBUG
+    /// The surfaces' and requested windows' layers in the session view (the returns check).
+    var count: Int { layers.count }
+    #endif
+
     func remove(_ window: UInt64) {
         guard layers.removeValue(forKey: .surface(window)) != nil else { return }
         tree.remove(.surface(window))
@@ -487,6 +495,9 @@ final class SurfaceLayers {
     /// the window that `register` gives it (apkrt_window_add), or 0 without one.
     func addWindow(_ request: WindowRequest, register: (CAMetalLayer) -> UInt64) -> UInt64 {
         let layer = MinatoMetalLayer()
+        #if DEBUG
+        SessionCheck.layerMade(layer)
+        #endif
         layer.contentsScale = windowLayer.contentsScale
         layer.isOpaque = request.opaque
         Self.withoutAnimation {

@@ -1,0 +1,47 @@
+I/glsurface-returns-test: onCreate
+I/glsurface-returns-test: onStart
+I/glsurface-returns-test: onResume
+I/glsurface-returns-test: surfaceCreated
+I/glsurface-returns-test: surfaceChanged
+I/glsurface-returns-test: surface 1: 30 frames
+I/glsurface-returns-test: onPause
+I/glsurface-returns-test: surfaceDestroyed
+I/glsurface-returns-test: onStop
+I/glsurface-returns-test: onRestart
+I/glsurface-returns-test: onStart
+I/glsurface-returns-test: onResume
+I/glsurface-returns-test: surfaceCreated
+I/glsurface-returns-test: surfaceChanged
+I/glsurface-returns-test: surface 2: 30 frames
+I/glsurface-returns-test: onPause
+I/glsurface-returns-test: surfaceDestroyed
+I/glsurface-returns-test: onStop
+I/glsurface-returns-test: onRestart
+I/glsurface-returns-test: onStart
+I/glsurface-returns-test: onResume
+I/glsurface-returns-test: surfaceCreated
+I/glsurface-returns-test: surfaceChanged
+I/glsurface-returns-test: surface 3: 30 frames
+I/glsurface-returns-test: onPause
+I/glsurface-returns-test: surfaceDestroyed
+I/glsurface-returns-test: onStop
+I/glsurface-returns-test: onRestart
+I/glsurface-returns-test: onStart
+I/glsurface-returns-test: onResume
+I/glsurface-returns-test: surfaceCreated
+I/glsurface-returns-test: surfaceChanged
+I/glsurface-returns-test: surface 4: 30 frames
+I/glsurface-returns-test: onPause
+I/glsurface-returns-test: surfaceDestroyed
+I/glsurface-returns-test: onStop
+I/glsurface-returns-test: onRestart
+I/glsurface-returns-test: onStart
+I/glsurface-returns-test: onResume
+I/glsurface-returns-test: surfaceCreated
+I/glsurface-returns-test: surfaceChanged
+I/glsurface-returns-test: surface 5: 30 frames
+I/glsurface-returns-test: renderer: onSurfaceCreated at least 5 times true, onSurfaceChanged at least 5 times true, frames more than 150 true
+I/glsurface-returns-test: done
+I/glsurface-returns-test: onPause
+I/glsurface-returns-test: surfaceDestroyed
+I/glsurface-returns-test: onStop
