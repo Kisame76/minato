@@ -10,6 +10,7 @@
 
 #include "APKRuntime/apkrt.h"
 #include "APKRuntime/guest_interface.h"
+#include "netlink.h"
 #include "check.h"
 
 namespace {
@@ -118,6 +119,19 @@ TEST(network_announces_a_change_in_a_session_but_nothing_before_it) {
     apkrt_network_set(0);
     event = read_event();
     CHECK(event.arguments[0] == 0);
+}
+
+TEST(a_network_with_no_readable_interface_is_a_snapshot_not_enodata) {
+    // -ENODATA means "no active network" (getActiveNetwork null -> getLinkProperties null). A network that is set but
+    // whose interface cannot be read must still give a (possibly empty) snapshot, so getLinkProperties stays non-null,
+    // as on a phone. Here a network is set but the host source has no interface (the fake path monitor, emptied).
+    apkrt::network::reset();
+    apkrt::netlink::set_fake_host({}, {});
+    apkrt_network_set(wifi);
+    CHECK(network(APKRT_NETWORK_LINK) > 0);   // a snapshot, not -ENODATA
+    apkrt::network::reset();
+    CHECK(network(APKRT_NETWORK_LINK) == -enodata);  // truly no network: -ENODATA (getLinkProperties null)
+    apkrt::netlink::clear_fake_host();
 }
 
 int main() { return apk::testing::run_all(); }

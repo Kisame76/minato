@@ -42,7 +42,9 @@ long call(std::uint64_t op, std::uint64_t argument, std::uint64_t size) {
             if (!have_state) return -linux_errno::enodata;  // no active network reported yet
         }
         const link::Snapshot snapshot = link::read();  // the one source; no network mutex (netlink has its own)
-        if (!snapshot.have) return -linux_errno::enodata;
+        // A network is set but its interface may not be readable (a transient, or the sandbox gives none): still hand
+        // back a snapshot -- an empty one -- so getLinkProperties stays non-null, as on a phone. -ENODATA above is only
+        // for no active network at all (getActiveNetwork null).
         const std::string blob = link::serialize(snapshot);
         const std::size_t fits = std::min<std::size_t>(blob.size(), size);
         if (fits > 0 && !sys::memory::copy_checked(argument, reinterpret_cast<std::uint64_t>(blob.data()), fits))

@@ -1348,7 +1348,9 @@ struct apkrt_location_fix {
                               // (interface name, addresses with prefix and scope, DNS servers, the default and
                               // on-link routes, MTU), serialized (network_link.h), written to the buffer; returns
                               // the byte count it needs (write what fits; call larger only if it exceeds x2) or
-                              // -ENODATA for no active network. Built from netlink::interfaces()/host_default_routes()
+                              // -ENODATA only for no active network (getActiveNetwork null); a network whose
+                              // interface cannot be read still gives an empty snapshot (a non-null LinkProperties).
+                              // Built from netlink::interfaces()/host_default_routes()
                               // and the host resolver -- the same source as getifaddrs and RTM_GETADDR/GETROUTE.
 
 /// APKRT_EVENT_NETWORK's a0 and APKRT_NETWORK_GET's value: the path's status and what it goes over.
