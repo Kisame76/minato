@@ -442,4 +442,5 @@ I/api-breadth-test: android.view.translation.TranslationRequestValue: loads
 I/api-breadth-test: android.view.translation.TranslationResponse: loads
 I/api-breadth-test: android.view.translation.TranslationResponseValue: loads
 I/api-breadth-test: android.view.translation.UiTranslationStateCallback: loads
+I/api-breadth-test: android.app.slice.SliceMetrics: loads
 I/api-breadth-test: done

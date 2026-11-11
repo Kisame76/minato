@@ -340,7 +340,7 @@ android.telephony.mbms.StreamingServiceCallback
 android.widget.inline.InlinePresentationSpec
 # Batch H2: the device policy types, the autofill service's types (AssistStructure waits: FillContext, FillRequest and
 # SaveRequest stay out with it), and PhoneNumberFormattingTextWatcher and UiccCardInfo; the legacy activity groups, the
-# media route button, ApplicationStartInfo, SliceMetrics, VisualVoicemailService and UnsafeStateException wait for their
+# media route button, ApplicationStartInfo, VisualVoicemailService and UnsafeStateException wait for their
 # hidden members.
 android.app.admin.ConnectEvent
 android.app.admin.DevicePolicyIdentifiers
@@ -388,7 +388,7 @@ android.telephony.UiccCardInfo
 # Batch H3: the companion device filters, the media effect interfaces, MediaProjectionConfig, TvAdServiceInfo, the MTP
 # types, AppUriAuthenticationPolicy, the identity credential store's types (android.security.identity), MessagePdu and
 # UnsafeStateException. EffectFactory, AssistStructure (with FillContext, FillRequest, SaveRequest), the activity
-# groups, ApplicationStartInfo, SliceMetrics, the media route button, InlineContentView and VcnUnderlyingNetworkTemplate
+# groups, ApplicationStartInfo, the media route button, InlineContentView and VcnUnderlyingNetworkTemplate
 # wait for steps of their own.
 android.app.admin.UnsafeStateException
 android.companion.BluetoothDeviceFilter
@@ -470,3 +470,5 @@ android.view.translation.TranslationRequestValue
 android.view.translation.TranslationResponse
 android.view.translation.TranslationResponseValue
 android.view.translation.UiTranslationStateCallback
+# Batch H5: SliceMetrics (with AOSP's LogMaker; the metrics are written nowhere).
+android.app.slice.SliceMetrics

@@ -6,6 +6,7 @@
 package com.android.internal.logging;
 
 import android.content.Context;
+import android.metrics.LogMaker;
 
 /** @hide */
 public class MetricsLogger {
@@ -22,5 +23,8 @@ public class MetricsLogger {
     }
 
     public static void action(Context context, int category, int value) {
+    }
+
+    public void write(LogMaker content) {
     }
 }

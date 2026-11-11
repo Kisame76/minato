@@ -3309,3 +3309,8 @@ frameworks_base/core/java/android/view/translation/TranslationRequestValue.java
 frameworks_base/core/java/android/view/translation/TranslationResponse.java
 frameworks_base/core/java/android/view/translation/TranslationResponseValue.java
 frameworks_base/core/java/android/view/translation/UiTranslationStateCallback.java
+
+# Batch H5 (framework breadth, pure Java): SliceMetrics with AOSP's own LogMaker (the compile-only stub of
+# StatusBarNotification's log entry gives way to it). Metrics are written nowhere: our MetricsLogger.write drops them.
+frameworks_base/core/java/android/metrics/LogMaker.java
+frameworks_base/core/java/android/app/slice/SliceMetrics.java
