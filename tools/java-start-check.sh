@@ -540,6 +540,31 @@ copy_trace_tail() {
 # of those hangs too (gone) no copy at all.
 HUNG_IN_ROW=0
 DEVICECTL_DEAD=""
+# Process $1 and every process below it, the deepest first: a hung copy's xcrun, its devicectl and devicectl's own
+# helpers, which a kill of xcrun alone leaves running (one stayed hung for 12 minutes and blocked the next copies,
+# iPhone, 2026-11-11).
+kill_tree() {
+  local child
+  for child in $(pgrep -a -P "$1"); do kill_tree "$child"; done
+  kill "$1" 2>/dev/null
+}
+# At the stop for a hung file service: every xcrun and devicectl below this script, with what is below them, so no
+# copy of the stopped check runs on and blocks the next one's. pgrep -a: macOS's pgrep leaves its own ancestors out
+# unless asked, and the walk starts at one of them.
+kill_copies() {
+  local pids=$$ next pid all=""
+  while [[ -n "$pids" ]]; do
+    next=""
+    for pid in $pids; do next+=" $(pgrep -a -P "$pid" | tr '\n' ' ')"; done
+    pids=$(echo $next)
+    all+=" $pids"
+  done
+  # A process whose program, its first or second word (a script's interpreter first), is xcrun or devicectl.
+  for pid in $all; do
+    ps -o command= -p "$pid" 2>/dev/null | awk '{ for (i = 1; i <= 2 && i <= NF; i++) { n = split($i, part, "/")
+      if (part[n] == "xcrun" || part[n] == "devicectl") found = 1 } } END { exit !found }' && kill_tree "$pid"
+  done
+}
 devicectl_copy() {
   local direction=$1
   shift
@@ -565,8 +590,7 @@ devicectl_copy() {
     local end=$((SECONDS + limit))
     while kill -0 "$pid" 2>/dev/null && (( SECONDS < end )); do sleep 0.2; done
     if kill -0 "$pid" 2>/dev/null; then
-      pkill -P "$pid" 2>/dev/null  # a child devicectl, if xcrun forked one, so the hung copy does not outlive us
-      kill "$pid" 2>/dev/null
+      kill_tree "$pid"  # xcrun, its devicectl and their helpers, so the hung copy does not outlive us
       wait "$pid" 2>/dev/null
       hung=yes
       copy_stamp "$direction ${shown:-}" "$started" "$from" "$attempt" "hung, killed"
@@ -581,6 +605,7 @@ devicectl_copy() {
         local way='restart CoreDeviceService (kill -TERM $(pgrep -x CoreDeviceService)) and rerun'
         fail "device file service hung, round stopped: $way"
         DEVICECTL_DEAD=stopped
+        kill_copies
         exit 3
       fi
     else

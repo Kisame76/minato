@@ -9,7 +9,8 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 JSC=${JSC:-tools/java-start-check.sh}
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+# The fake's grandchildren, should the script leave any, go with the test.
+trap 'while read -r pid; do kill "$pid" 2>/dev/null; done < "$work/grandchildren" 2>/dev/null; rm -rf "$work"' EXIT
 # Build the fake device identifiers at run time, so the source file holds no literal in a device-id form (the privacy
 # gate matches that shape, synthetic or not). All-zero placeholders of the right shape: copy_trace_tail's masking
 # still sees a UUID and a UDID/ECID form to replace, and the checks below look for these same generated values.
@@ -39,13 +40,15 @@ if [[ -n "$log" ]]; then
     echo "2.2 transferring tmp/session-check: waiting for the remote file service to respond"
   } > "$log"
 fi
+# devicectl's own helper, a grandchild of xcrun (a hung copy left one behind for 12 minutes, 2026-11-11), then the wait.
+bash -c 'sleep 300 & echo $! >> "$FAKE_GRANDCHILDREN"; wait' </dev/null >/dev/null 2>&1 3>&- &
 sleep "${FAKE_SLEEP:-30}"
 exit 0
 FAKE
 chmod +x "$work/bin/xcrun"
 # devicectl_copy and the helpers it calls, as the script has them.
 : > "$work/functions.sh"
-for fn in fail copy_stamp copy_trace_tail devicectl_copy; do
+for fn in fail copy_stamp copy_trace_tail kill_tree kill_copies devicectl_copy; do
   sed -n "/^$fn() {/,/^}/p" "$JSC" >> "$work/functions.sh"
 done
 failures=0
@@ -54,6 +57,7 @@ drive() {  # mode [calls] -> runs devicectl_copy (calls times, 1 by default), ec
   (
     cd "$work"
     export PATH="$work/bin:$PATH" FAKE_MODE=$1 FAKE_SLEEP=30 FAKE_UUID="$fake_uuid" FAKE_ECID="$fake_ecid"
+    export FAKE_GRANDCHILDREN="$work/grandchildren"
     WORK="$work" DEVICE_ID=fake-id DEVICE_UDID=fake-udid BUNDLE_ID=io.github.kisame76.minato
     DEVICECTL_COPY_TIMEOUT_S=2 DEVICECTL_LAST_TRY_S=1 STAMPS=""
     exec 3>&2
@@ -62,6 +66,8 @@ drive() {  # mode [calls] -> runs devicectl_copy (calls times, 1 by default), ec
     # The exit's clean-up, as restore() sends the end request: two copies, timed.
     trap 'for n in 1 2; do s=$SECONDS; devicectl_copy to --source "$work/fetched" --destination tmp/session-check \
       && echo "CLEANUP ok" || echo "CLEANUP fail after $((SECONDS - s)) s"; done' EXIT
+    # A copy of the check's that runs on beside the hung one (a fetch started before it): the stop must end it too.
+    [[ "$1" != hang ]] || xcrun devicectl device copy from --log-output /dev/null </dev/null >/dev/null 2>&1 3>&- &
     for _ in $(seq 1 "${2:-1}"); do
       devicectl_copy from --source tmp/session-check --destination "$work/fetched" && echo "RET ok" || echo "RET fail"
     done
@@ -81,6 +87,12 @@ check "the stop names the way out"         'grep -qxF "$stop" <<< "$out"'
 check "the stop exits with 3"               'grep -q "^STATUS 3$" <<< "$out"'
 check "the clean-up gets one short try"     'grep -qE "^CLEANUP fail after [0-2] s$" <<< "$out"'
 check "and none after that hangs"           '[[ "$(grep -c "^CLEANUP fail after 0 s$" <<< "$out")" -ge 1 ]]'
+# Every hung copy's processes go with it, its grandchildren too: none of them may outlive the stop.
+sleep 1
+left=""
+while read -r pid; do ! kill -0 "$pid" 2>/dev/null || left+=" $pid"; done < "$work/grandchildren"
+check "no copy's process outlives the stop"  '[[ -z "$left" ]]'
+for pid in $left; do kill "$pid" 2>/dev/null; done
 check "prints devicectl's stall step"       'grep -q "waiting for the remote file service to respond" <<< "$out"'
 check "keeps our own check path"            'grep -q "tmp/session-check" <<< "$out"'
 check "masks the device uuid"               '! grep -q "$fake_uuid" <<< "$out"'
