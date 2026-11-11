@@ -54,7 +54,11 @@
 # media-codec-decoders-test (e2f.2): its MP3, FLAC and raw decoders; media-codec-opus-test (e2): its Opus decoder;
 # and media-extractor-ogg-test (e2): MediaExtractor on Ogg Opus.
 # webview-test (ADR-0056 c2) is one too: its WebView's pages on graphics/host's WKWebView, in the session's view below
-# the window's layer, which then is not opaque.
+# the window's layer, which then is not opaque. So are the WebView app fixtures (the Mac's tools/webview-app-check.sh):
+# webview-localhost-test (pages the app serves itself over https), webview-prompt-bridge-test (an asset page that
+# calls the app through prompt(); its page sees location.protocol "minato-asset:", a named limit, where Android's
+# sees "file:"), webview-splash-test and webview-redirect-test (redirects from the app's own loopback server over
+# http: on iOS that cleartext goes through App Transport Security).
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
 # performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD
@@ -189,6 +193,10 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "media-codec-opus-test io.github.kisame76.minato.test.mediacodecopus"
       "media-extractor-ogg-test io.github.kisame76.minato.test.mediaextractorogg"
       "webview-test io.github.kisame76.minato.test.webview"
+      "webview-localhost-test io.github.kisame76.minato.test.webviewlocalhost"
+      "webview-prompt-bridge-test io.github.kisame76.minato.test.webviewprompt"
+      "webview-splash-test io.github.kisame76.minato.test.webviewsplash"
+      "webview-redirect-test io.github.kisame76.minato.test.webviewredirect"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "storage-space-test io.github.kisame76.minato.test.storagespace"
       "network-test io.github.kisame76.minato.test.network"
@@ -2918,6 +2926,16 @@ if wanted webview-test; then
     fail "  no page in the session's view: $(grep -E ' webviews ' "$EVENTS" | tail -1)"
   fi
 fi
+# ADR-0056's note of 2026-11-11: the WebView app fixtures, as tools/webview-app-check.sh runs them on the Mac.
+run_one webview-localhost-test io.github.kisame76.minato.test.webviewlocalhost
+if wanted webview-prompt-bridge-test; then
+  sed 's/protocol file:/protocol minato-asset:/' fixtures/expected/webview-prompt-bridge-test.logcat \
+    > "$WORK/webview-prompt-bridge-test-expected.logcat"
+  run_one webview-prompt-bridge-test io.github.kisame76.minato.test.webviewprompt \
+    "$WORK/webview-prompt-bridge-test-expected.logcat"
+fi
+run_one webview-splash-test io.github.kisame76.minato.test.webviewsplash
+run_one webview-redirect-test io.github.kisame76.minato.test.webviewredirect
 # ADR-0043's test 1: views, a TextView and a Button drawn in software. This check plays no touches, so the Button's
 # click comes from the app's performClick, 5 s after its label's change, which its device line names; the Mac's
 # tools/views-check.sh and the AVD tap it.

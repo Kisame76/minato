@@ -1,0 +1,7 @@
+I/webview-localhost-test: round 0 page: origin https://localhost, secure true, title localhost, data {"served": true}, missing 404, cookie , remote failed TypeError
+I/webview-localhost-test: round 0 splash hidden
+I/webview-localhost-test: round 1 page: origin https://appassets.androidplatform.net, secure true, title localhost, data {"served": true}, missing 404, cookie , remote failed TypeError
+I/webview-localhost-test: round 1 splash hidden
+I/webview-localhost-test: served [appassets.androidplatform.net www/app.js, appassets.androidplatform.net www/data.json, appassets.androidplatform.net www/index.html, localhost www/app.js, localhost www/data.json, localhost www/index.html]
+I/webview-localhost-test: errors [subresource of minato-unreachable.invalid]
+I/webview-localhost-test: done

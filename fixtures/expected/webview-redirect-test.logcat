@@ -1,0 +1,10 @@
+I/webview-redirect-test: round 1 page: same 200 data A at A/data, cross TypeError, cross-cors 200 cors B at B/cors, canvas SecurityError, post 200 POST 100000 bytes at A/echo, post-307 200 POST 100000 bytes at A/echo, cookie hop=1
+I/webview-redirect-test: round 2 started A/page2
+I/webview-redirect-test: round 2 finished A/page2
+I/webview-redirect-test: round 2 location "A/page2 page2 A"
+I/webview-redirect-test: round 3 started B/page2
+I/webview-redirect-test: round 3 finished B/page2
+I/webview-redirect-test: round 3 location "B/page2 page2 B"
+I/webview-redirect-test: asked [A/echo, A/nav-cross, A/nav-same, A/page, A/r-cross, A/r-cross-cors, A/r-img, A/r-post, A/r-same, B/cors, B/data]
+I/webview-redirect-test: served [GET A/data cookie, GET A/nav-cross cookie, GET A/nav-same cookie, GET A/page, GET A/page2 cookie, GET A/r-cross cookie, GET A/r-cross-cors cookie, GET A/r-img cookie, GET A/r-same, GET B/cors, GET B/data, GET B/img.png cookie, GET B/page2 cookie, POST A/echo cookie, POST A/r-post cookie]
+I/webview-redirect-test: done

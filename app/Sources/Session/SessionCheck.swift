@@ -34,7 +34,8 @@ import UIKit
 ///            mode turns the FPS label on through its menu; "hide" turns it off there.
 ///   no-guest game mode runs without a guest, as before ADR-0028 d): every post and wait is answered at once.
 ///   guest-log  the guest's log (its stderr, logcat's tag format) goes to tmp/session-check/guest-log, and its
-///            stdout to tmp/session-check/guest-out: a Java app's System.out, which Android sends to the log.
+///            stdout to tmp/session-check/guest-out: a Java app's System.out, which Android sends to the log. The
+///            WebView trace goes there too (MINATO_WEBVIEW_TRACE: each load's scheme, page events, the view's place).
 ///   extra-session  once the guest starts, game mode builds a second GameSession for the same app and keeps
 ///            it, as SwiftUI may build a view's state more than once; it must change nothing.
 ///   turn-library  the library asks its scene to turn to landscape, as a turned device would, logs whether iOS
@@ -183,6 +184,8 @@ enum SessionCheck {
             close(file)
         }
         event("guest log on")
+        // The WebView trace of the guest's provider and graphics/host (webview.m), into the same log.
+        setenv("MINATO_WEBVIEW_TRACE", "1", 1)
         if requested("window-crc"), minato_graphics_set_window_crc("-") == 0 {
             event("window crc on")
         }

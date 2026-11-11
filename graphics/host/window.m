@@ -731,7 +731,8 @@ static void trace_post(uint64_t window_id, uint64_t post, const char *how, CALay
     BOOL after = NO;
     for (CALayer *sublayer in layer.sublayers) {
         if (after) {
-            NSString *name = sublayer.name != nil ? sublayer.name : NSStringFromClass(sublayer.class);
+            // Only Minato's own labels, else the class: a layer name can never carry an app's text into the line.
+            NSString *name = [sublayer.name hasPrefix:@"minato."] ? sublayer.name : NSStringFromClass(sublayer.class);
             [above appendFormat:@"%@%@%s", above.length > 0 ? @"," : @"", name, sublayer.hidden ? "(hidden)" : ""];
         }
         after = after || sublayer == buffers;

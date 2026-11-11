@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A page the app serves itself over https (webview-localhost-test, ADR-0056): its shouldInterceptRequest answers
+     https://localhost/ and https://appassets.androidplatform.net/assets/ from its assets, as hybrid app frameworks and
+     androidx's WebViewAssetLoader do; the page's script calls the app through addJavascriptInterface, which hides
+     the splash over the WebView. No network. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewlocalhost" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.webviewlocalhost.LocalhostActivity"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

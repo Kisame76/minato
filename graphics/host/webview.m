@@ -27,13 +27,34 @@
 //   observes the package's store and posts its whole list (COOKIES) after each change and, for a view, before each
 //   "finished", so onPageFinished's getCookie sees the page's cookies; setCookie and removeAllCookies are CALLs,
 //   answered once the list after them has gone out.
+// - http and https (ADR-0056, note of 2026-11-11): for a view whose app answers requests itself (its make names
+//   them), they go through the scheme handler too, so that each reaches the app's shouldInterceptRequest, as on
+//   Android. WebKit refuses a handler for a scheme it handles, so +[WKWebView handlesURLScheme:] answers NO for them
+//   from the first such make on (only a guest's process makes views). A request the app does not answer ("pass") is
+//   fetched by the host (MinatoNetwork) with the cookies of the view's store, and its Set-Cookie goes into that store
+//   (WebKit stores none of a handler's); the app's own answers' Set-Cookie is not stored, as Chromium's is not
+//   (webview-localhost-test on the AVD). Should WebKit refuse the handler anyway, the app's own hosts
+//   (localhost, appassets.androidplatform.net) go as minato-http(s), mapped back in every URL the guest sees, and one
+//   line says so (fallback B; the page then sees that scheme in location). A redirect the network gives stops the
+//   fetch: WebKit hears of it (WKURLSchemeTask's _willPerformRedirection:newRequest:completionHandler:, else
+//   _didPerformRedirection:newRequest:, both private and asked for with respondsToSelector:) and applies its own
+//   checks (the origin of a main frame, CORS, a canvas's taint), and the next hop is a request of its own, which the
+//   app is asked for again, as Chromium asks shouldInterceptRequest for each redirect's URL. Without either a hop
+//   within the origin goes on as the same answer and one to another origin fails (a named limit), so that no page
+//   reads another site's answer, fetched with that site's cookies, as its own. Named limits: HTTP/2 push and
+//   WebKit's own cache are not there (the fetch has its own memory cache).
 // Not here (later steps): shouldOverrideUrlLoading, the JavaScript bridge, new windows, downloads and permissions.
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 
 #include "APKRuntime/apkrt.h"
 #include "minato_graphics.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 static const int64_t kAnswerWait = 10 * (int64_t)NSEC_PER_SEC;  // the guest's answer, then Android's default
@@ -266,11 +287,20 @@ static NSString *const kErrorPage =
 @implementation MinatoWebItem
 @end
 
-/// A minato-asset:// request that the guest answers.
+/// A request of the page that the guest answers (minato-asset://, and http(s) for an app that intercepts them).
 @interface MinatoResource : NSObject
 @property(nonatomic, strong) id<WKURLSchemeTask> task;
 @property(nonatomic) BOOL headed;   // the head came, and the response went to WebKit
 @property(nonatomic) BOOL stopped;  // WebKit stopped the task, or it failed or finished: later answers are dropped
+@property(nonatomic, strong) NSURLSessionDataTask *passing;  // the host fetches it: the guest's answer was "pass"
+@property(nonatomic, weak) id view;                                // its MinatoWebView
+@property(nonatomic) uint64_t rid;
+@property(nonatomic) BOOL mainFrame;
+@property(nonatomic) BOOL passed;  // the guest's answer was "pass": the network answers it
+@property(nonatomic, strong) NSURLRequest *request;  // what it asks for now: the task's, or a redirect's next hop
+@property(nonatomic) BOOL redirected;  // the network's answer was a redirect: the rest of its fetch is dropped
+@property(nonatomic) BOOL cookies;     // the request carries the store's cookies and its answer may set them
+@property(nonatomic, strong) NSData *body;  // the request's body, again for a 307 or 308 hop
 @end
 
 @implementation MinatoResource
@@ -359,6 +389,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic) BOOL errorPage;                             // the page loading is the error page
 @property(nonatomic) BOOL reload;                                // the navigation is a reload
 @property(nonatomic) BOOL committing;                            // a main-frame load started and has not committed
+@property(nonatomic) BOOL startPosted;                           // its "started" went out
 @property(nonatomic, copy) NSString *heldTitle;                  // a title that came before its page's commit
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, void (^)(NSData *, int, int64_t, int64_t)> *waiting;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, MinatoResource *> *resources;
@@ -368,10 +399,122 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic) CGRect clip;
 @property(nonatomic, strong) MinatoClipView *holder;             // the clip view, once placed
 @property(nonatomic, copy) NSArray<NSValue *> *touchRegion;      // the last touchRegion, in the window's pixels
+@property(nonatomic, copy) NSString *traced;                     // the last trace line's place, to print changes
 @property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
 @property(nonatomic) CGFloat cssWidth;                           // the viewport's device-width, 0 before a place
 @property(nonatomic) BOOL wideViewPort;                          // the setting useWideViewPort
+@property(nonatomic) BOOL ownHostsRewritten;                     // fallback B: the app's own hosts as minato-http(s)
 @end
+
+/// The network for the pages' requests the apps do not answer: one session for the process, without cookies of its
+/// own (the view's store gives and takes them), whose events come on the main queue.
+@interface MinatoNetwork : NSObject <NSURLSessionDataDelegate>
+@property(nonatomic, strong) NSURLSession *session;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, MinatoResource *> *fetching;  // by the task's identifier
++ (instancetype)shared;
+- (NSURLSessionDataTask *)fetch:(NSURLRequest *)request for:(MinatoResource *)resource;
+@end
+
+// MARK: http and https through the scheme handler (ADR-0056, note of 2026-11-11)
+
+static BOOL (*webkit_handles_url_scheme)(id, SEL, NSString *);
+
+/// +[WKWebView handlesURLScheme:] that leaves http and https to a handler.
+static BOOL handles_url_scheme(id self, SEL command, NSString *scheme) {
+    NSString *lower = scheme.lowercaseString;
+    if ([lower isEqualToString:@"http"] || [lower isEqualToString:@"https"]) return NO;
+    return webkit_handles_url_scheme(self, command, scheme);
+}
+
+/// Swizzles once, at the first make that asks for http(s); whether WebKit's answer is ours.
+/// MINATO_WEBVIEW_HTTPS=rewrite (checks only) leaves it, as a future iOS might, so that fallback B runs.
+static BOOL route_web_schemes(void) {
+    static BOOL routed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        const char *mode = getenv("MINATO_WEBVIEW_HTTPS");
+        if (mode != NULL && strcmp(mode, "rewrite") == 0) return;
+        Method method = class_getClassMethod(WKWebView.class, @selector(handlesURLScheme:));
+        if (method == NULL) return;
+        webkit_handles_url_scheme = (BOOL (*)(id, SEL, NSString *))method_setImplementation(method,
+                                                                                            (IMP)handles_url_scheme);
+        routed = YES;
+    });
+    return routed;
+}
+
+/// Fallback B: a URL of the app's own hosts as minato-http(s); any other as it is.
+static NSURL *own_host_url(NSURL *url) {
+    NSString *scheme = url.scheme.lowercaseString, *host = url.host.lowercaseString;
+    if (!([scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"]) ||
+        !([host isEqualToString:@"localhost"] || [host isEqualToString:@"appassets.androidplatform.net"])) {
+        return url;
+    }
+    NSURLComponents *parts = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    parts.scheme = [@"minato-" stringByAppendingString:scheme];
+    return parts.URL != nil ? parts.URL : url;
+}
+
+/// The URL the network knows: minato-http(s) as http(s).
+static NSURL *network_url(NSURL *url) {
+    NSString *scheme = url.scheme.lowercaseString;
+    if (![scheme isEqualToString:@"minato-http"] && ![scheme isEqualToString:@"minato-https"]) return url;
+    NSURLComponents *parts = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    parts.scheme = [scheme substringFromIndex:@"minato-".length];
+    return parts.URL != nil ? parts.URL : url;
+}
+
+/// Whether the page asked for `url` over http or https (fallback B's schemes included).
+static BOOL web_url(NSURL *url) {
+    NSString *scheme = network_url(url).scheme.lowercaseString;
+    return [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+}
+
+/// The Cookie header a browser sends to `url` from `cookies` (domain, path, secure, expiry; longer paths first);
+/// nil for none.
+static NSString *cookie_header(NSArray<NSHTTPCookie *> *cookies, NSURL *url) {
+    NSString *host = url.host.lowercaseString;
+    NSString *path = url.path.length > 0 ? url.path : @"/";
+    const BOOL secure = [url.scheme.lowercaseString isEqualToString:@"https"];
+    NSDate *now = [NSDate date];
+    NSMutableArray<NSHTTPCookie *> *matching = [NSMutableArray new];
+    for (NSHTTPCookie *cookie in cookies) {
+        NSString *domain = cookie.domain.lowercaseString;
+        const BOOL hostOnly = ![domain hasPrefix:@"."];
+        NSString *bare = hostOnly ? domain : [domain substringFromIndex:1];
+        const BOOL domainMatches = [host isEqualToString:bare] ||
+                                   (!hostOnly && [host hasSuffix:[@"." stringByAppendingString:bare]]);
+        NSString *own = cookie.path.length > 0 ? cookie.path : @"/";
+        const BOOL pathMatches =
+            [path isEqualToString:own] ||
+            ([path hasPrefix:own] && ([own hasSuffix:@"/"] || [path characterAtIndex:own.length] == '/'));
+        const BOOL expired = cookie.expiresDate != nil && [cookie.expiresDate compare:now] != NSOrderedDescending;
+        if (domainMatches && pathMatches && (secure || !cookie.isSecure) && !expired) [matching addObject:cookie];
+    }
+    if (matching.count == 0) return nil;
+    [matching sortWithOptions:NSSortStable
+              usingComparator:^NSComparisonResult(NSHTTPCookie *a, NSHTTPCookie *b) {
+                  return a.path.length > b.path.length ? NSOrderedAscending
+                         : a.path.length < b.path.length ? NSOrderedDescending
+                                                         : NSOrderedSame;
+              }];
+    return [NSHTTPCookie requestHeaderFieldsWithCookies:matching][@"Cookie"];
+}
+
+/// The headers WebKit gets for the fetch's response: the body comes decoded, so its encoding and length go.
+static NSDictionary *decoded_headers(NSDictionary *headers) {
+    NSMutableDictionary *out = [NSMutableDictionary new];
+    [headers enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
+        (void)stop;
+        NSString *name = [key description];
+        if ([name caseInsensitiveCompare:@"Content-Encoding"] == NSOrderedSame ||
+            [name caseInsensitiveCompare:@"Content-Length"] == NSOrderedSame) {
+            return;
+        }
+        out[name] = [value description];
+    }];
+    return out;
+}
 
 @implementation MinatoWebView
 
@@ -502,10 +645,29 @@ static WKWebsiteDataStore *data_store(id identifier) {
     WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
     configuration.websiteDataStore = data_store(call[@"dataStore"]);
     [self observeCookies:configuration.websiteDataStore];
-    for (NSString *scheme in call[@"schemes"]) {
-        if ([scheme isKindOfClass:NSString.class] && ![WKWebView handlesURLScheme:scheme]) {
+    NSArray *schemes = [call[@"schemes"] isKindOfClass:NSArray.class] ? call[@"schemes"] : @[];
+    const BOOL web = [schemes containsObject:@"https"] || [schemes containsObject:@"http"];
+    BOOL refused = web && !route_web_schemes();
+    for (NSString *scheme in schemes) {
+        if (![scheme isKindOfClass:NSString.class]) continue;
+        const BOOL webScheme = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+        if ((webScheme && refused) || [WKWebView handlesURLScheme:scheme]) continue;
+        @try {
             [configuration setURLSchemeHandler:self forURLScheme:scheme];
+        } @catch (NSException *exception) {
+            if (!webScheme) @throw;
+            refused = YES;
         }
+    }
+    if (refused) {  // fallback B
+        for (NSString *scheme in @[ @"minato-http", @"minato-https" ]) {
+            if ([configuration urlSchemeHandlerForURLScheme:scheme] == nil) {
+                [configuration setURLSchemeHandler:self forURLScheme:scheme];
+            }
+        }
+        self.ownHostsRewritten = YES;
+        fprintf(stderr, "I/MinatoWebView: WebKit refused http(s) through the handler; the app's own hosts go as "
+                        "minato-http(s)\n");
     }
     self.settings = call[@"settings"];
 #if TARGET_OS_IPHONE
@@ -603,6 +765,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
     if ([name isEqualToString:@"loadUrl"] || [name isEqualToString:@"postUrl"]) {
         NSURL *url = [NSURL URLWithString:either(call[@"url"], @"")];
         if (url == nil) return;
+        if (self.ownHostsRewritten) url = own_host_url(url);
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
         NSDictionary *headers = call[@"headers"];
         if ([headers isKindOfClass:NSDictionary.class]) {
@@ -670,6 +833,10 @@ static WKWebsiteDataStore *data_store(id identifier) {
 - (void)loadData:(NSDictionary *)call {
     NSString *base = [call[@"baseUrl"] isKindOfClass:NSString.class] ? call[@"baseUrl"] : nil;
     NSURL *baseURL = base.length > 0 ? [NSURL URLWithString:base] : nil;
+    if (self.ownHostsRewritten && baseURL != nil) {
+        baseURL = own_host_url(baseURL);
+        base = baseURL.absoluteString;
+    }
     NSString *scheme = baseURL.scheme.lowercaseString;
     if (scheme == nil || [scheme isEqualToString:@"data"] || [scheme isEqualToString:@"about"] ||
         [scheme isEqualToString:@"javascript"]) {
@@ -777,6 +944,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
     [self.cookieStore removeObserver:self];
     self.cookieStore = nil;
     for (MinatoResource *resource in self.resources.allValues) {
+        [resource.passing cancel];
         if (!resource.stopped) {
             resource.stopped = YES;
             [resource.task didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled
@@ -807,6 +975,23 @@ static WKWebsiteDataStore *data_store(id identifier) {
     [self show];
 }
 
+/// The trace (a check's guest log only: MINATO_WEBVIEW_TRACE=1, which session-check's guest-log request sets, as for
+/// the guest's provider): a line on stderr each time the view's place changes, with its frame and clip in the
+/// container's points, whether it is hidden, its index just below its window's view and how many views lie above
+/// that, and the window view's own state; never a page's content or URL.
+- (void)trace:(NSString *)place {
+    const char *asked = getenv("MINATO_WEBVIEW_TRACE");
+    if (asked == NULL || strcmp(asked, "1") != 0 || [place isEqualToString:self.traced]) return;
+    self.traced = place;
+    fprintf(stderr, "I/MinatoWebView: host %llu %s\n", (unsigned long long)self.token, place.UTF8String);
+}
+
+/// The trace's words for a rectangle in points.
+static NSString *traced_rect(CGRect rect) {
+    return [NSString stringWithFormat:@"%.0f,%.0f %.0fx%.0f", rect.origin.x, rect.origin.y, rect.size.width,
+                                      rect.size.height];
+}
+
 /// Puts the view where its last PLACE says, or takes it out: before its "make", after REMOVE, or for a window the
 /// host does not show. An empty clip hides it.
 - (void)show {
@@ -821,6 +1006,11 @@ static WKWebsiteDataStore *data_store(id identifier) {
     if (container == nil || windowView.superview != container) {
         [self.holder removeFromSuperview];
         [self count:0];
+        [self trace:[NSString stringWithFormat:@"out window %llu: %s", (unsigned long long)self.window,
+                                               self.view == nil   ? "no view"
+                                               : !self.placed     ? "not placed"
+                                               : container == nil ? "window not shown"
+                                                                  : "window view elsewhere"]];
         return;
     }
     if (self.holder == nil) {
@@ -873,6 +1063,23 @@ static WKWebsiteDataStore *data_store(id identifier) {
     const BOOL visible = !CGRectIsEmpty(self.clip);
     self.holder.hidden = !visible;
     [self count:visible ? self.window : 0];
+    const NSUInteger index = [container.subviews indexOfObject:self.holder];
+    const NSUInteger windowIndex = [container.subviews indexOfObject:windowView];
+#if TARGET_OS_IPHONE
+    const BOOL windowOpaque = windowView.layer.opaque;
+    const CGFloat windowAlpha = windowView.alpha;
+#else
+    const BOOL windowOpaque = windowView.layer.opaque;
+    const CGFloat windowAlpha = windowView.alphaValue;
+#endif
+    [self trace:[NSString stringWithFormat:@"window %llu: frame %@ clip %@ hidden %d index %lu below window %lu "
+                                           @"above it %lu; window view %@ hidden %d opaque %d alpha %.2f",
+                                           (unsigned long long)self.window, traced_rect(self.view.frame),
+                                           traced_rect(clip), !visible, (unsigned long)index,
+                                           (unsigned long)windowIndex,
+                                           (unsigned long)(container.subviews.count - windowIndex - 1),
+                                           traced_rect(windowView.frame), windowView.hidden, windowOpaque,
+                                           windowAlpha]];
 }
 
 /// A new width for "device-width", in whole CSS pixels: the scripts of later pages get it, and the page now shows takes
@@ -989,6 +1196,7 @@ static NSString *view_url(MinatoWebItem *item) {
 
 /// The page committed: the history and the view's URL, as the guest mirrors them; then a title that came before.
 - (void)committed {
+    [self postStarted];
     MinatoWebItem *entry;
     if (self.target >= 0 && self.target < (NSInteger)self.entries.count) {
         self.index = self.target;
@@ -1090,12 +1298,21 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
                                                                                WKWebpagePreferences *))decision {
     id javaScript = self.settings[@"javaScript"];
     preferences.allowsContentJavaScript = javaScript == nil || [javaScript boolValue];
+    NSURL *own = self.ownHostsRewritten && action.targetFrame.isMainFrame ? own_host_url(action.request.URL) : nil;
+    if (own != nil && own != action.request.URL) {  // fallback B: a link of the page to the app's own host
+        NSMutableURLRequest *request = [action.request mutableCopy];
+        request.URL = own;
+        decision(WKNavigationActionPolicyCancel, preferences);
+        [webView loadRequest:request];
+        return;
+    }
     if (action.targetFrame.isMainFrame) self.reload = action.navigationType == WKNavigationTypeReload;
     decision(WKNavigationActionPolicyAllow, preferences);
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)response
                                                        decisionHandler:(void (^)(WKNavigationResponsePolicy))decision {
+    if (response.isForMainFrame) [self postStarted];
     NSHTTPURLResponse *http = [response.response isKindOfClass:NSHTTPURLResponse.class]
                                   ? (NSHTTPURLResponse *)response.response
                                   : nil;
@@ -1121,10 +1338,27 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     (void)navigation;
     self.committing = YES;
     self.heldTitle = nil;
+    self.startPosted = NO;
     if (self.errorPage) return;
-    MinatoWebItem *coming = self.target >= 0 ? self.entries[(NSUInteger)self.target] : self.pending;
-    [self navigation:@"started" url:coming != nil ? view_url(coming) : webView.URL.absoluteString];
     [self progress:10];
+}
+
+/// "started" of the main frame's load, once its answer or its failure is known: at the URL after any redirects, as
+/// Chromium tells onPageStarted only for the URL it commits.
+- (void)postStarted {
+    if (self.startPosted || self.errorPage || !self.committing) return;
+    self.startPosted = YES;
+    MinatoWebItem *coming = self.target >= 0 ? self.entries[(NSUInteger)self.target] : self.pending;
+    [self navigation:@"started" url:coming != nil ? view_url(coming) : self.view.URL.absoluteString];
+}
+
+- (void)webView:(WKWebView *)webView didReceiveServerRedirectForProvisionalNavigation:(WKNavigation *)navigation {
+    (void)navigation;
+    MinatoWebItem *coming = self.target >= 0 ? nil : self.pending;
+    if (coming != nil && webView.URL != nil) {
+        coming.url = webView.URL.absoluteString;  // getUrl answers the redirect's end, getOriginalUrl the request's
+        coming.viewURL = nil;
+    }
 }
 
 - (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
@@ -1155,6 +1389,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 /// A main-frame load that failed: its error, onPageFinished, then Chromium's error page at its URL.
 - (void)failed:(NSError *)error url:(NSString *)url {
+    [self postStarted];
     if ([error.domain isEqualToString:NSURLErrorDomain] && error.code == NSURLErrorCancelled) return;
     // WebKit's "frame load interrupted by policy change" (WebKitErrorDomain 102): a load that became a download.
     if ([error.domain isEqualToString:@"WebKitErrorDomain"] && error.code == 102) return;
@@ -1272,17 +1507,29 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 /// The guest serves the request: its head, then its body in answers, then an empty answer.
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)task {
-    const uint64_t rid = next_record_id();
     MinatoResource *resource = [MinatoResource new];
     resource.task = task;
+    resource.view = self;
+    resource.request = task.request;
+    resource.cookies = task.request.HTTPShouldHandleCookies;  // WebKit's answer to the request's credentials mode
+    resource.body = task.request.HTTPBody;
+    const BOOL main = task.request.mainDocumentURL == nil || [task.request.mainDocumentURL isEqual:task.request.URL];
+    resource.mainFrame = main;
+    [self ask:resource];
+}
+
+/// Asks the guest for the resource's request (RESOURCE): its head, then its body in answers, then an empty answer.
+- (void)ask:(MinatoResource *)resource {
+    const uint64_t rid = next_record_id();
+    resource.rid = rid;
     self.resources[@(rid)] = resource;
-    NSURLRequest *request = task.request;
+    NSURLRequest *request = resource.request;
     NSMutableDictionary *headers = [NSMutableDictionary new];
     [request.allHTTPHeaderFields enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop) {
         (void)stop;
         headers[key] = value;
     }];
-    const BOOL main = request.mainDocumentURL == nil || [request.mainDocumentURL isEqual:request.URL];
+    const BOOL main = resource.mainFrame;
     __weak MinatoWebView *weakSelf = self;
     [self wait:rid
         answered:^(NSData *payload, int fd, int64_t offset, int64_t length) {
@@ -1301,7 +1548,9 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 - (void)webView:(WKWebView *)webView stopURLSchemeTask:(id<WKURLSchemeTask>)task {
     for (MinatoResource *resource in self.resources.allValues) {
-        if (resource.task == task) resource.stopped = YES;
+        if (resource.task != task) continue;
+        resource.stopped = YES;
+        [resource.passing cancel];
     }
 }
 
@@ -1318,19 +1567,31 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
         }
         return;
     }
+    if (resource.passed) {  // the network answers it: the guest's end is all that is left
+        if (fd >= 0) close(fd);
+        if (end) [self.waiting removeObjectForKey:@(rid)];
+        return;
+    }
     id<WKURLSchemeTask> task = resource.task;
+    const BOOL web = web_url(resource.request.URL);
     if (!resource.headed) {
         NSDictionary *head = payload.length > 0 ? [NSJSONSerialization JSONObjectWithData:payload options:0 error:nil]
                                                 : nil;
+        if (web && [head isKindOfClass:NSDictionary.class] && [head[@"pass"] boolValue]) {
+            [self pass:rid];
+            if (end) [self.waiting removeObjectForKey:@(rid)];
+            return;
+        }
         const NSInteger status = [head isKindOfClass:NSDictionary.class] ? [head[@"status"] integerValue] : 0;
-        if (status < 100 || status >= 400) {
+        // An app's own answer of http(s) is the page's whatever its status, as Chromium's; an asset's error fails.
+        if (status < 100 || (status >= 400 && !web)) {
             resource.stopped = YES;
             // A guest file while the app's file access is off is refused, as Chromium's ERR_ACCESS_DENIED.
             const BOOL denied = [head isKindOfClass:NSDictionary.class] && [head[@"denied"] boolValue];
             [task didFailWithError:[NSError errorWithDomain:NSURLErrorDomain
                                                        code:denied ? NSURLErrorNoPermissionsToReadFile
                                                                    : NSURLErrorFileDoesNotExist
-                                                   userInfo:@{NSURLErrorFailingURLErrorKey : task.request.URL}]];
+                                                   userInfo:@{NSURLErrorFailingURLErrorKey : resource.request.URL}]];
             if (end) {
                 [self.resources removeObjectForKey:@(rid)];
                 [self.waiting removeObjectForKey:@(rid)];
@@ -1350,7 +1611,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
             headers[@"Content-Type"] = encoding != nil ? [NSString stringWithFormat:@"%@; charset=%@", mime, encoding]
                                                        : mime;
         }
-        NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:task.request.URL statusCode:status
+        NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:resource.request.URL statusCode:status
                                                                  HTTPVersion:@"HTTP/1.1" headerFields:headers];
         resource.headed = YES;
         [task didReceiveResponse:response];
@@ -1379,6 +1640,276 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     [task didFinish];
     [self.resources removeObjectForKey:@(rid)];
     [self.waiting removeObjectForKey:@(rid)];
+}
+
+// MARK: The network's answers (ADR-0056, note of 2026-11-11)
+
+/// Stores the Set-Cookie of a response of the network that the page gets through the handler, then `then`.
+- (void)storeCookiesOf:(NSDictionary *)headers url:(NSURL *)url then:(void (^)(void))then {
+    NSString *value = nil;
+    for (id key in headers) {
+        if ([[key description] caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame) {
+            value = [headers[key] description];
+        }
+    }
+    NSArray<NSHTTPCookie *> *cookies =
+        value != nil && self.cookieStore != nil
+            ? [NSHTTPCookie cookiesWithResponseHeaderFields:@{@"Set-Cookie" : value} forURL:network_url(url)]
+            : @[];
+    if (cookies.count == 0) {
+        then();
+        return;
+    }
+    __block NSUInteger left = cookies.count;
+    for (NSHTTPCookie *cookie in cookies) {
+        [self.cookieStore setCookie:cookie
+                  completionHandler:^{
+                      if (--left == 0) then();
+                  }];
+    }
+}
+
+/// The Cookie header of the view's store for `url`, or nil.
+- (void)cookieHeaderFor:(NSURL *)url then:(void (^)(NSString *))then {
+    if (self.cookieStore == nil) {
+        then(nil);
+        return;
+    }
+    [self.cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
+        then(cookie_header(cookies, url));
+    }];
+}
+
+/// The page's request that the app did not answer, from the network.
+- (void)pass:(uint64_t)rid {
+    MinatoResource *resource = self.resources[@(rid)];
+    NSMutableURLRequest *request = [resource.request mutableCopy];
+    request.URL = network_url(request.URL);
+    request.HTTPShouldHandleCookies = NO;
+    if (resource.body.length > 0 && request.HTTPBody == nil && request.HTTPBodyStream == nil) {
+        request.HTTPBody = resource.body;
+    }
+    resource.passed = YES;
+    const BOOL cookies = resource.cookies;
+    [self cookieHeaderFor:request.URL
+                     then:^(NSString *cookie) {
+                         if (resource.stopped) return;
+                         [request setValue:cookies ? cookie : nil forHTTPHeaderField:@"Cookie"];
+                         resource.passing = [MinatoNetwork.shared fetch:request for:resource];
+                     }];
+}
+
+/// Whether two URLs share scheme, host and port (the browser's origin).
+static BOOL same_origin(NSURL *a, NSURL *b) {
+    return [a.scheme.lowercaseString isEqualToString:b.scheme.lowercaseString] &&
+           [a.host.lowercaseString isEqualToString:b.host.lowercaseString] &&
+           [either(a.port, @(-1)) isEqual:either(b.port, @(-1))];
+}
+
+/// The network answered the resource's fetch with a redirect: its Set-Cookie goes into the store, WebKit hears of the
+/// hop and decides on it with its own checks, and the next hop is asked for anew (follow:).
+- (void)redirect:(MinatoResource *)resource response:(NSHTTPURLResponse *)response to:(NSURLRequest *)next {
+    resource.redirected = YES;
+    __weak MinatoWebView *weakSelf = self;
+    [self storeCookiesOf:resource.cookies ? response.allHeaderFields : @{}
+                     url:response.URL
+                    then:^{
+                        MinatoWebView *strong = weakSelf;
+                        if (strong == nil || resource.stopped) return;
+                        // At the URL the page asked for (fallback B's own form, if it is one).
+                        NSHTTPURLResponse *hop = [[NSHTTPURLResponse alloc] initWithURL:resource.request.URL
+                                                                             statusCode:response.statusCode
+                                                                            HTTPVersion:@"HTTP/1.1"
+                                                                           headerFields:decoded_headers(
+                                                                                            response.allHeaderFields)];
+                        NSMutableURLRequest *request = [next mutableCopy];
+                        [request setValue:nil forHTTPHeaderField:@"Cookie"];  // the next hop's come from the store
+                        if (strong.ownHostsRewritten) request.URL = own_host_url(request.URL);
+                        if (response.statusCode == 307 || response.statusCode == 308) {
+                            request.HTTPMethod = resource.request.HTTPMethod;  // the same request again, body and all
+                            request.HTTPBody = resource.body;
+                        }
+                        id task = resource.task;
+                        const SEL will = NSSelectorFromString(@"_willPerformRedirection:newRequest:completionHandler:");
+                        const SEL did = NSSelectorFromString(@"_didPerformRedirection:newRequest:");
+                        typedef void (*will_function)(id, SEL, NSURLResponse *, NSURLRequest *,
+                                                      void (^)(NSURLRequest *));
+                        if ([task respondsToSelector:will]) {
+                            ((will_function)objc_msgSend)(task, will, hop, request, ^(NSURLRequest *accepted) {
+                                [weakSelf follow:resource request:accepted];
+                            });
+                        } else if ([task respondsToSelector:did]) {
+                            ((void (*)(id, SEL, NSURLResponse *, NSURLRequest *))objc_msgSend)(task, did, hop, request);
+                            [strong follow:resource request:request];
+                        } else if (same_origin(resource.request.URL, request.URL)) {
+                            [strong follow:resource request:request];  // WebKit keeps the first URL (a named limit)
+                        } else {
+                            [strong follow:resource request:nil];
+                        }
+                    }];
+}
+
+/// The resource's next hop, a request of its own that the guest is asked for again; nil: the hop is refused, and
+/// the resource fails as a network error.
+- (void)follow:(MinatoResource *)previous request:(NSURLRequest *)request {
+    if (previous.stopped) return;
+    [self.resources removeObjectForKey:@(previous.rid)];
+    if (request == nil) {
+        previous.stopped = YES;
+        NSDictionary *failed = @{NSURLErrorFailingURLErrorKey : previous.request.URL};
+        [previous.task didFailWithError:[NSError errorWithDomain:NSURLErrorDomain
+                                                            code:NSURLErrorCannotLoadFromNetwork
+                                                        userInfo:failed]];
+        return;
+    }
+    MinatoResource *next = [MinatoResource new];
+    next.task = previous.task;
+    next.view = self;
+    next.mainFrame = previous.mainFrame;
+    next.request = request;
+    // A hop that keeps the method (307, 308) sends the body again; WebKit's request for it may come without.
+    NSString *method = request.HTTPMethod;
+    const BOOL same_method = [method isEqualToString:previous.request.HTTPMethod] &&
+                             ![method isEqualToString:@"GET"] && ![method isEqualToString:@"HEAD"];
+    next.body = request.HTTPBody != nil ? request.HTTPBody : same_method ? previous.body : nil;
+    // A CORS request (WebKit gives it an Origin) sends the store's cookies to the page's own origin only, as fetch's
+    // default credentials do; any other keeps the first request's choice.
+    NSURL *page = previous.task.request.mainDocumentURL;
+    const BOOL cors = [request valueForHTTPHeaderField:@"Origin"] != nil;
+    next.cookies = previous.cookies &&
+                   (!cors || page == nil || same_origin(network_url(page), network_url(request.URL)));
+    if (cors && !same_origin(network_url(previous.request.URL), network_url(request.URL))) {
+        [self ask:next];  // Chromium asks the app again for a CORS request's hop to another origin
+        return;
+    }
+    // Any other hop goes on to the network, as Chromium's does without asking the app.
+    const uint64_t rid = next_record_id();
+    next.rid = rid;
+    self.resources[@(rid)] = next;
+    [self pass:rid];
+}
+
+/// The network's end of a resource: finished, or failed as WebKit would (a subresource's error also goes to the
+/// guest's onReceivedError; a main frame's comes from the navigation).
+- (void)passEnded:(MinatoResource *)resource error:(NSError *)error {
+    [self.resources removeObjectForKey:@(resource.rid)];
+    if (resource.stopped) return;
+    resource.stopped = YES;
+    if (error == nil) {
+        [resource.task didFinish];
+        return;
+    }
+    [resource.task didFailWithError:error];
+    if (resource.mainFrame) return;
+    int code;
+    NSString *description;
+    chromium_error(error, &code, &description);
+    post(self.token, APKRT_WEBVIEW_REC_ERROR, 0, @{
+        @"mainFrame" : @NO,
+        @"code" : @(code),
+        @"description" : description,
+        @"url" : either(resource.request.URL.absoluteString, @"")
+    });
+}
+
+@end
+
+@implementation MinatoNetwork
+
++ (instancetype)shared {
+    static MinatoNetwork *network;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        network = [MinatoNetwork new];
+    });
+    return network;
+}
+
+- (instancetype)init {
+    if ((self = [super init])) {
+        NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+        configuration.HTTPCookieStorage = nil;
+        configuration.HTTPShouldSetCookies = NO;
+        configuration.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
+        _session = [NSURLSession sessionWithConfiguration:configuration
+                                                 delegate:self
+                                            delegateQueue:NSOperationQueue.mainQueue];
+        _fetching = [NSMutableDictionary new];
+    }
+    return self;
+}
+
+- (NSURLSessionDataTask *)fetch:(NSURLRequest *)request for:(MinatoResource *)resource {
+    NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request];
+    self.fetching[@(task.taskIdentifier)] = resource;
+    [task resume];
+    return task;
+}
+
+- (void)URLSession:(NSURLSession *)session
+              dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveResponse:(NSURLResponse *)response
+     completionHandler:(void (^)(NSURLSessionResponseDisposition))completion {
+    MinatoResource *resource = self.fetching[@(dataTask.taskIdentifier)];
+    MinatoWebView *view = resource.view;
+    if (resource == nil || resource.stopped || resource.redirected || view == nil) {
+        completion(NSURLSessionResponseCancel);
+        return;
+    }
+    NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
+    NSDictionary *headers = http != nil ? http.allHeaderFields : @{};
+    [view storeCookiesOf:resource.cookies ? headers : @{}
+                     url:response.URL
+                    then:^{
+                        if (resource.stopped) {
+                            completion(NSURLSessionResponseCancel);
+                            return;
+                        }
+                        // At the page's URL: a redirect the fetch followed stays unknown to WebKit (a named limit).
+                        NSURL *url = resource.request.URL;
+                        NSURLResponse *answer =
+                            http != nil ? [[NSHTTPURLResponse alloc] initWithURL:url
+                                                                      statusCode:http.statusCode
+                                                                     HTTPVersion:@"HTTP/1.1"
+                                                                    headerFields:decoded_headers(headers)]
+                                        : [[NSURLResponse alloc] initWithURL:url
+                                                                    MIMEType:response.MIMEType
+                                                       expectedContentLength:-1
+                                                            textEncodingName:response.textEncodingName];
+                        resource.headed = YES;
+                        [resource.task didReceiveResponse:answer];
+                        completion(NSURLSessionResponseAllow);
+                    }];
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+    MinatoResource *resource = self.fetching[@(dataTask.taskIdentifier)];
+    if (resource != nil && !resource.stopped && !resource.redirected && resource.headed) {
+        [resource.task didReceiveData:data];
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+                          task:(NSURLSessionTask *)task
+    willPerformHTTPRedirection:(NSHTTPURLResponse *)response
+                    newRequest:(NSURLRequest *)request
+             completionHandler:(void (^)(NSURLRequest *))completion {
+    MinatoResource *resource = self.fetching[@(task.taskIdentifier)];
+    MinatoWebView *view = resource.view;
+    if (resource == nil || resource.stopped || view == nil) {
+        completion(nil);
+        return;
+    }
+    // The fetch stops at the redirect (its 3xx answer is dropped): WebKit and the app take the next hop.
+    completion(nil);
+    [view redirect:resource response:response to:request];
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    MinatoResource *resource = self.fetching[@(task.taskIdentifier)];
+    [self.fetching removeObjectForKey:@(task.taskIdentifier)];
+    if (resource.redirected) return;  // its next hop is a resource of its own
+    [(MinatoWebView *)resource.view passEnded:resource error:error];
 }
 
 @end

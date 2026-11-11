@@ -1,0 +1,8 @@
+I/webview-prompt-bridge-test: call Device.getInfo
+I/webview-prompt-bridge-test: call Log.info
+I/webview-prompt-bridge-test: page: device platform Android
+I/webview-prompt-bridge-test: call Log.info
+I/webview-prompt-bridge-test: page: deviceready, protocol file:, secure true
+I/webview-prompt-bridge-test: call SplashScreen.hide
+I/webview-prompt-bridge-test: splash hidden
+I/webview-prompt-bridge-test: done

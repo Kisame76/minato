@@ -105,6 +105,27 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     static final String TAG = "MinatoWebView";
     private static boolean sNoContentLogged;
 
+    /**
+     * The trace (a check's guest log only: MINATO_WEBVIEW_TRACE, which session-check's guest-log request sets): a line
+     * per load, page event, interface, script dialog and every 32nd request the app was asked for, with this view's
+     * counts so far. Never a URL's path, query or a page's text: a load names its scheme and only a host the app
+     * serves itself (file, asset, res, localhost, appassets), any other as <remote>.
+     */
+    static final boolean TRACE = "1".equals(System.getenv("MINATO_WEBVIEW_TRACE"));
+    private static int sTraceIds;
+    private final int mTraceId;
+    private int mLoads;
+    private int mStarted;
+    private int mFinished;
+    private int mErrors;
+    private final StringBuilder mErrorCodes = new StringBuilder();
+    private int mIntercepts;
+    private int mInterceptHits;
+    private int mEvaluates;
+    private int mPrompts;
+    private int mAlerts;
+    private int mConfirms;
+
     private final WebView mWebView;
     private final WebView.PrivateAccess mPrivate;
     private final WebSettings mSettings;
@@ -147,9 +168,63 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     };
 
     WebViewProviderImpl(WebView webView, WebView.PrivateAccess privateAccess) {
+        synchronized (WebViewProviderImpl.class) {
+            mTraceId = ++sTraceIds;
+        }
         mWebView = webView;
         mPrivate = privateAccess;
         mSettings = new WebSettingsImpl(webView.getContext());
+    }
+
+    /** A trace line (TRACE only): the event, then the view's counts. */
+    private synchronized void trace(String event) {
+        if (!TRACE) {
+            return;
+        }
+        int interfaces;
+        synchronized (mInterfaces) {
+            interfaces = mInterfaces.size();
+        }
+        Log.i(TAG, "trace " + mTraceId + " " + event + " | host=" + (mHost == HOST_OPEN ? "open"
+                : mHost == HOST_ABSENT ? "absent" : "none") + " loads=" + mLoads + " started=" + mStarted
+                + " finished=" + mFinished + " errors=" + mErrors + (mErrors > 0 ? " codes=" + mErrorCodes : "")
+                + " intercept=" + mIntercepts + "/" + mInterceptHits + " interfaces=" + interfaces
+                + " eval=" + mEvaluates + " prompt=" + mPrompts + " alert=" + mAlerts + " confirm=" + mConfirms
+                + " client=" + mClient.getClass().getName().replaceAll(".*[.$]", "")
+                + " chrome=" + (mChromeClient != null ? "yes" : "no"));
+    }
+
+    /** What a trace line says of a URL: its scheme and a host the app serves itself, never more. */
+    static String traced(String url) {
+        if (url == null) {
+            return "null";
+        }
+        if (url.startsWith("file:///android_asset/")) {
+            return "file asset";
+        }
+        if (url.startsWith("file:///android_res/")) {
+            return "file res";
+        }
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme() == null ? "none" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        switch (scheme) {
+            case "file":
+                return "file other";
+            case "data":
+            case "about":
+            case "javascript":
+            case "blob":
+            case "content":
+                return scheme;
+            case "http":
+            case "https": {
+                String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
+                return scheme + " " + (host.equals("localhost") || host.equals("127.0.0.1") ? "localhost"
+                        : host.equals("appassets.androidplatform.net") ? "appassets" : "<remote>");
+            }
+            default:
+                return "<other>";
+        }
     }
 
     /** The app asked for content: without a host, the area turns to the page's background. */
@@ -181,14 +256,46 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                 String dataStore = UUID.nameUUIDFromBytes(("minato-webview:" + mWebView.getContext().getPackageName())
                         .getBytes(StandardCharsets.UTF_8)).toString();
                 try {
+                    JSONArray schemes = new JSONArray().put(SCHEME);
+                    if (clientIntercepts()) {
+                        schemes.put("https").put("http");
+                    }
                     send(new JSONObject().put("call", "make").put("dataStore", dataStore)
-                            .put("schemes", new JSONArray().put(SCHEME)).put("settings", mSentSettings), null, 0);
+                            .put("schemes", schemes).put("settings", mSentSettings), null, 0);
+                    boolean objects;
+                    synchronized (mInterfaces) {
+                        objects = !mInterfaces.isEmpty();
+                    }
+                    if (objects) {
+                        sendInterfaces();
+                    }
                 } catch (JSONException e) {
                     throw new IllegalStateException(e);
                 }
             }
         }
         return mHost == HOST_OPEN;
+    }
+
+    /**
+     * Whether the app's client answers requests itself (shouldInterceptRequest overridden, in either form): then the
+     * page's http and https requests go to the host's scheme handler too (ADR-0056, note of 2026-11-11), so that each
+     * reaches shouldInterceptRequest, as on Android. Without one Android's answer is null for every request, and
+     * WebKit's own network serves them. A client set after the host's view is made keeps the view's choice.
+     */
+    private boolean clientIntercepts() {
+        Class<?>[][] forms = {{WebView.class, WebResourceRequest.class}, {WebView.class, String.class}};
+        for (Class<?>[] form : forms) {
+            try {
+                if (mClient.getClass().getMethod("shouldInterceptRequest", form).getDeclaringClass()
+                        != WebViewClient.class) {
+                    return true;
+                }
+            } catch (NoSuchMethodException e) {
+                // not in this form
+            }
+        }
+        return false;
     }
 
     /** What the host's view needs of the settings; a change applies from the next load (the graphics review). */
@@ -216,6 +323,15 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     /** A load: "settings" first when they changed since the host last had them, then the load itself. */
     private void load(JSONObject call, String cut) {
         requested();
+        if (TRACE) {
+            synchronized (this) {
+                mLoads++;
+            }
+            String name = call.optString("call");
+            trace("load " + name + " " + (name.startsWith("loadData") && call.isNull("baseUrl")
+                    ? (name.equals("loadData") ? "data" : "base null") : traced(toApp(call.optString(
+                            name.equals("loadDataWithBaseURL") ? "baseUrl" : "url")))));
+        }
         if (!hostOpen()) {
             noContent();
             return;
@@ -276,7 +392,10 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         return url;
     }
 
-    /** A URL of the host as the app gave it. */
+    /**
+     * A URL of the host as the app gave it. The host's fallback for http(s) (ADR-0056, note of 2026-11-11: WebKit
+     * refused our handler for them) carries the app's own hosts as minato-https:// and minato-http://.
+     */
     static String toApp(String url) {
         if (url != null) {
             for (String[] prefix : URL_PREFIXES) {
@@ -284,8 +403,16 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     return prefix[0] + url.substring(prefix[1].length());
                 }
             }
+            if (url.startsWith("minato-https://") || url.startsWith("minato-http://")) {
+                return url.substring("minato-".length());
+            }
         }
         return url;
+    }
+
+    /** Whether the page asked for `url` over http or https, which the host fetches when the app does not answer. */
+    private static boolean webUrl(String url) {
+        return url != null && (url.startsWith("https://") || url.startsWith("http://"));
     }
 
     /** A URL field of a record, as the app gave it; null when absent. */
@@ -386,7 +513,8 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
      * A request of the page for the app's scheme (step c1): the app's shouldInterceptRequest first, as on Android, then
      * the asset or resource itself. Answers the head ({"status", "reason", "mimeType", "encoding", "headers"}; 404 for
      * nothing, with "denied" for a file while file access is off), then the body in pieces, then an empty answer; an
-     * end without a head fails the request at the host.
+     * end without a head fails the request at the host. An http(s) request the app does not answer is {"pass": true}:
+     * the host fetches it from the network, as Chromium does after a null.
      */
     private void serve(long requestId, JSONObject record) {
         String url = url(record, "url");
@@ -401,13 +529,26 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         Request request = new Request(url, record.optBoolean("mainFrame"), record.optString("method", "GET"), headers);
         // An exception of the app's escapes on this thread and ends the app, as on Chromium's IO thread.
         WebResourceResponse response = mClient.shouldInterceptRequest(mWebView, request);
-        if (response == null) {
+        if (TRACE) {
+            boolean line;
+            synchronized (this) {
+                mIntercepts++;
+                mInterceptHits += response != null ? 1 : 0;
+                line = mIntercepts == 1 || mIntercepts % 32 == 0;
+            }
+            if (line) {
+                trace("intercept " + traced(url) + (response != null ? " hit" : " miss"));
+            }
+        }
+        if (response == null && !webUrl(url)) {
             response = local(url);
         }
         InputStream body = response != null ? response.getData() : null;
         try {
             JSONObject head = new JSONObject();
-            if (response == null) {
+            if (response == null && webUrl(url)) {
+                head.put("pass", true);
+            } else if (response == null) {
                 head.put("status", 404);
                 if (deniedFile(url)) {
                     head.put("denied", true);
@@ -502,6 +643,13 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private void navigation(JSONObject record) {
         String phase = record.optString("phase");
         String url = url(record, "url");
+        if (TRACE && !phase.equals("committed")) {
+            synchronized (this) {
+                mStarted += phase.equals("started") ? 1 : 0;
+                mFinished += phase.equals("finished") ? 1 : 0;
+            }
+            trace(phase + " " + traced(url));
+        }
         switch (phase) {
             case "started":
                 mClient.onPageStarted(mWebView, url, null);
@@ -531,6 +679,16 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
 
     private void error(JSONObject record) {
         Request request = new Request(url(record, "url"), record.optBoolean("mainFrame"));
+        if (TRACE) {
+            String code = record.optBoolean("http") ? "http" + record.optInt("status") : "" + record.optInt("code");
+            synchronized (this) {
+                mErrors++;
+                if (mErrors <= 8) {
+                    mErrorCodes.append(mErrors > 1 ? "," : "").append(code);
+                }
+            }
+            trace("error " + code + (record.optBoolean("mainFrame") ? " main " : " sub ") + traced(url(record, "url")));
+        }
         if (record.optBoolean("http")) {
             mClient.onReceivedHttpError(mWebView, request, new WebResourceResponse(null, null,
                     record.optInt("status"), record.optString("reason", "Error"), Collections.emptyMap(), null));
@@ -543,6 +701,14 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     /** A script's dialog, which the host waits for: the chrome client's answer, else a cancel, as no dialog shows. */
     private void dialog(long requestId, JSONObject record) {
         String kind = record.optString("kind");
+        if (TRACE) {
+            synchronized (this) {
+                mPrompts += kind.equals("prompt") ? 1 : 0;
+                mAlerts += kind.equals("alert") ? 1 : 0;
+                mConfirms += kind.equals("confirm") ? 1 : 0;
+            }
+            trace("dialog " + kind);
+        }
         String url = url(record, "url");
         String message = record.optString("message");
         JsResult.ResultReceiver receiver = result -> {
@@ -897,6 +1063,14 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override
     public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {
         requested();
+        if (TRACE) {
+            synchronized (this) {
+                mEvaluates++;
+            }
+            if (mEvaluates <= 4 || mEvaluates % 32 == 0) {
+                trace("eval");
+            }
+        }
         if (hostOpen()) {
             long id = mChannel.nextRequestId();
             if (resultCallback != null) {
@@ -1022,6 +1196,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         synchronized (mInterfaces) {
             mInterfaces.put(interfaceName, obj);
         }
+        trace("interface added");
         sendInterfaces();
     }
 
@@ -1043,9 +1218,13 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                 || method.isAnnotationPresent(JavascriptInterface.class);
     }
 
-    /** The app's objects to the host, by name, with the methods a page sees (exposes): for the next pages. */
+    /**
+     * The app's objects to the host, by name, with the methods a page sees (exposes): for the next pages. It does not
+     * open the host's view itself: the view is made at the first load or attach, with the client the app has set by
+     * then (whether it answers requests itself decides the view's schemes), and gets the objects at once.
+     */
     private void sendInterfaces() {
-        if (!hostOpen()) {
+        if (mHost != HOST_OPEN) {
             return;
         }
         JSONObject objects = new JSONObject();

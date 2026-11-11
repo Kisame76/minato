@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>prompt bridge</title><meta name="viewport" content="width=device-width"></head>
+<body style="background: #a62">
+<script>
+// The framework's side: each call is prompt(<JSON [service, action, args]>, "gap:<id>"), answered at once.
+var nextId = 1;
+function exec(service, action, args) {
+  var answer = prompt(JSON.stringify([service, action, args || []]), "gap:" + (nextId++));
+  return answer === null ? null : JSON.parse(answer);
+}
+document.addEventListener("deviceready", function () {
+  exec("Log", "info", ["deviceready, protocol " + location.protocol + ", secure " + window.isSecureContext]);
+  exec("SplashScreen", "hide");
+}, false);
+document.addEventListener("DOMContentLoaded", function () {
+  var info = exec("Device", "getInfo");
+  exec("Log", "info", ["device platform " + (info ? info.platform : "none")]);
+  document.dispatchEvent(new Event("deviceready"));
+}, false);
+</script>
+</body>
+</html>

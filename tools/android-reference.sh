@@ -1192,6 +1192,27 @@ run_app() {
     webview-bridge-test | webview-bridge-test-16)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BridgeActivity
       ;;
+    # webview-localhost-test (ADR-0056): a page the app serves itself over https (https://localhost/, then
+    # https://appassets.androidplatform.net/assets/) from shouldInterceptRequest, whose script tells the app over
+    # addJavascriptInterface what it sees and hides the splash. It ends with "done".
+    webview-localhost-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.LocalhostActivity
+      ;;
+    # webview-prompt-bridge-test (ADR-0056): an asset page that calls the app through prompt() ("gap:"), fires its
+    # ready event and asks to hide the splash. It ends with "done".
+    webview-prompt-bridge-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PromptActivity
+      ;;
+    # webview-splash-test (ADR-0056): a splash, then a WebView in its place, then a second activity's WebView. It
+    # ends with "done".
+    webview-splash-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SplashActivity
+      ;;
+    # webview-redirect-test (ADR-0056): redirects a page meets on the network, from two origins the app serves itself
+    # over http on 127.0.0.1 (fetches, an image to a canvas, POSTs, main-frame redirects). It ends with "done".
+    webview-redirect-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RedirectActivity
+      ;;
     # network-test (ADR-0054 step d)): the active network, its NetworkInfo and capabilities, and the default network
     # callback's first calls, on the emulator's Wi-Fi: its mobile data, the default network otherwise, is off for the
     # run (mobile_data_off), as a Mac or an iPhone on Wi-Fi has it. It ends with "done".

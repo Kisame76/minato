@@ -1,0 +1,5 @@
+I/webview-splash-test: splash shown
+I/webview-splash-test: splash replaced by the WebView
+I/webview-splash-test: same window: page finished, state "loaded", title after the splash, shown true, sized true
+I/webview-splash-test: second activity: page finished, state "loaded", title after the splash, shown true, sized true
+I/webview-splash-test: done
