@@ -1809,6 +1809,33 @@ if [[ "$ON_DEVICE" == no ]] && { wanted notify-test || wanted notify-test-grante
     else
       fail "  the host posted $posts notifications and cancelled $cancels, not 3 and 1"
     fi
+    # What iOS holds (ADR-0074 decision 3, the N2 hand check made a check): its delivered list after each post and
+    # cancel must step as Android's active list does in the reference log (the repost replaces, the post on a missing
+    # channel adds nothing, the cancel and the cancel of all remove), without Android's ranker_group summary, which is
+    # not mapped, and with the reference's repeats folded. The host reads iOS's list once per post or cancel; a read
+    # the guest's next request overtook (a busy Mac) says "late" and proves nothing for its step, so one may be late.
+    # In front, HIGH ("messages") shows a banner, the list and a sound, LOW ("quiet") the list only. The Debug host
+    # logs these only while a check runs, for its test apps alone.
+    reference=fixtures/expected/notify-test-granted.logcat
+    want=$(sed -n -E 's/^I\/notify-test-granted: .*: active \[(.*)\]$/\1/p' "$reference" | python3 -c 'import sys
+for line in sys.stdin:
+    items = [i for i in line.rstrip("\n").split(", ") if i and not i.startswith("ranker_group|")]
+    print("[" + ", ".join(sorted(items)) + "]")' | awk '{ if ($0 != last) print; last = $0 }')
+    got=$(sed -n -E 's/^[0-9.]+ [0-9]+ notifications delivered (\[.*\]|late)$/\1/p' "$EVENTS")
+    late=$(grep -c -x late <<<"$got" || true)
+    if [[ -n "$want" && "$(wc -l <<<"$got")" == "$(wc -l <<<"$want")" && "$late" -le 1 ]] &&
+      paste -d '\t' <(echo "$got") <(echo "$want") | awk -F '\t' '$1 != "late" && $1 != $2 { bad = 1 } END { exit bad }'
+    then
+      ok "  iOS's list stepped as Android's active list: $(echo "$want" | tr '\n' ' ')"
+      [[ "$late" == 0 ]] ||
+        echo "note    one read of iOS's list came after the next request: $(echo "$got" | tr '\n' ' ')"
+    else
+      fail "  iOS's list stepped $(echo "${got:-(no lines)}" | tr '\n' ' '), not $(echo "$want" | tr '\n' ' ')"
+    fi
+    want="chat|7 banner list sound,chat|7 banner list sound,null|8 list"
+    got=$(sed -n -E 's/^[0-9.]+ [0-9]+ notification presented (.*)$/\1/p' "$EVENTS" | paste -s -d , -)
+    if [[ "$got" == "$want" ]]; then ok "  in front: the HIGH posts with a banner, the LOW one in the list only"; else
+      fail "  in front: \"${got:-(no lines)}\", not \"$want\""; fi
   fi
 fi
 

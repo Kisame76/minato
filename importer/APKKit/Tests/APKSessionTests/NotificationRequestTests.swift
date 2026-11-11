@@ -74,4 +74,23 @@ import Testing
         note.importance = 1
         #expect(note.shows)
     }
+
+    /// java-start-check's lines (the Debug host, only while the check's folder is there): iOS's delivered list and a
+    /// presentation's options, for a test app's own notifications only; any other app gives no line.
+    @Test func theCheckLinesNameATestAppsOwnNotificationsOnly() {
+        let package = "io.github.kisame76.minato.test.notifygranted"
+        let delivered = [("\(package)|null|8", "Second"), ("other.app|chat|1", "Private"),
+                         ("\(package)|chat|7", "First again"), ("\(package)x|chat|9", "Look-alike")]
+        #expect(NotificationPost.checkLine(delivered: delivered, package: package)
+            == "[chat|7 First again, null|8 Second]")
+        #expect(NotificationPost.checkLine(delivered: [], package: package) == "[]")
+        #expect(NotificationPost.checkLine(delivered: delivered, package: "com.example.chat") == nil)
+        #expect(NotificationPost.checkLine(presented: "\(package)|chat|7", options: [.sound, .banner, .list],
+                                           package: package) == "chat|7 banner list sound")
+        #expect(NotificationPost.checkLine(presented: "\(package)|null|8", options: [.list], package: package)
+            == "null|8 list")
+        #expect(NotificationPost.checkLine(presented: "com.example.chat|a|1", options: [.list],
+                                           package: "com.example.chat") == nil)
+        #expect(NotificationPost.checkLine(presented: "other.app|a|1", options: [.list], package: package) == nil)
+    }
 }

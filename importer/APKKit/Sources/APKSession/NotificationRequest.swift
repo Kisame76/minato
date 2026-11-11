@@ -48,6 +48,30 @@ public struct NotificationPost: Sendable, Equatable {
     /// DEFAULT (3) and above sound, when the channel has a sound.
     public var plays: Bool { sound && importance >= 3 }
 
+    /// The packages of the check's test apps, the only ones whose notifications a check line names.
+    public static let checkPackages = "io.github.kisame76.minato.test."
+
+    /// java-start-check's line for iOS's delivered list (ADR-0074 decision 3, the Debug host while the check's folder
+    /// is there): "[<tag>|<id> <title>, ...]" of `package`'s own notifications, sorted; nil for an app that is not one
+    /// of the check's test apps, so that no other app's notification, title or count gets into it.
+    public static func checkLine(delivered: [(identifier: String, title: String)], package: String) -> String? {
+        guard package.hasPrefix(checkPackages) else { return nil }
+        let prefix = prefix(package: package)
+        let mine = delivered.filter { $0.identifier.hasPrefix(prefix) }
+            .map { "\($0.identifier.dropFirst(prefix.count)) \($0.title)" }.sorted()
+        return "[\(mine.joined(separator: ", "))]"
+    }
+
+    /// java-start-check's line for a presentation in front: "<tag>|<id> banner list sound", the options in that
+    /// order; nil for an app that is not one of the check's test apps, or an identifier not of `package`.
+    public static func checkLine(presented identifier: String, options: Set<Presentation>, package: String) -> String? {
+        let prefix = prefix(package: package)
+        guard package.hasPrefix(checkPackages), identifier.hasPrefix(prefix) else { return nil }
+        let names = [(Presentation.banner, "banner"), (.list, "list"), (.sound, "sound")]
+            .filter { options.contains($0.0) }.map(\.1)
+        return ([String(identifier.dropFirst(prefix.count))] + names).joined(separator: " ")
+    }
+
     public static func presentation(importance: Int) -> Set<Presentation> {
         switch importance {
         case 4...: [.banner, .list, .sound]

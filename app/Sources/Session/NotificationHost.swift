@@ -70,6 +70,9 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
     /// The guest's request, for the app `package` named `appName`, on the main thread.
     func handle(_ request: NotificationRequest, package: String, appName: String) {
         let center = UNUserNotificationCenter.current()
+        #if DEBUG
+        let op = Self.checkOp(package: package)
+        #endif
         switch request {
         case .post(let note):
             let identifier = note.identifier(package: package)
@@ -84,6 +87,9 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
             content.userInfo = [Self.importanceKey: note.importance, Self.packageKey: package, Self.idKey: note.id,
                                 Self.tagKey: note.tag, Self.intentKey: note.intent]
             center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
+                #if DEBUG
+                Self.checkDelivered(package: package, op: op)
+                #endif
                 guard let error else { return }
                 log.error("notification \(identifier, privacy: .public) failed: \(error.localizedDescription)")
             }
@@ -95,11 +101,42 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
             center.removeDeliveredNotifications(withIdentifiers: [identifier])
             #if DEBUG
             SessionCheck.event("notification cancelled \(tag)|\(id)")
+            Self.checkDelivered(package: package, op: op)
             #endif
         case .cancelAll:
             removeAll(package: package)
+            #if DEBUG
+            Self.checkDelivered(package: package, op: op)
+            #endif
         }
     }
+
+    #if DEBUG
+    /// The guest's requests so far while a check runs, so a read of iOS's list can tell that a later one came first.
+    private static let checkOps = Mutex(0)
+
+    /// The number of this request while a check runs for a test app, else 0.
+    private static func checkOp(package: String) -> Int {
+        guard SessionCheck.checking, package.hasPrefix(NotificationPost.checkPackages) else { return 0 }
+        return checkOps.withLock { $0 += 1; return $0 }
+    }
+
+    /// java-start-check's view of iOS's list (ADR-0074 decision 3): "notifications delivered [<tag>|<id> <title>, ...]"
+    /// 0.4 s after a post or cancel, once iOS has taken it, or "notifications delivered late" when the guest's next
+    /// request came before the read, which then shows that one's list. Only while a check runs (its folder) and only
+    /// for its test apps' own notifications: in Minato's normal use nothing about notifications is gathered or logged.
+    private static func checkDelivered(package: String, op: Int) {
+        guard op > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+                let pairs = delivered.map { (identifier: $0.request.identifier, title: $0.request.content.title) }
+                guard let line = NotificationPost.checkLine(delivered: pairs, package: package) else { return }
+                let late = checkOps.withLock { $0 } != op
+                SessionCheck.event("notifications delivered \(late ? "late" : line)")
+            }
+        }
+    }
+    #endif
 
     /// Every delivered notification of the app goes: its cancelAll, or its removal from the library.
     func removeAll(package: String) {
@@ -128,6 +165,15 @@ final class NotificationHost: NSObject, Sendable, UNUserNotificationCenterDelega
             case .sound: options.insert(.sound)
             }
         }
+        #if DEBUG
+        // java-start-check's line for the presentation in front, under the same conditions as checkDelivered.
+        if SessionCheck.checking, let package = notification.request.content.userInfo[Self.packageKey] as? String,
+           let line = NotificationPost.checkLine(presented: notification.request.identifier,
+                                                 options: NotificationPost.presentation(importance: importance),
+                                                 package: package) {
+            SessionCheck.event("notification presented \(line)")
+        }
+        #endif
         let done = Carried(value: { completionHandler(options) })
         Self.onMain { done.value() }
     }

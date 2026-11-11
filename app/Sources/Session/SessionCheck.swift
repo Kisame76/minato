@@ -121,6 +121,8 @@ enum SessionCheck {
     static let folder = URL.temporaryDirectory.appending(path: "session-check", directoryHint: .isDirectory)
 
     private static var isOn: Bool { FileManager.default.fileExists(atPath: folder.path) }
+    /// Whether a check runs (its folder is there): code outside this file asks before it gathers anything for an event.
+    static var checking: Bool { isOn }
 
     /// An empty file is no request: on the iPhone the script cannot delete one, only empty it.
     private static func requested(_ name: String) -> Bool {
