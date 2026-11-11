@@ -186,6 +186,10 @@ final class LibraryModel {
         }
         paths = openedPaths
         library = openedLibrary
+        // The guest's public libraries, whose names a report keeps: a small list, read once.
+        let publicList = Bundle.main.bundleURL.appending(path: "Guest/system/etc/public.libraries.txt")
+        let publicText = try? String(contentsOf: publicList, encoding: .utf8)
+        platformLibraries = publicText.map(AppReport.platformLibraries(from:)) ?? []
         if let openedLibrary {
             checks = Task { await Self.useChecks(in: openedLibrary, guest: Bundle.main.bundleURL.appending(path: "Guest")) }
             Task { await recheckAll() }
@@ -581,6 +585,9 @@ final class LibraryModel {
     /// The app's report for Report a Problem (ADR-0070): Get Info's status line and issues, how its last session
     /// ended where the caller knows it with the runtime's record of it, else that it closed itself, and the last
     /// session's kept log.
+    /// The platform's public libraries (public.libraries.txt), whose names a report keeps (AppReport).
+    @ObservationIgnored private var platformLibraries: Set<String> = []
+
     func report(of entry: LibraryEntry, ending: AppReport.Ending? = nil, record: [String] = []) -> AppReport {
         let log = paths.flatMap { paths in
             try? String(contentsOf: SessionLog(folder: paths.sessionLogDirectory).keptFile(for: entry.id),
@@ -589,7 +596,7 @@ final class LibraryModel {
         return AppReport(entry: entry, device: .current, status: Texts.statusLine(Texts.status(of: entry)),
                          issues: (entry.report?.compatibility.issues ?? []).map(Texts.issue),
                          ending: ending ?? closedItself(entry).map { .closedItself(seconds: $0) }, log: log,
-                         record: ending == nil ? [] : record)
+                         record: ending == nil ? [] : record, platformLibraries: platformLibraries)
     }
 
     /// Every installed app's space for Settings › Storage, largest first (Library.storage).

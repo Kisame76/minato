@@ -64,13 +64,92 @@ struct AppReportTests {
         for value in AppReport.Format.allCases { #expect(format.contains(value.rawValue), "\(value.rawValue)") }
     }
 
+    /// The user's rule: by default a report names the engine, the SDK levels, Minato's version, the reason and counts,
+    /// not the app, and no URL ever carries the app (the form opens before the user sends anything).
+    @Test func byDefaultNeitherTheTextNorTheURLNamesTheApp() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await entry(sandbox, label: "Holiday Photos")
+        let report = AppReport(entry: entry, device: device, status: "Ready, without libfoo.so",
+                               issues: ["Holiday Photos's org.example.game data: libfoo.so will not load"],
+                               ending: .startFailed("org.example.game could not open game.apk"),
+                               log: "I/tag: /data/data/org.example.game/files for Holiday Photos\n",
+                               record: ["#0 libc.so+0x68f0c in org.example.game"])
+        let url = report.url.absoluteString.removingPercentEncoding ?? ""
+        for text in [report.text, url] {
+            for name in ["Holiday Photos", "org.example.game", "game.apk", "Version: 7"] {
+                #expect(!text.contains(name), "\(name) in \(text)")
+            }
+        }
+        for part in ["Minato: 1.0.0 (Beta 1)", "SDK: min ", "ABIs: arm64-v8a", "Status: Ready, without <library>",
+                     "<library> will not load", "Last session: it could not start"] {
+            #expect(report.text.contains(part), "\(part)")
+        }
+        #expect(!report.text.contains("Log of the last session"), "the log only by the user's choice")
+        let fields = try fields(report.url)
+        #expect(fields["app"] == nil && fields["package"] == nil && fields["version"] == nil)
+    }
+
+    /// Naming the app, and adding the last session's log, are the user's own choices; the log without that choice
+    /// has the app's names cut; the URL names the app in no case.
+    @Test func theAppsNameAndTheLogComeOnlyByTheUsersChoice() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await entry(sandbox, label: "Holiday Photos")
+        var report = AppReport(entry: entry, device: device, status: "Ready", issues: [], ending: nil,
+                               log: "I/tag: /data/data/org.example.game/files for Holiday Photos\n")
+        report.includesLog = true
+        #expect(report.text.contains("Log of the last session\nI/tag: /data/data/<app>/files for <app>\n"))
+        report.namesApp = true
+        for part in ["App: Holiday Photos", "Package: org.example.game", "Version: 7.0 (7)",
+                     "I/tag: /data/data/org.example.game/files for Holiday Photos"] {
+            #expect(report.text.contains(part), "\(part)")
+        }
+        let url = report.url.absoluteString.removingPercentEncoding ?? ""
+        #expect(!url.contains("Holiday Photos") && !url.contains("org.example.game"))
+    }
+
+    /// A library's file name can name the app or its maker, so by default only the libraries the importer's engine
+    /// detection names an engine by, and the platform's public ones, keep their names; every other is "<library>".
+    /// The user's choice to name the app brings every name back, in the text only.
+    @Test func onlyEngineAndPlatformLibrariesKeepTheirNamesUnlessTheAppIsNamed() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        var entry = try await entry(sandbox)
+        entry.report?.javaLibraries = ["unity", "holidaygame"]
+        var report = AppReport(entry: entry, device: device, status: "Ready, without libholidaygame.so",
+                               issues: ["libholidaygame.so needs libunity.so and libc.so"],
+                               ending: .startFailed("libholidaygame.so is missing"),
+                               log: "I/tag: dlopen libholidaygame.so and libSDL2.so\n",
+                               record: ["#0 libholidaygame.so+0x10", "#1 libc.so+0x20"],
+                               platformLibraries: ["libc.so"])
+        report.includesLog = true
+        let text = report.text
+        let url = report.url.absoluteString.removingPercentEncoding ?? ""
+        #expect(!text.contains("holidaygame") && !url.contains("holidaygame"))
+        for part in ["Java loads: unity, <library>", "Status: Ready, without <library>",
+                     "- <library> needs libunity.so and libc.so", "it could not start: <library> is missing",
+                     "#0 <library>+0x10", "#1 libc.so+0x20", "I/tag: dlopen <library> and libSDL2.so"] {
+            #expect(text.contains(part), "\(part)")
+        }
+        report.namesApp = true
+        for part in ["Java loads: unity, holidaygame", "- libholidaygame.so needs libunity.so and libc.so",
+                     "#0 libholidaygame.so+0x10", "I/tag: dlopen libholidaygame.so and libSDL2.so"] {
+            #expect(report.text.contains(part), "\(part)")
+        }
+        #expect(!(report.url.absoluteString.removingPercentEncoding ?? "").contains("holidaygame"))
+    }
+
     @Test func theTextHoldsTheAppTheIPhoneTheStatusTheEndAndTheLog() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let entry = try await entry(sandbox)
-        let report = AppReport(entry: entry, device: device, status: "Ready, without libfoo.so",
-                               issues: ["libfoo.so will not load, so the app runs without it:\nno symbol bar"],
-                               ending: .signal(11, name: "SIGSEGV"), log: "I/tag: one\nF/libc: Fatal signal 11\n")
+        var report = AppReport(entry: entry, device: device, status: "Ready, without libfoo.so",
+                                issues: ["libfoo.so will not load, so the app runs without it:\nno symbol bar"],
+                                ending: .signal(11, name: "SIGSEGV"), log: "I/tag: one\nF/libc: Fatal signal 11\n")
+        // With both of the user's choices: the app named and the log added.
+        report.namesApp = true
+        report.includesLog = true
         let text = report.text
         for part in ["Minato: 1.0.0 (Beta 1)", "iPhone: iPhone16,2, iOS 27.2", "App: Sample Game",
                      "Package: org.example.game", "Version: 7.0 (7)", "SDK: min ", "target ", "ABIs: arm64-v8a",
@@ -104,7 +183,8 @@ struct AppReportTests {
         defer { sandbox.remove() }
         let report = AppReport(entry: try await entry(sandbox), device: device, status: "Ready", issues: [],
                                ending: .signal(9, name: "SIGKILL"), log: nil,
-                               record: ["killed itself with signal 9 (Killed)", "#0 libc.so+0x68f0c"])
+                               record: ["killed itself with signal 9 (Killed)", "#0 libc.so+0x68f0c"],
+                               platformLibraries: ["libc.so"])
         #expect(report.summary.contains("Last session: it ended with signal 9 (SIGKILL)\n"
             + "  killed itself with signal 9 (Killed)\n  #0 libc.so+0x68f0c\n"))
         #expect(!report.url.absoluteString.contains("68f0c"))
@@ -128,15 +208,15 @@ struct AppReportTests {
         #expect(url.absoluteString.hasPrefix("https://github.com/Kisame76/minato/issues/new?"))
         let fields = try fields(url)
         #expect(fields["template"] == "app-report.yml")
-        #expect(fields["app"] == "Sample Game")
-        #expect(fields["package"] == "org.example.game")
-        #expect(fields["version"] == "7.0")
+        // The app is never in the URL: opening the form sends it before the user sends anything.
+        #expect(fields["app"] == nil && fields["package"] == nil && fields["version"] == nil)
         #expect(fields["minato"] == "1.0.0 (Beta 1)")
         #expect(fields["device"] == "iPhone16,2")
         #expect(fields["ios"] == "27.2")
         #expect(fields["what"] == "It does not start")
         #expect(fields["format"] == ".apk")
-        #expect(fields["details"]?.contains("libmain.so is missing") == true)
+        // libmain.so is no engine's library: its name is cut as an app's own library would be.
+        #expect(fields["details"]?.contains("<library> is missing") == true)
         // The source is the user's to choose, and the report goes by the clipboard.
         #expect(fields["source"] == nil && fields["report"] == nil)
         #expect(!url.absoluteString.contains("secret"))
@@ -145,13 +225,13 @@ struct AppReportTests {
     @Test func fieldsArePercentEncoded() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
-        let label = "Tom & Jerry+ 100% #1 = fun?"
-        let report = AppReport(entry: try await entry(sandbox, label: label), device: device, status: "Ready",
+        let status = "Tom & Jerry+ 100% #1 = fun?"
+        let report = AppReport(entry: try await entry(sandbox), device: device, status: status,
                                issues: [], ending: nil, log: nil)
         let query = try #require(report.url.query(percentEncoded: true))
         #expect(!query.contains(" ") && !query.contains("+") && !query.contains("#") && !query.contains("?"))
-        #expect(query.contains("app=Tom%20%26%20Jerry%2B%20100%25%20%231%20%3D%20fun%3F"))
-        #expect(try fields(report.url)["app"] == label)
+        #expect(query.contains("details=Minato%20shows%3A%20Tom%20%26%20Jerry%2B%20100%25%20%231%20%3D%20fun%3F"))
+        #expect(try fields(report.url)["details"] == "Minato shows: " + status)
     }
 
     @Test func whatHappensFollowsTheEntryAndTheEnd() async throws {

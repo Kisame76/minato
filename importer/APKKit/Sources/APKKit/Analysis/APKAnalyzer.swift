@@ -335,6 +335,13 @@ public enum APKAnalyzer {
     /// `luaJIT` reads the libraries' symbols, so it is asked only when no engine matched before it. An engine whose
     /// code Minato cannot run without a JIT says so after its name (ADR-0071, ADR-0072): Mono without AOT images
     /// (libaot-*.dll.so), CoreCLR, a LuaJIT it cannot switch, an emulator with a dynamic recompiler.
+    /// The engine the detection below names by the library `name` alone (a file name such as "libunity.so"), nil
+    /// for any other library: the one table of the libraries Minato knows as an engine's or a runtime's, which Report a
+    /// Problem keeps by name while it cuts every other library's (AppReport).
+    public static func engine(ofLibrary name: String) -> String? {
+        engine([name], assetFolders: [], hasAssemblies: false, hasPrivateTar: false, luaJIT: { .none })
+    }
+
     private static func engine(_ libraries: Set<String>, assetFolders: Set<String>, hasAssemblies: Bool,
                                hasPrivateTar: Bool, luaJIT: () -> LuaJIT) -> String? {
         // Ren'Py: CPython and SDL2 as libraries, its own scripts and the app's as assets (renpy/ and game/, or with

@@ -8,27 +8,29 @@ body:
       value: |
         Thanks for reporting it. Minato is in beta, and every report of an app that does not work helps make it work.
         In Minato, open the app's menu and tap **Report a problem**: it fills in most of this form and copies a
-        report you can paste below. Please do not attach APK files, and leave out anything personal.
+        report you can paste below. It names the app only if you switch that on there. Please do not attach APK
+        files, and leave out anything personal.
   - type: input
     id: app
     attributes:
       label: App
-      description: The app's name as the store shows it.
+      description: The app's name as the store shows it. Optional; leave it empty if you would rather not name it.
     validations:
-      required: true
+      required: false
   - type: input
     id: package
     attributes:
       label: Package name
-      description: For example com.example.game. Minato shows it in Get Info.
+      description: For example com.example.game. Minato shows it in Get Info. Optional, as the app's name.
     validations:
-      required: true
+      required: false
   - type: input
     id: version
     attributes:
       label: App version
+      description: Optional, as the app's name.
     validations:
-      required: true
+      required: false
   - type: dropdown
     id: what
     attributes:
