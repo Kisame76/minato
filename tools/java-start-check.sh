@@ -320,7 +320,10 @@ fi
 # answers, the guest's windows present new frames, the screenshot is not black, the menu opens. RESUME_SETTLE (8) is
 # the seconds an app runs before the first background (3 and a single 15 s trip for Godot's bench, which ends by itself
 # after about 14 s), counted from the first frame of the app's own SurfaceView surface when it has one, which the round
-# waits for up to RESUME_FIRST_FRAME (90) seconds (await_first_frame). Only that round runs. A touch is checked by hand
+# waits for up to RESUME_FIRST_FRAME (90) seconds (await_first_frame). In the background the guest log is read every
+# RESUME_LOG_POLL seconds (0.5; 3 on the iPhone): no ANR of the app there, and a Ren'Py game's onStop and suspend must
+# finish there, as on Android 15 (judge_away). RESUME_NO_REFERENCE="<why>", for an app whose Android reference is not
+# green after a return, turns the returns' FAIL lines into notes. Only that round runs. A touch is checked by hand
 # (`motion` events).
 # COMPILE: the measures of M6 c's E6 (tools/compile-measure.sh): compute-app-test and godot-bench-gles, each started
 # plain, left by Quit so that the library asks for compile mode, compiled by dex2oat in a process of its own, signed at
@@ -1120,6 +1123,71 @@ except Exception:
     print(-1)
 PY
 }
+# A failure of a return of the resume round, $1 the line and $2 the screenshot's name: a FAIL line, or, when the caller
+# says the app has no green Android reference (RESUME_NO_REFERENCE="<why>", e.g. a game that is black after a return on
+# Android 15 too), a note that says why it is not judged.
+return_failed() {
+  if [[ -n "${RESUME_NO_REFERENCE:-}" ]]; then
+    echo "note  $1 (not judged: $RESUME_NO_REFERENCE)"
+  else
+    failed_line "$1" "$2"
+  fi
+}
+# A trip of the resume round, read in the guest log while Minato is away (away_mark before the trip, away_watch for its
+# $1 seconds instead of a sleep, judge_away after the return's checks). Android 15 runs a Ren'Py game's whole suspend in
+# the background: "onStop() start." to "onStop() done." in 74 ms, "Entered background." 0.6 s after nativePause (the
+# plain renpy-memory-test on the AVD, 2026-11-11); in Minato it ran only at the return, onStop to its 8 s backstop. The
+# log is read every RESUME_LOG_POLL seconds (0.5 in the Simulator, 3 on the iPhone, where each read is a copy), and the
+# host's time of each line's first sight is kept: onStop's start and end, "Entered background." and an ANR of the app's
+# (the runtime's watchdog: its main thread did not answer for 5 s).
+away_mark() {
+  fetch "$CHECK_REL/guest-log" || true
+  AWAY_FROM=$(count_lines '' "$CHECK/guest-log")
+  STOP_START="" STOP_DONE="" ENTERED="" ANR_LINE=""
+}
+away_scan() {
+  local new at
+  new=$(tail -n +$((AWAY_FROM + 1)) "$CHECK/guest-log" 2>/dev/null) || return 0
+  at=$(now)
+  [[ -n "$STOP_START" ]] || ! grep -q 'onStop() start\.' <<< "$new" || STOP_START=$at
+  [[ -n "$STOP_DONE" ]] || ! grep -q 'onStop() done\.' <<< "$new" || STOP_DONE=$at
+  [[ -n "$ENTERED" ]] || ! grep -q 'Entered background\.' <<< "$new" || ENTERED=$at
+  [[ -n "$ANR_LINE" ]] || ANR_LINE=$(grep -m 1 -E ': ANR in ' <<< "$new") || ANR_LINE=""
+}
+away_watch() {
+  local end=$((SECONDS + $1)) poll
+  poll=${RESUME_LOG_POLL:-0.5}
+  [[ "$ON_DEVICE" != yes ]] || poll=${RESUME_LOG_POLL:-3}
+  while (( SECONDS < end )); do
+    sleep "$poll"
+    if fetch "$CHECK_REL/guest-log"; then away_scan; fi
+  done
+}
+# After the return of app $1, label $2: no ANR in the background, and for an app that logs Ren'Py's (RAPT's) lines, its
+# onStop done within 2 s of its start and "Entered background." before the return, not at it.
+judge_away() {
+  local app=$1 label=$2 took="" later
+  fetch "$CHECK_REL/guest-log" || true
+  later=$(tail -n +$((AWAY_FROM + 1)) "$CHECK/guest-log" 2>/dev/null) || later=""
+  if [[ -n "$ANR_LINE" ]]; then
+    return_failed "after $label: the app's main thread did not answer in the background (${ANR_LINE#*: })" "$app-resume"
+  fi
+  grep -q 'onStop() start\.' <<< "$later" || return 0
+  [[ -z "$STOP_START" || -z "$STOP_DONE" ]] || took=$(seconds "$STOP_START" "$STOP_DONE")
+  if [[ -n "$took" ]] && awk "BEGIN { exit !($took <= 2) }"; then
+    ok "  after $label: the app's onStop took $took s in the background"
+  else
+    local span=${took:+$took s}
+    return_failed "after $label: the app's onStop took ${span:-the whole trip} in the background (Android 15:\
+ under 0.1 s)" "$app-resume"
+  fi
+  if [[ -n "$ENTERED" ]]; then
+    ok "  after $label: the game's suspend ran in the background (\"Entered background.\")"
+  else
+    return_failed "after $label: the game's suspend ran only at the return (\"Entered background.\" not before it)" \
+      "$app-resume"
+  fi
+}
 # The checks after a return from the background (the resume round): the second ping, new frames for an app that moves,
 # a screenshot that is not black, and the menu's answer. $1 the app, $2 the label of the case; $3 no-frame when the
 # app's surface showed no frame after the return (await_return_frame's FAIL), so new frames are not asked for.
@@ -1136,7 +1204,7 @@ check_return() {
     lit=-1
     [[ -z "${LOGS:-}" ]] || lit=$(lit_percent "$LOGS/$app-resume-$wait_for.png")
     if [[ -z "$EVENT" ]]; then
-      failed_line "after $wait_for: the second ping got no answer" "$app-resume-$wait_for"
+      return_failed "after $wait_for: the second ping got no answer" "$app-resume-$wait_for"
     elif [[ "$frame" == no-frame ]]; then
       echo "note  after $wait_for: new frames n/a, as the app's surface showed none"
     elif [[ "$app" == surface-test || "$app" == views-test ]]; then
@@ -1145,20 +1213,20 @@ check_return() {
       presents_now=$(sed -E 's/.*presents ([0-9]+) .*/\1/' <<< "$EVENT")
       ok "  after $wait_for: new frames ($presents_after to $presents_now)"
     else
-      failed_line "after $wait_for: no new frames in 3 s ($presents_after)" "$app-resume-$wait_for"
+      return_failed "after $wait_for: no new frames in 3 s ($presents_after)" "$app-resume-$wait_for"
     fi
     if (( lit < 0 )); then
       echo "note  after $wait_for s: no screenshot to judge"
     elif (( lit >= 2 )); then
       ok "  after $wait_for: the screen is not black ($lit % lit)"
     else
-      failed_line "after $wait_for: the screen is black ($lit % lit)" "$app-resume-$wait_for"
+      return_failed "after $wait_for: the screen is black ($lit % lit)" "$app-resume-$wait_for"
     fi
     request menu
     if await_event "menu opened" 15; then
       ok "  after $wait_for: the menu answers"
     else
-      failed_line "after $wait_for: no answer of the menu" "$app-resume-$wait_for"
+      return_failed "after $wait_for: no answer of the menu" "$app-resume-$wait_for"
     fi
 }
 # Before the first background of the resume round, the first frame of the app's own surface: a Java app's decor
@@ -1209,7 +1277,7 @@ await_return_frame() {
     fi
     sleep 2
   done
-  failed_line "after $label: no frame of the app's surface in $limit s after the return" "$app-resume"
+  return_failed "after $label: no frame of the app's surface in $limit s after the return" "$app-resume"
   return 1
 }
 # check_return after await_return_frame, for app $1 and label $2, the return at uptime $3.
@@ -1241,8 +1309,9 @@ run_resume() {
   ok "  running: $presents_before presents"
   # shellcheck disable=SC2086
   for wait_for in $waits; do
+    away_mark
     launch "$AWAY"
-    sleep "$wait_for"
+    away_watch "$wait_for"
     launch
     returned=$SECONDS
     sleep 3
@@ -1251,11 +1320,12 @@ run_resume() {
       if await_event "(process |session ended|program ended).*" 1; then
         ok "  after $wait_for s in the background: the app ended by itself"
       else
-        failed_line "after $wait_for s in the background no pong: the host's main thread is stuck" "$app-resume"
+        return_failed "after $wait_for s in the background no pong: the host's main thread is stuck" "$app-resume"
       fi
       break
     fi
     checked_return "$app" "$wait_for s in the background" "$returned"
+    judge_away "$app" "$wait_for s in the background"
     sleep 2
   done
   fetch_events

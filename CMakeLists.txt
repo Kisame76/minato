@@ -180,6 +180,10 @@ if(APK_HOST_BUILD)
   # java-start-check.sh's failed_line: a start that got no last line names the start's "could not start" reason.
   add_test(NAME tools.failed_line
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/failed_line_test.sh")
+  # java-start-check.sh's resume round in the background: no ANR, and a Ren'Py game's onStop and suspend done there as
+  # on Android 15; RESUME_NO_REFERENCE turns a return's FAIL lines into notes (judge_away and its helpers).
+  add_test(NAME tools.judge_away
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/judge_away_test.sh")
   # java-start-check.sh's request files: every one the script writes into the check folder is in REQUESTS, and its
   # send_requests sends it as written, so it reaches the iPhone (live-counts, pad-only and permission-allow did not).
   add_test(NAME tools.check_requests_sent
