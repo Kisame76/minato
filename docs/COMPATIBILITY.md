@@ -120,12 +120,14 @@ Only what the project has evidence for is stated as working; "untested" means th
   built with ahead-of-time code starts it (ADR-0071); this is built and tested with a stand-in for Mono, and no real
   .NET app is confirmed yet. CoreCLR apps are not covered.
 - **Cordova, Capacitor, HTML5 games:** they are a WebView, which shows its pages inside the app. An open-source
-  Capacitor app that asked for Android's SDK extension versions no longer stops at that question.
+  Capacitor app that asked for Android's SDK extension versions no longer stops at that question. An app that serves
+  its pages itself under `https://localhost` or `https://appassets.androidplatform.net` (Capacitor's default, and
+  Cordova's since version 10) does not get past its splash screen yet: Minato does not hand those requests to the app.
 
 ## The gaps, counted
 
-The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-03: **11 closed, 8 partly closed,
-3 that are limits we name.**
+The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-11: **15 closed, 4 of them except for
+a limit that is named, and 7 partly closed.**
 
 **Closed:**
 
@@ -133,7 +135,6 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 - Second windows: dialogs, toasts, popups and translucent activities.
 - Activity results, start flags and launch modes.
 - SQLite.
-- WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects.
 - Speed of Java code: the fast interpreter is the default and an app is compiled once after its first close.
 - Missing NDK libraries: the whole API 35 set exists, some as stubs.
 - Files, pickers and shared media.
@@ -150,25 +151,24 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   installer. What an app's own libraries do with those answers is the app's behavior.
 - Graphics coverage: ES 3.1, `SurfaceTexture` and hardware buffers. ES 3.2 is not available, and Vulkan features that
   MoltenVK lacks stay missing.
-
-**Partly closed:**
-
-- System services that answer null: many are in, this release added the game, lock screen, USB, download, usage stats,
-  storage stats, restrictions, search, biometric, device policy, wallpaper, launcher apps, media session, media router,
-  Bluetooth, subscription, Telecom, carrier configuration, NFC, MIDI, media projection and role managers and the rest
-  of Android 15's 88 public system services, which answer as a phone without that hardware or those permissions does;
-  a check asks for each of the 88 names and compares the answers with Android 15's.
-  The text services manager is there and says no spell checker is enabled: a spell checker session is never opened,
-  where Android hands one out.
-  The service discovery manager reports a discovery as started and finds nothing, and advertises nothing, as Minato has
-  no multicast; Wi-Fi Direct answers every action with an error; the IMS managers are there and answer as a phone
-  without IMS does.
-- Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
-  connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone.
-  Multicast and service discovery are not in.
+- System services that answer null: all of Android 15's 88 public system services answer, the ones without their
+  hardware or permissions as a phone without them does; a check asks for each of the 88 names and compares the answers
+  with Android 15's. The limits: the text services manager says no spell checker is enabled, and a spell checker
+  session is never opened, where Android hands one out. The service discovery manager reports a discovery as started
+  and finds nothing, and advertises nothing, as Minato has no multicast; Wi-Fi Direct answers every action with an
+  error; the IMS managers answer as a phone without IMS does.
 - Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
   the app suspended or after it ends; a job the app keeps across restarts comes back at its next start.
   WorkManager (androidx.work 2.12.0) logs what Android 15 logs and finds its waiting work again after a restart.
+
+**Partly closed:**
+
+- Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
+  connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone.
+  Multicast and service discovery are not in, and what an app sees after you switch the local network off for Minato
+  in iOS's Settings is not checked on the iPhone yet.
+- WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects. Pages
+  that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` do not load yet.
 - Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's inset
   work. Game controllers reach apps as Android 15's standard pad; rumble, a PlayStation pad's touchpad and its extra
   keys are not passed on. A mouse or trackpad reaches apps where iOS gives a pointer; on the iPhone iOS offers a mouse
@@ -182,7 +182,8 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
   in the file); other formats play unchanged. The Preset Reverb and Environmental Reverb add a tail (decay time,
   high-frequency decay, level) to the streams of their session, also as an approximation; the reflections are not
   played, as in Android's bundle. The Visualizer shows the app's whole mix, `MediaPlayer` included, after the effects
-  and the player's volume, also while a player plays at a speed other than 1.
+  and the player's volume, also while a player plays at a speed other than 1. Recording to a file (`MediaRecorder`)
+  and the `MediaCodec` encoders are not in.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
   says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
   cannot reach, emulators' recompilers). Minato switches Mono to its interpreter when the app starts it, so a .NET app
@@ -202,7 +203,10 @@ The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-0
 
 In plain terms, as a user meets it:
 
+- Apps built on Capacitor or a newer Cordova that serve their pages under `https://localhost` stay on their splash
+  screen.
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.
+- Recording audio or video to a file with `MediaRecorder`.
 - The microphone, the camera and location are new and not yet checked on the iPhone.
 - Jobs, alarms and notifications work only while the app runs: nothing runs while iOS has the app suspended.
 - A notification's tap while Minato is closed opens the app at the notification's screen with its content intent's
