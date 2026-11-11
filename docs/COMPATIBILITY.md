@@ -194,8 +194,9 @@ a limit that is named, and 7 partly closed.**
   first, then iOS asks once for Minato, and a no stays a no after the second time, as on Android. The camera works
   through Android's Camera API; Camera2 and CameraX are not in yet.
 - Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release added
-  more of them, among them Formatter, SearchView, Proxy, PhoneNumberUtils, VideoView, the local sockets and the
-  provider contracts for the calendar, the call log and voicemail, and the ones still missing are rare in apps. The
+  more of them, among them Formatter, SearchView, Proxy, PhoneNumberUtils, VideoView, the local sockets, the
+  provider contracts for the calendar, the call log and voicemail, VpnService with Android's own IpPrefix, LinkAddress
+  and RouteInfo, and the TV input, device controls and MBMS types, and the ones still missing are rare in apps. The
   text classifier answers as a phone without its model does, and Linkify finds web and e-mail addresses and phone
   numbers.
 
@@ -254,7 +255,8 @@ signatures. A crash names its cause when the app returns to the library.
   programs cannot start other programs.
 - Nothing runs in the background: services, jobs and alarms run only while the app is in front.
 - No system roles: no launchers, input methods, accessibility services, VPN, SMS or dialer apps, overlays or home
-  screen widgets.
+  screen widgets. A VPN app starts and gets Android's answers for a user who declined the VPN: the consent ends as
+  cancelled and there is no tunnel.
 - No telephony, NFC, USB host or classic Bluetooth, and no multicast or broadcast networking.
 - Memory: at most about 5 GB for an app when Minato has the `increased-memory-limit` entitlement, about 2.5 GB
   without it, which is the case for a free account through SideStore (ADR-0012).

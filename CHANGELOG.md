@@ -150,6 +150,15 @@ All notable changes to Minato are documented in this file. The format follows
 - Apps get Android 15's provider contracts for the calendar, the call log, voicemail, blocked numbers and browser
   bookmarks; the providers behind them answer as on a phone where you said no to those permissions, since Minato does
   not read the iPhone's calendar or call history
+- Apps that use `android.net.VpnService` get the answers of a phone where you said no to the VPN: the consent ends as
+  cancelled and `establish()` returns nothing, because iOS gives Minato no VPN; the network types IpPrefix,
+  LinkAddress and RouteInfo are now Android 15's own
+- 58 more public types of Android 15 (the accessibility gesture event, the TV input and interactive-app types, the
+  device controls, MBMS, InlinePresentationSpec): an app that names one no longer stops with NoClassDefFoundError
+- Android 15's lists of hidden APIs: an app that reaches a hidden method or field of Android's own classes is
+  reported to its StrictMode listener, as on a phone; nothing is denied yet
+- An app that is refused at import for the way a library uses the x18 register also says, in counts, what that
+  library offers for telling code from data
 
 ### Changed
 
@@ -199,6 +208,12 @@ All notable changes to Minato are documented in this file. The format follows
   reason
 - Apps that use OpenGL ES 3.1 spend less graphics time on each frame: their render passes no longer wait on a fence
   each
+- Textures that an app has not drawn for a while are parked as packed copies in a file of the app's process instead
+  of in memory, so they no longer count toward the memory iOS measures; when the disk is nearly full they stay in
+  memory as before
+- An iOS memory warning reaches the app as `onLowMemory` at most once in 60 seconds, as Android reports low memory,
+  so a burst of warnings is one call
+- Minato's log lines no longer carry the names, packages, files or paths of the apps you run in plain text
 
 ### Fixed
 
@@ -281,3 +296,6 @@ All notable changes to Minato are documented in this file. The format follows
   /proc/self/exe, cwd, root and fd
 - A tap on a notification while Minato is closed hands the app the notification's extras as the app put them in,
   Bundles, arrays and Parcelables included, not only strings, numbers and booleans
+- An app that Minato's menu paused goes on when the menu closes, as Android resumes the activity under a dialog;
+  before, a Java app stayed paused until you left it and came back, so an app that draws through Android's
+  GLSurfaceView stood still after the menu
