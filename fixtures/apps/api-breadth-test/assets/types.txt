@@ -385,3 +385,45 @@ android.service.autofill.Validators
 android.service.autofill.VisibilitySetterAction
 android.telephony.PhoneNumberFormattingTextWatcher
 android.telephony.UiccCardInfo
+# Batch H3: the companion device filters, the media effect interfaces, MediaProjectionConfig, TvAdServiceInfo, the MTP
+# types, AppUriAuthenticationPolicy, the identity credential store's types (android.security.identity), MessagePdu and
+# UnsafeStateException. EffectFactory, AssistStructure (with FillContext, FillRequest, SaveRequest), the activity
+# groups, ApplicationStartInfo, SliceMetrics, the media route button, InlineContentView and VcnUnderlyingNetworkTemplate
+# wait for steps of their own.
+android.app.admin.UnsafeStateException
+android.companion.BluetoothDeviceFilter
+android.companion.BluetoothLeDeviceFilter
+android.companion.DevicePresenceEvent
+android.companion.WifiDeviceFilter
+android.media.effect.Effect
+android.media.effect.EffectUpdateListener
+android.media.projection.MediaProjectionConfig
+android.media.tv.ad.TvAdServiceInfo
+android.mtp.MtpConstants
+android.mtp.MtpDeviceInfo
+android.mtp.MtpEvent
+android.mtp.MtpObjectInfo
+android.mtp.MtpStorageInfo
+android.security.AppUriAuthenticationPolicy
+android.security.identity.AccessControlProfile
+android.security.identity.AccessControlProfileId
+android.security.identity.AlreadyPersonalizedException
+android.security.identity.AuthenticationKeyMetadata
+android.security.identity.CipherSuiteNotSupportedException
+android.security.identity.CredentialDataRequest
+android.security.identity.CredentialDataResult
+android.security.identity.DocTypeNotSupportedException
+android.security.identity.EphemeralPublicKeyNotFoundException
+android.security.identity.IdentityCredential
+android.security.identity.IdentityCredentialException
+android.security.identity.InvalidReaderSignatureException
+android.security.identity.InvalidRequestMessageException
+android.security.identity.MessageDecryptionException
+android.security.identity.NoAuthenticationKeyAvailableException
+android.security.identity.PersonalizationData
+android.security.identity.PresentationSession
+android.security.identity.ResultData
+android.security.identity.SessionTranscriptMismatchException
+android.security.identity.UnknownAuthenticationKeyException
+android.security.identity.WritableIdentityCredential
+android.service.carrier.MessagePdu

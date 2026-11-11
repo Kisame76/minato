@@ -293,7 +293,7 @@ python3 tools/managergen/managergen.py --library-api "$SOURCES/libcore/api/curre
   --class android.companion.ObservingDevicePresenceRequest \
   --class android.content.pm.verify.domain.DomainVerificationUserState \
   --class android.companion.virtual.VirtualDevice \
-  --class android.companion.AssociatedDevice --class android.companion.DeviceFilter \
+  --class android.companion.AssociatedDevice \
   --class android.content.om.FabricatedOverlay --class android.content.om.OverlayIdentifier \
   --class android.net.VpnManager --class android.net.PlatformVpnProfile \
   --placeholder android.view.SurfaceControl \

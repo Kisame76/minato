@@ -3198,3 +3198,53 @@ frameworks_base/core/java/android/service/autofill/Validators.java
 frameworks_base/core/java/android/service/autofill/VisibilitySetterAction.java
 frameworks_base_types/telephony/java/android/telephony/PhoneNumberFormattingTextWatcher.java
 frameworks_base_types/telephony/java/android/telephony/UiccCardInfo.java
+
+# Batch H3 (framework breadth, pure Java, api-coverage's next batch): the companion device filters (with DeviceFilter,
+# taken from AOSP instead of generated), the media effect interfaces (Effect, EffectUpdateListener; EffectFactory needs
+# the filter framework's EffectContext), MediaProjectionConfig, TvAdServiceInfo, the MTP types,
+# AppUriAuthenticationPolicy, the identity credential store's types (android.security.identity), MessagePdu and
+# UnsafeStateException. Left out and named in api-breadth-test's types.txt: AssistStructure with FillContext,
+# FillRequest and SaveRequest, the activity groups, ApplicationStartInfo, SliceMetrics, the media route button and
+# dialogs, InlineContentView, VcnUnderlyingNetworkTemplate.
+frameworks_base/core/java/android/companion/DeviceFilter.java
+frameworks_base/core/java/android/companion/BluetoothDeviceFilterUtils.java
+frameworks_base/core/java/android/provider/OneTimeUseBuilder.java
+frameworks_base/core/java/com/android/internal/util/ObjectUtils.java
+frameworks_base_types/keystore/java/android/security/UrisToAliases.java
+frameworks_base/core/java/android/app/admin/UnsafeStateException.java
+frameworks_base/core/java/android/companion/BluetoothDeviceFilter.java
+frameworks_base/core/java/android/companion/BluetoothLeDeviceFilter.java
+frameworks_base/core/java/android/companion/DevicePresenceEvent.java
+frameworks_base/core/java/android/companion/WifiDeviceFilter.java
+frameworks_base_types/media/mca/effect/java/android/media/effect/Effect.java
+frameworks_base_types/media/mca/effect/java/android/media/effect/EffectUpdateListener.java
+frameworks_base_types/media/java/android/media/projection/MediaProjectionConfig.java
+frameworks_base_types/media/java/android/media/tv/ad/TvAdServiceInfo.java
+frameworks_base_types/media/java/android/mtp/MtpConstants.java
+frameworks_base_types/media/java/android/mtp/MtpDeviceInfo.java
+frameworks_base_types/media/java/android/mtp/MtpEvent.java
+frameworks_base_types/media/java/android/mtp/MtpObjectInfo.java
+frameworks_base_types/media/java/android/mtp/MtpStorageInfo.java
+frameworks_base_types/keystore/java/android/security/AppUriAuthenticationPolicy.java
+frameworks_base_types/identity/java/android/security/identity/AccessControlProfile.java
+frameworks_base_types/identity/java/android/security/identity/AccessControlProfileId.java
+frameworks_base_types/identity/java/android/security/identity/AlreadyPersonalizedException.java
+frameworks_base_types/identity/java/android/security/identity/AuthenticationKeyMetadata.java
+frameworks_base_types/identity/java/android/security/identity/CipherSuiteNotSupportedException.java
+frameworks_base_types/identity/java/android/security/identity/CredentialDataRequest.java
+frameworks_base_types/identity/java/android/security/identity/CredentialDataResult.java
+frameworks_base_types/identity/java/android/security/identity/DocTypeNotSupportedException.java
+frameworks_base_types/identity/java/android/security/identity/EphemeralPublicKeyNotFoundException.java
+frameworks_base_types/identity/java/android/security/identity/IdentityCredential.java
+frameworks_base_types/identity/java/android/security/identity/IdentityCredentialException.java
+frameworks_base_types/identity/java/android/security/identity/InvalidReaderSignatureException.java
+frameworks_base_types/identity/java/android/security/identity/InvalidRequestMessageException.java
+frameworks_base_types/identity/java/android/security/identity/MessageDecryptionException.java
+frameworks_base_types/identity/java/android/security/identity/NoAuthenticationKeyAvailableException.java
+frameworks_base_types/identity/java/android/security/identity/PersonalizationData.java
+frameworks_base_types/identity/java/android/security/identity/PresentationSession.java
+frameworks_base_types/identity/java/android/security/identity/ResultData.java
+frameworks_base_types/identity/java/android/security/identity/SessionTranscriptMismatchException.java
+frameworks_base_types/identity/java/android/security/identity/UnknownAuthenticationKeyException.java
+frameworks_base_types/identity/java/android/security/identity/WritableIdentityCredential.java
+frameworks_base/core/java/android/service/carrier/MessagePdu.java
