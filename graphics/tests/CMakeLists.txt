@@ -51,10 +51,17 @@ if(TARGET angle-texture-parking)
     RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:")
   # --in-use: a working set in use that comes back from parking keeps no packed copy in the emergency band (patch
   # 0019) and stays clear of the limit while it is restored (0020). ASan's quarantine would keep freed memory in the
-  # footprint.
+  # footprint. The packed copies stay in host memory (MINATO_ANGLE_PARK_FILE=0): with the park file (0021) the
+  # emergency band is never reached.
   add_test(NAME graphics.angle_texture_parking_in_use
     COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" --in-use)
   set_tests_properties(graphics.angle_texture_parking_in_use PROPERTIES
+    RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:"
+    ENVIRONMENT "ASAN_OPTIONS=quarantine_size_mb=0:thread_local_quarantine_size_kb=0;MINATO_ANGLE_PARK_FILE=0")
+  # --store: once every frame is parked, its packed copy is not in the footprint (patch 0021); same quarantine.
+  add_test(NAME graphics.angle_texture_parking_store
+    COMMAND angle-texture-parking "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" --store)
+  set_tests_properties(graphics.angle_texture_parking_store PROPERTIES
     RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:"
     ENVIRONMENT "ASAN_OPTIONS=quarantine_size_mb=0:thread_local_quarantine_size_kb=0")
 endif()

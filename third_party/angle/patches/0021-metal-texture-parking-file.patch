@@ -1,0 +1,523 @@
+Texture parking keeps the packed copies in a file of the process's own instead of host memory (Minato, patch 0021).
+
+Why: a parked texture's packed copy is its only copy (0017 drops the GPU storage), and it lived in host memory,
+which phys_footprint charges and jetsam measures. A visual novel that cycles its frames for a long time grows that
+store until nothing else can give way: on the iPhone malloc climbed from 983 to 1813 MiB in 15 min while the
+footprint was held only because GPU memory still gave way. Clean file pages are not in the footprint, and the
+kernel may evict them under pressure and read them back. The pack workers now write each packed copy (LZ4, then
+the LZFSE repack) into an extent of one file in the process's temporary directory, unlinked at once (nothing is
+left after an exit or a kill; class D protection on iOS), and a restore reads it back with pread. Freed extents are
+reused first fit and given back to the file system (F_PUNCHHOLE). When the file cannot take a copy (it could not be
+made, less than 2 GiB of disk is free, a write fails) the copy stays in host memory as before. The pack and repack
+buffers are pages of their own (mmap), so they leave the footprint when they go. MINATO_ANGLE_PARK_FILE=0 keeps
+every copy in host memory. ANGLEMetalParkingLine appends " file=<MiB> fwrite=<MiB> ffail=<n>".
+Test: graphics/tests/angle_texture_parking.mm --store (all 240 frames parked: the footprint holds 0.2 GiB above
+the start instead of 0.7 GiB, the 464 MiB of packed copies are in the file; a third round reads every frame back
+bit for bit) and --store-full (a 64 MiB file limit: the copies past it stay in host memory, still bit for bit).
+Upstream: no (Minato's memory policy).
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.h b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+index 03983f8..ea99b91 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.h
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.h
+@@ -70,7 +70,7 @@ struct ParkJob
+     {
+         Reading,     // the readback blit is encoded; waits for its command buffer
+         Packing,     // a background worker filters and compresses the readback
+-        Packed,      // |packed| holds the texture; the context thread may drop the storage
++        Packed,      // |packed| or the park file holds the texture; the context thread may drop the storage
+         Failed,      // did not compress well enough; the texture stays as it is
+     };
+ 
+@@ -86,12 +86,18 @@ struct ParkJob
+     std::atomic<int> state{Reading};
+ 
+     ParkCodec codec = ParkCodec::LZ4;
++    // The packed bytes: in the park file at |fileOffset| (|fileSize| bytes, patch 0021), or in host memory in
++    // |packed| when the file is off or could not take them (kNotInFile).
+     std::vector<uint8_t> packed;
++    uint64_t fileOffset = kNotInFile;
++    size_t fileSize     = 0;
+     std::vector<PackedChunk> chunks;
+ 
+     // Second pass: LZFSE for textures that stay parked.
+     std::atomic<int> repackState{0};  // 0 none, 1 running, 2 done, 3 failed, 4 taken
+     std::vector<uint8_t> repacked;
++    uint64_t repackedOffset = kNotInFile;
++    size_t repackedSize     = 0;
+     std::vector<PackedChunk> repackedChunks;
+ 
+     // Context-thread bookkeeping: what this job still counts in TextureParking.
+@@ -102,6 +108,12 @@ struct ParkJob
+     bool kept = false;
+     // Packed in the stress mode: kept even when packing saves nothing.
+     bool stress = false;
++
++    static constexpr uint64_t kNotInFile = UINT64_MAX;
++    // The packed size, wherever the bytes are.
++    size_t packedBytes() const { return fileOffset != kNotInFile ? fileSize : packed.size(); }
++    // Gives the job's extents in the park file back.
++    ~ParkJob();
+ };
+ 
+ // How an entry point uses a texture: a write makes a kept packed copy stale.
+diff --git a/src/libANGLE/renderer/metal/mtl_texture_parking.mm b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+index 5db9ca5..0b8cd55 100644
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -19,6 +19,10 @@
+ #include <dispatch/dispatch.h>
+ #include <mach/mach.h>
+ #include <mach/mach_time.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <sys/mount.h>
++#include <unistd.h>
+ #if TARGET_OS_IPHONE
+ #    include <os/proc.h>
+ #endif
+@@ -27,6 +31,10 @@
+ #include <chrono>
+ #include <cstdio>
+ #include <cstdlib>
++#include <cstring>
++#include <iterator>
++#include <map>
++#include <string>
+ #include <thread>
+ #include <utility>
+ 
+@@ -83,6 +91,223 @@
+ // The intervals between presents the counters line takes its percentiles of.
+ constexpr size_t kPresentSamples = 512;
+ 
++// The park file (patch 0021): one file per process that holds the packed copies, so that they are not in the
++// footprint. Host memory (malloc) is charged to phys_footprint, which jetsam measures; clean file pages are not,
++// and the kernel may evict them under pressure and read them back on the next restore. The file is unlinked once
++// created, so nothing is left after an exit or a kill. Its extents are 16 KiB aligned (the page size), and freed
++// ones go back to the file system (F_PUNCHHOLE). When the file cannot take a copy (it could not be created, the
++// disk has less than kFileMinFree, a write fails) the copy stays in host memory as before.
++// MINATO_ANGLE_PARK_FILE=0 keeps every copy in host memory.
++constexpr uint64_t kFileBlock   = 16 * 1024;
++constexpr uint64_t kFileMinFree = 2048 * kMiB;
++
++class ParkFile
++{
++  public:
++    static ParkFile &Get()
++    {
++        static ParkFile *file = new ParkFile();
++        return *file;
++    }
++
++    // Writes |size| bytes into a free extent; false keeps them in host memory.
++    bool store(const uint8_t *bytes, size_t size, uint64_t *offset)
++    {
++        const uint64_t length = (size + kFileBlock - 1) / kFileBlock * kFileBlock;
++        uint64_t at           = 0;
++        int fd                = -1;
++        {
++            std::lock_guard<std::mutex> lock(mMutex);
++            if (!open() || size == 0)
++            {
++                return false;
++            }
++            struct statfs disk = {};
++            if (fstatfs(mFd, &disk) != 0 ||
++                static_cast<uint64_t>(disk.f_bavail) * disk.f_bsize < kFileMinFree + length)
++            {
++                mFails += 1;
++                return false;
++            }
++            at = take(length);
++            fd = mFd;
++        }
++        for (size_t done = 0; done < size;)
++        {
++            const ssize_t wrote = pwrite(fd, bytes + done, size - done, static_cast<off_t>(at + done));
++            if (wrote <= 0)
++            {
++                std::lock_guard<std::mutex> lock(mMutex);
++                give(at, length);
++                mFails += 1;
++                return false;
++            }
++            done += static_cast<size_t>(wrote);
++        }
++        std::lock_guard<std::mutex> lock(mMutex);
++        mBytes += length;
++        mWritten += size;
++        *offset = at;
++        return true;
++    }
++
++    bool load(uint64_t offset, uint8_t *out, size_t size) const
++    {
++        for (size_t done = 0; done < size;)
++        {
++            const ssize_t read = pread(mFd, out + done, size - done, static_cast<off_t>(offset + done));
++            if (read <= 0)
++            {
++                return false;
++            }
++            done += static_cast<size_t>(read);
++        }
++        return true;
++    }
++
++    void release(uint64_t offset, size_t size)
++    {
++        const uint64_t length = (size + kFileBlock - 1) / kFileBlock * kFileBlock;
++        std::lock_guard<std::mutex> lock(mMutex);
++        mBytes -= length;
++        give(offset, length);
++    }
++
++    void counters(uint64_t *bytes, uint64_t *written, uint64_t *fails)
++    {
++        std::lock_guard<std::mutex> lock(mMutex);
++        *bytes   = mBytes;
++        *written = mWritten;
++        *fails   = mFails;
++    }
++
++  private:
++    bool open()
++    {
++        if (mTried)
++        {
++            return mFd >= 0;
++        }
++        mTried            = true;
++        const char *flag  = getenv("MINATO_ANGLE_PARK_FILE");
++        if (flag != nullptr && strcmp(flag, "0") == 0)
++        {
++            return false;
++        }
++        // The process's own temporary directory: the app's tmp on iOS.
++        char directory[1024];
++        if (confstr(_CS_DARWIN_USER_TEMP_DIR, directory, sizeof(directory)) == 0)
++        {
++            mFails += 1;
++            return false;
++        }
++        std::string path = std::string(directory) + "/angle-park.XXXXXX";
++        mFd              = mkstemp(path.data());
++        if (mFd < 0)
++        {
++            mFails += 1;
++            return false;
++        }
++        unlink(path.c_str());
++        fcntl(mFd, F_SETFD, FD_CLOEXEC);
++#if TARGET_OS_IPHONE
++        // Class D (no protection): a locked phone does not take the reads away from a running app. If iOS keeps
++        // the container's class, the file is readable from the first unlock on, which a running app is past.
++        fcntl(mFd, F_SETPROTECTIONCLASS, 4);
++#endif
++        return true;
++    }
++
++    // First fit among the freed extents, else the end of the file.
++    uint64_t take(uint64_t length)
++    {
++        for (auto it = mFree.begin(); it != mFree.end(); ++it)
++        {
++            if (it->second >= length)
++            {
++                const uint64_t at   = it->first;
++                const uint64_t left = it->second - length;
++                mFree.erase(it);
++                if (left != 0)
++                {
++                    mFree.emplace(at + length, left);
++                }
++                return at;
++            }
++        }
++        const uint64_t at = mEnd;
++        mEnd += length;
++        return at;
++    }
++
++    // Frees an extent, merges it with its neighbours and gives the blocks back to the file system.
++    void give(uint64_t at, uint64_t length)
++    {
++        fpunchhole_t hole = {};
++        hole.fp_offset    = static_cast<off_t>(at);
++        hole.fp_length    = static_cast<off_t>(length);
++        fcntl(mFd, F_PUNCHHOLE, &hole);
++        auto next = mFree.lower_bound(at);
++        if (next != mFree.end() && at + length == next->first)
++        {
++            length += next->second;
++            next = mFree.erase(next);
++        }
++        if (next != mFree.begin())
++        {
++            auto previous = std::prev(next);
++            if (previous->first + previous->second == at)
++            {
++                at = previous->first;
++                length += previous->second;
++                mFree.erase(previous);
++            }
++        }
++        if (at + length == mEnd)
++        {
++            mEnd = at;
++            ftruncate(mFd, static_cast<off_t>(mEnd));
++            return;
++        }
++        mFree.emplace(at, length);
++    }
++
++    std::mutex mMutex;
++    int mFd     = -1;
++    bool mTried = false;
++    std::map<uint64_t, uint64_t> mFree;
++    uint64_t mEnd     = 0;
++    uint64_t mBytes   = 0;
++    uint64_t mWritten = 0;
++    uint64_t mFails   = 0;
++};
++
++// A temporary buffer of its own pages: given back to the system when it goes, where a freed malloc block of this
++// size may stay in the footprint.
++class PageBuffer
++{
++  public:
++    explicit PageBuffer(size_t size) : mSize(size)
++    {
++        void *pages = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
++        mData       = pages == MAP_FAILED ? nullptr : static_cast<uint8_t *>(pages);
++    }
++    ~PageBuffer()
++    {
++        if (mData != nullptr)
++        {
++            munmap(mData, mSize);
++        }
++    }
++    PageBuffer(const PageBuffer &)            = delete;
++    PageBuffer &operator=(const PageBuffer &) = delete;
++    uint8_t *data() const { return mData; }
++
++  private:
++    uint8_t *mData = nullptr;
++    size_t mSize   = 0;
++};
++
+ compression_algorithm Algorithm(ParkCodec codec)
+ {
+     return codec == ParkCodec::LZ4 ? COMPRESSION_LZ4 : COMPRESSION_LZFSE;
+@@ -123,18 +348,21 @@ void UnfilterUp(uint8_t *bytes, const std::vector<ParkedLevel> &levels)
+ 
+ constexpr size_t kChunkBytes = 1024 * 1024;
+ 
+-// Packs |size| bytes as independent chunks; fails when the result would not save an eighth.
++// Packs |size| bytes as independent chunks into the park file (|fileOffset|) or else |out|; fails when the result
++// would not save an eighth.
+ bool Encode(const uint8_t *source,
+             size_t size,
+             ParkCodec codec,
+             bool anySaving,
+             std::vector<uint8_t> *out,
++            uint64_t *fileOffset,
++            size_t *fileSize,
+             std::vector<PackedChunk> *chunks)
+ {
+     // The stress mode parks whatever it can, even when packing does not save anything.
+     const size_t limit = anySaving ? size + size / 2 + 4096 : size - (size >> kMinSavingShift);
+-    std::unique_ptr<uint8_t[]> buffer(new (std::nothrow) uint8_t[limit]);
+-    if (!buffer)
++    PageBuffer buffer(limit);
++    if (buffer.data() == nullptr)
+     {
+         return false;
+     }
+@@ -146,7 +374,7 @@ bool Encode(const uint8_t *source,
+         chunk.rawOffset    = offset;
+         chunk.rawSize      = std::min(kChunkBytes, size - offset);
+         chunk.packedOffset = written;
+-        chunk.packedSize   = compression_encode_buffer(buffer.get() + written, limit - written,
++        chunk.packedSize   = compression_encode_buffer(buffer.data() + written, limit - written,
+                                                        source + offset, chunk.rawSize, nullptr,
+                                                        Algorithm(codec));
+         if (chunk.packedSize == 0)
+@@ -156,19 +384,28 @@ bool Encode(const uint8_t *source,
+         written += chunk.packedSize;
+         parts.push_back(chunk);
+     }
+-    out->assign(buffer.get(), buffer.get() + written);
++    if (ParkFile::Get().store(buffer.data(), written, fileOffset))
++    {
++        *fileSize = written;
++        out->clear();
++    }
++    else
++    {
++        *fileOffset = ParkJob::kNotInFile;
++        *fileSize   = 0;
++        out->assign(buffer.data(), buffer.data() + written);
++    }
+     *chunks = std::move(parts);
+     return true;
+ }
+ 
+ // Decodes every chunk into |out|, on several cores when |parallel| is set.
+-bool Decode(const std::vector<uint8_t> &packed,
+-            const std::vector<PackedChunk> &chunks,
+-            ParkCodec codec,
+-            uint8_t *out,
+-            bool parallel)
++bool DecodeBytes(const uint8_t *source,
++                 const std::vector<PackedChunk> &chunks,
++                 ParkCodec codec,
++                 uint8_t *out,
++                 bool parallel)
+ {
+-    const uint8_t *source         = packed.data();
+     const PackedChunk *parts      = chunks.data();
+     const compression_algorithm a = Algorithm(codec);
+     std::atomic<size_t> failures{0};
+@@ -195,21 +432,40 @@ bool Decode(const std::vector<uint8_t> &packed,
+     return failures.load() == 0;
+ }
+ 
++// Decodes a job's packed bytes, which a restore reads from the park file first when they are there.
++bool Decode(const ParkJob &job, uint8_t *out, bool parallel)
++{
++    if (job.fileOffset == ParkJob::kNotInFile)
++    {
++        return DecodeBytes(job.packed.data(), job.chunks, job.codec, out, parallel);
++    }
++    PageBuffer bytes(job.fileSize);
++    return bytes.data() != nullptr && ParkFile::Get().load(job.fileOffset, bytes.data(), job.fileSize) &&
++           DecodeBytes(bytes.data(), job.chunks, job.codec, out, parallel);
++}
++
+ void Pack(ParkJob *job)
+ {
+     uint8_t *bytes = static_cast<uint8_t *>([job->readback->get() contents]);
+     FilterUp(bytes, job->levels);
+-    const bool packed = Encode(bytes, job->rawSize, ParkCodec::LZ4, job->stress, &job->packed, &job->chunks);
++    const bool packed = Encode(bytes, job->rawSize, ParkCodec::LZ4, job->stress, &job->packed, &job->fileOffset,
++                               &job->fileSize, &job->chunks);
+     job->state.store(packed ? ParkJob::Packed : ParkJob::Failed, std::memory_order_release);
+ }
+ 
+ void Repack(ParkJob *job)
+ {
+-    std::unique_ptr<uint8_t[]> raw(new (std::nothrow) uint8_t[job->rawSize]);
+-    bool ok = raw != nullptr &&
+-              Decode(job->packed, job->chunks, job->codec, raw.get(), /*parallel=*/false) &&
+-              Encode(raw.get(), job->rawSize, ParkCodec::LZFSE, false, &job->repacked, &job->repackedChunks) &&
+-              job->repacked.size() < job->packed.size();
++    PageBuffer raw(job->rawSize);
++    const bool encoded = raw.data() != nullptr && Decode(*job, raw.data(), /*parallel=*/false) &&
++                         Encode(raw.data(), job->rawSize, ParkCodec::LZFSE, false, &job->repacked,
++                                &job->repackedOffset, &job->repackedSize, &job->repackedChunks);
++    const size_t repacked = job->repackedOffset != ParkJob::kNotInFile ? job->repackedSize : job->repacked.size();
++    const bool ok         = encoded && repacked < job->packedBytes();
++    if (!ok && job->repackedOffset != ParkJob::kNotInFile)
++    {
++        ParkFile::Get().release(job->repackedOffset, job->repackedSize);
++        job->repackedOffset = ParkJob::kNotInFile;
++    }
+     job->repackState.store(ok ? 2 : 3, std::memory_order_release);
+ }
+ 
+@@ -241,9 +497,21 @@ dispatch_queue_t RepackQueue()
+ 
+ }  // namespace
+ 
++ParkJob::~ParkJob()
++{
++    if (fileOffset != kNotInFile)
++    {
++        ParkFile::Get().release(fileOffset, fileSize);
++    }
++    if (repackedOffset != kNotInFile)
++    {
++        ParkFile::Get().release(repackedOffset, repackedSize);
++    }
++}
++
+ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+ {
+-    if (!Decode(job.packed, job.chunks, job.codec, out, /*parallel=*/true))
++    if (!Decode(job, out, /*parallel=*/true))
+     {
+         return false;
+     }
+@@ -449,8 +717,16 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+             const int repack = job->repackState.load(std::memory_order_acquire);
+             if (repack == 2)
+             {
++                if (job->fileOffset != ParkJob::kNotInFile)
++                {
++                    ParkFile::Get().release(job->fileOffset, job->fileSize);
++                }
+                 job->packed.swap(job->repacked);
+                 job->chunks.swap(job->repackedChunks);
++                job->fileOffset     = job->repackedOffset;
++                job->fileSize       = job->repackedSize;
++                job->repackedOffset = ParkJob::kNotInFile;
++                job->repackedSize   = 0;
+                 job->repacked       = std::vector<uint8_t>();
+                 job->repackedChunks = std::vector<PackedChunk>();
+                 job->codec    = ParkCodec::LZFSE;
+@@ -710,6 +986,7 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+     {
+         if (texture->mParkOwner == owner && texture->mParkJob && texture->mParkJob->kept)
+         {
++            // Only a copy in host memory frees any footprint.
+             bytes += texture->mParkJob->packed.size();
+             mUnkept += 1;
+             orphan(std::move(texture->mParkJob));
+@@ -766,25 +1043,29 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+         {
+             parked += 1;
+             raw += texture->mParkJob->rawSize;
+-            packed += texture->mParkJob->packed.size();
++            packed += texture->mParkJob->packedBytes();
+         }
+         else if (texture->mParkJob && texture->mParkJob->kept)
+         {
+-            kept += texture->mParkJob->packed.size();
++            kept += texture->mParkJob->packedBytes();
+         }
+     }
++    uint64_t fileBytes = 0, fileWritten = 0, fileFails = 0;
++    ParkFile::Get().counters(&fileBytes, &fileWritten, &fileFails);
+     const int length = snprintf(
+         buffer, size,
+         "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
+         "restore_p50=%.1f restore_p99=%.1f lzfse=%llu avail_min=%llu avail_last=%llu present_p50=%.1f "
+-        "present_p99=%.1f unkept=%llu",
++        "present_p99=%.1f unkept=%llu file=%llu fwrite=%llu ffail=%llu",
+         static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
+         static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
+         static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
+         static_cast<unsigned long long>(mAborts), static_cast<unsigned long long>(mRestores), at(restores, 0.5),
+         at(restores, 0.99), static_cast<unsigned long long>(mRepacks),
+         static_cast<unsigned long long>(availableMin / kMiB), static_cast<unsigned long long>(mAvailableLast / kMiB),
+-        at(presents, 0.5), at(presents, 0.99), static_cast<unsigned long long>(mUnkept));
++        at(presents, 0.5), at(presents, 0.99), static_cast<unsigned long long>(mUnkept),
++        static_cast<unsigned long long>(fileBytes / kMiB), static_cast<unsigned long long>(fileWritten / kMiB),
++        static_cast<unsigned long long>(fileFails));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 
+@@ -794,8 +1075,9 @@ bool UnpackParkedTexture(const ParkJob &job, uint8_t *out)
+ // "park n=<parked> raw=<MiB> packed=<MiB> kept=<MiB> pending=<MiB> parks=<n> aborts=<n> restores=<n> restore_p50=<ms>
+ // restore_p99=<ms> lzfse=<n> avail_min=<MiB> avail_last=<MiB> present_p50=<ms> present_p99=<ms> unkept=<n>": the
+ // least and the last memory the process could still allocate at a frame end (0 when unknown), the time between the
+-// last 512 presents, and how many packed copies of restored textures went under pressure; returns the length, or 0
+-// when it does not fit.
++// last 512 presents, and how many packed copies of restored textures went under pressure; patch 0021 appends
++// " file=<MiB> fwrite=<MiB> ffail=<n>": what the park file holds, what was written into it and how often it could
++// not take a copy. Returns the length, or 0 when it does not fit.
+ extern "C" ANGLE_EXPORT int ANGLEMetalParkingLine(char *line, size_t size)
+ {
+     return rx::mtl::TextureParking::Get().line(line, size);

@@ -273,7 +273,20 @@ int fake_parking_line(char *line, std::size_t size) {
     return static_cast<int>(length);
 }
 
+/// The line of patch 0021 at the widest values a long device run reaches (19 fields): the runtime must pass it whole.
+const char long_parking_stats[] =
+    "park n=4096 raw=99999 packed=99999 kept=99999 pending=999 parks=9999999 aborts=99999 restores=9999999 "
+    "restore_p50=999.9 restore_p99=999.9 lzfse=999999 avail_min=99999 avail_last=99999 present_p50=999.9 "
+    "present_p99=9999.9 unkept=999999 file=99999 fwrite=9999999 ffail=99999";
+int long_parking_line(char *line, std::size_t size) {
+    const std::size_t length = sizeof long_parking_stats - 1;
+    if (length >= size) return 0;
+    std::memcpy(line, long_parking_stats, length + 1);
+    return static_cast<int>(length);
+}
+
 memory::GraphicsLineFn present_parking_lookup() { return fake_parking_line; }
+memory::GraphicsLineFn long_parking_lookup() { return long_parking_line; }
 memory::GraphicsLineFn absent_parking_lookup() { return nullptr; }
 
 int g_parking_calls = 0;  // for flaky_parking_lookup: nullptr first, the symbol second, nullptr after
@@ -286,6 +299,14 @@ TEST(parking_line_wraps_the_angle_stats_when_the_symbol_is_present) {
     CHECK(std::string(out, length) ==
           "I/apkrt   : angle park n=3 raw=12 packed=4 kept=8 pending=0 parks=10 aborts=1 restores=7 "
           "restore_p50=2 restore_p99=9 lzfse=5 warn\n");
+    memory::set_parking_lookup_for_test(nullptr);
+}
+
+TEST(parking_line_passes_the_longest_line_of_0021_whole) {
+    memory::set_parking_lookup_for_test(long_parking_lookup);
+    char out[384];
+    const std::size_t length = memory::parking_line(true, out, sizeof out);
+    CHECK(std::string(out, length) == std::string("I/apkrt   : angle ") + long_parking_stats + " warn\n");
     memory::set_parking_lookup_for_test(nullptr);
 }
 

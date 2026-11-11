@@ -268,7 +268,7 @@ void log_instrument(bool warning) {
     char gl[256];
     const std::size_t gl_length = graphics_line(warning, gl, sizeof gl);  // the ANGLE/Metal line, when 0015 is present
     if (gl_length > 0) static_cast<void>(::write(STDERR_FILENO, gl, gl_length));
-    char park[256];
+    char park[384];  // the park line below plus its prefix and " warn"
     const std::size_t park_length = parking_line(warning, park, sizeof park);  // the 0017 texture-parking line
     if (park_length > 0) static_cast<void>(::write(STDERR_FILENO, park, park_length));
 }
@@ -294,7 +294,7 @@ void set_graphics_lookup_for_test(GraphicsLookupFn lookup) {
 std::size_t parking_line(bool warning, char *out, std::size_t size) {
     const GraphicsLineFn fn = parking_line_source();
     if (fn == nullptr) return 0;  // no ANGLEMetalParkingLine (a library without 0017, or ANGLE not loaded yet)
-    char stats[256];  // 0018 appends four fields; a ~200-char line must fit here, or the line is dropped
+    char stats[384];  // 0018 and 0021 append fields; a long run's ~272-char line must fit, or the line is dropped
     stats[0] = '\0';
     int written = fn(stats, sizeof stats);
     if (written <= 0) return 0;

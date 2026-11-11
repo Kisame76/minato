@@ -20,6 +20,12 @@
 // lets go the copies kept before: while they are restored (the footprint sampled after every draw of the first
 // frames) at least 256 MiB stay available. Its CTest run turns off ASan's quarantine, which would hold freed memory
 // in the footprint.
+// Patch 0021: --store makes and shows the 240 frames as the plain run does, waits until every idle texture is parked
+// and repacked, and then the packed copies must not be in the footprint: it may hold the frames still on the GPU and
+// 128 MiB more, not the ~1 GiB of packed copies (the iPhone's malloc climb, 983 to 1813 MiB in 15 min). They live in
+// a file the kernel may evict and read back: a third round restores every frame from it, bit for bit. --store-full
+// lets the file grow to 64 MiB only (RLIMIT_FSIZE): the writes past it fail, those copies stay in host memory, and
+// every frame still comes back bit for bit.
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -29,6 +35,8 @@
 #include <GLES3/gl3.h>
 #include <dlfcn.h>
 #include <mach/mach.h>
+#include <signal.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -60,6 +68,12 @@ constexpr uint64_t kEmergencyBelow = 384 * kMiB;
 constexpr uint64_t kRestoringFloor = 256 * kMiB;
 // --in-use samples the footprint after every draw in its first frames, which restore the working set.
 constexpr int kRestoringFrames = 3;
+// --store: what the footprint may hold above the frames still on the GPU (the readback and staging buffers ANGLE
+// keeps, at most 64 MiB each, the screen, ASan's own: ~240 MiB on the Mac with or without the park file), and how
+// much must be packed to tell.
+constexpr uint64_t kStoreSlack = 320 * kMiB;
+constexpr uint64_t kStoreFullFile = 64 * kMiB;
+constexpr double kStoreAtLeastMiB = 256.0;
 
 void *library = nullptr;
 bool failed = false;
@@ -180,7 +194,7 @@ double percentile(std::vector<double> values, double share) {
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 3) {
         fail("usage: angle-texture-parking <libGLESv2.dylib> [--without-parking | --far-limit | --warning-band | "
-             "--in-use]");
+             "--in-use | --store | --store-full]");
     }
     if (access(argv[1], F_OK) != 0) {
         std::printf("skipped: %s is not built, see tools/build-angle.sh\n", argv[1]);
@@ -198,6 +212,16 @@ int main(int argc, char **argv) {
         const bool far = mode == "--far-limit";
         const bool band = mode == "--warning-band";
         const bool in_use = mode == "--in-use";
+        const bool store_full = mode == "--store-full";
+        const bool store = mode == "--store" || store_full;
+        if (store_full) {
+            // A write past the limit fails with EFBIG instead of a signal.
+            signal(SIGXFSZ, SIG_IGN);
+            const struct rlimit file_size = {kStoreFullFile, kStoreFullFile};
+            if (setrlimit(RLIMIT_FSIZE, &file_size) != 0) {
+                fail("setrlimit RLIMIT_FSIZE");
+            }
+        }
         const uint64_t limit = mode == "--without-parking" || far ? (uint64_t{1} << 20) * kMiB
                                : band                             ? footprint() + 128 * kMiB + kBandHeadroom
                                : in_use                           ? footprint() + 192 * kMiB + kHeadroom
@@ -264,6 +288,8 @@ int main(int argc, char **argv) {
         std::array<GLuint, kTextures> frames{};
         std::array<uint64_t, kTextures> sums{};
         GL(GenTextures)(kTextures, frames.data());
+        // --store: what the process holds before the frames.
+        const uint64_t before_frames = footprint();
         uint64_t peak = 0;
         int mismatches = 0;
         std::vector<double> frame_ms;
@@ -322,9 +348,12 @@ int main(int argc, char **argv) {
             return std::string(line.data());
         };
         const auto repacks_until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-        while (in_use && std::chrono::steady_clock::now() < repacks_until) {
+        while ((in_use || store) && std::chrono::steady_clock::now() < repacks_until) {
             const std::string line = parking_line();
-            if (field(line, "lzfse") >= field(line, "n")) {
+            // --store: until every frame is parked again (the second round restored them all) and nothing is on
+            // its way.
+            if (field(line, "lzfse") >= field(line, "n") &&
+                (!store || (field(line, "n") >= static_cast<double>(kTextures) && field(line, "pending") == 0.0))) {
                 break;
             }
             GL(BindFramebuffer)(GL_FRAMEBUFFER, 0);
@@ -358,6 +387,26 @@ int main(int argc, char **argv) {
             std::this_thread::sleep_until(next);
         }
         peak = std::max(peak, in_use_peak);
+        // --store: the footprint once all is parked, then a third round restores every frame.
+        std::string store_line;
+        uint64_t store_footprint = 0;
+        if (store) {
+            store_line = parking_line();
+            store_footprint = footprint();
+            for (size_t index = 0; index < frames.size(); ++index) {
+                GL(BindTexture)(GL_TEXTURE_2D, frames[index]);
+                GL(DrawArrays)(GL_TRIANGLE_STRIP, 0, 4);
+                GL(ReadPixels)(0, 0, kWidth, kHeight, GL_RGBA, GL_UNSIGNED_BYTE, readback.data());
+                if (sum(readback) != sums[index]) {
+                    ++mismatches;
+                }
+                GL(BindFramebuffer)(GL_FRAMEBUFFER, 0);
+                GL(Clear)(GL_COLOR_BUFFER_BIT);
+                EGL(SwapBuffers)(display, surface);
+                GL(BindFramebuffer)(GL_FRAMEBUFFER, framebuffer);
+                peak = std::max(peak, footprint());
+            }
+        }
         check(GL(GetError)() == GL_NO_ERROR, "no GL error");
 
         std::string parking;
@@ -417,6 +466,27 @@ int main(int argc, char **argv) {
                   "the presents' interval p50 is the swaps' (present_p50 " + std::to_string(present) + " ms, swaps " +
                       std::to_string(swaps) + " ms)");
             check(field(parking, "present_p99") >= present, "the presents' interval p99 is not below its p50");
+        }
+        if (store) {
+            // The frames still on the GPU are all frames' bytes minus the parked ones' (raw).
+            const double frames_mib = static_cast<double>(kTextures) * kWidth * kHeight * 4 / kMiB;
+            const double on_gpu = frames_mib - field(store_line, "raw");
+            const double held = static_cast<double>(store_footprint - std::min(store_footprint, before_frames)) / kMiB;
+            const double packed = field(store_line, "packed") + field(store_line, "kept");
+            std::printf("store: %s\nstore: %.0f MiB above the start with %.0f MiB of frames on the GPU and %.0f MiB "
+                        "packed\n",
+                        store_line.c_str(), held, on_gpu, packed);
+            check(packed >= kStoreAtLeastMiB,
+                  "at least " + std::to_string(kStoreAtLeastMiB) + " MiB packed to measure (" + std::to_string(packed) +
+                      ")");
+            if (store_full) {
+                check(field(store_line, "ffail") > 0.0, "the full park file refused copies (ffail)");
+                check(field(store_line, "file") <= static_cast<double>(kStoreFullFile / kMiB),
+                      "the park file stays within its limit");
+            }
+            check(store_full || held <= on_gpu + static_cast<double>(kStoreSlack / kMiB),
+                  "the packed copies are not in the footprint (" + std::to_string(held) + " MiB held, " +
+                      std::to_string(on_gpu) + " MiB of frames on the GPU, " + std::to_string(packed) + " MiB packed)");
         }
         if (band) {
             // A measurement, not a bound: how much the parks leave at the worst, which depends on how fast the
