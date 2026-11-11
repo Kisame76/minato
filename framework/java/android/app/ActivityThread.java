@@ -1527,6 +1527,12 @@ public final class ActivityThread {
                     handleResumeActivity(r);
                     handleTopResumedActivityChanged(r, true);
                     updateWindows();
+                } else if (r != null && r.state == ON_PAUSE) {
+                    // Continue in Minato's menu (ADR-0032, the menu's pause): the activity the menu paused resumes
+                    // without a start, as Android 15 resumes the activity under a dialog of another task once that
+                    // goes (menu-pause-test).
+                    handleResumeActivity(r);
+                    handleTopResumedActivityChanged(r, true);
                 }
                 runTransactions();
                 break;

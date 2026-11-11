@@ -217,7 +217,9 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "edge-back-test-landscape io.github.kisame76.minato.test.edgeback"
       "uninstall-test io.github.kisame76.minato.test.uninstall"
       "uninstall-noperm-test io.github.kisame76.minato.test.uninstallnoperm"
-      "vsync-test io.github.kisame76.minato.test.vsync")
+      "vsync-test io.github.kisame76.minato.test.vsync"
+      "menu-pause-test io.github.kisame76.minato.test.menupause"
+      "glsurface-pause-test io.github.kisame76.minato.test.glsurfacepause")
 JAVA_TEST=${JAVA_TEST:-}
 ONLY=${ONLY:-}
 [[ "$ON_DEVICE" == no ]] || JAVA_TEST=yes
@@ -348,6 +350,11 @@ if [[ "$ON_DEVICE" == no && -n "${ONLY// /}" && " $ONLY " != *" permission-reque
     [[ " $ONLY " == *" notify-tap-test "* || " $ONLY " == *" notify-test-granted "* ]]; then
   ONLY="permission-request-test-notifications $ONLY"
   echo "note    ONLY takes permission-request-test-notifications along, for iOS's notifications answer"
+fi
+# The menu round (run_menu_pause) plays glsurface-pause-test after menu-pause-test.
+if [[ -n "${ONLY// /}" && " $ONLY " == *" menu-pause-test "* && " $ONLY " != *" glsurface-pause-test "* ]]; then
+  ONLY="$ONLY glsurface-pause-test"
+  echo "note    ONLY takes glsurface-pause-test along, for the menu round's GLSurfaceView"
 fi
 wanted() { [[ -z "${ONLY// /}" || " $ONLY " == *" $1 "* ]]; }
 if [[ -n "${ONLY// /}" ]]; then
@@ -1183,6 +1190,88 @@ run_resume_cases() {
   end_start "$app" 1
 }
 
+# The menu's pause on the Java path (ADR-0032, the menu's pause): menu-pause-test's MainActivity under Minato's menu,
+# opened and closed with Continue (the request menu), then Home and back. Under the menu its callbacks must be Android
+# 15's for a dialog of another task over it: MainActivity's lines of fixtures/expected/menu-pause-test.logcat from the
+# marker mark_a to mark_b (onPause, the focus's loss, onResume, the focus). Home and back must give that file's lines
+# from mark_c to "done", but for the focus's loss, which Minato gives at iOS's willDeactivate, before onPause (ADR-0032,
+# the background's order), so its place is not compared. glsurface-pause-test, a GLSurfaceView that draws continuously,
+# goes through the menu a second after its "ready"; it takes any pause after "ready" for its trip away, so after the
+# menu's onPause, "GLSurfaceView.onPause returned" (its GL thread paused) and onResume it draws 30 frames on the
+# surface, which the menu kept, and finishes. Its log must be Android 15's lines up to "ready", those three, and Android
+# 15's from "frames after the return" on; the renderer's count of onSurfaceCreated is not compared.
+run_menu_pause() {
+  local app=menu-pause-test package=io.github.kisame76.minato.test.menupause tag=menu-pause-test stops
+  if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  if ! await_line guest-log "^I/$tag: ready$" 60; then
+    fail "  $app: not ready"
+    end_start "$app" 1
+    return
+  fi
+  sleep 1
+  request menu
+  await_event "menu opened" 15 || fail "  $app: the menu did not open"
+  sleep 3
+  launch "$AWAY"
+  stops=0
+  for _ in $(seq 1 100); do
+    fetch "$CHECK_REL/guest-log" || true
+    stops=$(count_lines "^I/$tag: MainActivity onStop$" "$CHECK/guest-log")
+    (( stops >= 1 )) && break
+    sleep 0.2
+  done
+  sleep 1
+  launch
+  await_line guest-log "^I/$tag: MainActivity onRestart$" 30 || true
+  sleep 3
+  end_start "$app" 1
+  local want got lost="MainActivity onWindowFocusChanged false"
+  want=$(awk -v t="I/$tag: " 'index($0, t "mark_") == 1 { part = substr($0, length(t) + 6, 1) }
+    $0 == t "done" { part = "" }
+    (part == "a" || part == "c") && index($0, t "MainActivity ") == 1' "fixtures/expected/$app.logcat")
+  got=$(awk -v t="I/$tag: " 'seen && index($0, t "MainActivity ") == 1 { print } $0 == t "ready" { seen = 1 }' \
+    "$WORK/$app-1.log")
+  if [[ -n "$want" && "$(head -n 4 <<<"$got")" == "$(head -n 4 <<<"$want")" ]]; then
+    ok "  $app: the menu pauses the activity and Continue resumes it, as Android 15 does for a dialog over it"
+  else
+    fail "  $app: under the menu MainActivity's callbacks differ from Android 15's"
+    diff <(head -n 4 <<<"$got") <(head -n 4 <<<"$want") | sed 's/^/      | /' || true
+  fi
+  local home_got home_want
+  home_got=$(tail -n +5 <<<"$got" | grep -v -x "I/$tag: $lost" || true)
+  home_want=$(tail -n +5 <<<"$want" | grep -v -x "I/$tag: $lost" || true)
+  if [[ "$home_got" == "$home_want" && "$(tail -n +5 <<<"$got" | grep -c -x "I/$tag: $lost" || true)" == 1 ]]; then
+    ok "  $app: Home and back give Android 15's callbacks (the focus's loss at willDeactivate)"
+  else
+    fail "  $app: at Home and back MainActivity's callbacks differ from Android 15's"
+    diff <(tail -n +5 <<<"$got") <(tail -n +5 <<<"$want") | sed 's/^/      | /' || true
+  fi
+  app=glsurface-pause-test
+  tag=glsurface-pause-test
+  if ! begin_start "$app" io.github.kisame76.minato.test.glsurfacepause 1; then end_start "$app" 1; return; fi
+  if await_line guest-log "^I/$tag: ready$" 60; then
+    sleep 1
+    request menu
+    await_event "menu opened" 15 || fail "  $app: the menu did not open"
+    await_line guest-log "^I/$tag: done$" 60 || true
+    sleep 3
+  else
+    fail "  $app: not ready"
+  fi
+  end_start "$app" 1
+  local renderer='s/(renderer: onSurfaceCreated )[0-9]+ times/\1<n> times/'
+  want=$(awk -v t="I/$tag: " '$0 == t "frames after the return" { on = 1 } !after || on { print }
+    $0 == t "ready" { print t "onPause"; print t "GLSurfaceView.onPause returned"; print t "onResume"; after = 1 }' \
+    "fixtures/expected/$app.logcat" | sed -E "$renderer")
+  got=$(grep "^I/$tag: " "$WORK/$app-1.log" | sed -E "$renderer" || true)
+  if [[ "$got" == "$want" ]]; then
+    ok "  $app: the menu pauses the GLSurfaceView's thread, and after Continue it draws again"
+  else
+    fail "  $app: its log differs from Android 15's with the menu's pause"
+    diff <(echo "$got") <(echo "$want") | sed 's/^/      | /' || true
+  fi
+}
+
 # Import the apps; the Simulator signs a ready app's code ad hoc at its first tap.
 terminate
 rm -rf "$CHECK"
@@ -1971,6 +2060,9 @@ fi
 # mode is at 30 Hz with its frame callbacks about 33 ms apart; graphics/host holds presents to the limit too, for apps
 # that present without pacing (ADR-0078 decision 4: "present limit 30 result 0"). Start 2 with 0 (none): the screen's
 # highest again and no present limit, so the stored choice is none after the round.
+# The menu's pause on the Java path (run_menu_pause above).
+if wanted menu-pause-test; then run_menu_pause; fi
+
 if wanted vsync-test; then
   for start in 1 2; do
     limit=30
