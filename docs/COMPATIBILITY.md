@@ -104,9 +104,9 @@ Only what the project has evidence for is stated as working; "untested" means th
   ahead-of-time compiled code; the import recognizes them and Get Info lists them as needing a JIT.
 - **SDL2 and Ren'Py:** The call sequences of SDL 2.30's AAudio and OpenSL ES output drivers, played with silence by
   our test apps, are checked bit for bit against Android 15. Our Ren'Py 8.5.3 test game starts in the Simulator with
-  its picture and sound, and Minato's Ren'Py memory test game plays 15 minutes on the
-  iPhone with at most 850 MB. Ren'Py versions built on Python 2.7 get past ctypes' callbacks, which need
-  executable memory, through trampolines in Minato's own signed code (ADR-0072); no game of that kind is confirmed yet.
+  its picture and sound, and Minato's Ren'Py memory test game plays on the iPhone. Ren'Py versions built on
+  Python 2.7 get past ctypes' callbacks, which need executable memory, through trampolines in Minato's own signed
+  code (ADR-0072); no game of that kind is confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
 - **libGDX:** an open-source libGDX game draws with OpenGL ES 2 on the Mac, plays its Ogg Vorbis music through
   MediaPlayer and keeps running, also after a trip to the background; the iPhone is not confirmed yet. Its Java code
