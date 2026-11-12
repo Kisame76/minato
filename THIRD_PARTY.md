@@ -195,8 +195,11 @@ builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app: every
 release carries it as `Minato-<version>-source.tar.gz` on its GitHub release page, next to the IPA (GPL-2.0 section
 3(a)), which `tools/make-source-archive.py` makes from the pinned trees of `platform/libcore` and `platform/art` above
-and the scripts that build them, reproducibly, and which `tools/release.sh` uploads. Each of the three components'
-`Licenses/` folders has a `SOURCE.txt` that names the release page and the archive's SHA-256. ADR-0033 also
+and the scripts that build them, reproducibly, and which `tools/release.sh` uploads. The archive also holds
+libcore's own test keystores: 52 files ending in `.p12` in `inputs/libcore/luni/src/test/resources/keystore/`, from
+AOSP's `platform/libcore` at the pinned commit. They are the upstream's public test data for its keystore tests, not a
+key of Minato's. Each of the three components' `Licenses/` folders has a `SOURCE.txt` that names the release page and
+the archive's SHA-256. ADR-0033 also
 names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource
 (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is
 BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s
