@@ -1,4 +1,4 @@
-// Ours for core/jni's GLES bindings (ADR-0041 a), Grafik), which framework/native/patches/opengl-without-libgui.patch
+// Ours for core/jni's GLES bindings under ADR-0041 a), which framework/native/patches/opengl-without-libgui.patch
 // points here in place of libgui's, libui's and libEGL's private headers: the window behind a Java Surface, and the
 // Unwritten log line of the natives the patch leaves out.
 #pragma once
