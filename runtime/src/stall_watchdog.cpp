@@ -1,5 +1,6 @@
 #include "stall_watchdog.h"
 
+#include "APKRuntime/apkrt.h"
 #include "threads.h"
 
 #include <algorithm>
@@ -174,20 +175,20 @@ void add_symbol(char *buf, std::size_t cap, std::size_t &at, std::uint64_t pc) {
     add(buf, cap, at, piece);
 }
 
-// One thread's line: its index and name tag, its pc, then its frame-record chain, each return address symbolized. The
+// One thread's line: its index, name tag, run state, pc and frame-record chain, each return address symbolized. The
 // tag is the thread's name -- the guest and the framework name their threads (prctl(PR_SET_NAME), which the syscall
 // layer maps to pthread_setname_np), as do Minato's own helper threads -- so the hung thread is named (the render
 // thread, the periodic audio thread), not only numbered; a nameless thread keeps the bare index. Reads are
 // fault-guarded (vm_read_overwrite), so a chain into an unreadable page just ends. The thread is not suspended: a hung
 // thread (the case we dump for) has a still stack; a live one may give a short or odd chain, never a fault.
-void dump_thread(int index, const char *name, std::uint64_t pc, std::uint64_t fp) {
+void dump_thread(int index, const char *name, const char *state, std::uint64_t pc, std::uint64_t fp) {
     char line[2048];
     std::size_t at = 0;
     char head[128];
     if (name != nullptr && name[0] != '\0') {
-        std::snprintf(head, sizeof head, "E/apkrt   : thread %d [%s]: ", index, name);
+        std::snprintf(head, sizeof head, "E/apkrt   : thread %d [%s] %s: ", index, name, state);
     } else {
-        std::snprintf(head, sizeof head, "E/apkrt   : thread %d: ", index);
+        std::snprintf(head, sizeof head, "E/apkrt   : thread %d %s: ", index, state);
     }
     add(line, sizeof line, at, head);
     add_symbol(line, sizeof line, at, pc);
@@ -222,8 +223,19 @@ bool sigquit_is_handled() {
 // Dumps every thread of the process (native ones too), each symbolized, then, when SIGQUIT is handled, raises it so
 // ART adds the managed stacks -- the ANR watchdog's path. Once per session (tick latches).
 void dump_all_threads(const std::string &reason) {
-    const std::string head = "E/apkrt   : stall: " + reason + " -- dumping all threads\n";
-    write_line(head.c_str());
+    // Name the gate the threads wait at (the background commit gate, apkrt_wait_foreground), so the report reads as a
+    // report and not only as a stack of stacks: the reason, whether the process is backgrounded, and how many threads
+    // and for how long are parked at the gate. The per-thread lines below add each thread's name and run state.
+    std::uint32_t parked = 0;
+    std::uint64_t longest_ns = 0;
+    apkrt_background_gate(&parked, &longest_ns);
+    char head[256];
+    std::snprintf(head, sizeof head,
+                  "E/apkrt   : stall: %s; background %s, %u parked at the background commit gate (longest %llu ms) "
+                  "-- dumping all threads\n",
+                  reason.c_str(), apkrt_is_background() != 0 ? "yes" : "no", parked,
+                  static_cast<unsigned long long>(longest_ns / 1'000'000));
+    write_line(head);
     thread_act_array_t threads = nullptr;
     mach_msg_type_number_t count = 0;
     if (::task_threads(::mach_task_self(), &threads, &count) != KERN_SUCCESS) return;
@@ -250,7 +262,22 @@ void dump_all_threads(const std::string &reason) {
             // pthread_setname_np, and Minato names its own threads the same way. A thread with no name is bare.
             char name[64] = {};
             if (pt != nullptr) ::pthread_getname_np(pt, name, sizeof name);
-            dump_thread(static_cast<int>(i), name, __darwin_arm_thread_state64_get_pc(state),
+            // The thread's run state (waiting at a gate, running, ...), so the report names where it is, not only its
+            // stack: a hung thread the dump fires for is "waiting".
+            thread_basic_info_data_t basic{};
+            mach_msg_type_number_t basic_count = THREAD_BASIC_INFO_COUNT;
+            const char *run = "?";
+            if (::thread_info(threads[i], THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&basic),
+                              &basic_count) == KERN_SUCCESS) {
+                switch (basic.run_state) {
+                case TH_STATE_RUNNING: run = "running"; break;
+                case TH_STATE_STOPPED: run = "stopped"; break;
+                case TH_STATE_WAITING: run = "waiting"; break;
+                case TH_STATE_UNINTERRUPTIBLE: run = "uninterruptible"; break;
+                case TH_STATE_HALTED: run = "halted"; break;
+                }
+            }
+            dump_thread(static_cast<int>(i), name, run, __darwin_arm_thread_state64_get_pc(state),
                         __darwin_arm_thread_state64_get_fp(state));
         }
     }

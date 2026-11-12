@@ -6,15 +6,26 @@
 // runs it ~1x/s, the native thread dump and the SIGQUIT are the host's side and run on the device, not here.
 #include "stall_watchdog.h"
 
+#include "APKRuntime/apkrt.h"
 #include "check.h"
 
-#include <csignal>
-#include <mutex>
-#include <new>
-#include <string>
+#include <pthread.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <iterator>
+#include <mutex>
+#include <new>
+#include <string>
+#include <thread>
+
+using apkrt::stall::dump_threads_now;
 using apkrt::stall::paused;
 using apkrt::stall::presented;
 using apkrt::stall::reset_for_test;
@@ -179,6 +190,43 @@ TEST(the_watchdog_lock_step_aborts_on_a_destroyed_mutex_but_not_on_a_never_destr
         const std::lock_guard<std::mutex> hold(*m);
     });
     CHECK(WIFEXITED(leaked) && WEXITSTATUS(leaked) == 0);
+}
+
+TEST(the_stall_report_names_the_thread_its_state_and_the_gate) {
+    // A forced onStop stall: a named thread parked at the background commit gate (apkrt_wait_foreground), so the
+    // report must name it, its state, and the gate it waits at (the background commit gate and the thread name tags).
+    reset_for_test();
+    apkrt_set_background(1);
+    std::thread render([] {
+        pthread_setname_np("test-render");
+        apkrt_wait_foreground();  // parks at the background gate; apkrt_background_gate counts it
+    });
+    for (int i = 0; i < 400; ++i) {  // wait until the gate counts it parked
+        std::uint32_t at_gate = 0;
+        apkrt_background_gate(&at_gate, nullptr);
+        if (at_gate >= 1) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    // Capture the report: dump_threads_now writes it to stderr (::write(STDERR_FILENO, ...)).
+    char path[] = "/tmp/stall-report.XXXXXX";
+    const int fd = ::mkstemp(path);
+    std::fflush(stderr);
+    const int saved = ::dup(STDERR_FILENO);
+    ::dup2(fd, STDERR_FILENO);
+    dump_threads_now("no first frame 10s after the app surface was created");
+    ::fflush(stderr);
+    ::dup2(saved, STDERR_FILENO);
+    ::close(saved);
+    ::close(fd);
+    std::ifstream in(path);
+    const std::string report((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    ::unlink(path);
+    apkrt_set_background(0);  // wake the parked thread before the asserts, so a failing assert never leaves it parked
+    render.join();
+    CHECK(report.find("[test-render]") != std::string::npos);   // the stalled thread, named
+    CHECK(report.find("waiting") != std::string::npos);         // its state
+    CHECK(report.find("commit gate") != std::string::npos);     // the gate it waits at
 }
 
 int main() { return apk::testing::run_all(); }
