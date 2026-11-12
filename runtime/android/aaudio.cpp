@@ -358,6 +358,12 @@ void* run_callbacks(void* argument) {
     auto* stream = static_cast<AAudioStream*>(argument);
     pthread_mutex_lock(&stream->gate);  // free once openStream has given the app the stream
     pthread_mutex_unlock(&stream->gate);
+    // Name the periodic audio thread, so the stall/ANR thread dump tags it rather than leaving it a bare index.
+#if defined(__APPLE__)  // the Mac tests build this file against Darwin, whose call names only the calling thread
+    pthread_setname_np(stream->input ? "AAudio input cb" : "AAudio callback");
+#else
+    pthread_setname_np(pthread_self(), stream->input ? "AAudio input cb" : "AAudio callback");
+#endif
     if (stream->input) return run_input_callbacks(stream);
     bool reported = false;  // the error callback ran
     bool playing = false;

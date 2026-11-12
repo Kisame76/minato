@@ -155,14 +155,21 @@ void add_symbol(char *buf, std::size_t cap, std::size_t &at, std::uint64_t pc) {
     add(buf, cap, at, piece);
 }
 
-// One thread's line: its pc, then its frame-record chain, each return address symbolized. Reads are fault-guarded
-// (vm_read_overwrite), so a chain into an unreadable page just ends. The thread is not suspended: a hung thread (the
-// case we dump for) has a still stack; a live one may give a short or odd chain, never a fault.
-void dump_thread(int index, std::uint64_t pc, std::uint64_t fp) {
+// One thread's line: its index and name tag, its pc, then its frame-record chain, each return address symbolized. The
+// tag is the thread's name -- the guest and the framework name their threads (prctl(PR_SET_NAME), which the syscall
+// layer maps to pthread_setname_np), as do Minato's own helper threads -- so the hung thread is named (the render
+// thread, the periodic audio thread), not only numbered; a nameless thread keeps the bare index. Reads are
+// fault-guarded (vm_read_overwrite), so a chain into an unreadable page just ends. The thread is not suspended: a hung
+// thread (the case we dump for) has a still stack; a live one may give a short or odd chain, never a fault.
+void dump_thread(int index, const char *name, std::uint64_t pc, std::uint64_t fp) {
     char line[2048];
     std::size_t at = 0;
-    char head[64];
-    std::snprintf(head, sizeof head, "E/apkrt   : thread %d: ", index);
+    char head[128];
+    if (name != nullptr && name[0] != '\0') {
+        std::snprintf(head, sizeof head, "E/apkrt   : thread %d [%s]: ", index, name);
+    } else {
+        std::snprintf(head, sizeof head, "E/apkrt   : thread %d: ", index);
+    }
     add(line, sizeof line, at, head);
     add_symbol(line, sizeof line, at, pc);
     std::uint64_t frame = fp;
@@ -206,7 +213,13 @@ void dump_all_threads(const std::string &reason) {
         mach_msg_type_number_t words = ARM_THREAD_STATE64_COUNT;
         if (::thread_get_state(threads[i], ARM_THREAD_STATE64, reinterpret_cast<thread_state_t>(&state), &words) ==
             KERN_SUCCESS) {
-            dump_thread(static_cast<int>(i), __darwin_arm_thread_state64_get_pc(state),
+            // The thread's name, via its pthread: prctl(PR_SET_NAME) from the guest lands here as pthread_setname_np,
+            // and Minato names its own threads the same way. A thread with no pthread (none here) or no name is bare.
+            char name[64] = {};
+            if (pthread_t pt = ::pthread_from_mach_thread_np(threads[i]); pt != nullptr) {
+                ::pthread_getname_np(pt, name, sizeof name);
+            }
+            dump_thread(static_cast<int>(i), name, __darwin_arm_thread_state64_get_pc(state),
                         __darwin_arm_thread_state64_get_fp(state));
         }
         ::mach_port_deallocate(::mach_task_self(), threads[i]);
@@ -233,5 +246,7 @@ void start_thread() {
         }
     }).detach();
 }
+
+void dump_threads_now(const std::string &reason) { dump_all_threads(reason); }
 
 }  // namespace apkrt::stall

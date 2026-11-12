@@ -52,6 +52,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(stall_watchdog_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.stall_watchdog COMMAND stall_watchdog_test)
 
+  # The stall/ANR dump tags each thread with its name, so a return-bug report names the hung thread.
+  add_executable(thread_tags_test tests/thread_tags_test.cpp)
+  target_include_directories(thread_tags_test PRIVATE src)
+  target_link_libraries(thread_tags_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.thread_tags COMMAND thread_tags_test)
+
   # The exclusive-monitor probe (ADR-0020 X7 c2) and the loader's refusal of a library that needs the monitor kept.
   add_executable(monitor_probe_test tests/monitor_probe_test.cpp)
   target_include_directories(monitor_probe_test PRIVATE src)

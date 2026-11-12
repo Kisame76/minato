@@ -51,4 +51,9 @@ void reset_for_test();
 /// starts it (activity-host / apk_run), not apkrt_session_begin, so a unit test that begins a session never runs it.
 void start_thread();
 
+/// Dumps every thread now with `reason`, exactly as the daemon does on a stall (each thread's tag, then its symbolized
+/// stack, to stderr), but raises no signal. For a test to drive the native dump without the daemon's timing; the daemon
+/// uses the same path in production.
+void dump_threads_now(const std::string &reason);
+
 }  // namespace apkrt::stall

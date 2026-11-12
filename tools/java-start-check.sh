@@ -934,6 +934,18 @@ end_start() {
   cp "$CHECK/guest-log" "$WORK/$1-$2.log" 2>/dev/null || : > "$WORK/$1-$2.log"
   cp "$CHECK/guest-out" "$WORK/$1-$2.out" 2>/dev/null || : > "$WORK/$1-$2.out"
 }
+# The stall watchdog's thread dump, when it fired (runtime/src/stall_watchdog.cpp writes it to the guest log on a
+# black screen or a stopped renderer): the line that opens it and each thread's tagged frame, "thread <N> [<name>]:
+# ...", so a failed start names the thread that stopped answering -- the render thread, the periodic audio thread --
+# not only its index. Grepped across the whole log, so it shows even once later lines have pushed it past the tail
+# below; nothing is printed when the watchdog did not dump.
+thread_dump() {
+  local dump
+  dump=$(grep -E 'apkrt +: (stall:|thread [0-9]+)' "$CHECK/guest-log" 2>/dev/null) || return 0
+  [[ -n "$dump" ]] || return 0
+  echo "      the stall watchdog named the threads (the hung one is tagged):"
+  sed 's/^/      | /' <<< "$dump"
+}
 # A start that got no last line because Minato could not start it says why: the start's event "could not start
 # <reason>", such as a host path of a bundle that a failed build left half made, instead of "no last line".
 failed_line() {
@@ -946,6 +958,7 @@ failed_line() {
   screenshot "$2"
   sed 's/^/      | /' "$EVENTS" 2>/dev/null || true
   tail -n 40 "$CHECK/guest-log" 2>/dev/null | sed 's/^/      | /' || true
+  thread_dump
 }
 # The keyboard bar's views on screen in Minato's windows (SessionCheck's keyboard-views), asked for $1 seconds from
 # now, into VIEWS: "<class> <x>,<y> <width>x<height>" each, "none", or "no answer"; FOCUS: yes while the session's
