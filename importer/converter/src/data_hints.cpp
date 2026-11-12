@@ -408,10 +408,19 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
                              return segment.type == elf::SegmentType::gnu_eh_frame;
                          });
     std::vector<std::pair<std::uint64_t, std::uint64_t>> fdes;
+    // The unwind tables read together may hold no more bytes than the file: sections that share bytes read them again
+    // and again, and a table that asks for more is hostile (no FDE is read).
+    std::size_t unwind_budget = elf_bytes.size();
     for (const auto &section : sections) {
         if (section.name != ".eh_frame") continue;
         hints.eh_frame = true;
-        fdes = read_fdes(bytes_of(section), section.address);
+        const auto table = bytes_of(section);
+        if (table.size() > unwind_budget) {
+            fdes.clear();
+            break;
+        }
+        unwind_budget -= table.size();
+        fdes = read_fdes(table, section.address);
     }
     hints.fdes = fdes.size();
     Sites sites;
@@ -509,11 +518,14 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
 std::vector<std::pair<std::uint64_t, std::uint64_t>> fde_ranges(std::span<const std::byte> elf_bytes,
                                                                 std::span<const elf::Section> sections) {
     std::vector<std::pair<std::uint64_t, std::uint64_t>> fdes;
+    std::size_t unwind_budget = elf_bytes.size();  // as above: the tables together hold no more than the file
     for (const auto &section : sections) {
         if (section.name != ".eh_frame" || section.type == elf::section_type_nobits ||
             section.offset > elf_bytes.size() || section.size > elf_bytes.size() - section.offset) {
             continue;
         }
+        if (section.size > unwind_budget) return {};
+        unwind_budget -= section.size;
         const auto read = read_fdes(
             elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size)),
             section.address);

@@ -63,6 +63,37 @@ apk::hints::DataHints hints_of(const ElfBuilder &builder, const std::vector<apk:
     return apk::hints::data_hints(file, builder.bytes, sections, uses);
 }
 
+/// The library of `library(true)` with `copies` more sections named .eh_frame over the same bytes.
+apk::testing::ElfBuilder library_with_eh_frame_copies(int copies) {
+    auto builder = library(true);
+    std::vector<SectionHeader> headers{{".eh_frame_hdr", sht_progbits, shf_alloc, 0xe0, 0xe0, 0x10},
+                                       {".eh_frame", sht_progbits, shf_alloc, 0x100, 0x100, 0x2c},
+                                       {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, 0x80},
+                                       {".rodata", sht_progbits, shf_alloc, 0x300, 0x300, 0x20}};
+    for (int copy = 0; copy < copies; ++copy) {
+        const std::uint64_t address = 0x1000 + 0x1000 * static_cast<std::uint64_t>(copy);
+        headers.push_back({".eh_frame", sht_progbits, shf_alloc, address, 0x100, 0x300});
+    }
+    builder.sections(headers, {});
+    return builder;
+}
+
+TEST(many_sections_named_eh_frame_over_one_table_are_not_read_one_by_one) {
+    // Each section is a table of the file's own bytes: all together they hold far more than the file does.
+    for (const int copies : {0, 300}) {
+        const auto builder = library_with_eh_frame_copies(copies);
+        const auto sections = apk::elf::read_sections(builder.bytes);
+        const auto fdes = apk::hints::fde_ranges(builder.bytes, sections);
+        const auto hints = hints_of(builder, {});
+        if (copies == 0) {
+            CHECK(fdes.size() == 1 && hints.fdes == 1);
+        } else {
+            CHECK(fdes.empty());  // a table that asks for more than the file has is hostile: no FDE is read
+            CHECK(hints.fdes == 0);
+        }
+    }
+}
+
 TEST(counts_the_sites_outside_every_fde_and_the_ones_a_load_reads) {
     // 0x20c is the first word after the FDE, 0x238 the first after the 8 bytes that the load reads.
     const std::vector<apk::rewrite::Unsupported> uses = {{0x230, "x", ret_x18}, {0x210, "x", ret_x18},
